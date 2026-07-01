@@ -9,6 +9,7 @@ export type {
 } from "./artifacts.js";
 export type {
   TargetId,
+  TargetProviderPackageId,
   TargetSelection,
   TargetSelectionOptions,
   TargetSurfaceId,
@@ -18,6 +19,7 @@ export type {
 export {
   getTargetIdValidationMessage,
   isValidTargetId,
+  isValidTargetProviderPackageId,
   isValidTargetSurfaceId,
 } from "./config.js";
 export type {
@@ -47,6 +49,9 @@ export type {
   TargetFactQueries,
   TargetPack,
   TargetProvider,
+  TargetProviderPackageContext,
+  TargetProviderPackageImplementation,
+  TargetProviderModuleOwnership,
   TargetProviderContext,
   TargetProjectSourceModuleDependency,
   TargetRuntimeContributionContext,

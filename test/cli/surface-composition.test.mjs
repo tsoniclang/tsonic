@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 
 import {
+  collectTstsDiagnostics,
+  compileTargetFromSemanticSession,
   compileProject,
   createProgramOptionsForProject,
   createTsonicSemanticSession,
@@ -13,6 +15,13 @@ import {
 import {
   createTargetRegistry,
 } from "../../packages/target-api/dist/index.js";
+import {
+  ExtensionLifecycleEvent,
+  providerVirtualDeclarationFactKey,
+  runtimeCarrierFactKey,
+  targetOperationFactKey,
+  TstsProviderContractVersion,
+} from "@tsonic/tsts";
 
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
@@ -29,7 +38,6 @@ test("vendored TSTS is a package artifact, not a checked-in source project", asy
   await access(resolve(repoRoot, "packages/tsts/package.json"));
   await access(resolve(repoRoot, "packages/tsts/dist/src/index.js"));
   await access(resolve(repoRoot, "packages/tsts/dist/src/internal/bundled/libs_generated.d.ts"));
-  await access(resolve(repoRoot, "packages/tsts/dist/src/internal/bundled/libs/lib.es2024.full.d.ts"));
 });
 
 test("host passes no selected surfaces to target provider when target requests none", () => {
@@ -77,6 +85,377 @@ test("host passes selected surfaces to the single target provider", () => {
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
   assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
   assert.equal(composition.extensions[1], targetExtension);
+});
+
+test("host composes selected provider packages between target provider and surfaces", () => {
+  const events = [];
+  const targetExtension = { name: "target" };
+  const acmeExtension = { name: "package-acme" };
+  const helpersExtension = { name: "package-helpers" };
+  const jsExtension = { name: "surface-js" };
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension,
+    packages: [
+      createFakeProviderPackage("acme", { events, extension: acmeExtension }),
+      createFakeProviderPackage("helpers", { events, requiredPackages: ["acme"], extension: helpersExtension }),
+      createFakeProviderPackage("unused", { events, extension: { name: "unused" } }),
+    ],
+    surfaces: [
+      createFakeSurface("js", { events, extension: jsExtension }),
+    ],
+  });
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo", packages: ["acme", "helpers"], surfaces: ["js"] }],
+  });
+  const target = project.targets[0];
+
+  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+
+  assert.deepEqual(composition.selectedPackages.map((providerPackage) => providerPackage.id), ["acme", "helpers"]);
+  assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "package-extension:acme:target=demo:packages=acme,helpers",
+    "package-extension:helpers:target=demo:packages=acme,helpers",
+    "surface-extension:js:target=demo:surfaces=js",
+  ]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "package-acme", "package-helpers", "surface-js"]);
+});
+
+test("host composes selected provider packages as provider-owned virtual modules", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [
+          { specifierPrefix: "@acme/native/" },
+          { specifierPrefix: "@acme/alias/" },
+        ],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "selected-provider-package-virtual-modules");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo", packages: ["acme"] }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "import defaultValue from \"@acme/native/default.js\";",
+      "import { named as renamed } from \"@acme/native/named.js\";",
+      "import * as native from \"@acme/native/namespace.js\";",
+      "import { named as aliasNamed } from \"@acme/alias/aliased.js\";",
+      "export const result = `${defaultValue}:${renamed}:${native.named}:${aliasNamed}`;",
+      "",
+    ].join("\n"),
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+  const virtualFacts = session.compiler.getSourceFiles()
+    .filter((sourceFile) => sourceFile !== undefined && session.ast.getFileName(sourceFile).startsWith("tsts-provider://"))
+    .map((sourceFile) => session.facts.getFact(sourceFile, providerVirtualDeclarationFactKey))
+    .filter((fact) => fact !== undefined)
+    .map((fact) => ({
+      providerId: fact.providerId,
+      moduleSpecifier: fact.moduleSpecifier,
+      providerModuleId: fact.providerModuleId,
+    }))
+    .sort((left, right) => left.moduleSpecifier.localeCompare(right.moduleSpecifier));
+
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(virtualFacts, [
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/alias/aliased.js",
+      providerModuleId: "@acme/alias/aliased.js",
+    },
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/native/default.js",
+      providerModuleId: "@acme/native/default.js",
+    },
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/native/named.js",
+      providerModuleId: "@acme/native/named.js",
+    },
+    {
+      providerId: "acme-provider",
+      moduleSpecifier: "@acme/native/namespace.js",
+      providerModuleId: "@acme/native/namespace.js",
+    },
+  ]);
+  assert.deepEqual(events.filter((event) => event.startsWith("provider-resolve:")), [
+    "provider-resolve:acme:@acme/native/default.js:default:default",
+    "provider-resolve:acme:@acme/native/named.js:named:named as renamed",
+    "provider-resolve:acme:@acme/native/namespace.js:namespace:*",
+    "provider-resolve:acme:@acme/alias/aliased.js:named:named as aliasNamed",
+  ]);
+});
+
+test("non-C# target backend consumes portable operation and carrier facts without target helper facts", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    targetExtension: createPortableOperationFactsExtension(),
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("src/index.ts"));
+      assert.notEqual(sourceFile, undefined);
+      const expression = findBinaryExpression(input.ast, sourceFile);
+      const operation = input.facts.mustFact(expression, targetOperationFactKey, "neutral backend expression emission");
+      const carrier = input.targetFacts.resolveRuntimeCarrier(expression);
+      assert.deepEqual(operation, {
+        operationId: "acme.neutral.operator.add",
+        operationKind: "operator",
+        targetOperation: "add",
+        resultType: { kind: "source-primitive", name: "float64" },
+      });
+      assert.deepEqual(carrier, {
+        kind: "resolved",
+        carrier: { kind: "source-primitive", name: "float64" },
+        evidence: [
+          {
+            message: "Runtime carrier resolved from an explicit provider/source-core fact.",
+            subject: expression,
+          },
+        ],
+      });
+      events.push("backend-consumed-portable-operation-facts");
+    },
+  });
+  const projectDirectory = resolve(tempRoot, "portable-operation-contract-positive");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export const result = 1 + 2;",
+      "",
+    ].join("\n"),
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const project = parseTsonicProjectConfig(projectConfig);
+  const result = compileTargetFromSemanticSession(session, project, project.targets[0], targetPack, fakePaths(projectDirectory));
+
+  assert.deepEqual(collectTstsDiagnostics(session, projectDirectory), []);
+  assert.deepEqual(result.diagnostics, []);
+  assert.equal(events.includes("backend-consumed-portable-operation-facts"), true);
+});
+
+test("non-C# target backend fails closed when portable operation facts are missing", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("src/index.ts"));
+      assert.notEqual(sourceFile, undefined);
+      const expression = findBinaryExpression(input.ast, sourceFile);
+      const operation = input.facts.requireFact(expression, targetOperationFactKey, "neutral backend expression emission");
+      const carrier = input.targetFacts.resolveRuntimeCarrier(expression);
+      assert.equal(operation, undefined);
+      assert.equal(carrier.kind, "missing");
+      return {
+        artifacts: [],
+        diagnostics: [
+          {
+            code: "DEMO_MISSING_PORTABLE_OPERATION_FACT",
+            message: `neutral backend expression emission requires portable targetOperation facts; ${carrier.reason}`,
+          },
+        ],
+      };
+    },
+  });
+  const projectDirectory = resolve(tempRoot, "portable-operation-contract-negative");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export const result = 1 + 2;",
+      "",
+    ].join("\n"),
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const project = parseTsonicProjectConfig(projectConfig);
+  const result = compileTargetFromSemanticSession(session, project, project.targets[0], targetPack, fakePaths(projectDirectory));
+
+  assert.match(
+    collectTstsDiagnostics(session, projectDirectory).map((diagnostic) => diagnostic.message).join("\n"),
+    /requires extension fact 'tsts\.target-bindings:targetOperation'/,
+  );
+  assert.equal(result.artifacts.length, 0);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "DEMO_MISSING_PORTABLE_OPERATION_FACT");
+  assert.match(result.diagnostics[0].message, /neutral backend expression emission/);
+  assert.match(result.diagnostics[0].message, /Runtime carrier fact is missing/);
+});
+
+function createPortableOperationFactsExtension() {
+  return {
+    name: "portable-operation-facts-test-extension",
+    identity: {
+      id: "portable-operation-facts-test-extension",
+      version: "1.0.0",
+      capabilityNamespace: "test.portable-operation-facts",
+    },
+    initialize(context) {
+      context.registerLifecycleHook(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext) => {
+        const compiler = lifecycleContext.compiler;
+        const sourceFile = request.sourceFile;
+        if (sourceFile === undefined || sourceFile.IsDeclarationFile || !compiler.ast.getFileName(sourceFile).endsWith("src/index.ts")) {
+          return;
+        }
+        const expression = findBinaryExpression(compiler.ast, sourceFile);
+        const carrier = { kind: "source-primitive", name: "float64" };
+        if (lifecycleContext.host.facts.get(expression, targetOperationFactKey) === undefined) {
+          lifecycleContext.host.facts.set(expression, targetOperationFactKey, {
+            operationId: "acme.neutral.operator.add",
+            operationKind: "operator",
+            targetOperation: "add",
+            resultType: carrier,
+          }, [{ message: "Neutral test target operation fact from TSTS-accepted binary expression." }]);
+        }
+        if (lifecycleContext.host.facts.get(expression, runtimeCarrierFactKey) === undefined) {
+          lifecycleContext.host.facts.set(expression, runtimeCarrierFactKey, {
+            carrier,
+          }, [{ message: "Neutral test runtime carrier fact from TSTS-accepted binary expression." }]);
+        }
+      });
+    },
+  };
+}
+
+test("host reports unselected provider package modules without file fallback", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [
+          { specifierPrefix: "@acme/native/" },
+        ],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "unselected-provider-package-virtual-module");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { named } from \"@acme/native/named.js\";\nexport const result = named;\n",
+    "node_modules/@acme/native/package.json": JSON.stringify({
+      name: "@acme/native",
+      type: "module",
+      exports: {
+        "./named.js": "./named.ts",
+      },
+    }, null, 2),
+    "node_modules/@acme/native/named.ts": "export const named = 12345;\n",
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+
+  assert.equal(events.some((event) => event.startsWith("package-extension:acme")), false);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(
+    diagnostics.some((diagnostic) =>
+      /provider package 'acme' must be selected to import provider module prefix '@acme\/native\/'/.test(diagnostic.message)
+    ),
+    true,
+  );
+});
+
+test("host reports duplicate selected provider package module owners", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [{ specifierPrefix: "@acme/shared/" }],
+      }),
+      createFakeVirtualProviderPackage("helpers", {
+        events,
+        moduleOwnership: [{ specifierPrefix: "@acme/shared/" }],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "duplicate-provider-package-module-owner");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo", packages: ["acme", "helpers"] }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { named } from \"@acme/shared/named.js\";\nexport const result = named;\n",
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(
+    diagnostics.some((diagnostic) =>
+      /Multiple target binding providers claim module '@acme\/shared\/named\.js': acme-provider, helpers-provider/.test(diagnostic.message)
+    ),
+    true,
+  );
+});
+
+test("host reports selected provider package unsupported modules as provider diagnostics", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeVirtualProviderPackage("acme", {
+        events,
+        moduleOwnership: [{ specifierPrefix: "@acme/native/" }],
+      }),
+    ],
+  });
+  const projectDirectory = resolve(tempRoot, "unsupported-provider-package-module");
+  const projectConfig = {
+    entryPoint: "src/index.ts",
+    rootDir: ".",
+    outDir: "out",
+    targets: [{ id: "demo", packages: ["acme"] }],
+  };
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": "import { named } from \"@acme/native/unsupported.js\";\nexport const result = named;\n",
+  });
+
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
+
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(
+    diagnostics.some((diagnostic) =>
+      /Provider package 'acme' does not support module '@acme\/native\/unsupported\.js'/.test(diagnostic.message)
+    ),
+    true,
+    JSON.stringify(diagnostics.map((diagnostic) => diagnostic.message), null, 2),
+  );
+  assert.equal(events.some((event) => event.startsWith("provider-resolve:acme:@acme/native/unsupported.js:")), true);
 });
 
 test("host composes target provider extensions before selected surface extensions", () => {
@@ -259,6 +638,49 @@ test("host reports missing target provider as target diagnostic", async () => {
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
+test("host reports unknown requested provider package as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeProviderPackage("acme", { events }),
+    ],
+  });
+
+  const result = await compileFakeProject("unknown-provider-package", targetPack, {
+    id: "demo",
+    packages: ["not-real"],
+  });
+
+  assert.equal(result.diagnostics.length, 1);
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' does not implement requested provider package 'not-real'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
+test("host reports missing selected provider package dependency as target diagnostic", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    packages: [
+      createFakeProviderPackage("acme", { events }),
+      createFakeProviderPackage("helpers", { events, requiredPackages: ["acme"] }),
+    ],
+  });
+
+  const result = await compileFakeProject("missing-provider-package-dependency", targetPack, {
+    id: "demo",
+    packages: ["helpers"],
+  });
+
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
+  assert.equal(result.diagnostics[0].category, "error");
+  assert.equal(result.diagnostics[0].message, "target 'demo' provider package 'helpers' requires provider package 'acme'");
+  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+});
+
 test("host reports missing selected surface dependency as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -296,9 +718,23 @@ test("host rejects unsafe configured target and surface identifiers", () => {
     }),
     /Target 'csharp' surface '\.\.\/nodejs' must match/,
   );
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      targets: [{ id: "csharp", packages: ["../native"] }],
+    }),
+    /Target 'csharp' package '\.\.\/native' must match/,
+  );
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      targets: [{ id: "csharp", packages: ["native", "native"] }],
+    }),
+    /Target 'csharp' package 'native' is declared more than once/,
+  );
 });
 
-test("target registry rejects unsafe pack and required surface identifiers", () => {
+test("target registry rejects unsafe pack, provider package, and required surface identifiers", () => {
   assert.throws(
     () => createTargetRegistry([
       createFakeTargetPack([], { id: "../csharp" }),
@@ -314,6 +750,50 @@ test("target registry rejects unsafe pack and required surface identifiers", () 
       }),
     ]),
     /required surface id '\.\.\/js' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("../native"),
+        ],
+      }),
+    ]),
+    /provider package id '\.\.\/native' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("native", { requiredPackages: ["../core"] }),
+        ],
+      }),
+    ]),
+    /required package id '\.\.\/core' must match/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        providerModuleOwnership: [
+          { specifierPrefix: "../native/" },
+        ],
+      }),
+    ]),
+    /provider module ownership prefix '\.\.\/native\/' must be a non-empty bare\/package\/URL-style ESM specifier prefix/,
+  );
+  assert.throws(
+    () => createTargetRegistry([
+      createFakeTargetPack([], {
+        packages: [
+          createFakeProviderPackage("native", {
+            moduleOwnership: [
+              { specifierPrefix: "./native/" },
+            ],
+          }),
+        ],
+      }),
+    ]),
+    /provider package 'native' module ownership prefix '\.\/native\/' must be a non-empty bare\/package\/URL-style ESM specifier prefix/,
   );
 });
 
@@ -402,6 +882,66 @@ test("host composes provider, selected surface, and backend artifacts for toolch
   assert.ok(events.indexOf("provider-runtime:demo") < events.indexOf("backend:demo"));
   assert.ok(events.indexOf("surface-runtime:js") < events.indexOf("backend:demo"));
   assert.ok(events.indexOf("backend:demo") < events.indexOf("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"));
+});
+
+test("host composes selected provider package runtime artifacts before surfaces and backend", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [
+      createFakeArtifact("asset", "runtime/provider.txt", "provider"),
+    ],
+    packages: [
+      createFakeProviderPackage("acme", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/acme.txt", "acme"),
+        ],
+        references: [
+          createFakeReference("project", "../acme/Acme.csproj"),
+        ],
+      }),
+      createFakeProviderPackage("unused", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/unused.txt", "unused"),
+        ],
+      }),
+    ],
+    backendArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "backend"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [
+          createFakeArtifact("asset", "runtime/js.txt", "js"),
+        ],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("provider-package-runtime-artifact-composition", targetPack, {
+    id: "demo",
+    packages: ["acme"],
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+    "runtime/provider.txt",
+    "runtime/acme.txt",
+    "runtime/js.txt",
+    "src/App.demo",
+  ]);
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=js",
+    "package-extension:acme:target=demo:packages=acme",
+    "provider-runtime:demo",
+    "package-runtime:acme",
+    "surface-runtime:js",
+    "backend:demo",
+    "toolchain:demo:artifacts=runtime/provider.txt,runtime/acme.txt,runtime/js.txt,src/App.demo",
+  ]);
+  assert.equal(events.includes("package-runtime:unused"), false);
 });
 
 test("host omits surface runtime artifacts when no surface is selected", async () => {
@@ -643,6 +1183,185 @@ test("host gives backends the TSTS source graph instead of the raw project file 
   ]);
 });
 
+test("host exposes TSTS flow-narrowed source types to backend analysis queries", async () => {
+  const events = [];
+  const narrowedTypes = {};
+  const projectDirectory = resolve(tempRoot, "tsts-flow-narrowed-analysis-query");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      assert.ok(sourceFile !== undefined);
+      const narrowedText = findVariableInitializer(input.ast, sourceFile, "narrowedText");
+      const narrowedNumber = findVariableInitializer(input.ast, sourceFile, "narrowedNumber");
+      narrowedTypes.text = input.analysis.describeTypeAtLocation(narrowedText, { sourceFile });
+      narrowedTypes.number = input.analysis.describeTypeAtLocation(narrowedNumber, { sourceFile });
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export function describe(value: string | number | null): string {",
+      "  if (typeof value === \"string\") {",
+      "    const narrowedText = value;",
+      "    return narrowedText;",
+      "  }",
+      "  if (value !== null) {",
+      "    const narrowedNumber = value;",
+      "    return `${narrowedNumber}`;",
+      "  }",
+      "  return \"none\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(narrowedTypes, {
+    text: "string",
+    number: "number",
+  });
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+    "provider-runtime:demo",
+    "backend:demo",
+    "toolchain:demo:artifacts=",
+  ]);
+});
+
+test("host rejects invalid flow-narrowed source before backend analysis runs", async () => {
+  const events = [];
+  const projectDirectory = resolve(tempRoot, "tsts-flow-narrowed-analysis-query-negative");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend() {
+      assert.fail("Backend must not run after TSTS source diagnostics.");
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "export function invalid(value: string | number): number {",
+      "  if (typeof value === \"string\") {",
+      "    const bad: number = value;",
+      "    return bad;",
+      "  }",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
+  assert.equal(result.diagnostics.some((diagnostic) => /TS2322: Type 'string' is not assignable to type 'number'/.test(diagnostic.message)), true);
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+  ]);
+  assert.deepEqual(result.targets[0].compileResult.artifacts, []);
+});
+
+test("host exposes broad TSTS flow-narrowed source types without target policy conclusions", async () => {
+  const events = [];
+  const observedTypes = {};
+  const projectDirectory = resolve(tempRoot, "tsts-broad-flow-narrowed-analysis-query");
+  const projectConfig = {
+    entryPoint: "index.ts",
+    rootDir: "src",
+    outDir: "out",
+    targets: [{ id: "demo" }],
+  };
+  const targetPack = createFakeTargetPack(events, {
+    onBackend(input) {
+      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      assert.ok(sourceFile !== undefined);
+      for (const name of ["foundShape", "missingShape", "truthyValue", "derivedValue", "nullishValue"]) {
+        const initializer = findVariableInitializer(input.ast, sourceFile, name);
+        observedTypes[name] = input.analysis.describeTypeAtLocation(initializer, { sourceFile });
+      }
+    },
+  });
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "src/index.ts": [
+      "class BaseValue {",
+      "  name: string = \"base\";",
+      "}",
+      "",
+      "class DerivedValue extends BaseValue {",
+      "  score: number = 1;",
+      "}",
+      "",
+      "type Found = { kind: \"found\"; value: number };",
+      "type Missing = { kind: \"missing\"; value: number };",
+      "type Lookup = Found | Missing;",
+      "",
+      "export function analyze(shape: Lookup, value: string | number | null | undefined, base: BaseValue | null): string {",
+      "  if (shape.kind === \"found\") {",
+      "    const foundShape = shape;",
+      "    void foundShape;",
+      "  } else {",
+      "    const missingShape = shape;",
+      "    void missingShape;",
+      "  }",
+      "  if (value) {",
+      "    const truthyValue = value;",
+      "    void truthyValue;",
+      "  }",
+      "  if (base instanceof DerivedValue) {",
+      "    const derivedValue = base;",
+      "    void derivedValue;",
+      "  }",
+      "  const nullishValue = value ?? \"fallback\";",
+      "  return `${nullishValue}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(observedTypes, {
+    foundShape: "Found",
+    missingShape: "Missing",
+    truthyValue: "string | number",
+    derivedValue: "DerivedValue",
+    nullishValue: "string | number",
+  });
+  assert.deepEqual(events, [
+    "provider:demo:surfaces=",
+    "provider-runtime:demo",
+    "backend:demo",
+    "toolchain:demo:artifacts=",
+  ]);
+});
+
 test("host source graph follows relative ESM import and export edges through TSTS", async () => {
   const events = [];
   let backendProjectSourceFiles = [];
@@ -828,12 +1547,71 @@ async function compileFakeProject(name, targetPack, targetSelection) {
   });
 }
 
+function createSemanticSession(projectDirectory, projectConfig, targetPack) {
+  const project = parseTsonicProjectConfig(projectConfig);
+  const programOptions = createProgramOptionsForProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+  }).programOptions;
+  return createTsonicSemanticSession({
+    programOptions,
+    project,
+    target: project.targets[0],
+    targetPack,
+  });
+}
+
 async function writeProject(projectDirectory, files) {
   for (const [relativePath, text] of Object.entries(files)) {
     const outputPath = resolve(projectDirectory, relativePath);
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, text, "utf8");
   }
+}
+
+function findVariableInitializer(ast, sourceFile, variableName) {
+  let initializer;
+  visit(sourceFile);
+  assert.ok(initializer !== undefined, `Missing initializer for variable '${variableName}'.`);
+  return initializer;
+
+  function visit(node) {
+    if (initializer !== undefined) {
+      return;
+    }
+    if (ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === variableName) {
+      initializer = ast.as.AsVariableDeclaration(node)?.Initializer;
+      return;
+    }
+    ast.forEachChild(node, visit);
+  }
+}
+
+function findBinaryExpression(ast, sourceFile) {
+  let expression;
+  visit(sourceFile);
+  assert.notEqual(expression, undefined);
+  return expression;
+
+  function visit(node) {
+    if (expression !== undefined) {
+      return;
+    }
+    if (ast.is.IsBinaryExpression(node)) {
+      expression = node;
+      return;
+    }
+    ast.forEachChild(node, visit);
+  }
+}
+
+function fakePaths(projectDirectory) {
+  return {
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    projectRoot: projectDirectory,
+    outputRoot: resolve(projectDirectory, "out"),
+    targetOutputRoot: resolve(projectDirectory, "out/demo"),
+  };
 }
 
 function createRegistry(targetPack) {
@@ -859,6 +1637,7 @@ function createFakeTargetPack(events, options = {}) {
           provider: {
             id: "demo-provider",
             displayName: "Demo Provider",
+            ...((options.providerModuleOwnership ?? []).length > 0 ? { moduleOwnership: options.providerModuleOwnership } : {}),
             createExtensions(context) {
               events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
               return options.targetExtension === undefined ? [] : [options.targetExtension];
@@ -872,11 +1651,15 @@ function createFakeTargetPack(events, options = {}) {
             },
           },
         }),
+    packages: options.packages ?? [],
     surfaces: options.surfaces ?? [],
     createBackend() {
       return {
         compile(input) {
-          options.onBackend?.(input);
+          const result = options.onBackend?.(input);
+          if (result !== undefined) {
+            return result;
+          }
           events.push(`backend:${input.target.id}`);
           return {
             artifacts: options.backendArtifacts ?? [],
@@ -898,6 +1681,142 @@ function createFakeTargetPack(events, options = {}) {
       };
     },
   };
+}
+
+function createFakeProviderPackage(id, options = {}) {
+  return {
+    id,
+    displayName: `${id} Provider Package`,
+    ...((options.requiredPackages ?? []).length > 0 ? { requiredPackages: options.requiredPackages } : {}),
+    ...((options.moduleOwnership ?? []).length > 0 ? { moduleOwnership: options.moduleOwnership } : {}),
+    createExtensions(context) {
+      options.events?.push(`package-extension:${id}:target=${context.target.id}:packages=${context.selectedPackages.map((providerPackage) => providerPackage.id).join(",")}`);
+      assert.equal(context.package.id, id);
+      return options.extension === undefined ? [] : [options.extension];
+    },
+    runtimeContributions() {
+      options.events?.push(`package-runtime:${id}`);
+      return {
+        artifacts: options.artifacts ?? [],
+        references: options.references ?? [],
+      };
+    },
+  };
+}
+
+function createFakeVirtualProviderPackage(id, options = {}) {
+  const moduleOwnership = options.moduleOwnership ?? [{ specifierPrefix: `@${id}/native/` }];
+  return createFakeProviderPackage(id, {
+    ...options,
+    moduleOwnership,
+    extension: {
+      identity: {
+        id: `${id}-extension`,
+        version: "1.0.0",
+        capabilityNamespace: `test.${id}`,
+      },
+      composition: {
+        kind: "target",
+        target: "demo",
+      },
+      initialize(context) {
+        context.registerTargetBindingProvider(createFakeVirtualBindingProvider(id, moduleOwnership, options.events));
+      },
+    },
+  });
+}
+
+function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
+  return {
+    identity: {
+      id: `${id}-provider`,
+      version: "1.0.0",
+      target: "demo",
+      extensionContractVersion: TstsProviderContractVersion,
+      providerKind: "binding",
+      displayName: `${id} fake provider`,
+    },
+    ownsModule(specifier) {
+      return moduleOwnership.some((ownership) => specifier.startsWith(ownership.specifierPrefix))
+        ? {
+            kind: "owned",
+            evidence: [{ message: `${id} provider package owns ${specifier}` }],
+          }
+        : { kind: "unowned" };
+    },
+    resolveModule(specifier, context) {
+      const slice = context.importSlice;
+      events?.push(`provider-resolve:${id}:${specifier}:${slice?.kind ?? "unknown"}:${formatImportSliceExports(slice)}`);
+      if (specifier.endsWith("/unsupported.js")) {
+        return {
+          extensionId: `${id}-provider`,
+          extensionCode: "ACME_PROVIDER_UNSUPPORTED_MODULE",
+          numericCode: 9910001,
+          publicCode: "ACME_PROVIDER_9910001",
+          category: "error",
+          message: `Provider package '${id}' does not support module '${specifier}'.`,
+          source: `${id}-provider`,
+          identity: `${id}:unsupported:${specifier}`,
+        };
+      }
+      return {
+        kind: "virtual",
+        moduleSpecifier: specifier,
+        virtualFileName: `tsts-provider://${id}/${encodeURIComponent(specifier)}.d.ts`,
+        providerModuleId: specifier,
+        packageName: `@${id}/native`,
+        packageVersion: "1.0.0",
+        evidence: [{ message: `${id} provider package resolved ${specifier}` }],
+      };
+    },
+    getDeclarationModel(resolution) {
+      return {
+        moduleSpecifier: resolution.moduleSpecifier,
+        providerModuleId: resolution.providerModuleId,
+        exports: [
+          {
+            id: "defaultValue",
+            name: "defaultValue",
+            exportKind: "default",
+            kind: "value",
+            type: { kind: "string" },
+            targetIdentity: { target: "demo", id: `${id}.DefaultValue`, displayName: `${id}.DefaultValue` },
+          },
+          {
+            id: "named",
+            name: "named",
+            kind: "value",
+            type: { kind: "number" },
+            targetIdentity: { target: "demo", id: `${id}.Named`, displayName: `${id}.Named` },
+          },
+        ],
+        evidence: [{ message: `${id} provider package declaration model` }],
+      };
+    },
+    getTargetIdentity(symbol) {
+      return {
+        target: "demo",
+        id: `${id}:${symbol.moduleSpecifier}:${symbol.exportName ?? "module"}:${symbol.memberName ?? ""}:${symbol.signatureId ?? ""}`,
+      };
+    },
+  };
+}
+
+function formatImportSliceExports(slice) {
+  if (slice === undefined) {
+    return "none";
+  }
+  if (slice.kind === "namespace") {
+    return "*";
+  }
+  if (slice.kind === "default") {
+    return "default";
+  }
+  return (slice.requestedExports ?? [])
+    .map((requestedExport) => requestedExport.localName === undefined
+      ? requestedExport.exportedName
+      : `${requestedExport.exportedName} as ${requestedExport.localName}`)
+    .join(",");
 }
 
 function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {

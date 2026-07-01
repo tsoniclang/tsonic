@@ -759,6 +759,8 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "host.package.composition",
     "toolchain.csharp.build-run",
     "tsts.flow-narrowing",
+    "tsts.type-query.flow-narrowed-type",
+    "type.non-null-assertion",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("array-spread"),
@@ -1553,6 +1555,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("nullish-coalescing"),
     oldFixturePath("nullish-coalescing-threading"),
   ], [
+    "expression.conditional",
     "expression.literal.null-undefined",
     "expression.nullish-optional",
   ]),
@@ -1622,6 +1625,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("generic-function-value-default-export"),
   ], [
     "module.export.default",
+    "type.generic.provider-target-arguments",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("import-type-erase"),
@@ -1651,6 +1655,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("generic-nested-substitution"),
   ], [
+    "expression.new",
     "native.dotnet.constructors",
     "native.dotnet.type-model",
   ]),
@@ -1663,8 +1668,13 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("extension-methods-system"),
     oldFixturePath("generic-method-standalone"),
+    oldFixturePath("generic-nested-substitution"),
   ], [
+    "expression.new",
+    "native.dotnet.constructors",
     "native.dotnet.member-methods",
+    "native.dotnet.type-model",
+    "type.generic.provider-target-arguments",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("param-modifiers"),
@@ -1698,7 +1708,12 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("core-intrinsics-provenance"),
   ], [
+    "source-core.flow.borrow-move-facts",
     "source-core.lang.portable-intrinsics",
+    "source-core.lang.portable-intrinsics.borrow",
+    "source-core.lang.portable-intrinsics.borrow-mut",
+    "source-core.lang.portable-intrinsics.move",
+    "source.marker.borrow-move",
     "target.csharp.core-lang-intrinsics",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([

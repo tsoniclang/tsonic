@@ -557,12 +557,14 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "carrier.function-delegate",
     "declaration.function",
+    "expression.call",
     "expression.lambda",
     "function.arrow",
     "function.closure",
     "function.declaration",
     "function.higher-order",
     "statement.return",
+    "tsts.contextual-typing",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/constants/ModuleConstants"),
@@ -582,6 +584,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "carrier.function-delegate",
     "carrier.null-undefined",
     "declaration.function",
+    "expression.call",
     "expression.lambda",
     "function.arrow",
     "function.closure",
@@ -655,6 +658,8 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.fail-closed-facts",
+    "expression.conditional",
+    "expression.operator",
     "expression.nullish-optional",
     "type.generic.provider-target-arguments",
     "operation.conversion.checked-target-conversion",
@@ -670,9 +675,11 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "carrier.null-undefined",
+    "expression.operator",
     "expression.nullish-optional",
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
+    "target.shared.operation-contract",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("async/basic/AsyncFunction"),
@@ -729,6 +736,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "operation.construct.provider-selected-constructor",
     "operation.element.provider-indexer",
     "operation.member.provider-indexer",
+    "target.shared.operation-contract",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("extensions/linq/ExtensionMethods"),
@@ -737,9 +745,12 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "operation.call.provider-selected-method",
+    "expression.call",
     "operation.member.no-name-guess",
     "operation.property.provider-selected-member",
     "provider.virtual-module.target-identity",
+    "target.shared.operation-contract",
+    "tsts.overload-resolution",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("types/pointers/PointerTypes"),
@@ -799,10 +810,12 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.csharp.no-direct-semantic-string-output",
     "backend.no-semantic-strings",
     "diagnostic.missing-target-fact",
+    "expression.operator",
     "expression.nullish-optional",
     "operation.conversion.checked-target-conversion",
     "operation.operator.checked-target-operation",
     "runtime.union.carrier",
+    "target.shared.operation-contract",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("attributes/comprehensive/Attributes"),
@@ -856,6 +869,36 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "tsts.generic-inference",
     "type.generic.provider-target-arguments",
     "type.variadic-tuple",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/conditional/ConditionalTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "type.conditional",
+    "type.infer",
+    "type.template-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/mapped/MappedTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "type.indexed-access",
+    "type.keyof",
+    "type.mapped",
+    "type.template-literal",
+  ]),
+  ...reviewedOldEmitterCapabilityMapping([
+    sourceCase("types/utility-types/UtilityTypes"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "type.indexed-access",
+    "type.keyof",
+    "type.satisfies",
+    "type.template-literal",
+    "type.utility",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter"),
@@ -934,6 +977,7 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "declaration.class.constructor",
     "declaration.class.private-fields",
+    "expression.new",
     "native.dotnet.constructors",
     "operation.construct.provider-selected-constructor",
     "operation.constructor.provider-selected-target",
@@ -941,6 +985,7 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("collections/list-initializer/ListInitializer"),
   ], [
+    "expression.new",
     "operation.construct.provider-selected-constructor",
     "operation.constructor.provider-selected-target",
   ]),
@@ -1095,6 +1140,7 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
     sourceCase("classes/generic-methods/MethodInNonGenericClass"),
   ], [
     "native.dotnet.member-methods",
+    "type.generic.provider-target-arguments",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("classes/generic-inheritance/InheritanceChain"),

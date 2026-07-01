@@ -44,6 +44,7 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
       context.registerTargetBindingProvider(createTsonicCoreVirtualModulesProvider());
       sourceSemantics.initialize?.(context);
       context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext): void => {
+        recordUnsupportedTsonicCoreLangReExportDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.host.diagnostics);
         recordTsonicAttributeBuilderFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts);
         recordTsonicStructFieldFactsAndDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
         recordTsonicMissingTypeEvidenceDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
@@ -100,6 +101,18 @@ const structFieldDiagnostics = {
   },
 } as const;
 
+const unsupportedCoreLangReExportDiagnostic = {
+  extensionCode: "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  numericCode: 9901110,
+  message: "Re-exporting @tsonic/core/lang.js intrinsics through a local barrel is unsupported; import source-core intrinsics directly so provider ownership remains proven.",
+} as const;
+
+const sourceCoreLangExportNames = new Set(
+  tsonicCoreSourceSemanticsModules()
+    .find((module) => module.moduleSpecifier === tsonicCoreLangModule)
+    ?.exports.map((entry) => entry.exportName) ?? [],
+);
+
 type DiagnosticSink = {
   append(diagnostic: {
     readonly extensionId: string;
@@ -113,6 +126,72 @@ type DiagnosticSink = {
     readonly identity?: string;
   }): void;
 };
+
+function recordUnsupportedTsonicCoreLangReExportDiagnostics(
+  request: SourceFileBoundLifecycleRequest,
+  ast: AstReader,
+  diagnostics: DiagnosticSink,
+): void {
+  const sourceFile = request.sourceFile as Node | undefined;
+  if (sourceFile === undefined) {
+    return;
+  }
+  let exportDeclarationIndex = 0;
+  for (const statement of ast.statements(sourceFile)) {
+    if (statement === undefined || !ast.is.IsExportDeclaration(statement)) {
+      continue;
+    }
+    const statementIdentity = exportDeclarationIndex;
+    exportDeclarationIndex += 1;
+    const moduleSpecifier = ast.as.AsExportDeclaration(statement)?.ModuleSpecifier;
+    if (moduleSpecifier === undefined || ast.text(moduleSpecifier) !== tsonicCoreLangModule) {
+      continue;
+    }
+    const exportedNames = exportedCoreLangIntrinsicNames(statement, ast);
+    if (exportedNames.length === 0) {
+      continue;
+    }
+    diagnostics.append({
+      extensionId: tsonicCoreSourceExtensionId,
+      extensionCode: unsupportedCoreLangReExportDiagnostic.extensionCode,
+      numericCode: unsupportedCoreLangReExportDiagnostic.numericCode,
+      publicCode: `TSONIC_SOURCE_CORE_${unsupportedCoreLangReExportDiagnostic.numericCode}`,
+      category: "error",
+      message: unsupportedCoreLangReExportDiagnostic.message,
+      nodeOrSpan: statement,
+      evidence: [{
+        message: "Source-core portable intrinsic ownership does not flow through local re-export barrels.",
+        details: {
+          moduleSpecifier: tsonicCoreLangModule,
+          exportedNames,
+        },
+      }],
+      identity: `source-core-lang-reexport:${statementIdentity}:${exportedNames.join(",")}`,
+    });
+  }
+}
+
+function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader): readonly string[] {
+  const exportClause = ast.as.AsExportDeclaration(exportDeclaration)?.ExportClause;
+  if (exportClause === undefined) {
+    return ["*"];
+  }
+  if (!ast.is.IsNamedExports(exportClause)) {
+    return ["*"];
+  }
+  const exportedNames: string[] = [];
+  for (const specifier of ast.elements(exportClause)) {
+    if (specifier === undefined) {
+      continue;
+    }
+    const exportNameNode = (specifier as { readonly PropertyName?: Node }).PropertyName ?? ast.name(specifier);
+    const exportName = exportNameNode === undefined ? undefined : ast.text(exportNameNode);
+    if (exportName !== undefined && sourceCoreLangExportNames.has(exportName)) {
+      exportedNames.push(exportName);
+    }
+  }
+  return exportedNames;
+}
 
 function recordTsonicAttributeBuilderFacts(
   request: SourceFileBoundLifecycleRequest,

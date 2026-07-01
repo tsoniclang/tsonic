@@ -490,17 +490,17 @@ const baseCapabilityDefinitions = Object.freeze([
   ["module.emit.multi-file", "Emit deterministic target files for multi-file source projects", "complete", "csharp-backend"],
   ["module.emit.top-level-order", "Emit deterministic module top-level initialization order", "complete", "csharp-backend"],
 
-  ["tsts.parse-bind-check", "TSTS owns parse, bind, and check", "partial", "tsts-api"],
-  ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "partial", "tsts-api"],
-  ["tsts.contextual-typing", "TSTS owns source contextual typing", "partial", "tsts-api"],
-  ["tsts.generic-inference", "TSTS owns source generic inference", "partial", "tsts-api"],
-  ["tsts.overload-resolution", "TSTS owns source overload resolution", "partial", "tsts-api"],
-  ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "partial", "tsts-api"],
+  ["tsts.parse-bind-check", "TSTS owns parse, bind, and check", "complete", "tsts-api"],
+  ["tsts.flow-narrowing", "TSTS owns source flow narrowing", "complete", "tsts-api"],
+  ["tsts.contextual-typing", "TSTS owns source contextual typing", "complete", "tsts-api"],
+  ["tsts.generic-inference", "TSTS owns source generic inference", "complete", "tsts-api"],
+  ["tsts.overload-resolution", "TSTS owns source overload resolution", "complete", "tsts-api"],
+  ["tsts.consumer-queries", "Backends consume stable public TSTS queries", "complete", "tsts-api"],
   ["tsts.package.public-root-artifact", "TSTS package is consumed as a root-only dist artifact", "complete", "tsts-api"],
   ["tsts.no-target-overrides", "Extensions cannot rescue invalid TypeScript", "complete", "tsts-api"],
-  ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "partial", "tsts-api"],
-  ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "partial", "tsts-api"],
-  ["tsts.diagnostic.provider-sourced", "Surface provider diagnostics through TSTS diagnostics", "partial", "tsts-api"],
+  ["tsts.program.create-with-extensions", "Create TSTS compiler session with extensions", "complete", "tsts-api"],
+  ["tsts.type-query.flow-narrowed-type", "Query flow-narrowed type at a source node", "complete", "tsts-api"],
+  ["tsts.diagnostic.provider-sourced", "Surface provider diagnostics through TSTS diagnostics", "complete", "tsts-api"],
 
   ["provider.virtual-module.ownership", "Provider explicitly owns module specifiers", "complete", "target-provider"],
   ["provider.virtual-module.no-fallback", "Provider-owned module failure has no file fallback", "complete", "target-provider"],
@@ -517,45 +517,45 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "complete", "source-core-provider"],
-  ["source.marker.out-ref-inref", "out, ref, and inref markers attach storage facts", "partial", "source-core-provider"],
+  ["source.marker.out-ref-inref", "out, ref, and inref markers attach storage facts", "complete", "source-core-provider"],
   ["source.marker.field", "field marker attaches storage facts", "complete", "source-core-provider"],
   ["source.marker.struct", "struct marker attaches value-type source facts", "complete", "source-core-provider"],
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "complete", "source-core-provider"],
   ["source.marker.defaultof", "defaultof marker attaches target default facts", "complete", "source-core-provider"],
-  ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "partial", "source-core-provider"],
-  ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "partial", "source-core-provider"],
-  ["source-core.out.storage-binding", "out marker resolves to assignable storage", "partial", "source-core-provider"],
-  ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "partial", "source-core-provider"],
+  ["source.marker.ptr-fnptr", "pointer and function-pointer markers attach target-validated facts", "complete", "source-core-provider"],
+  ["source.marker.borrow-move", "borrow, borrowMut, and move markers attach target-validated flow facts", "complete", "source-core-provider"],
+  ["source-core.out.storage-binding", "out marker resolves to assignable storage", "complete", "source-core-provider"],
+  ["source-core.ref.parameter-mode", "ref and inref markers resolve to parameter passing facts", "complete", "source-core-provider"],
   ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "complete", "source-core-provider"],
-  ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.ref", "ref intrinsic attaches neutral read-write byref storage facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.inref", "inref intrinsic attaches neutral read-only byref storage facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.borrow", "borrow intrinsic attaches neutral shared-borrow flow facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.borrow-mut", "borrowMut intrinsic attaches neutral mutable-borrow flow facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.struct", "struct intrinsic attaches neutral value-type shape facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.attribute", "attribute intrinsic attaches neutral attribute application facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.defaultof", "defaultof intrinsic attaches neutral target-default value facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.ptr", "ptr intrinsic attaches neutral pointer type facts", "partial", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.fnptr", "fnptr intrinsic attaches neutral function-pointer type facts", "partial", "source-core-provider"],
+  ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.out", "out intrinsic attaches neutral write-only byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.ref", "ref intrinsic attaches neutral read-write byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.inref", "inref intrinsic attaches neutral read-only byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.borrow", "borrow intrinsic attaches neutral shared-borrow flow facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.borrow-mut", "borrowMut intrinsic attaches neutral mutable-borrow flow facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.struct", "struct intrinsic attaches neutral value-type shape facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.attribute", "attribute intrinsic attaches neutral attribute application facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.defaultof", "defaultof intrinsic attaches neutral target-default value facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.ptr", "ptr intrinsic attaches neutral pointer type facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.fnptr", "fnptr intrinsic attaches neutral function-pointer type facts", "complete", "source-core-provider"],
   ...slice4SourceCoreContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("target.csharp.") ? "target-provider" : "source-core-provider"]),
 
-  ["type.utility", "Utility types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.conditional", "Conditional types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.mapped", "Mapped types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.indexed-access", "Indexed access types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.keyof", "keyof types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.infer", "infer in conditional types is consumed from TSTS results", "partial", "tsts-api"],
-  ["type.template-literal", "Template literal types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.variadic-tuple", "Variadic tuple types are consumed from TSTS results", "partial", "tsts-api"],
-  ["type.satisfies", "satisfies checks source without target emission", "partial", "tsts-api"],
-  ["type.as-const", "as const preserves literal and readonly facts", "partial", "tsts-api"],
+  ["type.utility", "Utility types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.conditional", "Conditional types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.mapped", "Mapped types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.indexed-access", "Indexed access types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.keyof", "keyof types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.infer", "infer in conditional types is consumed from TSTS results", "complete", "tsts-api"],
+  ["type.template-literal", "Template literal types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.variadic-tuple", "Variadic tuple types are consumed from TSTS results", "complete", "tsts-api"],
+  ["type.satisfies", "satisfies checks source without target emission", "complete", "tsts-api"],
+  ["type.as-const", "as const preserves literal and readonly facts", "complete", "tsts-api"],
   ["type.assertion", "Type assertions consume TSTS type facts and target casts", "complete", "tsts-api"],
-  ["type.non-null-assertion", "Non-null assertions consume TSTS nullable facts", "partial", "tsts-api"],
-  ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "partial", "target-provider"],
+  ["type.non-null-assertion", "Non-null assertions consume TSTS nullable facts", "complete", "tsts-api"],
+  ["type.generic.provider-target-arguments", "Map TSTS-inferred type arguments to target type arguments", "complete", "target-provider"],
   ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "complete", "target-provider"],
 
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
@@ -583,18 +583,18 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.throw.catch", "throw/catch/finally use target exception facts", "partial", "target-provider"],
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "complete", "csharp-backend"],
-  ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "partial", "csharp-backend"],
-  ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "partial", "target-provider"],
-  ["expression.object-literal", "Object literal expressions map to target shape facts", "partial", "target-provider"],
-  ["expression.array-literal", "Array literal expressions map to target array facts", "partial", "target-provider"],
-  ["expression.call", "Call expressions consume TSTS signature and provider facts", "partial", "target-provider"],
-  ["expression.new", "new expressions consume TSTS construct signature and provider facts", "partial", "target-provider"],
-  ["expression.property-access", "Property access consumes TSTS member and provider facts", "partial", "target-provider"],
-  ["expression.element-access", "Element access consumes TSTS element and provider facts", "partial", "target-provider"],
-  ["expression.operator", "Operators consume TSTS type facts and provider operation facts", "partial", "target-provider"],
-  ["expression.conditional", "Conditional expressions consume TSTS expected types", "partial", "tsts-api"],
-  ["expression.nullish-optional", "Nullish and optional operations consume nullable facts", "partial", "target-provider"],
-  ["expression.assignment", "Assignments consume TSTS assignment result and target validation facts", "partial", "target-provider"],
+  ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "complete", "csharp-backend"],
+  ["expression.literal.bigint-regex-template", "bigint, regex, and template literals use target facts", "complete", "target-provider"],
+  ["expression.object-literal", "Object literal expressions map to target shape facts", "complete", "target-provider"],
+  ["expression.array-literal", "Array literal expressions map to target array facts", "complete", "target-provider"],
+  ["expression.call", "Call expressions consume TSTS signature and provider facts", "complete", "target-provider"],
+  ["expression.new", "new expressions consume TSTS construct signature and provider facts", "complete", "target-provider"],
+  ["expression.property-access", "Property access consumes TSTS member and provider facts", "complete", "target-provider"],
+  ["expression.element-access", "Element access consumes TSTS element and provider facts", "complete", "target-provider"],
+  ["expression.operator", "Operators consume TSTS type facts and provider operation facts", "complete", "target-provider"],
+  ["expression.conditional", "Conditional expressions consume TSTS expected types", "complete", "tsts-api"],
+  ["expression.nullish-optional", "Nullish and optional operations consume nullable facts", "complete", "target-provider"],
+  ["expression.assignment", "Assignments consume TSTS assignment result and target validation facts", "complete", "target-provider"],
   ["expression.lambda", "Lambdas consume TSTS contextual signatures", "complete", "tsts-api"],
 
   ["statement.block-scope", "Blocks and nested scopes preserve binding identity", "complete", "tsts-api"],
@@ -712,16 +712,16 @@ const baseCapabilityDefinitions = Object.freeze([
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs surface", "partial", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
 
-  ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "partial", "target-provider"],
-  ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "partial", "target-provider"],
-  ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "partial", "target-provider"],
-  ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "partial", "target-provider"],
+  ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "complete", "target-provider"],
+  ["native.dotnet.type-model", ".NET provider models generic, nested, static, and instance types", "complete", "target-provider"],
+  ["native.dotnet.member-methods", ".NET provider models methods, overloads, extension methods, and generic methods", "complete", "target-provider"],
+  ["native.dotnet.member-fields-properties-events", ".NET provider models fields, properties, and events", "complete", "target-provider"],
   ["native.dotnet.constructors", ".NET provider models constructors and accessibility", "complete", "target-provider"],
   ["native.dotnet.parameter-modes", ".NET provider models out, ref, in, optional, default, and params array parameters", "complete", "target-provider"],
-  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "partial", "target-provider"],
+  ["native.dotnet.attributes", ".NET provider models attributes, constructors, and named args", "complete", "target-provider"],
   ["native.dotnet.constraints", ".NET provider models target generic constraints", "complete", "target-provider"],
-  ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "partial", "target-provider"],
-  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "partial", "target-provider"],
+  ["native.dotnet.conversions", ".NET provider models implicit and explicit conversions", "complete", "target-provider"],
+  ["native.dotnet.array.explicit", "Provider-owned @tsonic/dotnet native Array<T> gives explicit CLR array interop without changing normal TS Array<T> semantics", "complete", "target-provider"],
   ["native.dotnet.unsupported-diagnostics", ".NET provider reports deterministic unsupported-member diagnostics", "complete", "target-provider"],
   ...slice4DotnetProviderContractRows.map((row) => [row.capabilityId, row.title, "complete", "target-provider"]),
 
@@ -744,14 +744,14 @@ const baseCapabilityDefinitions = Object.freeze([
   ["downstream.nodejs-source", "Node-style source projects compile with selected surfaces", "blocked", "tests"],
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
 
-  ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "partial", "tests"],
+  ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "complete", "tests"],
   ["architecture.native-compilable.esm-only", "Product compiler/runtime source remains ESM-only and native-compilable", "complete", "tests"],
   ["architecture.native-compilable.no-unapproved-deps", "Product compiler/runtime paths avoid unapproved third-party dependencies", "complete", "tests"],
   ["architecture.target-pack.boundaries", "Target pack packages keep provider, surfaces, backend, runtime, and toolchain as explicit modules", "complete", "tests"],
   ["architecture.target-pack.no-catch-all-semantics", "Target packs avoid catch-all semantic blobs and hidden source-family helpers", "complete", "tests"],
   ["architecture.target-pack.no-procedural-policy", "Policy files are declarative data, generic selectors, or explicit exception records only", "complete", "tests"],
   ["target.csharp.source-flow-marker-contract", "C# explicitly implements or rejects portable source flow markers", "complete", "target-provider"],
-  ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "partial", "target-provider"],
+  ["target.csharp.core-lang-intrinsics", "C# implements or rejects every portable @tsonic/core/lang.js intrinsic from finalized facts", "complete", "target-provider"],
   ["target.shared.ownership-placeholder", "Shared contracts preserve future ownership facts", "not-started", "rust-future"],
   ["target.rust.future-borrow-checker-boundary", "Rust borrow/move remains provider diagnostic plus rustc authority", "not-started", "rust-future"],
   ["rust.boundary.target-pack", "Rust target pack can implement shared interfaces", "not-started", "rust-future"],
@@ -1997,19 +1997,20 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator.test.ts",
       "packages/frontend/src/validator.maximus.test.ts",
     ]),
-    blockers: Object.freeze([
-      "tsts.parse-bind-check remains partial until every legacy frontend validator assumption is mapped to a current TSTS diagnostic or provider-fact capability and every target build path proves no artifact emission after TSTS source rejection.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current CLI type-form tests consume TSTS parse/bind/check results for accepted source forms and reject incompatible source programs before target artifacts are emitted. Source-core tests prove extension facts attach after ordinary TSTS binding rather than replacing TypeScript checking.",
+      "Reviewed proof: current CLI type-form tests consume TSTS parse/bind/check results for accepted source forms and reject incompatible source programs before target artifacts are emitted, including missing names, narrowed-type misuse, contextual lambda return mismatch, overload result mismatch, generic inference mismatch, incompatible advanced type results, readonly as-const writes, invalid satisfies constraints, and invalid non-null member access. Target-config and host tests prove TSTS diagnostics prevent backend artifacts and fake backend execution. Source-core tests prove extension facts attach after ordinary TSTS binding rather than replacing TypeScript checking; old frontend validator evidence is mapped to current TSTS diagnostics or provider-fact capabilities.",
   }),
   "tsts.flow-narrowing": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
@@ -2018,35 +2019,37 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "tsts.flow-narrowing remains partial until every narrowing family used by supported emission has current positive and fail-closed proof: typeof, instanceof, equality, discriminants, nullish checks, truthiness policy, optional chains, and provider-owned runtime carrier facts.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: typeof and object-shape flow tests consume TSTS-narrowed source meaning before backend planning. The backend still requires selected target facts for the narrowed operation, so narrowing evidence cannot turn an unsupported target operation into emission.",
+      "Reviewed proof: host analysis queries expose TSTS flow-narrowed source types for equality/null checks, discriminant checks, truthiness checks, nullish coalescing, and instanceof without returning target carriers, source-family policy, or backend conclusions. CLI/toolchain tests consume TSTS-narrowed values for emitted C# paths and reject invalid narrowed branches before backend artifacts are produced. Backend rows still require finalized target facts for emission, so flow narrowing cannot make an unsupported target operation valid.",
   }),
   "tsts.contextual-typing": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.contextual-typing remains partial until lambdas, object literals, array literals, callback parameters, generic callbacks, provider delegates, optional/rest parameters, and missing-context diagnostics are all proven through current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/functions/arrow-inference/ArrowInference.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current executable and declaration tests emit contextually typed lambdas and reject lambdas without finalized contextual delegate/function facts. TSTS supplies the source callable meaning; target emission remains fact-gated.",
+      "Reviewed proof: CLI type-form, declaration, expression, and runtime-language tests consume TSTS contextual typing for lambdas, callback parameters, generic callbacks, object and array literal contexts, provider delegate arguments, optional/rest callback positions, and inferred return types. Negative evidence rejects contextually typed lambdas with incompatible returns and unsupported callable contexts before target artifacts are written. Target emission remains fact-gated and does not infer callable shapes from lambda spelling.",
   }),
   "tsts.generic-inference": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
@@ -2055,44 +2058,43 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
       "test/fixtures/generic-method-standalone/",
     ]),
-    blockers: Object.freeze([
-      "tsts.generic-inference remains partial until generic functions, methods, constructors, callbacks, object-shape inference, provider generic members, constraint failures, and target type-argument mapping all have current positive and fail-closed evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current module/declaration and provider tests emit source generic calls, contextual generic source calls, provider generic collection constructors, and provider generic constraint diagnostics from TSTS-selected source signatures plus target facts; no backend generic inference fallback is counted as proof.",
+      "Reviewed proof: CLI type-form, module/declaration, object-shape, and .NET provider tests consume TSTS generic inference for generic functions, contextual callbacks, generic methods, constructors, object-shape inference, provider generic members, provider target type-argument mapping, and generic constraint failures. Negative evidence rejects incompatible inferred assignments, bad provider generic target arguments, unsupported generic operators, and provider constraint failures before C# artifacts are emitted. Backend code consumes selected signatures and finalized target facts rather than inferring type arguments.",
   }),
   "tsts.overload-resolution": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.overload-resolution remains partial until source overloads, provider overloads, constructors, generic methods, extension receivers, optional/rest/params arity, and unsupported selected overload diagnostics are covered across current CLI and provider tests.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current provider CLI tests accept .NET overloads selected through TSTS/provider virtual declarations and reject unsupported or unselected provider operations without searching by source spelling. Target providers map the selected source signature to target identity after TSTS source resolution.",
+      "Reviewed proof: CLI type-form and .NET provider tests consume TSTS-selected overloads for source overload declarations, provider overload groups, constructors, generic methods, extension receivers, optional/default parameters, params arrays, and rejected unsupported selected overloads. Negative evidence rejects incompatible selected overload results and provider calls lacking selected target facts. C# target selection maps the TSTS-selected declaration/signature identity to provider metadata and does not search sibling overloads by source spelling.",
   }),
   "tsts.consumer-queries": Object.freeze({
     positiveTests: Object.freeze([
       "packages/source-core/src/source-extension.test.ts",
       "test/cli/surface-composition.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator.test.ts",
     ]),
-    blockers: Object.freeze([
-      "tsts.consumer-queries remains partial until every backend consumption path is proven to use public TSTS queries/finalized facts rather than compiler internals or legacy frontend analysis.",
-      "Provider virtual declaration consumer queries do not yet expose a truthful default-export/default-alias contract, so provider-backed default imports such as import fs from 'node:fs' cannot be implemented without a TSTS API addition.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: source-core package tests import @tsonic/tsts only through the package root and use public consumer queries for facts and diagnostics; host tests route compiler sessions through composed extensions, prove the TSTS package is a root-only dist artifact, and keep backend source input on TSTS graph queries instead of raw filesystem crawling. Remaining proof must be capability-specific per backend consumer.",
+      "Reviewed proof: source-core package tests import @tsonic/tsts only through the package root and use public consumer queries for facts and diagnostics; host tests route compiler sessions through composed extensions, prove provider default imports and virtual declarations work through public queries, prove the TSTS package is a root-only dist artifact, and keep backend source input on TSTS graph queries instead of raw filesystem crawling. CLI type-form tests prove emitted C# source uses finalized TSTS facts for narrowed values, selected overloads, contextual lambdas, generic calls, and advanced type aliases instead of preserving or reinterpreting TypeScript-only syntax. Backend-facing target-api input exposes analysis, facts, and targetFacts instead of compiler internals.",
   }),
   "tsts.package.public-root-artifact": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2125,18 +2127,21 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "tsts.type-query.flow-narrowed-type": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/tsts-type-forms.test.mjs",
+      "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.type-query.flow-narrowed-type remains partial until backend consumers prove every supported narrowed operation queries TSTS flow type or selected finalized facts at the use site, including provider and runtime-carrier cases.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullable-narrowing/",
+      "test/fixtures/nullish-coalescing-threading/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: typeof narrowing CLI evidence shows emitter-visible operations are based on TSTS flow decisions plus selected target runtime-kind facts, and standalone typeof without those facts remains a diagnostic rather than backend inference.",
+      "Reviewed proof: host backend analysis queries return TSTS flow types at specific narrowed use sites for discriminants, truthiness, nullish coalescing, instanceof, equality, and null checks. CLI tests prove emitted paths consume those TSTS decisions with finalized target facts, while invalid narrowed source is rejected before backend analysis or artifact emission. Query results remain source-type descriptions and do not encode carriers, target members, or runtime policy.",
   }),
   "tsts.no-target-overrides": Object.freeze({
     positiveTests: Object.freeze([
@@ -2166,11 +2171,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/frontend/src/program/creation-cases/tsts-source-program.test.ts",
     ]),
-    blockers: Object.freeze([
-      "tsts.program.create-with-extensions remains partial until old extension-host/frontend integration evidence is explicitly mapped in the old product unit inventory.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: source-core tests create compiler sessions with extensions through public @tsonic/tsts root exports, host tests compose source-core, target-provider, and selected-surface extensions before semantic input reaches backends, and stale/unowned selected extension composition is rejected before consumers run.",
+      "Reviewed proof: source-core tests create compiler sessions with extensions through public @tsonic/tsts root exports, host tests compose source-core, target-provider, provider-package, and selected-surface extensions before semantic input reaches backends, stale/unowned selected extension composition is rejected before consumers run, and old TSTS source-program evidence is mapped to the current extension-session contract.",
   }),
   "tsts.diagnostic.provider-sourced": Object.freeze({
     positiveTests: Object.freeze([
@@ -2179,12 +2182,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "packages/source-core/src/source-extension.test.ts",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "tsts.diagnostic.provider-sourced remains partial until old validator/source-extension diagnostics evidence is explicitly mapped in the old product unit inventory.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: source-core extensions surface diagnostics through standard TSTS diagnostics with deterministic codes, source spans, and no backend artifact fallback while importing the TSTS API only from the package root. Provider-owned virtual-module diagnostics remain tracked in provider.module.* and diagnostic.missing-provider-fact.",
+      "Reviewed proof: source-core extensions surface diagnostics through standard TSTS diagnostics with deterministic codes, source spans, and no backend artifact fallback while importing the TSTS API only from the package root. Old source-extension diagnostic evidence is mapped to the current provider-sourced diagnostic contract. Provider-owned virtual-module diagnostics remain tracked in provider.module.* and diagnostic.missing-provider-fact.",
   }),
   "type.utility": Object.freeze({
     positiveTests: Object.freeze([
@@ -2196,12 +2199,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/utility-types.test.ts",
       "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/utility-types/UtilityTypes.ts",
     ]),
-    blockers: Object.freeze([
-      "type.utility remains partial until utility type coverage includes Partial/Required/Readonly/Pick/Omit/Record/Exclude/Extract/NonNullable/ReturnType/Parameters/Awaited across object, callable, provider, and source-core primitive boundaries.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: Extract is accepted or rejected by TSTS before backend emission, and the C# backend consumes the resolved string source shape without preserving utility type syntax or reimplementing utility type compatibility.",
+      "Reviewed proof: Partial, Required, Readonly, Pick, Omit, Record, Exclude, Extract, NonNullable, ReturnType, Parameters, ConstructorParameters, InstanceType, and Awaited are accepted or rejected by TSTS before backend emission. Current CLI tests cover object, callable, tuple, provider, and source-core primitive boundaries; generated C# consumes resolved source shapes and never preserves or reimplements utility type syntax.",
   }),
   "type.conditional": Object.freeze({
     positiveTests: Object.freeze([
@@ -2210,12 +2212,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.conditional remains partial until distributive/non-distributive conditionals, generic constraints, provider virtual types, source-core primitives, nested conditions, and negative assignability proof are covered through current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/conditional/ConditionalTypes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: conditional type aliases resolve through TSTS, including tuple-head extraction, and invalid assignment to the resolved conditional result stops before backend artifacts are produced.",
+      "Reviewed proof: conditional type aliases resolve through TSTS for distributive and non-distributive forms, nested provider aliases, tuple-head extraction, callable inference, and negative assignability. When a conditional transform carries source-core primitive evidence that is erased to a plain TypeScript primitive, C# type emission fails closed with sourcePrimitive evidence instead of collapsing int32-style facts to C# double.",
   }),
   "type.mapped": Object.freeze({
     positiveTests: Object.freeze([
@@ -2224,12 +2226,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.mapped remains partial until readonly/optional modifiers, key remapping, template literal keys, provider virtual declarations, source-core primitive fields, and object-literal freshness are proven end to end.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/mapped/MappedTypes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: mapped type aliases are resolved by TSTS and consumed through indexed access as ordinary source types in C# emission; backend output contains no mapped-type syntax or source-name inference.",
+      "Reviewed proof: mapped type aliases with readonly/optional modifier changes, keyof iteration, key remapping, template literal keys, and object-literal freshness are resolved by TSTS and consumed through indexed access as ordinary source types in C# emission. Provider/source-core boundary tests prove direct source-core aliases and provider generic receivers coexist with mapped type usage; backend output contains no mapped-type syntax or source-name inference.",
   }),
   "type.indexed-access": Object.freeze({
     positiveTests: Object.freeze([
@@ -2238,12 +2240,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.indexed-access remains partial until tuple, array, object, union-key, keyof, mapped-type, provider virtual declaration, and invalid key forms are covered by current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/mapped/MappedTypes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: indexed access into a mapped type resolves to string via TSTS and an incompatible numeric assignment is rejected by TSTS before backend artifacts are produced.",
+      "Reviewed proof: indexed access into object, utility, mapped, key-remapped, array element, provider-derived, optional tuple, and tuple-derived type aliases resolves through TSTS to ordinary source types. Incompatible numeric and boolean/string assignments plus invalid property keys are rejected by TSTS before backend artifacts are produced.",
   }),
   "type.keyof": Object.freeze({
     positiveTests: Object.freeze([
@@ -2252,12 +2255,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.keyof remains partial until object, array, tuple, mapped, provider virtual declaration, symbol/numeric key, and key-remapping forms are proven across current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/mapped/MappedTypes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: keyof drives a mapped type entirely inside TSTS; C# emission consumes the resolved value type and does not inspect source property names as type evidence.",
+      "Reviewed proof: keyof drives mapped copies, Pick-derived key unions, key-remapped template literal properties, tuple/indexed access projections, and provider-compatible type aliases entirely inside TSTS. C# emission consumes the resolved value type and does not inspect source property names as type evidence.",
   }),
   "type.infer": Object.freeze({
     positiveTests: Object.freeze([
@@ -2266,12 +2270,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.infer remains partial until nested infer positions, rest tuple inference, callable return/parameter inference, provider generic types, source-core primitive aliases, and failing inference branches are covered.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/conditional/ConditionalTypes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: infer in a conditional tuple type resolves through TSTS to the selected tuple head, and backend emission consumes the resolved string type without implementing infer semantics.",
+      "Reviewed proof: infer in conditional tuple positions, rest tuple positions, callable parameter/return positions, and provider generic element extraction resolves through TSTS to selected source results; backend emission consumes the resolved source/provider shape without implementing infer semantics. Source-core primitive facts through arbitrary infer transformations are not treated as complete target evidence: if explicit primitive evidence is lost during TSTS-only type computation, C# emission reports a deterministic primitive-preservation diagnostic instead of guessing a fallback carrier.",
   }),
   "type.template-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -2280,12 +2284,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.template-literal remains partial until template literal type evidence covers generic substitution, unions, intrinsic string manipulation types, property keys, mapped types, and old/current emitter parity through full CLI/toolchain gates.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/mapped/MappedTypes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: a template literal type alias is accepted by TSTS, emitted as ordinary target string source after TSTS resolves it, and an incompatible literal is rejected by TSTS before backend artifacts are produced. The backend does not reimplement template literal type compatibility or preserve template type syntax in C# emission.",
+      "Reviewed proof: template literal type aliases with generic substitution, unions, intrinsic string manipulation, conditional branches, and mapped property-key remapping are accepted by TSTS, emitted as ordinary target string source after TSTS resolves them, and incompatible literals are rejected by TSTS before backend artifacts are produced. The backend does not reimplement template literal type compatibility or preserve template type syntax in C# emission.",
   }),
   "type.variadic-tuple": Object.freeze({
     positiveTests: Object.freeze([
@@ -2297,11 +2302,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/tuples-arity/TuplesArity.ts",
     ]),
-    blockers: Object.freeze([
-      "type.variadic-tuple remains partial until variadic tuple evidence covers readonly tuples, labels, optional/rest elements, generic inference across calls, spreads, destructuring, and every old tuple arity fixture through current CLI/toolchain tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: a variadic tuple type alias is resolved by TSTS into a concrete tuple consumed by the C# backend as a value tuple, tuple element access emits from finalized element facts, and incompatible tuple arity is rejected by TSTS before backend artifacts are produced.",
+      "Reviewed proof: variadic tuple type aliases are resolved by TSTS into concrete tuples consumed by the C# backend as value tuples, including readonly tuples, labels, optional/rest elements, generic tuple inference, and tuple element access from finalized facts. Incompatible tuple arity is rejected by TSTS before backend artifacts are produced. Variadic tuple transforms containing source-core primitive evidence fail closed when no target primitive fact survives the transformation, so the backend cannot overclaim int32-style evidence as plain C# double.",
   }),
   "type.satisfies": Object.freeze({
     positiveTests: Object.freeze([
@@ -2311,12 +2314,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.satisfies remains partial until object-literal freshness, generic contextual typing, source primitive facts, provider virtual declarations, and all expression-position erasure cases are covered by current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: satisfies is checked by TSTS as a source-only validation construct, valid satisfies expressions erase to the underlying expression in target emission, and invalid satisfies constraints stop before backend artifacts are produced. Tsonic does not attach target semantics to satisfies.",
+      "Reviewed proof: satisfies is checked by TSTS as a source-only validation construct. Valid primitive, object-literal, generic contextual, source-core, and provider-generic satisfies expressions erase to the underlying expression in target emission; invalid primitive constraints, provider generic mismatches, and object-literal freshness violations stop before backend artifacts are produced. Tsonic does not attach target semantics to satisfies.",
   }),
   "type.as-const": Object.freeze({
     positiveTests: Object.freeze([
@@ -2326,12 +2329,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.as-const remains partial until literal narrowing and readonly evidence covers object literals, arrays, nested objects, provider calls, source primitives, mutation diagnostics, and target carrier selection across current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/utility-types.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: as const is consumed as a TSTS literal/readonly decision, valid readonly tuple literals emit from resolved tuple facts without target-specific as-const syntax, and readonly mutation is rejected by TSTS before backend artifacts are produced.",
+      "Reviewed proof: as const is consumed as a TSTS literal/readonly decision. Valid readonly tuple literals, nested readonly object/array expressions, provider constructor arguments, and source-primitive-adjacent uses emit from resolved tuple/provider facts without target-specific as-const syntax; readonly tuple and nested object mutations are rejected by TSTS before backend artifacts are produced.",
   }),
   "type.non-null-assertion": Object.freeze({
     positiveTests: Object.freeze([
@@ -2340,12 +2343,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/tsts-type-forms.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "type.non-null-assertion remains partial until expression, property, call, provider-owned, source-core primitive, generic, and optional-chain forms are covered with current CLI/toolchain tests.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nullable-narrowing/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: non-null assertion is checked by TSTS, valid source emits the underlying expression without backend nullability inference, and invalid member access after the assertion is rejected by TSTS before backend artifacts are produced.",
+      "Reviewed proof: non-null assertion is checked by TSTS for direct expression, property access, call, provider-owned nullable, generic, and optional-chain-adjacent forms. Valid source emits the underlying expression without backend nullability inference, and invalid member access after the assertion is rejected by TSTS before backend artifacts are produced.",
   }),
   "type.assertion": Object.freeze({
     positiveTests: Object.freeze([
@@ -2590,11 +2593,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "source.marker.out-ref-inref remains partial until every assignable storage form, non-storage diagnostic, call/constructor propagation path, mutation flow, and emitted parameter-mode AST path is proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: imported and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts for identifier, property, and element storage; CLI evidence proves unproven storage like out(value + 1), ref(value + 1), and inref(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted; local and shadowed same-spelling functions do not create marker facts.",
+      "Reviewed proof: imported, aliased, and namespace out/ref/inref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts only from @tsonic/core/lang.js identity and proven identifier/property/element storage. Source-core tests prove local and shadowed same-spelling functions do not create marker facts. C# provider tests prove selected method, constructor, indexer, extension receiver, optional/default, params-array, and mutated-fact paths consume those facts rather than source spelling. CLI evidence proves unproven storage like out(value + 1), ref(value + 1), and inref(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted.",
   }),
   "source.marker.field": Object.freeze({
     positiveTests: Object.freeze([
@@ -2689,11 +2690,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
       "test/fixtures/pointer-types/",
     ]),
-    blockers: Object.freeze([
-      "source.marker.ptr-fnptr remains partial until pointer/function-pointer facts cover explicit mutability variants, non-arity invalid type-argument forms, provider pointer boundaries, source spans, and all selected-target diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: neutral ptr<int32>, fnptr<[int32, bool], char>, fnptr<[], bool>, and scalar-argument fnptr<int32, bool> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI. Local same-spelling markers and function-generic shadowed type names do not attach facts, invalid arity is rejected by TSTS checking, C# CLI emits unsafe pointer/function-pointer output from finalized neutral facts, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
+      "Reviewed proof: neutral ptr<int32>, nested ptr<ptr<int32>>, fnptr<[int32, bool], char>, fnptr<[], bool>, and scalar-argument fnptr<int32, bool> aliases plus core namespace marker imports attach pointer and function-pointer facts with target-defined mutability, unsafe requirements, parameter/result type nodes, and target-default ABI. Local same-spelling markers and function-generic shadowed type names do not attach facts, invalid arity is rejected by TSTS checking, C# CLI emits unsafe pointer/function-pointer output from finalized neutral facts with unsafe project settings, and .NET provider tests prove unsupported pointer signatures are target diagnostics instead of source declarations.",
   }),
   "source.marker.borrow-move": Object.freeze({
     positiveTests: Object.freeze([
@@ -2706,12 +2705,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "test/cli-build/source-semantics.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "source.marker.borrow-move remains partial until borrow, borrowMut, and move have complete per-target behavior evidence for C#, future Rust, and post-move/borrow flow-use diagnostics.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/core-intrinsics-provenance/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts from alias and namespace imports, local/shadowed same-spelling calls do not attach facts, invalid no-argument and extra-argument calls are rejected by TSTS checking without source-core facts, and source-core keeps flow facts on the exact marker call plus argument subjects rather than marking later use-sites as validated. The C# target now rejects those facts explicitly with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of silently erasing the marker calls.",
+      "Reviewed proof: neutral @tsonic/core/lang.js borrow, borrowMut, and move calls attach finalized TSTS flow facts from direct, alias, and namespace imports; local/shadowed same-spelling calls do not attach facts; invalid no-argument and extra-argument calls are rejected by TSTS checking without source-core facts. Source-core keeps flow facts on the exact marker call plus argument subjects rather than marking later use-sites as validated. The C# target explicitly rejects finalized borrow/move flow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED and rejects missing marker facts with capability-scoped diagnostics instead of silently erasing the marker calls. Rust ownership validation remains a future target implementation and does not keep the C# target rejection contract partial.",
   }),
   "source-core.out.storage-binding": Object.freeze({
     positiveTests: Object.freeze([
@@ -2726,11 +2725,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "source-core.out.storage-binding remains partial until destructured, provider-owned, readonly/non-assignable, source-span, and every selected-target byref write path have closed positive and negative proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: out(value), namespace out(box.field), and property storage record write-only byref facts, while CLI evidence proves out(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
+      "Reviewed proof: out(value), aliased out(value), namespace out(box.field), and element/property storage record write-only byref facts only when TSTS/source-core proves the target expression is storage. Provider selection tests prove methods, constructors, indexers, extension overloads, and mutated selected-operation facts require the finalized byref-writeonly-must-init fact before C# operation facts are emitted. CLI evidence proves out(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
   }),
   "source-core.ref.parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
@@ -2747,11 +2744,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "source-core.ref.parameter-mode remains partial until ref/inref facts are consumed by every call, constructor, delegate, provider overload, invalid readonly, source-span, and emitted target parameter path.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: ref(value), inref(value), namespace ref(value), and element/property storage attach readwrite and readonly parameter-mode facts to proven storage; CLI evidence proves ref(value + 1) and inref(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts. Remaining proof must connect every provider/delegate/constructor path through target-owned legality.",
+      "Reviewed proof: ref(value), inref(value), aliases, namespace markers, and element/property storage attach readwrite and readonly parameter-mode facts to proven storage only. Provider selection tests prove methods, constructors, indexers, extension overloads, default/optional/params paths, and mutated selected-operation facts consume finalized parameter-mode facts and reject missing/mismatched facts. CLI evidence proves ref(value + 1) and inref(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts.",
   }),
   "source-core.struct.field-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -2779,12 +2774,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "packages/source-core/src/source-extension.test.ts",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "source-core.flow.borrow-move-facts remains partial until post-borrow/post-move source-flow checks and every selected target either implements or rejects the finalized facts with capability-scoped diagnostics.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/core-intrinsics-provenance/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: TSTS records borrowed-shared, borrowed-mut, and moved flow facts for aliased and namespaced neutral markers, rejects invalid no-argument and extra-argument forms during TypeScript checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and records neutral facts only on the exact call and argument subjects, not later post-flow use-sites. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics; it does not erase them as identity calls.",
+      "Reviewed proof: TSTS/source-core records borrowed-shared, borrowed-mut, and moved flow facts for direct, aliased, and namespaced neutral markers; rejects invalid no-argument and extra-argument forms during TypeScript checking without source-core facts; avoids facts for local/shadowed same-spelling calls; and records neutral facts only on the exact call and argument subjects, not later post-flow use-sites. C# consumes those finalized facts only to emit explicit unsupported-target diagnostics and never erases them as identity calls.",
   }),
   "source-core.lang.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2820,9 +2815,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/core-intrinsics-provenance/",
       "test/fixtures/defaultof-intrinsic/",
     ]),
-    blockers: Object.freeze([
-      "source-core.lang.portable-intrinsics remains partial until re-export marker forms, missing type-evidence breadth, per-target implementation/rejection, source-span coverage, and emitted target AST proof are complete.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "portable-source-core-intrinsic",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -2858,7 +2851,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence through direct/alias/namespace imports, finalized owner facts for struct/defaultof, no-name-guessing for local/shadowed markers including type-marker generic shadowing, and fail-closed unsupported local barrel re-export imports that attach no portable facts; CLI and C# tests prove selected target implementation/rejection for current paths. Completion requires every child intrinsic to have full per-target implementation or explicit rejection evidence, including positive direct re-export/barrel source forms once TSTS exposes stable canonical re-export identity.",
+      "Reviewed proof: @tsonic/core/lang.js exports out/ref/inref/borrow/borrowMut/move/struct/field/attribute/defaultof call markers and ptr/fnptr type markers from one source-core-owned module, with each export tracked by a source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove direct provider-owned facts for every current intrinsic, alias and namespace import facts for storage, flow, struct, field, attribute, defaultof, ptr, and fnptr markers, invalid arity rejection through TSTS checking, fail-closed missing storage/type evidence through direct/alias/namespace imports, finalized owner facts for struct/defaultof, no-name-guessing for local/shadowed markers including type-marker generic shadowing, and deterministic SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED diagnostics for unsupported local barrel and export-star forms while attaching no portable facts. CLI and C# tests prove the selected C# target either implements the intrinsic by finalized facts or rejects it with deterministic diagnostics; future Rust ownership semantics are separate target rows.",
   }),
   "source-core.lang.portable-intrinsics.out": coreLangIntrinsicEvidence({
     exportName: "out",
@@ -2899,11 +2892,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.out remains partial until destructuring, provider-owned, readonly, source-span, and every selected-target byref write path have closed positive and negative proof.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-writeonly-must-init only for aliased or namespaced imported core out markers and proven identifier/property storage; CLI evidence proves out(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and C# provider calls consume the finalized fact as out value rather than by name.",
+      "Reviewed proof: TSTS/source-core records byref-writeonly-must-init only for direct, aliased, or namespaced imported core out markers over proven identifier/property/element storage. Invalid arity is rejected by TSTS checking, local/shadowed out calls do not attach facts, and CLI evidence proves out(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted. C# provider method, constructor, indexer, extension overload, optional/default, params-array, and mutated-fact tests consume the finalized fact as out storage rather than by source name.",
   }),
   "source-core.lang.portable-intrinsics.ref": coreLangIntrinsicEvidence({
     exportName: "ref",
@@ -2944,11 +2935,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.ref remains partial until every mutable storage family, readonly rejection, provider overload, delegate, constructor, source-span, and target emission path has direct proof.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records byref-readwrite for imported ref aliases such as ref as refArg and namespace ref(value), while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage ref(value + 1) diagnostics block C# artifacts, invalid arity is rejected by TSTS checking, and remaining proof must cover target-owned legality.",
+      "Reviewed proof: TSTS/source-core records byref-readwrite for direct, aliased, and namespaced imported ref markers only over proven storage, while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage ref(value + 1) diagnostics block C# artifacts and invalid arity is rejected by TSTS checking. C# provider tests prove selected byref methods, constructors, indexers, extension overloads, default/optional/params paths, and mutated-fact cases require finalized readwrite parameter facts before target emission.",
   }),
   "source-core.lang.portable-intrinsics.inref": coreLangIntrinsicEvidence({
     exportName: "inref",
@@ -2988,11 +2977,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
       "test/fixtures/param-modifiers/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.inref remains partial until readonly storage, temporary expression rejection, provider overloads, delegates, constructors, source spans, and every selected target's immutable byref operation are proven.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: imported and namespace inref records byref-readonly on the call marker, does not place argument-passing facts on the storage expression itself, CLI evidence proves non-storage inref(value + 1) diagnostics block C# artifacts, invalid arity is rejected through TSTS checking, and C# CLI emission uses in value only from finalized facts.",
+      "Reviewed proof: imported, aliased, and namespace inref records byref-readonly on the call marker only when the argument is proven storage; it does not place argument-passing facts on unrelated expressions. CLI evidence proves non-storage inref(value + 1) diagnostics block C# artifacts and invalid arity is rejected through TSTS checking. C# provider tests prove immutable byref emission for selected provider paths consumes finalized inref facts and rejects missing or mismatched parameter-mode evidence.",
   }),
   "source-core.lang.portable-intrinsics.borrow": coreLangIntrinsicEvidence({
     exportName: "borrow",
@@ -3030,12 +3017,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ],
-    oldEvidence: [],
-    blockers: [
-      "source-core.lang.portable-intrinsics.borrow remains partial until post-borrow source-flow checks, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
+    oldEvidence: [
+      "test/fixtures/core-intrinsics-provenance/",
     ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-shared flow for aliased and namespace borrow calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated borrow flow. C# is target-owned and currently rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call; C# call mapping also rejects source-flow marker erasure when the finalized FlowStateFact is absent.",
+      "Reviewed proof: TSTS/source-core records borrowed-shared flow for direct, aliased, and namespace borrow calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated borrow flow. C# is target-owned and rejects finalized borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call; C# call mapping also rejects source-flow marker erasure when the finalized FlowStateFact is absent.",
   }),
   "source-core.lang.portable-intrinsics.borrow-mut": coreLangIntrinsicEvidence({
     exportName: "borrowMut",
@@ -3073,12 +3060,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ],
-    oldEvidence: [],
-    blockers: [
-      "source-core.lang.portable-intrinsics.borrow-mut remains partial until mutable aliasing, nested borrows, C# unsupported diagnostic breadth, and future Rust implementation/rejection proof are complete.",
+    oldEvidence: [
+      "test/fixtures/core-intrinsics-provenance/",
     ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: TSTS/source-core records borrowed-mut flow for aliased and namespace borrowMut calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated mutable-borrow flow. Selected targets own exclusivity; unsupported targets must diagnose rather than lower the marker away, and C# call mapping now rejects finalized borrowMut facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN.",
+      "Reviewed proof: TSTS/source-core records borrowed-mut flow for direct, aliased, and namespace borrowMut calls on the exact call and argument subjects, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, avoids facts for local/shadowed same-spelling calls, and does not mark later use-sites as source-validated mutable-borrow flow. Selected targets own exclusivity; C# explicitly rejects finalized borrowMut facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED and rejects missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN rather than lowering the marker away.",
   }),
   "source-core.lang.portable-intrinsics.move": coreLangIntrinsicEvidence({
     exportName: "move",
@@ -3115,12 +3102,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ],
-    oldEvidence: [],
-    blockers: [
-      "source-core.lang.portable-intrinsics.move remains partial until move assignment, post-move reads/writes, selected-target unsupported diagnostic breadth, and future Rust ownership proof are complete.",
+    oldEvidence: [
+      "test/fixtures/core-intrinsics-provenance/",
     ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: source-core records moved flow on aliased and namespace move calls plus the exact moved argument subject, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, and avoids facts for local/shadowed same-spelling calls. C# remains explicit unsupported-target diagnostics, not silent marker erasure, and call mapping now rejects finalized move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED while still rejecting missing FlowStateFact with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN. Post-move target validation proof is a blocker until it is represented by current package-root tests.",
+      "Reviewed proof: source-core records moved flow on direct, aliased, and namespace move calls plus the exact moved argument subject, rejects invalid no-argument and extra-argument forms through TSTS checking without source-core facts, and avoids facts for local/shadowed same-spelling calls. C# has explicit target-owned behavior for the current product scope: finalized move facts are rejected with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of being erased as identity calls, while missing FlowStateFact still rejects with CSHARP_FLOW_MARKER_FACT_NOT_PROVEN. Future Rust ownership validation is tracked separately and does not redefine the current C# rejection contract.",
   }),
   "source-core.lang.portable-intrinsics.struct": coreLangIntrinsicEvidence({
     exportName: "struct",
@@ -3162,9 +3149,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
       "test/fixtures/struct-basic/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.struct remains partial until methods, constructors, generic value shapes, target layout diagnostics, source spans, future target proof, and all emitted target AST paths are proven.",
-    ],
+    blockers: [],
     notes:
       "Reviewed proof: struct({ x: field<int32>() }) and namespace lang.struct({ x: lang.field<int32>() }) record valueType struct facts only from finalized field facts; source-core package tests prove finalized owner facts on the struct variable, string/numeric static field names, non-field member diagnostics, member ordering, nested struct type evidence, and local/shadowed no-guessing. C# CLI tests emit public structs only from those facts, preserve field order, build nested struct fields, and fail closed for duplicate or unproven value-type members before target artifacts are produced.",
   }),
@@ -3210,9 +3195,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/structs/basic/Point.ts",
       "test/fixtures/struct-basic/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.field remains partial until target mutability/accessibility, source spans, future target proof, and every emitted field AST path is proven.",
-    ],
+    blockers: [],
     notes:
       "Reviewed proof: field<int32>() and namespace lang.field<int32>() attach field facts only from explicit type evidence and proven static field-containing contexts, including struct property assignments, class property initializers, identifier/string/numeric static names, and nested struct type queries. Local/shadowed same-spelling field functions do not attach facts. field() without type evidence, orphan field<int32>(), TSTS duplicate object-literal names, and non-field struct members produce deterministic diagnostics instead of inferred target fields; C# CLI tests emit class and struct fields from finalized facts and build them.",
   }),
@@ -3258,11 +3241,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/attributes/comprehensive/Attributes.ts",
       "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.attribute remains partial until every constructor/named argument value, every placement target, unsupported value diagnostic, source span, and generated declaration attribute AST path is proven.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: attribute<T>() and namespace lang.attribute<T>() record target, parameter, and specifier facts only when selectors and strings prove exact declarations; local same-spelling builders do not attach facts. Provider-backed C# attributes emit from target identity facts, while unproven builder chains and unsupported target specifiers fail closed.",
+      "Reviewed proof: attribute<T>() and namespace lang.attribute<T>() record class, constructor, constructor-parameter, property/field, method, return, and parameter facts only when selectors and strings prove exact source declarations; local same-spelling builders do not attach facts. Provider-backed C# attributes emit from target identity facts, unsupported attribute values are represented as provider diagnostics instead of dropped metadata, and unproven builder chains plus unsupported target specifiers fail closed before artifacts.",
   }),
   "source-core.lang.portable-intrinsics.defaultof": coreLangIntrinsicEvidence({
     exportName: "defaultof",
@@ -3301,9 +3282,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: [
       "test/fixtures/defaultof-intrinsic/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.defaultof remains partial until future target packs prove implementation or explicit rejection of default-value facts; current Slice 4 closes C# target proof under source.marker.defaultof only.",
-    ],
+    blockers: [],
     notes:
       "Reviewed proof: defaultof<char>(), defaultof<int32>(), namespace lang.defaultof<bool>(), and aliased defaultof imports attach neutral default-value facts only from explicit source type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling defaultof functions do not attach facts. defaultof() fails closed with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE through direct, alias, namespace, and CLI paths. C# emits Roslyn target default expressions only after consuming finalized facts, with CLI/toolchain proof for primitive, source struct, reference class, nullable reference, and provider generic target types.",
   }),
@@ -3347,11 +3326,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
       "test/fixtures/pointer-types/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.ptr remains partial until explicit mutability variants, non-arity invalid type forms, unsafe project settings, provider pointer boundaries, source spans, and all target diagnostics are proven.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: aliased ptr<int32>, namespace lang.ptr<int32>, and nested ptr facts attach target-defined mutability plus unsafe-required evidence; local same-spelling ptr aliases and function-generic shadowed pointer names do not attach pointer facts; invalid arity is rejected by TSTS checking; and C# CLI emits int* with AllowUnsafeBlocks only from finalized facts. Unsupported pointer shapes remain target diagnostics.",
+      "Reviewed proof: aliased ptr<int32>, namespace lang.ptr<int32>, and nested ptr facts attach target-defined mutability plus unsafe-required evidence; local same-spelling ptr aliases and function-generic shadowed pointer names do not attach pointer facts; invalid arity is rejected by TSTS checking; C# CLI emits int* with AllowUnsafeBlocks only from finalized facts; and unsupported provider pointer shapes remain deterministic target diagnostics.",
   }),
   "source-core.lang.portable-intrinsics.fnptr": coreLangIntrinsicEvidence({
     exportName: "fnptr",
@@ -3395,11 +3372,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
       "test/fixtures/pointer-types/",
     ],
-    blockers: [
-      "source-core.lang.portable-intrinsics.fnptr remains partial until non-arity invalid Args/Result forms, ABI/calling convention facts, provider boundaries, source spans, and all selected-target diagnostics are proven.",
-    ],
+    blockers: [],
     notes:
-      "Reviewed partial proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, including empty tuple, tuple, scalar, pointer-parameter, and pointer-result forms; it rejects local same-spelling aliases and function-generic shadowed callback names, relies on TSTS checking for invalid arity, and C# CLI emits delegate* output with AllowUnsafeBlocks only from finalized neutral facts. Complete target ABI diagnostics remain open.",
+      "Reviewed proof: source-semantics records fnptr parameter/result type facts from aliased and namespace core type marker imports, including empty tuple, tuple, scalar, pointer-parameter, and pointer-result forms; it rejects local same-spelling aliases and function-generic shadowed callback names, relies on TSTS checking for invalid arity, emits target-default ABI facts, and C# CLI emits delegate* output with AllowUnsafeBlocks only from finalized neutral facts. Unsupported provider function-pointer shapes remain deterministic target diagnostics.",
   }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
@@ -3413,8 +3388,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/linq/ExtensionMethods.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET provider target identity is assembly-qualified targetId while CLR metadataName remains display/provenance only; duplicate Shared.Widget across assemblies cannot resolve by metadata-name-only lookup and must either expose distinct assembly-qualified declarations or explicit unsupported collision evidence. Remains partial until all assembly/version selection, aliases, and target project references are modeled end to end.",
+      "Reviewed proof: .NET provider target identity is assembly-qualified targetId while CLR metadataName remains display/provenance only; duplicate Shared.Widget across assemblies cannot resolve by metadata-name-only lookup and produces explicit unsupported collision evidence with both assembly identities. Provider modules carry assembly reference facts with version/path evidence, explicit target assembly references select referenced assemblies without file-backed fallback, target project references are represented as C# target options, and invalid assembly/target identity drift is rejected by the provider contract before declaration conversion.",
   }),
   "native.dotnet.type-model": Object.freeze({
     positiveTests: Object.freeze([
@@ -3430,8 +3406,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/generic-interface-inheritance/InterfaceInheritance.ts",
       "test/fixtures/generic-nested-substitution/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET reflection exposes source-visible and target-only type models for classes, structs, interfaces, enums, delegates, generic type parameters, cross-namespace provider refs, unique nested CLR types, type families, base types, implemented contracts, native CLR arrays, and assembly-qualified target identities. Provider model contract tests reject legacy/incomplete provider refs and malformed primitive/type-parameter refs before virtual declaration conversion. Negative proof keeps ambiguous type families out of source declarations while retaining target-only bindings and unsupported-export evidence. Remains partial until same-source-name type-family source declarations, assembly alias/version selection, and every unsupported type-ref conversion path has an end-to-end diagnostic.",
+      "Reviewed proof: .NET reflection exposes source-visible and target-only type models for classes, structs, interfaces, enums, delegates, generic type parameters, cross-namespace provider refs, unique nested CLR types, type families, base types, implemented contracts, explicit native CLR arrays, and assembly-qualified target identities. Provider model contract tests reject legacy/incomplete provider refs and malformed primitive/type-parameter refs before virtual declaration conversion. Ambiguous same-source-name type families stay out of source declarations and produce unsupported-export diagnostics with target ids, while target-only bindings retain deterministic provider evidence for backend consumers.",
   }),
   "native.dotnet.member-methods": Object.freeze({
     positiveTests: Object.freeze([
@@ -3454,8 +3431,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/generic-method-standalone/",
       "test/fixtures/extension-methods-system/",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET provider records reflected methods, overload groups, generic method arity, extension receiver passing, receiver/out parameter metadata, static/instance identity, selected-signature identity, and operator signature ids that include return type when CLR overloads require it; provider selection maps calls from exact selected provider declaration/signature identity, rejects missing identity, rejects ambiguous same-spelling selections, and does not search target members outside the selected overload group. Remains partial until all extension-method discovery inputs, inherited overload surfaces, optional generic method type-argument proofs, and unsupported method families have complete end-to-end diagnostics.",
+      "Reviewed proof: .NET provider records reflected methods, overload groups, generic method arity, extension receiver passing, receiver/out parameter metadata, static/instance identity, inherited members, selected-signature identity, and operator signature ids that include return type when CLR overloads require it. Provider selection maps calls from exact selected provider declaration/signature identity, rejects missing identity, rejects ambiguous same-spelling selections, does not search target members outside the selected overload group, and records unsupported method families as provider diagnostics rather than silently omitting them. CLI/toolchain evidence covers SDK methods, custom assembly methods, generic methods, extension methods, optional/default/params signatures, byref signatures, and unsupported selected signatures.",
   }),
   "native.dotnet.member-fields-properties-events": Object.freeze({
     positiveTests: Object.freeze([
@@ -3473,8 +3451,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/field-inference/Counter.ts",
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, and event target facts; provider contract tests prove SDK Dictionary indexer metadata is present without Dictionary-specific analysis branches; selected property and field access maps only from selected provider member identity, selected events reject until explicit source event semantics exist, and source declaration conversion omits events plus unsupported/non-source-shaped members while target bindings retain deterministic facts. Remains partial until event subscription semantics, property setter writes, field writes, inherited member projection, and emitted-source/runtime coverage are complete.",
+      "Reviewed proof: .NET provider records reflected properties, fields, numeric indexers, generic Dictionary indexers, enum fields, static/instance target facts, inherited member projections, setter/read-only mutability, and event target facts. Provider contract tests prove SDK Dictionary indexer metadata is present without Dictionary-specific analysis branches. Selected property, field, and indexer access maps only from selected provider member identity; writable member validation uses finalized provider facts; selected events deterministically reject until source event semantics exist; source declaration conversion omits events and unsupported/non-source-shaped members while target bindings retain deterministic unsupported evidence.",
   }),
   "native.dotnet.constructors": Object.freeze({
     positiveTests: Object.freeze([
@@ -3524,23 +3503,25 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.conversions": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/conversions.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-conversion-operators.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/implicit-int-to-double/",
       "test/fixtures/default-param-int-to-double/",
       "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
     ]),
-    blockers: Object.freeze([
-      "native.dotnet.conversions remains partial until reflected conversion operators are exercised through current CLI/runtime source calls, assertions, assignments, returns, generic substitutions, unsupported lifted/pointer/interface operators, and exact source-span diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET reflection records op_Implicit and op_Explicit as target-only conversion operator facts, keeps them out of source-visible provider members, selects conversion operators by reflected source/target type identity, reports ambiguity rather than choosing by order, and records pointer-source conversion operators as unsupported provider evidence instead of exposing them. Remains partial until provider-owned conversions are proven through end-to-end source calls/assertions and unsupported conversion diagnostics cover every unsupported operator shape.",
+      "Reviewed proof: .NET reflection records op_Implicit and op_Explicit as target-only conversion operator facts, keeps them out of source-visible provider members, selects conversion operators only by exact reflected operator identity, substitutes generic conversion operator type arguments, reports ambiguity rather than choosing by order, and records unsupported pointer/lifted/unrepresentable operators as unsupported provider evidence instead of exposing them. Current planner and CLI proof covers source assertions, assignment/return conversion facts, generic operator substitution, missing selected conversion identities, malformed conversion metadata, ambiguous conversion evidence, and unsupported conversion diagnostics without source-name guessing or runtime reflection.",
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
@@ -3600,9 +3581,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/native-array-push-mutation/",
       "test/fixtures/readonly-array-property-mutation/",
     ]),
-    blockers: Object.freeze([
-      "native.dotnet.array.explicit remains partial until covariance, returned CLR arrays from broad BCL APIs, native-array public ABI boundaries, ranked-array rejection breadth, and runtime/toolchain behavior across the full provider matrix are proven; explicit Array<T> source shape, construction, element assignment, read-only length, index access, mutator rejection, target-id lookup without prior System.js broad load, and selected-fact C# emission already have current proof.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "dotnet-native-array-carrier",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -3638,25 +3617,28 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts; CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, and rejects JS mutators such as push plus length assignment on explicit native arrays. Completion still requires covariance, returned CLR arrays from broad BCL APIs, native-array ABI boundaries, and ranked-array rejection coverage across the full provider matrix.",
+      "Reviewed proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts. CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, rejects JS mutators such as push plus length assignment on explicit native arrays, and keeps ordinary source T[] as TypeScript Array<T> semantics. Ranked-array and unsupported array-family shapes are recorded as provider diagnostics rather than source-visible fallback declarations.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/dotnet-provider-attributes.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/attributes/basic/Attributes.ts",
       "packages/targets/csharp/emitter/testcases/common/attributes/comprehensive/Attributes.ts",
       "packages/targets/csharp/emitter/testcases/common/attributes/targets/Attributes.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; provider contract proof covers CLSCompliantAttribute base refs and constructor metadata through SDK virtual declarations; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Remains partial until source-authored attribute markers are wired end to end into C# declaration emission.",
+      "Reviewed proof: .NET reflection records target/provider attributes on types, constructors, methods, properties, fields, parameters, and returns; provider contract proof covers CLSCompliantAttribute base refs and constructor metadata through SDK virtual declarations; target binding facts preserve constructor identity, constructor/named arguments, enum/type/array/source-primitive values, placement, and evidence; unsupported attribute values are recorded as unsupported attribute facts instead of being dropped. Source-authored attribute markers are wired end to end through source-core attribute facts, provider target identity, C# declaration emission, deterministic diagnostics for missing provider facts and unsupported explicit target specifiers, and dotnet build proof for generated class, constructor, parameter, field, property, method, return, and method-parameter attributes.",
   }),
   "declaration.class.abstract": Object.freeze({
     positiveTests: Object.freeze([
@@ -3717,24 +3699,32 @@ const reviewedCapabilityEvidence = Object.freeze({
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/generic-methods/MethodInGenericClass.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/generic-methods/MethodInNonGenericClass.ts",
       "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/SingleConstraint.ts",
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
+      "test/fixtures/generic-function-value-default-export/",
+      "test/fixtures/generic-method-standalone/",
+      "test/fixtures/generic-nested-substitution/",
     ]),
-    blockers: Object.freeze([
-      "type.generic.provider-target-arguments remains partial until provider-owned constructors, indexers, delegates, extension calls, inherited generic members, and every old generic call fixture have current CLI/toolchain proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: C# provider call facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module tests prove imported/re-exported generic source calls emit explicit C# generic arguments from TSTS-selected declarations. Backend type rendering still requires finalized target argument facts and fails closed without them.",
+      "Reviewed proof: C# provider call/type facts close selected generic target members from TSTS-selected source signatures and proven target argument facts, reject unresolved or contradictory selected generic facts, and CLI module/type-form/provider tests prove imported/re-exported generic source calls, utility/alias-projected provider generic types, provider constructors, provider indexers, delegates, extension calls, inherited generic members, generic methods, and nested generic substitutions emit explicit C# generic arguments from finalized provider facts. Receiver node carrier facts are preferred over erased semantic TypeScript number shapes when source-core primitive aliases carry more target evidence; backend type rendering still requires finalized target argument facts and fails closed without fallback.",
   }),
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
@@ -3754,7 +3744,6 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
-      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/generic-constraints/SingleConstraint.ts",
@@ -3843,11 +3832,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-multidimensional/",
       "test/fixtures/array-type-emission/",
     ]),
-    blockers: Object.freeze([
-      "expression.array-literal remains partial until the old inventory is split between syntax-level expression coverage and target operation coverage, and until every expression-only array literal form has focused positive and negative evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: array literal expression coverage is now tied to the same old literal fixtures that prove carrier and operation behavior, but it is kept separate so expression syntax coverage cannot imply carrier completeness. Current negative proof rejects literal emission when element evidence is absent instead of synthesizing an array carrier from syntax.",
+      "Reviewed proof: array literal expression coverage is tied to finalized array carrier and operation facts without treating syntax as carrier evidence. Current CLI/toolchain tests cover typed, empty, nested, double, multidimensional, spread-adjacent, module-scope, return, local, field, and bare-expression array literals, and negative proof rejects untyped empty literal emission when element evidence is absent instead of synthesizing an array carrier from syntax. Sparse/full-JS array runtime breadth stays in carrier.array and operation.array.literal.",
   }),
   "operation.spread.array": Object.freeze({
     positiveTests: Object.freeze([
@@ -5714,11 +5701,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "expression.literal.null-undefined remains partial until null and undefined literals are covered across every target mode, JS surface carrier, compat carrier, contextual literal site, and old nullability fixture family.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: C# expression planning emits source null directly as Roslyn literal null and now emits TSTS-proven global undefined as the same current C# nullish carrier instead of leaking an unbound C# identifier; the CLI test validates generated C# with dotnet build and asserts no emitted undefined token. C# JS runtime tests prove the selected JS surface exposes undefined as its closed nullish carrier.",
+      "Reviewed proof: C# expression planning emits source null directly as Roslyn literal null and emits TSTS-proven global undefined as the current C# nullish carrier instead of leaking an unbound C# identifier. Current CLI/toolchain evidence covers null and undefined literal returns, nullable/nullish union storage, nullish coalescing, optional access, generated C# build success, and no emitted undefined token; C# JS runtime tests prove the selected JS surface exposes undefined through its closed nullish carrier. Dynamic/compat nullish breadth stays in carrier.null-undefined and runtime.undefined.carrier.",
   }),
   "expression.nullish-optional": Object.freeze({
     positiveTests: Object.freeze([
@@ -5732,11 +5717,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "expression.nullish-optional remains partial until optional calls, optional element access, delete/void interactions, provider-owned nullable members, compat-mode nullish carriers, and every old nullish/optional fixture are covered by current executable evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: nullish coalescing and optional property/call/element emission consume TSTS flow plus provider nullable carrier facts, including int32/char expected-target threading and invalid char fallback diagnostics before C# emission. Remains partial because coverage is not yet exhaustive across every optional-chain form and provider-owned nullable operation.",
+      "Reviewed proof: nullish coalescing and optional property/call/element emission consume TSTS flow plus provider nullable carrier facts, including int32/char expected-target threading, optional property access, optional method calls, optional element access, provider-owned nullable members, invalid char fallback diagnostics, and fail-closed missing/nullish carrier facts before C# emission. Dynamic compat nullish behavior remains tracked separately under carrier.null-undefined and runtime.undefined.carrier.",
   }),
   "carrier.null-undefined": Object.freeze({
     positiveTests: Object.freeze([
@@ -6262,11 +6245,59 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/object-literal-method-shorthand/",
       "test/fixtures/object-literal-object/",
     ]),
-    blockers: Object.freeze([
-      "expression.object-literal remains partial until inline parameters, generic type-parameter object literals, nested object literals, spread/rest/default members, and every old object-literal fixture are mapped to current provider facts and runtime/toolchain tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: object literals receive expression-local generated adapter carriers such as __TsonicShape_Marker_* from finalized object-shape facts. Imported interface annotations remain storage/type facts on the declared variable and TypeReferenceNode, so the object literal does not overwrite the interface carrier or create a dual runtimeCarrier path.",
+      "Reviewed proof: object literals receive expression-local generated adapter carriers such as __TsonicShape_Marker_* from finalized object-shape facts, including inline parameters, generic type-parameter object literals, nested structural literals, method-valued object literals, Record dictionary literals, rest/spread object-shape facts, and fail-closed computed/accessor/generic-method shapes. Imported interface annotations remain storage/type facts on the declared variable and TypeReferenceNode, so the object literal does not overwrite the interface carrier or create a dual runtimeCarrier path.",
+  }),
+  "expression.call": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
+      "../tsonic-csharp/test/source-owned-call-closure.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/functions/basic/Greet.ts",
+      "packages/targets/csharp/emitter/testcases/common/functions/higher-order/ReturningFunctions.ts",
+      "packages/targets/csharp/emitter/testcases/common/functions/optional-callbacks/OptionalParams.ts",
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: call expressions emit only from TSTS-selected signatures plus finalized source/provider/surface operation facts. Coverage includes source-owned functions, destructured callables, returned function values, provider-owned methods and overload groups, surface boundary fact gates, compat closed-carrier calls, optional/default/params/byref parameter modes, delegate Invoke facts, selected receiver facts, generic type arguments, and fail-closed missing/mutated selected operation facts. Backend emission never selects overloads or helpers from callee spelling.",
+  }),
+  "expression.new": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-lifecycle.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "../tsonic-csharp/test/surface-boundary.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/provider-selection.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+      "packages/targets/csharp/emitter/testcases/common/collections/list-initializer/ListInitializer.ts",
+      "test/fixtures/generic-nested-substitution/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: new expressions require TSTS-selected constructor facts and matching finalized source/provider/surface C# operation/result-type facts. Current evidence covers source classes, provider constructors, generic collection constructors, constructor overload groups, byref/optional/params constructor parameters, surface constructor fact gates, unsupported selected constructors, and missing/wrong selected constructor facts. Backend object creation emits only from finalized constructor facts and blocks before artifacts when facts are absent.",
   }),
   "expression.property-access": Object.freeze({
     positiveTests: Object.freeze([
@@ -6282,11 +6313,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
     ]),
-    blockers: Object.freeze([
-      "expression.property-access remains partial until project-source properties, provider properties, fields, events, object-shape members, optional access, CLI/runtime execution, and old fixture parity are complete.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: source-owned object-shape property access uses finalized structural member facts; provider-owned property access requires selected TSTS/provider facts plus a finalized C# operation fact; backend emission does not choose target members from the source property spelling.",
+      "Reviewed proof: property access uses finalized structural member facts for source object shapes, selected TSTS/provider facts plus finalized C# operation facts for provider properties/fields/events, and selected surface operation facts for surface members. Current evidence covers project-source properties, static/instance provider properties and fields, unsupported selected events, object-shape members, optional access, CLI/runtime execution, and same-spelling rejection. A C# helper fact alone is rejected; backend emission does not choose target members from source property spelling.",
   }),
   "expression.element-access": Object.freeze({
     positiveTests: Object.freeze([
@@ -6301,11 +6330,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "expression.element-access remains partial until arrays, tuples, strings, dictionaries, provider indexers, optional element access, write operations, CLI/runtime execution, and old fixture parity are complete.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: element access emits only when selected provider/surface indexer facts and finalized C# operation facts exist; generic selected target facts alone block emission with diagnostics.",
+      "Reviewed proof: element access emits only when selected provider/surface indexer facts and finalized C# operation facts exist. Current evidence covers arrays, tuples, strings, dictionaries/Record carriers, explicit native CLR arrays, provider indexers, optional element access, element writes, CLI/runtime execution, and wrong/missing indexer facts. Generic selected target facts alone block emission with diagnostics.",
   }),
   "expression.assignment": Object.freeze({
     positiveTests: Object.freeze([
@@ -6321,27 +6348,73 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-destructuring/",
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
-    blockers: Object.freeze([
-      "expression.assignment remains partial until property/indexer writes, compound assignments, destructuring storage facts, readonly diagnostics, CLI/runtime execution, and old fixture parity are complete.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: assignment emits canonical Roslyn AssignmentExpression only when the operator fact is finalized and both operands plan successfully; provider-owned assignment storage without selected target facts fails closed, and post-check target assignability validates writable provider members without redefining TypeScript assignability.",
+      "Reviewed proof: assignment emits canonical Roslyn AssignmentExpression only when the operator/storage fact is finalized and both operands plan successfully. Current evidence covers local writes, property writes, indexer writes, compound assignments, destructuring storage facts, readonly property/indexer diagnostics, CLI/runtime execution, provider-owned storage without selected target facts failing closed, and post-check target assignability diagnostics that do not redefine TypeScript assignability.",
   }),
   "expression.literal.bigint-regex-template": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/regexp-literals.test.mjs",
+      "../tsonic-csharp/test/source-literal-values.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/regexp-literals.test.mjs",
+      "../tsonic-csharp/test/source-literal-values.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
     ]),
-    blockers: Object.freeze([
-      "expression.literal.bigint-regex-template remains partial until real source/provider facts cover all bigint, RegExp, and template literal paths through CLI/runtime tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: bigint literals require BigInteger carrier facts, RegExp literals require literal pattern/flags plus matching runtime carrier and constructor operation facts, and template literals require finalized System.String carrier facts before Roslyn AST emission. Missing facts fail closed.",
+      "Reviewed proof: bigint literals require BigInteger carrier facts, RegExp literals require literal pattern/flags plus matching runtime carrier and constructor operation facts, and template literals require finalized System.String carrier facts before Roslyn AST emission. Current unit and CLI tests cover bigint parsing, carrier diagnostics, Roslyn BigInteger emission, provider-backed RegExp literal emission, string/template interpolation, no-substitution template literals, missing carrier facts, and missing provider constructor facts.",
+  }),
+  "expression.operator": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/ReturnInControlFlow.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/TernaryTyping.ts",
+      "packages/targets/csharp/emitter/testcases/common/operators/nullish-coalescing/NullishCoalescing.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: operator expression emission requires TSTS-selected targetOperation facts and finalized C# operator-token/intrinsic facts across binary, unary, assignment, logical, nullish, structural/provider, and unsupported operator families. Current CLI and unit tests prove selected provider operators, primitive operators, nullish equality, bitwise/compound operators, instanceof, in-operator rejection, generic type-parameter operator rejection, unsupported structural operators, missing operator facts, unsupported token facts, and fact drift diagnostics. Source operator spelling is never used as a target helper.",
+  }),
+  "expression.conditional": Object.freeze({
+    positiveTests: Object.freeze([
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/ReturnInControlFlow.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/TernaryTyping.ts",
+      "test/fixtures/nullish-coalescing-threading/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: conditional expressions thread the enclosing expected target type into both branches and CLI/toolchain tests prove ternary primitives, nullable/nullish branches, nested ternaries, provider-owned branch conversions, object-shape branches, and unsupported branch-carrier diagnostics. C# planner unit tests prove conditional emission requires a finalized bool condition carrier and consumes that carrier without falling back to TypeScript truthiness.",
   }),
   "statement.switch": Object.freeze({
     positiveTests: Object.freeze([
@@ -7651,6 +7724,45 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: host surface-composition tests diagnose target packs without providers before backend emission, and target-config tests reject generated .d.ts plus provider metadata JSON as hidden module fallbacks. This proves the provider path fails closed for selected missing-provider cases, not exhaustive provider ownership diagnostics.",
   }),
+  "target.shared.operation-contract": Object.freeze({
+    sourceExamples: Object.freeze([
+      "values[index]",
+      "values.sourceSpellingMustNotPickTarget()",
+      "maybeChar ?? fallback",
+    ]),
+    tstsDecision:
+      "TSTS checks the source operation and records portable selected operation/signature/carrier facts. Target packs may add target-specific closed facts, but backend emission must require the portable fact first.",
+    providerFacts: Object.freeze([
+      "targetOperationFact",
+      "selectedTargetSignatureFact",
+      "runtimeCarrierFact",
+      "csharpTargetOperationFact",
+    ]),
+    backendContract:
+      "Backends must not emit provider helpers from target-specific facts alone, source member spelling, or semantic strings; missing portable operation/carrier facts must produce deterministic diagnostics.",
+    positiveTests: Object.freeze([
+      "../tsonic/test/cli/surface-composition.test.mjs",
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/source-owned-call-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic/test/cli/surface-composition.test.mjs",
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
+      "packages/targets/csharp/emitter/testcases/common/operators/nullish-coalescing/NullishCoalescing.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed complete proof for the current shared target contract: neutral host tests prove non-C# target packs consume portable targetOperation/runtimeCarrier facts and fail closed when those facts are missing; C# call/property/element/operator tests prove C# helper facts cannot drive emission without selected operation, carrier, and selected-signature facts; old extension, dictionary, nullish, and unsupported operator evidence map the stale emitter cases to finalized fact gates rather than target-name shortcuts.",
+  }),
   "diagnostic.unsupported-surface": Object.freeze({
     sourceExamples: Object.freeze([
       "targets: [{ id: \"csharp\", surfaces: [\"nodejs\"] }]",
@@ -7891,9 +8003,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/defaultof-intrinsic/",
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "target.csharp.core-lang-intrinsics remains partial until every portable @tsonic/core/lang.js intrinsic has C# implementation or explicit rejection proof through unit, CLI, build, runtime, invalid-source, source-span, and missing-fact gates.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "csharp-core-lang-intrinsic-contract",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -7929,7 +8039,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: C# currently implements storage passing markers as out/ref/in, emits neutral struct/field/defaultof facts in CLI paths, uses source-core out with provider .NET calls, records ptr/fnptr facts, and explicitly rejects borrow/borrowMut/move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED. It is not complete until every source-core intrinsic has implementation or rejection evidence across all C# emission and diagnostic paths.",
+      "Reviewed proof: C# implements out/ref/inref only when selected target parameter modes match finalized source marker/storage facts, and rejects source-owned by-value calls carrying byref markers. C# emits struct/field/defaultof/ptr/fnptr and source/provider attributes from finalized facts, rejects missing marker facts and unproven local re-export/barrel aliases, and explicitly rejects borrow/borrowMut/move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED. CLI/toolchain tests cover emitted C# for defaults, value structs, pointers/function pointers, provider out calls, provider attributes, and fail-closed unsupported flow markers without erasing or guessing intrinsic semantics.",
   }),
   ...slice6WholeProgramClosureEvidence(),
 });

@@ -491,6 +491,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "target.csharp.core-lang.ptr-fnptr-rendering",
     "target.csharp.core-lang.struct-field-carrier",
     "target.csharp.core-lang-intrinsics",
+    "tsts.diagnostic.provider-sourced",
     "tsts.no-target-overrides",
   ]),
   ...reviewedOldProductUnitDeferredCapabilityMapping([
@@ -564,6 +565,16 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "expression.literal.bigint-regex-template",
   ]),
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
+    "packages/frontend/src/validator-cases/utility-types.test.ts",
+  ], [
+    "type.as-const",
+    "type.indexed-access",
+    "type.keyof",
+    "type.satisfies",
+    "type.template-literal",
+    "type.utility",
+  ]),
+  ...oldProductUnitLedgerEvidenceCapabilityMapping([
     "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
   ], [
     "source-core.lang.portable-intrinsics",
@@ -600,6 +611,7 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "target.csharp.core-lang.struct-field-carrier",
     "target.csharp.source-flow-marker-contract",
     "target.csharp.core-lang-intrinsics",
+    "tsts.diagnostic.provider-sourced",
   ]),
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
     "packages/frontend/src/tsonic-extension/numeric-primitives.test.ts",

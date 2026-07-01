@@ -18,6 +18,7 @@ import type {
 } from "./analysis/types.js";
 import type {
   TargetSelection,
+  TargetProviderPackageId,
   TargetSurfaceId,
   TsonicProjectConfig,
 } from "./config.js";
@@ -25,13 +26,29 @@ import type {
 export interface TargetProviderContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+}
+
+export interface TargetProviderModuleOwnership {
+  readonly specifierPrefix: string;
+  readonly providerId?: string;
+  readonly message?: string;
+}
+
+export interface TargetProviderPackageContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly targetPack: TargetPack;
+  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly package: TargetProviderPackageImplementation;
 }
 
 export interface TargetSurfaceExtensionContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
+  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly surface: TargetSurfaceImplementation;
 }
@@ -56,6 +73,7 @@ export interface TargetCompilationPaths {
 export interface TargetRuntimeContributionContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
 }
@@ -180,7 +198,17 @@ export interface TargetToolchain {
 export interface TargetProvider {
   readonly id: string;
   readonly displayName: string;
+  readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
   createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
+  runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
+}
+
+export interface TargetProviderPackageImplementation {
+  readonly id: TargetProviderPackageId;
+  readonly displayName: string;
+  readonly requiredPackages?: readonly TargetProviderPackageId[];
+  readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
+  createExtensions(context: TargetProviderPackageContext): readonly CompilerExtension[];
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
 
@@ -196,6 +224,7 @@ export interface TargetPack {
   readonly id: string;
   readonly displayName: string;
   readonly provider?: TargetProvider;
+  readonly packages?: readonly TargetProviderPackageImplementation[];
   readonly surfaces?: readonly TargetSurfaceImplementation[];
   createBackend(context: TargetBackendContext): TargetBackend;
   createToolchain(context: TargetToolchainContext): TargetToolchain;

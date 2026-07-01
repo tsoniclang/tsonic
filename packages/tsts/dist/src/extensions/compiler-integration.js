@@ -268,7 +268,7 @@ function getTargetParameter(parameter) {
     };
 }
 function getArgumentPassingMode(parameter) {
-    return "by-value";
+    return parameter.passingMode ?? "by-value";
 }
 function getTargetConstraint(type) {
     switch (type.kind) {

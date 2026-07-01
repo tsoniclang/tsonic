@@ -554,8 +554,8 @@ test("source-core records structural, attribute, and default facts from aliases 
   assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 2)), undefined);
 });
 
-test("source-core attaches no intrinsic facts through unsupported local barrel re-exports", () => {
-  const { session, sourceFile } = createCleanSourceCoreSession(`
+test("source-core rejects unsupported local barrel re-exports without attaching intrinsic facts", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
     import { out, ref, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from "./barrel.js";
     import type { ptr, fnptr } from "./barrel.js";
     import type { bool, int32 } from "@tsonic/core/types.js";
@@ -584,6 +584,15 @@ test("source-core attaches no intrinsic facts through unsupported local barrel r
     ].join("\n"),
   });
 
+  session.ensureBound();
+  const reexportDiagnostics = session.extensionHost?.diagnostics.all() ?? [];
+  assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
+  assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110, 9901110]);
+  assert.equal(reexportDiagnostics.every((diagnostic) => diagnostic.nodeOrSpan !== undefined), true);
+
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), undefined);
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), undefined);
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "inref")), undefined);
@@ -599,6 +608,66 @@ test("source-core attaches no intrinsic facts through unsupported local barrel r
   assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add")), undefined);
   assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
   assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+});
+
+test("source-core rejects renamed and namespace local barrels without preserving source-core identity", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { writeOut, CoreLang } from "./barrel.js";
+    import type { Pointer, Callback } from "./barrel.js";
+    import type { bool, int32 } from "@tsonic/core/types.js";
+
+    let value = 0;
+    writeOut(value);
+    CoreLang.out(value);
+    type ValuePointer = Pointer<int32>;
+    type ValueCallback = Callback<[int32], bool>;
+  `, {
+    "/src/barrel.ts": [
+      "export { out as writeOut } from '@tsonic/core/lang.js';",
+      "export type { ptr as Pointer, fnptr as Callback } from '@tsonic/core/lang.js';",
+      "export * as CoreLang from '@tsonic/core/lang.js';",
+    ].join("\n"),
+  });
+
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
+
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOut")), undefined);
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "CoreLang.out")), undefined);
+  const extensionHost = session.finalizeExtensions();
+  assert.ok(extensionHost !== undefined);
+  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "Pointer"), pointerFactKey), undefined);
+  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "Callback"), functionPointerFactKey), undefined);
+});
+
+test("source-core rejects unsupported export-star barrels for portable lang intrinsics", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    export * from "@tsonic/core/lang.js";
+  `);
+
+  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
+  assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
+});
+
+test("source-core rejects unsupported type-only barrels for portable type markers", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    export type { ptr, fnptr } from "@tsonic/core/lang.js";
+  `);
+
+  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
+  assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
+  session.ensureBound();
+  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+  ]);
 });
 
 test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {
@@ -709,13 +778,23 @@ test("source-core reports alias missing-evidence diagnostics without local or sh
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { out, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
+    import { inref, out, ref as passRef, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
     import type { ptr, fnptr } from "@tsonic/core/lang.js";
 
     let value = 1;
     out();
     out(value, value);
+    passRef();
+    passRef(value, value);
+    inref();
+    inref(value, value);
+    lang.out();
+    lang.out(value, value);
+    lang.ref();
+    lang.ref(value, value);
+    lang.inref();
+    lang.inref(value, value);
     shared();
     shared(value, value);
     mutable();
@@ -744,6 +823,16 @@ test("source-core virtual declarations leave invalid arity to TypeScript checkin
   session.ensureBound();
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 0), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "passRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "passRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "inref", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 0), argumentPassingFactKey), undefined);
+  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 0), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
   assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 0), flowStateFactKey), undefined);

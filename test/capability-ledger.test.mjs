@@ -395,7 +395,10 @@ test("core lang intrinsic child capabilities define portable source contracts", 
   for (const intrinsic of coreLangIntrinsicCoverage) {
     const entry = entriesByCapabilityId.get(intrinsic.capabilityId);
     assert.notEqual(entry, undefined, `missing core intrinsic capability ${intrinsic.capabilityId}`);
-    assert.equal(entry.status, "partial", `${intrinsic.capabilityId} must not be marked complete without full target proof`);
+    assert.ok(
+      entry.status === "partial" || entry.status === "complete",
+      `${intrinsic.capabilityId} must be partial or complete`,
+    );
     assert.equal(entry.owner, "source-core-provider", intrinsic.capabilityId);
     assert.equal(entry.coreIntrinsic.moduleSpecifier, coreLangIntrinsicModuleSpecifier, intrinsic.capabilityId);
     assert.equal(entry.coreIntrinsic.exportName, intrinsic.exportName, intrinsic.capabilityId);
@@ -411,7 +414,14 @@ test("core lang intrinsic child capabilities define portable source contracts", 
     assert.equal(entry.laneClassification.possibleLanes.includes("compat-runtime"), false, intrinsic.capabilityId);
     assert.equal(entry.laneClassification.hardReject.reasons.includes("unsupported-target-intrinsic"), true, intrinsic.capabilityId);
     assert.ok(entry.sourceExamples.join("\n").includes(intrinsic.exportName), `${intrinsic.capabilityId} examples must name the export`);
-    assert.ok(entry.blockers.length > 0, `${intrinsic.capabilityId} must keep explicit partial blockers`);
+    if (entry.status === "complete") {
+      assert.equal(entry.blockers.length, 0, `${intrinsic.capabilityId} is complete and must not carry blockers`);
+      assert.ok(entry.positiveTests.length > 0, `${intrinsic.capabilityId} is complete without positive tests`);
+      assert.ok(entry.negativeTests.length > 0, `${intrinsic.capabilityId} is complete without negative tests`);
+      assert.ok(entry.oldEvidence.length > 0, `${intrinsic.capabilityId} is complete without old inventory evidence`);
+    } else {
+      assert.ok(entry.blockers.length > 0, `${intrinsic.capabilityId} must keep explicit partial blockers`);
+    }
   }
 });
 
