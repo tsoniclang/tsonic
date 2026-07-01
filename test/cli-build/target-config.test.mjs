@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, dotnetOutputAssemblyPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI lists built-in target packs", () => {
   const result = runNode([cliPath, "targets"]);
@@ -353,6 +353,47 @@ test("CLI clean rebuild removes stale target artifacts when diagnostics stop emi
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCleanDiagnostic.csproj")), false);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Stale.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
+});
+
+test("CLI clean rebuild removes prior target toolchain artifacts before writing current outputs", async () => {
+  const assemblyName = "SmokeGeneratedCleanToolchainArtifacts";
+  const projectDirectory = resolve(tempRoot, "clean-rebuild-toolchain-artifacts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": "export function value(): number { return 1; }\n",
+  });
+
+  const firstBuild = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(firstBuild.status, 0, firstBuild.stdout + firstBuild.stderr);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  const csharpOutputRoot = resolve(projectDirectory, "out/csharp");
+  assert.equal(existsSync(dotnetOutputAssemblyPath(csharpOutputRoot, assemblyName)), true);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/obj")), true);
+
+  await writeProject(projectDirectory, {
+    "src/index.ts": "export function value(): number { return 2; }\n",
+  });
+
+  const secondBuild = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(secondBuild.status, 0, secondBuild.stdout + secondBuild.stderr);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), true);
+  assert.equal(existsSync(dotnetOutputAssemblyPath(csharpOutputRoot, assemblyName)), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/obj")), false);
 });
 
 test("CLI does not use tsconfig path mapping as a hidden module-resolution fallback", async () => {

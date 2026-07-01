@@ -473,7 +473,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "complete", "tsonic-host"],
   ["host.project.package-path-resolution", "Resolve project packages, package exports, and paths without package-root shims", "complete", "tsonic-host"],
   ["host.project.deterministic-output-paths", "Derive deterministic output paths from validated project-relative source paths", "complete", "tsonic-host"],
-  ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "partial", "tsonic-host"],
+  ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "complete", "tsonic-host"],
   ["host.project.top-level-initialization-order", "Preserve deterministic module top-level initialization order", "complete", "tsonic-host"],
 
   ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "complete", "tsts-api"],
@@ -2077,12 +2077,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "host.project.clean-rebuild has focused stale-artifact proof for successful and diagnostic-only CLI output, but remains partial until multi-target target packs and every external toolchain artifact family are covered.",
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/build.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime/project files do not survive successful rebuilds or backend-diagnostic-only rebuilds. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
+      "Reviewed proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime/project files do not survive successful rebuilds or backend-diagnostic-only rebuilds. Current tests also build the generated C# project, prove target toolchain artifacts such as isolated output assemblies and obj intermediates exist, then rerun Tsonic and prove those artifacts are removed before current C# sources/projects are written. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
   }),
   "tsts.parse-bind-check": Object.freeze({
     positiveTests: Object.freeze([

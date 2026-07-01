@@ -346,6 +346,7 @@ const oldProductUnitReviewedDeferredCapabilityIdsByOldPath = new Map([
     "backend.csharp.project-sdk-emit",
     "host.config.project-load",
     "host.package.composition",
+    "host.project.clean-rebuild",
     "host.project.provider-composition",
     "toolchain.csharp.build-run",
   ]),
