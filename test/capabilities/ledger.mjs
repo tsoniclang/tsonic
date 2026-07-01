@@ -6235,7 +6235,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/async-higher-order/",
     ]),
     blockers: Object.freeze([
-      "operation.await.promise-task remains partial until deferred old async/promise/task fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, promise-chain-reject-stable, promise-constructor-task, promise-void-resolve, task-then-disallowed, and async-bidirectional-generator.",
+      "operation.await.promise-task remains partial until deferred old async/promise/task fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, and task-then-disallowed.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
@@ -6274,7 +6274,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed stronger partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, higher-order async delegate carriers, and async structural object returns through dotnet build/run; unsupported Promise chains fail before target artifacts. The row stays partial because the deferred old async/promise/task fixture set listed in blockers still lacks current closure proof.",
+      "Reviewed stronger partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, higher-order async delegate carriers, and async structural object returns through dotnet build/run. Unsupported Promise.resolve, Promise chains, Promise constructors, and async generators now fail before target artifacts with selected-fact or finalized-carrier diagnostics. The row stays partial because the deferred old async/promise/task fixture set listed in blockers still lacks current closure proof.",
   }),
   "function.this-binding": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6377,7 +6377,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/async-higher-order/",
     ]),
     blockers: Object.freeze([
-      "function.async remains partial until deferred old async/promise/task/generator fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, async-bidirectional-generator, promise-chain-reject-stable, promise-constructor-task, promise-void-resolve, and task-then-disallowed.",
+      "function.async remains partial until deferred old async/promise/task/generator fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, and task-then-disallowed.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
@@ -6416,7 +6416,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed stronger partial proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, async structural object returns, and exact runtime output; unsupported Promise chains fail before target artifacts. The row stays partial because the deferred old async/promise/task/generator fixture set listed in blockers still lacks current closure proof.",
+      "Reviewed stronger partial proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, async structural object returns, and exact runtime output. Unsupported Promise.resolve, Promise chains, Promise constructors, and async generators fail before target artifacts instead of lowering through Promise/source-name fallback. The row stays partial because the deferred old async/promise/task/generator fixture set listed in blockers still lacks current closure proof.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([

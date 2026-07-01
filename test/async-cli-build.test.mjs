@@ -349,6 +349,79 @@ test("CLI rejects async lambdas without delegate facts before backend fallback",
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
 
+test("CLI rejects Promise constructors without finalized Task carrier facts before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedPromiseConstructorRejected";
+  const projectDirectory = resolve(tempRoot, "promise-constructor-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function create(): Promise<number> {",
+      "  return new Promise<number>((resolve) => resolve(1));",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call '<anonymous>'/);
+  assert.match(build.stderr, /operation":"construct"/);
+  assert.match(build.stderr, /bundled:\/\/\/libs\/lib\.es2015\.promise\.d\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects Promise.resolve without finalized Task carrier facts before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedPromiseResolveRejected";
+  const projectDirectory = resolve(tempRoot, "promise-resolve-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function done(): Promise<void> {",
+      "  return Promise.resolve();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100144/);
+  assert.match(build.stderr, /property access 'resolve' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
+  assert.match(build.stderr, /bundled:\/\/\/libs\/lib\.es2015\.promise\.d\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
 test("CLI rejects unsupported Promise chains before target artifacts", async () => {
   const assemblyName = "SmokeGeneratedPromiseChainRejected";
   const projectDirectory = resolve(tempRoot, "promise-chain-rejected");
@@ -377,7 +450,45 @@ test("CLI rejects unsupported Promise chains before target artifacts", async () 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /requires .*fact|unsupported/i);
+  assert.match(build.stderr, /property access 'resolve' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
+  assert.match(build.stderr, /property access 'then' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'then'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects async generators before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedAsyncGeneratorRejected";
+  const projectDirectory = resolve(tempRoot, "async-generator-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export async function* stream(): AsyncGenerator<number> {",
+      "  yield 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /tsonic-csharp:CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /Async C# function declaration emission requires finalized Promise\/Task result carrier facts/);
+  assert.match(build.stderr, /Expression is outside the current C# planning surface/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
