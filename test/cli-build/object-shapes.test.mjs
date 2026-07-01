@@ -493,6 +493,77 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits shared generated object-shape declarations once across source files", async () => {
+  const projectDirectory = resolve(tempRoot, "shared-object-shape-declarations");
+  const assemblyName = "SmokeGeneratedSharedObjectShapes";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/types.ts": [
+      "export type Shape = { value: number; label: string };",
+      "",
+    ].join("\n"),
+    "src/a.ts": [
+      "import type { Shape } from \"./types.js\";",
+      "",
+      "export function createA(value: number): Shape {",
+      "  return { value, label: \"a\" };",
+      "}",
+      "",
+    ].join("\n"),
+    "src/b.ts": [
+      "import type { Shape } from \"./types.js\";",
+      "",
+      "export function createB(value: number): Shape {",
+      "  return { value, label: \"b\" };",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { createA } from \"./a.js\";",
+      "import { createB } from \"./b.js\";",
+      "",
+      "export function run(): string {",
+      "  const left = createA(1);",
+      "  const right = createB(2);",
+      "  return left.label + right.label;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedFiles = [
+    resolve(projectDirectory, "out/csharp/src/Index.cs"),
+    resolve(projectDirectory, "out/csharp/src/A.cs"),
+    resolve(projectDirectory, "out/csharp/src/B.cs"),
+    resolve(projectDirectory, "out/csharp/src/Types.cs"),
+  ].filter((fileName) => existsSync(fileName));
+  const generatedSources = await Promise.all(generatedFiles.map((fileName) => readFile(fileName, "utf8")));
+  const shapeDeclarationCount = generatedSources.reduce((count, source) => count + (source.match(/public class __TsonicShape_/g)?.length ?? 0), 0);
+
+  assert.equal(shapeDeclarationCount, 1);
+  assert.equal(generatedSources.some((source) => /public static __TsonicShape_[A-Za-z0-9_]+ createA\(double value\)/.test(source)), true);
+  assert.equal(generatedSources.some((source) => /public static __TsonicShape_[A-Za-z0-9_]+ createB\(double value\)/.test(source)), true);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 
 test("CLI emits nested structural object-shape literals through finalized nested carriers", async () => {
   const projectDirectory = resolve(tempRoot, "nested-structural-object-shapes");

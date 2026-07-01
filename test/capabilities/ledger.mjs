@@ -8078,7 +8078,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "backend.generated-declarations remains partial until generated declaration naming/member coverage is proven across the full object-shape, utility-type, nested, method, spread/rest, and old fixture matrix.",
     ]),
     notes:
-      "Reviewed partial proof: object-shape tests cover broad generated declaration families, while the new declaration runtime CLI test proves a generated __TsonicShape_Receipt_* declaration can coexist with source class, interface, and enum declarations, scan free of dynamic/reflection, build, and run. This strengthens generated-declaration evidence without claiming full generated shape closure.",
+      "Reviewed partial proof: object-shape tests cover broad generated declaration families, while the declaration runtime CLI test proves a generated __TsonicShape_Receipt_* declaration can coexist with source class, interface, and enum declarations, scan free of dynamic/reflection, build, and run. Slice 8 proof adds a compilation-wide object-shape registry invariant: the same finalized shared object-shape identity used from multiple source files emits exactly one generated declaration, validates later uses against that declaration, and builds through the SDK project. This strengthens generated-declaration evidence without claiming full generated shape closure.",
   }),
   "backend.csharp.no-direct-semantic-string-output": Object.freeze({
     positiveTests: Object.freeze([
