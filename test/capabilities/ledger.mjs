@@ -8018,10 +8018,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backend diagnostics must carry missing fact/capability evidence, preserve source spans when the backend has a source node, and suppress artifacts/toolchain handoff.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
@@ -8030,7 +8032,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "backend.diagnostics remains partial until every backend operation family proves source-span/evidence diagnostics for missing and malformed facts through current C# backend tests.",
     ]),
     notes:
-      "Reviewed partial proof: TargetDiagnostic now has a sourceSpan contract, host diagnostics preserve backend-supplied source spans and evidence, backend errors suppress artifacts/toolchain work, CLI formatting prints source-core missing-fact spans/evidence, and diagnostic-only backend failures still clean stale target outputs. This advances the common diagnostic gate without claiming every C# operation-family diagnostic is complete.",
+      "Reviewed partial proof: TargetDiagnostic now has a sourceSpan contract, unsupported C# backend diagnostics derive structured sourceSpan from real TSTS/source nodes, host diagnostics preserve backend-supplied source spans and evidence, backend errors suppress artifacts/toolchain work, CLI formatting prints source-core missing-fact spans/evidence, and diagnostic-only backend failures still clean stale target outputs. This advances the common diagnostic gate without claiming every C# operation-family diagnostic is complete.",
   }),
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
@@ -8666,10 +8668,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Diagnostics render source spans only when a TSTS extension or backend supplies a concrete source node/span; missing spans remain absent rather than guessed from message text.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
@@ -8681,7 +8685,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "diagnostic.source-spans remains partial until every target/provider/backend diagnostic family has exact source-span assertions, including TSTS aggregate diagnostics and all selected-surface failures.",
     ]),
     notes:
-      "Reviewed partial proof: source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan, CLI output prints src/index.ts:line:column with evidence, and backend-supplied source spans are preserved through host aggregation. The row stays partial because this does not prove exact spans for every diagnostic family.",
+      "Reviewed partial proof: source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan, CLI output prints src/index.ts:line:column with evidence, backend missing-carrier diagnostics preserve structured sourceSpan from the offending source node, and generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings. The row stays partial because this does not prove exact spans for every diagnostic family.",
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
