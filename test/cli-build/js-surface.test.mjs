@@ -1931,6 +1931,14 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
       "  return Object.defineProperty(value, \"x\", { value: 1 });",
       "}",
       "",
+      "export function setProto(value: object, proto: object): object {",
+      "  return Object.setPrototypeOf(value, proto);",
+      "}",
+      "",
+      "export function getProto(value: object): object | null {",
+      "  return Object.getPrototypeOf(value);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1938,8 +1946,60 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
   assert.equal(build.status, 1);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.setPrototypeOf'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.getPrototypeOf'/);
   assert.match(build.stderr, /descriptor, prototype, extensibility/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
+});
+
+test("CLI hard-rejects dynamic eval, Function, and Proxy APIs", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-code-proxy-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDynamicCodeProxyRejections",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function evaluate(): unknown {",
+      "  return eval(\"1 + 1\");",
+      "}",
+      "",
+      "export function makeFunction(): Function {",
+      "  return Function(\"return 1\");",
+      "}",
+      "",
+      "export function constructFunction(): Function {",
+      "  return new Function(\"return 1\");",
+      "}",
+      "",
+      "export function makeProxy(target: object): object {",
+      "  return new Proxy(target, {});",
+      "}",
+      "",
+      "export function makeRevocable(target: object): object {",
+      "  return Proxy.revocable(target, {});",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# emission cannot support JavaScript eval/);
+  assert.match(build.stderr, /C# emission cannot support JavaScript dynamic Function construction/);
+  assert.match(build.stderr, /C# emission cannot support JavaScript Proxy/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDynamicCodeProxyRejections.csproj")), false);
 });
 
 

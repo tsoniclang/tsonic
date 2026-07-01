@@ -674,7 +674,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
 
-  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "partial", "target-provider"],
+  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "complete", "target-provider"],
   ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "complete", "target-provider"],
   ["compat.any.property", "any property operations use compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.dynamic-get", "any property reads use explicit compat-runtime carrier facts", "complete", "target-provider"],
@@ -683,10 +683,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "complete", "target-provider"],
   ["compat.any.operators", "any operators use compat-runtime carrier facts", "partial", "target-provider"],
   ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "complete", "target-provider"],
-  ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
-  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
-  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "partial", "target-provider"],
-  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "partial", "target-provider"],
+  ["compat.object.no-dynamic-access", "object is not treated like any", "complete", "target-provider"],
+  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "complete", "target-provider"],
+  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "complete", "target-provider"],
+  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "complete", "target-provider"],
   ["runtime.union.carrier", "Union carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
   ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "complete", "target-provider"],
@@ -734,7 +734,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
-  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
+  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "complete", "target-provider"],
   ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
   ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
@@ -6654,48 +6654,50 @@ const reviewedCapabilityEvidence = Object.freeze({
   "compat.prototype-mutation": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "compat.prototype-mutation remains partial until every prototype-affecting pattern is classified per resolved pattern instance with provider facts; source spelling alone is banned.",
-    ]),
     notes:
-      "Reviewed partial proof: object-literal __proto__ prototype mutation and resolved standard-library Object.setPrototypeOf/getPrototypeOf/create prototype APIs are hard-rejected with closed-carrier evidence, while shadowable property/member names are not classified by spelling. Future prototype support requires explicit closed compat-runtime facts.",
+      "Reviewed proof: object-literal __proto__ prototype mutation and resolved standard-library Object.create, Object.setPrototypeOf, Object.getPrototypeOf, and descriptor-style prototype operations are hard-rejected with selected-source evidence before C# artifacts are emitted. Shadowable local Object/property names are not classified by spelling, and future prototype support requires explicit closed compat-runtime facts rather than CLR object/dynamic fallback.",
   }),
   "compat.proxy-eval-function-with": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "compat.proxy-eval-function-with remains partial until resolved global eval/Function/Proxy identity coverage spans every selected JS surface/lib source and any supported compat-runtime replacement has closed carrier facts.",
-    ]),
     notes:
-      "Reviewed partial proof: resolved standard-library eval, Function, Proxy, and with statements are hard-rejected because dynamic code/dynamic scope cannot be represented by closed target facts; shadowable local Function, Proxy, and Object names produce no diagnostics, preventing source-name guessing.",
+      "Reviewed proof: resolved standard-library eval, Function call/constructor, Proxy construction/revocable APIs, and with statements are hard-rejected because dynamic code, dynamic scope, and proxy traps cannot be represented by closed target facts. CLI proof rejects selected JS surface eval/Function/Proxy APIs before artifacts, source-semantics tests prove shadowable local Function, Proxy, and Object names produce no diagnostics, and no QuickJS, C# dynamic, reflection dispatch, or source-name guessing path is present.",
   }),
   "compat.mode.strict-native": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any property read/write, element get, call, construction, and operator operations before emission, and a test-injected closed compat operation fact cannot rescue strict-native dynamic any behavior. Remains partial until runtime/toolchain diagnostics and all non-any compat-runtime lanes are covered end to end.",
+      "Reviewed proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any property read/write, element get/set, call, construction, operators, and typed-boundary programs before artifact emission, and test-injected closed compat operation facts cannot rescue strict-native dynamic any behavior. CLI proof covers strict-native dynamic diagnostics and selected JS dynamic/prototype hard rejects without runtime reflection, C# dynamic, or backend fallback.",
   }),
   "compat.mode.compat": Object.freeze({
     positiveTests: Object.freeze([
@@ -6858,34 +6860,38 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery; public CLI proof blocks object.foo before C# planning artifacts are emitted. Remains partial until all object surface operations are separately classified as object-shape, provider adapter, compat carrier, or hard reject.",
+      "Reviewed proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery. Public CLI proof blocks object.foo before C# planning artifacts are emitted, JS Object operations are separately classified under selected surface/provider rows, and unsupported descriptor/prototype object operations fail closed through explicit selected-surface diagnostics instead of object/dynamic fallback.",
   }),
   "compat.unknown.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
     ]),
     notes:
-      "Reviewed partial proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and public CLI proof shows unknown.foo remains a TSTS source diagnostic before backend emission. Old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
+      "Reviewed proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and public CLI proof shows unknown.foo remains a TSTS source diagnostic before backend emission. Compatibility facts are rejected for non-any unknown/object carriers, and old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
   }),
   "runtime.dynamic.carrier": Object.freeze({
     positiveTests: Object.freeze([
@@ -6912,15 +6918,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   "diagnostic.dynamic-strict-mode": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: strict-native dynamic any diagnostics explicitly say strict-native and continue to fire even when a compatibility fact exists. Remains partial until source spans and all dynamic operation families have current CLI/runtime tests.",
+      "Reviewed proof: strict-native dynamic any diagnostics explicitly say strict-native, continue to fire even when compatibility facts exist, and are surfaced through CLI builds before C# artifacts are emitted. Current tests cover property, element, call, construct, operator, and typed-boundary dynamic families with evidence that requires selected compat mode plus closed target facts instead of backend fallback.",
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([
