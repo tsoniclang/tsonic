@@ -6,5 +6,6 @@ import "./cli-build/modules-declarations.test.mjs";
 import "./cli-build/whole-program-csharp-closure.test.mjs";
 import "./cli-build/slice6-control-flow-closure.test.mjs";
 import "./cli-build/object-shapes.test.mjs";
+import "./cli-build/compat-runtime.test.mjs";
 import "./cli-build/js-surface.test.mjs";
 import "./cli-build/nodejs-surface.test.mjs";

@@ -530,6 +530,7 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "carrier.any-tsvalue",
     "compat.any.call-construct",
+    "compat.any.dynamic-call",
     "compat.any.dynamic-set",
     "compat.any.property",
     "compat.any.typed-boundary-cast",

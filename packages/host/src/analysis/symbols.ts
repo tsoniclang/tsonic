@@ -24,7 +24,7 @@ export function getResolvedSymbolForReferenceNode(
   node: Node,
   options: { readonly sourceFile: SourceFile },
 ): Symbol | undefined {
-  const reference = getReferenceQueryNode(ast, node);
+  const reference = getResolvedReferenceQueryNode(ast, node);
   return reference === undefined ? undefined : checker.getResolvedSymbol(reference, options);
 }
 
@@ -60,6 +60,13 @@ export function getReferenceQueryNode(ast: AstReader, node: Node | undefined): N
     return ast.as.AsExpressionWithTypeArguments(node)?.Expression;
   }
   return undefined;
+}
+
+function getResolvedReferenceQueryNode(ast: AstReader, node: Node | undefined): Node | undefined {
+  const reference = getReferenceQueryNode(ast, node);
+  return reference !== undefined && ast.is.IsPropertyAccessExpression(reference)
+    ? ast.name(reference)
+    : reference;
 }
 
 export function isTypeReferenceQuery(ast: AstReader, node: Node): boolean {

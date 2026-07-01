@@ -380,7 +380,7 @@ export function createLazyTargetSourceAnalysis(
     const access = getAccessKind(propertyAccessNode);
     const operator = getAssignmentOperatorForTarget(propertyAccessNode);
     const propertySymbol = checker.getSymbolAtLocation(propertyAccessNode, { sourceFile: reference.sourceFile }) ??
-      checker.getResolvedSymbolOrNil(propertyAccessNode, { sourceFile: reference.sourceFile });
+      getResolvedSymbolForQueryNode(propertyAccessNode, reference.sourceFile);
     return {
       ...baseUse(reference, call === undefined ? "property" : "call", propertyAccessNode, propertyAccessNode, access),
       kind: call === undefined ? getPropertyUseKind(access, operator) : "property-call",
@@ -518,7 +518,14 @@ export function createLazyTargetSourceAnalysis(
   }
 
   function getSymbolForReference(node: Node, sourceFile: SourceFile): Symbol | undefined {
-    return checker.getSymbolAtLocation(node, { sourceFile }) ?? checker.getResolvedSymbolOrNil(node, { sourceFile });
+    return checker.getSymbolAtLocation(node, { sourceFile }) ?? getResolvedSymbolForQueryNode(node, sourceFile);
+  }
+
+  function getResolvedSymbolForQueryNode(node: Node, sourceFile: SourceFile): Symbol | undefined {
+    const queryNode = ast.is.IsPropertyAccessExpression(node)
+      ? ast.name(node)
+      : node;
+    return queryNode === undefined ? undefined : checker.getResolvedSymbolOrNil(queryNode, { sourceFile });
   }
 
   function getSelectedSignature(node: Node, sourceFile: SourceFile): Signature | undefined {
