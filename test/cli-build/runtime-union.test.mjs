@@ -18,11 +18,14 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
       "export function choose(flag: boolean): number | string {",
       "  const value: number | string = flag ? 1 : \"ready\";",
       "  return value;",
@@ -34,6 +37,8 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
       "  }",
       "  return \"fallback\";",
       "}",
+      "",
+      "Console.writeLine(`${read(choose(false))}|${read(choose(true))}`);",
       "",
     ].join("\n"),
   });
@@ -50,4 +55,8 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready|fallback\n");
 });

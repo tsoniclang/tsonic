@@ -6917,7 +6917,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "carrier.union remains partial until discriminated unions, provider-owned union constituents, generated runtime arm projection, serialization boundaries, and end-to-end old fixture parity are covered.",
     ]),
     notes:
-      "Reviewed partial proof: heterogeneous unions create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch conditions and values now emit IsN/AsN only by matching finalized storage union arms to TSTS-narrowed use-site carrier facts, not by source spelling. csharp-js now adds a closed TsUnion compatibility wrapper for arities 2 through 8, including nullish arms and deterministic open-CLR-object rejection, but discriminated unions, provider-owned union constituents, serialization boundaries, and broader old fixture parity remain open.",
+      "Reviewed partial proof: heterogeneous unions create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch conditions and values now emit IsN/AsN only by matching finalized storage union arms to TSTS-narrowed use-site carrier facts, not by source spelling. CLI proof now executes a generated C# program that constructs both union arms, reads them through finalized branch projections, and prints exact output. csharp-js adds a closed TsUnion compatibility wrapper for arities 2 through 8, including nullish arms and deterministic open-CLR-object rejection. Discriminated unions, provider-owned union constituents, serialization boundaries, and broader old fixture parity remain open.",
   }),
   "runtime.union.carrier": Object.freeze({
     positiveTests: Object.freeze([
@@ -6934,7 +6934,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "runtime.union.carrier remains partial until generated runtime Union<T...> construction, arm projection, serialization boundaries, and target toolchain tests cover every supported narrowing pattern.",
     ]),
     notes:
-      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8, rejects union type annotation emission without finalized carrier facts, and emits generated Runtime.Union<T...> construction plus narrowed IsN/AsN arm tests/projections only from finalized storage/use-site carrier evidence. csharp-js now proves closed TsUnion boxing, nullish-arm propagation, typed-boundary casts back to Runtime.Union<T...>, and open CLR object rejection without reflection or dynamic dispatch. Serialization boundaries and every supported narrowing pattern remain open.",
+      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8, rejects union type annotation emission without finalized carrier facts, and emits generated Runtime.Union<T...> construction plus narrowed IsN/AsN arm tests/projections only from finalized storage/use-site carrier evidence. CLI proof now runs generated union construction and projection code through dotnet run with exact output, not only dotnet build. csharp-js proves closed TsUnion boxing, nullish-arm propagation, typed-boundary casts back to Runtime.Union<T...>, and open CLR object rejection without reflection or dynamic dispatch. Serialization boundaries and every supported narrowing pattern remain open.",
   }),
   "compat.prototype-mutation": Object.freeze({
     positiveTests: Object.freeze([
