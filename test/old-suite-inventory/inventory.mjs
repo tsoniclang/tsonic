@@ -190,11 +190,12 @@ const oldSuitePortInventoryEntries = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/nodejs-surface-alias-coverage/",
-    status: "deferred",
+    status: "ported",
     featureArea: "nodejs-surface",
     owner: "C# NodeJS provider package",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
     reason:
-      "Requires selected nodejs provider package with js dependency and module alias facts for node:* imports before the fixture can be ported.",
+      "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:* modules participate through existing provider declarations, while unsupported historical modules child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations produce deterministic provider diagnostics with no target artifacts.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/top-level-code/",
@@ -1076,6 +1077,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.csharp.runtime-artifacts",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
@@ -1529,6 +1531,7 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("nodejs-surface-alias-coverage"),
   ], [
     "backend.csharp.runtime-artifacts",
+    "downstream.nodejs-source",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("js-surface-runtime-builtins"),

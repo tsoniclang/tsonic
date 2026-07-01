@@ -741,7 +741,7 @@ const baseCapabilityDefinitions = Object.freeze([
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "partial", "tests"],
   ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
-  ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "partial", "tests"],
+  ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "complete", "tests"],
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "complete", "tests"],
@@ -8583,14 +8583,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-path-posix-join/",
+      "test/fixtures/nodejs-surface-alias-coverage/",
       "test/fixtures/nodejs-surface-imports-negative/",
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "downstream.nodejs-source remains partial until the broad nodejs-surface-alias-coverage fixture, which imports child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only http declarations, has provider-package coverage or explicit unsupported-package diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: nodejs-surface now builds and runs existing Node-style source with selected js surface plus nodejs provider package, including node:fs, node:path, node:process namespace imports, node:os namespace imports, node:buffer, and node:crypto through selected provider declarations, generated C# runtime project references, dotnet build, dotnet run, and exact stdout. Adjacent negatives prove node:* imports fail when the NodeJS provider package is unselected. The row stays partial because the historical alias-coverage fixture intentionally imports a much broader Node module matrix that is not yet complete.",
+      "Reviewed proof: nodejs-surface builds and runs existing Node-style source with selected js surface plus nodejs provider package, including node:fs, node:path, node:process namespace imports, node:os namespace imports, node:buffer, and node:crypto through selected provider declarations, generated C# runtime project references, dotnet build, dotnet run, and exact stdout. Adjacent negatives prove node:* imports fail when the NodeJS provider package is unselected. The recovered historical alias-coverage fixture is represented by deterministic provider-package diagnostics for unsupported child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations, with no C# artifacts or reflection/dynamic fallback.",
   }),
   "downstream.no-old-runtime-reflection": Object.freeze({
     sourceExamples: Object.freeze([

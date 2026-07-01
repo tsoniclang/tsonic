@@ -519,6 +519,117 @@ test("CLI rejects unsupported NodeJS provider-package modules without fallback",
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
+test("CLI rejects unsupported historical NodeJS alias imports without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-nodejs-historical-alias-imports");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import * as assert from \"node:assert\";",
+      "import * as buffer from \"node:buffer\";",
+      "import * as child_process from \"node:child_process\";",
+      "import * as dgram from \"node:dgram\";",
+      "import * as dns from \"node:dns\";",
+      "import * as events from \"node:events\";",
+      "import * as http from \"node:http\";",
+      "import type { IncomingMessage, ServerResponse } from \"node:http\";",
+      "import * as net from \"node:net\";",
+      "import * as process from \"node:process\";",
+      "import * as querystring from \"node:querystring\";",
+      "import * as readline from \"node:readline\";",
+      "import * as stream from \"node:stream\";",
+      "import * as timers from \"node:timers\";",
+      "import * as tls from \"node:tls\";",
+      "import * as url from \"node:url\";",
+      "import * as util from \"node:util\";",
+      "import * as zlib from \"node:zlib\";",
+      "import { join } from \"node:path\";",
+      "",
+      "export type Handler = (req: IncomingMessage, res: ServerResponse) => void;",
+      "",
+      "export function loaded(): number {",
+      "  void assert;",
+      "  void buffer;",
+      "  void process;",
+      "  void url;",
+      "  void util;",
+      "  void join;",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  for (const moduleSpecifier of [
+    "node:child_process",
+    "node:dgram",
+    "node:dns",
+    "node:events",
+    "node:http",
+    "node:net",
+    "node:querystring",
+    "node:readline",
+    "node:stream",
+    "node:timers",
+    "node:tls",
+    "node:zlib",
+  ]) {
+    assert.match(build.stderr, new RegExp(moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(build.stderr, /tsts\.extension-host:TS9000022/);
+  assert.match(build.stderr, /Required provider module pattern/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported historical NodeJS type-only alias imports without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-nodejs-type-only-alias-imports");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { IncomingMessage, ServerResponse } from \"node:http\";",
+      "",
+      "export type Handler = (req: IncomingMessage, res: ServerResponse) => void;",
+      "",
+      "export function loaded(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /node:http/);
+  assert.match(build.stderr, /tsts\.extension-host:TS9000022/);
+  assert.match(build.stderr, /Required provider module pattern/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 test("CLI emits NodeJS namespace imports from selected surface provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-module-graph-surface");
   await writeProject(projectDirectory, {
