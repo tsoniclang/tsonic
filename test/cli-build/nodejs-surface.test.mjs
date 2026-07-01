@@ -384,7 +384,8 @@ test("CLI emits expanded process operations from selected NodeJS provider packag
       "",
       "export function processInfo(): string {",
       "  const pathValue = process.env[\"PATH\"] ?? \"\";",
-      "  return process.arch + process.argv0 + process.execPath + process.platform + process.version + process.versions.node + process.versions.dotnet + pathValue + process.pid + process.ppid;",
+      "  const usage = process.memoryUsage();",
+      "  return process.arch + process.argv0 + process.execPath + process.platform + process.version + process.versions.node + process.versions.dotnet + pathValue + process.pid + process.ppid + process.uptime() + usage.rss + usage.heapUsed;",
       "}",
       "",
       "export function currentExitCode(): number | null {",
@@ -420,6 +421,10 @@ test("CLI emits expanded process operations from selected NodeJS provider packag
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.versions\.dotnet/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.pid/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.ppid/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.MemoryUsage usage = Tsonic\.CSharp\.Node\.process\.memoryUsage\(\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.uptime\(\)/);
+  assert.match(generatedSource, /usage\.rss/);
+  assert.match(generatedSource, /usage\.heapUsed/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(code\);/);

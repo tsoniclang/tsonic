@@ -5559,6 +5559,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exit.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exitCode.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/metrics.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/pid.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/platform.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/ppid.tests.cs",
@@ -5590,6 +5591,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/argv.tests.cs",
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/cwd.tests.cs",
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/metrics.tests.cs",
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/platform.tests.cs",
       ],
       failClosedDiagnostics: [
@@ -5606,7 +5608,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "surface.node.process remains partial until the complete node:process old fixture matrix has runtime/toolchain proof and every unsupported process member fails closed with precise provider-package diagnostics.",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover process module imports, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, process function calls, runtime behavior tests, and no-package fail-closed diagnostics. Completion remains partial until the complete node:process old fixture matrix is proven; Tsonic must keep consuming finalized provider-package facts only and must not add process source-name fallback.",
+      "Reviewed partial proof: selected NodeJS provider package facts cover process module imports, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime, runtime behavior tests, and no-package fail-closed diagnostics. Completion remains partial until the complete node:process old fixture matrix is proven; Tsonic must keep consuming finalized provider-package facts only and must not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
@@ -5715,7 +5717,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process mappings through that reference, closed fs Buffer descriptor/file helpers, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8 helpers, crypto Buffer/Hash/Hmac helpers, process environment helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
+      "Reviewed partial proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process mappings through that reference, closed fs Buffer descriptor/file helpers, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8 helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix, byte conversion facts are proven for Buffer write APIs, and all unsupported Node module members fail closed.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
