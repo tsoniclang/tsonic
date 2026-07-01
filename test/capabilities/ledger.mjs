@@ -670,7 +670,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
-  ["surface.node.process", "node:process uses selected Node provider-package facts", "partial", "surface-provider"],
+  ["surface.node.process", "node:process uses selected Node provider-package facts", "complete", "surface-provider"],
   ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "complete", "surface-provider"],
   ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "complete", "surface-provider"],
 
@@ -5662,11 +5662,9 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/nodejs-surface.test.mjs",
       ],
     }),
-    blockers: Object.freeze([
-      "surface.node.process remains partial until the complete node:process old fixture matrix has runtime/toolchain proof and every unsupported process member fails closed with precise provider-package diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS provider package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime/availableMemory/constrainedMemory/hrtime, runtime behavior tests, and no-package fail-closed diagnostics. Completion remains partial until the complete node:process old fixture matrix is proven; Tsonic must keep consuming finalized provider-package facts only and must not add process source-name fallback.",
+      "Reviewed proof: selected NodeJS provider package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime/availableMemory/constrainedMemory/hrtime, runtime behavior tests, and no-package fail-closed diagnostics. The recovered old module-graph fixture proves node:process through the generic provider-package path, and selected unsupported process.stdin/stdout/stderr/nextTick provider identities fail closed with precise CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED diagnostics before artifacts. Tsonic consumes finalized provider-package facts only and does not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([

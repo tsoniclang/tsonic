@@ -957,6 +957,79 @@ test("CLI emits expanded process operations from selected NodeJS provider packag
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI rejects unsupported process stream properties without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-process-streams-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import process from \"node:process\";",
+      "",
+      "export function streams(): void {",
+      "  void process.stdin;",
+      "  void process.stdout;",
+      "  void process.stderr;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  for (const memberName of ["stdin", "stdout", "stderr"]) {
+    assert.match(build.stderr, new RegExp(`hard-rejected selected property 'node:process' export 'NodeProcessModule' member '${memberName}'`));
+    assert.match(build.stderr, new RegExp(`unsupported:Tsonic\\.CSharp\\.Node\\.process\\.${memberName}`));
+  }
+  assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported process nextTick without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-process-nexttick-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import process from \"node:process\";",
+      "",
+      "export function tick(): void {",
+      "  process.nextTick(() => {});",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /hard-rejected selected property 'node:process' export 'NodeProcessModule' member 'nextTick'/);
+  assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'NodeProcessModule' member 'nextTick'/);
+  assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.process\.nextTick\(Function,System\.Object\[\]\)/);
+  assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
 
 test("CLI emits Buffer and crypto operations from selected NodeJS declaration facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-buffer-crypto-surface");
