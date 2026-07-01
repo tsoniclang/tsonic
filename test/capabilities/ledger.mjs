@@ -7645,10 +7645,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     oldEvidence: Object.freeze([]),
     blockers: Object.freeze([
-      "declaration.enum remains partial until enum runtime behavior, unsupported initializer diagnostics, const/computed member coverage, and old enum evidence are fully mapped to current CLI/toolchain proof.",
+      "declaration.enum remains partial only because complete ledger rows require reviewed historical old evidence, and the old fixture/emitter/product inventories currently contain no source enum case to map.",
     ]),
     notes:
-      "Reviewed partial proof: modules-declarations now has both build-only numeric enum proof and an executable Rank enum flow through a Receipt generated shape; generated C# contains public enum Rank with Silver/Gold members and enum equality against Rank.Gold, then dotnet run verifies the selected branch prints gold. String and fractional enum initializers remain fail-closed diagnostics, so the row is strengthened but not complete.",
+      "Reviewed partial proof: modules-declarations verifies numeric enum declaration/member emission, computed integer member expressions such as Right = Left << 1, and executable C# runtime behavior through dotnet run printing right. Cross-module Rank enum flow remains covered by the whole-program generated-shape proof. String and fractional enum initializers fail closed with CSHARP_UNSUPPORTED_AST before artifact creation because no finalized target enum-carrier facts exist. Const enums fail closed through the generic TypeScript-only runtime-shape modifier diagnostic. No old enum inventory entries were discovered, so oldEvidence is intentionally empty and the row is not overclaimed as complete.",
   }),
   "statement.block-scope": Object.freeze({
     positiveTests: Object.freeze([

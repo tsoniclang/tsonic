@@ -1369,6 +1369,7 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
         {
           id: "csharp",
           options: {
+            outputType: "Exe",
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedEnums",
           },
@@ -1376,6 +1377,8 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
       "export enum Direction {",
       "  Up = 1,",
       "  Down = 2,",
@@ -1386,6 +1389,9 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
       "export function turn(direction: Direction): Direction {",
       "  return direction === Direction.Up ? Direction.Right : Direction.Up;",
       "}",
+      "",
+      "const selected = turn(Direction.Up) === Direction.Right ? \"right\" : \"bad\";",
+      "Console.writeLine(selected);",
       "",
     ].join("\n"),
   });
@@ -1401,10 +1407,12 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
   assert.match(generatedSource, /Right = Left << 1/);
   assert.match(generatedSource, /public static Direction turn\(Direction direction\)/);
   assert.match(generatedSource, /return direction == Direction\.Up \? Direction\.Right : Direction\.Up;/);
+  assert.match(generatedSource, /selected = turn\(Direction\.Up\) == Direction\.Right \? "right" : "bad";/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedEnums.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedEnums"), "right\n");
 });
 
 test("CLI builds and runs source declarations without reflection or dynamic generated paths", async () => {
@@ -1587,6 +1595,41 @@ test("CLI rejects fractional numeric enum initializers before C# artifact genera
   assert.notEqual(build.status, 0);
   assert.match(build.stderr, /C# enum member initializers must be integer constants evaluated by TSTS/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedFractionalEnums.csproj")), false);
+});
+
+test("CLI rejects const enums as TypeScript-only runtime shape", async () => {
+  const projectDirectory = resolve(tempRoot, "reject-const-enums");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedConstEnums",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export const enum Mode {",
+      "  Read = 1,",
+      "}",
+      "",
+      "export function read(): Mode {",
+      "  return Mode.Read;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /TypeScript-only modifier 'const' on enum declaration is outside the native runtime-shape source subset/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedConstEnums.csproj")), false);
 });
 
 
