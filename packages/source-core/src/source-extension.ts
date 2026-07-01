@@ -44,6 +44,9 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
       context.registerTargetBindingProvider(createTsonicCoreVirtualModulesProvider());
       sourceSemantics.initialize?.(context);
       context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext): void => {
+        if (request.providerVirtualModule !== undefined) {
+          return;
+        }
         recordUnsupportedTsonicCoreLangReExportDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.host.diagnostics);
         recordTsonicAttributeBuilderFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts);
         recordTsonicStructFieldFactsAndDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);

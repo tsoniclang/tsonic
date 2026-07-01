@@ -6747,6 +6747,8 @@ const reviewedCapabilityEvidence = Object.freeze({
   "binding.parameter": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",

@@ -755,6 +755,66 @@ test("CLI emits calls through parameter destructured object-shape callable facts
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7\n");
 });
 
+test("CLI runs object parameter rename rest nested and callable destructuring from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "object-parameter-binding-facts");
+  const assemblyName = "SmokeGeneratedObjectParameterBindingFacts";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type Child = { count: int32; label: string };",
+      "type Payload = { child: Child; value: int32; extra: int32; run(value: int32): int32 };",
+      "",
+      "function inspect({ child: { count }, value: renamed, ...rest }: Payload): string {",
+      "  return `${count}|${renamed}|${rest.extra}|${rest.run(5)}`;",
+      "}",
+      "",
+      "const child: Child = { count: 3, label: \"ok\" };",
+      "const payload: Payload = {",
+      "  child,",
+      "  value: 4,",
+      "  extra: 6,",
+      "  run(value: int32) { return value + 2; },",
+      "};",
+      "",
+      "Console.writeLine(inspect(payload));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string inspect\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+\)/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /int count = __tsonic_destructure\d+\.count;/);
+  assert.match(generatedSource, /int renamed = __tsonic_param\d+\.value;/);
+  assert.match(generatedSource, /__tsonic_shape_method_\d+_run = __tsonic_param\d+\.__tsonic_shape_method_\d+_run/);
+  assert.match(generatedSource, /return \$"\{count\}\|\{renamed\}\|\{rest\.extra\}\|\{rest\.run\(5\)\}";/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "3|4|6|7\n");
+});
+
 
 test("CLI emits object-shape spread from finalized provider object-shape facts", async () => {
   const projectDirectory = resolve(tempRoot, "object-shape-spread");

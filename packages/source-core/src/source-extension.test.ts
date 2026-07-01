@@ -377,6 +377,25 @@ test("source-core keeps flow marker facts on exact call and argument subjects", 
   assert.equal(flowState(session, variableInitializer(session, sourceFile, "laterUnrelated")), undefined);
 });
 
+test("source-core handles source primitive array destructured parameters", () => {
+  const { session } = createCleanSourceCoreSession(`
+    import type { int32 } from "@tsonic/core/types.js";
+
+    function sum([first = 10, second = 20, ...rest]: int32[]): int32 {
+      return first + second + rest.length;
+    }
+
+    function nested([[first], [, second]]: int32[][]): int32 {
+      return first + second;
+    }
+
+    const result = sum([1, 2, 3]);
+    const nestedResult = nested([[7], [0, 8]]);
+  `);
+
+  assert.ok(session.getSourceFile("/src/index.ts") !== undefined);
+});
+
 test("source-core reports non-storage diagnostics for byref markers", () => {
   const { session, sourceFile } = createSourceCoreSession(`
     import { out, ref, inref } from "@tsonic/core/lang.js";
