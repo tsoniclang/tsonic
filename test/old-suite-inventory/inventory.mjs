@@ -1082,6 +1082,8 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
     "surface.node.fs-path-process",
+    "surface.node.url",
+    "surface.node.util",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
@@ -1532,6 +1534,8 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "backend.csharp.runtime-artifacts",
     "downstream.nodejs-source",
+    "surface.node.url",
+    "surface.node.util",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("js-surface-runtime-builtins"),

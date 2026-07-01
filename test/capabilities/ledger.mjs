@@ -671,8 +671,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node provider-package facts", "partial", "surface-provider"],
-  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
-  ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
+  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "complete", "surface-provider"],
+  ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "complete", "surface-provider"],
 
   ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "complete", "target-provider"],
   ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "complete", "target-provider"],
@@ -5705,12 +5705,41 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "surface.node.util remains partial until final closure records explicit no-old-inventory evidence/replacement for Node util and downstream provider-package util coverage beyond focused CLI/runtime proof.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-alias-coverage/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed stronger partial proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString/styleText/getSystemErrorName/getSystemErrorMessage/convertProcessSignalToExitCode operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, executable proof runs toUSVString and closed scalar helpers through generated C# Node runtime calls, open-carrier format/formatWithOptions/inspect/debuglog/deprecate/isDeepStrictEqual declarations fail closed through provider diagnostics without backend artifacts, and direct csharp-nodejs runtime tests reject format/formatWithOptions/inspect/debuglog/deprecate/isArray/isDeepStrictEqual instead of routing to reflection, dynamic dispatch, JsonSerializer object inspection, GetType-based probing, or generic runtime fallback.",
+      "Reviewed proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString/styleText/getSystemErrorName/getSystemErrorMessage/convertProcessSignalToExitCode operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, executable proof runs toUSVString and closed scalar helpers through generated C# Node runtime calls, the recovered historical alias fixture imports util through the selected provider package, open-carrier format/formatWithOptions/inspect/debuglog/deprecate/isDeepStrictEqual declarations fail closed through provider diagnostics without backend artifacts, and direct csharp-nodejs runtime tests reject format/formatWithOptions/inspect/debuglog/deprecate/isArray/isDeepStrictEqual instead of routing to reflection, dynamic dispatch, JsonSerializer object inspection, GetType-based probing, or generic runtime fallback.",
   }),
   "surface.node.url": Object.freeze({
     positiveTests: Object.freeze([
@@ -5724,12 +5753,38 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "surface.node.url remains partial until final closure records explicit no-old-inventory evidence/replacement for Node URL and downstream provider-package URL coverage beyond focused CLI/runtime proof.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-alias-coverage/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed stronger partial proof: selected node:url and bare url provider modules expose URL, URLSearchParams, and module function declarations; provider-backed default node:url module object facts expose closed file-path helpers such as pathToFileURL; closed URL constructor/properties/static methods, URL.searchParams property access, URL-as-base constructor/canParse/parse overloads, URL-only url.format, URLSearchParams constructor/append/set/get/getAll/has/delete/sort/toString/size, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; executable CLI proof builds and runs href/host/canParse/relative URL construction/url.format(URL)/domainToASCII/resolve/fileURL roundtrip/URLSearchParams/live searchParams mutation through generated C# Node runtime calls; csharp-nodejs runtime tests prove URLSearchParams set preserves first-pair order while removing duplicates. Open-object url.format, urlToHttpOptions, and URLPattern are explicit provider metadata diagnostics with CLI no-artifact proof and no reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
+      "Reviewed proof: selected node:url and bare url provider modules expose URL, URLSearchParams, and module function declarations; provider-backed default node:url module object facts expose closed file-path helpers such as pathToFileURL; closed URL constructor/properties/static methods, URL.searchParams property access, URL-as-base constructor/canParse/parse overloads, URL-only url.format, URLSearchParams constructor/append/set/get/getAll/has/delete/sort/toString/size, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; executable CLI proof builds and runs href/host/canParse/relative URL construction/url.format(URL)/domainToASCII/resolve/fileURL roundtrip/URLSearchParams/live searchParams mutation through generated C# Node runtime calls; the recovered historical alias fixture imports url through the selected provider package; csharp-nodejs runtime tests prove URLSearchParams set preserves first-pair order while removing duplicates. Open-object url.format, urlToHttpOptions, and URLPattern are explicit provider metadata diagnostics with CLI no-artifact proof and no reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
