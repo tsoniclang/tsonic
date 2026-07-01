@@ -165,6 +165,51 @@ const oldSuitePortInventoryEntries = Object.freeze([
       "Ported as a current-architecture executable E2E covering async functions returning sync delegates, async functions returning async delegates, async callback parameters, Task result facts, Func/Task C# AST output, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/async-ops-uses-map/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise carrier facts + C# JS surface Map carrier facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering async Promise<Task> lowering composed with selected JS Map carrier facts, Roslyn async method output, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/promise-chain-reject-stable/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that Promise.resolve(...).then(...) is rejected before target artifacts unless provider/runtime facts explicitly own the Promise chain.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/promise-constructor-task/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that Promise construction is rejected before target artifacts without finalized Task carrier facts.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/promise-void-resolve/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that Promise.resolve() is rejected before target artifacts without provider-owned Promise/Task operation facts.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/task-then-disallowed/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that .then-style Task/Promise chaining is rejected before target artifacts rather than lowered through source-name fallback.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/extension-methods-system/",
     status: "deferred",
     featureArea: "native-provider",
@@ -617,16 +662,11 @@ const oldSuitePortInventoryEntries = Object.freeze([
   ], "csharp-backend", "TSTS declaration AST + C# declaration planner", "Valid behavior covers source declarations, class members, constructors, inheritance, attributes, modifiers, overrides, and virtual/protected shapes; port after declaration planner coverage is fixture-backed with C# AST output only."),
   ...deferredFixtures([
     "async-bidirectional-generator",
-    "async-ops-uses-map",
     "async-union-object-literal-return",
     "bidirectional-generator",
     "generator-different-treturn",
     "generator-return-value",
     "multi-module-generators",
-    "promise-chain-reject-stable",
-    "promise-constructor-task",
-    "promise-void-resolve",
-    "task-then-disallowed",
     "yield-compound-assignment",
     "yield-conditional-expression",
     "yield-control-conditions",
@@ -854,6 +894,11 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("async-basic"),
     oldFixturePath("async-higher-order"),
+    oldFixturePath("async-ops-uses-map"),
+    oldFixturePath("promise-chain-reject-stable"),
+    oldFixturePath("promise-constructor-task"),
+    oldFixturePath("promise-void-resolve"),
+    oldFixturePath("task-then-disallowed"),
   ], [
     "backend.ast.only",
     "backend.csharp.ast-expression",
@@ -863,6 +908,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "function.async",
     "host.package.composition",
     "operation.await.promise-task",
+    "surface.js.map-set",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([

@@ -579,7 +579,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.spread.object", "Object spread emits from object-shape facts", "partial", "target-provider"],
   ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "partial", "target-provider"],
   ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "partial", "target-provider"],
-  ["operation.await.promise-task", "await and async functions emit from promise/task facts", "partial", "target-provider"],
+  ["operation.await.promise-task", "await and async functions emit from promise/task facts", "complete", "target-provider"],
   ["operation.throw.catch", "throw/catch/finally use target exception facts", "complete", "target-provider"],
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "complete", "csharp-backend"],
@@ -619,7 +619,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["function.higher-order", "Higher-order functions use delegate/function carriers", "complete", "csharp-backend"],
   ["function.delegate-carrier", "Delegate carriers are selected by target facts", "complete", "target-provider"],
   ["function.this-binding", "this binding follows TSTS source decisions and target facts", "complete", "tsts-api"],
-  ["function.async", "Async functions map Promise to target task facts", "partial", "target-provider"],
+  ["function.async", "Async functions map Promise to target task facts", "complete", "target-provider"],
 
   ["declaration.function", "Function declarations render from AST and TSTS facts", "complete", "csharp-backend"],
   ["declaration.class", "Classes render constructors, fields, methods, and static members", "partial", "csharp-backend"],
@@ -6377,10 +6377,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
       "test/fixtures/async-basic/",
       "test/fixtures/async-higher-order/",
+      "test/fixtures/async-ops-uses-map/",
+      "test/fixtures/promise-chain-reject-stable/",
+      "test/fixtures/promise-constructor-task/",
+      "test/fixtures/promise-void-resolve/",
+      "test/fixtures/task-then-disallowed/",
     ]),
-    blockers: Object.freeze([
-      "operation.await.promise-task remains partial until deferred old async/promise/task fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, and task-then-disallowed.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -6418,7 +6421,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed stronger partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, higher-order async delegate carriers, and async structural object returns through dotnet build/run. Unsupported Promise.resolve, Promise chains, Promise constructors, and async generators now fail before target artifacts with selected-fact or finalized-carrier diagnostics. The row stays partial because the deferred old async/promise/task fixture set listed in blockers still lacks current closure proof.",
+      "Reviewed proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, higher-order async delegate carriers, async structural object returns, and async composition with selected JS Map carrier facts through dotnet build/run. Unsupported Promise.resolve, Promise chains, Promise constructors, task .then-style chaining, and async generators fail before target artifacts with selected-fact or finalized-carrier diagnostics. .NET/EF/LINQ task fixtures remain downstream provider-package work and are not required proof for the source async/await carrier contract.",
   }),
   "function.this-binding": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6519,10 +6522,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/functions/async-hof/AsyncReturningFunctions.ts",
       "test/fixtures/async-basic/",
       "test/fixtures/async-higher-order/",
+      "test/fixtures/async-ops-uses-map/",
+      "test/fixtures/promise-chain-reject-stable/",
+      "test/fixtures/promise-constructor-task/",
+      "test/fixtures/promise-void-resolve/",
+      "test/fixtures/task-then-disallowed/",
     ]),
-    blockers: Object.freeze([
-      "function.async remains partial until deferred old async/promise/task/generator fixtures have current proof or explicit non-goal disposition: await-task-dotnet, continuewith-return-task-dotnet, efcore-linq-async-dotnet, async-ops-uses-map, and task-then-disallowed.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -6560,7 +6566,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed stronger partial proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, async structural object returns, and exact runtime output. Unsupported Promise.resolve, Promise chains, Promise constructors, and async generators fail before target artifacts instead of lowering through Promise/source-name fallback. The row stays partial because the deferred old async/promise/task/generator fixture set listed in blockers still lacks current closure proof.",
+      "Reviewed proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, async structural object returns, async Map carrier composition, and exact runtime output. Unsupported Promise.resolve, Promise chains, Promise constructors, task .then-style chaining, and async generators fail before target artifacts instead of lowering through Promise/source-name fallback. .NET/EF/LINQ task fixtures remain downstream provider-package work and are not required proof for the source async function carrier contract.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
