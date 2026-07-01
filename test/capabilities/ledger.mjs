@@ -6160,7 +6160,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/async-higher-order/",
     ]),
     blockers: Object.freeze([
-      "operation.await.promise-task remains partial until Promise chain/task interop fixtures, async interaction with selected JS surfaces, and every old async fixture that depends on await semantics have current positive and fail-closed proof.",
+      "operation.await.promise-task remains partial until Promise chain/provider-owned Task API interop fixtures, async interaction with selected JS surfaces, and every old async fixture that depends on await semantics have current positive and fail-closed proof.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
@@ -6199,7 +6199,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, and higher-order async delegate carriers through dotnet build/run.",
+      "Reviewed stronger partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, and higher-order async delegate carriers through dotnet build/run.",
   }),
   "function.this-binding": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6291,6 +6291,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
@@ -6299,7 +6300,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/async-higher-order/",
     ]),
     blockers: Object.freeze([
-      "function.async remains partial until async object-literal returns, Promise constructor/then/reject behavior, Task interop, generators, and async+surface fixtures are covered by finalized facts, backend AST tests, and runtime/toolchain tests.",
+      "function.async remains partial until async object-literal returns, Promise constructor/then/reject behavior, provider-owned Task API interop, generators, and async+surface fixtures are covered by finalized facts, backend AST tests, and runtime/toolchain tests.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
@@ -6338,7 +6339,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return facts diagnose before backend fallback; current executable tests cover Promise<string>, Promise<void>/Task, nested Promise-returning delegates, async callbacks, and exact runtime output.",
+      "Reviewed stronger partial proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, and exact runtime output.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
