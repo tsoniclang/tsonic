@@ -3987,7 +3987,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
     ]),
     notes:
-      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed before partial object creation. CLI tests prove full object-shape spread, subset spread, and a non-Node object-rest-to-spread executable through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
+      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed before partial object creation. CLI tests prove full object-shape spread, subset spread, readonly utility-projected spread, nested object spread inside rest/default object binding, and a non-Node object-rest-to-spread executable through generated C# projects. Computed/accessor object members, any source member lacking a finalized target carrier, and single-evaluation lowering gaps diagnose before artifact emission instead of falling back to source spelling.",
   }),
   "operation.spread.provider-target-copy": Object.freeze({
     positiveTests: Object.freeze([
@@ -4004,7 +4004,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.provider-target-copy remains partial until provider-native copy operations, generated adapter copy methods, compat object-carrier copy, and non-identifier single-evaluation copy plans are represented as finalized provider facts with positive and fail-closed tests.",
     ]),
     notes:
-      "Reviewed partial proof: current provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; the Slice 8 executable proves that copied rest members feed generated C# behavior. Missing source facts, missing member carriers, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
+      "Reviewed partial proof: provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; executables prove copied rest members, readonly utility-projected members, and nested spread members feed generated C# behavior. Missing source facts, missing member carriers, computed/accessor members, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
   }),
   "binding.array.fixed-rest-default": Object.freeze({
     positiveTests: Object.freeze([
@@ -6832,7 +6832,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object.rename-rest-default remains partial until compat TsObject extraction is classified and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
     notes:
-      "Reviewed partial proof: object rename, rest, nested extraction, and defaults emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof, including a Slice 8 object-rest executable that preserves nullable optional members, applies nullish defaults, and feeds spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed.",
+      "Reviewed partial proof: object rename, rest, nested extraction, and defaults emit only from finalized source/rest object-shape facts and execute through CLI/runtime proof. Executables preserve nullable optional members, apply nullish defaults, copy retained rest members, and feed nested spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed.",
   }),
   "binding.object-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -6851,7 +6851,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "binding.object-shape remains partial until object-shape binding has full assignment-default, provider-native, compat TsObject, and old-suite proof.",
     ]),
     notes:
-      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
+      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, readonly utility-projected spread, nested object spread, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -6877,7 +6877,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "carrier.object-shape remains partial until structural interface storage, generated adapter emission, inline object parameters, generic object literal paths, object spread/rest/default extraction, and full old fixture parity are covered end to end.",
     ]),
     notes:
-      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes nested object extraction, rest object carriers, object spread carriers, nullable optional members, and a non-Node executable that applies object-shape default extraction through generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
+      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes nested object extraction, rest object carriers, object spread carriers, readonly utility-projected shape copies, nested spread carriers, nullable optional members, and a non-Node executable that applies object-shape default extraction through generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([
