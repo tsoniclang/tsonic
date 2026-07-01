@@ -392,7 +392,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
     }, null, 2),
     "src/index.ts": [
       "import { Buffer } from \"node:buffer\";",
-      "import { appendFile, chmod, cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile } from \"node:fs/promises\";",
+      "import { access, appendFile, chmod, copyFile, cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, truncate, unlink, writeFile } from \"node:fs/promises\";",
       "",
       "export async function readText(path: string): Promise<string> {",
       "  return await readFile(path, \"utf8\");",
@@ -425,7 +425,9 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  const binary = directory + \"/binary.bin\";",
       "  const renamed = directory + \"/renamed.txt\";",
       "  const copied = directory + \"/copied.txt\";",
+      "  const copiedDirect = directory + \"/copied-direct.txt\";",
       "  await writeFile(source, \"hello\", \"utf8\");",
+      "  await access(source);",
       "  await writeFile(binary, Buffer.from(\"ok\", \"utf8\"));",
       "  await appendFile(binary, Buffer.from(\"!\", \"utf8\"));",
       "  const text = await readFile(source, \"utf8\");",
@@ -433,13 +435,17 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
       "  const binaryBytes = await readFile(binary);",
       "  await rename(source, renamed);",
       "  await cp(renamed, copied, false);",
+      "  await copyFile(renamed, copiedDirect);",
+      "  await truncate(copiedDirect, 2);",
+      "  const truncatedText = await readFile(copiedDirect, \"utf8\");",
       "  const entries = await readdir(directory);",
       "  const kind = (await stat(copied)).isFile() ? \"file\" : \"other\";",
       "  await unlink(binary);",
       "  await unlink(renamed);",
       "  await rm(copied, false);",
+      "  await rm(copiedDirect, false);",
       "  await rm(directory, true);",
-      "  return `${text}:${bytes.length}:${binaryBytes.length}:${entries.length}:${kind}`;",
+      "  return `${text}:${bytes.length}:${binaryBytes.length}:${entries.length}:${kind}:${truncatedText}`;",
       "}",
       "",
     ].join("\n"),
@@ -451,6 +457,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(path, "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer bytes = await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(source\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.access\(source\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("ok", "utf8"\)\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.appendFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("!", "utf8"\)\);/);
@@ -458,6 +465,8 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, true\);/);
   assert.match(generatedSource, /string\[\] entries = await Tsonic\.CSharp\.Node\.fs_promises\.readdir\(directory\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.copyFile\(renamed, copiedDirect\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.truncate\(copiedDirect, System\.Convert\.ToInt64\(2\)\);/);
   assert.match(generatedSource, /entries\.Length/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.symlink\(sourcePath, linkPath\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.chmod\(linkPath, 420\);/);
@@ -484,7 +493,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
     "}",
     "",
   ]);
-  assert.equal(stdout, "hello:5:3:3:file\n");
+  assert.equal(stdout, "hello:5:3:4:file:he\n");
 });
 
 test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
@@ -792,7 +801,7 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "import { Console } from \"@tsonic/dotnet/System.js\";",
       "import { Buffer } from \"node:buffer\";",
       "import { createHash, randomUUID } from \"node:crypto\";",
-      "import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from \"node:fs\";",
+      "import { accessSync, appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from \"node:fs\";",
       "import os from \"node:os\";",
       "import path from \"node:path\";",
       "import process from \"node:process\";",
@@ -813,6 +822,21 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "renameSync(secondPath, renamedPath);",
       "const directoryEntries = readdirSync(directoryPath);",
       "const directoryListText = directoryEntries.length > 0 ? \"listed\" : \"empty\";",
+      "accessSync(filePath);",
+      "chmodSync(filePath, 420);",
+      "const descriptorPath = path.join(directoryPath, \"descriptor.txt\");",
+      "writeFileSync(descriptorPath, \"Zlong\", \"utf8\");",
+      "truncateSync(descriptorPath, 1);",
+      "const descriptorText = readFileSync(descriptorPath, \"utf8\");",
+      "const emptyDir = path.join(directoryPath, \"empty\");",
+      "mkdirSync(emptyDir, true);",
+      "rmdirSync(emptyDir, true);",
+      "const linkPath = path.join(directoryPath, \"descriptor-link.txt\");",
+      "symlinkSync(descriptorPath, linkPath);",
+      "const linkText = readlinkSync(linkPath).length > 0 && realpathSync(linkPath).length > 0 ? \"link\" : \"missing-link\";",
+      "const copyDirectoryPath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime-copy\");",
+      "cpSync(directoryPath, copyDirectoryPath, true);",
+      "const copiedDescriptorText = readFileSync(path.join(copyDirectoryPath, \"descriptor.txt\"), \"utf8\");",
       "const bytes = Buffer.from(text, \"utf8\");",
       "const fileUrl = pathToFileURL(filePath);",
       "const roundTrip = fileURLToPath(fileUrl);",
@@ -826,8 +850,9 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
       "parsed.searchParams.delete(\"answer\");",
       "const urlText = parsed.href === \"https://example.com/path\" ? \"url-live\" : parsed.href;",
       "const fsSyncText = `${readFileSync(firstPath, \"utf8\")}:${existsSync(renamedPath) ? \"renamed\" : \"missing\"}:${directoryListText}`;",
-      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}|${fsSyncText}`);",
+      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}|${fsSyncText}|${descriptorText}:${copiedDescriptorText}:${linkText}`);",
       "unlinkSync(filePath);",
+      "rmSync(copyDirectoryPath, true);",
       "rmSync(directoryPath, true);",
       "",
     ].join("\n"),
@@ -849,6 +874,14 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.copyFileSync\(firstPath, secondPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.renameSync\(secondPath, renamedPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readdirSync\(directoryPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.accessSync\(filePath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.chmodSync\(filePath, 420\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.truncateSync\(descriptorPath, System\.Convert\.ToInt64\(1\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmdirSync\(emptyDir, true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.symlinkSync\(descriptorPath, linkPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readlinkSync\(linkPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.realpathSync\(linkPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.cpSync\(directoryPath, copyDirectoryPath, true\);/);
   assert.match(generatedSource, /directoryEntries\.Length > 0/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer\.from\(text, "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.pathToFileURL\(filePath\);/);
@@ -865,7 +898,7 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
 
   assert.equal(
     runGeneratedProject(projectDirectory, assemblyName),
-    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live|ab:renamed:listed\n",
+    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live|ab:renamed:listed|Z:Z:link\n",
   );
 });
 
@@ -1255,6 +1288,7 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       "",
       "export function descriptorRoundTrip(fd: number): number {",
       "  const buffer = Buffer.alloc(8);",
+      "  writeSync(fd, \"x\");",
       "  return readSync(fd, buffer, 0, 1, 0) + writeSync(fd, buffer, 0, 1, 0);",
       "}",
       "",
@@ -1289,6 +1323,7 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path\)\.toString\(\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(path, Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(fd\)\.size;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), "x"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\) \+ Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.pid;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
@@ -1771,7 +1806,7 @@ test("CLI rejects unsupported node:url URLPattern operations without fallback", 
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects unsupported selected NodeJS provider operations without fallback", async () => {
+test("CLI rejects unsupported selected NodeJS fs provider operations without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-unsupported-selected-operation");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1787,10 +1822,15 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { watchFile } from \"node:fs\";",
+      "import fs, { createReadStream, readFile, watch, watchFile, writeFile } from \"node:fs\";",
       "",
-      "export function watch(path: string): void {",
+      "export function unsupportedFs(path: string): void {",
+      "  readFile(path, {}, () => {});",
+      "  writeFile(path, \"x\", {}, () => {});",
+      "  watch(path, {}, () => {});",
       "  watchFile(path, () => {});",
+      "  createReadStream(path);",
+      "  fs.watchFile(path, () => {});",
       "}",
       "",
     ].join("\n"),
@@ -1798,9 +1838,19 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'readFile'/);
+  assert.match(build.stderr, /node:fs\.readFile/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
+  assert.match(build.stderr, /node:fs\.writeFile/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watch'/);
+  assert.match(build.stderr, /node:fs\.watch/);
   assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
   assert.match(build.stderr, /node:fs\.watchFile/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
+  assert.match(build.stderr, /node:fs\.createReadStream/);
+  assert.doesNotMatch(build.stderr, /readFile is not a function|writeFile is not a function|watch is not a function|createReadStream is not a function/);
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
