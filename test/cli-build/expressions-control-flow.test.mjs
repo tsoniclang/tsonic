@@ -1718,7 +1718,66 @@ test("CLI runs tuple numeric index access through value-tuple members", async ()
 });
 
 
-test("CLI rejects tuple rest and default destructuring until slice facts are finalized", async () => {
+test("CLI runs required tuple defaults and two-or-more tuple rest destructuring", async () => {
+  const assemblyName = "SmokeGeneratedTupleRestDefaults";
+  const projectDirectory = resolve(tempRoot, "tuple-rest-defaults");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "function tupleDefault(input: [string, number]): string {",
+      "  const [name = \"fallback\"] = input;",
+      "  return name;",
+      "}",
+      "",
+      "function tupleRest(input: [string, number, boolean]): string {",
+      "  const [name, ...rest] = input;",
+      "  return `${name}:${rest[0]}:${rest[1]}`;",
+      "}",
+      "",
+      "Console.writeLine(tupleDefault([\"ready\", 4]));",
+      "Console.writeLine(tupleRest([\"tuple\", 7, true]));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1;/);
+  assert.match(generatedSource, /\(double, bool\) rest = \(__tsonic_destructure\d+\.Item2, __tsonic_destructure\d+\.Item3\);/);
+  assert.match(generatedSource, /return \$"\{name\}:\{rest\.Item1\}:\{rest\.Item2\}";/);
+  assert.doesNotMatch(generatedSource, /Tuple destructuring defaults require/);
+  assert.doesNotMatch(generatedSource, /Tuple rest destructuring requires finalized tuple slice facts/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const projectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
+  const dotnet = run("dotnet", ["build", projectPath, "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", projectPath, "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready\ntuple:7:True\n");
+});
+
+
+test("CLI rejects tuple rest/default forms that still lack explicit carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "tuple-rest-default-fail-closed");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1730,18 +1789,18 @@ test("CLI rejects tuple rest and default destructuring until slice facts are fin
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedTupleRestDefaults",
+            assemblyName: "SmokeGeneratedTupleRestDefaultsRejected",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "export function tupleDefault(input: [string, number]): string {",
+      "export function optionalDefault(input: [string | undefined, number]): string {",
       "  const [name = \"fallback\"] = input;",
       "  return name;",
       "}",
       "",
-      "export function tupleRest(input: [string, number, boolean]): string {",
+      "export function singleRest(input: [string, number]): string {",
       "  const [name, ...rest] = input;",
       "  return name;",
       "}",
@@ -1751,9 +1810,9 @@ test("CLI rejects tuple rest and default destructuring until slice facts are fin
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple destructuring defaults require finalized tuple optional-element facts before C# emission/);
-  assert.match(build.stderr, /Tuple rest destructuring requires finalized tuple slice facts before C# emission/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaults.csproj")), false);
+  assert.match(build.stderr, /Tuple destructuring defaults for optional\/nullish tuple elements require finalized tuple optional-element facts before C# emission/);
+  assert.match(build.stderr, /Tuple rest destructuring requires at least two finalized tuple slice elements before C# emission/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaultsRejected.csproj")), false);
 });
 
 
