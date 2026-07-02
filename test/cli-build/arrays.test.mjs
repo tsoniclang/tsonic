@@ -132,7 +132,12 @@ test("CLI emits readonly array syntax through finalized array ABI facts", async 
       "  return values[0][0];",
       "}",
       "",
-      "Console.writeLine(`${readonlyIndexed([4, 5, 6])}|${genericReadonly<string>([\"ok\"])}|${nested([[7]])}`);",
+      "export function readonlySpread(left: readonly int32[], right: readonly int32[]): readonly int32[] {",
+      "  return [0, ...left, ...right, 9];",
+      "}",
+      "",
+      "const spread = readonlySpread([1, 2], [3]);",
+      "Console.writeLine(`${readonlyIndexed([4, 5, 6])}|${genericReadonly<string>([\"ok\"])}|${nested([[7]])}|${spread.length}|${spread[2]}`);",
       "",
     ].join("\n"),
   });
@@ -145,10 +150,14 @@ test("CLI emits readonly array syntax through finalized array ABI facts", async 
   assert.match(generatedSource, /return values\[0\] \+ values\.Count;/);
   assert.match(generatedSource, /public static T genericReadonly<T>\(System\.Collections\.Generic\.IReadOnlyList<T> values\)/);
   assert.match(generatedSource, /public static int nested\(System\.Collections\.Generic\.IReadOnlyList<int\[\]> values\)/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.IReadOnlyList<int> readonlySpread\(System\.Collections\.Generic\.IEnumerable<int> left, System\.Collections\.Generic\.IEnumerable<int> right\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.concat\(new int\[\] \{ 0 \}, left, right, new int\[\] \{ 9 \}\);/);
+  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IReadOnlyList<int> spread;/);
+  assert.match(generatedSource, /spread\.Count/);
   assert.doesNotMatch(generatedSource, /public static .*Tsonic\.CSharp\.Js\.JSArray/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|System\.Reflection|dynamic/);
 
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7|ok|7\n");
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7|ok|7|5|2\n");
 });
 
 test("CLI runs inferred source-owned array returns through finalized carrier facts", async () => {
