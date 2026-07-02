@@ -905,5 +905,6 @@ test("CLI rejects any and unknown before they trickle into C# output", async () 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /any and unknown cannot trickle into generated C#/);
+  assert.match(build.stderr, /unknown cannot trickle into generated C#/);
+  assert.match(build.stderr, /any cannot trickle into generated C# unless the selected target explicitly enables TypeScript compatibility carriers/);
 });
