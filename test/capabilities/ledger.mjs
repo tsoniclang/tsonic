@@ -4055,6 +4055,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "export function indexed(values: int32[]): int32 { return values[0] + values.length; }",
       "export function dense(values: int32[], index: int32, value: int32): int32 { values[index] = value; return values.length; }",
       "export function sparse(values: int32[], index: int32): int32 { delete values[index]; return values.length; }",
+      "export function readonlyIndexed(values: readonly int32[]): int32 { return values[0] + values.length; }",
     ]),
     tstsDecision:
       "TSTS checks every source expression as ordinary TypeScript Array<T>/T[] syntax; selected JS surface/provider facts, not source spelling, choose the C# public ABI and internal carrier lane.",
@@ -4069,6 +4070,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# parameter and return types render from finalized array boundary/carrier facts: unused native arrays may expose T[], sequential reads use IEnumerable<T>, length/index reads use IReadOnlyList<T>, caller-visible dense mutation uses List<T>, array returns use List<T>, and JSArray<T> appears only as a copy-in local for full JS semantics.",
     positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
@@ -4082,10 +4084,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     blockers: Object.freeze([
-      "carrier.array.public-abi-policy remains partial until readonly arrays, inferred array returns, nested/generic public ABI carriers, native-array provider boundaries, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
+      "carrier.array.public-abi-policy remains partial until inferred array returns, native-array provider boundaries, remaining nested/generic public ABI edge cases, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
     ]),
     notes:
-      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
+      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] and readonly int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads including readonly/generic/nested readonly source syntax, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
     sourceExamples: Object.freeze([

@@ -96,6 +96,61 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI emits readonly array syntax through finalized array ABI facts", async () => {
+  const assemblyName = "SmokeGeneratedReadonlyArrayAbi";
+  const projectDirectory = resolve(tempRoot, "arrays-readonly-abi");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function readonlyIndexed(values: readonly int32[]): int32 {",
+      "  return values[0] + values.length;",
+      "}",
+      "",
+      "export function genericReadonly<T>(values: readonly T[]): T {",
+      "  return values[0];",
+      "}",
+      "",
+      "export function nested(values: readonly int32[][]): int32 {",
+      "  return values[0][0];",
+      "}",
+      "",
+      "Console.writeLine(`${readonlyIndexed([4, 5, 6])}|${genericReadonly<string>([\"ok\"])}|${nested([[7]])}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static int readonlyIndexed\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /return values\[0\] \+ values\.Count;/);
+  assert.match(generatedSource, /public static T genericReadonly<T>\(System\.Collections\.Generic\.IReadOnlyList<T> values\)/);
+  assert.match(generatedSource, /public static int nested\(System\.Collections\.Generic\.IReadOnlyList<int\[\]> values\)/);
+  assert.doesNotMatch(generatedSource, /public static .*Tsonic\.CSharp\.Js\.JSArray/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|System\.Reflection|dynamic/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7|ok|7\n");
+});
+
 test("CLI runs array fixed default rest and nested destructuring from finalized carrier facts", async () => {
   const assemblyName = "SmokeGeneratedArrayBindingFacts";
   const projectDirectory = resolve(tempRoot, "arrays-binding-facts");
