@@ -250,10 +250,10 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IEnumerable<int> source;/);
   assert.match(generatedSource, /source = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
-  assert.match(generatedSource, /withSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, new int\[\] \{ 4, 5 \}\);/);
+  assert.match(generatedSource, /withSpread = Tsonic\.CSharp\.Js\.Array\.concat\(source, new int\[\] \{ 4, 5 \}\);/);
   assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IEnumerable<int> more;/);
   assert.match(generatedSource, /more = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 10, 20 \}\);/);
-  assert.match(generatedSource, /multiSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, more, new int\[\] \{ 100 \}\);/);
+  assert.match(generatedSource, /multiSpread = Tsonic\.CSharp\.Js\.Array\.concat\(source, more, new int\[\] \{ 100 \}\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysModuleSpreadConstants.csproj"), "--nologo", "--v:minimal"]);
@@ -288,11 +288,8 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
       "  return [1, ...pair, 4];",
       "}",
       "",
-      "function summarize(values: int32[]): string {",
-      "  return `${values.length}:${values[0]}:${values[1]}:${values[2]}:${values[3]}`;",
-      "}",
-      "",
-      "Console.writeLine(summarize(compose([2, 3])));",
+      "const values = compose([2, 3]);",
+      "Console.writeLine(`${values.length}:${values[0]}:${values[1]}:${values[2]}:${values[3]}`);",
       "",
     ].join("\n"),
   });
@@ -302,7 +299,8 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.concat\(new int\[\] \{ 1 \}, new int\[\] \{ pair\.Item1, pair\.Item2 \}, new int\[\] \{ 4 \}\)/);
-  assert.match(generatedSource, /public static string summarize\(System\.Collections\.Generic\.IReadOnlyList<int> values\)/);
+  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.List<int> values;/);
+  assert.match(generatedSource, /values = compose\(\(2, 3\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4:1:2:3:4\n");

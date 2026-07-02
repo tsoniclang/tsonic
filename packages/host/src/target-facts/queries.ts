@@ -16,6 +16,9 @@ import type {
 import { asNode } from "../analysis/guards.js";
 import { isTypeSyntaxNode } from "../analysis/guards.js";
 import {
+  getDeclarationTypeNode,
+} from "../analysis/project-source.js";
+import {
   getAliasedSymbolIfAlias,
   getPrimaryDeclaration,
   getResolvedSymbolForReferenceNode,
@@ -112,14 +115,37 @@ export function createTargetFactQueries(
     resolveCallReturnRuntimeCarrier(subject, options) {
       const node = asNode(subject);
       const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
+      const signatureDeclaration = signature === undefined ? undefined : checker.getSignatureDeclaration(signature);
+      const signatureDeclarationSourceFile = ast.getSourceFile(signatureDeclaration) ?? options.sourceFile;
+      const signatureReturnTypeNode = getDeclarationTypeNode(signatureDeclaration);
+      const signatureReturnCarrier = signatureReturnTypeNode === undefined
+        ? undefined
+        : getRuntimeCarrierFromDeclaredFactGraph(
+            ast,
+            checker,
+            types,
+            facts,
+            signatureReturnTypeNode,
+            { sourceFile: signatureDeclarationSourceFile },
+            sourceFiles,
+          ) ??
+          getRuntimeCarrierForSemanticType(
+            ast,
+            checker,
+            types,
+            facts,
+            signatureReturnTypeNode,
+            { sourceFile: signatureDeclarationSourceFile },
+          );
       const returnType = signature === undefined
         ? undefined
         : checker.getReturnTypeOfSignature(signature, options);
       const selectedReturnCarrier = facts.getSelectedTargetCall(node)?.member.returnType;
       return carrierResolution(
         selectedReturnCarrier ??
+          signatureReturnCarrier ??
           getRuntimeCarrierForType(ast, checker, types, facts, returnType, options),
-        "Call return runtime carrier resolved from finalized selected target signature return type or TSTS-selected signature return type facts.",
+        "Call return runtime carrier resolved from finalized selected target signature, TSTS-selected declaration return graph, or TSTS-selected signature return type facts.",
         signature === undefined
           ? "Call return runtime carrier requires a TSTS-selected call signature."
           : "Call return runtime carrier is missing for the TSTS-selected signature return type.",
