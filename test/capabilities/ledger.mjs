@@ -8715,7 +8715,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "diagnostic.source-spans remains partial until every target/provider/backend diagnostic family has exact source-span assertions, including TSTS aggregate diagnostics and all selected-surface failures.",
     ]),
     notes:
-      "Reviewed partial proof: source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan, CLI output prints src/index.ts:line:column with evidence, backend missing-carrier diagnostics preserve structured sourceSpan from the offending source node, and generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings. The row stays partial because this does not prove exact spans for every diagnostic family.",
+      "Reviewed partial proof: TSTS source diagnostics are preserved as individual TargetDiagnostics with structured sourceSpan and TS code evidence instead of a spanless aggregate; source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan; CLI output prints src/index.ts:line:column with evidence; backend missing-carrier diagnostics preserve structured sourceSpan from the offending source node; generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings. The row stays partial because this does not prove exact spans for every diagnostic family.",
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([

@@ -1323,7 +1323,17 @@ test("host rejects invalid flow-narrowed source before backend analysis runs", a
   });
 
   assert.equal(result.diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
-  assert.equal(result.diagnostics.some((diagnostic) => /TS2322: Type 'string' is not assignable to type 'number'/.test(diagnostic.message)), true);
+  const tstsDiagnostic = result.diagnostics.find((diagnostic) => /TS2322: Type 'string' is not assignable to type 'number'/.test(diagnostic.message));
+  assert.ok(tstsDiagnostic);
+  assert.equal(tstsDiagnostic.code, "TSTS_DIAGNOSTIC");
+  assert.deepEqual(tstsDiagnostic.sourceSpan, {
+    fileName: "index.ts",
+    line: 3,
+    column: 11,
+    endLine: 3,
+    endColumn: 14,
+  });
+  assert.deepEqual(tstsDiagnostic.evidence, ["tsts.code=TS2322"]);
   assert.deepEqual(events, [
     "provider:demo:surfaces=",
   ]);

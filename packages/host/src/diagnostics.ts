@@ -7,13 +7,14 @@ import type { TsonicSemanticSession } from "./compiler-session.js";
 export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDirectory: string): readonly TargetDiagnostic[] {
   const diagnostics = session.tstsDiagnostics
     .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
-  const message = formatDiagnostics(diagnostics, currentDirectory);
-  const tstsDiagnostics: TargetDiagnostic[] = message.length === 0 ? [] : [{
+  const tstsDiagnostics: TargetDiagnostic[] = diagnostics.map((diagnostic): TargetDiagnostic => ({
     code: "TSTS_DIAGNOSTIC",
-    category: "error",
-    message,
+    category: tstsDiagnosticCategory(diagnostic),
+    message: formatDiagnostics([diagnostic], currentDirectory).trimEnd(),
     source: "tsts",
-  }];
+    sourceSpan: getTstsDiagnosticSourceSpan(session, diagnostic, currentDirectory),
+    evidence: tstsDiagnosticEvidence(diagnostic),
+  }));
   return [
     ...tstsDiagnostics,
     ...session.extensionHost.diagnostics.all().map((diagnostic): TargetDiagnostic => ({
@@ -26,6 +27,50 @@ export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDi
         entry.details === undefined ? entry.message : `${entry.message}: ${formatDiagnosticEvidenceDetails(entry.details)}`),
     })),
   ];
+}
+
+function tstsDiagnosticCategory(diagnostic: unknown): TargetDiagnostic["category"] {
+  const category = isObjectRecord(diagnostic) ? diagnostic.category : undefined;
+  if (category === 0 || category === "warning") {
+    return "warning";
+  }
+  if (category === 2 || category === 3 || category === "suggestion" || category === "message") {
+    return "suggestion";
+  }
+  return "error";
+}
+
+function tstsDiagnosticEvidence(diagnostic: unknown): readonly string[] {
+  const code = isObjectRecord(diagnostic) ? diagnostic.code : undefined;
+  return typeof code === "number" || typeof code === "string"
+    ? [`tsts.code=TS${code}`]
+    : [];
+}
+
+function getTstsDiagnosticSourceSpan(
+  session: TsonicSemanticSession,
+  diagnostic: unknown,
+  currentDirectory: string,
+): TargetDiagnosticSourceSpan | undefined {
+  if (!isObjectRecord(diagnostic)) {
+    return undefined;
+  }
+  const file = diagnostic.file;
+  const loc = diagnostic.loc;
+  if (!isSourceFileLike(file) || !isDiagnosticLocation(loc)) {
+    return undefined;
+  }
+  return createSourceSpan(session, file, loc.pos, loc.end, currentDirectory);
+}
+
+function isSourceFileLike(value: unknown): value is SourceFile {
+  return typeof value === "object" && value !== null;
+}
+
+function isDiagnosticLocation(value: unknown): value is { readonly pos: number; readonly end: number } {
+  return isObjectRecord(value) &&
+    typeof value.pos === "number" &&
+    typeof value.end === "number";
 }
 
 function getExtensionDiagnosticSourceSpan(
@@ -276,6 +321,10 @@ function formatUnserializableDiagnosticEvidence(value: unknown): string {
   return typeof value === "object" && value !== null
     ? `[${getObjectTag(value)}]`
     : String(value);
+}
+
+function isObjectRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null;
 }
 
 function getObjectTag(value: object): string {
