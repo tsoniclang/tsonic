@@ -3916,10 +3916,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-type-emission/",
     ]),
     blockers: Object.freeze([
-      "carrier.array remains partial until every array carrier lane has current positive and negative proof: inferred returns, tuple interaction, native CLR boundaries, provider-fact absence diagnostics, remaining nested/generic edge cases, and full JS copy-in/copy-out behavior.",
+      "carrier.array remains partial until every array carrier lane has current positive and negative proof: tuple interaction, native CLR boundaries, provider-fact absence diagnostics, remaining nested/generic edge cases, and full JS copy-in/copy-out behavior.",
     ]),
     notes:
-      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, JS-surface, readonly source syntax, generic readonly source syntax, nested readonly source syntax, and sparse JSArray carriers, including non-Node executables that coalesce nullable source arrays, spread into typed carriers, destructure fixed/default/rest elements, and verify exact stdout. Backend fact tests now distinguish array-literal construction metadata from enumerable/read-only-indexable metadata: spread accepts finalized provider enumerable carriers, destructuring accepts finalized provider read-only indexable carriers, and literal-only carriers diagnose instead of being treated as indexable/enumerable. Fail-closed diagnostics cover untyped empty returns, native length access without selected facts, dense-carrier sparse-literal rejection, tuple default/rest without optional/slice facts, and incompatible closed element carriers. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, sparse literal construction, and deterministic rejection for incompatible closed element carriers.",
+      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, JS-surface, readonly source syntax, generic readonly source syntax, nested readonly source syntax, inferred source-owned array returns, and sparse JSArray carriers, including non-Node executables that coalesce nullable source arrays, spread into typed carriers, destructure fixed/default/rest elements, and verify exact stdout. Backend fact tests now distinguish array-literal construction metadata from enumerable/read-only-indexable metadata: spread accepts finalized provider enumerable carriers, destructuring accepts finalized provider read-only indexable carriers, and literal-only carriers diagnose instead of being treated as indexable/enumerable. Fail-closed diagnostics cover untyped empty returns, native length access without selected facts, dense-carrier sparse-literal rejection, tuple default/rest without optional/slice facts, and incompatible closed element carriers. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, sparse literal construction, and deterministic rejection for incompatible closed element carriers.",
   }),
   "operation.array.literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -4075,6 +4075,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4084,10 +4085,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
     blockers: Object.freeze([
-      "carrier.array.public-abi-policy remains partial until inferred array returns, native-array provider boundaries, remaining nested/generic public ABI edge cases, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
+      "carrier.array.public-abi-policy remains partial until native-array provider boundaries, remaining nested/generic public ABI edge cases, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
     ]),
     notes:
-      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] and readonly int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads including readonly/generic/nested readonly source syntax, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
+      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] and readonly int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads including readonly/generic/nested readonly source syntax, List<int> for dense mutation and explicit/inferred source-owned array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
     sourceExamples: Object.freeze([

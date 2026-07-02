@@ -140,12 +140,14 @@ export function createTargetFactQueries(
       const returnType = signature === undefined
         ? undefined
         : checker.getReturnTypeOfSignature(signature, options);
+      const directCallCarrier = getRuntimeCarrier(facts, node);
       const selectedReturnCarrier = facts.getSelectedTargetCall(node)?.member.returnType;
       return carrierResolution(
-        selectedReturnCarrier ??
+        directCallCarrier ??
+          selectedReturnCarrier ??
           signatureReturnCarrier ??
           getRuntimeCarrierForType(ast, checker, types, facts, returnType, options),
-        "Call return runtime carrier resolved from finalized selected target signature, TSTS-selected declaration return graph, or TSTS-selected signature return type facts.",
+        "Call return runtime carrier resolved from explicit call-site fact, finalized selected target signature, TSTS-selected declaration return graph, or TSTS-selected signature return type facts.",
         signature === undefined
           ? "Call return runtime carrier requires a TSTS-selected call signature."
           : "Call return runtime carrier is missing for the TSTS-selected signature return type.",

@@ -151,6 +151,60 @@ test("CLI emits readonly array syntax through finalized array ABI facts", async 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7|ok|7\n");
 });
 
+test("CLI runs inferred source-owned array returns through finalized carrier facts", async () => {
+  const assemblyName = "SmokeGeneratedInferredArrayReturns";
+  const projectDirectory = resolve(tempRoot, "arrays-inferred-return-carrier");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function make(value: int32) {",
+      "  return [value, value + 1];",
+      "}",
+      "",
+      "export function nested(value: int32) {",
+      "  return [[value], [value + 1]];",
+      "}",
+      "",
+      "const values = make(4);",
+      "const nestedValues = nested(6);",
+      "Console.writeLine(`${values[0]}|${values.length}|${nestedValues[1][0]}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<double> make\(int value\)/);
+  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<double>\(new double\[\] \{ value, value \+ 1 \}\);/);
+  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<double\[\]> nested\(int value\)/);
+  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.List<double> values;/);
+  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.List<double\[\]> nestedValues;/);
+  assert.match(generatedSource, /values\.Count/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4|2|7\n");
+});
+
 test("CLI runs array fixed default rest and nested destructuring from finalized carrier facts", async () => {
   const assemblyName = "SmokeGeneratedArrayBindingFacts";
   const projectDirectory = resolve(tempRoot, "arrays-binding-facts");
