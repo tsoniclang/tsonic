@@ -1990,6 +1990,8 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.setPrototypeOf'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.getPrototypeOf'/);
+  assert.match(build.stderr, /index\.ts:2:10: C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
+  assert.match(build.stderr, /index\.ts:6:10: C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
   assert.match(build.stderr, /descriptor, prototype, extensibility/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
 });
@@ -2309,6 +2311,8 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.matchAll'/);
+  assert.match(build.stderr, /index\.ts:2:10: C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
+  assert.match(build.stderr, /index\.ts:6:10: C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
   assert.match(build.stderr, /RegExpMatchArray/);
   assert.match(build.stderr, /template-object/);
   assert.match(build.stderr, /iterator/);
