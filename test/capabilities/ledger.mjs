@@ -746,7 +746,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "complete", "tests"],
-  ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
+  ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "complete", "tests"],
   ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "complete", "tests"],
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "complete", "tests"],
 
@@ -8908,6 +8908,41 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: Object.freeze([]),
     notes:
       "Reviewed proof: downstream smoke builds and runs provider-backed Console, JS-surface, and Node provider-package executables through current CLI output, then builds a generated C# library and consumes it from a separate SDK project through ProjectReference. Negative proof rejects an unselected Node provider-package import before C# artifacts. Generated output and selected runtime packages are scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
+  }),
+  "downstream.dotnet.aspnet": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { CLSCompliantAttribute, DateTime, DateTimeOffset, Guid } from \"@tsonic/dotnet/System.js\";",
+      "export class UserEntity implements NamedEntity { id: Guid = Guid.empty; score: int32 | null = null; roles: List<string> = new List<string>([\"admin\", \"user\"]); }",
+      "export async function loadUser(name: string): Promise<UserEntity> { return new UserEntity(name); }",
+      "external Microsoft.NET.Sdk.Web project consumes generated library through ProjectReference and Microsoft.AspNetCore.Http.Results",
+    ]),
+    tstsDecision:
+      "TSTS owns source checking for entity classes, nullable fields, interface implementation, async Promise return shape, and imports; .NET provider virtual modules supply Guid, DateTime, DateTimeOffset, CLSCompliantAttribute, and List<T> declarations/facts.",
+    providerFacts: Object.freeze([
+      "providerVirtualDeclarationFact",
+      "providerTargetBindingFact",
+      "providerSelectedConstructorFact",
+      "providerSelectedStaticFieldFact",
+      "providerAttributeFact",
+      "promiseTaskCarrierFact",
+      "targetToolchainLibraryReferenceFact",
+    ]),
+    backendContract:
+      "The C# backend emits a provider-backed library from finalized facts, includes explicit ASP.NET framework references from target-owned project options, suppresses artifacts on diagnostics, and leaves ASP.NET/Web SDK behavior to the downstream .NET project through ProjectReference.",
+    positiveTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/aspnetcore-dotnet/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: downstream-smoke generates a C# library that uses real .NET provider data for attributes, Guid, DateTime, DateTimeOffset, nullable source fields, async Task<T>, and List<T>. The test builds the generated library, scans generated output for banned reflection/dynamic mechanisms, builds an external Microsoft.NET.Sdk.Web consumer with ProjectReference to the generated project, uses Microsoft.AspNetCore.Http.Results, runs the consumer, and asserts observable output. The provider regression test proves .NET static methods that collide with instance source names are classified as unsupported provider members instead of producing ambiguous TSTS virtual-member facts.",
   }),
   "downstream.nodejs-source": Object.freeze({
     sourceExamples: Object.freeze([
