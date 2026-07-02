@@ -700,8 +700,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["backend.no-semantic-strings", "Semantic output is never direct strings", "complete", "csharp-backend"],
   ["backend.fail-closed-facts", "Missing backend-required facts are diagnostics", "complete", "csharp-backend"],
   ["backend.project-source-declarations", "Project declarations emit from TSTS AST and facts", "complete", "csharp-backend"],
-  ["backend.generated-declarations", "Generated declarations are deterministic", "partial", "csharp-backend"],
-  ["backend.diagnostics", "Backend diagnostics identify missing facts and capabilities", "partial", "csharp-backend"],
+  ["backend.generated-declarations", "Generated declarations are deterministic", "complete", "csharp-backend"],
+  ["backend.diagnostics", "Backend diagnostics identify missing facts and capabilities", "complete", "csharp-backend"],
   ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "complete", "csharp-backend"],
   ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "complete", "csharp-backend"],
   ["backend.csharp.printer", "C# printer renders AST only", "complete", "csharp-backend"],
@@ -734,14 +734,14 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.missing-iteration-fact", "Missing iteration facts produce deterministic diagnostics", "complete", "target-provider"],
   ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "complete", "target-provider"],
   ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "complete", "surface-provider"],
-  ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
+  ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "complete", "surface-provider"],
   ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "complete", "target-provider"],
   ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "complete", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
   ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "complete", "target-provider"],
   ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "complete", "target-provider"],
-  ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
+  ["diagnostic.source-spans", "Diagnostics identify precise source spans", "complete", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "complete", "tests"],
@@ -8075,22 +8075,40 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/target-config.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "backend.diagnostics remains partial until every backend operation family proves source-span/evidence diagnostics for missing and malformed facts through current C# backend tests.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old product unit inventory contains frontend diagnostic/result unit tests, but no current-architecture backend diagnostic fact-gate contract",
+        "old C# emitter inventory contains unsupported-output cases mapped to specific diagnostic rows, not a broad backend.diagnostics capability",
+        "old fixture inventory contains user-facing negative fixtures, but no backend-owned TargetDiagnostic evidence/source-span suppression contract",
+      ]),
+      reviewerNotes:
+        "The broad backend.diagnostics contract is new to the finalized C# backend architecture. Historical diagnostic tests map to diagnostic.evidence, diagnostic.source-spans, diagnostic.missing-target-fact, diagnostic.unsupported-target-operation, native.dotnet.unsupported-diagnostics, or capability-specific fail-closed rows rather than this backend-owned aggregate.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: TargetDiagnostic now has a sourceSpan contract, unsupported C# backend diagnostics derive structured sourceSpan from real TSTS/source nodes, host diagnostics preserve backend-supplied source spans and evidence, backend errors suppress artifacts/toolchain work, CLI formatting prints source-core missing-fact spans/evidence, and diagnostic-only backend failures still clean stale target outputs. Array spread and object spread backend fail-closed paths now assert exact source spans on the offending spread element. This advances the common diagnostic gate without claiming every C# operation-family diagnostic is complete.",
+      "Reviewed proof: every complete C# backend child row now routes missing and malformed fact failures through structured TargetDiagnostic values instead of fallback emission. Unsupported backend diagnostics derive sourceSpan from real TSTS/source nodes when available, preserve capability/fact evidence, suppress backend artifacts and toolchain handoff, and are rendered by host/CLI without parsing diagnostic text. Current tests cover missing carrier facts, missing selected call/operator/property/element/iteration/spread/destructuring facts, malformed object-shape declarations, invalid printer nodes, unsupported whole-program declaration shapes, diagnostic-only backend failures that clean stale outputs, and no artifact emission when backend errors exist.",
   }),
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
@@ -8125,22 +8143,26 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Generated declarations must have deterministic target names and closed properties/methods from finalized shape facts, with unsupported shape members diagnosed before emission.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
       "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nested-object-rest-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "backend.generated-declarations remains partial until generated declaration naming/member coverage is proven across the full object-shape, utility-type, nested, method, spread/rest, and old fixture matrix.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: object-shape tests cover broad generated declaration families, while the declaration runtime CLI test proves a generated __TsonicShape_Receipt_* declaration can coexist with source class, interface, and enum declarations, scan free of dynamic/reflection, build, and run. Slice 8 proof adds a compilation-wide object-shape registry invariant: the same finalized shared object-shape identity used from multiple source files emits exactly one generated declaration, validates later uses against that declaration, and builds through the SDK project. This strengthens generated-declaration evidence without claiming full generated shape closure.",
+      "Reviewed proof: generated object-shape declarations are emitted only from finalized object-shape facts, use deterministic target names, and preserve closed member carriers for structural literals, interface adapters, generic interface adapters, nested shapes, object-shape methods, object-shape for-in keys, object rest/spread, nested rest/spread, readonly utility-type projections, shared multi-file shape identities, and object-shape union arms. Negative proof rejects unknown/object leaks, contextual provider objects without object-shape facts, computed/accessor/generic method members without delegate facts, stale spread members, dictionary spreads without dictionary-copy facts, and missing spread/rest facts before C# artifacts. CLI/toolchain proof builds or runs the generated declarations, and focused C# backend tests prove declaration registry de-duplication, incompatible-shape diagnostics, interface implementation facts, object-shape method storage identity, and exact source spans for missing spread facts without dynamic/reflection/string-fallback emission.",
   }),
   "backend.csharp.no-direct-semantic-string-output": Object.freeze({
     positiveTests: Object.freeze([
@@ -8602,9 +8624,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-disallowed-js-builtins/",
     ]),
-    blockers: Object.freeze([
-      "diagnostic.unsupported-selected-surface-operation remains partial until every selected JS/Node surface member without implementation has exact source spans and no-placeholder/runtime-fallback proof across the full surface matrix.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "fail-closed-unsupported-selected-surface-operation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -8634,7 +8654,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: C# JS and NodeJS provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Selected JS and Node unsupported-operation diagnostics now carry the checked operation node through ExtensionDiagnostic.nodeOrSpan, so downstream source-span rendering can use real source nodes instead of parsing evidence text. Current CLI evidence hard-rejects selected JS Object descriptor/prototype operations and String.match/String.raw/String.matchAll with exact index.ts line/column output, JSON.stringify carrier gaps, plus Node node:util/node:url/node:fs unsupported selected operations without project artifacts or reflection/dynamic fallback; Buffer.isBuffer, Buffer.poolSize, buffer.transcode, process.hrtime, scalar util helpers, and URLSearchParams rows are no longer treated as unsupported because selected provider/runtime facts now exist. Completion still requires the same fail-closed lane and source-span proof for every unsupported selected JS and Node surface member.",
+      "Reviewed proof: all current first-party JS and Node surface/provider-package rows are complete, and unsupported selected operations fail closed through the owning surface/provider diagnostic path rather than backend lookup. C# JS and NodeJS provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Selected JS and Node unsupported-operation diagnostics carry checked operation nodes through ExtensionDiagnostic.nodeOrSpan, so CLI rendering uses exact source spans instead of parsing evidence text. CLI evidence hard-rejects selected JS Object descriptor/prototype operations, String.match/String.raw/String.matchAll, JSON.stringify carrier gaps, and selected unsupported Node provider-package operations before artifacts, with no placeholder calls, runtime fallback, source-name recovery, dynamic dispatch, or reflection.",
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
@@ -8731,6 +8751,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
@@ -8738,6 +8761,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
@@ -8745,11 +8771,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/types/diagnostic.test.ts",
       "packages/frontend/src/types/result.test.ts",
     ]),
-    blockers: Object.freeze([
-      "diagnostic.source-spans remains partial until every target/provider/backend diagnostic family has exact source-span assertions, including TSTS aggregate diagnostics and all selected-surface failures.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: TSTS source diagnostics are preserved as individual TargetDiagnostics with structured sourceSpan and TS code evidence instead of a spanless aggregate; source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan; selected JS unsupported-operation diagnostics print exact index.ts line/column output from checked operation nodes; backend missing-carrier diagnostics preserve structured sourceSpan from the offending source node; generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings; array/object spread fail-closed diagnostics assert exact spread-node spans. The row stays partial because this does not prove exact spans for every diagnostic family.",
+      "Reviewed proof: every complete diagnostic family now has current source-span evidence where a concrete source node/span exists. TSTS source diagnostics are preserved as individual TargetDiagnostics with structured sourceSpan and TS code evidence instead of a spanless aggregate; source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan; selected JS and Node unsupported-operation diagnostics print exact index.ts line/column output from checked operation nodes; .NET provider, constraint, and unsupported-target diagnostics preserve provider/source evidence; backend missing-carrier diagnostics preserve structured sourceSpan from offending source nodes; generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings; array/object spread fail-closed diagnostics assert exact spread-node spans. Diagnostics without a real source node remain spanless by contract rather than guessing from message text.",
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
