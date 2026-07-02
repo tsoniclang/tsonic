@@ -809,6 +809,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "backend.csharp.no-direct-semantic-string-output",
     "backend.no-semantic-strings",
+    "compat.any.operators",
     "diagnostic.missing-target-fact",
     "expression.operator",
     "expression.nullish-optional",

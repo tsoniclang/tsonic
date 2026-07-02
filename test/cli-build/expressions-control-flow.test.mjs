@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits C# string literals and template expressions from TSTS AST", async () => {
   const projectDirectory = resolve(tempRoot, "template-expressions");
@@ -786,6 +786,146 @@ test("CLI emits async functions and lambdas from TSTS Promise carriers", async (
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
+test("CLI emits instance and lexical this only from finalized receiver facts", async () => {
+  const projectDirectory = resolve(tempRoot, "instance-lexical-this-facts");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedThisFacts",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Counter {",
+      "  value: number = 7;",
+      "  read(): number {",
+      "    const read = (): number => this.value;",
+      "    return read();",
+      "  }",
+      "}",
+      "",
+      "export function run(): number {",
+      "  const counter = new Counter();",
+      "  return counter.read();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public class Counter/);
+  assert.match(generatedSource, /public double value = 7;/);
+  assert.match(generatedSource, /Func<double> read = \(\) => this\.value;/);
+  assert.match(generatedSource, /return read\(\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedThisFacts.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects static this before C# emission instead of guessing receiver semantics", async () => {
+  const projectDirectory = resolve(tempRoot, "static-this-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedStaticThisRejected",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Counter {",
+      "  static value: number = 7;",
+      "  static read(): number {",
+      "    return this.value;",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
+  assert.match(build.stderr, /static class member receiver/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+});
+
+test("CLI rejects JavaScript this-binding contexts that lack instance receiver facts", async () => {
+  const cases = [
+    {
+      name: "object-literal-method-this-rejected",
+      assemblyName: "SmokeGeneratedObjectLiteralThisRejected",
+      source: [
+        "export const box = {",
+        "  value: 7,",
+        "  read(): number {",
+        "    return this.value;",
+        "  },",
+        "};",
+        "",
+      ],
+      message: /object-literal or non-class method receiver/,
+    },
+    {
+      name: "class-field-this-rejected",
+      assemblyName: "SmokeGeneratedClassFieldThisRejected",
+      source: [
+        "export class Counter {",
+        "  value: number = 7;",
+        "  doubled: number = this.value * 2;",
+        "}",
+        "",
+      ],
+      message: /class field initializer receiver/,
+    },
+  ];
+
+  for (const thisCase of cases) {
+    const projectDirectory = resolve(tempRoot, thisCase.name);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [
+          {
+            id: "csharp",
+            options: {
+              namespace: "Smoke.Generated",
+              assemblyName: thisCase.assemblyName,
+            },
+          },
+        ],
+      }, null, 2),
+      "src/index.ts": thisCase.source.join("\n"),
+    });
+
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.notEqual(build.status, 0, thisCase.name);
+    assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
+    assert.match(build.stderr, thisCase.message);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  }
+});
+
 
 test("CLI emits array literals from finalized runtime carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "array-literal-runtime-carriers");
@@ -1041,6 +1181,98 @@ test("CLI emits source-owned parameter and for-initializer object destructuring"
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI runs array and object-shape destructuring assignment from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "destructuring-assignment-runtime");
+  const assemblyName = "SmokeGeneratedDestructuringAssignment";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type Shape = { value: int32; label: string };",
+      "type Address = { city: string; zip: string; country: string };",
+      "type User = { name: string; address: Address };",
+      "",
+      "function assignArray(values: int32[]): int32 {",
+      "  let first: int32 = 0;",
+      "  let second: int32 = 0;",
+      "  [first, second] = values;",
+      "  return first + second;",
+      "}",
+      "",
+      "function assignArrayExpression(values: int32[]): string {",
+      "  let first: int32 = 0;",
+      "  const returned = ([first] = values);",
+      "  return `${first}:${returned[1]}`;",
+      "}",
+      "",
+      "function assignObject(input: Shape): string {",
+      "  let value: int32 = 0;",
+      "  let label: string = \"\";",
+      "  ({ value, label } = input);",
+      "  return `${label}:${value}`;",
+      "}",
+      "",
+      "function assignObjectExpression(input: Shape): string {",
+      "  let value: int32 = 0;",
+      "  let label: string = \"\";",
+      "  const returned = ({ value, label } = input);",
+      "  return `${label}:${returned.value}:${value}`;",
+      "}",
+      "",
+      "function assignObjectRest(input: Shape): string {",
+      "  let value: int32 = 0;",
+      "  let rest: { label: string } = { label: \"\" };",
+      "  ({ value, ...rest } = input);",
+      "  return `${rest.label}:${value}`;",
+      "}",
+      "",
+      "function assignNestedObjectRest(input: User): string {",
+      "  let city: string = \"\";",
+      "  let restAddress: { zip: string; country: string } = { zip: \"\", country: \"\" };",
+      "  ({ address: { city, ...restAddress } } = input);",
+      "  return `${city}:${restAddress.zip}:${restAddress.country}`;",
+      "}",
+      "",
+      "Console.writeLine(`${assignArray([2, 3])}|${assignArrayExpression([4, 5])}|${assignObject({ value: 7, label: \"ok\" })}|${assignObjectExpression({ value: 9, label: \"expr\" })}|${assignObjectRest({ value: 11, label: \"rest\" })}|${assignNestedObjectRest({ name: \"Ada\", address: { city: \"Paris\", zip: \"75001\", country: \"FR\" } })}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /int\[\] __tsonic_destructure\d+ = values;/);
+  assert.match(generatedSource, /first = __tsonic_destructure\d+\[0\];/);
+  assert.match(generatedSource, /second = __tsonic_destructure\d+\[1\];/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /value = __tsonic_destructure\d+\.value;/);
+  assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
+  assert.match(generatedSource, /\(\(System\.Func<int\[\]>\)\(\(\) =>/);
+  assert.match(generatedSource, /\(\(System\.Func<__TsonicShape_[A-Za-z0-9_]+>\)\(\(\) =>/);
+  assert.match(generatedSource, /rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_destructure\d+\.label,\s*\};/);
+  assert.match(generatedSource, /restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
+  assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|4:5|ok:7|expr:9:9|rest:11|Paris:75001:FR\n");
+});
+
 
 test("CLI emits C# null-conditional access from TSTS optional-chain AST", async () => {
   const projectDirectory = resolve(tempRoot, "optional-chain");
@@ -1096,6 +1328,87 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+
+test("CLI runs non-Node carrier binding spread nullish and exception flow", async () => {
+  const assemblyName = "SmokeGeneratedSlice8CarrierBindingRuntime";
+  const projectDirectory = resolve(tempRoot, "slice8-carrier-binding-runtime");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console, Exception } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Child = { value: number };",
+      "type Source = { label?: string; count: number; child: Child };",
+      "type Spread = { label: string; total: number };",
+      "",
+      "function summarize({ label = \"fallback\", child: { value }, ...rest }: Source, numbers: number[]): string {",
+      "  const spread: Spread = { label, total: value + rest.count };",
+      "  const composed: number[] = [spread.total, ...numbers, rest.count];",
+      "  const [first = 1, second = 2, ...tail] = composed;",
+      "  return `${spread.label}|${first + second + tail.length}|${value}`;",
+      "}",
+      "",
+      "function checked(input: Source, numbers: number[] | null): string {",
+      "  try {",
+      "    if (numbers === null) {",
+      "      throw new Exception(\"missing numbers\");",
+      "    }",
+      "    return summarize(input, numbers);",
+      "  } catch (error) {",
+      "    const empty: number[] = [];",
+      "    return summarize(input, empty);",
+      "  }",
+      "}",
+      "",
+      "const input: Source = { label: \"slice8\", count: 3, child: { value: 4 } };",
+      "const fallbackInput: Source = { count: 3, child: { value: 4 } };",
+      "Console.writeLine(checked(input, [5, 6]));",
+      "Console.writeLine(checked(fallbackInput, null));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string summarize\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+, System\.Collections\.Generic\.IEnumerable<double> numbers\)/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "fallback";/);
+  assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ spread = new __TsonicShape_[A-Za-z0-9_]+/);
+  assert.match(generatedSource, /label = label,/);
+  assert.match(generatedSource, /total = value \+ rest\.count,/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IReadOnlyList<double> composed = Tsonic\.CSharp\.Js\.Array\.concat\(new double\[\] \{ spread\.total \}, numbers, new double\[\] \{ rest\.count \}\);/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.List<double> tail = Tsonic\.CSharp\.Js\.Array\.slice\(__tsonic_destructure\d+, 2\);/);
+  assert.match(generatedSource, /throw new System\.Exception\("missing numbers"\);/);
+  assert.match(generatedSource, /catch \(System\.Exception error\)/);
+  assert.match(generatedSource, /System\.Collections\.Generic\.IEnumerable<double> empty = new System\.Collections\.Generic\.List<double>\(new double\[\] \{ \}\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
+    "slice8|14|4",
+    "fallback|10|4",
+    "",
+  ].join("\n"));
 });
 
 
@@ -1438,7 +1751,82 @@ test("CLI runs tuple numeric index access through value-tuple members", async ()
 });
 
 
-test("CLI rejects tuple rest and default destructuring until slice facts are finalized", async () => {
+test("CLI runs required tuple defaults and tuple rest destructuring", async () => {
+  const assemblyName = "SmokeGeneratedTupleRestDefaults";
+  const projectDirectory = resolve(tempRoot, "tuple-rest-defaults");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "function tupleDefault(input: [string, number]): string {",
+      "  const [name = \"fallback\"] = input;",
+      "  return name;",
+      "}",
+      "",
+      "function tupleRest(input: [string, number, boolean]): string {",
+      "  const [name, ...rest] = input;",
+      "  return `${name}:${rest[0]}:${rest[1]}`;",
+      "}",
+      "",
+      "function singleTupleRest(input: [string, number]): string {",
+      "  const [name, ...rest] = input;",
+      "  return `${name}:${rest[0]}`;",
+      "}",
+      "",
+      "function emptyTupleRest(input: [string]): string {",
+      "  const [name, ...rest] = input;",
+      "  return name;",
+      "}",
+      "",
+      "Console.writeLine(tupleDefault([\"ready\", 4]));",
+      "Console.writeLine(tupleRest([\"tuple\", 7, true]));",
+      "Console.writeLine(singleTupleRest([\"single\", 8]));",
+      "Console.writeLine(emptyTupleRest([\"empty\"]));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1;/);
+  assert.match(generatedSource, /\(double, bool\) rest = \(__tsonic_destructure\d+\.Item2, __tsonic_destructure\d+\.Item3\);/);
+  assert.match(generatedSource, /System\.ValueTuple<double> rest = new System\.ValueTuple<double>\(__tsonic_destructure\d+\.Item2\);/);
+  assert.match(generatedSource, /System\.ValueTuple rest = new System\.ValueTuple\(\);/);
+  assert.match(generatedSource, /return \$"\{name\}:\{rest\.Item1\}:\{rest\.Item2\}";/);
+  assert.match(generatedSource, /return \$"\{name\}:\{rest\.Item1\}";/);
+  assert.doesNotMatch(generatedSource, /Tuple destructuring defaults require/);
+  assert.doesNotMatch(generatedSource, /Tuple rest destructuring requires finalized tuple slice facts/);
+  assert.doesNotMatch(generatedSource, /Tuple rest destructuring requires at least two finalized tuple slice elements/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const projectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
+  const dotnet = run("dotnet", ["build", projectPath, "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", projectPath, "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready\ntuple:7:True\nsingle:8\nempty\n");
+});
+
+
+test("CLI rejects tuple rest/default forms that still lack explicit carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "tuple-rest-default-fail-closed");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -1450,18 +1838,18 @@ test("CLI rejects tuple rest and default destructuring until slice facts are fin
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedTupleRestDefaults",
+            assemblyName: "SmokeGeneratedTupleRestDefaultsRejected",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "export function tupleDefault(input: [string, number]): string {",
+      "export function optionalDefault(input: [string | undefined, number]): string {",
       "  const [name = \"fallback\"] = input;",
       "  return name;",
       "}",
       "",
-      "export function tupleRest(input: [string, number, boolean]): string {",
+      "export function singleRest(input: [string, number]): string {",
       "  const [name, ...rest] = input;",
       "  return name;",
       "}",
@@ -1471,9 +1859,9 @@ test("CLI rejects tuple rest and default destructuring until slice facts are fin
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple destructuring defaults require finalized tuple optional-element facts before C# emission/);
-  assert.match(build.stderr, /Tuple rest destructuring requires finalized tuple slice facts before C# emission/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaults.csproj")), false);
+  assert.match(build.stderr, /Tuple destructuring defaults for optional\/nullish tuple elements require finalized tuple optional-element facts before C# emission/);
+  assert.doesNotMatch(build.stderr, /Tuple rest destructuring requires at least two finalized tuple slice elements before C# emission/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaultsRejected.csproj")), false);
 });
 
 

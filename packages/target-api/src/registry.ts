@@ -33,6 +33,11 @@ export function createTargetRegistry(packs: readonly TargetPack[]): TargetRegist
           throw new Error(getTargetIdValidationMessage(`Target pack '${pack.id}' provider package '${providerPackage.id}' required package id '${requiredPackageId}'`));
         }
       }
+      for (const requiredSurfaceId of providerPackage.requiredSurfaces ?? []) {
+        if (!isValidTargetSurfaceId(requiredSurfaceId)) {
+          throw new Error(getTargetIdValidationMessage(`Target pack '${pack.id}' provider package '${providerPackage.id}' required surface id '${requiredSurfaceId}'`));
+        }
+      }
       for (const ownership of providerPackage.moduleOwnership ?? []) {
         validateProviderModuleOwnershipPrefix(
           `Target pack '${pack.id}' provider package '${providerPackage.id}' module ownership prefix`,

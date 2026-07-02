@@ -165,6 +165,51 @@ const oldSuitePortInventoryEntries = Object.freeze([
       "Ported as a current-architecture executable E2E covering async functions returning sync delegates, async functions returning async delegates, async callback parameters, Task result facts, Func/Task C# AST output, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/async-ops-uses-map/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise carrier facts + C# JS surface Map carrier facts + C# backend planner",
+    reason:
+      "Ported as a current-architecture executable E2E covering async Promise<Task> lowering composed with selected JS Map carrier facts, Roslyn async method output, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/promise-chain-reject-stable/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that Promise.resolve(...).then(...) is rejected before target artifacts unless provider/runtime facts explicitly own the Promise chain.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/promise-constructor-task/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that Promise construction is rejected before target artifacts without finalized Task carrier facts.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/promise-void-resolve/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that Promise.resolve() is rejected before target artifacts without provider-owned Promise/Task operation facts.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/task-then-disallowed/",
+    newPath: "test/async-cli-build.test.mjs",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS Promise facts + C# backend diagnostics",
+    reason:
+      "Ported as current-architecture negative proof that .then-style Task/Promise chaining is rejected before target artifacts rather than lowered through source-name fallback.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/extension-methods-system/",
     status: "deferred",
     featureArea: "native-provider",
@@ -190,11 +235,12 @@ const oldSuitePortInventoryEntries = Object.freeze([
   }),
   Object.freeze({
     oldPath: "test/fixtures/nodejs-surface-alias-coverage/",
-    status: "deferred",
+    status: "ported",
     featureArea: "nodejs-surface",
-    owner: "C# NodeJS surface",
+    owner: "C# NodeJS provider package",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
     reason:
-      "Requires selected nodejs surface with js dependency and module alias facts for node:* imports before the fixture can be ported.",
+      "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:* modules participate through existing provider declarations, while unsupported historical modules child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations produce deterministic provider diagnostics with no target artifacts.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/top-level-code/",
@@ -553,8 +599,25 @@ const oldSuitePortInventoryEntries = Object.freeze([
     reason:
       "Ported as a current-architecture executable E2E covering an int32 object-shape property preserved from explicit source annotation through finalized object-shape facts into an int field and int return, dotnet build/run, and exact stdout.",
   }),
+  Object.freeze({
+    oldPath: "test/fixtures/nested-object-rest-destructuring/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS object-shape facts + C# backend planner",
+    newPath: "test/cli-build/object-shapes.test.mjs",
+    reason:
+      "Ported as a current-architecture executable CLI test covering nested object rest destructuring from finalized TSTS rest-binding and object-shape facts, generated closed rest carriers, dotnet build/run, exact stdout, and no dynamic/reflection fallback.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/object-literal-method-this/",
+    status: "replaced-by-stronger-test",
+    featureArea: "csharp-backend",
+    owner: "TSTS this-binding facts + C# backend planner",
+    newPath: "test/cli-build/expressions-control-flow.test.mjs",
+    reason:
+      "Replaced by current-architecture positive and negative CLI proof for this-binding: instance and lexical class this emit only with finalized receiver facts, while object-literal method this is now a deterministic fail-closed diagnostic before C# artifacts instead of a JavaScript this fallback.",
+  }),
   ...deferredFixtures([
-    "nested-object-rest-destructuring",
     "object-literal-accessors",
     "object-literal-computed-const-keys",
     "object-literal-method-accessor-js",
@@ -563,7 +626,6 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "object-literal-method-arguments-index-reject",
     "object-literal-method-arguments-length",
     "object-literal-method-super-reject",
-    "object-literal-method-this",
     "object-prop-int-to-double",
     "recursive-tree",
     "recursive-type-no-hang",
@@ -594,6 +656,15 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "linq-dotnet",
     "linq-queryable-dotnet",
   ], "downstream", "C# native provider + downstream target package providers", "Valid behavior depends on broad .NET/ASP.NET/EF/LINQ API data, extension methods, task carriers, and interface implementation facts; port after provider data is supplied by target packages and downstream fixture wiring is restored under current target config."),
+  Object.freeze({
+    oldPath: "test/fixtures/property-override-virtual/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS declaration dispatch facts + C# declaration planner",
+    newPath: "test/cli-build/classes-value-types.test.mjs",
+    reason:
+      "Ported as a current-architecture executable proof that project-source member dispatch facts make overriding class field declarations emit C# virtual/override properties, preserving JavaScript this.value dispatch through dotnet build/run and exact stdout.",
+  }),
   ...deferredFixtures([
     "attributes-basic",
     "attributes-comprehensive",
@@ -604,20 +675,14 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "class-static-members",
     "override-protected-internal",
     "param-modifiers",
-    "property-override-virtual",
   ], "csharp-backend", "TSTS declaration AST + C# declaration planner", "Valid behavior covers source declarations, class members, constructors, inheritance, attributes, modifiers, overrides, and virtual/protected shapes; port after declaration planner coverage is fixture-backed with C# AST output only."),
   ...deferredFixtures([
     "async-bidirectional-generator",
-    "async-ops-uses-map",
     "async-union-object-literal-return",
     "bidirectional-generator",
     "generator-different-treturn",
     "generator-return-value",
     "multi-module-generators",
-    "promise-chain-reject-stable",
-    "promise-constructor-task",
-    "promise-void-resolve",
-    "task-then-disallowed",
     "yield-compound-assignment",
     "yield-conditional-expression",
     "yield-control-conditions",
@@ -727,11 +792,33 @@ const oldSuitePortInventoryEntries = Object.freeze([
     "json-native-roundtrip",
     "json-native-typed-stringify",
   ], "runtime", "C# runtime/project artifacts + provider JSON facts", "Valid behavior covers JSON source generation, typed stringify/parse, BCL roundtrips, and project artifact generation; port after JSON metadata is proven statically and emitted through target-owned project/runtime artifacts."),
-  ...deferredFixtures([
-    "nodejs-path-posix-join",
-    "nodejs-surface-imports-negative",
-    "nodejs-surface-module-graph",
-  ], "nodejs-surface", "C# NodeJS surface provider + C# NodeJS runtime", "Valid behavior covers NodeJS module ownership, negative imports without selected surface, path variants, and module graph aliases; port after nodejs surface virtual declarations and runtime artifacts cover the fixture APIs."),
+  Object.freeze({
+    oldPath: "test/fixtures/nodejs-path-posix-join/",
+    status: "ported",
+    featureArea: "nodejs-surface",
+    owner: "C# NodeJS provider package + C# NodeJS runtime",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    reason:
+      "Ported as current-architecture executable proof for node:path posix joins through selected NodeJS provider-package declarations, generated C# AST, dotnet build/run, and exact stdout.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/nodejs-surface-imports-negative/",
+    status: "ported",
+    featureArea: "nodejs-surface",
+    owner: "C# NodeJS provider package + C# NodeJS runtime",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    reason:
+      "Ported as current-architecture executable proof for provider-backed default node:fs imports when the NodeJS provider package is selected, plus adjacent no-package diagnostics in the same current test file.",
+  }),
+  Object.freeze({
+    oldPath: "test/fixtures/nodejs-surface-module-graph/",
+    status: "ported",
+    featureArea: "nodejs-surface",
+    owner: "C# NodeJS provider package + C# NodeJS runtime",
+    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    reason:
+      "Ported as current-architecture executable proof for a multi-file NodeJS provider-package module graph using node:path, node:fs, node:crypto, node:os, and node:process through selected provider facts, generated C# AST, dotnet build/run, and exact stdout.",
+  }),
 ]);
 
 const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
@@ -741,6 +828,8 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("namespace-imports"),
   ], [
     "backend.ast.only",
+    "downstream.no-old-runtime-reflection",
+    "downstream.smoke.simple-apps",
     "host.project.provider-composition",
     "host.package.composition",
     "operation.call.provider-selected-method",
@@ -821,6 +910,11 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("async-basic"),
     oldFixturePath("async-higher-order"),
+    oldFixturePath("async-ops-uses-map"),
+    oldFixturePath("promise-chain-reject-stable"),
+    oldFixturePath("promise-constructor-task"),
+    oldFixturePath("promise-void-resolve"),
+    oldFixturePath("task-then-disallowed"),
   ], [
     "backend.ast.only",
     "backend.csharp.ast-expression",
@@ -830,6 +924,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "function.async",
     "host.package.composition",
     "operation.await.promise-task",
+    "surface.js.map-set",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
@@ -968,6 +1063,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("anonymous-object-type-literal"),
+    oldFixturePath("nested-object-rest-destructuring"),
     oldFixturePath("object-literal-method-shorthand"),
     oldFixturePath("object-literal-object"),
     oldFixturePath("object-prop-int-to-int"),
@@ -975,9 +1071,38 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.csharp.ast-expression",
     "backend.csharp.ast-statement",
+    "backend.generated-declarations",
     "backend.project-source-declarations",
+    "binding.object-shape",
+    "binding.object.rename-rest-default",
     "carrier.object-shape",
     "expression.object-literal",
+    "host.package.composition",
+    "operation.destructure.array-object",
+    "toolchain.csharp.build-run",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("object-literal-method-this"),
+  ], [
+    "backend.ast.only",
+    "backend.fail-closed-facts",
+    "diagnostic.unsupported-target-operation",
+    "function.this-binding",
+    "host.package.composition",
+  ]),
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("property-override-virtual"),
+  ], [
+    "backend.ast.only",
+    "backend.csharp.ast-expression",
+    "backend.csharp.ast-statement",
+    "backend.project-source-declarations",
+    "declaration.class",
+    "declaration.class.fields",
+    "declaration.class.inheritance",
+    "declaration.class.methods",
+    "declaration.class.properties",
+    "expression.property-access",
     "host.package.composition",
     "toolchain.csharp.build-run",
   ]),
@@ -1037,10 +1162,13 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.csharp.runtime-artifacts",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
     "surface.node.fs-path-process",
+    "surface.node.url",
+    "surface.node.util",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
@@ -1378,6 +1506,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("json-native-inline-stringify"),
   ], [
     "backend.ast.only",
+    "downstream.no-old-runtime-reflection",
     "host.package.composition",
     "runtime.csharp.js",
     "runtime.no-reflection-semantics",
@@ -1389,6 +1518,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("json-native-typed-stringify"),
   ], [
     "backend.ast.only",
+    "downstream.no-old-runtime-reflection",
     "host.package.composition",
     "runtime.csharp.js",
     "runtime.no-reflection-semantics",
@@ -1400,6 +1530,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("nodejs-path-posix-join"),
   ], [
     "backend.ast.only",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
@@ -1411,6 +1542,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "diagnostic.unsupported-surface",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
@@ -1421,6 +1553,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     oldFixturePath("nodejs-surface-module-graph"),
   ], [
     "backend.ast.only",
+    "downstream.nodejs-source",
     "host.package.composition",
     "host.project.surface-extension-composition",
     "runtime.csharp.nodejs",
@@ -1487,6 +1620,9 @@ const oldSuiteLedgerEvidenceCapabilityIdsByOldPath = new Map([
     oldFixturePath("nodejs-surface-alias-coverage"),
   ], [
     "backend.csharp.runtime-artifacts",
+    "downstream.nodejs-source",
+    "surface.node.url",
+    "surface.node.util",
   ]),
   ...oldSuiteLedgerEvidenceCapabilityMapping([
     oldFixturePath("js-surface-runtime-builtins"),

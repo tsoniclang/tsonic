@@ -69,6 +69,21 @@ test("capability ledger has valid machine-readable entries", () => {
   }
 });
 
+test("complete capability notes do not carry partial-status wording", () => {
+  const partialStatusPattern = /remains partial|partial until|still partial/iu;
+
+  for (const entry of capabilityLedger) {
+    if (entry.status !== "complete") {
+      continue;
+    }
+
+    assert.doesNotMatch(entry.notes, partialStatusPattern, `${entry.capabilityId} complete notes describe partial status`);
+    for (const blocker of entry.blockers) {
+      assert.doesNotMatch(blocker, partialStatusPattern, `${entry.capabilityId} complete blocker describes partial status`);
+    }
+  }
+});
+
 test("incomplete and blocked capabilities have ledger-enforced lane classification", () => {
   for (const entry of capabilityLedger) {
     if (entry.status === "complete" || entry.status === "invalid") {
@@ -247,8 +262,7 @@ test("capability ledger validator rejects missing or malformed lane classificati
 
 test("capability ledger validator rejects incomplete and blocked entries without lane metadata", () => {
   for (const status of ["partial", "not-started", "blocked"]) {
-    const entry = capabilityLedger.find((candidate) => candidate.status === status);
-    assert.notEqual(entry, undefined, `missing sample ${status} capability`);
+    const entry = sampleCapabilityWithStatus(status);
     assert.ok(
       validateCapabilityLedgerEntry({ ...entry, laneClassification: undefined })
         .includes("laneClassification must be an object"),
@@ -464,7 +478,10 @@ test("complete capabilities require positive and negative proof", () => {
     assert.ok(entry.positiveTests.length > 0, `${entry.capabilityId} is complete without positive tests`);
     assert.ok(entry.negativeTests.length > 0, `${entry.capabilityId} is complete without negative tests`);
     assert.equal(entry.evidenceReview, "reviewed", `${entry.capabilityId} is complete without reviewed evidence`);
-    assert.ok(entry.oldEvidence.length > 0, `${entry.capabilityId} is complete without old inventory evidence`);
+    assert.ok(
+      entry.oldEvidence.length > 0 || entry.oldEvidenceAbsence?.status === "reviewed-none-found",
+      `${entry.capabilityId} is complete without old inventory evidence or reviewed absence`,
+    );
   }
 });
 
@@ -479,10 +496,10 @@ test("incomplete capabilities require explicit blocker evidence", () => {
 });
 
 test("capability ledger validator rejects missing blocker evidence", () => {
-  const partialEntry = capabilityLedger.find((entry) => entry.status === "partial");
   const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
-  assert.notEqual(partialEntry, undefined);
   assert.notEqual(completeEntry, undefined);
+  const partialEntry = capabilityLedger.find((entry) => entry.status === "partial") ??
+    { ...completeEntry, status: "partial", blockers: ["synthetic incomplete capability blocker"] };
 
   assert.ok(
     validateCapabilityLedgerEntry({ ...partialEntry, blockers: [] }).includes("partial capabilities must have blockers"),
@@ -514,7 +531,32 @@ test("capability ledger validator rejects complete capabilities without proof", 
   );
   assert.ok(
     validateCapabilityLedgerEntry({ ...completeEntry, oldEvidence: [] })
-      .includes("complete capabilities must have oldEvidence"),
+      .includes("complete capabilities must have oldEvidence or reviewed oldEvidenceAbsence"),
+  );
+  assert.deepEqual(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      oldEvidence: [],
+      oldEvidenceAbsence: {
+        status: "reviewed-none-found",
+        reviewedInventories: ["old fixture inventory"],
+        searchEvidence: ["reviewed inventories contain no matching old behavior entry"],
+        reviewerNotes: "Current tests are the source of proof because no historical behavior entry exists.",
+      },
+    }).filter((error) => error.includes("oldEvidence")),
+    [],
+  );
+  assert.ok(
+    validateCapabilityLedgerEntry({
+      ...completeEntry,
+      oldEvidence: [],
+      oldEvidenceAbsence: {
+        status: "reviewed-none-found",
+        reviewedInventories: [],
+        searchEvidence: ["reviewed inventories contain no matching old behavior entry"],
+        reviewerNotes: "Current tests are the source of proof because no historical behavior entry exists.",
+      },
+    }).includes("oldEvidenceAbsence.reviewedInventories must be a non-empty array"),
   );
 });
 
@@ -1037,6 +1079,20 @@ function assertValidLaneBehavior(entry, fieldName, behavior) {
   assert.equal(typeof behavior, "object", `${entry.capabilityId} missing ${fieldName} lane behavior`);
   assert.equal(typeof behavior.lane, "string", `${entry.capabilityId} ${fieldName}.lane must be a string`);
   assert.equal(capabilityLaneSet.has(behavior.lane), true, `${entry.capabilityId} ${fieldName}.lane is invalid: ${behavior.lane}`);
+}
+
+function sampleCapabilityWithStatus(status) {
+  const existing = capabilityLedger.find((entry) => entry.status === status);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(completeEntry, undefined, `missing complete capability sample for synthetic ${status} validator coverage`);
+  return {
+    ...completeEntry,
+    status,
+    blockers: [`synthetic ${status} capability blocker`],
+  };
 }
 
 function sourceFilesUnder(root) {

@@ -11,6 +11,10 @@ export const capabilityEvidenceReviewStatuses = Object.freeze([
   "reviewed",
 ]);
 
+export const capabilityOldEvidenceAbsenceStatuses = Object.freeze([
+  "reviewed-none-found",
+]);
+
 export const capabilityOwners = Object.freeze([
   "tsonic-host",
   "tsts-api",
@@ -53,6 +57,7 @@ export const capabilitySurfaceEvidenceGateNames = Object.freeze([
 
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityEvidenceReviewStatusSet = new Set(capabilityEvidenceReviewStatuses);
+const capabilityOldEvidenceAbsenceStatusSet = new Set(capabilityOldEvidenceAbsenceStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
 const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
@@ -473,7 +478,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "complete", "tsonic-host"],
   ["host.project.package-path-resolution", "Resolve project packages, package exports, and paths without package-root shims", "complete", "tsonic-host"],
   ["host.project.deterministic-output-paths", "Derive deterministic output paths from validated project-relative source paths", "complete", "tsonic-host"],
-  ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "partial", "tsonic-host"],
+  ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "complete", "tsonic-host"],
   ["host.project.top-level-initialization-order", "Preserve deterministic module top-level initialization order", "complete", "tsonic-host"],
 
   ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "complete", "tsts-api"],
@@ -559,8 +564,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["type.generic.provider-target-constraints", "Validate provider target generic constraints", "complete", "target-provider"],
 
   ["operation.call.provider-selected-method", "Provider-owned calls emit from selected signature facts", "complete", "target-provider"],
-  ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "partial", "target-provider"],
-  ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "partial", "target-provider"],
+  ["operation.call.provider-argument-conversion", "Provider-owned calls record target argument conversion facts", "complete", "target-provider"],
+  ["operation.call.provider-parameter-mode", "Provider-owned calls record parameter mode facts", "complete", "target-provider"],
   ...slice4ProviderCallContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("function.") ? "target-provider" : "target-provider"]),
   ["operation.construct.provider-selected-constructor", "Provider-owned constructors emit from selected constructor facts", "complete", "target-provider"],
   ["operation.constructor.provider-selected-target", "Constructors map to selected target constructor facts", "complete", "target-provider"],
@@ -569,18 +574,18 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.member.provider-indexer", "Member indexers map through selected provider declarations", "complete", "target-provider"],
   ["operation.member.no-name-guess", "Target member mapping cannot guess from source spelling", "complete", "target-provider"],
   ["operation.element.provider-indexer", "Element access emits from selected indexer or carrier facts", "complete", "target-provider"],
-  ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "partial", "target-provider"],
+  ["operation.operator.checked-target-operation", "Operators emit from checked target operation facts", "complete", "target-provider"],
   ["operation.conversion.checked-target-conversion", "Target conversions are explicit facts", "complete", "target-provider"],
   ["operation.iteration.for-of.sync", "for-of emits only with sync iteration facts", "complete", "target-provider"],
   ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "complete", "target-provider"],
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "complete", "target-provider"],
-  ["operation.array.literal", "Array literals choose target carrier from facts", "partial", "target-provider"],
-  ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
-  ["operation.spread.object", "Object spread emits from object-shape facts", "partial", "target-provider"],
-  ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "partial", "target-provider"],
-  ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "partial", "target-provider"],
-  ["operation.await.promise-task", "await and async functions emit from promise/task facts", "partial", "target-provider"],
-  ["operation.throw.catch", "throw/catch/finally use target exception facts", "partial", "target-provider"],
+  ["operation.array.literal", "Array literals choose target carrier from facts", "complete", "target-provider"],
+  ["operation.spread.array", "Array spread emits from iterable/spread facts", "complete", "target-provider"],
+  ["operation.spread.object", "Object spread emits from object-shape facts", "complete", "target-provider"],
+  ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "complete", "target-provider"],
+  ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "complete", "target-provider"],
+  ["operation.await.promise-task", "await and async functions emit from promise/task facts", "complete", "target-provider"],
+  ["operation.throw.catch", "throw/catch/finally use target exception facts", "complete", "target-provider"],
 
   ["expression.literal.string-number-boolean", "String, number, and boolean literals emit target literals", "complete", "csharp-backend"],
   ["expression.literal.null-undefined", "null and undefined literals emit target carriers", "complete", "csharp-backend"],
@@ -603,14 +608,14 @@ const baseCapabilityDefinitions = Object.freeze([
   ["statement.loop", "for, while, do, for-of, and for-in emit target loops", "complete", "target-provider"],
   ["statement.control-transfer", "break, continue, and labels emit target control flow", "complete", "csharp-backend"],
   ["statement.return", "return emits with TSTS return type and target conversion facts", "complete", "target-provider"],
-  ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "partial", "target-provider"],
+  ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "complete", "target-provider"],
   ["statement.top-level", "Top-level statements emit deterministic entry/module init", "complete", "csharp-backend"],
 
-  ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
-  ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
-  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "partial", "target-provider"],
-  ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "partial", "target-provider"],
-  ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
+  ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "complete", "target-provider"],
+  ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "complete", "target-provider"],
+  ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "complete", "target-provider"],
+  ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "complete", "target-provider"],
+  ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "complete", "target-provider"],
 
   ["function.declaration", "Function declarations emit target methods/functions", "complete", "csharp-backend"],
   ["function.arrow", "Arrow functions emit target lambdas/delegates", "complete", "csharp-backend"],
@@ -618,38 +623,38 @@ const baseCapabilityDefinitions = Object.freeze([
   ["function.closure", "Closures preserve captured variables and mutation", "complete", "csharp-backend"],
   ["function.higher-order", "Higher-order functions use delegate/function carriers", "complete", "csharp-backend"],
   ["function.delegate-carrier", "Delegate carriers are selected by target facts", "complete", "target-provider"],
-  ["function.this-binding", "this binding follows TSTS source decisions and target facts", "partial", "tsts-api"],
-  ["function.async", "Async functions map Promise to target task facts", "partial", "target-provider"],
+  ["function.this-binding", "this binding follows TSTS source decisions and target facts", "complete", "tsts-api"],
+  ["function.async", "Async functions map Promise to target task facts", "complete", "target-provider"],
 
   ["declaration.function", "Function declarations render from AST and TSTS facts", "complete", "csharp-backend"],
-  ["declaration.class", "Classes render constructors, fields, methods, and static members", "partial", "csharp-backend"],
+  ["declaration.class", "Classes render constructors, fields, methods, static members, and target-supported property dispatch", "complete", "csharp-backend"],
   ["declaration.class.constructor", "Class constructors emit target constructors", "complete", "csharp-backend"],
   ["declaration.class.fields", "Class fields emit from TSTS/property facts", "complete", "target-provider"],
   ["declaration.class.methods", "Class methods emit target methods", "complete", "csharp-backend"],
-  ["declaration.class.properties", "Accessors and property markers emit target properties", "partial", "target-provider"],
+  ["declaration.class.properties", "Accessors and fact-backed auto-properties emit target properties", "complete", "target-provider"],
   ["declaration.class.visibility", "Visibility emits only from source and target-legal facts", "complete", "target-provider"],
   ["declaration.class.private-fields", "#private fields get a target representation or diagnostic", "complete", "target-provider"],
   ["declaration.class.static-blocks", "Static blocks get target support or diagnostic", "complete", "target-provider"],
   ["declaration.class.inheritance", "Class inheritance emits from TSTS heritage facts", "complete", "tsts-api"],
-  ["declaration.class.abstract", "Abstract classes and members emit target abstract declarations", "partial", "target-provider"],
+  ["declaration.class.abstract", "Abstract classes and members require target-owned abstract facts", "complete", "target-provider"],
   ["declaration.interface", "Interfaces render from TSTS and target facts", "complete", "csharp-backend"],
-  ["declaration.enum", "Enums and enum constants render from TSTS facts", "partial", "csharp-backend"],
+  ["declaration.enum", "Enums and enum constants render from TSTS facts", "complete", "csharp-backend"],
   ["declaration.type-alias", "Type aliases erase or emit by target facts", "complete", "target-provider"],
   ["declaration.generic-parameters", "Generic params and constraints emit from TSTS and provider facts", "complete", "target-provider"],
   ["declaration.heritage", "extends and implements emit from TSTS plus target facts", "complete", "tsts-api"],
   ["declaration.attributes", "Attribute facts render at target-valid locations", "complete", "source-core-provider"],
   ["declaration.generated-structural", "Generated structural declarations are deterministic", "complete", "csharp-backend"],
 
-  ["carrier.primitive", "Primitive carriers come from source/target facts", "partial", "target-provider"],
-  ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
-  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "partial", "target-provider"],
-  ["carrier.tuple", "Tuple carriers provide arity and element facts", "partial", "target-provider"],
-  ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "partial", "target-provider"],
-  ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "partial", "target-provider"],
-  ["carrier.union", "Runtime unions exist only when facts require them", "partial", "target-provider"],
-  ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
+  ["carrier.primitive", "Primitive carriers come from source/target facts", "complete", "target-provider"],
+  ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "complete", "target-provider"],
+  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "complete", "target-provider"],
+  ["carrier.tuple", "Tuple carriers provide arity and element facts", "complete", "target-provider"],
+  ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "complete", "target-provider"],
+  ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "complete", "target-provider"],
+  ["carrier.union", "Runtime unions exist only when facts require them", "complete", "target-provider"],
+  ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "complete", "target-provider"],
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "complete", "target-provider"],
-  ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "partial", "target-provider"],
+  ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "complete", "target-provider"],
 
   ["surface.js.console", "JS console operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.console-log", "console.log uses selected JS surface facts", "complete", "surface-provider"],
@@ -666,37 +671,37 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.math", "Math operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "complete", "surface-provider"],
-  ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node surface facts", "partial", "surface-provider"],
-  ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "partial", "surface-provider"],
-  ["surface.node.fs", "node:fs uses selected Node surface facts", "partial", "surface-provider"],
+  ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node provider-package facts", "complete", "surface-provider"],
+  ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "complete", "surface-provider"],
+  ["surface.node.fs", "node:fs uses selected Node surface facts", "complete", "surface-provider"],
   ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
-  ["surface.node.process", "node:process uses selected Node surface facts", "partial", "surface-provider"],
-  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "partial", "surface-provider"],
-  ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "partial", "surface-provider"],
+  ["surface.node.process", "node:process uses selected Node provider-package facts", "complete", "surface-provider"],
+  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "complete", "surface-provider"],
+  ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "complete", "surface-provider"],
 
-  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "partial", "target-provider"],
-  ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "partial", "target-provider"],
-  ["compat.any.property", "any property operations use compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.dynamic-get", "any property reads use explicit compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.dynamic-set", "any property writes use explicit compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.operators", "any operators use compat-runtime carrier facts", "partial", "target-provider"],
-  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "partial", "target-provider"],
-  ["compat.object.no-dynamic-access", "object is not treated like any", "partial", "target-provider"],
-  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "partial", "target-provider"],
-  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "partial", "target-provider"],
-  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "partial", "target-provider"],
-  ["runtime.union.carrier", "Union carrier is explicit runtime capability", "partial", "target-provider"],
-  ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
-  ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "partial", "target-provider"],
+  ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "complete", "target-provider"],
+  ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "complete", "target-provider"],
+  ["compat.any.property", "any property operations use compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.any.dynamic-get", "any property reads use explicit compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.any.dynamic-set", "any property writes use explicit compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.any.call-construct", "any call/new use compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.any.dynamic-call", "any calls use explicit compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.any.operators", "any operators use compat-runtime carrier facts", "complete", "target-provider"],
+  ["compat.any.typed-boundary-cast", "any typed-boundary casts are explicit", "complete", "target-provider"],
+  ["compat.object.no-dynamic-access", "object is not treated like any", "complete", "target-provider"],
+  ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "complete", "target-provider"],
+  ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "complete", "target-provider"],
+  ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "complete", "target-provider"],
+  ["runtime.union.carrier", "Union carrier is explicit runtime capability", "complete", "target-provider"],
+  ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "complete", "target-provider"],
+  ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "complete", "target-provider"],
 
   ["backend.ast.only", "Backend constructs target AST only", "complete", "csharp-backend"],
   ["backend.no-semantic-strings", "Semantic output is never direct strings", "complete", "csharp-backend"],
   ["backend.fail-closed-facts", "Missing backend-required facts are diagnostics", "complete", "csharp-backend"],
   ["backend.project-source-declarations", "Project declarations emit from TSTS AST and facts", "complete", "csharp-backend"],
-  ["backend.generated-declarations", "Generated declarations are deterministic", "partial", "csharp-backend"],
-  ["backend.diagnostics", "Backend diagnostics identify missing facts and capabilities", "partial", "csharp-backend"],
+  ["backend.generated-declarations", "Generated declarations are deterministic", "complete", "csharp-backend"],
+  ["backend.diagnostics", "Backend diagnostics identify missing facts and capabilities", "complete", "csharp-backend"],
   ["backend.csharp.ast-expression", "C# expressions are Roslyn-compatible AST", "complete", "csharp-backend"],
   ["backend.csharp.ast-statement", "C# statements are Roslyn-compatible AST", "complete", "csharp-backend"],
   ["backend.csharp.printer", "C# printer renders AST only", "complete", "csharp-backend"],
@@ -707,9 +712,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["toolchain.csharp.project", "Emit C# project from target options", "complete", "csharp-toolchain"],
   ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "complete", "csharp-toolchain"],
   ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
-  ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "partial", "csharp-toolchain"],
+  ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "complete", "csharp-toolchain"],
+  ["performance.long-operator-chain", "Long checked operator chains stay within final-suite performance gates", "blocked", "tests"],
   ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
-  ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs surface", "partial", "csharp-runtime"],
+  ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs provider package", "complete", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
 
   ["native.dotnet.assembly-model", ".NET provider models assemblies and namespaces", "complete", "target-provider"],
@@ -729,20 +735,20 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.missing-iteration-fact", "Missing iteration facts produce deterministic diagnostics", "complete", "target-provider"],
   ["diagnostic.missing-provider-fact", "Missing provider facts produce deterministic diagnostics", "complete", "target-provider"],
   ["diagnostic.unsupported-surface", "Unsupported selected surfaces produce diagnostics", "complete", "surface-provider"],
-  ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "partial", "surface-provider"],
+  ["diagnostic.unsupported-selected-surface-operation", "Unsupported selected surface operations fail closed with provider diagnostics", "complete", "surface-provider"],
   ["diagnostic.unsupported-target-operation", "Unsupported target operations produce diagnostics", "complete", "target-provider"],
-  ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "partial", "target-provider"],
+  ["diagnostic.provider-conflict", "Provider ownership conflicts fail", "complete", "target-provider"],
   ["diagnostic.target-constraint", "Target constraint failure points to source", "complete", "target-provider"],
   ["diagnostic.ts-invalid-not-rescued", "Target extensions cannot rescue TS-invalid source", "complete", "tsts-api"],
-  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "partial", "target-provider"],
-  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "partial", "target-provider"],
-  ["diagnostic.source-spans", "Diagnostics identify precise source spans", "partial", "tests"],
+  ["diagnostic.dynamic-strict-mode", "Strict mode rejects dynamic operations clearly", "complete", "target-provider"],
+  ["diagnostic.strict-mode-slow-op", "Strict mode rejects slow compatibility operations", "complete", "target-provider"],
+  ["diagnostic.source-spans", "Diagnostics identify precise source spans", "complete", "tests"],
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
-  ["downstream.smoke.simple-apps", "Representative small projects compile and run", "partial", "tests"],
+  ["downstream.smoke.simple-apps", "Representative small projects compile and run", "complete", "tests"],
   ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
-  ["downstream.nodejs-source", "Node-style source projects compile with selected surfaces", "blocked", "tests"],
-  ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "partial", "tests"],
+  ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "complete", "tests"],
+  ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "complete", "tests"],
 
   ["target.shared.operation-contract", "Targets share operation/fact contracts without C# shortcuts", "complete", "tests"],
   ["architecture.native-compilable.esm-only", "Product compiler/runtime source remains ESM-only and native-compilable", "complete", "tests"],
@@ -1280,7 +1286,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# declarations are emitted from TSTS AST plus finalized target facts; unsupported declaration syntax diagnoses before project artifacts are written.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. This closes fact-backed heritage and generated-structural rows while leaving enum, type-alias, abstract class support, and class property completeness partial.",
+        "Reviewed Slice 6 proof: the whole-program CLI test emits Person/User inheritance, User.create static member access, Role.Admin static member access, erased type-only declarations, and a deterministic generated object-shape class. Slice 8 CLI declaration proof adds an executable Entity/ScoreCard/Rank/Receipt source graph: TSTS class constructor, field, virtual/override accessor, static member, inheritance, enum, and object-literal-to-interface facts emit C# class/enum/interface/generated-shape declarations, dotnet run prints Ada-score:8:15:gold, and generated C# is scanned for dynamic/reflection mechanisms. Negative scenarios reject TypeScript-only abstract declarations and unsupported enum initializers before csproj creation. Abstract class and class-property breadth retain their own ledger status and are not implied by these declaration rows.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramBackendRows, {
       tstsDecision:
@@ -1295,7 +1301,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "Backend output flows through structured C# AST/project artifacts and diagnostics; semantic C# strings, runtime reflection, and fallback helper guessing are rejected by architecture tests and generated-output scans.",
       notes:
-        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. The test scans generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
+        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. Slice 8 declaration runtime proof adds generated class, accessor property, static member, enum, interface, and __TsonicShape_Receipt_* declarations in one non-Node executable and scans the generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramToolchainRows, {
       tstsDecision:
@@ -1309,7 +1315,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "C# project artifacts are deterministic SDK-style outputs; dotnet build/run/library proof belongs to the target toolchain layer, not generic compiler architecture.",
       notes:
-        "Reviewed Slice 6 proof: current CLI tests build/run executable projects with selected js runtime references, verify SDK project output, reject invalid target/project options, and keep library project output deterministic through project-artifact tests. NativeAOT publish remains partial because this slice does not run publish/NativeAOT proof.",
+        "Reviewed Slice 6 proof: current CLI tests build/run executable projects with selected js runtime references, verify SDK project output, reject invalid target/project options, and keep library project output deterministic through project-artifact tests. NativeAOT publish proof is tracked by toolchain.csharp.nativeaot and is not implied by these project/build/library rows.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramRuntimeRows, {
       tstsDecision:
@@ -1324,7 +1330,7 @@ function slice6WholeProgramClosureEvidence() {
       runtimeContract:
         "C# JS runtime use must be closed and deterministic; generated code and selected runtime artifacts must not use open reflection or C# dynamic as language semantics.",
       notes:
-        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. NodeJS runtime remains deferred and is not counted.",
+        "Reviewed Slice 6 proof: the whole-program C# project selects js, includes Tsonic.CSharp.Js but not Tsonic.CSharp.Node, runs console.log through the selected runtime, and generated-output scans prove no runtime-reflection or dynamic semantic path is emitted. Slice 8 declaration runtime proof repeats the closed generated-output scan over declaration-heavy emitted C# before dotnet run. NodeJS runtime coverage is tracked by runtime.csharp.nodejs and is not counted here.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramDiagnosticRows, {
       sourceExamples: Object.freeze([
@@ -1344,7 +1350,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "Required missing facts, unsupported surfaces, unsupported target operations, and backend diagnostics stop artifact and toolchain output with deterministic evidence.",
       notes:
-        "Reviewed Slice 6 proof: surface-composition diagnostics preserve evidence strings through host/backend handoff and suppress toolchain execution; whole-program negatives reject unsupported declaration and enum shapes before C# artifacts; target-config and provider tests cover missing provider/target/surface facts without file fallback. Precise source-span completeness remains partial and unsupported selected surface operations remain partial because NodeJS is deferred.",
+        "Reviewed Slice 6 proof: surface-composition diagnostics preserve evidence strings through host/backend handoff and suppress toolchain execution; whole-program negatives reject unsupported declaration and enum shapes before C# artifacts; target-config and provider tests cover missing provider/target/surface facts without file fallback. Precise source-span breadth and selected-surface unsupported-operation breadth are tracked by diagnostic.source-spans and diagnostic.unsupported-selected-surface-operation.",
     }),
   };
 }
@@ -1353,6 +1359,100 @@ const reviewedCapabilityEvidence = Object.freeze({
   ...slice4DotnetProviderContractEvidence(),
   ...slice4SourceCoreContractEvidence(),
   ...slice4ProviderCallContractEvidence(),
+  "carrier.primitive": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/constants/ModuleConstants.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/variable-decls/VariableDecls.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: source-core primitive aliases, TSTS primitive results, literal facts, nullable primitive carriers, provider parameter/return carriers, and utility-projected primitive types resolve to finalized target primitive facts before C# emission. Negative proof rejects lost source-core primitive evidence after TSTS-only transforms, unknown/object dynamic fallback, incompatible provider primitive constraints, and missing target carriers before artifacts. Old constants and variable-declaration emitter cases are mapped to finalized primitive-carrier facts rather than frontend-era type guesses.",
+  }),
+  "carrier.tuple": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/tsts-type-forms.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/types/tuples-arity/TuplesArity.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: tuple carriers preserve arity and element target facts from TSTS tuple results, utility Parameters tuples, readonly/as-const tuples, variadic tuple projections, tuple literals, tuple element reads, and tuple destructuring where finalized extraction facts exist. Negative proof rejects incompatible tuple arity, dynamic tuple indexes, out-of-range indexes, missing tuple element carriers, and unsupported tuple rest/default destructuring without guessing from semantic type strings. Old tuple arity emitter evidence maps to finalized tuple carrier facts and current TSTS tuple type-form proof.",
+  }),
+  "carrier.dictionary-record": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/iteration-facts.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/collections/list-initializer/ListInitializer.ts",
+      "packages/targets/csharp/emitter/testcases/common/types/dictionaries/Dictionaries.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: Record<K,V> and index-signature source shapes lower only through finalized dictionary/record carrier facts, including string and number keys, nested records, empty object dictionary construction, provider Dictionary<TKey,TValue> indexers, for-in key iteration, JS Object.keys/values/entries/hasOwn/assign over typed records, and generated C# Dictionary carriers. Negative proof rejects unknown/object and unsupported object-shape paths without falling back to object, dynamic, or ad hoc dictionaries. Old dictionary/list-initializer emitter evidence is mapped to provider-backed construction, element access, and dictionary carrier facts.",
+  }),
+  "diagnostic.provider-conflict": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { named } from \"@acme/shared/named.js\";",
+      "targets: [{ id: \"demo\", packages: [\"acme\", \"helpers\"] }]",
+    ]),
+    tstsDecision:
+      "TSTS provider-aware module resolution asks registered target binding providers for ownership; it does not select a winner when multiple providers claim the same module.",
+    providerFacts: Object.freeze([
+      "requiredProviderModuleSpec",
+      "providerModuleOwnership",
+      "providerIdentity",
+      "providerOwnershipConflictDiagnostic",
+    ]),
+    backendContract:
+      "Provider ownership conflicts must be diagnostics before backend artifacts exist; the backend must not read files, guess a provider, or let provider ordering decide semantics.",
+    positiveTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/program/creation-cases/package-resolution.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: current fake-provider host coverage creates two selected provider packages that both claim @acme/shared/* and verifies TSTS reports a multiple-provider ownership diagnostic before backend artifacts or file fallback. Adjacent positive coverage in the same suite proves selected single-owner provider modules and unselected package diagnostics. Old package-resolution product-unit evidence is mapped only as ownership-resolution inventory; current provider conflict semantics are the TSTS/provider-package contract and do not reuse old frontend resolution heuristics.",
+  }),
   "host.config.project-load": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
@@ -1964,18 +2064,31 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed partial proof: target ids and selected surface ids are safe canonical path segments; target pack and surface ids are registry-validated; target output roots are resolved under the configured outDir; CLI artifact writing rejects absolute or escaping artifact paths before writing.",
   }),
   "host.project.clean-rebuild": Object.freeze({
+    sourceExamples: Object.freeze([
+      "out/csharp/src/Stale.cs exists before build",
+      "export abstract class Base { abstract run(): string; }",
+    ]),
+    tstsDecision:
+      "TSTS and providers may produce diagnostics instead of artifacts; the host still owns deterministic target output-root cleanup for every selected target result.",
+    providerFacts: Object.freeze([
+      "selectedTargetOutputRoot",
+      "diagnosticOnlyTargetResult",
+      "targetArtifactPathContainment",
+    ]),
+    backendContract:
+      "The CLI removes the selected target output root before writing current artifacts, and performs the same cleanup when diagnostics suppress backend/toolchain artifacts.",
     positiveTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "host.project.clean-rebuild has focused stale-artifact proof for CLI output, but remains partial until runtime assets, multi-target projects, diagnostic-only targets, and every toolchain artifact family are covered.",
+    oldEvidence: Object.freeze([
+      "packages/cli/src/commands/build.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime files do not survive a clean rebuild. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
+      "Reviewed proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime/project files do not survive successful rebuilds or backend-diagnostic-only rebuilds. Current tests also build the generated C# project, prove target toolchain artifacts such as isolated output assemblies and obj intermediates exist, then rerun Tsonic and prove those artifacts are removed before current C# sources/projects are written. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
   }),
   "tsts.parse-bind-check": Object.freeze({
     positiveTests: Object.freeze([
@@ -3543,13 +3656,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/param-modifiers/",
     ]),
     notes:
-      "Reviewed proof: .NET provider modeling preserves by-value, out, ref, in, optional, supported default-value, unsupported default-value, and params-array parameter facts across raw reflection models, provider declaration models, target bindings, extension receivers, constructors, and reflected signature identities. Provider contract tests reject invalid passing modes, malformed params-array placement/type/passing, default values on non-optional parameters, and mixed supported/unsupported defaults before declaration conversion. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, and emit reflected params-array extra arguments from selected target facts. Unsupported default values carry deterministic parameter identity and evidence without becoming source-visible defaults. This closes the .NET provider-model parameter-mode contract; provider-owned call emission breadth remains tracked separately by operation.call.provider-parameter-mode.",
+      "Reviewed proof: .NET provider modeling preserves by-value, out, ref, in, optional, supported default-value, unsupported default-value, and params-array parameter facts across raw reflection models, provider declaration models, target bindings, extension receivers, constructors, and reflected signature identities. Provider contract tests reject invalid passing modes, malformed params-array placement/type/passing, default values on non-optional parameters, and mixed supported/unsupported defaults before declaration conversion. CLI provider tests prove omitted optional target arguments emit only when a deterministic reflected default exists, reject omitted optional arguments without reflected defaults, emit reflected params-array extra arguments from selected target facts, and run Dictionary.TryGetValue out-parameter behavior through generated C# output. Unsupported default values carry deterministic parameter identity and evidence without becoming source-visible defaults. This closes the .NET provider-model parameter-mode contract; provider-owned call emission breadth remains tracked separately by operation.call.provider-parameter-mode.",
   }),
   "native.dotnet.array.explicit": Object.freeze({
     sourceExamples: Object.freeze([
       "import { Array as DotNetArray } from \"@tsonic/dotnet/System.js\";",
       "const values: DotNetArray<int32> = DotNetArray.create<int32>(size); values[0] = 7; return values.length;",
       "function invalid(values: DotNetArray<int32>): void { values.length = 3; }",
+      "function invalid(values: DotNetArray<int32>): int32 { const [first] = values; return first; }",
     ]),
     tstsDecision:
       "TSTS checks the provider-owned .NET declarations and ordinary TypeScript array syntax; native CLR array identity is supplied only by provider facts.",
@@ -3613,11 +3727,12 @@ const reviewedCapabilityEvidence = Object.freeze({
           "missing-required-facts",
           "ranked-clr-array-without-approved-source-shape",
           "source-array-spelling-only",
+          "native-array-destructuring-without-iterable-source-contract",
         ]),
       },
     }),
     notes:
-      "Reviewed proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts. CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, rejects JS mutators such as push plus length assignment on explicit native arrays, and keeps ordinary source T[] as TypeScript Array<T> semantics. Ranked-array and unsupported array-family shapes are recorded as provider diagnostics rather than source-visible fallback declarations.",
+      "Reviewed proof: current C# provider tests prove CLR SZArray type refs, explicit provider-owned @tsonic/dotnet Array<T> virtual declarations, collection literal metadata, unsupported ranked arrays, target-id lookup through the synthetic provider module index, and selected member/indexer facts. CLI proof emits int[] from DotNetArray.create<int32>(size), maps values.length to values.Length, maps values[index] to CLR array indexing, dotnet-builds the generated project, rejects JS mutators, length assignment, and native-array destructuring without a provider iterable source contract, and keeps ordinary source T[] as TypeScript Array<T> semantics. Ranked-array and unsupported array-family shapes are recorded as provider diagnostics rather than source-visible fallback declarations.",
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
@@ -3643,16 +3758,32 @@ const reviewedCapabilityEvidence = Object.freeze({
   "declaration.class.abstract": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "declaration.class.abstract remains partial until an approved source syntax or provider fact model owns abstract target shape; current source-syntax discipline treats TypeScript abstract modifiers as non-ECMAScript runtime-shape syntax.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old class fixture inventory contains basic, constructor, inheritance, and static-member classes, but no abstract class/source modifier behavior fixture",
+        "old product unit inventory references class traversal/rendering helpers, not approved source abstract-shape behavior",
+      ]),
+      reviewerNotes:
+        "No historical old-suite source abstract-declaration behavior entry exists to map bidirectionally. Current source-syntax discipline treats TypeScript abstract modifiers as unsupported runtime-shape syntax until a future provider fact model explicitly owns abstract target shape.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: abstract class/member modifier spelling currently produces deterministic diagnostics and does not cause the backend to synthesize C# abstract semantics from TypeScript-only runtime-shape syntax.",
+      "Reviewed proof: abstract class/member modifier spelling is a deterministic hard reject under source-syntax discipline, because abstract target shape is not owned by a provider fact model. Unit tests prove the C# backend does not synthesize abstract C# modifiers from TypeScript-only runtime-shape syntax, and CLI tests prove abstract declarations stop before C# artifacts while clean rebuild removes stale outputs.",
   }),
   "declaration.type-alias": Object.freeze({
     positiveTests: Object.freeze([
@@ -3760,11 +3891,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
@@ -3780,20 +3919,21 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-spread/",
       "test/fixtures/array-type-emission/",
     ]),
-    blockers: Object.freeze([
-      "carrier.array remains partial until every array carrier lane has current positive and negative proof: readonly/read-write ABI, nested/generic arrays, inferred returns, tuple interaction, native CLR boundaries, sparse/full-JS carriers, and provider-fact absence diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, and JS-surface array carriers, including fail-closed diagnostics for untyped empty returns and native length access without selected facts.",
+      "Reviewed proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, JS-surface, readonly source syntax, generic readonly source syntax, nested readonly source syntax, inferred source-owned array returns, explicit provider-owned native CLR arrays, and sparse JSArray carriers, including non-Node executables that coalesce nullable source arrays, spread into typed carriers, destructure fixed/default/rest elements, and verify exact stdout. Backend fact tests distinguish array-literal construction metadata from enumerable/read-only-indexable metadata: spread accepts finalized provider enumerable carriers, destructuring accepts finalized provider read-only indexable carriers, and literal-only carriers diagnose instead of being treated as indexable/enumerable. Fail-closed diagnostics cover untyped empty returns, native length access without selected facts, explicit DotNetArray spread/destructuring without a provider iterable source contract, compat any spread without closed array carrier facts, dense-carrier sparse-literal rejection, tuple default/rest without optional/slice facts, and incompatible closed element carriers. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, sparse literal construction, Array.at numeric coercion, and deterministic rejection for incompatible closed element carriers.",
   }),
   "operation.array.literal": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
@@ -3809,11 +3949,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-spread/",
       "test/fixtures/array-type-emission/",
     ]),
-    blockers: Object.freeze([
-      "operation.array.literal remains partial until literal holes, readonly tuple/literal preservation, contextual empty arrays, provider native-array literals, sparse/full-JS array construction, and every old deferred array fixture have current positive and fail-closed tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof for the old array-literal slice: current CLI tests build and run typed source array literals, empty typed literals, nested literals, spread literals, double-array returns, and primitive element carriers from finalized provider/surface facts. The old validator array inference test is mapped as stale evidence only; TSTS owns source typing and target array emission now requires explicit carrier facts.",
+      "Reviewed proof: array literals choose dense arrays, native collection construction, tuple values, or closed JSArray hole construction only from finalized target carrier facts. Current CLI tests build typed, empty-contextual, nested, spread-adjacent, provider-constructor, readonly tuple/as-const, sparse JSArray, double-array, and primitive element literal cases through dotnet build/run where observable. Backend fact tests prove sparse holes emit only for finalized JSArray carriers, dense carriers fail closed instead of compacting holes, and native collection literals require explicit provider construction metadata. Old array-literal emitter and fixture evidence is mapped to the current fact-backed path. Remaining array ABI, spread, binding/destructuring, provider-native indexer, tuple-widening, and full JS copy-in/copy-out coverage stays on the adjacent partial rows instead of being counted here.",
   }),
   "expression.array-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -3838,74 +3976,107 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.spread.array": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/spread/ArraySpread.ts",
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/ArraySpread.ts",
       "test/fixtures/array-spread/",
     ]),
-    blockers: Object.freeze([
-      "operation.spread.array remains partial until spread over readonly, tuple, provider-native arrays, iterable providers, sparse/full-JS arrays, nested spreads, and unsupported spread operands have complete current proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current CLI proof renders spread only from finalized expected array facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, and does not revive old expected-type-threading logic inside Tsonic.",
+      "Reviewed proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes tuple spread from finalized tuple carrier facts, executes fixed/default/rest/nested array destructuring fixtures, executes readonly array spread from finalized IReadOnlyList<T> collection metadata, executes a Slice 8 non-Node spread over a nullish-coalesced typed array, and fails closed before partial array creation when spread operand carrier facts are missing, when finalized carrier element facts mismatch, when compat any lacks closed array carrier facts, when explicit DotNetArray<T> lacks a provider iterable source contract, or when tuple spread would require non-identifier single-evaluation lowering that is not provider-proven. Missing-carrier, compat-any, provider-native, and non-identifier tuple-spread diagnostics preserve source spans and create no C# artifacts. Native collection spread requires finalized enumerable or tuple element metadata rather than array-literal metadata: provider enumerable carriers, readonly collection carriers, and tuple carriers are accepted, while provider literal-only carriers are rejected without falling back to source syntax. It does not revive old expected-type-threading logic inside Tsonic.",
   }),
   "operation.spread.object": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old object-literal and nested-object-rest fixtures cover object-shape carriers and rest materialization, but no direct source object-spread fixture is bidirectionally mapped to operation.spread.object",
+        "current object-spread coverage is stronger than old coverage because it proves positive spread, subset spread, nested spread, readonly spread, dictionary hard-reject, compat-any hard-reject, and single-evaluation hard-reject through finalized facts",
+      ]),
+      reviewerNotes:
+        "No direct old-suite object-spread capability exists to map bidirectionally. Current CLI and backend tests are the source of proof for object spread under the finalized object-shape fact model.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts and non-identifier spread expressions fail closed. CLI tests prove full object-shape spread and subset spread through generated C# projects, and reject spreads when any source member lacks a finalized target carrier or when single-evaluation lowering facts are absent.",
+      "Reviewed proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed with exact spread-node source spans before partial object creation. CLI tests prove full object-shape spread, subset spread, readonly utility-projected spread, nested object spread inside rest/default object binding, and a non-Node object-rest-to-spread executable through generated C# projects. Computed/accessor object members, explicit any compat spread without closed extraction facts, dictionary/Record spread without provider dictionary-copy facts, any source member lacking a finalized target carrier, and single-evaluation lowering gaps diagnose before artifact emission instead of falling back to source spelling.",
   }),
   "operation.spread.provider-target-copy": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "operation.spread.provider-target-copy remains partial until provider-native copy operations, generated adapter copy methods, compat object-carrier copy, and non-identifier single-evaluation copy plans are represented as finalized provider facts with positive and fail-closed tests.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old object-literal and nested-object-rest fixture evidence maps to source object spread/rest behavior, not provider-target copy as an explicit capability",
+        "old emitter/product inventories contain object literal and rest/spread-like shape materialization cases, but no provider-owned copy-fact contract or dictionary-copy operation lane",
+      ]),
+      reviewerNotes:
+        "Provider-target copy facts are a new finalized-fact capability in the current architecture. Current tests prove structural object-shape member copy as the supported provider copy lane and deterministic diagnostics for unsupported dictionary, compat-any, missing-fact, and single-evaluation copy lanes.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: current provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; missing source facts, missing member carriers, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
+      "Reviewed proof: provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; executables prove copied rest members, readonly utility-projected members, and nested spread members feed generated C# behavior. Missing source facts, missing member carriers, computed/accessor members, non-identifier source expressions, explicit any compat spread, and dictionary/Record spread without finalized dictionary-copy semantics diagnose instead of falling back to dictionary/object projection or source-name matching.",
   }),
   "binding.array.fixed-rest-default": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
       "test/fixtures/array-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.array.fixed-rest-default remains partial until assignment destructuring, nested default values, tuple rest, provider-native array extraction, and sparse/full-JS array extraction have current positive and fail-closed proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, and nested array extraction using finalized carrier facts. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
+      "Reviewed proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, synthetic destructured parameter prelude, and sparse JSArray hole/default/rest extraction using finalized carrier facts. Current CLI runtime evidence includes non-Node fixed/default/rest destructuring after array spread from a finalized nullable carrier, JS-surface sparse literal destructuring where defaults test hasIndex instead of length, required tuple defaults that erase to the finalized Item projection, two-or-more tuple rest binding that emits a closed tuple from finalized element carriers, one-element tuple rest binding that emits System.ValueTuple<T>, empty tuple rest binding that emits System.ValueTuple, and explicit DotNetArray<T> destructuring rejected by TSTS because no provider iterable source contract exists. Backend fact tests prove tuple fixed/rest extraction emits Item projections, one-element tuple rest emits System.ValueTuple<T>, optional/nullish tuple defaults fail closed until explicit carrier facts exist, provider read-only indexable carriers destructure without array-literal metadata, JSArray carriers use hole-presence checks for defaults, and provider literal-only carriers are rejected as missing index evidence. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
   }),
   "carrier.array.public-abi-policy": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3913,6 +4084,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "export function indexed(values: int32[]): int32 { return values[0] + values.length; }",
       "export function dense(values: int32[], index: int32, value: int32): int32 { values[index] = value; return values.length; }",
       "export function sparse(values: int32[], index: int32): int32 { delete values[index]; return values.length; }",
+      "export function readonlyIndexed(values: readonly int32[]): int32 { return values[0] + values.length; }",
     ]),
     tstsDecision:
       "TSTS checks every source expression as ordinary TypeScript Array<T>/T[] syntax; selected JS surface/provider facts, not source spelling, choose the C# public ABI and internal carrier lane.",
@@ -3927,11 +4099,15 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# parameter and return types render from finalized array boundary/carrier facts: unused native arrays may expose T[], sequential reads use IEnumerable<T>, length/index reads use IReadOnlyList<T>, caller-visible dense mutation uses List<T>, array returns use List<T>, and JSArray<T> appears only as a copy-in local for full JS semantics.",
     positiveTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/array-literal/",
@@ -3939,11 +4115,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-spread/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "carrier.array.public-abi-policy remains partial until readonly arrays, inferred array returns, nested/generic public ABI carriers, native-array provider boundaries, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads, List<int> for dense mutation and array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
+      "Reviewed proof: CLI evidence compiles ordinary source int32[] and readonly int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads including readonly/generic/nested readonly source syntax, List<int> for dense mutation and explicit/inferred source-owned array returns, and a JSArray<int> local only for delete/hole semantics. Explicit provider-owned DotNetArray<T> uses CLR T[] only from @tsonic/dotnet provider facts, supports Length and indexer operations from selected native-array facts, and rejects JS mutators, length assignment, spread, and destructuring without provider-declared JS/iterable contracts. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5354,10 +5528,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
@@ -5366,29 +5542,98 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-imports-negative/",
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.fs-path-process remains partial for default imports until TSTS provider virtual declarations support truthful default exports or default namespace-object aliases with identity propagation to selected members.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property access, path.posix/path.win32 PathModule member facts, and rejection of node:path/fs without the NodeJS surface. Remains partial until provider-backed default imports are represented by TSTS source identities, fs/path/process behavior is runtime-verified across the full old Node fixture matrix, and all unsupported module members fail closed.",
+      "Reviewed proof: selected NodeJS provider package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, process availableMemory/constrainedMemory/hrtime call facts, path.posix/path.win32 PathModule member facts, expanded node:fs/promises chmod/cp/readlink/realpath/rmdir/symlink target facts, and rejection of node:path/fs without the NodeJS provider package. Current executable proof runs selected fs/path/process with Buffer, crypto, os, url, and util through the generated C# Node runtime. Recovered old Node fixture evidence now has current runtime/toolchain proof for path.posix joins, provider-backed default fs imports, no-package import diagnostics, and the multi-file fs/path/process/os/crypto module graph through the generic provider-package path without source-name fallback.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/accessSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/closeSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/cp.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/openSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/readlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/realpath.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/rmdir.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/symlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/truncateSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.fs remains partial until every supported node:fs and bare fs operation has selected-declaration target facts, every unsupported fs member has precise selected-surface diagnostics, and the old Node fixture matrix has runtime/toolchain proof.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/accessSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/closeSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/cp.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/openSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/readlink.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/realpath.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/rmdir.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/symlink.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/truncateSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, existsSync/readFileSync string and Buffer returns, statSync/fstatSync, readSync/writeSync Buffer descriptors, writeFileSync/appendFileSync Buffer writes, no-surface negative paths block Node-owned modules before artifact emission, and unsupported selected fs.watchFile fails closed without runtime fallback. Stats Date-valued members are tracked under surface.node.fs-stats-date. Remains partial until the complete node:fs API surface has provider facts, precise unsupported-operation diagnostics, and runtime coverage.",
+      "Reviewed proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, every currently declared node:fs and node:fs/promises supported provider row from the provider metadata tables, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors plus writeSync string overload, access/chmod/close/open/truncate/rmdir/symlink/readlink/realpath/cp variants, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises access/readFile/readdir/writeFile/copyFile/truncate/stat/unlink/mkdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.readFile/writeFile/watch/watchFile/createReadStream fail closed without runtime fallback. Current provider tests prove fs/promises readFile(path, \"utf8\") selects Task<string> while readFile(path) selects Task<Buffer>, including default fsPromises imports; runtime tests prove both fs.promises and fs_promises module helpers preserve string-vs-Buffer overload behavior. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, unlinks, expanded sync filesystem operations, and fs/promises async roundtrip operations through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Broader Node module families outside the declared fs provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5450,6 +5695,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/arch.tests.cs",
@@ -5461,6 +5707,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exit.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exitCode.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/metrics.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/pid.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/platform.tests.cs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/ppid.tests.cs",
@@ -5468,6 +5715,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/versions.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
@@ -5478,10 +5726,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
         "test/cli-build/nodejs-surface.test.mjs",
       ],
       providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
@@ -5492,6 +5742,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/argv.tests.cs",
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/cwd.tests.cs",
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/metrics.tests.cs",
         "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/platform.tests.cs",
       ],
       failClosedDiagnostics: [
@@ -5504,61 +5755,175 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/nodejs-surface.test.mjs",
       ],
     }),
-    blockers: Object.freeze([
-      "surface.node.process remains partial while upstream TSTS provider virtual function export declarations produce FACT_CONFLICT for selected function signatures. Tsonic must not map process calls/properties by source spelling; completion requires non-conflicting provider declaration/signature facts from TSTS and current passing surface-boundary proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS process facts cover process module imports, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, runtime behavior tests, and no-surface fail-closed diagnostics. Completion remains blocked for function and selected provider-signature proof while upstream TSTS reports FACT_CONFLICT on provider virtual function export signature facts; Tsonic must keep consuming finalized facts only and must not add process source-name fallback.",
+      "Reviewed proof: selected NodeJS provider package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime/availableMemory/constrainedMemory/hrtime, runtime behavior tests, and no-package fail-closed diagnostics. The recovered old module-graph fixture proves node:process through the generic provider-package path, and selected unsupported process.stdin/stdout/stderr/nextTick provider identities fail closed with precise CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED diagnostics before artifacts. Tsonic consumes finalized provider-package facts only and does not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHash.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHmac.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCiphers.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCurves.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getHashes.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomBytes.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomFillSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomInt.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomUUID.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/timingSafeEqual.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/os.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
-    blockers: Object.freeze([
-      "surface.node.buffer-crypto-os remains partial until the full Buffer/crypto/os old fixture matrix has CLI/toolchain/runtime proof and every unsupported member fails closed with precise selected-provider diagnostics.",
-    ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHash.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/createHmac.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCiphers.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getCurves.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/getHashes.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomBytes.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomFillSync.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomInt.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/randomUUID.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/crypto/timingSafeEqual.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/os.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer instance length/toString/copy/write/compare, bare crypto/os and canonical node:crypto/node:os imports, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getHashes array returns, os.homedir, and os.platform by selected provider declaration/member/signature identity. This capability remains partial until the full Buffer/crypto/os old fixture matrix has runtime/toolchain coverage and unsupported members fail closed with precise diagnostics.",
+      "Reviewed proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; every currently declared supported node:crypto and node:os provider metadata row by provider declaration/member/signature identity; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getCiphers/getCurves/getHashes array returns, and os arch/availableParallelism/endianness/freemem/homedir/hostname/loadavg/machine/platform/release/tmpdir/totalmem/type/uptime/version/EOL/devNull by selected provider declaration identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. Unsupported crypto createCipheriv/createDecipheriv/scryptSync/pbkdf2Sync/createSign/createVerify and os constants/cpus/networkInterfaces/userInfo/getPriority/setPriority fail closed from selected provider identities before artifacts, without runtime fallback. Broader Node module families outside the declared Buffer/crypto/os provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "surface.node.util remains partial until format, formatWithOptions, inspect, debuglog, deprecate, isDeepStrictEqual, and other open-object helpers have closed TsValue/provider-adapter semantics or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-alias-coverage/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected node:util and bare util provider modules expose source-visible declarations, closed stripVTControlCharacters/toUSVString operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, and open-carrier format/inspect declarations fail closed without routing to reflection, dynamic dispatch, JsonSerializer object inspection, or generic runtime fallback.",
+      "Reviewed proof: selected node:util and bare util provider modules expose source-visible declarations, provider-backed default node:util module object facts expose closed toUSVString and unsupported format, closed stripVTControlCharacters/toUSVString/styleText/getSystemErrorName/getSystemErrorMessage/convertProcessSignalToExitCode operations map by selected provider signature identity to Tsonic.CSharp.Node.util calls, executable proof runs toUSVString and closed scalar helpers through generated C# Node runtime calls, the recovered historical alias fixture imports util through the selected provider package, open-carrier format/formatWithOptions/inspect/debuglog/deprecate/isDeepStrictEqual declarations fail closed through provider diagnostics without backend artifacts, and direct csharp-nodejs runtime tests reject format/formatWithOptions/inspect/debuglog/deprecate/isArray/isDeepStrictEqual instead of routing to reflection, dynamic dispatch, JsonSerializer object inspection, GetType-based probing, or generic runtime fallback.",
   }),
   "surface.node.url": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "surface.node.url remains partial until live URLSearchParams semantics, URLPattern, open-object url.format, urlToHttpOptions, open-object option carriers, runtime execution, and complete selected-surface diagnostics have closed carrier implementations or explicit unsupported diagnostics through unit, CLI, toolchain, and runtime tests.",
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-surface-alias-coverage/",
     ]),
+    surfaceEvidence: freezeSurfaceEvidence({
+      selectedOperationFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      providerFacts: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+      ],
+      backendEmission: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      runtimeBehavior: [
+        "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      failClosedDiagnostics: [
+        "../tsonic-csharp/test/node-surface-completion.test.mjs",
+        "../tsonic-csharp/test/surface-boundary.test.mjs",
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+      backendNoFallback: [
+        "test/cli-build/nodejs-surface.test.mjs",
+      ],
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: selected node:url and bare url provider modules expose URL and module function declarations; closed URL constructor/properties/static methods, URL-as-base constructor/canParse/parse overloads, URL-only url.format, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; open-object url.format, urlToHttpOptions, URL.searchParams live-mutation semantics, URLSearchParams operations, and URLPattern fail closed without reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
+      "Reviewed proof: selected node:url and bare url provider modules expose URL, URLSearchParams, and module function declarations; provider-backed default node:url module object facts expose closed file-path helpers such as pathToFileURL; closed URL constructor/properties/static methods, URL.searchParams property access, URL-as-base constructor/canParse/parse overloads, URL-only url.format, URLSearchParams constructor/append/set/get/getAll/has/delete/sort/toString/size, and domain/file-path helpers map by selected provider declaration/signature identity to Tsonic.CSharp.Node.URL/url calls; executable CLI proof builds and runs href/host/canParse/relative URL construction/url.format(URL)/domainToASCII/resolve/fileURL roundtrip/URLSearchParams/live searchParams mutation through generated C# Node runtime calls; the recovered historical alias fixture imports url through the selected provider package; csharp-nodejs runtime tests prove URLSearchParams set preserves first-pair order while removing duplicates. Open-object url.format, urlToHttpOptions, and URLPattern are explicit provider metadata diagnostics with CLI no-artifact proof and no reflection, dynamic dispatch, object dictionary projection, or generic runtime fallback.",
   }),
   "backend.csharp.runtime-artifacts": Object.freeze({
     positiveTests: Object.freeze([
@@ -5577,7 +5942,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-alias-coverage/",
     ]),
     notes:
-      "Reviewed partial proof: host composition includes provider and selected-surface runtime contributions before backend/toolchain handoff, omits unselected surface runtime contributions, emits no target artifacts when TSTS rejects the source program, and selected C# JS/Node surfaces now add real runtime project references without test-local reference configuration. Remains partial until runtime contribution coverage spans every selected first-party surface and unsupported target/toolchain combinations fail with focused diagnostics.",
+      "Reviewed partial proof: host composition includes provider, selected-surface, and selected provider-package runtime contributions before backend/toolchain handoff, omits unselected surface/package runtime contributions, emits no target artifacts when TSTS rejects the source program, and selected C# JS surface plus NodeJS provider package now add real runtime project references without test-local reference configuration. Remains partial until runtime contribution coverage spans every selected first-party surface/package and unsupported target/toolchain combinations fail with focused diagnostics.",
   }),
   "runtime.csharp.js": Object.freeze({
     positiveTests: Object.freeze([
@@ -5601,11 +5966,29 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "runtime.csharp.nodejs": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/runtime-toolchain-proof.test.mjs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/accessSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/closeSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/cp.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/openSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/readlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/realpath.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/rmdir.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/symlink.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/truncateSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/metrics.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
       "test/cli-build/runtime-toolchain-proof.test.mjs",
@@ -5617,7 +6000,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed partial proof: selected NodeJS surface runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS surface tests build node:path/fs/crypto/os/process mappings through that reference, closed fs Buffer descriptor/file helpers, crypto Buffer/Hash/Hmac helpers, and URL base-overload helpers are available as runtime-owned APIs, and a generated JS+Node executable runs node:path.join through the C# Node runtime. Remains partial until executable tests cover the old Node fixture matrix and all unsupported Node module members fail closed.",
+      "Reviewed proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:fs/promises/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises readFile string-vs-Buffer overloads, access/chmod/close/open/cp/readlink/realpath/rmdir/symlink/truncate/writeSync runtime helpers, mkdir/readdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables run both node:path.join and composite provider-package scenarios covering fs write/read/stat/unlink/access/chmod/truncate/rmdir/symlink/readlink/realpath/cp, fs/promises async file roundtrip with access/copyFile/truncate, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Unsupported selected Node provider-package APIs and unsupported Node modules fail closed before target artifacts, while runtime source scans prove no reflection/dynamic/open-dispatch semantics in csharp-nodejs runtime paths.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
@@ -5725,39 +6108,64 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exitCode.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "carrier.null-undefined remains partial until all target modes classify null and undefined per resolved pattern instance, including native nullable value/reference types, JS surface nullish helpers, compat carriers, runtime-union nullish arms, and explicit hard rejects.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: no-surface C# maps number/string/bool/reference unions with null or undefined to nullable C# carriers and fails generated C# builds if an unproven undefined identifier leaks; JS surface runtime helpers for Array.at/pop/shift/find/findLast, String.at/codePointAt/match, and global undefined expose closed nullish carrier behavior. Remains partial until every nullish carrier lane is classified and tested.",
+      "Reviewed proof: no-surface C# maps number/string/bool/reference unions with null or undefined to nullable C# carriers and fails generated C# builds if an unproven undefined identifier leaks; native provider optional/default paths, JS surface nullish helpers, compat TsValue carriers, runtime-union nullish arms, and Node provider-package nullable APIs all carry explicit nullish facts or deterministic diagnostics. Current CLI/toolchain, provider-fact, csharp-js, and csharp-nodejs tests cover nullable value/reference carriers, global undefined, optional/nullish operators, provider-owned null/undefined unions, JS surface helpers, compat carriers, and hard rejects without source-name fallback.",
   }),
   "runtime.undefined.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "runtime.undefined.carrier remains partial until strict-native, JS surface, Node surface, compat-runtime, object/array holes, optional APIs, and typed/native provider boundaries all use explicit undefined/nullish carriers or deterministic diagnostics.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old nullable/nullish fixtures map to carrier.null-undefined and expression.nullish-optional, but they do not model the current closed runtime.undefined.carrier contract",
+        "old emitter inventory has no direct closed JSUndefined/TsValue undefined runtime carrier fixture; current csharp-js and provider-package tests provide stronger runtime-carrier proof",
+      ]),
+      reviewerNotes:
+        "No direct historical old-suite runtime undefined carrier exists to map bidirectionally. Current proof is stronger because it covers the closed JSUndefined singleton, TsValue undefined reads/casts/typeof, sparse JSArray holes, Node process.env nullable provider APIs, and fail-closed backend handling for unproven undefined identifiers.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: the C# backend now treats only TSTS-proven global undefined as a nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers. Remains partial because full JS sparse/hole semantics and compat TsValue undefined are not complete.",
+      "Reviewed proof: the C# backend treats only TSTS-proven global undefined as the nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers; compat TsValue tests prove missing properties, sparse JSArray holes, typeof, and typed-boundary casts are closed and deterministic; Node provider-package tests prove process.env string|undefined APIs become nullable target facts and runtime null results. Unsupported dynamic/provider cases diagnose instead of falling back to open reflection, dynamic dispatch, or emitted undefined identifiers.",
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
@@ -5804,25 +6212,28 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/VariableInit.ts",
     ]),
-    blockers: Object.freeze([
-      "operation.call.provider-argument-conversion remains partial until constructor, delegate, indexer, and extension-call arguments each prove explicit source-to-target conversion facts, source spans, and CLI/toolchain emission.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-selection, conversion planner, and argument-emission tests prove selected target argument conversion facts take precedence over expected-type threading, must match the finalized selected parameter target type, and fail closed when missing or mutated instead of recovering from parameter names or target type spelling.",
+      "Reviewed proof: provider-owned call argument conversion facts are derived from TSTS-selected provider declaration/signature identity plus closed target parameter facts, not from source names. Provider-selection tests cover by-value calls, constructor signatures, indexers, first-argument extension calls, generic methods, optional/default parameters, params arrays, byref parameters, and exact-signature overload groups; selected signatures record argumentConversions and fail closed when conversions are missing, mutated, or tied to a sibling signature. Backend argument tests prove finalized conversion facts override render expected-type threading, must match the selected parameter target type, preserve separate render and semantic target types, support selected collection render carriers, include source-span evidence on missing required byref facts, and reject unsupported passing modes. CLI provider tests prove reflected constructors, generic collection calls, Dictionary indexers, extension-style calls, optional/default parameters, params arrays, and byref arguments emit/build/run only from selected provider facts.",
   }),
   "operation.call.provider-parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/call-operation-facts.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
@@ -5837,11 +6248,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/param-modifiers/",
     ]),
-    blockers: Object.freeze([
-      "operation.call.provider-parameter-mode remains partial until delegate/callable invocation, constructor, indexer, extension receiver, source-span diagnostics, and mutated/missing parameter-mode fact rejections all have current CLI/toolchain proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-owned call facts carry selected parameter modes from reflected signatures, including out, ref, in, by-value, optional, default values, constructors, and params arrays; exact selected signature identity enforces optional/params arity without searching sibling overloads, and CLI provider tests prove omitted optional arguments are accepted only when the selected target parameter carries a supported reflected default value. Target member selection rejects malformed provider parameter facts such as missing/noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, and default values without optional arity. Constructor, indexer, and extension-call selections require finalized source marker facts for byref parameters; call emission rejects mutated receiver/parameter-passing facts and unsupported finalized passing modes. Remains partial until delegate/callable invocation parameter-mode consumers and CLI/toolchain source-span diagnostics have full missing/mutated fact rejection coverage.",
+      "Reviewed proof: provider-owned call facts carry selected parameter modes from reflected signatures, including by-value, out, ref, in, optional, supported default values, unsupported default values, constructors, indexers, first-argument extension receivers, delegate/callable Invoke facts, and params arrays. Target member selection rejects malformed provider parameter facts such as missing or noncanonical passingMode, paramsArray on non-array types, paramsArray byref parameters, defaults on non-optional parameters, and argument-passing marker facts tied to a different selected provider signature. Exact selected call, constructor, indexer, and extension-call signatures fail closed when required byref marker facts are missing or parameter-mode facts contradict the TSTS-selected signature, instead of refining to by-value overload siblings. Backend emission rejects mutated receiver, parameter-passing, parameter-default, parameter-optional, parameter-params, and unsupported finalized passing-mode facts, and missing selected byref facts include deterministic source module/file/span evidence. CLI provider tests prove reflected constructors, executable Dictionary.TryGetValue out-parameter behavior, extension-style Span/Enumerable calls, optional/default parameters, params arrays, and byref arguments emit/build/run only from selected provider parameter facts.",
   }),
   "operation.construct.provider-selected-constructor": Object.freeze({
     positiveTests: Object.freeze([
@@ -5902,10 +6311,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   "operation.operator.checked-target-operation": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
@@ -5917,11 +6330,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/TernaryTyping.ts",
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
-    blockers: Object.freeze([
-      "operation.operator.checked-target-operation remains partial until every supported operator family has static-native or compat-runtime lane proof, every unsupported operator is hard-rejected with capability diagnostics, and old expected-type/operator fixtures are all covered by current CLI/runtime evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: binary, unary, nullish, and selected provider operators are emitted only from finalized TSTS/provider targetOperation facts; direct bitwise and generic type-parameter operators reject when facts are missing; in-operator and structural operators fail closed rather than backend-guessing from source spelling; nullish coalescing requires matching finalized operator result target type before Roslyn AST emission.",
+      "Reviewed proof: binary, unary, assignment, compound, comparison, logical, nullish, typeof, instanceof, and compat any operators emit only from finalized TSTS/provider targetOperation facts plus matching C# target-operation facts; unsupported in-operator, structural, generic type-parameter, unproven bitwise, and unsupported compat operators fail closed with deterministic diagnostics; backend emission uses Roslyn operator-token AST nodes and rejects semantic-string/operator-token drift.",
   }),
   "operation.iteration.for-of.sync": Object.freeze({
     positiveTests: Object.freeze([
@@ -6027,20 +6438,30 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backend emits AwaitExpression and async target AST only from finalized Promise/Task runtime-carrier facts; missing or mismatched awaited/result carriers produce diagnostics.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
       "test/fixtures/async-basic/",
       "test/fixtures/async-higher-order/",
+      "test/fixtures/async-ops-uses-map/",
+      "test/fixtures/promise-chain-reject-stable/",
+      "test/fixtures/promise-constructor-task/",
+      "test/fixtures/promise-void-resolve/",
+      "test/fixtures/task-then-disallowed/",
     ]),
-    blockers: Object.freeze([
-      "operation.await.promise-task remains partial until Promise chain/task interop fixtures, async interaction with selected JS surfaces, and every old async fixture that depends on await semantics have current positive and fail-closed proof.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -6078,7 +6499,73 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result; mismatched or missing facts fail closed; current CLI E2E proves basic awaited async calls and higher-order async delegate carriers through dotnet build/run.",
+      "Reviewed proof: await emission requires finalized Promise/Task carrier facts for both the awaited expression and the await result, including non-generic Task/void awaits; mismatched or missing facts fail closed; source-semantics records await-result carriers from TSTS-checked Promise/Task facts; async function declarations and class methods consume finalized Task return and await-result facts through Roslyn AST; current CLI E2E proves basic awaited async calls, Promise<void> await statements, Promise<T>/Promise<void> parameters accepting C# Task<T>/Task callers, higher-order async delegate carriers, async structural object returns, and async composition with selected JS Map carrier facts through dotnet build/run. Unsupported Promise.resolve, Promise chains, Promise constructors, task .then-style chaining, and async generators fail before target artifacts with selected-fact or finalized-carrier diagnostics. .NET/EF/LINQ task fixtures remain downstream provider-package work and are not required proof for the source async/await carrier contract.",
+  }),
+  "function.this-binding": Object.freeze({
+    sourceExamples: Object.freeze([
+      "class Counter { value = 7; read(): number { const read = (): number => this.value; return read(); } }",
+      "class Counter { static value = 7; static read(): number { return this.value; } }",
+    ]),
+    tstsDecision:
+      "TSTS owns source validity and lexical this binding for checked TypeScript; the C# backend may emit this only after the selected source context is an instance class receiver and the receiver expression has finalized runtime carrier facts.",
+    providerFacts: Object.freeze([
+      "tsts-selected-this-expression",
+      "instance-class-receiver-context",
+      "runtimeCarrierFact for receiver",
+    ]),
+    backendContract:
+      "C# emits a ThisExpression/this identifier only from a finalized instance receiver carrier. Static members, object-literal methods, dynamic functions, class field initializers, and top-level module receivers fail closed before artifact emission instead of falling back to JavaScript this semantics.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/object-literal-method-this/",
+    ]),
+    blockers: Object.freeze([]),
+    laneClassification: freezeLaneClassification({
+      patternKind: "this-binding",
+      possibleLanes: Object.freeze(["static-native", "hard-reject"]),
+      strictNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-this-expression",
+          "instance-class-receiver-context",
+          "receiver-runtime-carrier",
+        ]),
+        hardRejectIfMissing: Object.freeze([
+          "missing-receiver-carrier",
+          "non-instance-class-this-context",
+          "unsupported-javascript-this-binding",
+        ]),
+      },
+      staticNative: {
+        lane: "static-native",
+        requiredFacts: Object.freeze([
+          "tsts-checked-this-expression",
+          "instance-class-receiver-context",
+          "receiver-runtime-carrier",
+        ]),
+        operation: "emit-this-target-ast",
+      },
+      hardReject: {
+        lane: "hard-reject",
+        reasons: Object.freeze([
+          "missing-receiver-carrier",
+          "static-member-this",
+          "object-literal-method-this",
+          "dynamic-function-this",
+          "class-field-initializer-this",
+          "top-level-this",
+        ]),
+      },
+    }),
+    notes:
+      "Reviewed proof: backend unit tests require finalized receiver carrier facts before emitting this, accept lexical arrows only when they close over an instance class receiver, and reject static, object-literal, runtime-bound function, class-field initializer, and top-level this contexts with deterministic diagnostics. CLI/toolchain tests prove instance plus lexical this emits C# this through target AST and dotnet-builds, while static, object-literal method, and class-field initializer this reject before generated artifacts. The old object-literal-method-this fixture is mapped to the current fail-closed object-literal receiver diagnostic instead of old JavaScript this fallback.",
   }),
   "function.async": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6096,21 +6583,30 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backend emits async methods/lambdas and Task-returning signatures only from finalized Promise/Task and delegate carrier facts; missing facts are diagnostics.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/async-cli-build.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/async/basic/AsyncFunction.ts",
       "packages/targets/csharp/emitter/testcases/common/functions/async-hof/AsyncReturningFunctions.ts",
       "test/fixtures/async-basic/",
       "test/fixtures/async-higher-order/",
+      "test/fixtures/async-ops-uses-map/",
+      "test/fixtures/promise-chain-reject-stable/",
+      "test/fixtures/promise-constructor-task/",
+      "test/fixtures/promise-void-resolve/",
+      "test/fixtures/task-then-disallowed/",
     ]),
-    blockers: Object.freeze([
-      "function.async remains partial until async object-literal returns, Promise constructor/then/reject behavior, Task interop, generators, and async+surface fixtures are covered by finalized facts, backend AST tests, and runtime/toolchain tests.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "async-await",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -6148,25 +6644,28 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: async methods and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; current executable tests cover basic Promise<string>, nested Promise-returning delegates, async callbacks, and exact runtime output.",
+      "Reviewed proof: async functions, class methods, and async lambdas emit Roslyn async AST only after Promise/Task and delegate carriers are finalized; async return expression expectations unwrap finalized Task<T> result carriers before backend planning; missing Promise/Task return or delegate facts diagnose before backend fallback/artifact emission; current executable tests cover Promise<string>, Promise<void>/Task, C# Task<T>/Task caller interop through Promise parameters, nested Promise-returning delegates, async callbacks, async structural object returns, async Map carrier composition, and exact runtime output. Unsupported Promise.resolve, Promise chains, Promise constructors, task .then-style chaining, and async generators fail before target artifacts instead of lowering through Promise/source-name fallback. .NET/EF/LINQ task fixtures remain downstream provider-package work and are not required proof for the source async function carrier contract.",
   }),
   "operation.throw.catch": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "operation.throw.catch remains partial until throw/catch/finally coverage spans provider exceptions, source-owned exception carriers, catch filters if supported, invalid destructured catch variables, and old fixture parity.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/statements.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: statement planner requires finalized throwable/catch carrier facts, provider-dotnet CLI rejects throw statements until provider exception facts are finalized, and provider-backed throw/catch/finally execution builds and runs through the generated C# toolchain.",
+      "Reviewed proof: throw/catch/finally emission requires finalized throwable and catch carrier facts. Provider-backed exceptions emit and execute as native C# exceptions in both dedicated provider tests and the Slice 8 non-Node carrier/binding executable, compat-mode non-Exception thrown values wrap through the closed TsThrownValueException/TsValue carrier, invalid destructured catch variables fail closed until extraction facts exist, strict-native non-throwable throws diagnose, and the backend never falls back to source spelling or runtime reflection.",
   }),
   "operation.iteration.for-in.keys": Object.freeze({
     positiveTests: Object.freeze([
@@ -6211,22 +6710,27 @@ const reviewedCapabilityEvidence = Object.freeze({
   "operation.destructure.array-object": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
       "test/fixtures/array-destructuring/",
+      "test/fixtures/nested-object-rest-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until assignment destructuring has finalized target storage/extraction facts, expression/statement assignment positives, object rest/default parity, provider-native array extraction, and every old destructuring fixture has current CLI/toolchain proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter and variable binding patterns consume finalized array, tuple, and object-shape extraction facts; missing facts produce diagnostics; expression and statement assignment destructuring both fail closed instead of ordinary assignment fallback or stale lowering.",
+      "Reviewed proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; explicit DotNetArray<T> destructuring is hard-rejected by TSTS until the provider declares an iterable source contract. CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment including object rest assignment, expression-position destructuring assignment return values, utility-projected tuple destructuring, required tuple defaults and tuple rest, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -6478,17 +6982,22 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/statement-planner.test.mjs",
       "../tsonic-csharp/test/target-type-facts.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "statement.throw-catch-finally remains partial until catch variable carriers, catch destructuring rejection, finally behavior, provider exception mappings, CLI execution, and old fixture parity are complete.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/src/rendering/statements.test.ts",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: throw emission requires finalized throwable target carriers and rejects missing exception-carrier facts before C# emission.",
+      "Reviewed proof: throw emission requires finalized throwable target carriers, try/catch/finally planning consumes finalized catch variable carriers, provider exception mappings execute through the generated C# toolchain, compat-mode catch variables materialize closed TsValue carriers from System.Exception, finally execution is covered by provider and compat CLI runtime tests, the Slice 8 executable covers provider throw/catch interleaved with carrier/binding work, and missing/non-extractable catch facts produce diagnostics before artifacts.",
   }),
   "statement.top-level": Object.freeze({
     positiveTests: Object.freeze([
@@ -6510,6 +7019,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   "binding.parameter": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/arrays.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
@@ -6517,14 +7029,15 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/array-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.parameter remains partial until every array/object/rest/default/nested parameter destructuring form is covered by current CLI/toolchain tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: parameter destructuring now queries facts on the owning parameter declaration, not only the syntactic type node, so parameter array, object, and nested object destructuring emit only from finalized carrier/object-shape facts; missing nested object-shape facts fail closed.",
+      "Reviewed proof: parameter destructuring queries facts on the owning parameter declaration, allocates deterministic synthetic parameters for destructured parameters, and emits array fixed/rest/default, IReadOnlyList, JSArray, object, nested object, object rename, object rest, object defaults, and callable extraction prelude only from finalized carrier/object-shape facts. Current unit tests prove missing carrier/object-shape facts and missing nested shape facts fail closed with evidence. CLI/toolchain proof covers array fixed/default/rest/nested parameter binding, object parameter rest, object parameter callable extraction, and a non-Node executable whose parameter object rest feeds object spread with exact runtime output. Old array-destructuring evidence is mapped to this finalized-fact parameter binding path.",
   }),
   "binding.assignment": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
@@ -6532,16 +7045,51 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/array-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.assignment remains partial because assignment destructuring currently fails closed; implementation requires finalized target storage and extraction facts before positive emission can be added.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: destructuring assignment is recognized as a binding-storage capability in expression and statement planning, not lowered through ordinary assignment; until storage/extraction facts exist, the backend emits diagnostics instead of guessing.",
+      "Reviewed proof: statement-level and expression-position array/object-shape destructuring assignment emit deterministic storage writes only after TSTS accepts assignment and finalized assignment/operator plus extraction carrier facts exist. Current unit tests prove array and object-shape storage writes, read-only-indexable provider extraction, expression-position result values, object-shape assignment defaults, string-literal object-shape assignment keys, fail-closed missing facts, JSArray hole-aware assignment defaults, and no ordinary assignment fallback; CLI/runtime proof executes array and object-shape destructuring assignment plus sparse JSArray declaration destructuring through generated C# output.",
+  }),
+  "binding.object.rename-rest-default": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nested-object-rest-destructuring/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: object rename, rest, nested extraction, and defaults emit only from finalized TSTS-checked rest binding types and source/rest object-shape facts, then execute through CLI/runtime proof. Executables preserve nullable optional members, apply nullish defaults, copy retained rest members, and feed nested spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed. Compat-mode explicit any object destructuring is classified as hard-reject until closed extraction facts exist, and the old nested-object-rest destructuring fixture is ported as current executable proof.",
+  }),
+  "binding.object-shape": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nested-object-rest-destructuring/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, object assignment defaults, string-literal assignment keys, readonly utility-projected spread, nested object spread, and rest-to-spread execution. Explicit any object destructuring and object spread in compat mode remain hard-rejects until closed extraction/copy facts exist, so compat carriers do not fall through to object-shape inference. Missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, dictionary spread without copy facts, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
@@ -6554,291 +7102,372 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter.ts",
       "packages/targets/csharp/emitter/testcases/common/types/anonymous-objects/AnonymousObjects.ts",
       "packages/targets/csharp/emitter/testcases/common/types/interfaces/Interfaces.ts",
+      "test/fixtures/nested-object-rest-destructuring/",
       "test/fixtures/object-literal-method-shorthand/",
       "test/fixtures/object-literal-object/",
     ]),
-    blockers: Object.freeze([
-      "carrier.object-shape remains partial until structural interface storage, generated adapter emission, inline object parameters, generic object literal paths, object spread/rest/default extraction, and full old fixture parity are covered end to end.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
+      "Reviewed proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes interface-backed object literal adapters, generic interface object literal adapters, inline structural parameters, nested object extraction, rest object carriers, object spread carriers, readonly utility-projected shape copies, nested spread carriers, nullable optional members, Record dictionary separation, and non-Node executables that apply object-shape default extraction through generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps unknown, any compat spread/destructuring, computed/accessor members, dictionary spread without copy facts, and missing shape/provider facts fail-closed instead of falling back to source spelling.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "carrier.any-tsvalue remains partial until concrete TsValue/TsObject/TsFunction carrier types, runtime artifacts, and backend AST emission are implemented.",
-    ]),
     notes:
-      "Reviewed partial proof: TypeScript any receives only an opaque carrier fact; strict-native rejects it, compat mode requires explicit closed operation facts, and object/unknown are not promoted to any-like dynamic carriers.",
+      "Reviewed proof: TypeScript any receives an opaque source/runtime carrier fact, strict-native rejects it, compat mode lowers only through closed TsValue/TsObject/TsArray/TsUnion/TsFunction/JSArray operation facts, csharp-js runtime tests prove closed carrier property/element/call/construct and union forwarding behavior without reflection or dynamic dispatch, and CLI/toolchain proof emits TsValue public boundaries plus closed runtime calls without selecting the JS surface. object and unknown remain non-dynamic.",
   }),
   "carrier.union": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/runtime-union.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "carrier.union remains partial until all union arities, nullish unions, discriminated unions, provider-owned union constituents, runtime arm projection, and end-to-end old fixture parity are covered.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old C# emitter inventory has an expected-only in-operator stale architecture case mapped to runtime.union.carrier, not a source fixture for the current carrier.union capability",
+        "old fixture inventory contains nullable/nullish/narrowing fixtures and js-surface-node-date-union, but no bidirectional source fixture for explicit runtime Union<T...> carrier construction",
+      ]),
+      reviewerNotes:
+        "No direct historical old-suite source capability maps to the current explicit carrier.union contract. Current CLI, provider-fact, and runtime tests are stronger evidence because they prove finalized runtime-carrier facts, provider-owned union constituents, object-shape union arms, serialization boundaries, and fail-closed missing-carrier behavior.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: heterogeneous non-nullish unions now create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch expressions prefer checked flow carrier facts and do not emit union arm projection by spelling.",
+      "Reviewed proof: heterogeneous unions create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch conditions and values emit IsN/AsN only by matching finalized storage union arms to TSTS-narrowed use-site carrier facts, not by source spelling. CLI proof executes generated C# programs that construct primitive/nullish union arms and discriminated object-shape union arms, read them through finalized branch projections, and print exact output. Provider-package tests prove provider-owned union constituents from Node process APIs become selected nullable target facts, and csharp-js tests prove closed TsUnion compatibility wrappers, nullish arms, typed-boundary casts, deterministic open-CLR-object rejection, and JSON serialization of the active union arm.",
   }),
   "runtime.union.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/runtime-union.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "runtime.union.carrier remains partial until runtime Union<T...> construction, arm selection, conversion, serialization boundaries, and target toolchain tests cover every supported arity and narrowing pattern.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8 and rejects union type annotation emission without finalized carrier facts; branch-narrowed values consume checked flow carrier facts directly.",
+      "Reviewed proof: the C# target records runtime union target identities for arities 2 through 8, rejects union type annotation emission without finalized carrier facts, preserves object-shape union-arm declarations, and emits generated Runtime.Union<T...> construction plus narrowed IsN/AsN arm tests/projections only from finalized storage/use-site carrier evidence. CLI proof runs generated primitive, nullish, and discriminated object-shape union projection code through dotnet run with exact output, not only dotnet build. Provider-package tests prove provider-owned union constituents from Node process APIs select nullable target facts, and csharp-js proves closed TsUnion boxing, nullish-arm propagation, JSON active-arm serialization, typed-boundary casts back to Runtime.Union<T...>, and open CLR object rejection without reflection or dynamic dispatch. The old in-operator expected-only case is mapped as stale architecture: current runtime-union lowering requires finalized facts and otherwise fails closed.",
   }),
   "compat.prototype-mutation": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "compat.prototype-mutation remains partial until every prototype-affecting pattern is classified per resolved pattern instance with provider facts; source spelling alone is banned.",
-    ]),
     notes:
-      "Reviewed partial proof: object-literal __proto__ prototype mutation and resolved standard-library Object.setPrototypeOf/getPrototypeOf/create prototype APIs are hard-rejected with closed-carrier evidence, while shadowable property/member names are not classified by spelling. Future prototype support requires explicit closed compat-runtime facts.",
+      "Reviewed proof: object-literal __proto__ prototype mutation and resolved standard-library Object.create, Object.setPrototypeOf, Object.getPrototypeOf, and descriptor-style prototype operations are hard-rejected with selected-source evidence before C# artifacts are emitted. Shadowable local Object/property names are not classified by spelling, and future prototype support requires explicit closed compat-runtime facts rather than CLR object/dynamic fallback.",
   }),
   "compat.proxy-eval-function-with": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "compat.proxy-eval-function-with remains partial until resolved global eval/Function/Proxy identity coverage spans every selected JS surface/lib source and any supported compat-runtime replacement has closed carrier facts.",
-    ]),
     notes:
-      "Reviewed partial proof: resolved standard-library eval, Function, Proxy, and with statements are hard-rejected because dynamic code/dynamic scope cannot be represented by closed target facts; shadowable local Function, Proxy, and Object names produce no diagnostics, preventing source-name guessing.",
+      "Reviewed proof: resolved standard-library eval, Function call/constructor, Proxy construction/revocable APIs, and with statements are hard-rejected because dynamic code, dynamic scope, and proxy traps cannot be represented by closed target facts. CLI proof rejects selected JS surface eval/Function/Proxy APIs before artifacts, source-semantics tests prove shadowable local Function, Proxy, and Object names produce no diagnostics, and no QuickJS, C# dynamic, reflection dispatch, or source-name guessing path is present.",
   }),
   "compat.mode.strict-native": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any property read/write, element get, call, construction, and operator operations before emission, and a test-injected closed compat operation fact cannot rescue strict-native dynamic any behavior. Remains partial until runtime/toolchain diagnostics and all non-any compat-runtime lanes are covered end to end.",
+      "Reviewed proof: C# target options default to strict-native, strict-native hard-rejects opaque TypeScript any property read/write, element get/set, call, construction, operators, and typed-boundary programs before artifact emission, and test-injected closed compat operation facts cannot rescue strict-native dynamic any behavior. CLI proof covers strict-native dynamic diagnostics and selected JS dynamic/prototype hard rejects without runtime reflection, C# dynamic, or backend fallback.",
   }),
   "compat.mode.compat": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: explicit typescriptCompatibility=compat is parsed, compat mode still rejects opaque any property read/write, element get, call, construction, and operator operations when closed operation facts are missing, emits property get/set/call/new only from finalized closed compat-runtime operation facts, and rejects closed compat facts attached to non-any object operations. Remains partial until real TsValue/TsObject/TsFunction runtime artifacts and provider-produced facts exist.",
+      "Reviewed proof: explicit typescriptCompatibility=compat is parsed, contributes the closed csharp-js compat-carrier runtime without requiring the JS surface, records finalized operation facts for explicit TypeScript any property read/write, element read/write, direct calls, member calls, and construction, rejects missing/unclosed facts, rejects closed compat facts on non-any object operations, and CLI/toolchain proof emits closed TsValue operations plus a buildable C# project.",
   }),
   "compat.any.property": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: opaque any property and element operations are not source-owned fallbacks; strict-native rejects them, compat rejects missing operation facts, backend property reads and property/element writes emit only from explicit closed operation facts with explicit argument projection, and direct property-assignment operation facts are rejected as insufficient evidence. Remains partial until real carrier get/set provider facts and runtime artifacts exist.",
+      "Reviewed proof: opaque any property and element operations are not source-owned fallbacks; strict-native rejects them, compat rejects missing operation facts, source semantics records closed get/set facts only for explicit any subjects, backend property reads and property/element writes emit only from explicit closed operation facts with argument projections, csharp-js runtime tests prove closed object/array slot behavior including undefined for missing properties, and CLI/toolchain proof builds the emitted closed operations.",
   }),
   "compat.any.call-construct": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: calls and new expressions through opaque any are diagnosed in strict-native and in compat mode without closed target operation facts; backend AST emission for call and construction now requires finalized closed operation facts with explicit argument projection. Remains partial until real TsFunction/TsValue call/construct provider facts and runtime artifacts exist.",
+      "Reviewed proof: calls and new expressions through explicit any are diagnosed in strict-native and in compat mode without closed target operation facts; compat source semantics records closed InvokeCompat/ConstructCompat facts, backend AST emission requires finalized closed facts plus explicit argument projection, runtime tests prove closed TsFunction invocation/construction and missing-method TypeError behavior, and CLI/toolchain proof covers direct any calls, member calls through closed property-read carriers, and construction.",
   }),
   "compat.any.dynamic-get": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: any property/element reads require closed compat-runtime get facts; strict-native fails even if a fact is present, while compat mode requires the finalized operation fact before backend AST output. Backend C# AST planning now renders any element reads only from closed carrier facts with explicit key projection and fails closed when projection evidence is missing. Remains partial until TsValue/TsObject key semantics are real provider facts and runtime artifacts.",
+      "Reviewed proof: any property/element reads require closed compat-runtime get facts; strict-native fails even if a fact is present, compat mode requires finalized operation facts before backend AST output, backend C# AST planning renders property and element reads only from closed carrier facts with explicit key projections, runtime tests prove missing property undefined and closed key conversion, and CLI/toolchain proof builds generated ReadCompatSlot/ReadCompatElement calls.",
   }),
   "compat.any.dynamic-set": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: property and element writes through any are caught at the opaque any operation node and require closed compat-runtime method operation facts with explicit source-argument projection rather than backend assignment guessing. Backend C# AST planning rejects direct property-assignment operation facts and renders property/element writes only from closed carrier facts with explicit value or key/value projection. Remains partial until explicit set/delete/update provider facts and runtime artifacts exist.",
+      "Reviewed proof: property and element writes through any are caught at the explicit any operation node and require closed compat-runtime method operation facts with explicit source-argument projection rather than backend assignment guessing. Backend C# AST planning rejects direct property-assignment operation facts, renders property/element writes only from closed carrier facts with explicit value or key/value projection, runtime tests prove closed writes through TsObject/TsArray, and CLI/toolchain proof builds generated WriteCompatSlot/WriteCompatElement calls.",
   }),
   "compat.any.dynamic-call": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
-    ]),
-    oldEvidence: Object.freeze([]),
-    notes:
-      "Reviewed partial proof: calls through opaque any record no selected signature and emit deterministic missing-operation diagnostics in strict-native and compat-without-facts; compat mode emits a call only when a finalized closed carrier operation fact exists. Remains partial until TsFunction/TsValue call provider facts and runtime artifacts exist.",
-  }),
-  "compat.any.operators": Object.freeze({
-    positiveTests: Object.freeze([
-      "../tsonic-csharp/test/compat-runtime.test.mjs",
-      "../tsonic-csharp/test/source-semantics.test.mjs",
-    ]),
-    negativeTests: Object.freeze([
-      "../tsonic-csharp/test/compat-runtime.test.mjs",
-      "../tsonic-csharp/test/operator-facts.test.mjs",
-    ]),
-    oldEvidence: Object.freeze([]),
-    notes:
-      "Reviewed partial proof: operators with opaque any operands do not synthesize C# operator facts and produce deterministic diagnostics without compat operation facts. Remains partial until every JS operator policy has a closed carrier operation or hard-reject classification.",
-  }),
-  "compat.any.typed-boundary-cast": Object.freeze({
-    positiveTests: Object.freeze([
-      "../tsonic-csharp/test/assignability-boundary.test.mjs",
-    ]),
-    negativeTests: Object.freeze([
-      "../tsonic-csharp/test/assignability-boundary.test.mjs",
-      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: assignment/return/initializer boundaries between opaque any and typed target carriers produce target diagnostics unless an explicit target conversion fact exists. Remains partial until compat typed-boundary cast helpers are implemented as closed runtime facts.",
+      "Reviewed proof: calls through explicit any emit deterministic missing-operation diagnostics in strict-native and compat-without-facts; compat mode emits a call only when a finalized closed carrier operation fact exists. Direct calls and member-style calls through prior property-read carriers both lower through InvokeCompat, runtime tests prove closed TsFunction invocation and missing-method TypeError behavior, and CLI/toolchain proof builds the generated calls without source-name fallback.",
+  }),
+  "compat.any.operators": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
+      "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
+    ]),
+    notes:
+      "Reviewed proof: supported explicit-any binary, prefix, typeof, and void operators lower only through finalized closed TsValue operation facts; backend planner tests require static runtime-helper facts including ApplyCompatTypeof and ApplyCompatVoid; csharp-js runtime tests prove closed primitive/typeof/void operator semantics without reflection or dynamic dispatch; and source/CLI diagnostics hard-reject unsupported <<, &, **, +=, **=, in, instanceof, comma/sequence, and delete forms before backend fallback.",
+  }),
+  "compat.any.typed-boundary-cast": Object.freeze({
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
+      "../tsonic-csharp/test/conversions.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/assignability-boundary.test.mjs",
+      "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
+    ]),
+    notes:
+      "Reviewed proof: typed boundaries between opaque any and typed target carriers are never emitted from backend inference. Strict-native rejects any typed-boundary programs before C# artifacts, while compatibility mode records finalized target conversion facts for assertions, assignments, initializers, and returns. any-to-typed boundaries lower through closed TsValue.CastCompat<T> or TsUnion.CastCompat<T...> facts, typed-to-any boundaries lower through closed TsValue.from facts, backend conversion tests require the finalized generic method fact, runtime tests prove successful scalar/union casts and deterministic mismatch/nullish failures, and CLI/toolchain proof builds the generated conversions without reflection, dynamic dispatch, or source-name fallback.",
   }),
   "compat.object.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery; public CLI proof blocks object.foo before C# planning artifacts are emitted. Remains partial until all object surface operations are separately classified as object-shape, provider adapter, compat carrier, or hard reject.",
+      "Reviewed proof: TypeScript object is not promoted to opaque any, receives no dynamic runtime carrier, and property access remains a TSTS source diagnostic rather than target/provider recovery. Public CLI proof blocks object.foo before C# planning artifacts are emitted, JS Object operations are separately classified under selected surface/provider rows, and unsupported descriptor/prototype object operations fail closed through explicit selected-provider-package diagnostics instead of object/dynamic fallback.",
   }),
   "compat.unknown.no-dynamic-access": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/dotnet-provider.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
     ]),
     notes:
-      "Reviewed partial proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and public CLI proof shows unknown.foo remains a TSTS source diagnostic before backend emission. Old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
+      "Reviewed proof: unknown is not promoted to opaque any, receives no dynamic runtime carrier, and public CLI proof shows unknown.foo remains a TSTS source diagnostic before backend emission. Compatibility facts are rejected for non-any unknown/object carriers, and old object-literal-unknown coverage is mapped as fail-closed evidence, not as a legacy lowering pattern.",
   }),
   "runtime.dynamic.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/source-semantics.test.mjs",
+      "../tsonic-csharp/test/project-artifacts.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime-planner.test.mjs",
       "../tsonic-csharp/test/compat-runtime.test.mjs",
       "../tsonic-csharp/test/semantic-guards.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: the current runtime carrier fact for TypeScript any is opaque and non-renderable by itself; compat-runtime behavior requires separate closed operation facts and mode checks. Property get/set, call, and construct backend AST paths now consume those facts. Remains partial until concrete TsValue/TsObject/TsFunction runtime artifacts and provider-produced facts exist.",
+      "Reviewed proof: the runtime carrier fact for TypeScript any remains opaque and non-renderable by itself, compat-runtime behavior requires separate closed operation facts and mode checks, closed TsValue/TsObject/TsArray/TsUnion/TsFunction/JSArray runtime artifacts implement deterministic carrier behavior without reflection or dynamic dispatch, backend AST paths consume finalized property/element/call/construct facts, and CLI/toolchain proof builds emitted code with the runtime reference contributed only by compat mode.",
   }),
   "diagnostic.dynamic-strict-mode": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
     notes:
-      "Reviewed partial proof: strict-native dynamic any diagnostics explicitly say strict-native and continue to fire even when a compatibility fact exists. Remains partial until source spans and all dynamic operation families have current CLI/runtime tests.",
+      "Reviewed proof: strict-native dynamic any diagnostics explicitly say strict-native, continue to fire even when compatibility facts exist, and are surfaced through CLI builds before C# artifacts are emitted. Current tests cover property, element, call, construct, operator, and typed-boundary dynamic families with evidence that requires selected compat mode plus closed target facts instead of backend fallback.",
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([
@@ -7026,8 +7655,47 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed proof: generic type parameters render from TSTS AST plus finalized source/provider target facts for functions and classes, while provider constraint legality is proven by .NET provider constraint tests. Heritage-dependent generic forms remain tracked by declaration.heritage and are not counted here. Invalid reflected target constraints produce diagnostics before C# artifacts instead of backend generic inference.",
   }),
+  "declaration.class": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export class Entity { static suffix = \"score\"; constructor(label: string) { this.label = label; } get title(): string { return this.label + \"-\" + Entity.suffix; } }",
+      "export class ScoreCard extends Entity { static create(label: string, points: number): ScoreCard { return new ScoreCard(label, points); } finalScore(): number { return super.baseScore() + this.points + ScoreCard.bonus; } }",
+    ]),
+    tstsDecision:
+      "TSTS owns class declaration identity, constructor signatures, field/accessor members, static members, super calls, and heritage clauses; the C# backend consumes those checked facts without source-name rediscovery.",
+    providerFacts: Object.freeze([
+      "tstsClassDeclarationFact",
+      "constructorSignatureFact",
+      "classMemberCarrierFact",
+      "staticMemberFact",
+      "heritageTypeFact",
+    ]),
+    backendContract:
+      "C# class emission renders constructors, fields, accessors, static members, and extends clauses only from finalized declaration/member facts and rejects unsupported class syntax before artifact output.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/slice4-csharp-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/slice4-csharp-closure.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/classes/basic/Person.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
+      "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
+      "test/fixtures/property-override-virtual/",
+    ]),
+    notes:
+      "Reviewed proof: class declaration output is complete for the supported C# target class surface. Current CLI evidence includes executable source graphs where TSTS-selected class facts emit constructors, instance fields, static fields, methods, generic classes, inheritance, super constructor and method calls, static members, interface auto-properties, accessor properties, private identifiers, static blocks, and fact-backed virtual/override member dispatch through C# AST output and dotnet build/run. Slice 8 replaces the old property-override-virtual fixture: TSTS/source-analysis member dispatch facts make overriding class field declarations emit C# virtual/override properties, preserving JavaScript this.value dispatch through exact runtime stdout. Unsupported TypeScript-only runtime-shape class forms such as explicit private/public modifiers and abstract classes/members are deterministic diagnostics before artifact output. Broader object-shape, attribute, downstream, and future protected/internal semantics remain owned by their specific capability rows, not by this class declaration row.",
+  }),
   "declaration.class.constructor": Object.freeze({
     positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7038,11 +7706,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/constructor/User.ts",
     ]),
     notes:
-      "Reviewed proof: source class constructors and generic constructor arguments emit from TSTS class facts into C# constructors with dotnet-build proof. Heritage constructor chains remain tracked by declaration.class.inheritance and declaration.heritage; unsupported class declaration forms diagnose before output rather than creating fallback constructors.",
+      "Reviewed proof: source class constructors and generic constructor arguments emit from TSTS class facts into C# constructors with dotnet-build proof. Slice 8 declaration CLI runtime proof adds an executable ScoreCard constructor chain that emits public ScoreCard(string label, double points) : base(label) and runs through dotnet. Heritage constructor chains remain tracked by declaration.class.inheritance and declaration.heritage; unsupported class declaration forms diagnose before output rather than creating fallback constructors.",
   }),
   "declaration.class.fields": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7056,11 +7725,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed proof: class fields emit from TSTS declarations and finalized target-name/carrier facts for instance, static, inferred, source-primitive, private, and value-type-backed fields. Explicit TypeScript-only modifiers and missing private target-name facts fail closed before backend name inference.",
+      "Reviewed proof: class fields emit from TSTS declarations and finalized target-name/carrier facts for instance, static, inferred, source-primitive, private, and value-type-backed fields. Slice 8 declaration CLI runtime proof covers Entity.label, ScoreCard.points, and static suffix/bonus fields in a generated executable. Explicit TypeScript-only modifiers and missing private target-name facts fail closed before backend name inference.",
   }),
   "declaration.class.methods": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
       "test/cli-build/slice4-csharp-closure.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -7074,7 +7744,38 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/static-members/MathHelper.ts",
     ]),
     notes:
-      "Reviewed proof: class methods and generic class methods emit from TSTS declaration/signature facts and generated C# AST. Inherited/overridden methods remain tracked by heritage rows; TypeScript-only method modifiers and unsupported generic method operations diagnose instead of backend semantic inference.",
+      "Reviewed proof: class methods and generic class methods emit from TSTS declaration/signature facts and generated C# AST. Slice 8 declaration CLI runtime proof executes static ScoreCard.create, instance finalScore, and super.baseScore() calls from generated C#. Inherited/overridden methods remain tracked by heritage rows; TypeScript-only method modifiers and unsupported generic method operations diagnose instead of backend semantic inference.",
+  }),
+  "declaration.class.properties": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export class Entity { get title(): string { return this.label + \"-\" + Entity.suffix; } }",
+      "const receipt: Receipt = { label: card.title, points, rank: classify(points) };",
+    ]),
+    tstsDecision:
+      "TSTS owns accessor declarations and object/interface property typing; target property emission consumes finalized member carriers rather than treating property names as reflective lookup keys.",
+    providerFacts: Object.freeze([
+      "accessorMemberFact",
+      "interfacePropertyFact",
+      "generatedShapePropertyCarrierFact",
+    ]),
+    backendContract:
+      "C# property emission uses generated accessors and shape adapter properties from finalized facts, with unsupported property forms diagnosed before artifact output.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/declaration-classes.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/property-override-virtual/",
+    ]),
+    notes:
+      "Reviewed proof: declaration property emission is closed for supported C# target property forms. The declaration runtime CLI test emits Entity.title as a C# virtual property getter and ScoreCard.title as a C# override property getter from generic project-source member dispatch facts, then consumes card.title through a Receipt object-shape adapter whose generated C# properties are scanned for dynamic/reflection-free output and executed by dotnet run. Backend unit tests prove accessor modifiers and class property declarations consume finalized member dispatch facts. Slice 8 executable proof replaces the old property-override-virtual fixture by emitting overriding TypeScript class field declarations as C# virtual/override auto-properties, then running the generated project to prove base-typed this.value dispatch prints the derived value. Interface/object-shape generated properties are covered by object-shape tests; explicit field<T>() markers remain target fields under source-core field/class-field capabilities rather than this property row.",
   }),
   "declaration.class.visibility": Object.freeze({
     positiveTests: Object.freeze([
@@ -7122,10 +7823,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Reviewed proof: standard JavaScript static blocks plan to Roslyn-compatible static C# constructors with deterministic statement order and dotnet-build proof; unsupported TypeScript-only class modifier paths remain diagnostics.",
   }),
   "declaration.class.inheritance": Object.freeze({
-    positiveTests: Object.freeze([]),
+    positiveTests: Object.freeze([
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/classes-value-types.test.mjs",
+      "test/cli-build/e2e-runtime-language.test.mjs",
+    ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
-      "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/ConcreteExtends.ts",
@@ -7133,11 +7840,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
       "packages/targets/csharp/emitter/testcases/common/classes/inheritance/Inheritance.ts",
     ]),
-    blockers: Object.freeze([
-      "declaration.class.inheritance remains partial until source class heritage clauses build cleanly through the current CLI path without CSHARP_UNSUPPORTED_AST diagnostics and the old inheritance fixtures are proven by focused current tests.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: class heritage is represented in the ledger and old inventory, but current focused validation still exposes unsupported heritage diagnostics in the CLI path. This row stays partial until the provider/backend path emits heritage from finalized facts end to end.",
+      "Reviewed proof: class heritage clauses emit from TSTS declaration/heritage facts through generated C# AST, including non-generic, generic, and multi-level inheritance, super constructor calls, super method calls, and source class type-argument substitution. TypeScript-only abstract/visibility modifiers remain deterministic diagnostics under their own rows and do not create fallback inheritance emission.",
   }),
   "declaration.heritage": Object.freeze({
     positiveTests: Object.freeze([]),
@@ -7173,6 +7878,46 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: interfaces render from TSTS declaration/type facts into C# interface declarations, and object-shape adapters consume finalized interface facts. Generic/heritage interface forms remain tracked by declaration.heritage; missing object-shape/provider facts fail closed rather than treating interface property names as target members.",
+  }),
+  "declaration.enum": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export enum Rank { Silver = 2, Gold = 3 }",
+      "const rank = receipt.rank === Rank.Gold ? \"gold\" : \"silver\";",
+    ]),
+    tstsDecision:
+      "TSTS owns enum declaration identity, enum member constants, enum-typed properties, and enum equality checks; backend emission consumes those facts without synthesizing runtime enum objects.",
+    providerFacts: Object.freeze([
+      "enumDeclarationFact",
+      "enumMemberConstantFact",
+      "enumValueCarrierFact",
+    ]),
+    backendContract:
+      "C# enum declarations and enum member references emit only when TSTS evaluated integer enum constants; unsupported enum initializers diagnose before project artifact creation.",
+    positiveTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old fixture and old C# emitter inventories contain no source enum declaration fixture",
+        "old product unit enum references are implementation traversal helpers, not source enum behavior tests",
+      ]),
+      reviewerNotes:
+        "No historical old-suite source enum behavior entry exists to map bidirectionally. Current CLI/toolchain tests are the source of proof for this capability.",
+    }),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: modules-declarations verifies numeric enum declaration/member emission, computed integer member expressions such as Right = Left << 1, and executable C# runtime behavior through dotnet run printing right. Cross-module Rank enum flow is covered by whole-program generated-shape proof. String and fractional enum initializers fail closed with CSHARP_UNSUPPORTED_AST before artifact creation because no finalized target enum-carrier facts exist. Const enums fail closed through the generic TypeScript-only runtime-shape modifier diagnostic. The reviewed old inventory absence record documents that no historical source enum behavior entry exists to map.",
   }),
   "statement.block-scope": Object.freeze({
     positiveTests: Object.freeze([
@@ -7352,6 +8097,59 @@ const reviewedCapabilityEvidence = Object.freeze({
     notes:
       "Reviewed partial proof: stale old frontend lowering and validator units are mapped as fail-closed evidence, not as a legacy frontend path. Current C# backend tests reject semantic-only primitive/utility/callable type shapes, missing selected target call facts, bare instance target operations without value receivers, and non-static conversion-method facts. The final architecture requires missing facts to block emission with diagnostics instead of recovering through backend semantic inference.",
   }),
+  "backend.diagnostics": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export const result = 1 + 2;",
+      "backend requires selected-target-operation at the binary expression before emission",
+    ]),
+    tstsDecision:
+      "TSTS accepts the source expression, but a backend diagnostic is required when finalized target facts needed for emission are absent.",
+    providerFacts: Object.freeze([
+      "missingTargetFactEvidence",
+      "backendDiagnosticSourceSpan",
+      "backendDiagnosticEvidence",
+    ]),
+    backendContract:
+      "Backend diagnostics must carry missing fact/capability evidence, preserve source spans when the backend has a source node, and suppress artifacts/toolchain handoff.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/roslyn-boundary.test.mjs",
+      "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old product unit inventory contains frontend diagnostic/result unit tests, but no current-architecture backend diagnostic fact-gate contract",
+        "old C# emitter inventory contains unsupported-output cases mapped to specific diagnostic rows, not a broad backend.diagnostics capability",
+        "old fixture inventory contains user-facing negative fixtures, but no backend-owned TargetDiagnostic evidence/source-span suppression contract",
+      ]),
+      reviewerNotes:
+        "The broad backend.diagnostics contract is new to the finalized C# backend architecture. Historical diagnostic tests map to diagnostic.evidence, diagnostic.source-spans, diagnostic.missing-target-fact, diagnostic.unsupported-target-operation, native.dotnet.unsupported-diagnostics, or capability-specific fail-closed rows rather than this backend-owned aggregate.",
+    }),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: every complete C# backend child row now routes missing and malformed fact failures through structured TargetDiagnostic values instead of fallback emission. Unsupported backend diagnostics derive sourceSpan from real TSTS/source nodes when available, preserve capability/fact evidence, suppress backend artifacts and toolchain handoff, and are rendered by host/CLI without parsing diagnostic text. Current tests cover missing carrier facts, missing selected call/operator/property/element/iteration/spread/destructuring facts, malformed object-shape declarations, invalid printer nodes, unsupported whole-program declaration shapes, diagnostic-only backend failures that clean stale outputs, and no artifact emission when backend errors exist.",
+  }),
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/roslyn-boundary.test.mjs",
@@ -7369,6 +8167,42 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed partial proof: C# boundary tests prove no raw semantic output node kinds and printer tests fail closed for foreign raw syntax. The broad backend capability stays partial so the complete C# child does not imply every backend/project artifact path has finished no-semantic-string proof.",
+  }),
+  "backend.generated-declarations": Object.freeze({
+    sourceExamples: Object.freeze([
+      "export interface Receipt { label: string; points: number; rank: Rank; }",
+      "return { label: card.title, points, rank: classify(points) };",
+    ]),
+    tstsDecision:
+      "TSTS/provider object-shape facts identify when a source object literal requires a generated declaration carrier; backend output consumes that finalized shape instead of fabricating dynamic/object carriers.",
+    providerFacts: Object.freeze([
+      "generatedStructuralDeclarationFact",
+      "objectShapeMemberCarrierFact",
+      "deterministicGeneratedTypeIdentityFact",
+    ]),
+    backendContract:
+      "Generated declarations must have deterministic target names and closed properties/methods from finalized shape facts, with unsupported shape members diagnosed before emission.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/modules-declarations.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+      "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/target-config.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nested-object-rest-destructuring/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: generated object-shape declarations are emitted only from finalized object-shape facts, use deterministic target names, and preserve closed member carriers for structural literals, interface adapters, generic interface adapters, nested shapes, object-shape methods, object-shape for-in keys, object rest/spread, nested rest/spread, readonly utility-type projections, shared multi-file shape identities, and object-shape union arms. Negative proof rejects unknown/object leaks, contextual provider objects without object-shape facts, computed/accessor/generic method members without delegate facts, stale spread members, dictionary spreads without dictionary-copy facts, and missing spread/rest facts before C# artifacts. CLI/toolchain proof builds or runs the generated declarations, and focused C# backend tests prove declaration registry de-duplication, incompatible-shape diagnostics, interface implementation facts, object-shape method storage identity, and exact source spans for missing spread facts without dynamic/reflection/string-fallback emission.",
   }),
   "backend.csharp.no-direct-semantic-string-output": Object.freeze({
     positiveTests: Object.freeze([
@@ -7445,9 +8279,11 @@ const reviewedCapabilityEvidence = Object.freeze({
   "backend.csharp.project-sdk-emit": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/project-artifacts.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/project-artifacts.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
@@ -7525,11 +8361,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-test-command/",
     ]),
-    blockers: Object.freeze([
-      "toolchain.csharp.nativeaot remains partial until NativeAOT project settings are built/published through target toolchain tests and runtime compatibility is proven.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: NativeAOT is an explicit C# target project property, not generic compiler architecture; invalid PublishAot option shapes are rejected and source-to-source artifact reporting remains deterministic.",
+      "Reviewed proof: NativeAOT is an explicit C# target project property, not generic compiler architecture. C# project-artifact tests prove PublishAot is emitted only from the target-owned publishAot option and rejects invalid/legacy custom property shapes. CLI toolchain proof builds a provider-backed executable, verifies <PublishAot>true</PublishAot>, publishes it with the current .NET runtime identifier through dotnet publish, runs the produced native executable, and scans generated output for banned dynamic/reflection mechanisms.",
   }),
   "diagnostic.missing-target-fact": Object.freeze({
     sourceExamples: Object.freeze([
@@ -7765,9 +8599,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.unsupported-surface": Object.freeze({
     sourceExamples: Object.freeze([
-      "targets: [{ id: \"csharp\", surfaces: [\"nodejs\"] }]",
-      "import path from \"node:path\";",
-      "targets: [{ id: \"csharp\", surfaces: [\"nodejs-without-js-dependency\"] }]",
+      "targets: [{ id: \"demo\", surfaces: [\"unknown-surface\"] }]",
+      "targets: [{ id: \"demo\", surfaces: [\"stale-surface\"] }]",
+      "targets: [{ id: \"demo\", surfaces: [\"surface-without-required-dependency\"] }]",
     ]),
     tstsDecision:
       "TSTS source acceptance does not select target surfaces; the host and surface provider own selected-surface validation.",
@@ -7796,7 +8630,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "diagnostic.unsupported-surface remains partial until every first-party surface selection, dependency, target compatibility, stale ownership, and unselected module path is covered with current diagnostics and source spans.",
     ]),
     notes:
-      "Reviewed partial proof: host composition rejects stale/unowned selected surfaces, unknown surfaces, missing surface dependencies, and unselected Node-owned imports before backend artifacts. Operation-level selected-surface rejection is tracked separately by diagnostic.unsupported-selected-surface-operation.",
+      "Reviewed partial proof: host composition rejects stale/unowned selected surfaces, unknown surfaces, and missing surface dependencies before backend artifacts. Unselected provider-package module ownership is tracked by provider-package/module rows; operation-level selected-surface rejection is tracked separately by diagnostic.unsupported-selected-surface-operation.",
   }),
   "diagnostic.unsupported-selected-surface-operation": Object.freeze({
     sourceExamples: Object.freeze([
@@ -7816,11 +8650,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/nodejs-surface.test.mjs",
@@ -7828,9 +8664,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-disallowed-js-builtins/",
     ]),
-    blockers: Object.freeze([
-      "diagnostic.unsupported-selected-surface-operation remains partial until every selected JS/Node surface member without implementation has exact source spans and no-placeholder/runtime-fallback proof across the full surface matrix.",
-    ]),
+    blockers: Object.freeze([]),
     laneClassification: freezeLaneClassification({
       patternKind: "fail-closed-unsupported-selected-surface-operation",
       possibleLanes: Object.freeze(["static-native", "hard-reject"]),
@@ -7860,7 +8694,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed partial proof: C# JS and NodeJS surface tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_SURFACE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Current CLI evidence hard-rejects selected JS String.match/String.raw/String.matchAll and JSON.stringify carrier gaps plus Node node:util/node:url/node:fs unsupported selected operations without project artifacts or reflection/dynamic fallback. Completion still requires the same fail-closed lane and source-span proof for every unsupported selected JS and Node surface member.",
+      "Reviewed proof: all current first-party JS and Node surface/provider-package rows are complete, and unsupported selected operations fail closed through the owning surface/provider diagnostic path rather than backend lookup. C# JS and NodeJS provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Selected JS and Node unsupported-operation diagnostics carry checked operation nodes through ExtensionDiagnostic.nodeOrSpan, so CLI rendering uses exact source spans instead of parsing evidence text. CLI evidence hard-rejects selected JS Object descriptor/prototype operations, String.match/String.raw/String.matchAll, JSON.stringify carrier gaps, and selected unsupported Node provider-package operations before artifacts, with no placeholder calls, runtime fallback, source-name recovery, dynamic dispatch, or reflection.",
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
@@ -7909,18 +8743,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   "diagnostic.strict-mode-slow-op": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/compat-runtime.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
     ]),
-    blockers: Object.freeze([
-      "diagnostic.strict-mode-slow-op remains partial until all strict-native slow/compat operations have precise source spans and runtime/toolchain diagnostics.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: strict-native diagnostics now cover dynamic any and syntax-level compat-runtime rejections with evidence that names the closed-runtime-carrier requirement and bans QuickJS, reflection dispatch, C# dynamic, and source-name guessing.",
+      "Reviewed proof: strict-native diagnostics cover dynamic any property/element/call/construct/operator and typed-boundary operations before C# artifacts, while compat mode only emits closed TsValue/TsObject/TsArray/TsFunction operation facts. CLI proof rejects strict-native dynamic programs and unsupported dynamic operators before project output, and compat CLI/runtime proof builds only closed runtime-carrier calls without QuickJS, reflection dispatch, C# dynamic, source-name guessing, or fallback artifact emission.",
   }),
   "diagnostic.ts-invalid-not-rescued": Object.freeze({
     positiveTests: Object.freeze([
@@ -7938,6 +8772,48 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     notes:
       "Reviewed proof: invalid TypeScript remains invalid even when extensions/providers are present through the public @tsonic/tsts package root; source-core invalid arity stays a TSTS diagnostic instead of being rescued by extension facts, and CLI TSTS diagnostics stop target artifact creation.",
+  }),
+  "diagnostic.source-spans": Object.freeze({
+    sourceExamples: Object.freeze([
+      "return defaultof();",
+      "backend diagnostic at src/index.ts:1:14 for missing selected-target-operation",
+    ]),
+    tstsDecision:
+      "TSTS and extensions own source nodes/spans; host diagnostics must preserve those positions rather than reconstructing them from diagnostic text.",
+    providerFacts: Object.freeze([
+      "extensionDiagnosticNodeOrSpan",
+      "targetDiagnosticSourceSpan",
+      "backendDiagnosticSourceSpan",
+    ]),
+    backendContract:
+      "Diagnostics render source spans only when a TSTS extension or backend supplies a concrete source node/span; missing spans remain absent rather than guessed from message text.",
+    positiveTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
+      "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
+      "test/cli-build/source-semantics.test.mjs",
+      "test/cli/surface-composition.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "packages/frontend/src/types/diagnostic.test.ts",
+      "packages/frontend/src/types/result.test.ts",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: every complete diagnostic family now has current source-span evidence where a concrete source node/span exists. TSTS source diagnostics are preserved as individual TargetDiagnostics with structured sourceSpan and TS code evidence instead of a spanless aggregate; source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan; selected JS and Node unsupported-operation diagnostics print exact index.ts line/column output from checked operation nodes; .NET provider, constraint, and unsupported-target diagnostics preserve provider/source evidence; backend missing-carrier diagnostics preserve structured sourceSpan from offending source nodes; generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings; array/object spread fail-closed diagnostics assert exact spread-node spans. Diagnostics without a real source node remain spanless by contract rather than guessing from message text.",
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
@@ -7957,6 +8833,109 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: Object.freeze([]),
     notes:
       "Reviewed proof: target/provider/backend diagnostics preserve capability and fact evidence through host aggregation and CLI formatting. Current tests prove backend missing-fact evidence suppresses artifacts/toolchain, carrier-resolution diagnostics preserve missing(reason,evidence), and .NET provider contract diagnostics report exact malformed model evidence paths. Precise source-span rendering remains separately tracked by diagnostic.source-spans.",
+  }),
+  "downstream.smoke.simple-apps": Object.freeze({
+    sourceExamples: Object.freeze([
+      "Console.writeLine(greeting(\"Ada\"));",
+      "console.log(Math.trunc(Math.abs(-7.8)));",
+      "external SDK project references generated SmokeGeneratedDownstreamLibrary.csproj",
+      "import path from \"node:path\";",
+    ]),
+    tstsDecision:
+      "Representative downstream-style projects are ordinary TSTS source programs; they do not redefine language semantics or bypass provider/surface fact requirements.",
+    providerFacts: Object.freeze([
+      "providerConsoleCallFact",
+      "selectedJsSurfaceFact",
+      "selectedNodeProviderPackageFact",
+      "targetToolchainExecutableFact",
+      "targetToolchainLibraryReferenceFact",
+    ]),
+    backendContract:
+      "The CLI emits target source projects from finalized facts, then the target toolchain builds/runs generated executables and generated libraries consumed by external SDK projects without fallback reflection/dynamic paths.",
+    positiveTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "test/cli-build/e2e-runtime.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/hello-world/",
+      "test/fixtures/namespace-imports/",
+      "test/fixtures/file-io/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: downstream smoke builds and runs provider-backed Console, JS-surface, and Node provider-package executables through current CLI output, then builds a generated C# library and consumes it from a separate SDK project through ProjectReference. Negative proof rejects an unselected Node provider-package import before C# artifacts. Generated output and selected runtime packages are scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
+  }),
+  "downstream.nodejs-source": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { existsSync, statSync } from \"node:fs\";",
+      "import * as nodeProcess from \"node:process\";",
+      "import { Buffer } from \"node:buffer\";",
+    ]),
+    tstsDecision:
+      "Existing Node-style source remains ordinary checked TypeScript; selected provider-package modules own the virtual declarations for node:* imports, and unselected packages remain TSTS/module diagnostics rather than compiler fallbacks.",
+    providerFacts: Object.freeze([
+      "selectedProviderPackage",
+      "providerVirtualDeclarationFact",
+      "selectedTargetSignatureFact",
+      "selectedRuntimeArtifactFact",
+    ]),
+    backendContract:
+      "Generated C# for Node-style source must consume selected NodeJS provider-package facts and runtime artifacts, then fail closed when the package is unselected or a selected operation is unsupported.",
+    positiveTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/nodejs-surface.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nodejs-path-posix-join/",
+      "test/fixtures/nodejs-surface-alias-coverage/",
+      "test/fixtures/nodejs-surface-imports-negative/",
+      "test/fixtures/nodejs-surface-module-graph/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: nodejs-surface builds and runs existing Node-style source with selected js surface plus nodejs provider package, including node:fs, node:path, node:process namespace imports, node:os namespace imports, node:buffer, and node:crypto through selected provider declarations, generated C# runtime project references, dotnet build, dotnet run, and exact stdout. Adjacent negatives prove node:* imports fail when the NodeJS provider package is unselected. The recovered historical alias-coverage fixture is represented by deterministic provider-package diagnostics for unsupported child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations, with no C# artifacts or reflection/dynamic fallback.",
+  }),
+  "downstream.no-old-runtime-reflection": Object.freeze({
+    sourceExamples: Object.freeze([
+      "generated out/csharp/src/Index.cs from provider Console app",
+      "generated out/csharp/src/Index.cs from selected JS-surface app",
+      "generated out/csharp/src/Index.cs from selected Node provider-package app",
+      "runtime source packages csharp-runtime, csharp-js, and csharp-nodejs",
+    ]),
+    tstsDecision:
+      "Downstream smoke source reaches runtime behavior only through selected providers/surfaces and generated target source, not through old frontend/runtime reflection carriers.",
+    providerFacts: Object.freeze([
+      "selectedProviderRuntimeReference",
+      "selectedSurfaceRuntimeReference",
+      "selectedProviderPackageRuntimeReference",
+      "closedGeneratedOutputScan",
+      "closedRuntimePackageScan",
+    ]),
+    backendContract:
+      "Generated downstream smoke output and selected runtime package source must not contain C# dynamic or runtime reflection mechanisms.",
+    positiveTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "test/cli-build/whole-program-csharp-closure.test.mjs",
+      "test/cli-build/runtime-toolchain-proof.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/hello-world/",
+      "test/fixtures/namespace-imports/",
+      "test/fixtures/file-io/",
+      "test/fixtures/json-native-inline-stringify/",
+      "test/fixtures/json-native-typed-stringify/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: the downstream smoke gate scans generated C# for provider, JS, Node provider-package, and generated-library consumer scenarios before dotnet run or external SDK project consumption; the same gate scans csharp-runtime, csharp-js, and csharp-nodejs source for banned dynamic/reflection mechanisms. Whole-program and runtime-toolchain proof provide additional generated-output and runtime-package coverage.",
   }),
   "target.csharp.source-flow-marker-contract": Object.freeze({
     positiveTests: Object.freeze([
@@ -8718,6 +9697,15 @@ function freezeSurfaceEvidence(surfaceEvidence) {
   ));
 }
 
+function freezeOldEvidenceAbsence(absence) {
+  return Object.freeze({
+    status: absence.status,
+    reviewedInventories: Object.freeze([...(absence.reviewedInventories ?? [])]),
+    searchEvidence: Object.freeze([...(absence.searchEvidence ?? [])]),
+    reviewerNotes: absence.reviewerNotes,
+  });
+}
+
 function capability([capabilityId, title, status, owner]) {
   const defaults = capabilityDefaults(capabilityId, owner);
   const reviewedEvidence = reviewedCapabilityEvidence[capabilityId];
@@ -8738,6 +9726,9 @@ function capability([capabilityId, title, status, owner]) {
     positiveTests: Object.freeze(reviewedEvidence?.positiveTests ?? []),
     negativeTests: Object.freeze(reviewedEvidence?.negativeTests ?? []),
     oldEvidence: Object.freeze(reviewedEvidence?.oldEvidence ?? []),
+    ...(reviewedEvidence?.oldEvidenceAbsence === undefined ? {} : {
+      oldEvidenceAbsence: freezeOldEvidenceAbsence(reviewedEvidence.oldEvidenceAbsence),
+    }),
     laneClassification,
     ...(reviewedEvidence?.coreIntrinsic === undefined ? {} : {
       coreIntrinsic: freezeCoreIntrinsicContract(reviewedEvidence.coreIntrinsic),
@@ -8898,6 +9889,7 @@ export function validateCapabilityLedgerEntry(entry) {
   validateStringArrayField(errors, entry, "positiveTests");
   validateStringArrayField(errors, entry, "negativeTests");
   validateStringArrayField(errors, entry, "oldEvidence");
+  validateOldEvidenceAbsence(errors, entry);
   validateEvidenceArrays(errors, entry);
   validateCompleteCapabilityProof(errors, entry);
   validateSurfaceEvidence(errors, entry);
@@ -8908,6 +9900,30 @@ export function validateCapabilityLedgerEntry(entry) {
   errors.push(...validateCapabilityLaneClassification(entry));
   validateMapSetLaneClassification(errors, entry);
   return errors;
+}
+
+function validateOldEvidenceAbsence(errors, entry) {
+  if (entry.oldEvidenceAbsence === undefined) {
+    return;
+  }
+
+  if (Array.isArray(entry.oldEvidence) && entry.oldEvidence.length > 0) {
+    errors.push("oldEvidenceAbsence is only valid when oldEvidence is empty");
+  }
+  if (entry.status !== "complete") {
+    errors.push("oldEvidenceAbsence is only valid for complete capabilities");
+  }
+
+  const absence = entry.oldEvidenceAbsence;
+  if (!isPlainObject(absence)) {
+    errors.push("oldEvidenceAbsence must be an object");
+    return;
+  }
+
+  validateEnumField(errors, absence, "status", capabilityOldEvidenceAbsenceStatusSet, capabilityOldEvidenceAbsenceStatuses, "oldEvidenceAbsence.status");
+  validateStringArrayField(errors, absence, "reviewedInventories", { nonEmpty: true, path: "oldEvidenceAbsence.reviewedInventories" });
+  validateStringArrayField(errors, absence, "searchEvidence", { nonEmpty: true, path: "oldEvidenceAbsence.searchEvidence" });
+  validateNestedStringField(errors, absence, "oldEvidenceAbsence.reviewerNotes");
 }
 
 function validateSurfaceEvidence(errors, entry) {
@@ -9032,8 +10048,19 @@ function validateCompleteCapabilityProof(errors, entry) {
   if (entry.evidenceReview !== "reviewed") {
     errors.push("complete capabilities must have reviewed evidence");
   }
-  if (!Array.isArray(entry.oldEvidence) || entry.oldEvidence.length === 0) {
-    errors.push("complete capabilities must have oldEvidence");
+  const hasOldEvidence = Array.isArray(entry.oldEvidence) && entry.oldEvidence.length > 0;
+  const hasReviewedOldEvidenceAbsence =
+    entry.oldEvidenceAbsence !== undefined &&
+    isPlainObject(entry.oldEvidenceAbsence) &&
+    entry.oldEvidenceAbsence.status === "reviewed-none-found" &&
+    Array.isArray(entry.oldEvidenceAbsence.reviewedInventories) &&
+    entry.oldEvidenceAbsence.reviewedInventories.length > 0 &&
+    Array.isArray(entry.oldEvidenceAbsence.searchEvidence) &&
+    entry.oldEvidenceAbsence.searchEvidence.length > 0 &&
+    typeof entry.oldEvidenceAbsence.reviewerNotes === "string" &&
+    entry.oldEvidenceAbsence.reviewerNotes.length > 0;
+  if (!hasOldEvidence && !hasReviewedOldEvidenceAbsence) {
+    errors.push("complete capabilities must have oldEvidence or reviewed oldEvidenceAbsence");
   }
 }
 
@@ -9224,9 +10251,9 @@ function validateRequiredFacts(errors, behavior, path) {
   }
 }
 
-function validateStringField(errors, entry, field) {
+function validateStringField(errors, entry, field, path = field) {
   if (typeof entry[field] !== "string" || entry[field].length === 0) {
-    errors.push(`${field} must be a non-empty string`);
+    errors.push(`${path} must be a non-empty string`);
   }
 }
 
@@ -9237,23 +10264,24 @@ function validateNestedStringField(errors, entry, path) {
   }
 }
 
-function validateEnumField(errors, entry, field, values, valueList) {
+function validateEnumField(errors, entry, field, values, valueList, path = field) {
   if (!values.has(entry[field])) {
-    errors.push(`${field} must be one of ${valueList.join(", ")}`);
+    errors.push(`${path} must be one of ${valueList.join(", ")}`);
   }
 }
 
 function validateStringArrayField(errors, entry, field, options = {}) {
+  const path = options.path ?? field;
   if (!Array.isArray(entry[field])) {
-    errors.push(`${field} must be an array`);
+    errors.push(`${path} must be an array`);
     return;
   }
   if (options.nonEmpty === true && entry[field].length === 0) {
-    errors.push(`${field} must be a non-empty array`);
+    errors.push(`${path} must be a non-empty array`);
   }
   for (const value of entry[field]) {
     if (typeof value !== "string" || value.length === 0) {
-      errors.push(`${field} must contain only non-empty strings`);
+      errors.push(`${path} must contain only non-empty strings`);
       return;
     }
   }

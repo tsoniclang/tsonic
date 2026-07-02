@@ -116,6 +116,7 @@ test("capability coverage report lists complete capabilities with proof holes", 
     assert.deepEqual(completeEntry.positiveTests, [...ledgerEntry.positiveTests], completeEntry.capabilityId);
     assert.deepEqual(completeEntry.negativeTests, [...ledgerEntry.negativeTests], completeEntry.capabilityId);
     assert.deepEqual(completeEntry.oldEvidence, [...ledgerEntry.oldEvidence], completeEntry.capabilityId);
+    assert.deepEqual(completeEntry.oldEvidenceAbsence, ledgerEntry.oldEvidenceAbsence, completeEntry.capabilityId);
     assert.deepEqual(completeEntry.proofHoles, expectedProofHoles(completeEntry), completeEntry.capabilityId);
     assert.equal(completeEntry.proofStatus, completeEntry.proofHoles.length === 0 ? "proven" : "hole");
   }
@@ -152,6 +153,33 @@ test("capability coverage report flags complete proof holes for missing reviewed
     "missing-reviewed-evidence",
     "missing-old-evidence",
   ]);
+});
+
+test("capability coverage report accepts reviewed absence of old evidence", () => {
+  const report = buildCapabilityCoverageReport({
+    ledgerEntries: [
+      capabilityEntry({
+        capabilityId: "host.project.target-selection",
+        status: "complete",
+        evidenceReview: "reviewed",
+        positiveTests: ["test/current-positive.test.mjs"],
+        negativeTests: ["test/current-negative.test.mjs"],
+        oldEvidence: [],
+        oldEvidenceAbsence: {
+          status: "reviewed-none-found",
+          reviewedInventories: ["old fixture inventory", "old C# emitter inventory"],
+          searchEvidence: ["reviewed historical inventories contain no matching behavior entry"],
+          reviewerNotes: "Current proof is authoritative because no old-suite evidence exists for this capability.",
+        },
+      }),
+    ],
+    oldEvidenceSourceGroups: [],
+    oldInventoryEntries: [],
+  });
+
+  assert.deepEqual(report.completeCapabilities[0].proofHoles, []);
+  assert.equal(report.completeCapabilities[0].proofStatus, "proven");
+  assert.deepEqual(report.completeCapabilityProofHoles, []);
 });
 
 test("capability coverage report validates complete proof is current", () => {
@@ -298,8 +326,9 @@ test("capability coverage report proves old inventory coverage by inventory", ()
 
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-fixture"), oldSuitePortInventory, {
     total: 198,
-    ported: 46,
-    deferred: 149,
+    ported: 57,
+    deferred: 137,
+    "replaced-by-stronger-test": 1,
     "invalid-stale-architecture": 3,
   });
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-csharp-emitter"), oldEmitterPortInventory, {
@@ -311,8 +340,8 @@ test("capability coverage report proves old inventory coverage by inventory", ()
   });
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-product-unit"), oldProductUnitPortInventory, {
     total: 109,
-    ported: 4,
-    deferred: 79,
+    ported: 5,
+    deferred: 78,
     "invalid-stale-architecture": 26,
   });
 });
@@ -634,7 +663,7 @@ function expectedProofHoles(completeEntry) {
   if (completeEntry.evidenceReview !== "reviewed") {
     holes.push("missing-reviewed-evidence");
   }
-  if (completeEntry.oldEvidence.length === 0) {
+  if (completeEntry.oldEvidence.length === 0 && !hasReviewedOldEvidenceAbsence(completeEntry.oldEvidenceAbsence)) {
     holes.push("missing-old-evidence");
   }
   if (completeEntry.oldPositiveEvidence.length > 0) {
@@ -644,6 +673,21 @@ function expectedProofHoles(completeEntry) {
     holes.push("negative-proof-uses-old-evidence");
   }
   return holes;
+}
+
+function hasReviewedOldEvidenceAbsence(oldEvidenceAbsence) {
+  return (
+    oldEvidenceAbsence !== undefined &&
+    typeof oldEvidenceAbsence === "object" &&
+    oldEvidenceAbsence !== null &&
+    oldEvidenceAbsence.status === "reviewed-none-found" &&
+    Array.isArray(oldEvidenceAbsence.reviewedInventories) &&
+    oldEvidenceAbsence.reviewedInventories.length > 0 &&
+    Array.isArray(oldEvidenceAbsence.searchEvidence) &&
+    oldEvidenceAbsence.searchEvidence.length > 0 &&
+    typeof oldEvidenceAbsence.reviewerNotes === "string" &&
+    oldEvidenceAbsence.reviewerNotes.length > 0
+  );
 }
 
 function assertOldInventoryCoverage(reportEntry, inventoryEntries, expectedStatusCounts) {
@@ -679,6 +723,7 @@ function capabilityEntry({
   positiveTests = [],
   negativeTests = [],
   oldEvidence = [],
+  oldEvidenceAbsence,
   includeLaneClassification = true,
   surfaceEvidence,
 }) {
@@ -695,6 +740,7 @@ function capabilityEntry({
     positiveTests,
     negativeTests,
     oldEvidence,
+    ...(oldEvidenceAbsence === undefined ? {} : { oldEvidenceAbsence }),
     ...(surfaceEvidence === undefined ? {} : { surfaceEvidence }),
     blockers,
     notes: "Test entry",

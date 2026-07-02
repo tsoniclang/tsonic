@@ -26,6 +26,7 @@ import type {
 export interface TargetProviderContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
+  readonly targetPack: TargetPack;
   readonly selectedPackages: readonly TargetProviderPackageImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
@@ -41,6 +42,7 @@ export interface TargetProviderPackageContext {
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly package: TargetProviderPackageImplementation;
 }
 
@@ -122,7 +124,7 @@ export interface TargetProjectSourceModuleDependency {
   readonly kind: "import" | "export";
 }
 
-export interface TargetProjectSourceMethodDispatch {
+export interface TargetProjectSourceMemberDispatch {
   readonly overridesBase: boolean;
   readonly hasDerivedOverride: boolean;
 }
@@ -147,7 +149,7 @@ export interface TargetSourceAnalysisQueries {
   getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Node | undefined;
   getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceReference | undefined;
   getProjectSourceModuleDependencies(sourceFile: SourceFile): readonly TargetProjectSourceModuleDependency[];
-  getProjectSourceMethodDispatch(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceMethodDispatch | undefined;
+  getProjectSourceMemberDispatch(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceMemberDispatch | undefined;
   describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): string | undefined;
 }
 
@@ -207,6 +209,7 @@ export interface TargetProviderPackageImplementation {
   readonly id: TargetProviderPackageId;
   readonly displayName: string;
   readonly requiredPackages?: readonly TargetProviderPackageId[];
+  readonly requiredSurfaces?: readonly TargetSurfaceId[];
   readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
   createExtensions(context: TargetProviderPackageContext): readonly CompilerExtension[];
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;

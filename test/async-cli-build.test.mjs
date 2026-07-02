@@ -1,4 +1,4 @@
-import { assert, cliPath, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./cli-build/harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./cli-build/harness.mjs";
 
 test("CLI emits and executes async functions from TSTS Promise carriers", async () => {
   const assemblyName = "SmokeGeneratedAsyncFunctions";
@@ -53,6 +53,126 @@ test("CLI emits and executes async functions from TSTS Promise carriers", async 
     "",
   ]);
   assert.equal(stdout, "ready\n");
+});
+
+test("CLI emits and executes Promise<void> as non-generic Task await statements", async () => {
+  const assemblyName = "SmokeGeneratedAsyncVoidTasks";
+  const projectDirectory = resolve(tempRoot, "async-void-tasks");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export async function tick(): Promise<void> {",
+      "  return;",
+      "}",
+      "",
+      "export async function run(): Promise<string> {",
+      "  await tick();",
+      "  return \"done\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task tick\(\)/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> run\(\)/);
+  assert.match(generatedSource, /await tick\(\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.run());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "done\n");
+});
+
+test("CLI emits Promise parameters as C# Task interop carriers", async () => {
+  const assemblyName = "SmokeGeneratedAsyncTaskInterop";
+  const projectDirectory = resolve(tempRoot, "async-task-interop");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export async function identity(value: Promise<int32>): Promise<int32> {",
+      "  return await value;",
+      "}",
+      "",
+      "export async function after(done: Promise<void>): Promise<string> {",
+      "  await done;",
+      "  return \"after\";",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<int> identity\(System\.Threading\.Tasks\.Task<int> value\)/);
+  assert.match(generatedSource, /return await value;/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> after\(System\.Threading\.Tasks\.Task done\)/);
+  assert.match(generatedSource, /await done;/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.identity(Task.FromResult(42)));",
+    "        Console.WriteLine(await Smoke.Generated.Index.after(Task.CompletedTask));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, [
+    "42",
+    "after",
+    "",
+  ].join("\n"));
 });
 
 test("CLI emits and executes async higher-order function carriers", async () => {
@@ -133,6 +253,302 @@ test("CLI emits and executes async higher-order function carriers", async () => 
     "value:9",
     "",
   ].join("\n"));
+});
+
+test("CLI emits and executes async structural object returns from finalized Promise carriers", async () => {
+  const assemblyName = "SmokeGeneratedAsyncObjectReturns";
+  const projectDirectory = resolve(tempRoot, "async-object-returns");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "type AsyncBox = { value: int32; label: string };",
+      "",
+      "export async function make(value: int32): Promise<AsyncBox> {",
+      "  return { value, label: `box:${value}` };",
+      "}",
+      "",
+      "export async function read(): Promise<string> {",
+      "  const box = await make(7);",
+      "  return `${box.label}:${box.value}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<__TsonicShape_[A-Za-z0-9_]+> make\(int value\)/);
+  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ box = await make\(7\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.read());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "box:7:7\n");
+});
+
+test("CLI emits and executes async functions using selected JS Map carrier facts", async () => {
+  const assemblyName = "SmokeGeneratedAsyncMapOps";
+  const projectDirectory = resolve(tempRoot, "async-map-ops");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export async function total(): Promise<int32> {",
+      "  const values = new Map<string, int32>();",
+      "  values.set(\"a\", 1);",
+      "  values.set(\"b\", 2);",
+      "  return (values.get(\"a\") ?? 0) + (values.get(\"b\") ?? 0);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<int> total\(\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map<string, int> values = new Tsonic\.CSharp\.Js\.Map<string, int>\(\);/);
+  assert.match(generatedSource, /values\.set\("a", 1\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map\.getValue\(values, "a"\)/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.total());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "3\n");
+});
+
+test("CLI rejects async lambdas without delegate facts before backend fallback", async () => {
+  const assemblyName = "SmokeGeneratedAsyncLambdaRejected";
+  const projectDirectory = resolve(tempRoot, "async-lambda-missing-delegate");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function bare(): void {",
+      "  (async () => 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /Lambda emission requires a contextual function\/delegate type/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects Promise constructors without finalized Task carrier facts before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedPromiseConstructorRejected";
+  const projectDirectory = resolve(tempRoot, "promise-constructor-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function create(): Promise<number> {",
+      "  return new Promise<number>((resolve) => resolve(1));",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call '<anonymous>'/);
+  assert.match(build.stderr, /operation":"construct"/);
+  assert.match(build.stderr, /bundled:\/\/\/libs\/lib\.es2015\.promise\.d\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects Promise.resolve without finalized Task carrier facts before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedPromiseResolveRejected";
+  const projectDirectory = resolve(tempRoot, "promise-resolve-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function done(): Promise<void> {",
+      "  return Promise.resolve();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100144/);
+  assert.match(build.stderr, /property access 'resolve' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
+  assert.match(build.stderr, /bundled:\/\/\/libs\/lib\.es2015\.promise\.d\.ts/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects unsupported Promise chains before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedPromiseChainRejected";
+  const projectDirectory = resolve(tempRoot, "promise-chain-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function chain(): Promise<number> {",
+      "  return Promise.resolve(1).then((value: number): number => value + 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /property access 'resolve' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
+  assert.match(build.stderr, /property access 'then' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'then'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+});
+
+test("CLI rejects async generators before target artifacts", async () => {
+  const assemblyName = "SmokeGeneratedAsyncGeneratorRejected";
+  const projectDirectory = resolve(tempRoot, "async-generator-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export async function* stream(): AsyncGenerator<number> {",
+      "  yield 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /tsonic-csharp:CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /Async C# function declaration emission requires finalized Promise\/Task result carrier facts/);
+  assert.match(build.stderr, /Expression is outside the current C# planning surface/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
 
 async function readGeneratedModuleSource(projectDirectory) {

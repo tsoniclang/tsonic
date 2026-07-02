@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
@@ -1354,6 +1354,48 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI runs sparse JS array literal holes through closed JSArray carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-sparse-literal-runtime");
+  const assemblyName = "SmokeGeneratedArraySparseLiteralRuntime";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "const values = [, 5, 6];",
+      "const [first = 10, second = 20, ...tail] = values;",
+      "Console.writeLine(`${first}:${second}:${tail[0] ?? -1}:${tail.length}:${values[0] ?? -1}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.fromSparse\(3, \(1, 5\), \(2, 6\)\)/);
+  assert.match(generatedSource, /__tsonic_destructure\d+\.hasIndex\(0\) \? __tsonic_destructure\d+\[0\] : 10/);
+  assert.match(generatedSource, /__tsonic_destructure\d+\.slice\(2\)/);
+  assert.doesNotMatch(generatedSource, /new double\?\[\] \{ 5, 6 \}/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "10:5:6:1:-1\n");
+});
+
 test("CLI rejects sparse JS array operations without selected JS surface facts", async () => {
   const deleteProjectDirectory = resolve(tempRoot, "array-sparse-delete-without-js-surface");
   await writeProject(deleteProjectDirectory, {
@@ -1931,6 +1973,14 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
       "  return Object.defineProperty(value, \"x\", { value: 1 });",
       "}",
       "",
+      "export function setProto(value: object, proto: object): object {",
+      "  return Object.setPrototypeOf(value, proto);",
+      "}",
+      "",
+      "export function getProto(value: object): object | null {",
+      "  return Object.getPrototypeOf(value);",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -1938,8 +1988,62 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
   assert.equal(build.status, 1);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.setPrototypeOf'/);
+  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.getPrototypeOf'/);
+  assert.match(build.stderr, /index\.ts:2:10: C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
+  assert.match(build.stderr, /index\.ts:6:10: C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
   assert.match(build.stderr, /descriptor, prototype, extensibility/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
+});
+
+test("CLI hard-rejects dynamic eval, Function, and Proxy APIs", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-code-proxy-rejections");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedDynamicCodeProxyRejections",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function evaluate(): unknown {",
+      "  return eval(\"1 + 1\");",
+      "}",
+      "",
+      "export function makeFunction(): Function {",
+      "  return Function(\"return 1\");",
+      "}",
+      "",
+      "export function constructFunction(): Function {",
+      "  return new Function(\"return 1\");",
+      "}",
+      "",
+      "export function makeProxy(target: object): object {",
+      "  return new Proxy(target, {});",
+      "}",
+      "",
+      "export function makeRevocable(target: object): object {",
+      "  return Proxy.revocable(target, {});",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# emission cannot support JavaScript eval/);
+  assert.match(build.stderr, /C# emission cannot support JavaScript dynamic Function construction/);
+  assert.match(build.stderr, /C# emission cannot support JavaScript Proxy/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDynamicCodeProxyRejections.csproj")), false);
 });
 
 
@@ -2207,6 +2311,8 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
   assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.matchAll'/);
+  assert.match(build.stderr, /index\.ts:2:10: C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
+  assert.match(build.stderr, /index\.ts:6:10: C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
   assert.match(build.stderr, /RegExpMatchArray/);
   assert.match(build.stderr, /template-object/);
   assert.match(build.stderr, /iterator/);

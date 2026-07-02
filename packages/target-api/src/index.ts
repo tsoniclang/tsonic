@@ -3,6 +3,7 @@ export type {
   TargetArtifactKind,
   TargetCompileResult,
   TargetDiagnostic,
+  TargetDiagnosticSourceSpan,
   TargetRuntimeContributions,
   TargetRuntimeReference,
   TargetSourceFile,

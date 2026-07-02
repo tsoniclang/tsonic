@@ -1,6 +1,6 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
-test("CLI emits node:path and bare path joins from selected NodeJS surface provider facts", async () => {
+test("CLI emits node:path and bare path joins from selected NodeJS provider-package provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-path-join-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -10,7 +10,8 @@ test("CLI emits node:path and bare path joins from selected NodeJS surface provi
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodePath",
@@ -51,8 +52,169 @@ test("CLI emits node:path and bare path joins from selected NodeJS surface provi
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI runs recovered NodeJS path posix fixture through provider-package facts", async () => {
+  const assemblyName = "SmokeGeneratedNodePathPosixRecovered";
+  const projectDirectory = resolve(tempRoot, "nodejs-path-posix-recovered");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import * as path from \"node:path\";",
+      "",
+      "console.log(path.posix.join(\"a\", \"b\", \"c\"));",
+      "",
+    ].join("\n"),
+  });
 
-test("CLI rejects node:path imports when NodeJS surface is not selected", async () => {
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.path\.posix\.join\("a", "b", "c"\)/);
+  assert.doesNotMatch(generatedSource, /return path\./);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "a/b/c\n");
+});
+
+test("CLI runs recovered NodeJS default fs import fixture through provider-package facts", async () => {
+  const assemblyName = "SmokeGeneratedNodeDefaultFsRecovered";
+  const projectDirectory = resolve(tempRoot, "nodejs-default-fs-recovered");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import fs from \"node:fs\";",
+      "",
+      "console.log(fs.existsSync(\".\") ? \"true\" : \"false\");",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.existsSync\("\."\)/);
+  assert.doesNotMatch(generatedSource, /return fs\./);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "true\n");
+});
+
+test("CLI runs recovered NodeJS module graph fixture through provider-package facts", async () => {
+  const assemblyName = "SmokeGeneratedNodeModuleGraphRecovered";
+  const projectDirectory = resolve(tempRoot, "nodejs-module-graph-recovered");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+          options: {
+            outputType: "Exe",
+            namespace: "Smoke.Generated",
+            assemblyName,
+          },
+        },
+      ],
+    }, null, 2),
+    "src/pathing.ts": [
+      "import { join } from \"node:path\";",
+      "",
+      "export function joinTenantPath(tenantId: string): string {",
+      "  return join(\"uploads\", tenantId, \"events.json\");",
+      "}",
+      "",
+    ].join("\n"),
+    "src/system-info.ts": [
+      "import * as os from \"node:os\";",
+      "import * as process from \"node:process\";",
+      "",
+      "export function getSystemSummary(): string {",
+      "  return os.homedir() + \"|\" + process.cwd();",
+      "}",
+      "",
+    ].join("\n"),
+    "src/file-state.ts": [
+      "import * as fs from \"node:fs\";",
+      "import * as crypto from \"node:crypto\";",
+      "",
+      "export function describeFileState(filePath: string): string {",
+      "  const present = fs.existsSync(filePath);",
+      "  const token = crypto.randomUUID();",
+      "  return present ? `present:${token}` : `missing:${token}`;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { joinTenantPath } from \"./pathing.js\";",
+      "import { getSystemSummary } from \"./system-info.js\";",
+      "import { describeFileState } from \"./file-state.js\";",
+      "",
+      "export function main(): void {",
+      "  const filePath = joinTenantPath(\"tenant-1\");",
+      "  const sys = getSystemSummary();",
+      "  const state = describeFileState(filePath);",
+      "  console.log(filePath);",
+      "  console.log(sys.length > 0 ? \"sys-ok\" : \"sys-empty\");",
+      "  console.log(state.length > 0 ? \"state-ok\" : \"state-empty\");",
+      "}",
+      "",
+      "main();",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Pathing\.__tsonic_module_init\(\);/);
+  assert.match(generatedSource, /SystemInfo\.__tsonic_module_init\(\);/);
+  assert.match(generatedSource, /FileState\.__tsonic_module_init\(\);/);
+  assert.match(generatedSource, /main\(\);/);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|__unsupported/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "uploads/tenant-1/events.json\nsys-ok\nstate-ok\n");
+});
+
+
+test("CLI rejects node:path imports when NodeJS provider package is not selected", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-path-no-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -82,7 +244,7 @@ test("CLI rejects node:path imports when NodeJS surface is not selected", async 
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI compiles existing Node-style code when NodeJS surface is selected", async () => {
+test("CLI builds and runs existing Node-style code when NodeJS provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-surface-code");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -92,20 +254,23 @@ test("CLI compiles existing Node-style code when NodeJS surface is selected", as
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedExistingNodeStyleSurfaceCode",
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
       "import { existsSync, statSync } from \"node:fs\";",
       "import { basename, extname, join, resolve } from \"node:path\";",
       "import * as nodeProcess from \"node:process\";",
       "import * as nodeOs from \"node:os\";",
-      "import { Buffer } from \"node:buffer\";",
+      "import { Buffer, transcode } from \"node:buffer\";",
       "import { randomUUID } from \"node:crypto\";",
       "",
       "export function fileReady(path: string): boolean {",
@@ -137,6 +302,8 @@ test("CLI compiles existing Node-style code when NodeJS surface is selected", as
       "  return nodeOs.platform() + nodeOs.EOL;",
       "}",
       "",
+      "Console.writeLine(`${assetName(\"root\", \"file.txt\")}|${encoded(\"ok\")}|${runId().length}|${firstArg().length > 0 ? \"argv\" : \"missing\"}|${platformLine().trim().length > 0 ? \"platform\" : \"missing\"}`);",
+      "",
     ].join("\n"),
   });
 
@@ -157,6 +324,8 @@ test("CLI compiles existing Node-style code when NodeJS surface is selected", as
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomUUID\(\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.os\.platform\(\) \+ Tsonic\.CSharp\.Node\.os\.EOL;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.path\.basename\(fullPath\) \+ Tsonic\.CSharp\.Node\.path\.extname\(fullPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.String\.trim\(platformLine\(\)\)/);
   assert.doesNotMatch(generatedSource, /return existsSync\(/);
   assert.doesNotMatch(generatedSource, /return Buffer\./);
   assert.doesNotMatch(generatedSource, /return randomUUID\(/);
@@ -164,9 +333,10 @@ test("CLI compiles existing Node-style code when NodeJS surface is selected", as
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleSurfaceCode.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedExistingNodeStyleSurfaceCode"), "file.txt.txt|ok|36|argv|platform\n");
 });
 
-test("CLI rejects Node-style builtins when NodeJS surface is unselected", async () => {
+test("CLI rejects Node-style builtins when NodeJS provider package is unselected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-code-without-nodejs-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -201,8 +371,8 @@ test("CLI rejects Node-style builtins when NodeJS surface is unselected", async 
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleCodeWithoutNodejsSurface.csproj")), false);
 });
 
-test("CLI rejects unsupported selected NodeJS module imports without fallback", async () => {
-  const projectDirectory = resolve(tempRoot, "unsupported-selected-nodejs-module-import");
+test("CLI emits fs promises operations from selected NodeJS provider-package facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-promises-provider-package");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -211,19 +381,141 @@ test("CLI rejects unsupported selected NodeJS module imports without fallback", 
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedUnsupportedSelectedNodejsModuleImport",
+            assemblyName: "SmokeGeneratedNodeFsPromises",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { readFile } from \"node:fs/promises\";",
+      "import { Buffer } from \"node:buffer\";",
+      "import { access, appendFile, chmod, copyFile, cp, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, stat, symlink, truncate, unlink, writeFile } from \"node:fs/promises\";",
       "",
       "export async function readText(path: string): Promise<string> {",
-      "  return readFile(path, \"utf8\");",
+      "  return await readFile(path, \"utf8\");",
+      "}",
+      "",
+      "export async function writeText(path: string, text: string): Promise<void> {",
+      "  await writeFile(path, text, \"utf8\");",
+      "}",
+      "",
+      "export async function statPath(path: string): Promise<void> {",
+      "  await stat(path);",
+      "}",
+      "",
+      "export async function deletePath(path: string): Promise<void> {",
+      "  await unlink(path);",
+      "}",
+      "",
+      "export async function linkRoundTrip(sourcePath: string, linkPath: string): Promise<string> {",
+      "  await symlink(sourcePath, linkPath);",
+      "  await chmod(linkPath, 420);",
+      "  await cp(sourcePath, linkPath + \".copy\", true);",
+      "  await rmdir(linkPath + \".dir\", true);",
+      "  return (await readlink(linkPath)) + (await realpath(linkPath));",
+      "}",
+      "",
+      "export async function runFileRoundTrip(root: string): Promise<string> {",
+      "  const directory = root + \"/promises\";",
+      "  await mkdir(directory, true);",
+      "  const source = directory + \"/source.txt\";",
+      "  const binary = directory + \"/binary.bin\";",
+      "  const renamed = directory + \"/renamed.txt\";",
+      "  const copied = directory + \"/copied.txt\";",
+      "  const copiedDirect = directory + \"/copied-direct.txt\";",
+      "  await writeFile(source, \"hello\", \"utf8\");",
+      "  await access(source);",
+      "  await writeFile(binary, Buffer.from(\"ok\", \"utf8\"));",
+      "  await appendFile(binary, Buffer.from(\"!\", \"utf8\"));",
+      "  const text = await readFile(source, \"utf8\");",
+      "  const bytes = await readFile(source);",
+      "  const binaryBytes = await readFile(binary);",
+      "  await rename(source, renamed);",
+      "  await cp(renamed, copied, false);",
+      "  await copyFile(renamed, copiedDirect);",
+      "  await truncate(copiedDirect, 2);",
+      "  const truncatedText = await readFile(copiedDirect, \"utf8\");",
+      "  const entries = await readdir(directory);",
+      "  const kind = (await stat(copied)).isFile() ? \"file\" : \"other\";",
+      "  await unlink(binary);",
+      "  await unlink(renamed);",
+      "  await rm(copied, false);",
+      "  await rm(copiedDirect, false);",
+      "  await rm(directory, true);",
+      "  return `${text}:${bytes.length}:${binaryBytes.length}:${entries.length}:${kind}:${truncatedText}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(path, "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer bytes = await Tsonic\.CSharp\.Node\.fs_promises\.readFile\(source\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.access\(source\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(path, text, "utf8"\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.writeFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("ok", "utf8"\)\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.appendFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("!", "utf8"\)\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, true\);/);
+  assert.match(generatedSource, /string\[\] entries = await Tsonic\.CSharp\.Node\.fs_promises\.readdir\(directory\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.copyFile\(renamed, copiedDirect\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.truncate\(copiedDirect, System\.Convert\.ToInt64\(2\)\);/);
+  assert.match(generatedSource, /entries\.Length/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.symlink\(sourcePath, linkPath\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.chmod\(linkPath, 420\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.cp\(sourcePath, linkPath \+ "\.copy", true\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.rmdir\(linkPath \+ "\.dir", true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs_promises\.readlink\(linkPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs_promises\.realpath\(linkPath\)/);
+  assert.doesNotMatch(generatedSource, /return readFile\(/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsPromises.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNodeFsPromises", [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.runFileRoundTrip(Environment.CurrentDirectory));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "hello:5:3:4:file:he\n");
+});
+
+test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-nodejs-provider-package-module-import");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import \"node:vm\";",
+      "",
+      "export function loaded(): number {",
+      "  return 1;",
       "}",
       "",
     ].join("\n"),
@@ -231,9 +523,120 @@ test("CLI rejects unsupported selected NodeJS module imports without fallback", 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
-  assert.match(build.stderr, /Cannot find name 'node:fs\/promises'/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedSelectedNodejsModuleImport.csproj")), false);
+  assert.match(build.stderr, /node:vm/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported historical NodeJS alias imports without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-nodejs-historical-alias-imports");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import * as assert from \"node:assert\";",
+      "import * as buffer from \"node:buffer\";",
+      "import * as child_process from \"node:child_process\";",
+      "import * as dgram from \"node:dgram\";",
+      "import * as dns from \"node:dns\";",
+      "import * as events from \"node:events\";",
+      "import * as http from \"node:http\";",
+      "import type { IncomingMessage, ServerResponse } from \"node:http\";",
+      "import * as net from \"node:net\";",
+      "import * as process from \"node:process\";",
+      "import * as querystring from \"node:querystring\";",
+      "import * as readline from \"node:readline\";",
+      "import * as stream from \"node:stream\";",
+      "import * as timers from \"node:timers\";",
+      "import * as tls from \"node:tls\";",
+      "import * as url from \"node:url\";",
+      "import * as util from \"node:util\";",
+      "import * as zlib from \"node:zlib\";",
+      "import { join } from \"node:path\";",
+      "",
+      "export type Handler = (req: IncomingMessage, res: ServerResponse) => void;",
+      "",
+      "export function loaded(): number {",
+      "  void assert;",
+      "  void buffer;",
+      "  void process;",
+      "  void url;",
+      "  void util;",
+      "  void join;",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  for (const moduleSpecifier of [
+    "node:child_process",
+    "node:dgram",
+    "node:dns",
+    "node:events",
+    "node:http",
+    "node:net",
+    "node:querystring",
+    "node:readline",
+    "node:stream",
+    "node:timers",
+    "node:tls",
+    "node:zlib",
+  ]) {
+    assert.match(build.stderr, new RegExp(moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(build.stderr, /tsts\.extension-host:TS9000022/);
+  assert.match(build.stderr, /Required provider module pattern/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported historical NodeJS type-only alias imports without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "unsupported-nodejs-type-only-alias-imports");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import type { IncomingMessage, ServerResponse } from \"node:http\";",
+      "",
+      "export type Handler = (req: IncomingMessage, res: ServerResponse) => void;",
+      "",
+      "export function loaded(): number {",
+      "  return 1;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /node:http/);
+  assert.match(build.stderr, /tsts\.extension-host:TS9000022/);
+  assert.match(build.stderr, /Required provider module pattern/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI emits NodeJS namespace imports from selected surface provider facts", async () => {
@@ -246,7 +649,8 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeModules",
@@ -304,7 +708,201 @@ test("CLI emits NodeJS namespace imports from selected surface provider facts", 
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 
-test("CLI emits expanded process operations from selected NodeJS surface facts", async () => {
+test("CLI emits NodeJS default imports from selected provider-package module object facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-default-module-provider-package");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedNodeDefaultModules",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import fs from \"node:fs\";",
+      "import path from \"node:path\";",
+      "import process from \"node:process\";",
+      "import crypto from \"node:crypto\";",
+      "import os from \"node:os\";",
+      "import util from \"node:util\";",
+      "import url from \"node:url\";",
+      "",
+      "export function defaultNodePath(name: string): string {",
+      "  return path.join(process.cwd(), util.toUSVString(name)) + os.EOL + crypto.randomUUID();",
+      "}",
+      "",
+      "export function defaultNodeExists(name: string): boolean {",
+      "  return fs.existsSync(path.resolve(name));",
+      "}",
+      "",
+      "export function defaultNodeFileHref(name: string): string {",
+      "  return url.pathToFileURL(name).href;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeDefaultModules.csproj"), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.join\(Tsonic\.CSharp\.Node\.process\.cwd\(\), Tsonic\.CSharp\.Node\.util\.toUSVString\(name\)\) \+ Tsonic\.CSharp\.Node\.os\.EOL \+ Tsonic\.CSharp\.Node\.crypto\.randomUUID\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.existsSync\(Tsonic\.CSharp\.Node\.path\.resolve\(name\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.pathToFileURL\(name\)\.href;/);
+  assert.doesNotMatch(generatedSource, /return fs\./);
+  assert.doesNotMatch(generatedSource, /return path\./);
+  assert.doesNotMatch(generatedSource, /return process\./);
+  assert.doesNotMatch(generatedSource, /return crypto\./);
+  assert.doesNotMatch(generatedSource, /return os\./);
+  assert.doesNotMatch(generatedSource, /return util\./);
+  assert.doesNotMatch(generatedSource, /return url\./);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeDefaultModules.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI runs NodeJS provider-package runtime operations from selected facts", async () => {
+  const assemblyName = "SmokeGeneratedNodeProviderRuntime";
+  const projectDirectory = resolve(tempRoot, "nodejs-provider-package-runtime");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import { Buffer } from \"node:buffer\";",
+      "import { createHash, randomUUID } from \"node:crypto\";",
+      "import { accessSync, appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, rmdirSync, statSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from \"node:fs\";",
+      "import os from \"node:os\";",
+      "import path from \"node:path\";",
+      "import process from \"node:process\";",
+      "import { URL, fileURLToPath, pathToFileURL } from \"node:url\";",
+      "import { toUSVString } from \"node:util\";",
+      "",
+      "const filePath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime.txt\");",
+      "writeFileSync(filePath, \"hello\", \"utf8\");",
+      "const text = readFileSync(filePath, \"utf8\");",
+      "const directoryPath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime-dir\");",
+      "mkdirSync(directoryPath, true);",
+      "const firstPath = path.join(directoryPath, \"first.txt\");",
+      "const secondPath = path.join(directoryPath, \"second.txt\");",
+      "writeFileSync(firstPath, \"a\", \"utf8\");",
+      "appendFileSync(firstPath, \"b\", \"utf8\");",
+      "copyFileSync(firstPath, secondPath);",
+      "const renamedPath = path.join(directoryPath, \"renamed.txt\");",
+      "renameSync(secondPath, renamedPath);",
+      "const directoryEntries = readdirSync(directoryPath);",
+      "const directoryListText = directoryEntries.length > 0 ? \"listed\" : \"empty\";",
+      "accessSync(filePath);",
+      "chmodSync(filePath, 420);",
+      "const descriptorPath = path.join(directoryPath, \"descriptor.txt\");",
+      "writeFileSync(descriptorPath, \"Zlong\", \"utf8\");",
+      "truncateSync(descriptorPath, 1);",
+      "const descriptorText = readFileSync(descriptorPath, \"utf8\");",
+      "const emptyDir = path.join(directoryPath, \"empty\");",
+      "mkdirSync(emptyDir, true);",
+      "rmdirSync(emptyDir, true);",
+      "const linkPath = path.join(directoryPath, \"descriptor-link.txt\");",
+      "symlinkSync(descriptorPath, linkPath);",
+      "const linkText = readlinkSync(linkPath).length > 0 && realpathSync(linkPath).length > 0 ? \"link\" : \"missing-link\";",
+      "const copyDirectoryPath = path.join(process.cwd(), \"tsonic-slice8-node-provider-runtime-copy\");",
+      "cpSync(directoryPath, copyDirectoryPath, true);",
+      "const copiedDescriptorText = readFileSync(path.join(copyDirectoryPath, \"descriptor.txt\"), \"utf8\");",
+      "const bytes = Buffer.from(text, \"utf8\");",
+      "const fileUrl = pathToFileURL(filePath);",
+      "const roundTrip = fileURLToPath(fileUrl);",
+      "const hash = createHash(\"sha256\").update(text).digest(\"hex\");",
+      "const existsText = existsSync(filePath) ? \"exists\" : \"missing\";",
+      "const kindText = statSync(filePath).isFile() ? \"file\" : \"other\";",
+      "const osText = os.platform().length > 0 ? \"platform\" : \"missing-platform\";",
+      "const parsed = new URL(\"https://example.com/path?foo=bar\");",
+      "parsed.searchParams.append(\"baz\", \"qux\");",
+      "parsed.search = \"?answer=42\";",
+      "parsed.searchParams.delete(\"answer\");",
+      "const urlText = parsed.href === \"https://example.com/path\" ? \"url-live\" : parsed.href;",
+      "const fsSyncText = `${readFileSync(firstPath, \"utf8\")}:${existsSync(renamedPath) ? \"renamed\" : \"missing\"}:${directoryListText}`;",
+      "Console.writeLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}|${fsSyncText}|${descriptorText}:${copiedDescriptorText}:${linkText}`);",
+      "unlinkSync(filePath);",
+      "rmSync(copyDirectoryPath, true);",
+      "rmSync(directoryPath, true);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedProject = await readFile(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "utf8");
+  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(filePath, "hello", "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readFileSync\(filePath, "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.mkdirSync\(directoryPath, true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.appendFileSync\(firstPath, "b", "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.copyFileSync\(firstPath, secondPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.renameSync\(secondPath, renamedPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readdirSync\(directoryPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.accessSync\(filePath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.chmodSync\(filePath, 420\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.truncateSync\(descriptorPath, System\.Convert\.ToInt64\(1\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmdirSync\(emptyDir, true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.symlinkSync\(descriptorPath, linkPath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readlinkSync\(linkPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.realpathSync\(linkPath\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.cpSync\(directoryPath, copyDirectoryPath, true\);/);
+  assert.match(generatedSource, /directoryEntries\.Length > 0/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.Buffer\.from\(text, "utf8"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.pathToFileURL\(filePath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.url\.fileURLToPath\(fileUrl\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(text\)\.digest\("hex"\);/);
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Node\.URL\("https:\/\/example\.com\/path\?foo=bar"\);/);
+  assert.match(generatedSource, /parsed\.searchParams\.append\("baz", "qux"\);/);
+  assert.match(generatedSource, /parsed\.search = "\?answer=42";/);
+  assert.match(generatedSource, /parsed\.searchParams\.delete\("answer"\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.unlinkSync\(filePath\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmSync\(directoryPath, true\);/);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|MethodInfo\.Invoke|Assembly\.Load/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  assert.equal(
+    runGeneratedProject(projectDirectory, assemblyName),
+    "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live|ab:renamed:listed|Z:Z:link\n",
+  );
+});
+
+test("CLI emits expanded process operations from selected NodeJS provider package facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-process-expanded-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -314,7 +912,8 @@ test("CLI emits expanded process operations from selected NodeJS surface facts",
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeProcessExpanded",
@@ -327,7 +926,12 @@ test("CLI emits expanded process operations from selected NodeJS surface facts",
       "",
       "export function processInfo(): string {",
       "  const pathValue = process.env[\"PATH\"] ?? \"\";",
-      "  return process.arch + process.argv0 + process.execPath + process.platform + process.version + process.versions.node + process.versions.dotnet + pathValue + process.pid + process.ppid;",
+      "  const usage = process.memoryUsage();",
+      "  const identity = process.arch + process.argv0 + process.execPath + process.platform + process.version;",
+      "  const versionInfo = process.versions.node + process.versions.dotnet + pathValue;",
+      "  const processIds = process.pid + process.ppid + process.uptime();",
+      "  const memoryInfo = usage.rss + usage.heapUsed;",
+      "  return identity + versionInfo + processIds + memoryInfo;",
       "}",
       "",
       "export function currentExitCode(): number | null {",
@@ -344,6 +948,15 @@ test("CLI emits expanded process operations from selected NodeJS surface facts",
       "",
       "export function signalSelf(): boolean {",
       "  return process.kill(process.pid, 0);",
+      "}",
+      "",
+      "export function memoryCeiling(): number {",
+      "  return process.availableMemory() + process.constrainedMemory();",
+      "}",
+      "",
+      "export function timingParts(): number {",
+      "  const parts = process.hrtime();",
+      "  return parts[0] + parts[1];",
       "}",
       "",
     ].join("\n"),
@@ -363,15 +976,95 @@ test("CLI emits expanded process operations from selected NodeJS surface facts",
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.versions\.dotnet/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.pid/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.ppid/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.MemoryUsage usage = Tsonic\.CSharp\.Node\.process\.memoryUsage\(\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.uptime\(\)/);
+  assert.match(generatedSource, /usage\.rss/);
+  assert.match(generatedSource, /usage\.heapUsed/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(code\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.availableMemory\(\) \+ Tsonic\.CSharp\.Node\.process\.constrainedMemory\(\);/);
+  assert.match(generatedSource, /double\[\] parts = Tsonic\.CSharp\.Node\.process\.hrtime\(\);/);
+  assert.match(generatedSource, /return parts\[0\] \+ parts\[1\];/);
   assert.doesNotMatch(generatedSource, /return process\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeProcessExpanded.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI rejects unsupported process stream properties without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-process-streams-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import process from \"node:process\";",
+      "",
+      "export function streams(): void {",
+      "  void process.stdin;",
+      "  void process.stdout;",
+      "  void process.stderr;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  for (const memberName of ["stdin", "stdout", "stderr"]) {
+    assert.match(build.stderr, new RegExp(`hard-rejected selected property 'node:process' export 'NodeProcessModule' member '${memberName}'`));
+    assert.match(build.stderr, new RegExp(`unsupported:Tsonic\\.CSharp\\.Node\\.process\\.${memberName}`));
+  }
+  assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported process nextTick without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-process-nexttick-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import process from \"node:process\";",
+      "",
+      "export function tick(): void {",
+      "  process.nextTick(() => {});",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /hard-rejected selected property 'node:process' export 'NodeProcessModule' member 'nextTick'/);
+  assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'NodeProcessModule' member 'nextTick'/);
+  assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.process\.nextTick\(Function,System\.Object\[\]\)/);
+  assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 
@@ -385,7 +1078,8 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeBufferCrypto",
@@ -394,7 +1088,7 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { Buffer } from \"node:buffer\";",
+      "import { Buffer, transcode } from \"node:buffer\";",
       "import { createHash, createHmac, getHashes, randomBytes, randomFillSync, randomInt, timingSafeEqual } from \"node:crypto\";",
       "",
       "export function bufferText(): string {",
@@ -415,6 +1109,18 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "",
       "export function validEncodingText(): string {",
       "  return Buffer.isEncoding(\"utf8\").toString();",
+      "}",
+      "",
+      "export function recognizedBuffer(): boolean {",
+      "  return Buffer.isBuffer(Buffer.from(\"x\"));",
+      "}",
+      "",
+      "export function poolSizeValue(): number {",
+      "  return Buffer.poolSize;",
+      "}",
+      "",
+      "export function transcodedText(): string {",
+      "  return transcode(Buffer.from(\"hello\"), \"utf8\", \"utf8\").toString();",
       "}",
       "",
       "export function copiedBufferCount(): number {",
@@ -459,6 +1165,17 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
       "  return timingSafeEqual(Buffer.from(\"aa\"), Buffer.from(\"aa\"));",
       "}",
       "",
+      "export function numericRoundTrip(): string {",
+      "  const ints = Buffer.alloc(8);",
+      "  ints.writeUInt16LE(4660, 0);",
+      "  ints.writeInt16BE(-2, 2);",
+      "  ints.writeUInt32BE(16909060, 4);",
+      "  const floats = Buffer.alloc(12);",
+      "  floats.writeFloatLE(1.5, 0);",
+      "  floats.writeDoubleBE(2.5, 4);",
+      "  return `${ints.readUInt16LE(0)}:${ints.readInt16BE(2)}:${ints.readUInt32BE(4)}:${floats.readFloatLE(0)}:${floats.readDoubleBE(4)}`;",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -471,6 +1188,9 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.byteLength\("hello"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.BooleanOps\.toString\(Tsonic\.CSharp\.Node\.Buffer\.isEncoding\("utf8"\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.isBuffer\(Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.Buffer\.poolSize;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.buffer\.transcode\(Tsonic\.CSharp\.Node\.Buffer\.from\("hello"\), "utf8", "utf8"\)\.toString\(\);/);
   assert.match(generatedSource, /return source\.copy\(target\) \+ target\.write\("z"\) \+ Tsonic\.CSharp\.Node\.Buffer\.from\(source\)\.compare\(source\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(10\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.randomInt\(1, 10\);/);
@@ -481,12 +1201,36 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHash\("sha256"\)\.update\(Tsonic\.CSharp\.Node\.Buffer\.from\(input\)\)\.digestBuffer\(\)\.length;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.createHmac\("sha256", Tsonic\.CSharp\.Node\.Buffer\.from\(key\)\)\.update\(value\)\.digest\("hex"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.crypto\.timingSafeEqual\(Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\), Tsonic\.CSharp\.Node\.Buffer\.from\("aa"\)\);/);
+  assert.match(generatedSource, /ints\.writeUInt16LE\(4660, 0\);/);
+  assert.match(generatedSource, /ints\.writeInt16BE\(-2, 2\);/);
+  assert.match(generatedSource, /ints\.writeUInt32BE\(16909060, 4\);/);
+  assert.match(generatedSource, /floats\.writeFloatLE\(1\.5F, 0\);/);
+  assert.match(generatedSource, /floats\.writeDoubleBE\(2\.5, 4\);/);
+  assert.match(generatedSource, /ints\.readUInt16LE\(0\)/);
+  assert.match(generatedSource, /ints\.readInt16BE\(2\)/);
+  assert.match(generatedSource, /ints\.readUInt32BE\(4\)/);
+  assert.match(generatedSource, /floats\.readFloatLE\(0\)/);
+  assert.match(generatedSource, /floats\.readDoubleBE\(4\)/);
   assert.doesNotMatch(generatedSource, /return Buffer\./);
   assert.doesNotMatch(generatedSource, /return randomInt\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeBufferCrypto.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNodeBufferCrypto", [
+    "using System;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        Console.WriteLine(Smoke.Generated.Index.numericRoundTrip());",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "4660:-2:16909060:1.5:2.5\n");
 });
 
 test("CLI emits fs.statSync and path object operations from selected NodeJS declarations", async () => {
@@ -499,7 +1243,8 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeFsPathObjects",
@@ -547,6 +1292,7 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
       "",
       "export function descriptorRoundTrip(fd: number): number {",
       "  const buffer = Buffer.alloc(8);",
+      "  writeSync(fd, \"x\");",
       "  return readSync(fd, buffer, 0, 1, 0) + writeSync(fd, buffer, 0, 1, 0);",
       "}",
       "",
@@ -580,7 +1326,8 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path, "utf8"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readFileSync\(path\)\.toString\(\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(path, Tsonic\.CSharp\.Node\.Buffer\.from\("x"\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(System\.Convert\.ToInt32\(fd\)\)\.size;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.fstatSync\(fd\)\.size;/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), "x"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.readSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\) \+ Tsonic\.CSharp\.Node\.fs\.writeSync\(System\.Convert\.ToInt32\(fd\), buffer, 0, 1, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.pid;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.argv\[0\];/);
@@ -604,7 +1351,8 @@ test("CLI emits fs Stats Date members through selected NodeJS and JS surface fac
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeFsStatsDate",
@@ -649,7 +1397,7 @@ test("CLI emits fs Stats Date members through selected NodeJS and JS surface fac
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects fs Stats Date chains when NodeJS surface is not selected", async () => {
+test("CLI rejects fs Stats Date chains when NodeJS provider package is not selected", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-no-nodejs-surface");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -695,7 +1443,8 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeUtil",
@@ -704,7 +1453,7 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { stripVTControlCharacters, toUSVString } from \"node:util\";",
+      "import { convertProcessSignalToExitCode, getSystemErrorMessage, getSystemErrorName, stripVTControlCharacters, styleText, toUSVString } from \"node:util\";",
       "import { stripVTControlCharacters as bareStrip } from \"util\";",
       "",
       "export function clean(input: string): string {",
@@ -719,6 +1468,14 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
       "  return bareStrip(input);",
       "}",
       "",
+      "export function styledError(input: string): string {",
+      "  return styleText(\"red\", input) + getSystemErrorName(2) + getSystemErrorMessage(2);",
+      "}",
+      "",
+      "export function signalExitCode(): number {",
+      "  return convertProcessSignalToExitCode(\"SIGINT\");",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -728,6 +1485,8 @@ test("CLI emits closed node:util string operations from selected NodeJS declarat
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.stripVTControlCharacters\(input\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.toUSVString\(input\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.styleText\("red", input\) \+ Tsonic\.CSharp\.Node\.util\.getSystemErrorName\(2\) \+ Tsonic\.CSharp\.Node\.util\.getSystemErrorMessage\(2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.util\.convertProcessSignalToExitCode\("SIGINT"\);/);
   assert.doesNotMatch(generatedSource, /return stripVTControlCharacters\(/);
   assert.doesNotMatch(generatedSource, /return bareStrip\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -746,7 +1505,8 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
         },
       ],
     }, null, 2),
@@ -762,9 +1522,79 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:util' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects default node:util format operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-default-util-format-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import util from \"node:util\";",
+      "",
+      "export function render(value: unknown): string {",
+      "  return util.format(\"%o\", value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'NodeUtilModule' member 'format'/);
+  assert.match(build.stderr, /node:util\.format\(System\.Object,System\.Object\[\]\)/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects other open-carrier node:util operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-util-open-carrier-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { debuglog, deprecate, formatWithOptions, inspect, isDeepStrictEqual } from \"node:util\";",
+      "",
+      "export function render(value: unknown): boolean {",
+      "  formatWithOptions({}, \"%o\", value);",
+      "  inspect(value);",
+      "  isDeepStrictEqual(value, value);",
+      "  debuglog(\"demo\");",
+      "  deprecate(() => {}, \"deprecated\");",
+      "  return true;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export '(formatWithOptions|inspect|isDeepStrictEqual|debuglog|deprecate)'/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|JsonSerializer|GetType/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
@@ -778,7 +1608,8 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedNodeUrl",
@@ -787,7 +1618,7 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { URL, domainToASCII, fileURLToPath, format, pathToFileURL } from \"node:url\";",
+      "import { URL, URLSearchParams, domainToASCII, fileURLToPath, format, pathToFileURL } from \"node:url\";",
       "import { resolve as bareResolve } from \"url\";",
       "",
       "export function href(input: string): string {",
@@ -830,6 +1661,23 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
       "  return bareResolve(from, to);",
       "}",
       "",
+      "export function queryValue(input: string): string {",
+      "  const params = new URLSearchParams(\"a=1\");",
+      "  params.append(\"b\", input);",
+      "  params.set(\"a\", \"2\");",
+      "  return (params.get(\"a\") ?? \"\") + params.getAll(\"a\")[0] + params.toString();",
+      "}",
+      "",
+      "export function querySize(): number {",
+      "  return new URLSearchParams(\"a=1\").size;",
+      "}",
+      "",
+      "export function liveQueryValue(input: string): string {",
+      "  const parsed = new URL(\"https://example.com/?q=\" + input);",
+      "  parsed.searchParams.append(\"page\", \"1\");",
+      "  return parsed.searchParams.get(\"page\") ?? \"\";",
+      "}",
+      "",
     ].join("\n"),
   });
 
@@ -847,11 +1695,52 @@ test("CLI emits closed node:url operations from selected NodeJS declarations", a
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.fileURLToPath\(Tsonic\.CSharp\.Node\.url\.pathToFileURL\(path\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.domainToASCII\(domain\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.url\.resolve\(from, to\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.URLSearchParams @?params = new Tsonic\.CSharp\.Node\.URLSearchParams\("a=1"\);/);
+  assert.match(generatedSource, /@?params\.append\("b", input\);/);
+  assert.match(generatedSource, /@?params\.set\("a", "2"\);/);
+  assert.match(generatedSource, /@?params\.get\("a"\) \?\? ""/);
+  assert.match(generatedSource, /@?params\.getAll\("a"\)\[0\]/);
+  assert.match(generatedSource, /@?params\.ToString\(\)/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Node\.URLSearchParams\("a=1"\)\.size;/);
+  assert.match(generatedSource, /parsed\.searchParams\.append\("page", "1"\);/);
+  assert.match(generatedSource, /return parsed\.searchParams\.get\("page"\) \?\? "";/);
   assert.doesNotMatch(generatedSource, /return URL\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeUrl.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNodeUrl", [
+    "using System;",
+    "using System.IO;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        const string input = \"https://example.com/a?b=1\";",
+    "        var ascii = Smoke.Generated.Index.ascii(\"mañana.com\").StartsWith(\"xn--\") ? \"ascii\" : \"bad-ascii\";",
+    "        var roundTrip = Smoke.Generated.Index.roundTrip(Path.Combine(Environment.CurrentDirectory, \"sample.txt\")).EndsWith(\"sample.txt\") ? \"round\" : \"bad-round\";",
+    "        Console.WriteLine(string.Join(\"|\", new[]",
+    "        {",
+    "            Smoke.Generated.Index.href(input),",
+    "            Smoke.Generated.Index.host(input),",
+    "            Smoke.Generated.Index.accepts(input).ToString(),",
+    "            Smoke.Generated.Index.acceptsRelative(input).ToString(),",
+    "            Smoke.Generated.Index.childHost(input),",
+    "            Smoke.Generated.Index.formatted(input),",
+    "            ascii,",
+    "            Smoke.Generated.Index.joined(\"https://example.com/a/\", \"../b\"),",
+    "            roundTrip,",
+    "            Smoke.Generated.Index.queryValue(\"x\"),",
+    "            Smoke.Generated.Index.querySize().ToString(),",
+    "            Smoke.Generated.Index.liveQueryValue(\"next\"),",
+    "        }));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "https://example.com/a?b=1|example.com|True|True|example.com|https://example.com/a?b=1|ascii|https://example.com/b|round|22a=2&b=x|1|1\n");
 });
 
 test("CLI rejects open-object node:url format operations without fallback", async () => {
@@ -864,7 +1753,8 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
         },
       ],
     }, null, 2),
@@ -880,13 +1770,47 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface hard-rejected selected call 'node:url' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects unsupported selected NodeJS provider operations without fallback", async () => {
+test("CLI rejects unsupported node:url URLPattern operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-pattern-unsupported");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { URLPattern } from \"node:url\";",
+      "",
+      "export function accepts(input: string): boolean {",
+      "  const pattern = new URLPattern(\"/books/:id\");",
+      "  return pattern.test(input);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'URLPattern' member 'constructor'/);
+  assert.match(build.stderr, /URLPattern\.constructor/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI rejects unsupported selected NodeJS fs provider operations without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-unsupported-selected-operation");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -896,15 +1820,21 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
       targets: [
         {
           id: "csharp",
-          surfaces: ["js", "nodejs"],
+          surfaces: ["js"],
+          packages: ["nodejs"],
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { watchFile } from \"node:fs\";",
+      "import fs, { createReadStream, readFile, watch, watchFile, writeFile } from \"node:fs\";",
       "",
-      "export function watch(path: string): void {",
+      "export function unsupportedFs(path: string): void {",
+      "  readFile(path, {}, () => {});",
+      "  writeFile(path, \"x\", {}, () => {});",
+      "  watch(path, {}, () => {});",
       "  watchFile(path, () => {});",
+      "  createReadStream(path);",
+      "  fs.watchFile(path, () => {});",
       "}",
       "",
     ].join("\n"),
@@ -912,8 +1842,115 @@ test("CLI rejects unsupported selected NodeJS provider operations without fallba
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS surface could not map checked 'node:fs' export 'watchFile'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'readFile'/);
+  assert.match(build.stderr, /node:fs\.readFile/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
+  assert.match(build.stderr, /node:fs\.writeFile/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watch'/);
+  assert.match(build.stderr, /node:fs\.watch/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
   assert.match(build.stderr, /node:fs\.watchFile/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
+  assert.match(build.stderr, /node:fs\.createReadStream/);
+  assert.doesNotMatch(build.stderr, /readFile is not a function|writeFile is not a function|watch is not a function|createReadStream is not a function/);
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
+
+test("CLI rejects unsupported selected NodeJS crypto and os provider operations without fallback", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-unsupported-crypto-os-selected-operation");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          packages: ["nodejs"],
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { createCipheriv, createDecipheriv, createSign, createVerify, pbkdf2Sync, scryptSync } from \"node:crypto\";",
+      "import os, { cpus, getPriority, networkInterfaces, setPriority, userInfo } from \"node:os\";",
+      "",
+      "export function unsupportedCryptoOs(): void {",
+      "  createCipheriv(\"aes-256-cbc\", {}, {});",
+      "  createDecipheriv(\"aes-256-cbc\", {}, {});",
+      "  scryptSync(\"password\", \"salt\", 16, {});",
+      "  pbkdf2Sync(\"password\", \"salt\", 1, 16, \"sha256\");",
+      "  createSign(\"RSA-SHA256\");",
+      "  createVerify(\"RSA-SHA256\");",
+      "  cpus();",
+      "  networkInterfaces();",
+      "  userInfo({});",
+      "  getPriority(0);",
+      "  setPriority(0, 0);",
+      "  const constants = os.constants;",
+      "  if (constants) {}",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createCipheriv'/);
+  assert.match(build.stderr, /node:crypto\.createCipheriv/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createDecipheriv'/);
+  assert.match(build.stderr, /node:crypto\.createDecipheriv/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'scryptSync'/);
+  assert.match(build.stderr, /node:crypto\.scryptSync/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'pbkdf2Sync'/);
+  assert.match(build.stderr, /node:crypto\.pbkdf2Sync/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createSign'/);
+  assert.match(build.stderr, /node:crypto\.createSign/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createVerify'/);
+  assert.match(build.stderr, /node:crypto\.createVerify/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'cpus'/);
+  assert.match(build.stderr, /node:os\.cpus/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'networkInterfaces'/);
+  assert.match(build.stderr, /node:os\.networkInterfaces/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'userInfo'/);
+  assert.match(build.stderr, /node:os\.userInfo/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'getPriority'/);
+  assert.match(build.stderr, /node:os\.getPriority/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'setPriority'/);
+  assert.match(build.stderr, /node:os\.setPriority/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
+  assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.os\.constants/);
+  assert.doesNotMatch(build.stderr, /createCipheriv is not a function|cpus is not a function|constants is undefined/);
+  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+async function runGeneratedCsharpRunner(projectDirectory, assemblyName, programLines) {
+  const runnerDirectory = resolve(projectDirectory, "runner");
+  const runnerProjectPath = resolve(runnerDirectory, "Runner.csproj");
+  await writeProject(runnerDirectory, {
+    "Runner.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <OutputType>Exe</OutputType>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "  <ItemGroup>",
+      `    <ProjectReference Include=\"../out/csharp/${assemblyName}.csproj\" />`,
+      "  </ItemGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "Program.cs": programLines.join("\n"),
+  });
+
+  const build = run("dotnet", ["build", runnerProjectPath, "--nologo", "--v:minimal"]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const executed = run("dotnet", ["run", "--project", runnerProjectPath, "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  return executed.stdout.replace(/\r\n/g, "\n");
+}
