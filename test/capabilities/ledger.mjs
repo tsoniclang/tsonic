@@ -580,10 +580,10 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.iteration.for-in.keys", "for-in emits only with key enumeration facts", "complete", "target-provider"],
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "complete", "target-provider"],
   ["operation.array.literal", "Array literals choose target carrier from facts", "complete", "target-provider"],
-  ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
+  ["operation.spread.array", "Array spread emits from iterable/spread facts", "complete", "target-provider"],
   ["operation.spread.object", "Object spread emits from object-shape facts", "complete", "target-provider"],
   ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "complete", "target-provider"],
-  ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "partial", "target-provider"],
+  ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "complete", "target-provider"],
   ["operation.await.promise-task", "await and async functions emit from promise/task facts", "complete", "target-provider"],
   ["operation.throw.catch", "throw/catch/finally use target exception facts", "complete", "target-provider"],
 
@@ -611,7 +611,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["statement.throw-catch-finally", "throw, catch, and finally emit target exception flow", "complete", "target-provider"],
   ["statement.top-level", "Top-level statements emit deterministic entry/module init", "complete", "csharp-backend"],
 
-  ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
+  ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "complete", "target-provider"],
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "complete", "target-provider"],
   ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "complete", "target-provider"],
   ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "complete", "target-provider"],
@@ -646,8 +646,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["declaration.generated-structural", "Generated structural declarations are deterministic", "complete", "csharp-backend"],
 
   ["carrier.primitive", "Primitive carriers come from source/target facts", "complete", "target-provider"],
-  ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
-  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "partial", "target-provider"],
+  ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "complete", "target-provider"],
+  ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "complete", "target-provider"],
   ["carrier.tuple", "Tuple carriers provide arity and element facts", "complete", "target-provider"],
   ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "complete", "target-provider"],
   ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "complete", "target-provider"],
@@ -3892,13 +3892,16 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
@@ -3915,11 +3918,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-spread/",
       "test/fixtures/array-type-emission/",
     ]),
-    blockers: Object.freeze([
-      "carrier.array remains partial until every array carrier lane has current positive and negative proof: tuple interaction, native CLR boundaries, provider-fact absence diagnostics, remaining nested/generic edge cases, and full JS copy-in/copy-out behavior.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, JS-surface, readonly source syntax, generic readonly source syntax, nested readonly source syntax, inferred source-owned array returns, and sparse JSArray carriers, including non-Node executables that coalesce nullable source arrays, spread into typed carriers, destructure fixed/default/rest elements, and verify exact stdout. Backend fact tests now distinguish array-literal construction metadata from enumerable/read-only-indexable metadata: spread accepts finalized provider enumerable carriers, destructuring accepts finalized provider read-only indexable carriers, and literal-only carriers diagnose instead of being treated as indexable/enumerable. Fail-closed diagnostics cover untyped empty returns, native length access without selected facts, dense-carrier sparse-literal rejection, tuple default/rest without optional/slice facts, and incompatible closed element carriers. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, sparse literal construction, and deterministic rejection for incompatible closed element carriers.",
+      "Reviewed proof for the old array inventory slice: old emitter and fixture array cases are mapped to finalized array carrier facts rather than old frontend inference. Current CLI proof covers typed, empty, nested, double, multidimensional, spread, JS-surface, readonly source syntax, generic readonly source syntax, nested readonly source syntax, inferred source-owned array returns, explicit provider-owned native CLR arrays, and sparse JSArray carriers, including non-Node executables that coalesce nullable source arrays, spread into typed carriers, destructure fixed/default/rest elements, and verify exact stdout. Backend fact tests distinguish array-literal construction metadata from enumerable/read-only-indexable metadata: spread accepts finalized provider enumerable carriers, destructuring accepts finalized provider read-only indexable carriers, and literal-only carriers diagnose instead of being treated as indexable/enumerable. Fail-closed diagnostics cover untyped empty returns, native length access without selected facts, explicit DotNetArray spread/destructuring without a provider iterable source contract, compat any spread without closed array carrier facts, dense-carrier sparse-literal rejection, tuple default/rest without optional/slice facts, and incompatible closed element carriers. csharp-js runtime proof covers closed TsValue access to sparse JSArray carriers, length mutation, undefined holes, sparse literal construction, Array.at numeric coercion, and deterministic rejection for incompatible closed element carriers.",
   }),
   "operation.array.literal": Object.freeze({
     positiveTests: Object.freeze([
@@ -3979,21 +3980,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "test/cli-build/arrays.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/spread/ArraySpread.ts",
       "packages/targets/csharp/emitter/testcases/common/types/expected-type-threading/ArraySpread.ts",
       "test/fixtures/array-spread/",
     ]),
-    blockers: Object.freeze([
-      "operation.spread.array remains partial until spread over provider-native arrays, sparse/full-JS arrays, non-identifier tuple operands requiring single-evaluation lowering, nested spread edge cases, and unsupported spread operands have complete current proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes tuple spread from finalized tuple carrier facts, executes fixed/default/rest/nested array destructuring fixtures, executes readonly array spread from finalized IReadOnlyList<T> collection metadata, executes a Slice 8 non-Node spread over a nullish-coalesced typed array, and fails closed before partial array creation when spread operand carrier facts are missing, when finalized carrier element facts mismatch, or when tuple spread would require non-identifier single-evaluation lowering that is not yet provider-proven. Missing-carrier and non-identifier tuple-spread backend diagnostics preserve exact source spans on the spread element. Native collection spread now requires finalized enumerable or tuple element metadata rather than array-literal metadata: provider enumerable carriers, readonly collection carriers, and tuple carriers are accepted, while provider literal-only carriers are rejected without falling back to source syntax. It does not revive old expected-type-threading logic inside Tsonic.",
+      "Reviewed proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes tuple spread from finalized tuple carrier facts, executes fixed/default/rest/nested array destructuring fixtures, executes readonly array spread from finalized IReadOnlyList<T> collection metadata, executes a Slice 8 non-Node spread over a nullish-coalesced typed array, and fails closed before partial array creation when spread operand carrier facts are missing, when finalized carrier element facts mismatch, when compat any lacks closed array carrier facts, when explicit DotNetArray<T> lacks a provider iterable source contract, or when tuple spread would require non-identifier single-evaluation lowering that is not provider-proven. Missing-carrier, compat-any, provider-native, and non-identifier tuple-spread diagnostics preserve source spans and create no C# artifacts. Native collection spread requires finalized enumerable or tuple element metadata rather than array-literal metadata: provider enumerable carriers, readonly collection carriers, and tuple carriers are accepted, while provider literal-only carriers are rejected without falling back to source syntax. It does not revive old expected-type-threading logic inside Tsonic.",
   }),
   "operation.spread.object": Object.freeze({
     positiveTests: Object.freeze([
@@ -4061,19 +4063,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/e2e-runtime-language.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
       "test/fixtures/array-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.array.fixed-rest-default remains partial until optional/nullish tuple default facts, nested default values, and remaining sparse/full-JS copy-in/copy-out extraction lanes have current positive and fail-closed proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, synthetic destructured parameter prelude, and sparse JSArray hole/default/rest extraction using finalized carrier facts. Current CLI runtime evidence includes non-Node fixed/default/rest destructuring after array spread from a finalized nullable carrier, JS-surface sparse literal destructuring where defaults test hasIndex instead of length, required tuple defaults that erase to the finalized Item projection, two-or-more tuple rest binding that emits a closed tuple from finalized element carriers, one-element tuple rest binding that emits System.ValueTuple<T>, and empty tuple rest binding that emits System.ValueTuple. Backend fact tests prove tuple fixed/rest extraction emits Item projections, one-element tuple rest emits System.ValueTuple<T>, optional/nullish tuple defaults fail closed until explicit carrier facts exist, provider read-only indexable carriers destructure without array-literal metadata, and provider literal-only carriers are rejected as missing index evidence. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
+      "Reviewed proof: old array destructuring inventory maps to current binding-pattern tests for fixed positions, rest, defaults, nested array extraction, synthetic destructured parameter prelude, and sparse JSArray hole/default/rest extraction using finalized carrier facts. Current CLI runtime evidence includes non-Node fixed/default/rest destructuring after array spread from a finalized nullable carrier, JS-surface sparse literal destructuring where defaults test hasIndex instead of length, required tuple defaults that erase to the finalized Item projection, two-or-more tuple rest binding that emits a closed tuple from finalized element carriers, one-element tuple rest binding that emits System.ValueTuple<T>, empty tuple rest binding that emits System.ValueTuple, and explicit DotNetArray<T> destructuring rejected by TSTS because no provider iterable source contract exists. Backend fact tests prove tuple fixed/rest extraction emits Item projections, one-element tuple rest emits System.ValueTuple<T>, optional/nullish tuple defaults fail closed until explicit carrier facts exist, provider read-only indexable carriers destructure without array-literal metadata, JSArray carriers use hole-presence checks for defaults, and provider literal-only carriers are rejected as missing index evidence. Missing carrier facts diagnose instead of falling back to stale array destructuring lowering.",
   }),
   "carrier.array.public-abi-policy": Object.freeze({
     sourceExamples: Object.freeze([
@@ -4098,11 +4100,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/arrays.test.mjs",
       "test/cli-build/js-surface.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/array-literal/",
@@ -4110,11 +4114,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/array-spread/",
       "test/fixtures/js-surface-runtime-builtins/",
     ]),
-    blockers: Object.freeze([
-      "carrier.array.public-abi-policy remains partial until native-array provider boundaries, remaining nested/generic public ABI edge cases, and every full-JS copy-in/copy-out requirement are covered by focused evidence.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: CLI evidence compiles ordinary source int32[] and readonly int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads including readonly/generic/nested readonly source syntax, List<int> for dense mutation and explicit/inferred source-owned array returns, and a JSArray<int> local only for delete/hole semantics. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
+      "Reviewed proof: CLI evidence compiles ordinary source int32[] and readonly int32[] parameters unchanged through the JS surface while finalized facts select int[] for unused native-array lanes, IEnumerable<int> for for-of sequential reads, IReadOnlyList<int> for length/index reads including readonly/generic/nested readonly source syntax, List<int> for dense mutation and explicit/inferred source-owned array returns, and a JSArray<int> local only for delete/hole semantics. Explicit provider-owned DotNetArray<T> uses CLR T[] only from @tsonic/dotnet provider facts, supports Length and indexer operations from selected native-array facts, and rejects JS mutators, length assignment, spread, and destructuring without provider-declared JS/iterable contracts. This proves the public ABI policy is fact-backed and does not infer CLR arrays or JSArray carriers from TypeScript T[] spelling alone.",
   }),
   "surface.js.array-methods": Object.freeze({
     sourceExamples: Object.freeze([
@@ -6689,22 +6691,22 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/js-surface.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
       "../tsonic-csharp/test/operator-facts.test.mjs",
       "../tsonic-csharp/test/statement-planner.test.mjs",
+      "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
       "test/fixtures/array-destructuring/",
       "test/fixtures/nested-object-rest-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "operation.destructure.array-object remains partial until provider-native iterable extraction has a source-visible contract and every old destructuring fixture has current CLI/toolchain proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; explicit DotNetArray<T> destructuring is hard-rejected by TSTS until the provider declares an iterable source contract; CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment including object rest assignment, expression-position destructuring assignment return values, and Slice 8 rest/spread/nullish interleaving.",
+      "Reviewed proof: old array destructuring emitter and fixture evidence is mapped to current binding-pattern and CLI proof. Parameter, variable, statement assignment, and expression-position assignment binding patterns consume finalized array, tuple, IReadOnlyList, JSArray, read-only-indexable provider, and object-shape extraction facts; missing and mismatched facts produce diagnostics; object rest facts are recorded from TSTS-checked rest binding types; explicit DotNetArray<T> destructuring is hard-rejected by TSTS until the provider declares an iterable source contract. CLI/runtime proof executes fixed/default/rest/nested array destructuring, object parameter rest/nested destructuring, nested object rest, object-shape destructuring assignment including object rest assignment, expression-position destructuring assignment return values, utility-projected tuple destructuring, required tuple defaults and tuple rest, and Slice 8 rest/spread/nullish interleaving.",
   }),
   "expression.object-literal": Object.freeze({
     positiveTests: Object.freeze([

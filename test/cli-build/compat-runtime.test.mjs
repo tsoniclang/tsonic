@@ -202,6 +202,41 @@ test("CLI hard-rejects explicit any object spread without closed object-shape fa
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
+test("CLI hard-rejects explicit any array spread without closed array carrier facts in compat mode", async () => {
+  const projectDirectory = resolve(tempRoot, "compat-runtime-any-array-spread-reject");
+  const assemblyName = "SmokeGeneratedCompatRuntimeAnyArraySpreadReject";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            typescriptCompatibility: "compat",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function clone(value: any): any[] {",
+      "  return [...value];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  const output = build.stdout + build.stderr;
+  assert.notEqual(build.status, 0);
+  assert.match(output, /Array spread requires a finalized provider array carrier matching the target array element type/u);
+  assert.match(output, /source\.span=2:11-2:19/u);
+  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+});
+
 test("CLI hard-rejects unsupported explicit any operators in compat mode", async () => {
   const projectDirectory = resolve(tempRoot, "compat-runtime-any-operator-reject");
   const assemblyName = "SmokeGeneratedCompatRuntimeAnyOperatorReject";
