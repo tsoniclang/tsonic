@@ -1115,6 +1115,53 @@ test("CLI emits object-shape spread from finalized provider object-shape facts",
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI runs nested object rest destructuring from finalized object-shape facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nested-object-rest-destructuring");
+  const assemblyName = "SmokeGeneratedNestedObjectRestDestructuring";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Address = { city: string; zip: number; country: string };",
+      "type User = { name: string; address: Address };",
+      "",
+      "function summarize({ address: { city, ...restAddress } }: User): string {",
+      "  return `${city}:${restAddress.zip}:${restAddress.country}`;",
+      "}",
+      "",
+      "const user: User = { name: \"Ada\", address: { city: \"Paris\", zip: 75001, country: \"FR\" } };",
+      "Console.writeLine(summarize(user));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.address;/);
+  assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
+  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Paris:75001:FR\n");
+});
+
 
 test("CLI emits object-shape spread from finalized subset facts plus explicit members", async () => {
   const projectDirectory = resolve(tempRoot, "object-shape-partial-spread");

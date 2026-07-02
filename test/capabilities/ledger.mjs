@@ -6669,6 +6669,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/arrays/destructuring/ArrayDestructure.ts",
       "test/fixtures/array-destructuring/",
+      "test/fixtures/nested-object-rest-destructuring/",
     ]),
     blockers: Object.freeze([
       "operation.destructure.array-object remains partial until provider-native iterable extraction has a source-visible contract and every old destructuring fixture has current CLI/toolchain proof.",
@@ -7002,7 +7003,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nested-object-rest-destructuring/",
+    ]),
     blockers: Object.freeze([
       "binding.object.rename-rest-default remains partial until compat TsObject extraction is classified and old object destructuring fixtures are recovered or explicitly replaced.",
     ]),
@@ -7021,7 +7024,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nested-object-rest-destructuring/",
+    ]),
     blockers: Object.freeze([
       "binding.object-shape remains partial until object-shape binding has full provider-native, compat TsObject, and old-suite proof.",
     ]),
@@ -7045,6 +7050,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter.ts",
       "packages/targets/csharp/emitter/testcases/common/types/anonymous-objects/AnonymousObjects.ts",
       "packages/targets/csharp/emitter/testcases/common/types/interfaces/Interfaces.ts",
+      "test/fixtures/nested-object-rest-destructuring/",
       "test/fixtures/object-literal-method-shorthand/",
       "test/fixtures/object-literal-object/",
     ]),
@@ -8097,7 +8103,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/object-shapes.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
-    oldEvidence: Object.freeze([]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/nested-object-rest-destructuring/",
+    ]),
     blockers: Object.freeze([
       "backend.generated-declarations remains partial until generated declaration naming/member coverage is proven across the full object-shape, utility-type, nested, method, spread/rest, and old fixture matrix.",
     ]),

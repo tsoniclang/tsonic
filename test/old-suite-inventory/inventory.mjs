@@ -600,6 +600,15 @@ const oldSuitePortInventoryEntries = Object.freeze([
       "Ported as a current-architecture executable E2E covering an int32 object-shape property preserved from explicit source annotation through finalized object-shape facts into an int field and int return, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/nested-object-rest-destructuring/",
+    status: "ported",
+    featureArea: "csharp-backend",
+    owner: "TSTS object-shape facts + C# backend planner",
+    newPath: "test/cli-build/object-shapes.test.mjs",
+    reason:
+      "Ported as a current-architecture executable CLI test covering nested object rest destructuring from finalized TSTS rest-binding and object-shape facts, generated closed rest carriers, dotnet build/run, exact stdout, and no dynamic/reflection fallback.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/object-literal-method-this/",
     status: "replaced-by-stronger-test",
     featureArea: "csharp-backend",
@@ -609,7 +618,6 @@ const oldSuitePortInventoryEntries = Object.freeze([
       "Replaced by current-architecture positive and negative CLI proof for this-binding: instance and lexical class this emit only with finalized receiver facts, while object-literal method this is now a deterministic fail-closed diagnostic before C# artifacts instead of a JavaScript this fallback.",
   }),
   ...deferredFixtures([
-    "nested-object-rest-destructuring",
     "object-literal-accessors",
     "object-literal-computed-const-keys",
     "object-literal-method-accessor-js",
@@ -1055,6 +1063,7 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
   ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("anonymous-object-type-literal"),
+    oldFixturePath("nested-object-rest-destructuring"),
     oldFixturePath("object-literal-method-shorthand"),
     oldFixturePath("object-literal-object"),
     oldFixturePath("object-prop-int-to-int"),
@@ -1062,10 +1071,14 @@ const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.csharp.ast-expression",
     "backend.csharp.ast-statement",
+    "backend.generated-declarations",
     "backend.project-source-declarations",
+    "binding.object-shape",
+    "binding.object.rename-rest-default",
     "carrier.object-shape",
     "expression.object-literal",
     "host.package.composition",
+    "operation.destructure.array-object",
     "toolchain.csharp.build-run",
   ]),
   ...reviewedOldSuiteCapabilityMapping([
