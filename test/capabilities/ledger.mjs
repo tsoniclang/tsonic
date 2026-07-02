@@ -3993,7 +3993,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.array remains partial until spread over readonly, provider-native arrays, sparse/full-JS arrays, non-identifier tuple operands requiring single-evaluation lowering, nested spread edge cases, and unsupported spread operands have complete current proof.",
     ]),
     notes:
-      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes tuple spread from finalized tuple carrier facts, executes fixed/default/rest/nested array destructuring fixtures, executes a Slice 8 non-Node spread over a nullish-coalesced typed array, and fails closed before partial array creation when spread operand carrier facts are missing, when finalized carrier element facts mismatch, or when tuple spread would require non-identifier single-evaluation lowering that is not yet provider-proven. Native collection spread now requires finalized enumerable or tuple element metadata rather than array-literal metadata: provider enumerable carriers and tuple carriers are accepted, while provider literal-only carriers are rejected without falling back to source syntax. It does not revive old expected-type-threading logic inside Tsonic.",
+      "Reviewed partial proof: old spread emitter and fixture cases are mapped to current array spread evidence. Current backend and CLI proof renders spread only from finalized expected array/carrier facts through structured array-helper AST, validates module-scope spread constants, builds generated C# projects, executes tuple spread from finalized tuple carrier facts, executes fixed/default/rest/nested array destructuring fixtures, executes a Slice 8 non-Node spread over a nullish-coalesced typed array, and fails closed before partial array creation when spread operand carrier facts are missing, when finalized carrier element facts mismatch, or when tuple spread would require non-identifier single-evaluation lowering that is not yet provider-proven. Missing-carrier and non-identifier tuple-spread backend diagnostics preserve exact source spans on the spread element. Native collection spread now requires finalized enumerable or tuple element metadata rather than array-literal metadata: provider enumerable carriers and tuple carriers are accepted, while provider literal-only carriers are rejected without falling back to source syntax. It does not revive old expected-type-threading logic inside Tsonic.",
   }),
   "operation.spread.object": Object.freeze({
     positiveTests: Object.freeze([
@@ -4010,7 +4010,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
     ]),
     notes:
-      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed before partial object creation. CLI tests prove full object-shape spread, subset spread, readonly utility-projected spread, nested object spread inside rest/default object binding, and a non-Node object-rest-to-spread executable through generated C# projects. Computed/accessor object members, any source member lacking a finalized target carrier, and single-evaluation lowering gaps diagnose before artifact emission instead of falling back to source spelling.",
+      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed with exact spread-node source spans before partial object creation. CLI tests prove full object-shape spread, subset spread, readonly utility-projected spread, nested object spread inside rest/default object binding, and a non-Node object-rest-to-spread executable through generated C# projects. Computed/accessor object members, any source member lacking a finalized target carrier, and single-evaluation lowering gaps diagnose before artifact emission instead of falling back to source spelling.",
   }),
   "operation.spread.provider-target-copy": Object.freeze({
     positiveTests: Object.freeze([
@@ -8046,12 +8046,16 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Backend diagnostics must carry missing fact/capability evidence, preserve source spans when the backend has a source node, and suppress artifacts/toolchain handoff.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
     ]),
@@ -8060,7 +8064,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "backend.diagnostics remains partial until every backend operation family proves source-span/evidence diagnostics for missing and malformed facts through current C# backend tests.",
     ]),
     notes:
-      "Reviewed partial proof: TargetDiagnostic now has a sourceSpan contract, unsupported C# backend diagnostics derive structured sourceSpan from real TSTS/source nodes, host diagnostics preserve backend-supplied source spans and evidence, backend errors suppress artifacts/toolchain work, CLI formatting prints source-core missing-fact spans/evidence, and diagnostic-only backend failures still clean stale target outputs. This advances the common diagnostic gate without claiming every C# operation-family diagnostic is complete.",
+      "Reviewed partial proof: TargetDiagnostic now has a sourceSpan contract, unsupported C# backend diagnostics derive structured sourceSpan from real TSTS/source nodes, host diagnostics preserve backend-supplied source spans and evidence, backend errors suppress artifacts/toolchain work, CLI formatting prints source-core missing-fact spans/evidence, and diagnostic-only backend failures still clean stale target outputs. Array spread and object spread backend fail-closed paths now assert exact source spans on the offending spread element. This advances the common diagnostic gate without claiming every C# operation-family diagnostic is complete.",
   }),
   "backend.no-semantic-strings": Object.freeze({
     positiveTests: Object.freeze([
@@ -8698,12 +8702,16 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Diagnostics render source spans only when a TSTS extension or backend supplies a concrete source node/span; missing spans remain absent rather than guessed from message text.",
     positiveTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
+      "../tsonic-csharp/test/array-spread-boundary.test.mjs",
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
+      "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
     ]),
@@ -8715,7 +8723,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "diagnostic.source-spans remains partial until every target/provider/backend diagnostic family has exact source-span assertions, including TSTS aggregate diagnostics and all selected-surface failures.",
     ]),
     notes:
-      "Reviewed partial proof: TSTS source diagnostics are preserved as individual TargetDiagnostics with structured sourceSpan and TS code evidence instead of a spanless aggregate; source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan; selected JS unsupported-operation diagnostics print exact index.ts line/column output from checked operation nodes; backend missing-carrier diagnostics preserve structured sourceSpan from the offending source node; generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings. The row stays partial because this does not prove exact spans for every diagnostic family.",
+      "Reviewed partial proof: TSTS source diagnostics are preserved as individual TargetDiagnostics with structured sourceSpan and TS code evidence instead of a spanless aggregate; source-core extension diagnostics carry nodeOrSpan through collectTstsDiagnostics into TargetDiagnostic.sourceSpan; selected JS unsupported-operation diagnostics print exact index.ts line/column output from checked operation nodes; backend missing-carrier diagnostics preserve structured sourceSpan from the offending source node; generic-selected-operation diagnostics carry structured sourceSpan without parsing evidence strings; array/object spread fail-closed diagnostics assert exact spread-node spans. The row stays partial because this does not prove exact spans for every diagnostic family.",
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
