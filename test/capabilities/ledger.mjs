@@ -581,8 +581,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["operation.iteration.provider-target", "Iteration maps to provider target iteration facts", "complete", "target-provider"],
   ["operation.array.literal", "Array literals choose target carrier from facts", "complete", "target-provider"],
   ["operation.spread.array", "Array spread emits from iterable/spread facts", "partial", "target-provider"],
-  ["operation.spread.object", "Object spread emits from object-shape facts", "partial", "target-provider"],
-  ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "partial", "target-provider"],
+  ["operation.spread.object", "Object spread emits from object-shape facts", "complete", "target-provider"],
+  ["operation.spread.provider-target-copy", "Spread emits via provider target copy facts", "complete", "target-provider"],
   ["operation.destructure.array-object", "Binding patterns emit from extraction facts", "partial", "target-provider"],
   ["operation.await.promise-task", "await and async functions emit from promise/task facts", "complete", "target-provider"],
   ["operation.throw.catch", "throw/catch/finally use target exception facts", "complete", "target-provider"],
@@ -615,7 +615,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "complete", "target-provider"],
   ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "complete", "target-provider"],
   ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "complete", "target-provider"],
-  ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
+  ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "complete", "target-provider"],
 
   ["function.declaration", "Function declarations emit target methods/functions", "complete", "csharp-backend"],
   ["function.arrow", "Arrow functions emit target lambdas/delegates", "complete", "csharp-backend"],
@@ -649,7 +649,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.array", "Array carriers provide length, index, iteration, and conversion facts", "partial", "target-provider"],
   ["carrier.array.public-abi-policy", "Source T[] remains TS Array<T>; public target ABI uses fact-backed IEnumerable/IReadOnlyList/List/native-array/compat lanes without leaking JSArray by default", "partial", "target-provider"],
   ["carrier.tuple", "Tuple carriers provide arity and element facts", "complete", "target-provider"],
-  ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "partial", "target-provider"],
+  ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "complete", "target-provider"],
   ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "complete", "target-provider"],
   ["carrier.union", "Runtime unions exist only when facts require them", "partial", "target-provider"],
   ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
@@ -4003,14 +4003,27 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "operation.spread.object remains partial until all object spread forms have complete proof: nested spreads, computed keys, accessor members, optional/readonly members, provider-native object copy facts, compat TsObject spread, and every old object-literal/rest/spread inventory item.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old object-literal and nested-object-rest fixtures cover object-shape carriers and rest materialization, but no direct source object-spread fixture is bidirectionally mapped to operation.spread.object",
+        "current object-spread coverage is stronger than old coverage because it proves positive spread, subset spread, nested spread, readonly spread, dictionary hard-reject, compat-any hard-reject, and single-evaluation hard-reject through finalized facts",
+      ]),
+      reviewerNotes:
+        "No direct old-suite object-spread capability exists to map bidirectionally. Current CLI and backend tests are the source of proof for object spread under the finalized object-shape fact model.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed with exact spread-node source spans before partial object creation. CLI tests prove full object-shape spread, subset spread, readonly utility-projected spread, nested object spread inside rest/default object binding, and a non-Node object-rest-to-spread executable through generated C# projects. Computed/accessor object members, any source member lacking a finalized target carrier, and single-evaluation lowering gaps diagnose before artifact emission instead of falling back to source spelling.",
+      "Reviewed proof: object spread emits only from finalized source and target object-shape facts. Unit tests prove spread assignments read source target members and write target object-shape members by finalized fact identity, while missing source object-shape facts, missing spread facts inside object literals, and non-identifier spread expressions fail closed with exact spread-node source spans before partial object creation. CLI tests prove full object-shape spread, subset spread, readonly utility-projected spread, nested object spread inside rest/default object binding, and a non-Node object-rest-to-spread executable through generated C# projects. Computed/accessor object members, explicit any compat spread without closed extraction facts, dictionary/Record spread without provider dictionary-copy facts, any source member lacking a finalized target carrier, and single-evaluation lowering gaps diagnose before artifact emission instead of falling back to source spelling.",
   }),
   "operation.spread.provider-target-copy": Object.freeze({
     positiveTests: Object.freeze([
@@ -4020,14 +4033,27 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
       "test/cli-build/object-shapes.test.mjs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "operation.spread.provider-target-copy remains partial until provider-native copy operations, generated adapter copy methods, compat object-carrier copy, and non-identifier single-evaluation copy plans are represented as finalized provider facts with positive and fail-closed tests.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old object-literal and nested-object-rest fixture evidence maps to source object spread/rest behavior, not provider-target copy as an explicit capability",
+        "old emitter/product inventories contain object literal and rest/spread-like shape materialization cases, but no provider-owned copy-fact contract or dictionary-copy operation lane",
+      ]),
+      reviewerNotes:
+        "Provider-target copy facts are a new finalized-fact capability in the current architecture. Current tests prove structural object-shape member copy as the supported provider copy lane and deterministic diagnostics for unsupported dictionary, compat-any, missing-fact, and single-evaluation copy lanes.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; executables prove copied rest members, readonly utility-projected members, and nested spread members feed generated C# behavior. Missing source facts, missing member carriers, computed/accessor members, and non-identifier source expressions diagnose instead of falling back to dictionary/object projection or source-name matching.",
+      "Reviewed proof: provider-target copy evidence is restricted to structural object-shape member copy. The backend copies only between provider-proven source and target object-shape members with finalized target names and carriers; executables prove copied rest members, readonly utility-projected members, and nested spread members feed generated C# behavior. Missing source facts, missing member carriers, computed/accessor members, non-identifier source expressions, explicit any compat spread, and dictionary/Record spread without finalized dictionary-copy semantics diagnose instead of falling back to dictionary/object projection or source-name matching.",
   }),
   "binding.array.fixed-rest-default": Object.freeze({
     positiveTests: Object.freeze([
@@ -7029,11 +7055,9 @@ const reviewedCapabilityEvidence = Object.freeze({
     oldEvidence: Object.freeze([
       "test/fixtures/nested-object-rest-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.object-shape remains partial until object-shape binding has full provider-native, compat TsObject, and old-suite proof.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, object assignment defaults, string-literal assignment keys, readonly utility-projected spread, nested object spread, and rest-to-spread execution; missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, and non-identifier spread sources fail closed before partial C# object creation.",
+      "Reviewed proof: object-shape destructuring and object-literal spread consume generated object-shape facts for member extraction/copy and have CLI/runtime proof for object rest destructuring, nested extraction, nullable optional defaults, object assignment defaults, string-literal assignment keys, readonly utility-projected spread, nested object spread, and rest-to-spread execution. Explicit any object destructuring and object spread in compat mode remain hard-rejects until closed extraction/copy facts exist, so compat carriers do not fall through to object-shape inference. Missing source/target shape facts, mismatched rest shape members, malformed optional value carriers, computed names, accessors, generic methods, dictionary spread without copy facts, and non-identifier spread sources fail closed before partial C# object creation.",
   }),
   "carrier.object-shape": Object.freeze({
     positiveTests: Object.freeze([
@@ -7056,11 +7080,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/object-literal-method-shorthand/",
       "test/fixtures/object-literal-object/",
     ]),
-    blockers: Object.freeze([
-      "carrier.object-shape remains partial until structural interface storage, generated adapter emission, inline object parameters, generic object literal paths, object spread/rest/default extraction, and full old fixture parity are covered end to end.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes nested object extraction, rest object carriers, object spread carriers, readonly utility-projected shape copies, nested spread carriers, nullable optional members, and a non-Node executable that applies object-shape default extraction through generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps missing shape/provider facts fail-closed instead of falling back to source spelling.",
+      "Reviewed proof: generated object-shape adapters are expression-local carriers, while shared semantic Type and Symbol subjects retain declared interface/class/struct carriers. CLI proof includes interface-backed object literal adapters, generic interface object literal adapters, inline structural parameters, nested object extraction, rest object carriers, object spread carriers, readonly utility-projected shape copies, nested spread carriers, nullable optional members, Record dictionary separation, and non-Node executables that apply object-shape default extraction through generated C# behavior. This prevents imported interface object literals from conflicting with declaration carriers and keeps unknown, any compat spread/destructuring, computed/accessor members, dictionary spread without copy facts, and missing shape/provider facts fail-closed instead of falling back to source spelling.",
   }),
   "carrier.any-tsvalue": Object.freeze({
     positiveTests: Object.freeze([

@@ -166,6 +166,42 @@ test("CLI hard-rejects explicit any object destructuring without closed extracti
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
+test("CLI hard-rejects explicit any object spread without closed object-shape facts in compat mode", async () => {
+  const projectDirectory = resolve(tempRoot, "compat-runtime-any-object-spread-reject");
+  const assemblyName = "SmokeGeneratedCompatRuntimeAnyObjectSpreadReject";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            typescriptCompatibility: "compat",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "type Output = { name: string };",
+      "",
+      "export function clone(value: any): Output {",
+      "  return { ...value };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  const output = build.stdout + build.stderr;
+  assert.notEqual(build.status, 0);
+  assert.match(output, /Object literal spread requires finalized provider object-shape facts/u);
+  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+});
+
 test("CLI hard-rejects unsupported explicit any operators in compat mode", async () => {
   const projectDirectory = resolve(tempRoot, "compat-runtime-any-operator-reject");
   const assemblyName = "SmokeGeneratedCompatRuntimeAnyOperatorReject";
