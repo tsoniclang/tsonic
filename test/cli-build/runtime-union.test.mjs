@@ -60,3 +60,51 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
   assert.equal(executed.status, 0, executed.stdout + executed.stderr);
   assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready|fallback\n");
 });
+
+test("CLI emits neutral nullish runtime-union arms from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "runtime-union-nullish-arm");
+  const assemblyName = "SmokeGeneratedRuntimeUnionNullishArm";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function choose(flag: number): number | string | undefined {",
+      "  return flag === 0 ? undefined : flag === 1 ? 1 : \"ready\";",
+      "}",
+      "",
+      "Console.writeLine(`${choose(0)}|${choose(1)}|${choose(2)}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string, Tsonic\.CSharp\.Runtime\.Undefined>/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Undefined\.value/);
+  assert.doesNotMatch(generatedSource, /flag == 0 \? null|flag == 0 \? default/);
+  assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "undefined|1|ready\n");
+});
