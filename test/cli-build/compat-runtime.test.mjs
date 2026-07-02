@@ -130,6 +130,42 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI hard-rejects explicit any object destructuring without closed extraction facts in compat mode", async () => {
+  const projectDirectory = resolve(tempRoot, "compat-runtime-any-object-destructuring-reject");
+  const assemblyName = "SmokeGeneratedCompatRuntimeAnyObjectDestructuringReject";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            typescriptCompatibility: "compat",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function pick(value: any): any {",
+      "  const { name, ...rest } = value;",
+      "  return rest;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  const output = build.stdout + build.stderr;
+  assert.notEqual(build.status, 0);
+  assert.match(output, /index\.ts:2:8: Destructuring source expression requires a finalized runtime carrier fact/u);
+  assert.match(output, /index\.ts:2:8: Object destructuring requires a source-owned declaration or finalized provider object-shape facts/u);
+  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+});
+
 test("CLI hard-rejects unsupported explicit any operators in compat mode", async () => {
   const projectDirectory = resolve(tempRoot, "compat-runtime-any-operator-reject");
   const assemblyName = "SmokeGeneratedCompatRuntimeAnyOperatorReject";

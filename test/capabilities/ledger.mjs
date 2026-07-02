@@ -612,7 +612,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["statement.top-level", "Top-level statements emit deterministic entry/module init", "complete", "csharp-backend"],
 
   ["binding.array.fixed-rest-default", "Array binding supports fixed, rest, defaults, and nested extraction", "partial", "target-provider"],
-  ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "partial", "target-provider"],
+  ["binding.object.rename-rest-default", "Object binding supports rename, rest, defaults, and nested extraction", "complete", "target-provider"],
   ["binding.parameter", "Parameter destructuring emits from TSTS binding facts", "complete", "target-provider"],
   ["binding.assignment", "Assignment destructuring emits deterministic storage writes", "complete", "target-provider"],
   ["binding.object-shape", "Object-shape destructuring consumes generated shape facts", "partial", "target-provider"],
@@ -7002,15 +7002,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/binding-patterns.test.mjs",
+      "test/cli-build/compat-runtime.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nested-object-rest-destructuring/",
     ]),
-    blockers: Object.freeze([
-      "binding.object.rename-rest-default remains partial until compat TsObject extraction is classified and old object destructuring fixtures are recovered or explicitly replaced.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: object rename, rest, nested extraction, and defaults emit only from finalized TSTS-checked rest binding types and source/rest object-shape facts, then execute through CLI/runtime proof. Executables preserve nullable optional members, apply nullish defaults, copy retained rest members, and feed nested spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed.",
+      "Reviewed proof: object rename, rest, nested extraction, and defaults emit only from finalized TSTS-checked rest binding types and source/rest object-shape facts, then execute through CLI/runtime proof. Executables preserve nullable optional members, apply nullish defaults, copy retained rest members, and feed nested spread shape construction; rest facts that retain extracted members or disagree on retained member carriers are rejected; optional value members without nullable carrier facts fail closed. Compat-mode explicit any object destructuring is classified as hard-reject until closed extraction facts exist, and the old nested-object-rest destructuring fixture is ported as current executable proof.",
   }),
   "binding.object-shape": Object.freeze({
     positiveTests: Object.freeze([
