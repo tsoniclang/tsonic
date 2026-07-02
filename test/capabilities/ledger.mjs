@@ -713,6 +713,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "complete", "csharp-toolchain"],
   ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
   ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "complete", "csharp-toolchain"],
+  ["performance.long-operator-chain", "Long checked operator chains stay within final-suite performance gates", "blocked", "tests"],
   ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs provider package", "complete", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
