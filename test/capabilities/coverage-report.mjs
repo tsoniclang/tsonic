@@ -213,6 +213,7 @@ function completeCapabilityEvidence(entry, classifiedOldEvidencePathSet) {
     currentPositiveTests,
     currentNegativeTests,
     oldEvidence,
+    oldEvidenceAbsence: entry.oldEvidenceAbsence,
     oldPositiveEvidence,
     oldNegativeEvidence,
   });
@@ -232,6 +233,7 @@ function completeCapabilityEvidence(entry, classifiedOldEvidencePathSet) {
     oldPositiveEvidence,
     oldNegativeEvidence,
     oldEvidence,
+    ...(entry.oldEvidenceAbsence === undefined ? {} : { oldEvidenceAbsence: entry.oldEvidenceAbsence }),
     repoScopedCurrentTests,
     externalCurrentTests,
     notes: entry.notes,
@@ -243,6 +245,7 @@ function completeProofHoles({
   currentPositiveTests,
   currentNegativeTests,
   oldEvidence,
+  oldEvidenceAbsence,
   oldPositiveEvidence,
   oldNegativeEvidence,
 }) {
@@ -256,7 +259,7 @@ function completeProofHoles({
   if (evidenceReview !== "reviewed") {
     holes.push("missing-reviewed-evidence");
   }
-  if (oldEvidence.length === 0) {
+  if (oldEvidence.length === 0 && !hasReviewedOldEvidenceAbsence(oldEvidenceAbsence)) {
     holes.push("missing-old-evidence");
   }
   if (oldPositiveEvidence.length > 0) {
@@ -266,6 +269,21 @@ function completeProofHoles({
     holes.push("negative-proof-uses-old-evidence");
   }
   return holes;
+}
+
+function hasReviewedOldEvidenceAbsence(oldEvidenceAbsence) {
+  return (
+    oldEvidenceAbsence !== undefined &&
+    typeof oldEvidenceAbsence === "object" &&
+    oldEvidenceAbsence !== null &&
+    oldEvidenceAbsence.status === "reviewed-none-found" &&
+    Array.isArray(oldEvidenceAbsence.reviewedInventories) &&
+    oldEvidenceAbsence.reviewedInventories.length > 0 &&
+    Array.isArray(oldEvidenceAbsence.searchEvidence) &&
+    oldEvidenceAbsence.searchEvidence.length > 0 &&
+    typeof oldEvidenceAbsence.reviewerNotes === "string" &&
+    oldEvidenceAbsence.reviewerNotes.length > 0
+  );
 }
 
 function evidenceScope(currentProofTests, repoScopedCurrentTests, externalCurrentTests) {
