@@ -1559,16 +1559,22 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
           options: {
             namespace: "Smoke.Generated",
             assemblyName: "SmokeGeneratedRegExpLiteralCarrier",
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
       "export function matches(input: string): boolean {",
       "  const expression = /abc/i;",
       "  const constructed = new RegExp(\"xyz\", \"g\");",
       "  return expression.test(input) || constructed.test(input);",
       "}",
+      "",
+      "const expression = /a.b/s;",
+      "Console.writeLine(`${matches(\"ABC\")}:${matches(\"xyz\")}:${expression.test(\"a\\nb\")}:${expression.source}:${expression.flags}`);",
       "",
     ].join("\n"),
   });
@@ -1580,10 +1586,44 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp expression = new Tsonic\.CSharp\.Js\.RegExp\("abc", "i"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.RegExp constructed = new Tsonic\.CSharp\.Js\.RegExp\("xyz", "g"\);/);
   assert.match(generatedSource, /return expression\.test\(input\) \|\| constructed\.test\(input\);/);
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.RegExp\("a\.b", "s"\)/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRegExpLiteralCarrier.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedRegExpLiteralCarrier"), "True:True:True:a.b:s\n");
+});
+
+test("CLI rejects statically unsupported RegExp literals before C# artifact emission", async () => {
+  const projectDirectory = resolve(tempRoot, "regexp-literal-unsupported-static");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          surfaces: ["js"],
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedUnsupportedRegExpLiteral",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function unsupported(value: string): boolean {",
+      "  return /(?<name>a)/.test(value) || /abc/u.test(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0, build.stdout + build.stderr);
+  assert.match(build.stderr, /TS9100180/);
+  assert.match(build.stderr, /Named capture groups are not in the proven RegExp subset|Unicode-mode pattern semantics/);
+  assert.match(build.stderr, /pattern="abc" flags="u"/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedRegExpLiteral.csproj")), false);
 });
 
 test("CLI emits Date calls through provider-backed JS runtime carriers", async () => {
