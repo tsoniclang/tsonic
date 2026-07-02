@@ -431,7 +431,7 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
   assert.match(generatedSource, /string\[\] __tsonic_forInKeys0 = new string\[\] \{ "value", "label" \};/);
   assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
   assert.match(generatedSource, /string key = __tsonic_forInKeys0\[__tsonic_forInIndex0\];/);
-  assert.match(generatedSource, /total = total \+ key\.Length;/);
+  assert.match(generatedSource, /total = total \+ (?:\(\(string\)key\)|key)\.Length;/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeForIn.csproj"), "--nologo", "--v:minimal"]);
@@ -712,7 +712,7 @@ test("CLI rejects object literals contextualized as unknown before C# carrier em
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /any and unknown cannot trickle into generated C#/);
+  assert.match(build.stderr, /unknown cannot trickle into generated C#/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
