@@ -651,8 +651,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["carrier.tuple", "Tuple carriers provide arity and element facts", "complete", "target-provider"],
   ["carrier.object-shape", "Object-shape carriers are deterministic and fact-backed", "complete", "target-provider"],
   ["carrier.dictionary-record", "Record and index-signature carriers are fact-backed", "complete", "target-provider"],
-  ["carrier.union", "Runtime unions exist only when facts require them", "partial", "target-provider"],
-  ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "partial", "target-provider"],
+  ["carrier.union", "Runtime unions exist only when facts require them", "complete", "target-provider"],
+  ["carrier.null-undefined", "Null and undefined are represented consistently by target mode", "complete", "target-provider"],
   ["carrier.function-delegate", "Function values and callbacks use fact-backed delegate carriers", "complete", "target-provider"],
   ["carrier.any-tsvalue", "any uses explicit compatibility carrier only in compat mode", "complete", "target-provider"],
 
@@ -692,8 +692,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["compat.unknown.no-dynamic-access", "unknown is not treated like any", "complete", "target-provider"],
   ["compat.prototype-mutation", "Prototype mutation is explicit runtime support or diagnostic", "complete", "target-provider"],
   ["compat.proxy-eval-function-with", "proxy, eval, Function, and with are rejected unless explicit runtime exists", "complete", "target-provider"],
-  ["runtime.union.carrier", "Union carrier is explicit runtime capability", "partial", "target-provider"],
-  ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "partial", "target-provider"],
+  ["runtime.union.carrier", "Union carrier is explicit runtime capability", "complete", "target-provider"],
+  ["runtime.undefined.carrier", "Undefined carrier is explicit runtime capability", "complete", "target-provider"],
   ["runtime.dynamic.carrier", "TypeScript any compat-runtime carrier is explicit runtime capability", "complete", "target-provider"],
 
   ["backend.ast.only", "Backend constructs target AST only", "complete", "csharp-backend"],
@@ -6107,41 +6107,64 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/exitCode.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nullish-coalescing/",
       "test/fixtures/nullish-coalescing-threading/",
     ]),
-    blockers: Object.freeze([
-      "carrier.null-undefined remains partial until all target modes classify null and undefined per resolved pattern instance, including native nullable value/reference types, JS surface nullish helpers, compat carriers, runtime-union nullish arms, and explicit hard rejects.",
-    ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: no-surface C# maps number/string/bool/reference unions with null or undefined to nullable C# carriers and fails generated C# builds if an unproven undefined identifier leaks; JS surface runtime helpers for Array.at/pop/shift/find/findLast, String.at/codePointAt/match, and global undefined expose closed nullish carrier behavior. Remains partial until every nullish carrier lane is classified and tested.",
+      "Reviewed proof: no-surface C# maps number/string/bool/reference unions with null or undefined to nullable C# carriers and fails generated C# builds if an unproven undefined identifier leaks; native provider optional/default paths, JS surface nullish helpers, compat TsValue carriers, runtime-union nullish arms, and Node provider-package nullable APIs all carry explicit nullish facts or deterministic diagnostics. Current CLI/toolchain, provider-fact, csharp-js, and csharp-nodejs tests cover nullable value/reference carriers, global undefined, optional/nullish operators, provider-owned null/undefined unions, JS surface helpers, compat carriers, and hard rejects without source-name fallback.",
   }),
   "runtime.undefined.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-nodejs/tests/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
+      "test/cli-build/nodejs-surface.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "runtime.undefined.carrier remains partial until strict-native, JS surface, Node provider-package APIs, optional APIs, and typed/native provider boundaries all use explicit undefined/nullish carriers or deterministic diagnostics.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old nullable/nullish fixtures map to carrier.null-undefined and expression.nullish-optional, but they do not model the current closed runtime.undefined.carrier contract",
+        "old emitter inventory has no direct closed JSUndefined/TsValue undefined runtime carrier fixture; current csharp-js and provider-package tests provide stronger runtime-carrier proof",
+      ]),
+      reviewerNotes:
+        "No direct historical old-suite runtime undefined carrier exists to map bidirectionally. Current proof is stronger because it covers the closed JSUndefined singleton, TsValue undefined reads/casts/typeof, sparse JSArray holes, Node process.env nullable provider APIs, and fail-closed backend handling for unproven undefined identifiers.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: the C# backend now treats only TSTS-proven global undefined as a nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers. csharp-js compat runtime tests prove TsValue reads sparse JSArray holes as the closed undefined carrier and preserves that behavior through length mutation. Remains partial until every nullish provider/API lane is classified and tested.",
+      "Reviewed proof: the C# backend treats only TSTS-proven global undefined as the nullish carrier and preserves the fail-closed distinction from ordinary identifiers; JS surface runtime tests prove undefined and nullish-returning helpers use closed runtime-owned carriers; compat TsValue tests prove missing properties, sparse JSArray holes, typeof, and typed-boundary casts are closed and deterministic; Node provider-package tests prove process.env string|undefined APIs become nullable target facts and runtime null results. Unsupported dynamic/provider cases diagnose instead of falling back to open reflection, dynamic dispatch, or emitted undefined identifiers.",
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
@@ -7112,6 +7135,8 @@ const reviewedCapabilityEvidence = Object.freeze({
   "carrier.union": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/runtime-union.test.mjs",
     ]),
@@ -7120,15 +7145,29 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "carrier.union remains partial until provider-owned union constituents, serialization boundaries, every supported narrowing pattern, and end-to-end old fixture parity are covered.",
-    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old C# emitter inventory has an expected-only in-operator stale architecture case mapped to runtime.union.carrier, not a source fixture for the current carrier.union capability",
+        "old fixture inventory contains nullable/nullish/narrowing fixtures and js-surface-node-date-union, but no bidirectional source fixture for explicit runtime Union<T...> carrier construction",
+      ]),
+      reviewerNotes:
+        "No direct historical old-suite source capability maps to the current explicit carrier.union contract. Current CLI, provider-fact, and runtime tests are stronger evidence because they prove finalized runtime-carrier facts, provider-owned union constituents, object-shape union arms, serialization boundaries, and fail-closed missing-carrier behavior.",
+    }),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: heterogeneous unions create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch conditions and values now emit IsN/AsN only by matching finalized storage union arms to TSTS-narrowed use-site carrier facts, not by source spelling. CLI proof executes generated C# programs that construct primitive/nullish union arms and discriminated object-shape union arms, read them through finalized branch projections, and print exact output. csharp-js adds a closed TsUnion compatibility wrapper for arities 2 through 8, including nullish arms and deterministic open-CLR-object rejection. Provider-owned union constituents, serialization boundaries, every supported narrowing pattern, and broader old fixture parity remain open.",
+      "Reviewed proof: heterogeneous unions create explicit Tsonic.CSharp.Runtime.Union<T...> carrier facts only after constituent carrier facts exist; narrowed branch conditions and values emit IsN/AsN only by matching finalized storage union arms to TSTS-narrowed use-site carrier facts, not by source spelling. CLI proof executes generated C# programs that construct primitive/nullish union arms and discriminated object-shape union arms, read them through finalized branch projections, and print exact output. Provider-package tests prove provider-owned union constituents from Node process APIs become selected nullable target facts, and csharp-js tests prove closed TsUnion compatibility wrappers, nullish arms, typed-boundary casts, deterministic open-CLR-object rejection, and JSON serialization of the active union arm.",
   }),
   "runtime.union.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/runtime-union.test.mjs",
+      "../tsonic-csharp/test/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
       "test/cli-build/runtime-union.test.mjs",
     ]),
@@ -7136,12 +7175,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/runtime-union.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
-    oldEvidence: Object.freeze([]),
-    blockers: Object.freeze([
-      "runtime.union.carrier remains partial until provider-owned union constituents, serialization boundaries, and target toolchain tests cover every supported narrowing pattern.",
+    oldEvidence: Object.freeze([
+      "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
+    blockers: Object.freeze([]),
     notes:
-      "Reviewed partial proof: the C# target records runtime union target identities for arities 2 through 8, rejects union type annotation emission without finalized carrier facts, preserves object-shape union-arm declarations, and emits generated Runtime.Union<T...> construction plus narrowed IsN/AsN arm tests/projections only from finalized storage/use-site carrier evidence. CLI proof runs generated primitive, nullish, and discriminated object-shape union projection code through dotnet run with exact output, not only dotnet build. csharp-js proves closed TsUnion boxing, nullish-arm propagation, typed-boundary casts back to Runtime.Union<T...>, and open CLR object rejection without reflection or dynamic dispatch. Provider-owned union constituents, serialization boundaries, and every supported narrowing pattern remain open.",
+      "Reviewed proof: the C# target records runtime union target identities for arities 2 through 8, rejects union type annotation emission without finalized carrier facts, preserves object-shape union-arm declarations, and emits generated Runtime.Union<T...> construction plus narrowed IsN/AsN arm tests/projections only from finalized storage/use-site carrier evidence. CLI proof runs generated primitive, nullish, and discriminated object-shape union projection code through dotnet run with exact output, not only dotnet build. Provider-package tests prove provider-owned union constituents from Node process APIs select nullable target facts, and csharp-js proves closed TsUnion boxing, nullish-arm propagation, JSON active-arm serialization, typed-boundary casts back to Runtime.Union<T...>, and open CLR object rejection without reflection or dynamic dispatch. The old in-operator expected-only case is mapped as stale architecture: current runtime-union lowering requires finalized facts and otherwise fails closed.",
   }),
   "compat.prototype-mutation": Object.freeze({
     positiveTests: Object.freeze([

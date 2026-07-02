@@ -262,8 +262,7 @@ test("capability ledger validator rejects missing or malformed lane classificati
 
 test("capability ledger validator rejects incomplete and blocked entries without lane metadata", () => {
   for (const status of ["partial", "not-started", "blocked"]) {
-    const entry = capabilityLedger.find((candidate) => candidate.status === status);
-    assert.notEqual(entry, undefined, `missing sample ${status} capability`);
+    const entry = sampleCapabilityWithStatus(status);
     assert.ok(
       validateCapabilityLedgerEntry({ ...entry, laneClassification: undefined })
         .includes("laneClassification must be an object"),
@@ -497,10 +496,10 @@ test("incomplete capabilities require explicit blocker evidence", () => {
 });
 
 test("capability ledger validator rejects missing blocker evidence", () => {
-  const partialEntry = capabilityLedger.find((entry) => entry.status === "partial");
   const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
-  assert.notEqual(partialEntry, undefined);
   assert.notEqual(completeEntry, undefined);
+  const partialEntry = capabilityLedger.find((entry) => entry.status === "partial") ??
+    { ...completeEntry, status: "partial", blockers: ["synthetic incomplete capability blocker"] };
 
   assert.ok(
     validateCapabilityLedgerEntry({ ...partialEntry, blockers: [] }).includes("partial capabilities must have blockers"),
@@ -1080,6 +1079,20 @@ function assertValidLaneBehavior(entry, fieldName, behavior) {
   assert.equal(typeof behavior, "object", `${entry.capabilityId} missing ${fieldName} lane behavior`);
   assert.equal(typeof behavior.lane, "string", `${entry.capabilityId} ${fieldName}.lane must be a string`);
   assert.equal(capabilityLaneSet.has(behavior.lane), true, `${entry.capabilityId} ${fieldName}.lane is invalid: ${behavior.lane}`);
+}
+
+function sampleCapabilityWithStatus(status) {
+  const existing = capabilityLedger.find((entry) => entry.status === status);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const completeEntry = capabilityLedger.find((entry) => entry.status === "complete");
+  assert.notEqual(completeEntry, undefined, `missing complete capability sample for synthetic ${status} validator coverage`);
+  return {
+    ...completeEntry,
+    status,
+    blockers: [`synthetic ${status} capability blocker`],
+  };
 }
 
 function sourceFilesUnder(root) {
