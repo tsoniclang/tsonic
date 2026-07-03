@@ -2,7 +2,7 @@ import type {
   TargetCompileResult,
   TargetDiagnostic,
   TargetPack,
-  TargetProviderPackageImplementation,
+  TargetCapabilityImplementation,
   TargetRegistry,
   TargetSelection,
   TargetSurfaceImplementation,
@@ -14,14 +14,16 @@ import {
   createTsonicSemanticSession,
   collectTstsDiagnostics,
 } from "./compiler-session.js";
+import { collectProjectModuleSpecifiers } from "./module-specifier-scan.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
-import { getMissingTargetProviderMessage, selectTargetProviderPackageImplementations, selectTargetSurfaceImplementations } from "./target/extensions.js";
+import { getMissingTargetProviderMessage, selectInstalledTargetCapabilities, selectTargetSurfaceImplementations } from "./target/extensions.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
   readonly projectFilePath: string;
   readonly registry: TargetRegistry;
+  readonly installedCapabilities?: readonly TargetCapabilityImplementation[];
 }
 
 export interface TargetBuildResult {
@@ -38,7 +40,7 @@ export interface ProjectBuildResult {
 interface TargetBuildPlan {
   readonly target: TargetSelection;
   readonly targetPack?: TargetPack;
-  readonly selectedPackages?: readonly TargetProviderPackageImplementation[];
+  readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
   readonly diagnostics: readonly TargetDiagnostic[];
 }
@@ -48,6 +50,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   const targets: TargetBuildResult[] = [];
   const diagnostics: TargetDiagnostic[] = [];
   const buildPlans: TargetBuildPlan[] = [];
+  let moduleSpecifiers: readonly string[] | undefined;
   for (const target of input.project.targets) {
     const targetPack = getRequiredTargetPack(input.registry, target);
     if (isTargetDiagnostic(targetPack)) {
@@ -59,17 +62,18 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
       continue;
     }
-    const selectedPackages = getTargetSelectedProviderPackages(targetPack, target, selectedSurfaces);
-    if (isTargetDiagnostic(selectedPackages)) {
-      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedPackages] });
+    moduleSpecifiers ??= collectProjectModuleSpecifiers(paths.projectRoot, paths.outputRoot);
+    const selectedCapabilities = getTargetSelectedCapabilities(input.installedCapabilities ?? [], targetPack, target, selectedSurfaces, moduleSpecifiers);
+    if (isTargetDiagnostic(selectedCapabilities)) {
+      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedCapabilities] });
       continue;
     }
     const providerDiagnostic = getTargetProviderDiagnostic(targetPack, target);
     if (providerDiagnostic !== undefined) {
-      buildPlans.push({ target, targetPack, selectedPackages, selectedSurfaces, diagnostics: [providerDiagnostic] });
+      buildPlans.push({ target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: [providerDiagnostic] });
       continue;
     }
-    buildPlans.push({ target, targetPack, selectedPackages, selectedSurfaces, diagnostics: [] });
+    buildPlans.push({ target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: [] });
   }
   if (buildPlans.every((plan) => hasBlockingDiagnostics(plan.diagnostics))) {
     pushDiagnosticOnlyTargets(buildPlans, targets, diagnostics);
@@ -79,12 +83,12 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     };
   }
   const created = createProgramOptionsForProject(input);
-  for (const { target, targetPack, selectedPackages, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
+  for (const { target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
     if (hasBlockingDiagnostics(planDiagnostics)) {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, planDiagnostics);
       continue;
     }
-    if (targetPack === undefined || selectedPackages === undefined || selectedSurfaces === undefined) {
+    if (targetPack === undefined || selectedCapabilities === undefined || selectedSurfaces === undefined) {
       throw new Error(`Target '${target.id}' build planning produced no provider-backed target pack.`);
     }
     const session = createTsonicSemanticSession({
@@ -92,7 +96,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       project: input.project,
       target,
       targetPack,
-      selectedPackages,
+      selectedCapabilities,
       selectedSurfaces,
     });
     const tstsDiagnostics = collectTstsDiagnostics(session, paths.projectRoot);
@@ -113,7 +117,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       project: input.project,
       target,
       targetPack,
-      selectedPackages,
+      selectedCapabilities,
       selectedSurfaces,
       paths: targetPaths,
     });
@@ -204,21 +208,23 @@ function getTargetSelectedSurfaces(
   return result.selectedSurfaces;
 }
 
-function getTargetSelectedProviderPackages(
+function getTargetSelectedCapabilities(
+  installedCapabilities: readonly TargetCapabilityImplementation[],
   targetPack: TargetPack,
   target: TargetSelection,
   selectedSurfaces: readonly TargetSurfaceImplementation[],
-): readonly TargetProviderPackageImplementation[] | TargetDiagnostic {
-  const result = selectTargetProviderPackageImplementations(targetPack, target, selectedSurfaces);
+  moduleSpecifiers: readonly string[],
+): readonly TargetCapabilityImplementation[] | TargetDiagnostic {
+  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces, moduleSpecifiers);
   if ("error" in result) {
     return {
-      code: "TARGET_PROVIDER_PACKAGE_SELECTION",
+      code: "TARGET_CAPABILITY_SELECTION",
       category: "error",
       message: result.error,
       source: targetPack.id,
     };
   }
-  return result.selectedPackages;
+  return result.selectedCapabilities;
 }
 
 function getTargetProviderDiagnostic(

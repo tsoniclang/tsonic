@@ -9,7 +9,9 @@
     "build:quick": "./scripts/build/all.sh --no-format",
     "clean": "./scripts/build/clean.sh",
     "clean:all": "./scripts/build/clean.sh --all",
-    "test": "npm run build && node --test test/*.test.mjs test/cli/*.test.mjs",
+    "test": "npm run test:prepare && npm run test:prepared",
+    "test:prepare": "bash scripts/test/prepare.sh",
+    "test:prepared": "node scripts/test/run-prepared.mjs",
     "typecheck": "npm run build"
   },
   "workspaces": [

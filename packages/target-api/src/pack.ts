@@ -18,16 +18,20 @@ import type {
 } from "./analysis/types.js";
 import type {
   TargetSelection,
-  TargetProviderPackageId,
   TargetSurfaceId,
   TsonicProjectConfig,
 } from "./config.js";
+import type {
+  TargetCapabilityOperationMapper,
+  TargetCapabilityRuntimeContributionContext,
+  TsonicTargetCapabilityPlugin,
+} from "./plugins.js";
 
 export interface TargetProviderContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
-  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
 
@@ -37,20 +41,11 @@ export interface TargetProviderModuleOwnership {
   readonly message?: string;
 }
 
-export interface TargetProviderPackageContext {
-  readonly project: TsonicProjectConfig;
-  readonly target: TargetSelection;
-  readonly targetPack: TargetPack;
-  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
-  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
-  readonly package: TargetProviderPackageImplementation;
-}
-
 export interface TargetSurfaceExtensionContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
-  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly surface: TargetSurfaceImplementation;
 }
@@ -75,7 +70,7 @@ export interface TargetCompilationPaths {
 export interface TargetRuntimeContributionContext {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
-  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
 }
@@ -205,15 +200,9 @@ export interface TargetProvider {
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
 
-export interface TargetProviderPackageImplementation {
-  readonly id: TargetProviderPackageId;
-  readonly displayName: string;
-  readonly requiredPackages?: readonly TargetProviderPackageId[];
-  readonly requiredSurfaces?: readonly TargetSurfaceId[];
-  readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
-  createExtensions(context: TargetProviderPackageContext): readonly CompilerExtension[];
-  runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
-}
+export type TargetCapabilityImplementation = TsonicTargetCapabilityPlugin;
+export type TargetCapabilityMapper = TargetCapabilityOperationMapper;
+export type TargetCapabilityRuntimeContext = TargetCapabilityRuntimeContributionContext;
 
 export interface TargetSurfaceImplementation {
   readonly id: TargetSurfaceId;
@@ -227,7 +216,6 @@ export interface TargetPack {
   readonly id: string;
   readonly displayName: string;
   readonly provider?: TargetProvider;
-  readonly packages?: readonly TargetProviderPackageImplementation[];
   readonly surfaces?: readonly TargetSurfaceImplementation[];
   createBackend(context: TargetBackendContext): TargetBackend;
   createToolchain(context: TargetToolchainContext): TargetToolchain;

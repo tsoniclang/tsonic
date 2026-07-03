@@ -1,17 +1,14 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { compileProject, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
+import { compileProject, discoverInstalledTsonicPlugins, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
 import type { ProjectBuildResult } from "@tsonic/host";
-import { createStandardTargetRegistry } from "./standard-targets.js";
 
 interface CliResult {
   readonly exitCode: number;
   readonly stdout?: string;
   readonly stderr?: string;
 }
-
-const registry = createStandardTargetRegistry();
 
 const result = await run(process.argv.slice(2), process.cwd()).catch((error: unknown): CliResult => ({
   exitCode: 1,
@@ -34,9 +31,18 @@ export async function run(args: readonly string[], currentDirectory: string): Pr
     };
   }
   if (command === "targets") {
+    const projectPath = resolve(currentDirectory, readProjectPath(args.slice(1)));
+    const plugins = await discoverInstalledTsonicPlugins(projectPath);
+    const errors = plugins.diagnostics.filter((diagnostic) => diagnostic.category === "error");
+    if (errors.length > 0) {
+      return {
+        exitCode: 1,
+        stderr: errors.map(formatDiagnostic).join("\n") + "\n",
+      };
+    }
     return {
       exitCode: 0,
-      stdout: registry.packs.map((pack) => `${pack.id}\t${pack.displayName}`).join("\n") + "\n",
+      stdout: plugins.targets.map((target) => `${target.targetId}\t${target.id}`).join("\n") + "\n",
     };
   }
   if (command !== "build") {
@@ -52,10 +58,19 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
   const projectPath = resolve(currentDirectory, readProjectPath(args));
   const text = await readFile(projectPath, "utf8");
   const config = parseTsonicProjectConfig(JSON.parse(text));
+  const plugins = await discoverInstalledTsonicPlugins(projectPath);
+  if (plugins.diagnostics.some((diagnostic) => diagnostic.category === "error")) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: plugins.diagnostics.map(formatDiagnostic).join("\n") + "\n",
+    };
+  }
   const buildResult = compileProject({
     project: config,
     projectFilePath: projectPath,
-    registry,
+    registry: plugins.createTargetRegistry(),
+    installedCapabilities: plugins.capabilities,
   });
   await writeBuildArtifacts(projectPath, config, buildResult);
   const diagnostics = buildResult.diagnostics.filter((diagnostic) => diagnostic.category === "error");

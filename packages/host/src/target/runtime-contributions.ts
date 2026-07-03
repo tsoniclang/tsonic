@@ -3,7 +3,7 @@ import type {
   TargetCompilationPaths,
   TargetDiagnostic,
   TargetPack,
-  TargetProviderPackageImplementation,
+  TargetCapabilityImplementation,
   TargetRuntimeContributions,
   TargetRuntimeReference,
   TargetSelection,
@@ -16,7 +16,7 @@ export interface CollectTargetRuntimeContributionsOptions {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
-  readonly selectedPackages: readonly TargetProviderPackageImplementation[];
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
 }
@@ -32,14 +32,21 @@ export function collectTargetRuntimeContributions(options: CollectTargetRuntimeC
   const context = {
     project: options.project,
     target: options.target,
-    selectedPackages: options.selectedPackages,
+    selectedCapabilities: options.selectedCapabilities,
     selectedSurfaces: options.selectedSurfaces,
     paths: options.paths,
+  };
+  const capabilityContext = {
+    ...context,
+    targetPack: options.targetPack,
   };
   return mergeRuntimeContributions(
     [
       provider.runtimeContributions?.(context),
-      ...options.selectedPackages.map((providerPackage) => providerPackage.runtimeContributions?.(context)),
+      ...options.selectedCapabilities.map((capability) => capability.runtimeContributions?.({
+        ...capabilityContext,
+        capability,
+      })),
       ...options.selectedSurfaces.map((surface) => surface.runtimeContributions(context)),
     ],
     options.targetPack.id,

@@ -10,7 +10,6 @@ export type {
 } from "./artifacts.js";
 export type {
   TargetId,
-  TargetProviderPackageId,
   TargetSelection,
   TargetSelectionOptions,
   TargetSurfaceId,
@@ -20,9 +19,16 @@ export type {
 export {
   getTargetIdValidationMessage,
   isValidTargetId,
-  isValidTargetProviderPackageId,
   isValidTargetSurfaceId,
 } from "./config.js";
+export type {
+  TargetCapabilityContext,
+  TargetCapabilityOperationMapper,
+  TargetCapabilityRuntimeContributionContext,
+  TsonicPlugin,
+  TsonicTargetCapabilityPlugin,
+  TsonicTargetPlugin,
+} from "./plugins.js";
 export type {
   TargetLazySourceAnalysis,
   TargetSourceAccessKind,
@@ -49,9 +55,10 @@ export type {
   TargetCompileInput,
   TargetFactQueries,
   TargetPack,
+  TargetCapabilityImplementation,
+  TargetCapabilityMapper,
+  TargetCapabilityRuntimeContext,
   TargetProvider,
-  TargetProviderPackageContext,
-  TargetProviderPackageImplementation,
   TargetProviderModuleOwnership,
   TargetProviderContext,
   TargetProjectSourceModuleDependency,

@@ -65,10 +65,10 @@ test("downstream smoke simple apps compile and run without old runtime reflectio
     {
       name: "node-provider-package-app",
       assemblyName: "SmokeGeneratedDownstreamNode",
+      packageJson: targetCsharpNodejsPackageJson("downstream-node-provider-package-app"),
       target: {
         id: "csharp",
         surfaces: ["js"],
-        packages: ["nodejs"],
         options: {
           namespace: "Smoke.Generated",
           assemblyName: "SmokeGeneratedDownstreamNode",
@@ -93,6 +93,7 @@ test("downstream smoke simple apps compile and run without old runtime reflectio
   for (const scenario of scenarios) {
     const projectDirectory = resolve(tempRoot, `downstream-smoke-${scenario.name}`);
     await writeProject(projectDirectory, {
+      ...(scenario.packageJson === undefined ? {} : { "package.json": scenario.packageJson }),
       "tsonic.json": JSON.stringify({
         entryPoint: "index.ts",
         rootDir: "src",
@@ -303,6 +304,14 @@ test("downstream provider package imports fail closed when the package is not se
   const assemblyName = "SmokeGeneratedDownstreamUnselectedPackage";
   const projectDirectory = resolve(tempRoot, "downstream-unselected-provider-package");
   await writeProject(projectDirectory, {
+    "package.json": JSON.stringify({
+      name: "tsonic-test-downstream-unselected-provider-package",
+      type: "module",
+      private: true,
+      dependencies: {
+        "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      },
+    }, null, 2),
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -348,7 +357,7 @@ async function assertRuntimePackagesHaveNoReflectionSemantics() {
   const runtimeSourceDirectories = [
     resolve("../csharp-runtime/src"),
     resolve("../csharp-js/src"),
-    resolve("../csharp-nodejs/src"),
+    resolve("../csharp-nodejs/csharp/src"),
   ];
   const files = (await Promise.all(runtimeSourceDirectories.map((directory) =>
     collectFiles(directory, (fileName) => fileName.endsWith(".cs"))
@@ -360,6 +369,18 @@ async function assertRuntimePackagesHaveNoReflectionSemantics() {
       assert.doesNotMatch(text, pattern, `${file} contains banned runtime semantic ${pattern}`);
     }
   }
+}
+
+function targetCsharpNodejsPackageJson(name) {
+  return JSON.stringify({
+    name: `tsonic-test-${name}`,
+    type: "module",
+    private: true,
+    dependencies: {
+      "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      "@tsonic/csharp-nodejs": "file:../../../../csharp-nodejs",
+    },
+  }, null, 2);
 }
 
 async function collectFiles(directory, includeFile, result = []) {

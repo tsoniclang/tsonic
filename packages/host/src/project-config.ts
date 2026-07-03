@@ -1,4 +1,4 @@
-import { getTargetIdValidationMessage, isValidTargetId, isValidTargetProviderPackageId, isValidTargetSurfaceId } from "@tsonic/target-api";
+import { getTargetIdValidationMessage, isValidTargetId, isValidTargetSurfaceId } from "@tsonic/target-api";
 import type { TargetSelection, TsonicProjectConfig } from "@tsonic/target-api";
 
 export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
@@ -40,11 +40,9 @@ function readTargets(value: unknown): readonly TargetSelection[] {
     if (options !== undefined && !isRecord(options)) {
       throw new Error(`Target '${id}' options must be an object.`);
     }
-    const packages = readOptionalPackages(target, id);
     const surfaces = readOptionalSurfaces(target, id);
     return {
       id,
-      ...(packages !== undefined ? { packages } : {}),
       ...(surfaces !== undefined ? { surfaces } : {}),
       ...(options !== undefined ? { options } : {}),
     };
@@ -65,7 +63,10 @@ function rejectUnsupportedCompilerConfigKeys(value: Readonly<Record<string, unkn
 }
 
 function rejectUnknownTargetKeys(value: Readonly<Record<string, unknown>>, index: number): void {
-  rejectUnknownKeys(value, new Set(["id", "packages", "surfaces", "options"]), `Target at index ${index}`);
+  if (value.packages !== undefined) {
+    throw new Error(`Target at index ${index} has unsupported field 'packages'. Install a Tsonic target capability package instead.`);
+  }
+  rejectUnknownKeys(value, new Set(["id", "surfaces", "options"]), `Target at index ${index}`);
 }
 
 function rejectUnknownKeys(value: Readonly<Record<string, unknown>>, allowedKeys: ReadonlySet<string>, subject: string): void {
@@ -115,30 +116,6 @@ function readOptionalSurfaces(value: Readonly<Record<string, unknown>>, targetId
     }
     seen.add(surface);
     return surface;
-  });
-}
-
-function readOptionalPackages(value: Readonly<Record<string, unknown>>, targetId: string): readonly string[] | undefined {
-  const field = value.packages;
-  if (field === undefined) {
-    return undefined;
-  }
-  if (!Array.isArray(field)) {
-    throw new Error(`Target '${targetId}' packages must be an array of non-empty strings.`);
-  }
-  const seen = new Set<string>();
-  return field.map((providerPackage, index) => {
-    if (typeof providerPackage !== "string" || providerPackage.length === 0) {
-      throw new Error(`Target '${targetId}' package at index ${index} must be a non-empty string.`);
-    }
-    if (!isValidTargetProviderPackageId(providerPackage)) {
-      throw new Error(getTargetIdValidationMessage(`Target '${targetId}' package '${providerPackage}'`));
-    }
-    if (seen.has(providerPackage)) {
-      throw new Error(`Target '${targetId}' package '${providerPackage}' is declared more than once.`);
-    }
-    seen.add(providerPackage);
-    return providerPackage;
   });
 }
 

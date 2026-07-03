@@ -18,7 +18,7 @@ import type {
   TargetCompileResult,
   TargetCompilationPaths,
   TargetPack,
-  TargetProviderPackageImplementation,
+  TargetCapabilityImplementation,
   TargetRuntimeReference,
   TargetSelection,
   TargetSurfaceImplementation,
@@ -41,6 +41,7 @@ export type {
 export {
   createTargetCompilerExtensions,
   getSelectedSurfaceImplementations,
+  getSelectedTargetCapabilities,
   getTargetRequiredProviderModules,
 } from "./target/extensions.js";
 export type {
@@ -65,18 +66,18 @@ export interface CreateTsonicSemanticSessionOptions {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
-  readonly selectedPackages?: readonly TargetProviderPackageImplementation[];
+  readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
 }
 
 export function createTsonicSemanticSession(options: CreateTsonicSemanticSessionOptions): TsonicSemanticSession {
-  const { extensions, selectedPackages } = createTargetCompilerExtensions(options);
+  const { extensions, selectedCapabilities } = createTargetCompilerExtensions(options);
   const compiler = createCompilerSession({
     programOptions: options.programOptions,
     extensionHostOptions: {
       activeTarget: options.target.id,
       extensions,
-      requiredProviderModules: getTargetRequiredProviderModules(options.targetPack, options.target, selectedPackages),
+      requiredProviderModules: getTargetRequiredProviderModules(options.targetPack, options.target, selectedCapabilities),
     },
   });
   if (compiler.program === undefined) {

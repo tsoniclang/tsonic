@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
@@ -90,9 +90,12 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "utf8");
-  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
-  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Node");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double normalize\(double value\)/);
@@ -279,7 +282,8 @@ test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardJsonStringify.csproj"), "utf8");
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string stringifyText\(string value\)/);
@@ -349,9 +353,12 @@ test("CLI compiles existing TypeScript JS-surface utility code when JS surface i
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsSurfaceUtilityCode.csproj"), "utf8");
-  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
-  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Node");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> appendTag\(System\.Collections\.Generic\.List<string> tags, string tag\)/);
@@ -434,9 +441,12 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedMapSetSurfaceOperations.csproj"), "utf8");
-  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
-  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Node");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static bool countHas\(string key\)/);
@@ -1666,8 +1676,10 @@ test("CLI emits Date calls through provider-backed JS runtime carriers", async (
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedDateRuntimeCarrier.csproj"), "utf8");
-  assert.match(generatedProject, /Tsonic\.CSharp\.Runtime\.csproj/);
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Date date = new Tsonic\.CSharp\.Js\.Date\(Tsonic\.CSharp\.Js\.Date\.UTC\(2023, 5, 15, 12, 30, 45, 123\)\);/);

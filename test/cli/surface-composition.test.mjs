@@ -87,61 +87,61 @@ test("host passes selected surfaces to the single target provider", () => {
   assert.equal(composition.extensions[1], targetExtension);
 });
 
-test("host composes selected provider packages between target provider and surfaces", () => {
+test("host composes installed target capabilities between target provider and surfaces", () => {
   const events = [];
   const targetExtension = { name: "target" };
-  const acmeExtension = { name: "package-acme" };
-  const helpersExtension = { name: "package-helpers" };
+  const acmeExtension = { name: "capability-acme" };
+  const helpersExtension = { name: "capability-helpers" };
   const jsExtension = { name: "surface-js" };
+  const acme = createFakeTargetCapability("acme", { events, extension: acmeExtension });
+  const helpers = createFakeTargetCapability("helpers", { events, extension: helpersExtension });
   const targetPack = createFakeTargetPack(events, {
     targetExtension,
-    packages: [
-      createFakeProviderPackage("acme", { events, extension: acmeExtension }),
-      createFakeProviderPackage("helpers", { events, requiredPackages: ["acme"], extension: helpersExtension }),
-      createFakeProviderPackage("unused", { events, extension: { name: "unused" } }),
-    ],
     surfaces: [
       createFakeSurface("js", { events, extension: jsExtension }),
     ],
   });
   const project = parseTsonicProjectConfig({
     entryPoint: "index.ts",
-    targets: [{ id: "demo", packages: ["acme", "helpers"], surfaces: ["js"] }],
+    targets: [{ id: "demo", surfaces: ["js"] }],
   });
   const target = project.targets[0];
 
-  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+  const composition = createTargetCompilerExtensions({
+    project,
+    target,
+    targetPack,
+    selectedCapabilities: [acme, helpers],
+  });
 
-  assert.deepEqual(composition.selectedPackages.map((providerPackage) => providerPackage.id), ["acme", "helpers"]);
+  assert.deepEqual(composition.selectedCapabilities.map((capability) => capability.id), ["acme", "helpers"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
   assert.deepEqual(events, [
     "provider:demo:surfaces=js",
-    "package-extension:acme:target=demo:packages=acme,helpers",
-    "package-extension:helpers:target=demo:packages=acme,helpers",
+    "capability-extension:acme:target=demo:capabilities=acme,helpers",
+    "capability-extension:helpers:target=demo:capabilities=acme,helpers",
     "surface-extension:js:target=demo:surfaces=js",
   ]);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "package-acme", "package-helpers", "surface-js"]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "capability-acme", "capability-helpers", "surface-js"]);
 });
 
-test("host composes selected provider packages as provider-owned virtual modules", async () => {
+test("host composes installed target capabilities as provider-owned virtual modules", async () => {
   const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeVirtualProviderPackage("acme", {
-        events,
-        moduleOwnership: [
-          { specifierPrefix: "@acme/native/" },
-          { specifierPrefix: "@acme/alias/" },
-        ],
-      }),
+  const acme = createFakeVirtualTargetCapability("acme", {
+    events,
+    moduleOwnership: [
+      { specifierPrefix: "@acme/native/" },
+      { specifierPrefix: "@acme/alias/" },
     ],
   });
-  const projectDirectory = resolve(tempRoot, "selected-provider-package-virtual-modules");
+  const targetPack = createFakeTargetPack(events, {
+  });
+  const projectDirectory = resolve(tempRoot, "selected-target-capability-virtual-modules");
   const projectConfig = {
     entryPoint: "src/index.ts",
     rootDir: ".",
     outDir: "out",
-    targets: [{ id: "demo", packages: ["acme"] }],
+    targets: [{ id: "demo" }],
   };
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),
@@ -155,7 +155,7 @@ test("host composes selected provider packages as provider-owned virtual modules
     ].join("\n"),
   });
 
-  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
+  const session = createSemanticSession(projectDirectory, projectConfig, targetPack, [acme]);
   const diagnostics = collectTstsDiagnostics(session, projectDirectory);
   const virtualFacts = session.compiler.getSourceFiles()
     .filter((sourceFile) => sourceFile !== undefined && session.ast.getFileName(sourceFile).startsWith("tsts-provider://"))
@@ -339,125 +339,6 @@ function createPortableOperationFactsExtension() {
   };
 }
 
-test("host reports unselected provider package modules without file fallback", async () => {
-  const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeVirtualProviderPackage("acme", {
-        events,
-        moduleOwnership: [
-          { specifierPrefix: "@acme/native/" },
-        ],
-      }),
-    ],
-  });
-  const projectDirectory = resolve(tempRoot, "unselected-provider-package-virtual-module");
-  const projectConfig = {
-    entryPoint: "src/index.ts",
-    rootDir: ".",
-    outDir: "out",
-    targets: [{ id: "demo" }],
-  };
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify(projectConfig, null, 2),
-    "src/index.ts": "import { named } from \"@acme/native/named.js\";\nexport const result = named;\n",
-    "node_modules/@acme/native/package.json": JSON.stringify({
-      name: "@acme/native",
-      type: "module",
-      exports: {
-        "./named.js": "./named.ts",
-      },
-    }, null, 2),
-    "node_modules/@acme/native/named.ts": "export const named = 12345;\n",
-  });
-
-  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
-
-  assert.equal(events.some((event) => event.startsWith("package-extension:acme")), false);
-  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
-  assert.equal(
-    diagnostics.some((diagnostic) =>
-      /provider package 'acme' must be selected to import provider module prefix '@acme\/native\/'/.test(diagnostic.message)
-    ),
-    true,
-  );
-});
-
-test("host reports duplicate selected provider package module owners", async () => {
-  const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeVirtualProviderPackage("acme", {
-        events,
-        moduleOwnership: [{ specifierPrefix: "@acme/shared/" }],
-      }),
-      createFakeVirtualProviderPackage("helpers", {
-        events,
-        moduleOwnership: [{ specifierPrefix: "@acme/shared/" }],
-      }),
-    ],
-  });
-  const projectDirectory = resolve(tempRoot, "duplicate-provider-package-module-owner");
-  const projectConfig = {
-    entryPoint: "src/index.ts",
-    rootDir: ".",
-    outDir: "out",
-    targets: [{ id: "demo", packages: ["acme", "helpers"] }],
-  };
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify(projectConfig, null, 2),
-    "src/index.ts": "import { named } from \"@acme/shared/named.js\";\nexport const result = named;\n",
-  });
-
-  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
-
-  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
-  assert.equal(
-    diagnostics.some((diagnostic) =>
-      /Multiple target binding providers claim module '@acme\/shared\/named\.js': acme-provider, helpers-provider/.test(diagnostic.message)
-    ),
-    true,
-  );
-});
-
-test("host reports selected provider package unsupported modules as provider diagnostics", async () => {
-  const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeVirtualProviderPackage("acme", {
-        events,
-        moduleOwnership: [{ specifierPrefix: "@acme/native/" }],
-      }),
-    ],
-  });
-  const projectDirectory = resolve(tempRoot, "unsupported-provider-package-module");
-  const projectConfig = {
-    entryPoint: "src/index.ts",
-    rootDir: ".",
-    outDir: "out",
-    targets: [{ id: "demo", packages: ["acme"] }],
-  };
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify(projectConfig, null, 2),
-    "src/index.ts": "import { named } from \"@acme/native/unsupported.js\";\nexport const result = named;\n",
-  });
-
-  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const diagnostics = collectTstsDiagnostics(session, projectDirectory);
-
-  assert.equal(diagnostics.some((diagnostic) => diagnostic.category === "error"), true);
-  assert.equal(
-    diagnostics.some((diagnostic) =>
-      /Provider package 'acme' does not support module '@acme\/native\/unsupported\.js'/.test(diagnostic.message)
-    ),
-    true,
-    JSON.stringify(diagnostics.map((diagnostic) => diagnostic.message), null, 2),
-  );
-  assert.equal(events.some((event) => event.startsWith("provider-resolve:acme:@acme/native/unsupported.js:")), true);
-});
-
 test("host composes target provider extensions before selected surface extensions", () => {
   const events = [];
   const targetExtension = { name: "target" };
@@ -638,73 +519,6 @@ test("host reports missing target provider as target diagnostic", async () => {
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 
-test("host reports unknown requested provider package as target diagnostic", async () => {
-  const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeProviderPackage("acme", { events }),
-    ],
-  });
-
-  const result = await compileFakeProject("unknown-provider-package", targetPack, {
-    id: "demo",
-    packages: ["not-real"],
-  });
-
-  assert.equal(result.diagnostics.length, 1);
-  assert.deepEqual(events, []);
-  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
-  assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(result.diagnostics[0].message, "target 'demo' does not implement requested provider package 'not-real'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
-});
-
-test("host reports missing selected provider package dependency as target diagnostic", async () => {
-  const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeProviderPackage("acme", { events }),
-      createFakeProviderPackage("helpers", { events, requiredPackages: ["acme"] }),
-    ],
-  });
-
-  const result = await compileFakeProject("missing-provider-package-dependency", targetPack, {
-    id: "demo",
-    packages: ["helpers"],
-  });
-
-  assert.deepEqual(events, []);
-  assert.equal(result.diagnostics.length, 1);
-  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
-  assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(result.diagnostics[0].message, "target 'demo' provider package 'helpers' requires provider package 'acme'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
-});
-
-test("host reports missing provider package surface dependency as target diagnostic", async () => {
-  const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    packages: [
-      createFakeProviderPackage("nodejs", { events, requiredSurfaces: ["js"] }),
-    ],
-    surfaces: [
-      createFakeSurface("js"),
-    ],
-  });
-
-  const result = await compileFakeProject("missing-provider-package-surface-dependency", targetPack, {
-    id: "demo",
-    packages: ["nodejs"],
-  });
-
-  assert.deepEqual(events, []);
-  assert.equal(result.diagnostics.length, 1);
-  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER_PACKAGE_SELECTION");
-  assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(result.diagnostics[0].message, "target 'demo' provider package 'nodejs' requires surface 'js'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
-});
-
 test("host reports missing selected surface dependency as target diagnostic", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
@@ -747,18 +561,11 @@ test("host rejects unsafe configured target and surface identifiers", () => {
       entryPoint: "index.ts",
       targets: [{ id: "csharp", packages: ["../native"] }],
     }),
-    /Target 'csharp' package '\.\.\/native' must match/,
-  );
-  assert.throws(
-    () => parseTsonicProjectConfig({
-      entryPoint: "index.ts",
-      targets: [{ id: "csharp", packages: ["native", "native"] }],
-    }),
-    /Target 'csharp' package 'native' is declared more than once/,
+    /Target at index 0 has unsupported field 'packages'\. Install a Tsonic target capability package instead\./,
   );
 });
 
-test("target registry rejects unsafe pack, provider package, and required surface identifiers", () => {
+test("target registry rejects unsafe pack and required surface identifiers", () => {
   assert.throws(
     () => createTargetRegistry([
       createFakeTargetPack([], { id: "../csharp" }),
@@ -778,56 +585,12 @@ test("target registry rejects unsafe pack, provider package, and required surfac
   assert.throws(
     () => createTargetRegistry([
       createFakeTargetPack([], {
-        packages: [
-          createFakeProviderPackage("../native"),
-        ],
-      }),
-    ]),
-    /provider package id '\.\.\/native' must match/,
-  );
-  assert.throws(
-    () => createTargetRegistry([
-      createFakeTargetPack([], {
-        packages: [
-          createFakeProviderPackage("native", { requiredPackages: ["../core"] }),
-        ],
-      }),
-    ]),
-    /required package id '\.\.\/core' must match/,
-  );
-  assert.throws(
-    () => createTargetRegistry([
-      createFakeTargetPack([], {
-        packages: [
-          createFakeProviderPackage("native", { requiredSurfaces: ["../js"] }),
-        ],
-      }),
-    ]),
-    /required surface id '\.\.\/js' must match/,
-  );
-  assert.throws(
-    () => createTargetRegistry([
-      createFakeTargetPack([], {
         providerModuleOwnership: [
           { specifierPrefix: "../native/" },
         ],
       }),
     ]),
     /provider module ownership prefix '\.\.\/native\/' must be a non-empty bare\/package\/URL-style ESM specifier prefix/,
-  );
-  assert.throws(
-    () => createTargetRegistry([
-      createFakeTargetPack([], {
-        packages: [
-          createFakeProviderPackage("native", {
-            moduleOwnership: [
-              { specifierPrefix: "./native/" },
-            ],
-          }),
-        ],
-      }),
-    ]),
-    /provider package 'native' module ownership prefix '\.\/native\/' must be a non-empty bare\/package\/URL-style ESM specifier prefix/,
   );
 });
 
@@ -918,28 +681,27 @@ test("host composes provider, selected surface, and backend artifacts for toolch
   assert.ok(events.indexOf("backend:demo") < events.indexOf("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"));
 });
 
-test("host composes selected provider package runtime artifacts before surfaces and backend", async () => {
+test("host composes selected target capability runtime artifacts before surfaces and backend", async () => {
   const events = [];
+  const acme = createFakeVirtualTargetCapability("acme", {
+    events,
+    artifacts: [
+      createFakeArtifact("asset", "runtime/acme.txt", "acme"),
+    ],
+    references: [
+      createFakeReference("project", "../acme/Acme.csproj"),
+    ],
+  });
+  const unused = createFakeVirtualTargetCapability("unused", {
+    events,
+    moduleOwnership: [{ specifierPrefix: "@unused/native/" }],
+    artifacts: [
+      createFakeArtifact("asset", "runtime/unused.txt", "unused"),
+    ],
+  });
   const targetPack = createFakeTargetPack(events, {
     providerArtifacts: [
       createFakeArtifact("asset", "runtime/provider.txt", "provider"),
-    ],
-    packages: [
-      createFakeProviderPackage("acme", {
-        events,
-        artifacts: [
-          createFakeArtifact("asset", "runtime/acme.txt", "acme"),
-        ],
-        references: [
-          createFakeReference("project", "../acme/Acme.csproj"),
-        ],
-      }),
-      createFakeProviderPackage("unused", {
-        events,
-        artifacts: [
-          createFakeArtifact("asset", "runtime/unused.txt", "unused"),
-        ],
-      }),
     ],
     backendArtifacts: [
       createFakeArtifact("source", "src/App.demo", "backend"),
@@ -954,10 +716,12 @@ test("host composes selected provider package runtime artifacts before surfaces 
     ],
   });
 
-  const result = await compileFakeProject("provider-package-runtime-artifact-composition", targetPack, {
+  const result = await compileFakeProject("target-capability-runtime-artifact-composition", targetPack, {
     id: "demo",
-    packages: ["acme"],
     surfaces: ["js"],
+  }, {
+    installedCapabilities: [acme, unused],
+    source: "import { named } from \"@acme/native/named.js\";\nexport const value = named;\n",
   });
 
   assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
@@ -968,14 +732,15 @@ test("host composes selected provider package runtime artifacts before surfaces 
   ]);
   assert.deepEqual(events, [
     "provider:demo:surfaces=js",
-    "package-extension:acme:target=demo:packages=acme",
+    "capability-extension:acme:target=demo:capabilities=acme",
+    "provider-resolve:acme:@acme/native/named.js:named:named as named",
     "provider-runtime:demo",
-    "package-runtime:acme",
+    "capability-runtime:acme",
     "surface-runtime:js",
     "backend:demo",
     "toolchain:demo:artifacts=runtime/provider.txt,runtime/acme.txt,runtime/js.txt,src/App.demo",
   ]);
-  assert.equal(events.includes("package-runtime:unused"), false);
+  assert.equal(events.includes("capability-runtime:unused"), false);
 });
 
 test("host omits surface runtime artifacts when no surface is selected", async () => {
@@ -1586,7 +1351,7 @@ test("host rejects declaration entrypoints before semantic input creation", () =
   );
 });
 
-async function compileFakeProject(name, targetPack, targetSelection) {
+async function compileFakeProject(name, targetPack, targetSelection, options = {}) {
   const projectDirectory = resolve(tempRoot, name);
   const projectConfig = {
     entryPoint: "index.ts",
@@ -1596,16 +1361,17 @@ async function compileFakeProject(name, targetPack, targetSelection) {
   };
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),
-    "src/index.ts": "export const value = 1;\n",
+    "src/index.ts": options.source ?? "export const value = 1;\n",
   });
   return compileProject({
     project: parseTsonicProjectConfig(projectConfig),
     projectFilePath: resolve(projectDirectory, "tsonic.json"),
     registry: createRegistry(targetPack),
+    installedCapabilities: options.installedCapabilities ?? [],
   });
 }
 
-function createSemanticSession(projectDirectory, projectConfig, targetPack) {
+function createSemanticSession(projectDirectory, projectConfig, targetPack, selectedCapabilities = []) {
   const project = parseTsonicProjectConfig(projectConfig);
   const programOptions = createProgramOptionsForProject({
     project,
@@ -1616,6 +1382,7 @@ function createSemanticSession(projectDirectory, projectConfig, targetPack) {
     project,
     target: project.targets[0],
     targetPack,
+    selectedCapabilities,
   });
 }
 
@@ -1709,7 +1476,6 @@ function createFakeTargetPack(events, options = {}) {
             },
           },
         }),
-    packages: options.packages ?? [],
     surfaces: options.surfaces ?? [],
     createBackend() {
       return {
@@ -1741,20 +1507,20 @@ function createFakeTargetPack(events, options = {}) {
   };
 }
 
-function createFakeProviderPackage(id, options = {}) {
+function createFakeTargetCapability(id, options = {}) {
   return {
     id,
-    displayName: `${id} Provider Package`,
-    ...((options.requiredPackages ?? []).length > 0 ? { requiredPackages: options.requiredPackages } : {}),
+    targetId: "demo",
+    displayName: `${id} Target Capability`,
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
-    ...((options.moduleOwnership ?? []).length > 0 ? { moduleOwnership: options.moduleOwnership } : {}),
+    moduleOwnership: options.moduleOwnership ?? [],
     createExtensions(context) {
-      options.events?.push(`package-extension:${id}:target=${context.target.id}:packages=${context.selectedPackages.map((providerPackage) => providerPackage.id).join(",")}`);
-      assert.equal(context.package.id, id);
+      options.events?.push(`capability-extension:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilities.map((capability) => capability.id).join(",")}`);
+      assert.equal(context.capability.id, id);
       return options.extension === undefined ? [] : [options.extension];
     },
     runtimeContributions() {
-      options.events?.push(`package-runtime:${id}`);
+      options.events?.push(`capability-runtime:${id}`);
       return {
         artifacts: options.artifacts ?? [],
         references: options.references ?? [],
@@ -1763,9 +1529,9 @@ function createFakeProviderPackage(id, options = {}) {
   };
 }
 
-function createFakeVirtualProviderPackage(id, options = {}) {
+function createFakeVirtualTargetCapability(id, options = {}) {
   const moduleOwnership = options.moduleOwnership ?? [{ specifierPrefix: `@${id}/native/` }];
-  return createFakeProviderPackage(id, {
+  return createFakeTargetCapability(id, {
     ...options,
     moduleOwnership,
     extension: {
@@ -1799,7 +1565,7 @@ function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
       return moduleOwnership.some((ownership) => specifier.startsWith(ownership.specifierPrefix))
         ? {
             kind: "owned",
-            evidence: [{ message: `${id} provider package owns ${specifier}` }],
+            evidence: [{ message: `${id} target capability owns ${specifier}` }],
           }
         : { kind: "unowned" };
     },
@@ -1825,7 +1591,7 @@ function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
         providerModuleId: specifier,
         packageName: `@${id}/native`,
         packageVersion: "1.0.0",
-        evidence: [{ message: `${id} provider package resolved ${specifier}` }],
+        evidence: [{ message: `${id} target capability resolved ${specifier}` }],
       };
     },
     getDeclarationModel(resolution) {
@@ -1849,7 +1615,7 @@ function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
             targetIdentity: { target: "demo", id: `${id}.Named`, displayName: `${id}.Named` },
           },
         ],
-        evidence: [{ message: `${id} provider package declaration model` }],
+        evidence: [{ message: `${id} target capability declaration model` }],
       };
     },
     getTargetIdentity(symbol) {

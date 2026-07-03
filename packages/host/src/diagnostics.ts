@@ -280,6 +280,9 @@ function formatJsonDiagnosticEvidenceDetails(value: unknown, seen: WeakSet<objec
   if (typeof value !== "object" || value === null) {
     return JSON.stringify(value);
   }
+  if (value instanceof Error) {
+    return formatErrorDiagnosticEvidence(value);
+  }
   if (depth >= maxDiagnosticEvidenceDepth) {
     return `[${getObjectTag(value)}]`;
   }
@@ -321,6 +324,19 @@ function formatUnserializableDiagnosticEvidence(value: unknown): string {
   return typeof value === "object" && value !== null
     ? `[${getObjectTag(value)}]`
     : String(value);
+}
+
+function formatErrorDiagnosticEvidence(error: Error): string {
+  const parts = [
+    error.name === "" ? "Error" : error.name,
+    error.message === "" ? undefined : error.message,
+  ].filter((part): part is string => part !== undefined);
+  const stack = error.stack === undefined || error.stack === "" ? undefined : truncateDiagnosticEvidenceString(error.stack);
+  return `{${[
+    `"name":${JSON.stringify(parts[0] ?? "Error")}`,
+    ...(parts[1] === undefined ? [] : [`"message":${JSON.stringify(parts[1])}`]),
+    ...(stack === undefined ? [] : [`"stack":${JSON.stringify(stack)}`]),
+  ].join(",")}}`;
 }
 
 function isObjectRecord(value: unknown): value is Readonly<Record<string, unknown>> {
