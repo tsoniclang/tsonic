@@ -61,6 +61,7 @@ export function createPreparedSuiteDefinition(repos) {
         id: "csharp-nodejs:dotnet-test",
         scope: "csharp-nodejs",
         group: "dotnet-toolchain",
+        exclusive: true,
         cwd: repos.csharpNodejs,
         command: "dotnet",
         args: ["test", "Tsonic.CSharp.Node.slnx", "--no-build", "--no-restore", "--verbosity", "minimal"],

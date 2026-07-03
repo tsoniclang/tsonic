@@ -310,6 +310,8 @@ test("downstream provider package imports fail closed when the package is not se
       private: true,
       dependencies: {
         "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+        "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+        "@tsonic/csharp-js": "file:../../../../csharp-js",
       },
     }, null, 2),
     "tsonic.json": JSON.stringify({
@@ -378,6 +380,8 @@ function targetCsharpNodejsPackageJson(name) {
     private: true,
     dependencies: {
       "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+      "@tsonic/csharp-js": "file:../../../../csharp-js",
       "@tsonic/csharp-nodejs": "file:../../../../csharp-nodejs",
     },
   }, null, 2);

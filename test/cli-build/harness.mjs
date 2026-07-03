@@ -86,6 +86,8 @@ function withDefaultPackage(projectDirectory, files) {
       private: true,
       dependencies: {
         "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+        "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+        "@tsonic/csharp-js": "file:../../../../csharp-js",
       },
     }, null, 2),
     ...files,
@@ -120,6 +122,12 @@ async function linkInstalledTsonicPackages(projectDirectory, files) {
 function installedPackageRepositoryPath(packageName) {
   if (packageName === "@tsonic/target-csharp") {
     return resolve(repoRoot, "../tsonic-csharp");
+  }
+  if (packageName === "@tsonic/csharp-runtime") {
+    return resolve(repoRoot, "../csharp-runtime");
+  }
+  if (packageName === "@tsonic/csharp-js") {
+    return resolve(repoRoot, "../csharp-js");
   }
   if (packageName === "@tsonic/csharp-nodejs") {
     return resolve(repoRoot, "../csharp-nodejs");

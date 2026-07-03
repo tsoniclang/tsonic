@@ -337,6 +337,8 @@ function targetCsharpNodejsPackageJson(projectDirectory) {
     private: true,
     dependencies: {
       "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+      "@tsonic/csharp-js": "file:../../../../csharp-js",
       "@tsonic/csharp-nodejs": "file:../../../../csharp-nodejs",
     },
   }, null, 2);

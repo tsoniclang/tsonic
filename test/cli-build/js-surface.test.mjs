@@ -1880,9 +1880,6 @@ test("CLI rejects unsupported primitive generic constraints without provider fac
   assert.match(build.stderr, /Generic constraints require finalized target constraint facts/);
 });
 
-
-test.todo("CLI emits array for-in from provider enumeration facts - operation.iteration.for-in.keys remains partial until TSTS for-in key typing and C# key binding facts are finalized.");
-
 test("CLI emits Record for-in from provider Dictionary key facts", async () => {
   const projectDirectory = resolve(tempRoot, "record-for-in");
   await writeProject(projectDirectory, {

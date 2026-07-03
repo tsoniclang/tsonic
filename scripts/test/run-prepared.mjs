@@ -9,25 +9,28 @@ import { createPreparedSuiteDefinition } from "./suite-definition.mjs";
 const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
 const defaultManifestPath = resolve(tsonicRoot, ".temp/test-runs/prepared/latest-manifest.json");
 const options = parseArgs(process.argv.slice(2));
-const manifestPath = resolve(options.manifest ?? defaultManifestPath);
+const manifestSourcePath = resolve(options.manifest ?? defaultManifestPath);
 
-if (!existsSync(manifestPath)) {
-  console.error(`FAIL: prepared manifest not found: ${manifestPath}`);
+if (!existsSync(manifestSourcePath)) {
+  console.error(`FAIL: prepared manifest not found: ${manifestSourcePath}`);
   console.error("Run scripts/test/prepare.sh before scripts/test/run-prepared.mjs.");
   process.exit(1);
 }
 
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const manifestText = readFileSync(manifestSourcePath, "utf8");
+const manifest = JSON.parse(manifestText);
 validatePreparedManifest(manifest);
 const runId = `${manifest.runId ?? "prepared"}-run-${timestamp()}-${process.pid}`;
 const runRoot = resolve(tsonicRoot, ".temp/test-runs/prepared-runs", runId);
 const logRoot = resolve(runRoot, "logs");
 mkdirSync(logRoot, { recursive: true });
+const immutableManifestPath = resolve(runRoot, "prepared-manifest.json");
+writeFileSync(immutableManifestPath, manifestText);
 
 const env = {
   ...process.env,
   TSONIC_TEST_PREPARED: "1",
-  TSONIC_PREPARED_MANIFEST: manifestPath,
+  TSONIC_PREPARED_MANIFEST: immutableManifestPath,
   TSONIC_TEST_RUN_ID: runId,
   NUGET_PACKAGES: process.env.NUGET_PACKAGES ?? resolve(tsonicRoot, ".temp/test-runs/nuget/packages"),
 };
@@ -53,7 +56,7 @@ if (shards.length === 0) {
 }
 
 if (options.list) {
-  console.log(`prepared-run: manifest=${toPosix(relative(tsonicRoot, manifestPath))}`);
+  console.log(`prepared-run: manifest=${toPosix(relative(tsonicRoot, immutableManifestPath))}`);
   console.log(`prepared-run: shards=${shards.length}`);
   for (const shard of shards) {
     console.log(`${shard.group}\t${shard.scope}\t${shard.id}`);
@@ -61,8 +64,9 @@ if (options.list) {
   process.exit(0);
 }
 
-console.log(`prepared-run: manifest=${toPosix(relative(tsonicRoot, manifestPath))}`);
-console.log(`prepared-run: shards=${shards.length} concurrency=${options.concurrency}`);
+console.log(`prepared-run: manifest=${toPosix(relative(tsonicRoot, immutableManifestPath))}`);
+const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).length;
+console.log(`prepared-run: shards=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
 
 const startedAt = Date.now();
 const results = await runShards(shards, options.concurrency);
@@ -72,7 +76,8 @@ const testCounts = aggregateTestCounts(results);
 const missingTestCountResults = results.filter((result) => result.testCounts === undefined);
 const report = {
   runId,
-  manifestPath: toPosix(manifestPath),
+  manifestPath: toPosix(immutableManifestPath),
+  manifestSourcePath: toPosix(manifestSourcePath),
   durationMs,
   shardCounts: {
     total: results.length,
@@ -183,6 +188,7 @@ function validateShardCoverage(shardsToValidate) {
       if (testSuite.intentionallySkipped?.has(relativeFile) === true) {
         continue;
       }
+      validateNoDisabledOrFocusedTests(file, relativeFile);
       if (!representedFiles.has(relativeFile)) {
         failures.push(`${testSuite.scope} test file has no prepared shard: ${relativeFile}`);
       }
@@ -193,6 +199,7 @@ function validateShardCoverage(shardsToValidate) {
     const repoKey = scopeToRepoKey(testSuite.scope);
     for (const file of listExecutableArchitectureTests(testSuite.directory)) {
       const relativeFile = toPosix(relative(repos[repoKey], file));
+      validateNoDisabledOrFocusedTests(file, relativeFile);
       if (!representedFiles.has(relativeFile)) {
         failures.push(`${testSuite.scope} architecture test module has no prepared shard: ${relativeFile}`);
       }
@@ -234,16 +241,15 @@ function validateShardCoverage(shardsToValidate) {
       }
       const file = shard.file;
       const repoRoot = shard.cwd;
-      const relativeFile = toPosix(relative(repoRoot, file));
-        const titles = extractTestTitles(file);
-        const staticTestCount = countTopLevelTestInvocations(file);
-        if (titles.length !== staticTestCount) {
-          failures.push(`${toPosix(relative(repoRoot, file))} is title-sharded but has ${staticTestCount} test(...) calls and ${titles.length} static literal titles`);
-        }
-        const uniqueTitles = new Set(titles);
-        if (uniqueTitles.size !== titles.length) {
-          failures.push(`${toPosix(relative(repoRoot, file))} is title-sharded but has duplicate test titles`);
-        }
+      const titles = extractTestTitles(file);
+      const staticTestCount = countTopLevelTestInvocations(file);
+      if (titles.length !== staticTestCount) {
+        failures.push(`${toPosix(relative(repoRoot, file))} is title-sharded but has ${staticTestCount} test(...) calls and ${titles.length} static literal titles`);
+      }
+      const uniqueTitles = new Set(titles);
+      if (uniqueTitles.size !== titles.length) {
+        failures.push(`${toPosix(relative(repoRoot, file))} is title-sharded but has duplicate test titles`);
+      }
     }
   }
 
@@ -254,6 +260,13 @@ function validateShardCoverage(shardsToValidate) {
     }
     if (!shardsToValidate.some((candidate) => candidate.id === shard.id)) {
       failures.push(`${shard.id} dotnet shard is not registered`);
+    }
+  }
+
+  function validateNoDisabledOrFocusedTests(file, relativeFile) {
+    const bannedTestModifiers = extractBannedTestModifiers(file);
+    if (bannedTestModifiers.length > 0) {
+      failures.push(`${relativeFile} contains disabled/focused tests: ${bannedTestModifiers.join(", ")}`);
     }
   }
 }
@@ -307,7 +320,17 @@ function extractTestTitles(file) {
 
 function countTopLevelTestInvocations(file) {
   const text = readFileSync(file, "utf8");
-  return [...text.matchAll(/(?:^|\n)\s*test\(\s*/gu)].length;
+  return [...text.matchAll(/(?:^|\n)\s*test(?:\.(?:todo|skip|only))?\(\s*/gu)].length;
+}
+
+function extractBannedTestModifiers(file) {
+  const text = readFileSync(file, "utf8");
+  const modifiers = [];
+  const pattern = /(?:^|\n)\s*test\.(?<modifier>todo|skip|only)\(\s*(["'])(?<title>(?:\\.|(?!\2).)+)\2/gu;
+  for (const match of text.matchAll(pattern)) {
+    modifiers.push(`${match.groups.modifier}:${unescapeJsString(match.groups.title)}`);
+  }
+  return modifiers;
 }
 
 function scopeToRepoKey(scope) {
@@ -384,6 +407,16 @@ function listExecutableArchitectureTests(directory) {
 }
 
 async function runShards(allShards, concurrency) {
+  const parallelShards = allShards.filter((shard) => shard.exclusive !== true);
+  const exclusiveShards = allShards.filter((shard) => shard.exclusive === true);
+  const results = await runShardQueue(parallelShards, concurrency);
+  for (const shard of exclusiveShards) {
+    results.push(await runShard(shard));
+  }
+  return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
+}
+
+async function runShardQueue(allShards, concurrency) {
   const queue = [...allShards];
   const results = [];
   const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
@@ -393,7 +426,7 @@ async function runShards(allShards, concurrency) {
     }
   });
   await Promise.all(workers);
-  return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
+  return results;
 }
 
 function runShard(shard) {
