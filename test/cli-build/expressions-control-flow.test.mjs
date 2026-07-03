@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits C# string literals and template expressions from TSTS AST", async () => {
@@ -152,6 +153,58 @@ test("CLI emits C# bitwise and compound operators from selected TSTS provider fa
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOperators.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI finalizes long checked operator chains without superlinear traversal", async () => {
+  const projectDirectory = resolve(tempRoot, "long-checked-operator-chain");
+  const assemblyName = "SmokeGeneratedLongCheckedOperatorChain";
+  const numericOperands = Array.from({ length: 16 }, (_, index) => index === 0 ? "seed" : `${index}`).join(" + ");
+  const stringOperands = Array.from({ length: 16 }, (_, index) => index === 0 ? "label" : `"|${index}"`).join(" + ");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int32 } from \"@tsonic/core/types.js\";",
+      "",
+      "export function numeric(seed: int32): int32 {",
+      `  return ${numericOperands};`,
+      "}",
+      "",
+      "export function mixed(label: string): string {",
+      `  return ${stringOperands};`,
+      "}",
+      "",
+      "Console.writeLine(`${numeric(1)}:${mixed(\"x\")}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const startedAt = performance.now();
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  assert.ok(elapsedMs < 60_000, `long checked operator chain build took ${elapsedMs.toFixed(1)}ms`);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return seed \+ 1 \+ 2 \+ 3/);
+  assert.match(generatedSource, /return label \+ "\|1" \+ "\|2"/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|Reflection|GetProperty|GetMethod/);
+
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "121:x|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15\n");
 });
 
 

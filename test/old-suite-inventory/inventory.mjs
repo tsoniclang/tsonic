@@ -218,6 +218,15 @@ const oldSuitePortInventoryEntries = Object.freeze([
       "System extension-method dispatch through asinterface<ExtensionMethods<T>> needs native provider member and parameter-mode facts.",
   }),
   Object.freeze({
+    oldPath: "test/fixtures/aspnetcore-dotnet/",
+    newPath: "test/cli-build/downstream-smoke.test.mjs",
+    status: "ported",
+    featureArea: "downstream",
+    owner: "C# native provider + downstream target package providers",
+    reason:
+      "Ported as a current-architecture downstream proof: generated library uses real .NET provider facts for attributes, Guid, DateTime, DateTimeOffset, nullable fields, async Task<T>, List<T>, and interface implementation; an external Microsoft.NET.Sdk.Web project consumes it through ProjectReference, builds, runs, and exercises Microsoft.AspNetCore.Http.Results without runtime reflection or dynamic dispatch.",
+  }),
+  Object.freeze({
     oldPath: "test/fixtures/struct-basic/",
     status: "deferred",
     featureArea: "csharp-backend",
@@ -644,7 +653,6 @@ const oldSuitePortInventoryEntries = Object.freeze([
   ], "native-provider", "C# native provider + C# backend planner", "Valid behavior covers native arrays, collection/dictionary carriers, overload specialization, and mutation constraints; port after .NET provider facts supply closed member/indexer/overload data and C# planner consumes selected target facts only."),
   ...deferredFixtures([
     "asinterface-dotnet",
-    "aspnetcore-dotnet",
     "await-task-dotnet",
     "boolean-context-locals-dotnet",
     "continuewith-return-task-dotnet",
@@ -822,6 +830,21 @@ const oldSuitePortInventoryEntries = Object.freeze([
 ]);
 
 const oldSuiteReviewedCapabilityIdsByOldPath = new Map([
+  ...reviewedOldSuiteCapabilityMapping([
+    oldFixturePath("aspnetcore-dotnet"),
+  ], [
+    "backend.ast.only",
+    "downstream.dotnet.aspnet",
+    "downstream.no-old-runtime-reflection",
+    "native.dotnet.attributes",
+    "native.dotnet.member-methods",
+    "native.dotnet.member-fields-properties-events",
+    "operation.await.promise-task",
+    "provider.virtual-module.target-identity",
+    "source.marker.attribute",
+    "toolchain.csharp.build-run",
+    "toolchain.csharp.library",
+  ]),
   ...reviewedOldSuiteCapabilityMapping([
     oldFixturePath("file-io"),
     oldFixturePath("hello-world"),

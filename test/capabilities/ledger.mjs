@@ -713,7 +713,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["toolchain.csharp.build-run", "dotnet build/run succeeds for executable tests", "complete", "csharp-toolchain"],
   ["toolchain.csharp.library", "Library output path and artifacts are deterministic", "complete", "csharp-toolchain"],
   ["toolchain.csharp.nativeaot", "NativeAOT is a target toolchain project option", "complete", "csharp-toolchain"],
-  ["performance.long-operator-chain", "Long checked operator chains stay within final-suite performance gates", "blocked", "tests"],
+  ["performance.long-operator-chain", "Long checked operator chains stay within final-suite performance gates", "complete", "tests"],
   ["runtime.csharp.js", "C# JS runtime artifacts are selected by js surface", "complete", "csharp-runtime"],
   ["runtime.csharp.nodejs", "C# NodeJS runtime artifacts are selected by nodejs provider package", "complete", "csharp-runtime"],
   ["runtime.no-reflection-semantics", "Product runtime and generated code avoid reflection semantics", "complete", "csharp-runtime"],
@@ -746,7 +746,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["diagnostic.evidence", "Diagnostics include capability/fact evidence where useful", "complete", "tests"],
 
   ["downstream.smoke.simple-apps", "Representative small projects compile and run", "complete", "tests"],
-  ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "blocked", "tests"],
+  ["downstream.dotnet.aspnet", "ASP.NET and EF-like projects compile after provider data exists", "complete", "tests"],
   ["downstream.nodejs-source", "Node-style source projects compile with selected provider packages", "complete", "tests"],
   ["downstream.no-old-runtime-reflection", "Generated and runtime code remain reflection-free", "complete", "tests"],
 
@@ -1381,6 +1381,47 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: Object.freeze([]),
     notes:
       "Reviewed proof: source-core primitive aliases, TSTS primitive results, literal facts, nullable primitive carriers, provider parameter/return carriers, and utility-projected primitive types resolve to finalized target primitive facts before C# emission. Negative proof rejects lost source-core primitive evidence after TSTS-only transforms, unknown/object dynamic fallback, incompatible provider primitive constraints, and missing target carriers before artifacts. Old constants and variable-declaration emitter cases are mapped to finalized primitive-carrier facts rather than frontend-era type guesses.",
+  }),
+  "performance.long-operator-chain": Object.freeze({
+    sourceExamples: Object.freeze([
+      "return seed + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13;",
+      "return label + \"|1\" + \"|2\" + \"|3\" + \"|4\" + \"|5\" + \"|6\" + \"|7\" + \"|8\" + \"|9\" + \"|10\" + \"|11\" + \"|12\" + \"|13\" + \"|14\" + \"|15\";",
+    ]),
+    tstsDecision:
+      "TSTS checks each binary + operation, operand type, and result type. Tsonic consumes selected checked operator observations and finalized runtime carrier facts without reimplementing TypeScript operator semantics.",
+    providerFacts: Object.freeze([
+      "checkedOperatorObservation",
+      "csharpTargetOperationFact",
+      "runtimeCarrierFact",
+      "sourcePrimitiveFact",
+    ]),
+    backendContract:
+      "C# backend emits long operator chains only from finalized operator-token facts. Missing facts produce diagnostics; the backend does not split source, skip facts, or infer target operators from syntax.",
+    runtimeContract:
+      "Generated C# preserves numeric addition and string concatenation behavior for the proven source primitive and string carriers.",
+    positiveTests: Object.freeze([
+      "test/cli-build/expressions-control-flow.test.mjs",
+      "../tsonic-csharp/test/checked-operator-performance.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "../tsonic-csharp/test/operator-facts.test.mjs",
+    ]),
+    oldEvidenceAbsence: Object.freeze({
+      status: "reviewed-none-found",
+      reviewedInventories: Object.freeze([
+        "old fixture inventory",
+        "old C# emitter inventory",
+        "old product unit inventory",
+      ]),
+      searchEvidence: Object.freeze([
+        "old inventories contain ordinary operator fixtures, but no release-grade long checked-operator finalization performance gate",
+      ]),
+      reviewerNotes:
+        "The long-chain performance row is a final C# product gate introduced by the finalized architecture. Historical operator evidence maps to expression/operator rows; this row is proven by current finalization and CLI runtime tests.",
+    }),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: checked-operator finalization walks AST nodes once in postorder instead of repeated fixpoint rescans, focused unit tests guard that lifecycle shape, and the CLI builds/runs numeric and string + chains with more than thirteen operands through finalized operator facts. The build-time guard fails if finalization regresses into superlinear repeated traversal on the representative chain.",
   }),
   "carrier.tuple": Object.freeze({
     positiveTests: Object.freeze([
@@ -8867,6 +8908,41 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: Object.freeze([]),
     notes:
       "Reviewed proof: downstream smoke builds and runs provider-backed Console, JS-surface, and Node provider-package executables through current CLI output, then builds a generated C# library and consumes it from a separate SDK project through ProjectReference. Negative proof rejects an unselected Node provider-package import before C# artifacts. Generated output and selected runtime packages are scanned for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load before execution.",
+  }),
+  "downstream.dotnet.aspnet": Object.freeze({
+    sourceExamples: Object.freeze([
+      "import { CLSCompliantAttribute, DateTime, DateTimeOffset, Guid } from \"@tsonic/dotnet/System.js\";",
+      "export class UserEntity implements NamedEntity { id: Guid = Guid.empty; score: int32 | null = null; roles: List<string> = new List<string>([\"admin\", \"user\"]); }",
+      "export async function loadUser(name: string): Promise<UserEntity> { return new UserEntity(name); }",
+      "external Microsoft.NET.Sdk.Web project consumes generated library through ProjectReference and Microsoft.AspNetCore.Http.Results",
+    ]),
+    tstsDecision:
+      "TSTS owns source checking for entity classes, nullable fields, interface implementation, async Promise return shape, and imports; .NET provider virtual modules supply Guid, DateTime, DateTimeOffset, CLSCompliantAttribute, and List<T> declarations/facts.",
+    providerFacts: Object.freeze([
+      "providerVirtualDeclarationFact",
+      "providerTargetBindingFact",
+      "providerSelectedConstructorFact",
+      "providerSelectedStaticFieldFact",
+      "providerAttributeFact",
+      "promiseTaskCarrierFact",
+      "targetToolchainLibraryReferenceFact",
+    ]),
+    backendContract:
+      "The C# backend emits a provider-backed library from finalized facts, includes explicit ASP.NET framework references from target-owned project options, suppresses artifacts on diagnostics, and leaves ASP.NET/Web SDK behavior to the downstream .NET project through ProjectReference.",
+    positiveTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    negativeTests: Object.freeze([
+      "test/cli-build/downstream-smoke.test.mjs",
+      "../tsonic-csharp/test/dotnet-provider.test.mjs",
+    ]),
+    oldEvidence: Object.freeze([
+      "test/fixtures/aspnetcore-dotnet/",
+    ]),
+    blockers: Object.freeze([]),
+    notes:
+      "Reviewed proof: downstream-smoke generates a C# library that uses real .NET provider data for attributes, Guid, DateTime, DateTimeOffset, nullable source fields, async Task<T>, and List<T>. The test builds the generated library, scans generated output for banned reflection/dynamic mechanisms, builds an external Microsoft.NET.Sdk.Web consumer with ProjectReference to the generated project, uses Microsoft.AspNetCore.Http.Results, runs the consumer, and asserts observable output. The provider regression test proves .NET static methods that collide with instance source names are classified as unsupported provider members instead of producing ambiguous TSTS virtual-member facts.",
   }),
   "downstream.nodejs-source": Object.freeze({
     sourceExamples: Object.freeze([
