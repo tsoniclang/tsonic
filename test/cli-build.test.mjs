@@ -16,6 +16,7 @@ import "./cli-build/runtime-union.test.mjs";
 import "./cli-build/slice4-csharp-closure.test.mjs";
 import "./cli-build/slice6-control-flow-closure.test.mjs";
 import "./cli-build/source-semantics.test.mjs";
+import "./cli-build/source-profile-contract.test.mjs";
 import "./cli-build/target-config.test.mjs";
 import "./cli-build/tsts-type-forms.test.mjs";
 import "./cli-build/whole-program-csharp-closure.test.mjs";

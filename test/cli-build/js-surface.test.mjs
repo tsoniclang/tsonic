@@ -1,9 +1,21 @@
 import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
-  assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
-  assert.match(stderr, /Missing selected target mapping/);
-  assert.doesNotMatch(stderr, /TS9000011/);
+  if (stderr.includes("C# target requires selected target facts for external TypeScript declaration call")) {
+    assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
+    assert.match(stderr, /Missing selected target mapping/);
+    assert.doesNotMatch(stderr, /TS9000011/);
+    return;
+  }
+  assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);
+  const sourceContractPatterns = {
+    "<anonymous>": /'Array' only refers to a type, but is being used as a value here/u,
+    isFinite: /Cannot find name 'Number'|'Number' only refers to a type|Property 'isFinite' does not exist/u,
+    log: /Cannot find name 'console'|Property 'log' does not exist/u,
+    toString: /Property 'toString' does not exist/u,
+    trunc: /Cannot find name 'Math'|Property 'trunc' does not exist/u,
+  };
+  assert.match(stderr, sourceContractPatterns[memberName] ?? new RegExp(memberName));
 }
 
 test("CLI emits standard Math calls from selected TSTS provider facts", async () => {
@@ -628,7 +640,7 @@ test("CLI rejects existing TypeScript JS built-ins without selected JS surface f
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /C# native array source contract has no target-backed property 'push'/);
-  assert.match(build.stderr, /C# property access 'trim' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /Property 'trim' does not exist on type 'string'\. Did you mean 'Trim'\?/);
   assert.match(build.stderr, /C# property access 'toUpperCase' must be selected by TSTS\/provider facts before emission/);
   assert.match(build.stderr, /C# property access 'slice' must be selected by TSTS\/provider facts before emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsBuiltinsWithoutJsSurface.csproj")), false);
@@ -1389,7 +1401,7 @@ test("CLI runs sparse JS array literal holes through closed JSArray carrier fact
       "",
       "const values = [, 5, 6];",
       "const [first = 10, second = 20, ...tail] = values;",
-      "Console.writeLine(`${first}:${second}:${tail[0] ?? -1}:${tail.length}:${values[0] ?? -1}`);",
+      "Console.WriteLine(`${first}:${second}:${tail[0] ?? -1}:${tail.length}:${values[0] ?? -1}`);",
       "",
     ].join("\n"),
   });
@@ -1584,7 +1596,7 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
       "}",
       "",
       "const expression = /a.b/s;",
-      "Console.writeLine(`${matches(\"ABC\")}:${matches(\"xyz\")}:${expression.test(\"a\\nb\")}:${expression.source}:${expression.flags}`);",
+      "Console.WriteLine(`${matches(\"ABC\")}:${matches(\"xyz\")}:${expression.test(\"a\\nb\")}:${expression.source}:${expression.flags}`);",
       "",
     ].join("\n"),
   });
@@ -1766,7 +1778,7 @@ test("CLI rejects element access with non-integral indexes until conversion fact
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# element access must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /TS7053|C# source array element access requires an integral TSTS\/provider-backed index type/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNonIntegralIndexes.csproj")), false);
 });
 
@@ -2710,9 +2722,9 @@ test("CLI rejects string methods without exact provider-backed JS semantics", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# property access 'replace' must be selected by TSTS\/provider facts before emission/);
-  assert.match(build.stderr, /C# property access 'replaceAll' must be selected by TSTS\/provider facts before emission/);
-  assert.match(build.stderr, /C# property access 'at' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /Property 'replace' does not exist on type 'string'/);
+  assert.match(build.stderr, /Property 'replaceAll' does not exist on type 'string'/);
+  assert.match(build.stderr, /Property 'at' does not exist on type 'string'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
@@ -2736,6 +2748,6 @@ test("CLI rejects non-source-owned constructors without selected target signatur
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.match(build.stderr, /Cannot find name 'Date'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });

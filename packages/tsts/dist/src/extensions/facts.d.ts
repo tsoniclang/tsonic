@@ -65,6 +65,7 @@ export interface ProviderDeclarationIdentity {
     readonly exportId?: string;
     readonly memberName?: string;
     readonly memberId?: string;
+    readonly memberStatic?: boolean;
     readonly signatureId?: string;
     readonly targetIdentity?: TargetTypeRef;
 }
@@ -237,6 +238,7 @@ export interface ProviderVirtualDeclarationFact {
     readonly exportId?: string;
     readonly memberName?: string;
     readonly memberId?: string;
+    readonly memberStatic?: boolean;
     readonly signatureId?: string;
     readonly targetIdentity?: TargetTypeRef;
 }

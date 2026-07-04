@@ -18,6 +18,7 @@ import { collectProjectModuleSpecifiers } from "./module-specifier-scan.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
 import { getMissingTargetProviderMessage, selectInstalledTargetCapabilities, selectTargetSurfaceImplementations } from "./target/extensions.js";
+import { collectTargetSourceProfileContributions } from "./target/source-profile.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
@@ -82,7 +83,6 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       diagnostics,
     };
   }
-  const created = createProgramOptionsForProject(input);
   for (const { target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
     if (hasBlockingDiagnostics(planDiagnostics)) {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, planDiagnostics);
@@ -91,6 +91,22 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     if (targetPack === undefined || selectedCapabilities === undefined || selectedSurfaces === undefined) {
       throw new Error(`Target '${target.id}' build planning produced no provider-backed target pack.`);
     }
+    const sourceProfile = collectTargetSourceProfileContributions({
+      project: input.project,
+      projectRoot: paths.projectRoot,
+      target,
+      targetPack,
+      selectedCapabilities,
+      selectedSurfaces,
+    });
+    if (hasBlockingDiagnostics(sourceProfile.diagnostics)) {
+      pushDiagnosticOnlyTarget(targets, diagnostics, target, sourceProfile.diagnostics);
+      continue;
+    }
+    const created = createProgramOptionsForProject({
+      ...input,
+      sourceProfileFiles: sourceProfile.files,
+    });
     const session = createTsonicSemanticSession({
       programOptions: created.programOptions,
       project: input.project,

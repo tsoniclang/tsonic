@@ -124,6 +124,7 @@ export const providerVirtualDeclarationFactKey = defineExtensionFactKey({
         && left.exportId === right.exportId
         && left.memberName === right.memberName
         && left.memberId === right.memberId
+        && left.memberStatic === right.memberStatic
         && left.signatureId === right.signatureId
         && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity),
 });
@@ -159,6 +160,7 @@ function providerDeclarationIdentityEquals(left, right) {
         && left.exportId === right.exportId
         && left.memberName === right.memberName
         && left.memberId === right.memberId
+        && left.memberStatic === right.memberStatic
         && left.signatureId === right.signatureId
         && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity);
 }
