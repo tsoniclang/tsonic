@@ -43,6 +43,8 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
   });
   const parsed = ParseCommandLine([
     "--noLib",
+    "--noEmit",
+    "--allowImportingTsExtensions",
     "--target",
     "es2024",
     "--module",
