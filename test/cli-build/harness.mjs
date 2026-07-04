@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -10,11 +10,13 @@ const cliPath = resolve(repoRoot, "packages/cli/dist/src/index.js");
 const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build", `${Date.now()}-${process.pid}`);
 
 async function writeProject(projectDirectory, files) {
-  for (const [relativePath, text] of Object.entries(files)) {
+  const projectFiles = withDefaultPackage(projectDirectory, files);
+  for (const [relativePath, text] of Object.entries(projectFiles)) {
     const outputPath = resolve(projectDirectory, relativePath);
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, text, "utf8");
   }
+  await linkInstalledTsonicPackages(projectDirectory, projectFiles);
 }
 
 function runNode(args) {
@@ -39,7 +41,22 @@ function runGeneratedProject(projectDirectory, assemblyName) {
 }
 
 function dotnetOutputAssemblyPath(projectDirectory, assemblyName) {
-  return resolve(projectDirectory, ".dotnet-test-artifacts/bin", `${assemblyName}.dll`);
+  if (existsSync(resolve(projectDirectory, `${assemblyName}.csproj`))) {
+    return resolve(projectDirectory, "bin/Debug/net10.0", `${assemblyName}.dll`);
+  }
+  return resolve(projectDirectory, "out/csharp/bin/Debug/net10.0", `${assemblyName}.dll`);
+}
+
+function assertInstalledAssemblyReference(projectText, assemblyName) {
+  assert.match(projectText, new RegExp(`<Reference Include="${escapeRegExp(assemblyName)}" HintPath="[^"]*/runtimes/net10\\.0/${escapeRegExp(assemblyName)}\\.dll" />`));
+}
+
+function assertNoInstalledAssemblyReference(projectText, assemblyName) {
+  assert.doesNotMatch(projectText, new RegExp(`<Reference Include="${escapeRegExp(assemblyName)}"`));
+}
+
+function assertNoRuntimeProjectReference(projectText, assemblyName) {
+  assert.doesNotMatch(projectText, new RegExp(`${escapeRegExp(assemblyName)}\\.csproj`));
 }
 
 function run(command, args) {
@@ -47,10 +64,7 @@ function run(command, args) {
 }
 
 function runInDirectory(cwd, command, args) {
-  const normalizedArgs = command === "dotnet"
-    ? dotnetArgsWithIsolatedArtifacts(cwd, args)
-    : args;
-  const result = spawnSync(command, normalizedArgs, {
+  const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
   });
@@ -61,44 +75,75 @@ function runInDirectory(cwd, command, args) {
   };
 }
 
-function dotnetArgsWithIsolatedArtifacts(cwd, args) {
-  if (args.some((arg) => arg.startsWith("/p:OutputPath=") || arg.startsWith("-p:OutputPath="))) {
-    return args;
+function withDefaultPackage(projectDirectory, files) {
+  if (files["package.json"] !== undefined || files["tsonic.json"] === undefined) {
+    return files;
   }
-  const projectPath = dotnetProjectPath(cwd, args);
-  if (projectPath === undefined) {
-    return args;
-  }
-  const artifactsPath = resolve(dirname(projectPath), ".dotnet-test-artifacts");
-  const delimiterIndex = args.indexOf("--");
-  const propertyArg = `/p:OutputPath=${resolve(artifactsPath, "bin")}/`;
-  return delimiterIndex === -1
-    ? [...args, propertyArg]
-    : [
-        ...args.slice(0, delimiterIndex),
-        propertyArg,
-        ...args.slice(delimiterIndex),
-      ];
+  return {
+    "package.json": JSON.stringify({
+      name: `tsonic-test-${projectDirectory.split("/").at(-1)}`,
+      type: "module",
+      private: true,
+      dependencies: {
+        "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+        "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+        "@tsonic/csharp-js": "file:../../../../csharp-js",
+      },
+    }, null, 2),
+    ...files,
+  };
 }
 
-function dotnetProjectPath(cwd, args) {
-  if (args[0] === "run") {
-    const projectFlagIndex = args.findIndex((arg) => arg === "--project");
-    const projectPath = projectFlagIndex === -1 ? undefined : args[projectFlagIndex + 1];
-    return projectPath === undefined ? undefined : resolve(cwd, projectPath);
+async function linkInstalledTsonicPackages(projectDirectory, files) {
+  if (files["package.json"] === undefined) {
+    return;
   }
-  const projectPath = args.find((arg, index) =>
-    index > 0 &&
-    !arg.startsWith("-") &&
-    !arg.startsWith("/p:") &&
-    !arg.startsWith("/property:") &&
-    (arg.endsWith(".csproj") || arg.endsWith(".sln"))
-  );
-  return projectPath === undefined ? undefined : resolve(cwd, projectPath);
+  const packageJson = JSON.parse(files["package.json"]);
+  const dependencies = {
+    ...(packageJson.dependencies ?? {}),
+    ...(packageJson.devDependencies ?? {}),
+    ...(packageJson.optionalDependencies ?? {}),
+  };
+  for (const packageName of Object.keys(dependencies)) {
+    const repositoryPath = installedPackageRepositoryPath(packageName);
+    if (repositoryPath === undefined) {
+      continue;
+    }
+    const linkPath = resolve(projectDirectory, "node_modules", ...packageName.split("/"));
+    await mkdir(dirname(linkPath), { recursive: true });
+    await symlink(repositoryPath, linkPath, "dir").catch((error) => {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+    });
+  }
+}
+
+function installedPackageRepositoryPath(packageName) {
+  if (packageName === "@tsonic/target-csharp") {
+    return resolve(repoRoot, "../tsonic-csharp");
+  }
+  if (packageName === "@tsonic/csharp-runtime") {
+    return resolve(repoRoot, "../csharp-runtime");
+  }
+  if (packageName === "@tsonic/csharp-js") {
+    return resolve(repoRoot, "../csharp-js");
+  }
+  if (packageName === "@tsonic/csharp-nodejs") {
+    return resolve(repoRoot, "../csharp-nodejs");
+  }
+  return undefined;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&");
 }
 
 export {
   assert,
+  assertInstalledAssemblyReference,
+  assertNoInstalledAssemblyReference,
+  assertNoRuntimeProjectReference,
   csharpProjectPath,
   dotnetOutputAssemblyPath,
   cliPath,

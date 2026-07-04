@@ -19,7 +19,7 @@ test("C# runtime packages do not contain reflection or dynamic language semantic
   const runtimeSourceDirectories = [
     resolve("../csharp-runtime/src"),
     resolve("../csharp-js/src"),
-    resolve("../csharp-nodejs/src"),
+    resolve("../csharp-nodejs/csharp/src"),
   ];
   const files = (await Promise.all(runtimeSourceDirectories.map((directory) =>
     collectFiles(directory, (fileName) => fileName.endsWith(".cs"))
@@ -166,6 +166,7 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
   const assemblyName = "SmokeGeneratedNodeRuntimeReferences";
   const projectDirectory = resolve(tempRoot, "nodejs-runtime-references");
   await writeProject(projectDirectory, {
+    "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -174,7 +175,6 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
         {
           id: "csharp",
           surfaces: ["js"],
-          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
@@ -218,6 +218,7 @@ test("CLI runs generated JS and NodeJS provider package executable through runti
   const assemblyName = "SmokeGeneratedJsNodeRuntimeExecution";
   const projectDirectory = resolve(tempRoot, "js-node-runtime-execution");
   await writeProject(projectDirectory, {
+    "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -226,7 +227,6 @@ test("CLI runs generated JS and NodeJS provider package executable through runti
         {
           id: "csharp",
           surfaces: ["js"],
-          packages: ["nodejs"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
@@ -317,9 +317,9 @@ test("CLI generated C# executable publishes and runs through NativeAOT", async (
 });
 
 function assertRuntimeReferences(projectText, expected) {
-  assertReference(projectText, /Tsonic\.CSharp\.Runtime\.csproj/u, expected.runtime, "Tsonic.CSharp.Runtime");
-  assertReference(projectText, /Tsonic\.CSharp\.Js\.csproj/u, expected.js, "Tsonic.CSharp.Js");
-  assertReference(projectText, /Tsonic\.CSharp\.Node\.csproj/u, expected.nodejs, "Tsonic.CSharp.Node");
+  assertReference(projectText, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath="[^"]*Tsonic\.CSharp\.Runtime\.dll" \/>/u, expected.runtime, "Tsonic.CSharp.Runtime");
+  assertReference(projectText, /<Reference Include="Tsonic\.CSharp\.Js" HintPath="[^"]*Tsonic\.CSharp\.Js\.dll" \/>/u, expected.js, "Tsonic.CSharp.Js");
+  assertReference(projectText, /<Reference Include="Tsonic\.CSharp\.Node" HintPath="[^"]*Tsonic\.CSharp\.Node\.dll" \/>/u, expected.nodejs, "Tsonic.CSharp.Node");
 }
 
 function assertReference(projectText, pattern, shouldExist, label) {
@@ -328,6 +328,20 @@ function assertReference(projectText, pattern, shouldExist, label) {
   } else {
     assert.doesNotMatch(projectText, pattern, label);
   }
+}
+
+function targetCsharpNodejsPackageJson(projectDirectory) {
+  return JSON.stringify({
+    name: `tsonic-test-${projectDirectory.split("/").at(-1)}`,
+    type: "module",
+    private: true,
+    dependencies: {
+      "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+      "@tsonic/csharp-js": "file:../../../../csharp-js",
+      "@tsonic/csharp-nodejs": "file:../../../../csharp-nodejs",
+    },
+  }, null, 2);
 }
 
 function currentDotnetRuntimeIdentifier() {

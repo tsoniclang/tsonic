@@ -17,7 +17,6 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../target-api" },
-    { "path": "../host" },
-    { "path": "../../../tsonic-csharp" }
+    { "path": "../host" }
   ]
 }

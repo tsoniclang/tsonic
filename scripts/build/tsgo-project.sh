@@ -9,11 +9,23 @@ fi
 CONFIG_PATH="$1"
 shift
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_PATH="$REPO_ROOT/scripts/build/tsgo-project.sh"
+
+if [[ "${TSONIC_TEST_PREPARED:-0}" == "1" && "${TSONIC_PREPARE_BUILD:-0}" != "1" ]]; then
+  echo "FAIL: shared TypeScript package build attempted while TSONIC_TEST_PREPARED=1." >&2
+  echo "Prepared test shards must consume existing dist artifacts and must not rebuild shared packages." >&2
+  exit 1
+fi
+
+if [[ "${TSONIC_BUILD_LOCK_HELD:-0}" != "1" ]]; then
+  exec "$REPO_ROOT/scripts/build/with-lock.sh" "$SCRIPT_PATH" "$CONFIG_PATH" "$@"
+fi
+
 if [[ "$CONFIG_PATH" != /* ]]; then
   CONFIG_PATH="$PWD/$CONFIG_PATH"
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TSGO_BIN="$REPO_ROOT/node_modules/.bin/tsgo"
 CONFIG_DIR="$(dirname "$CONFIG_PATH")"
 

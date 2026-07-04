@@ -368,10 +368,10 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IEnumerable<int> source;/);
   assert.match(generatedSource, /source = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
-  assert.match(generatedSource, /withSpread = Tsonic\.CSharp\.Js\.Array\.concat\(source, new int\[\] \{ 4, 5 \}\);/);
+  assert.match(generatedSource, /withSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, new int\[\] \{ 4, 5 \}\);/);
   assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.IEnumerable<int> more;/);
   assert.match(generatedSource, /more = new System\.Collections\.Generic\.List<int>\(new int\[\] \{ 10, 20 \}\);/);
-  assert.match(generatedSource, /multiSpread = Tsonic\.CSharp\.Js\.Array\.concat\(source, more, new int\[\] \{ 100 \}\);/);
+  assert.match(generatedSource, /multiSpread = Tsonic\.CSharp\.Runtime\.ArrayHelpers\.Concat\(source, more, new int\[\] \{ 100 \}\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysModuleSpreadConstants.csproj"), "--nologo", "--v:minimal"]);

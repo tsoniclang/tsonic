@@ -160,8 +160,8 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   const projectFile = await readFile(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "utf8");
   assert.match(projectFile, /<Project Sdk="Microsoft\.NET\.Sdk">/);
   assert.match(projectFile, /<OutputType>Exe<\/OutputType>/);
-  assert.match(projectFile, /<ProjectReference Include=".*csharp-runtime.*Tsonic\.CSharp\.Runtime\.csproj" \/>/);
-  assert.match(projectFile, /<ProjectReference Include=".*csharp-js.*Tsonic\.CSharp\.Js\.csproj" \/>/);
+  assert.match(projectFile, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath=".*csharp-runtime.*Tsonic\.CSharp\.Runtime\.dll" \/>/);
+  assert.match(projectFile, /<Reference Include="Tsonic\.CSharp\.Js" HintPath=".*csharp-js.*Tsonic\.CSharp\.Js\.dll" \/>/);
   assert.doesNotMatch(projectFile, /Tsonic\.CSharp\.Node/);
 
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);

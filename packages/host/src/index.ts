@@ -7,6 +7,7 @@ export {
   createTargetCompilerExtensions,
   createTsonicSemanticSession,
   getSelectedSurfaceImplementations,
+  getSelectedTargetCapabilities,
   getTargetRequiredProviderModules,
 } from "./compiler-session.js";
 export type {
@@ -22,3 +23,5 @@ export type { CreatedProgramOptions, CreateProgramOptionsInput } from "./program
 export { parseTsonicProjectConfig } from "./project-config.js";
 export { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
 export type { ProjectPathOptions, ProjectPaths } from "./project-paths.js";
+export { discoverInstalledTsonicPlugins } from "./plugins/discovery.js";
+export type { InstalledTsonicPluginRegistry } from "./plugins/registry.js";

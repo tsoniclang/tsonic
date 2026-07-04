@@ -1,4 +1,4 @@
-import { assert, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, assertInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -104,7 +104,8 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.TsValue readName\(Tsonic\.CSharp\.Js\.TsValue value\)/);
@@ -422,7 +423,8 @@ test("CLI compat mode wraps non-exception thrown values with closed runtime carr
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
-  assert.match(generatedProject, /Tsonic\.CSharp\.Js\.csproj/);
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\("boom"\);/);

@@ -1,9 +1,20 @@
 import { assert, cliPath, dotnetOutputAssemblyPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, runNodeInDirectory, tempRoot, test, writeProject } from "./harness.mjs";
 
-test("CLI lists built-in target packs", () => {
-  const result = runNode([cliPath, "targets"]);
+test("CLI lists installed target plugins", async () => {
+  const projectDirectory = resolve(tempRoot, "installed-target-list");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export const value = 1;\n",
+  });
+
+  const result = runNode([cliPath, "targets", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^csharp\tC#$/m);
+  assert.match(result.stdout, /^csharp\t@tsonic\/target-csharp$/m);
 });
 
 test("CLI prints current architecture help without legacy command aliases", () => {
