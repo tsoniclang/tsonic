@@ -179,9 +179,16 @@ export interface InstantiatedTargetTypeFact {
     readonly typeArguments: readonly ExtensionFactSubject[];
     readonly resolvedTypeArguments?: readonly TargetTypeRef[];
 }
+export interface SourceSelectedMethodTypeArgument {
+    readonly typeParameterName: string;
+    readonly typeParameter?: ExtensionFactSubject;
+    readonly selectedType: ExtensionFactSubject;
+    readonly explicitTypeNode?: ExtensionFactSubject;
+}
 export interface SelectedTargetSignatureFact {
     readonly member: TargetMember;
     readonly typeArguments?: readonly ExtensionFactSubject[];
+    readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
     readonly targetTypeArguments?: readonly TargetTypeRef[];
     readonly argumentConversions?: readonly TargetTypeRef[];
     readonly sourceSignature?: ExtensionFactSubject;

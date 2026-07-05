@@ -79,6 +79,7 @@ export const selectedTargetSignatureFactKey = defineExtensionFactKey({
     name: "selectedTargetSignature",
     equals: (left, right) => targetMemberEquals(left.member, right.member)
         && factSubjectArrayEquals(left.typeArguments, right.typeArguments)
+        && sourceSelectedMethodTypeArgumentArrayEquals(left.sourceSelectedMethodTypeArguments, right.sourceSelectedMethodTypeArguments)
         && targetTypeRefArrayEquals(left.targetTypeArguments, right.targetTypeArguments)
         && targetTypeRefArrayEquals(left.argumentConversions, right.argumentConversions)
         && left.sourceSignature === right.sourceSignature
@@ -293,6 +294,21 @@ function optionalTargetOperationProvenanceEquals(left, right) {
         && left.sourceCallee === right.sourceCallee
         && left.sourceSelectedSymbol === right.sourceSelectedSymbol
         && left.sourceSelectedSignature === right.sourceSelectedSignature;
+}
+function sourceSelectedMethodTypeArgumentArrayEquals(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    if (left.length !== right.length) {
+        return false;
+    }
+    return left.every((argument, index) => sourceSelectedMethodTypeArgumentEquals(argument, right[index]));
+}
+function sourceSelectedMethodTypeArgumentEquals(left, right) {
+    return left.typeParameterName === right.typeParameterName
+        && left.typeParameter === right.typeParameter
+        && left.selectedType === right.selectedType
+        && left.explicitTypeNode === right.explicitTypeNode;
 }
 function optionalRuntimeCarrierProvenanceEquals(left, right) {
     if (left === undefined || right === undefined) {
