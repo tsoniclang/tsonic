@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { createCompilerSession } from "@tsonic/tsts";
+import { createCompilerSession, formatDiagnostics } from "@tsonic/tsts";
 import { createProgramOptionsForProject } from "../packages/host/dist/index.js";
 
 const repoRoot = process.cwd();
@@ -43,6 +43,9 @@ test("product program options use noLib and target-owned source-profile files", 
     .filter((fileName) => fileName !== "");
   assert.ok(fileNames.includes(sourceProfilePath), "source-profile declaration must be a real compiler input");
   assert.equal(fileNames.some((fileName) => /\/lib\..*\.d\.ts$/u.test(fileName)), false, `bundled TypeScript lib leaked into product program: ${fileNames.join("\n")}`);
+  const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.code), [2551], formatDiagnostics(diagnostics, projectDirectory));
+  assert.match(formatDiagnostics(diagnostics, projectDirectory), /Property 'split' does not exist on type '"abc"'\. Did you mean 'Split'\?/u);
 });
 
 test("product program options accept relative .ts imports without loading TS default libs", async () => {

@@ -90,3 +90,29 @@ test("CLI explicit JS surface accepts JS source-profile names without bundled Ty
   const output = runGeneratedProject(projectDirectory, "SmokeGeneratedJsSourceProfile");
   assert.equal(output.trim(), "3:True");
 });
+
+test("CLI explicit JS surface rejects CLR source-profile names", async () => {
+  const projectDirectory = resolve(tempRoot, "js-source-profile-rejects-clr-names");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "App.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        surfaces: ["js"],
+      }],
+    }, null, 2),
+    "src/App.ts": [
+      "const path = \"/todos/42\";",
+      "const parts = path.Split(\"/\");",
+      "const count = [1, 2, 3].Length;",
+      "export const result = `${parts}:${count}`;",
+      "",
+    ].join("\n"),
+  });
+  const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /Property 'Split' does not exist on type '"\/todos\/42"'\. Did you mean 'split'\?/u);
+  assert.match(result.stdout + result.stderr, /Property 'Length' does not exist on type 'number\[\]'\. Did you mean 'length'\?/u);
+});
