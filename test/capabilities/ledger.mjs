@@ -8877,7 +8877,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "downstream.smoke.simple-apps": Object.freeze({
     sourceExamples: Object.freeze([
-      "Console.writeLine(greeting(\"Ada\"));",
+      "Console.WriteLine(greeting(\"Ada\"));",
       "console.log(Math.trunc(Math.abs(-7.8)));",
       "external SDK project references generated SmokeGeneratedDownstreamLibrary.csproj",
       "import path from \"node:path\";",
@@ -8912,7 +8912,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "downstream.dotnet.aspnet": Object.freeze({
     sourceExamples: Object.freeze([
       "import { CLSCompliantAttribute, DateTime, DateTimeOffset, Guid } from \"@tsonic/dotnet/System.js\";",
-      "export class UserEntity implements NamedEntity { id: Guid = Guid.empty; score: int32 | null = null; roles: List<string> = new List<string>([\"admin\", \"user\"]); }",
+      "export class UserEntity implements NamedEntity { id: Guid = Guid.Empty; score: int32 | null = null; roles: List<string> = new List<string>([\"admin\", \"user\"]); }",
       "export async function loadUser(name: string): Promise<UserEntity> { return new UserEntity(name); }",
       "external Microsoft.NET.Sdk.Web project consumes generated library through ProjectReference and Microsoft.AspNetCore.Http.Results",
     ]),
@@ -9207,7 +9207,7 @@ function capabilityDefaults(capabilityId, owner) {
 
   if (capabilityId.startsWith("diagnostic.") || capabilityId.startsWith("downstream.") || capabilityId.startsWith("target.") || capabilityId.startsWith("rust.")) {
     return {
-      sourceExamples: ["values.add(1);"],
+      sourceExamples: ["values.Add(1);"],
       tstsDecision:
         "TSTS reports source diagnostics and preserves provider diagnostics without allowing target extensions to override TS-Go decisions.",
       providerFacts: ["diagnosticEvidenceFact", "targetCapabilityFact"],

@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   collectTstsDiagnostics,
+  collectTargetSourceProfileContributions,
   compileTargetFromSemanticSession,
   compileProject,
   createProgramOptionsForProject,
@@ -14,6 +15,7 @@ import {
 } from "../../packages/host/dist/index.js";
 import {
   createTargetRegistry,
+  targetSourceProfileDeclaration,
 } from "../../packages/target-api/dist/index.js";
 import {
   ExtensionLifecycleEvent,
@@ -1373,14 +1375,25 @@ async function compileFakeProject(name, targetPack, targetSelection, options = {
 
 function createSemanticSession(projectDirectory, projectConfig, targetPack, selectedCapabilities = []) {
   const project = parseTsonicProjectConfig(projectConfig);
+  const target = project.targets[0];
+  const sourceProfile = collectTargetSourceProfileContributions({
+    project,
+    projectRoot: projectDirectory,
+    target,
+    targetPack,
+    selectedCapabilities,
+    selectedSurfaces: [],
+  });
+  assert.deepEqual(sourceProfile.diagnostics, []);
   const programOptions = createProgramOptionsForProject({
     project,
     projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceProfileFiles: sourceProfile.files,
   }).programOptions;
   return createTsonicSemanticSession({
     programOptions,
     project,
-    target: project.targets[0],
+    target,
     targetPack,
     selectedCapabilities,
   });
@@ -1472,6 +1485,25 @@ function createFakeTargetPack(events, options = {}) {
               return {
                 artifacts: options.providerArtifacts ?? [],
                 references: options.providerReferences ?? [],
+              };
+            },
+            sourceProfileContributions() {
+              return {
+                declarations: [
+                  targetSourceProfileDeclaration("globals.d.ts", [
+                    "interface Array<T> {}",
+                    "interface Boolean {}",
+                    "interface CallableFunction extends Function {}",
+                    "interface Function {}",
+                    "interface IArguments {}",
+                    "interface NewableFunction extends Function {}",
+                    "interface Number {}",
+                    "interface Object {}",
+                    "interface RegExp {}",
+                    "interface String {}",
+                    "",
+                  ].join("\n")),
+                ],
               };
             },
           },

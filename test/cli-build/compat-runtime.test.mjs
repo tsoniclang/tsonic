@@ -414,7 +414,7 @@ test("CLI compat mode wraps non-exception thrown values with closed runtime carr
       "  return cleanup;",
       "}",
       "",
-      "Console.writeLine(`compat throw: ${guarded()}`);",
+      "Console.WriteLine(`compat throw: ${guarded()}`);",
       "",
     ].join("\n"),
   });

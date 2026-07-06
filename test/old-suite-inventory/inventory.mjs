@@ -54,7 +54,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     featureArea: "native-provider",
     owner: "C# native provider",
     reason:
-      "Ported as a current-architecture executable E2E: provider-owned Console.writeLine is compiled through TSTS/provider facts, emitted as C# AST, built by dotnet, and run with exact stdout.",
+      "Ported as a current-architecture executable E2E: provider-owned Console.WriteLine is compiled through TSTS/provider facts, emitted as C# AST, built by dotnet, and run with exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/namespace-imports/",
@@ -63,7 +63,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     featureArea: "native-provider",
     owner: "C# native provider + C# backend planner",
     reason:
-      "Ported as a current-architecture executable E2E covering namespace import access, source module constants/functions, provider-owned Console.writeLine, C# AST output, dotnet build, and exact stdout.",
+      "Ported as a current-architecture executable E2E covering namespace import access, source module constants/functions, provider-owned Console.WriteLine, C# AST output, dotnet build, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/file-io/",
@@ -258,7 +258,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     owner: "C# backend planner + C# native provider",
     newPath: "test/cli-build/e2e-runtime.test.mjs",
     reason:
-      "Ported as a current-architecture executable E2E covering a module const read by an exported function plus top-level provider-owned Console.writeLine statements, current target config, entrypoint Main wrapping, dotnet build/run, and exact stdout.",
+      "Ported as a current-architecture executable E2E covering a module const read by an exported function plus top-level provider-owned Console.WriteLine statements, current target config, entrypoint Main wrapping, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/dotnet-test-command/",
@@ -275,7 +275,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     owner: "C# backend planner + C# native provider",
     newPath: "test/cli-build/e2e-runtime-language.test.mjs",
     reason:
-      "Ported as a current-architecture executable E2E covering inferred module constants for number, string, integer, and boolean values, provider-owned Console.writeLine, template interpolation, dotnet build/run, and exact stdout.",
+      "Ported as a current-architecture executable E2E covering inferred module constants for number, string, integer, and boolean values, provider-owned Console.WriteLine, template interpolation, dotnet build/run, and exact stdout.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/variable-decls/",
