@@ -1353,6 +1353,89 @@ test("host rejects declaration entrypoints before semantic input creation", () =
   );
 });
 
+test("host rejects invalid target source-profile declaration file names", () => {
+  const events = [];
+  const projectRoot = resolve(tempRoot, "invalid-source-profile-names");
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo" }],
+  });
+  const target = project.targets[0];
+  const targetPack = createFakeTargetPack(events, {
+    providerSourceProfileDeclarations: [
+      targetSourceProfileDeclaration("globals.ts", "interface Object {}\n"),
+      targetSourceProfileDeclaration("../escape.d.ts", "interface String {}\n"),
+      targetSourceProfileDeclaration("nested/globals.d.ts", "interface Number {}\n"),
+    ],
+  });
+
+  const sourceProfile = collectTargetSourceProfileContributions({
+    project,
+    projectRoot,
+    target,
+    targetPack,
+    selectedCapabilities: [],
+    selectedSurfaces: [],
+  });
+
+  assert.deepEqual(sourceProfile.files, []);
+  assert.deepEqual(sourceProfile.diagnostics.map((diagnostic) => diagnostic.message), [
+    "Source profile declaration 'globals.ts' from 'demo-provider' must be a .d.ts file.",
+    "Source profile declaration '../escape.d.ts' from 'demo-provider' must be a file name, not a path.",
+    "Source profile declaration 'nested/globals.d.ts' from 'demo-provider' must be a file name, not a path.",
+  ]);
+});
+
+test("host rejects duplicate target source-profile virtual paths from one owner", () => {
+  const events = [];
+  const projectRoot = resolve(tempRoot, "duplicate-source-profile-paths");
+  const project = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    targets: [{ id: "demo" }],
+  });
+  const target = project.targets[0];
+  const targetPack = createFakeTargetPack(events, {
+    providerSourceProfileDeclarations: [
+      targetSourceProfileDeclaration("globals.d.ts", "interface Object {}\n"),
+      targetSourceProfileDeclaration("globals.d.ts", "interface String {}\n"),
+    ],
+  });
+
+  const sourceProfile = collectTargetSourceProfileContributions({
+    project,
+    projectRoot,
+    target,
+    targetPack,
+    selectedCapabilities: [],
+    selectedSurfaces: [],
+  });
+
+  assert.deepEqual(sourceProfile.files.map((file) => file.path), [
+    resolve(projectRoot, ".tsonic/source-profiles/demo-provider/globals.d.ts").split("\\").join("/"),
+  ]);
+  assert.deepEqual(sourceProfile.diagnostics.map((diagnostic) => diagnostic.message), [
+    `Source profile declaration path '${resolve(projectRoot, ".tsonic/source-profiles/demo-provider/globals.d.ts").split("\\").join("/")}' is contributed by both 'demo-provider' and 'demo-provider'.`,
+  ]);
+});
+
+test("host blocks semantic input and backend execution for invalid source-profile declarations", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerSourceProfileDeclarations: [
+      targetSourceProfileDeclaration("globals.ts", "interface Object {}\n"),
+    ],
+  });
+
+  const result = await compileFakeProject("invalid-source-profile-blocks-semantic-input", targetPack, { id: "demo" });
+
+  assert.deepEqual(events, []);
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0].code, "TARGET_SOURCE_PROFILE");
+  assert.equal(result.diagnostics[0].message, "Source profile declaration 'globals.ts' from 'demo-provider' must be a .d.ts file.");
+  assert.equal(result.targets.length, 1);
+  assert.deepEqual(result.targets[0].compileResult.artifacts, []);
+});
+
 async function compileFakeProject(name, targetPack, targetSelection, options = {}) {
   const projectDirectory = resolve(tempRoot, name);
   const projectConfig = {
@@ -1489,7 +1572,7 @@ function createFakeTargetPack(events, options = {}) {
             },
             sourceProfileContributions() {
               return {
-                declarations: [
+                declarations: options.providerSourceProfileDeclarations ?? [
                   targetSourceProfileDeclaration("globals.d.ts", [
                     "interface Array<T> {}",
                     "interface Boolean {}",

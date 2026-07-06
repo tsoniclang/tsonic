@@ -1,7 +1,7 @@
 import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
-test("CLI emits node:path and bare path joins from selected NodeJS provider-package provider facts", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-path-join-surface");
+test("CLI emits node:path and bare path joins from selected Node provider-package provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-path-join-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -214,10 +214,10 @@ test("CLI runs recovered NodeJS module graph fixture through provider-package fa
 });
 
 
-test("CLI rejects node:path imports when NodeJS provider package is not selected", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-path-no-surface");
+test("CLI rejects node:path imports when Node provider package is not selected", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-path-no-provider-package");
   await writeProject(projectDirectory, {
-    "package.json": targetCsharpOnlyPackageJson("nodejs-path-no-surface"),
+    "package.json": targetCsharpOnlyPackageJson("nodejs-path-no-provider-package"),
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -245,7 +245,7 @@ test("CLI rejects node:path imports when NodeJS provider package is not selected
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI builds and runs existing Node-style code when NodeJS provider package is selected", async () => {
+test("CLI builds and runs existing Node-style code when Node provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-surface-code");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -337,10 +337,10 @@ test("CLI builds and runs existing Node-style code when NodeJS provider package 
   assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedExistingNodeStyleSurfaceCode"), "file.txt.txt|ok|36|argv|platform\n");
 });
 
-test("CLI rejects Node-style builtins when NodeJS provider package is unselected", async () => {
-  const projectDirectory = resolve(tempRoot, "existing-node-style-code-without-nodejs-surface");
+test("CLI rejects Node-style builtins when Node provider package is unselected", async () => {
+  const projectDirectory = resolve(tempRoot, "existing-node-style-code-without-node-provider-package");
   await writeProject(projectDirectory, {
-    "package.json": targetCsharpOnlyPackageJson("existing-node-style-code-without-nodejs-surface"),
+    "package.json": targetCsharpOnlyPackageJson("existing-node-style-code-without-node-provider-package"),
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -373,7 +373,7 @@ test("CLI rejects Node-style builtins when NodeJS provider package is unselected
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleCodeWithoutNodejsSurface.csproj")), false);
 });
 
-test("CLI emits fs promises operations from selected NodeJS provider-package facts", async () => {
+test("CLI emits fs promises operations from selected Node provider-package facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-fs-promises-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -498,7 +498,7 @@ test("CLI emits fs promises operations from selected NodeJS provider-package fac
   assert.equal(stdout, "hello:5:3:4:file:he\n");
 });
 
-test("CLI rejects unsupported NodeJS provider-package modules without fallback", async () => {
+test("CLI rejects unsupported Node provider-package modules without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-nodejs-provider-package-module-import");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -641,8 +641,8 @@ test("CLI rejects unsupported historical NodeJS type-only alias imports without 
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI emits NodeJS namespace imports from selected surface provider facts", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-module-graph-surface");
+test("CLI emits NodeJS namespace imports from selected provider-package facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-module-graph-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -778,7 +778,7 @@ test("CLI emits NodeJS default imports from selected provider-package module obj
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI runs NodeJS provider-package runtime operations from selected facts", async () => {
+test("CLI runs Node provider-package runtime operations from selected facts", async () => {
   const assemblyName = "SmokeGeneratedNodeProviderRuntime";
   const projectDirectory = resolve(tempRoot, "nodejs-provider-package-runtime");
   const runtimeRoot = JSON.stringify(projectDirectory);
@@ -906,8 +906,8 @@ test("CLI runs NodeJS provider-package runtime operations from selected facts", 
   );
 });
 
-test("CLI emits expanded process operations from selected NodeJS provider package facts", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-process-expanded-surface");
+test("CLI emits expanded process operations from selected Node provider-package facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-process-expanded-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -1072,8 +1072,8 @@ test("CLI rejects unsupported process nextTick without fallback", async () => {
 });
 
 
-test("CLI emits Buffer and crypto operations from selected NodeJS declaration facts", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-buffer-crypto-surface");
+test("CLI emits Buffer and crypto operations from selected Node provider-package declaration facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-buffer-crypto-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -1237,8 +1237,8 @@ test("CLI emits Buffer and crypto operations from selected NodeJS declaration fa
   assert.equal(stdout, "4660:-2:16909060:1.5:2.5\n");
 });
 
-test("CLI emits fs.statSync and path object operations from selected NodeJS declarations", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-fs-path-object-surface");
+test("CLI emits fs.statSync and path object operations from selected Node provider-package declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-path-object-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -1345,8 +1345,8 @@ test("CLI emits fs.statSync and path object operations from selected NodeJS decl
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI emits fs Stats Date members through selected NodeJS and JS surface facts", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-surface");
+test("CLI emits fs Stats Date members through selected Node provider-package and JS surface facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -1401,10 +1401,10 @@ test("CLI emits fs Stats Date members through selected NodeJS and JS surface fac
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects fs Stats Date chains when NodeJS provider package is not selected", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-no-nodejs-surface");
+test("CLI rejects fs Stats Date chains when Node provider package is not selected", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-fs-stats-date-no-node-provider-package");
   await writeProject(projectDirectory, {
-    "package.json": targetCsharpOnlyPackageJson("nodejs-fs-stats-date-no-nodejs-surface"),
+    "package.json": targetCsharpOnlyPackageJson("nodejs-fs-stats-date-no-node-provider-package"),
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
@@ -1415,7 +1415,7 @@ test("CLI rejects fs Stats Date chains when NodeJS provider package is not selec
           surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedNodeFsStatsDateNoNodejsSurface",
+            assemblyName: "SmokeGeneratedNodeFsStatsDateNoNodeProviderPackage",
           },
         },
       ],
@@ -1434,12 +1434,12 @@ test("CLI rejects fs Stats Date chains when NodeJS provider package is not selec
   assert.equal(build.status, 1);
   assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
   assert.match(build.stderr, /Cannot find name 'node:fs'/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsStatsDateNoNodejsSurface.csproj")), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeFsStatsDateNoNodeProviderPackage.csproj")), false);
 });
 
 
-test("CLI emits closed node:util string operations from selected NodeJS declarations", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-util-string-surface");
+test("CLI emits closed node:util string operations from selected Node provider-package declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-util-string-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -1527,7 +1527,7 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'format'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1560,7 +1560,7 @@ test("CLI rejects default node:util format operations without fallback", async (
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'NodeUtilModule' member 'format'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:util' export 'NodeUtilModule' member 'format'/);
   assert.match(build.stderr, /node:util\.format\(System\.Object,System\.Object\[\]\)/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1598,13 +1598,13 @@ test("CLI rejects other open-carrier node:util operations without fallback", asy
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export '(formatWithOptions|inspect|isDeepStrictEqual|debuglog|deprecate)'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:util' export '(formatWithOptions|inspect|isDeepStrictEqual|debuglog|deprecate)'/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|JsonSerializer|GetType/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI emits closed node:url operations from selected NodeJS declarations", async () => {
-  const projectDirectory = resolve(tempRoot, "nodejs-url-closed-surface");
+test("CLI emits closed node:url operations from selected Node provider-package declarations", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-url-closed-provider-package");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -1775,7 +1775,7 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'format'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1809,13 +1809,13 @@ test("CLI rejects unsupported node:url URLPattern operations without fallback", 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'URLPattern' member 'constructor'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:url' export 'URLPattern' member 'constructor'/);
   assert.match(build.stderr, /URLPattern\.constructor/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects unsupported selected NodeJS fs provider operations without fallback", async () => {
+test("CLI rejects unsupported selected Node fs provider-package operations without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-unsupported-selected-operation");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -1847,15 +1847,15 @@ test("CLI rejects unsupported selected NodeJS fs provider operations without fal
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'readFile'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'readFile'/);
   assert.match(build.stderr, /node:fs\.readFile/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
   assert.match(build.stderr, /node:fs\.writeFile/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watch'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'watch'/);
   assert.match(build.stderr, /node:fs\.watch/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
   assert.match(build.stderr, /node:fs\.watchFile/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
   assert.match(build.stderr, /node:fs\.createReadStream/);
   assert.doesNotMatch(build.stderr, /readFile is not a function|writeFile is not a function|watch is not a function|createReadStream is not a function/);
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
@@ -1863,7 +1863,7 @@ test("CLI rejects unsupported selected NodeJS fs provider operations without fal
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects unsupported selected NodeJS crypto and os provider operations without fallback", async () => {
+test("CLI rejects unsupported selected Node crypto and os provider-package operations without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-unsupported-crypto-os-selected-operation");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -1903,29 +1903,29 @@ test("CLI rejects unsupported selected NodeJS crypto and os provider operations 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createCipheriv'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createCipheriv'/);
   assert.match(build.stderr, /node:crypto\.createCipheriv/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createDecipheriv'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createDecipheriv'/);
   assert.match(build.stderr, /node:crypto\.createDecipheriv/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'scryptSync'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'scryptSync'/);
   assert.match(build.stderr, /node:crypto\.scryptSync/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'pbkdf2Sync'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'pbkdf2Sync'/);
   assert.match(build.stderr, /node:crypto\.pbkdf2Sync/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createSign'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createSign'/);
   assert.match(build.stderr, /node:crypto\.createSign/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createVerify'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createVerify'/);
   assert.match(build.stderr, /node:crypto\.createVerify/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'cpus'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'cpus'/);
   assert.match(build.stderr, /node:os\.cpus/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'networkInterfaces'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'networkInterfaces'/);
   assert.match(build.stderr, /node:os\.networkInterfaces/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'userInfo'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'userInfo'/);
   assert.match(build.stderr, /node:os\.userInfo/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'getPriority'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'getPriority'/);
   assert.match(build.stderr, /node:os\.getPriority/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'setPriority'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'setPriority'/);
   assert.match(build.stderr, /node:os\.setPriority/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
+  assert.match(build.stderr, /C# Node provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.os\.constants/);
   assert.doesNotMatch(build.stderr, /createCipheriv is not a function|cpus is not a function|constants is undefined/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
