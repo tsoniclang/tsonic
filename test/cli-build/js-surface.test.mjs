@@ -1,12 +1,6 @@
 import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
-  if (stderr.includes("C# target requires selected target facts for external TypeScript declaration call")) {
-    assert.match(stderr, new RegExp(`C# target requires selected target facts for external TypeScript declaration call '${memberName}'`));
-    assert.match(stderr, /Missing selected target mapping/);
-    assert.doesNotMatch(stderr, /TS9000011/);
-    return;
-  }
   assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);
   const sourceContractPatterns = {
     "<anonymous>": /'Array' only refers to a type, but is being used as a value here/u,
@@ -15,7 +9,9 @@ function assertExternalCallNotMapped(stderr, memberName) {
     toString: /Property 'toString' does not exist/u,
     trunc: /Cannot find name 'Math'|Property 'trunc' does not exist/u,
   };
-  assert.match(stderr, sourceContractPatterns[memberName] ?? new RegExp(memberName));
+  const pattern = sourceContractPatterns[memberName];
+  assert.notEqual(pattern, undefined, `missing exact source-contract diagnostic expectation for ${memberName}`);
+  assert.match(stderr, pattern);
 }
 
 test("CLI emits standard Math calls from selected TSTS provider facts", async () => {
@@ -1778,7 +1774,10 @@ test("CLI rejects element access with non-integral indexes until conversion fact
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS7053|C# source array element access requires an integral TSTS\/provider-backed index type/u);
+  assert.match(build.stderr, /TS7053: Element implicitly has an 'any' type because expression of type 'number' can't be used to index type 'String'\./u);
+  assert.match(build.stderr, /TS9100103: C# provider could not map checked element access on target 'System\.Private\.CoreLib, Version=10\.0\.0\.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e::System\.String' from selected TSTS provider index declaration identity\./u);
+  assert.match(build.stderr, /TS9100109: C# native array element access requires an integral TSTS\/provider-backed index type\./u);
+  assert.doesNotMatch(build.stderr, /TS9100111|TS9100112/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNonIntegralIndexes.csproj")), false);
 });
 

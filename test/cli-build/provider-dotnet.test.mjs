@@ -186,7 +186,8 @@ test("CLI rejects native .NET array destructuring without a provider iterable so
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS24(?:61|88): Type 'Array<number>'/u);
+  assert.match(build.stderr, /TS2461: Type 'Array<number>' is not an array type\./u);
+  assert.doesNotMatch(build.stderr, /TS2488/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectDestructure.csproj")), false);
 });
 
@@ -220,7 +221,8 @@ test("CLI rejects native .NET array spread without a provider iterable source co
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS24(?:61|88): Type 'Array<number>'/u);
+  assert.match(build.stderr, /TS2461: Type 'Array<number>' is not an array type\./u);
+  assert.doesNotMatch(build.stderr, /TS2488/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectSpread.csproj")), false);
 });
 
@@ -757,7 +759,8 @@ test("CLI emits provider-owned byref-like System span operations from .NET virtu
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static double tailLength\(string value\)/);
   assert.match(generatedSource, /System\.ReadOnlySpan<char> span = System\.MemoryExtensions\.AsSpan\(value, 1\);/);
-  assert.match(generatedSource, /return (?:span|\(\(System\.ReadOnlySpan<char>\)span\))\.Length;/);
+  assert.match(generatedSource, /return span\.Length;/);
+  assert.doesNotMatch(generatedSource, /\(\(System\.ReadOnlySpan<char>\)span\)\.Length/);
   assert.doesNotMatch(generatedSource, /MemoryExtensions\.asSpan|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderSpan.csproj"), "--nologo", "--v:minimal"]);
