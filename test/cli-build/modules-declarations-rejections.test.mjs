@@ -1,19 +1,4 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
-
-const bannedGeneratedRuntimeSemantics = [
-  /\bdynamic\b/u,
-  /\bSystem\.Reflection\b/u,
-  /\bGetProperty\b/u,
-  /\bGetProperties\b/u,
-  /\bGetMethod\b/u,
-  /\bGetMethods\b/u,
-  /\bMethodInfo\.Invoke\b/u,
-  /\bMakeGenericMethod\b/u,
-  /\bActivator\.CreateInstance\b/u,
-  /\bAssembly\.Load\b/u,
-];
+import { assert, assertGeneratedOutputHasNoReflectionSemantics, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", async () => {
   const projectDirectory = resolve(tempRoot, "typescript-only-modifiers");
@@ -208,4 +193,3 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Ada-score:8:15:gold\n");
 });
-

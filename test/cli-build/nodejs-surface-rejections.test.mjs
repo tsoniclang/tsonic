@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI builds and runs existing Node-style code when Node provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-style-surface-code");
@@ -535,4 +535,3 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
     "tsonic-slice8-node-provider-runtime.txt|hello|hello|64|36|exists|file|platform|ok|url-live|ab:renamed:listed|Z:Z:link\n",
   );
 });
-

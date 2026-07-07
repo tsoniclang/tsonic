@@ -1,13 +1,25 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const repoRoot = process.cwd();
 const cliPath = resolve(repoRoot, "packages/cli/dist/src/index.js");
 const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build", `${Date.now()}-${process.pid}`);
+const bannedGeneratedRuntimeSemantics = [
+  /\bdynamic\b/u,
+  /\bSystem\.Reflection\b/u,
+  /\bGetProperty\b/u,
+  /\bGetProperties\b/u,
+  /\bGetMethod\b/u,
+  /\bGetMethods\b/u,
+  /\bMethodInfo\.Invoke\b/u,
+  /\bMakeGenericMethod\b/u,
+  /\bActivator\.CreateInstance\b/u,
+  /\bAssembly\.Load\b/u,
+];
 
 async function writeProject(projectDirectory, files) {
   const projectFiles = withDefaultPackage(projectDirectory, files);
@@ -36,6 +48,34 @@ function runGeneratedProject(projectDirectory, assemblyName) {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  return executed.stdout.replace(/\r\n/g, "\n");
+}
+
+async function runGeneratedCsharpRunner(projectDirectory, assemblyName, programLines) {
+  const runnerDirectory = resolve(projectDirectory, "runner");
+  const runnerProjectPath = resolve(runnerDirectory, "Runner.csproj");
+  await writeProject(runnerDirectory, {
+    "Runner.csproj": [
+      "<Project Sdk=\"Microsoft.NET.Sdk\">",
+      "  <PropertyGroup>",
+      "    <OutputType>Exe</OutputType>",
+      "    <TargetFramework>net10.0</TargetFramework>",
+      "    <ImplicitUsings>disable</ImplicitUsings>",
+      "    <Nullable>enable</Nullable>",
+      "  </PropertyGroup>",
+      "  <ItemGroup>",
+      `    <ProjectReference Include=\"../out/csharp/${assemblyName}.csproj\" />`,
+      "  </ItemGroup>",
+      "</Project>",
+      "",
+    ].join("\n"),
+    "Program.cs": programLines.join("\n"),
+  });
+
+  const build = run("dotnet", ["build", runnerProjectPath, "--nologo", "--v:minimal"]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const executed = run("dotnet", ["run", "--project", runnerProjectPath, "--no-build", "--no-restore"]);
   assert.equal(executed.status, 0, executed.stdout + executed.stderr);
   return executed.stdout.replace(/\r\n/g, "\n");
 }
@@ -94,6 +134,59 @@ function withDefaultPackage(projectDirectory, files) {
   };
 }
 
+function targetCsharpOnlyPackageJson(name) {
+  return JSON.stringify({
+    name: `tsonic-test-${name}`,
+    type: "module",
+    private: true,
+    dependencies: {
+      "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+      "@tsonic/csharp-js": "file:../../../../csharp-js",
+    },
+  }, null, 2);
+}
+
+function targetCsharpNodejsPackageJson(projectDirectory) {
+  const projectName = typeof projectDirectory === "string" && projectDirectory.includes("/")
+    ? projectDirectory.split("/").at(-1)
+    : projectDirectory;
+  return JSON.stringify({
+    name: `tsonic-test-${projectName}`,
+    type: "module",
+    private: true,
+    dependencies: {
+      "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+      "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+      "@tsonic/csharp-js": "file:../../../../csharp-js",
+      "@tsonic/csharp-nodejs": "file:../../../../csharp-nodejs",
+    },
+  }, null, 2);
+}
+
+async function assertGeneratedOutputHasNoReflectionSemantics(projectDirectory) {
+  const files = await collectFiles(resolve(projectDirectory, "out/csharp"), (fileName) => fileName.endsWith(".cs"));
+  assert.notEqual(files.length, 0);
+  for (const file of files) {
+    const text = await readFile(file, "utf8");
+    for (const pattern of bannedGeneratedRuntimeSemantics) {
+      assert.doesNotMatch(text, pattern, `${file} contains banned runtime semantic ${pattern}`);
+    }
+  }
+}
+
+async function collectFiles(directory, includeFile, result = []) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await collectFiles(path, includeFile, result);
+    } else if (entry.isFile() && includeFile(path)) {
+      result.push(path);
+    }
+  }
+  return result;
+}
+
 async function linkInstalledTsonicPackages(projectDirectory, files) {
   if (files["package.json"] === undefined) {
     return;
@@ -141,6 +234,7 @@ function escapeRegExp(value) {
 
 export {
   assert,
+  assertGeneratedOutputHasNoReflectionSemantics,
   assertInstalledAssemblyReference,
   assertNoInstalledAssemblyReference,
   assertNoRuntimeProjectReference,
@@ -152,9 +246,12 @@ export {
   repoRoot,
   resolve,
   run,
+  runGeneratedCsharpRunner,
   runNodeInDirectory,
   runGeneratedProject,
   runNode,
+  targetCsharpNodejsPackageJson,
+  targetCsharpOnlyPackageJson,
   tempRoot,
   test,
   writeProject,

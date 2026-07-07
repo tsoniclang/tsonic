@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI rejects open-carrier node:util format operations without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-util-format-unsupported");
@@ -169,4 +169,3 @@ test("CLI rejects unsupported node:url URLPattern operations without fallback", 
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI emits node:path and bare path joins from selected Node provider-package provider facts", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-path-join-provider-package");
@@ -616,4 +616,3 @@ test("CLI rejects unsupported selected Node fs provider-package operations witho
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-
