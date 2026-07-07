@@ -1,6 +1,24 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { TargetCapabilityImplementation } from "@tsonic/target-api";
+import type { TargetCapabilityImplementation, TargetSelection } from "@tsonic/target-api";
 import { moduleSpecifierMatchesOwnership } from "./extensions.js";
+
+export function collectImportActivatedTargetCapabilities(
+  ast: AstReader,
+  sourceFiles: readonly SourceFile[],
+  installedCapabilities: readonly TargetCapabilityImplementation[],
+  target: TargetSelection,
+): readonly TargetCapabilityImplementation[] {
+  if (installedCapabilities.length === 0) {
+    return [];
+  }
+  const moduleSpecifiers = collectStaticModuleSpecifiers(ast, sourceFiles);
+  return installedCapabilities.filter((capability) =>
+    capability.targetId === target.id &&
+    capability.moduleOwnership.some((ownership) =>
+      moduleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
+    )
+  );
+}
 
 export function collectRuntimeActivatedTargetCapabilities(
   ast: AstReader,
@@ -18,6 +36,22 @@ export function collectRuntimeActivatedTargetCapabilities(
   );
 }
 
+function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly string[] {
+  const specifiers = new Set<string>();
+  for (const sourceFile of sourceFiles) {
+    for (const statement of ast.statements(sourceFile)) {
+      if (statement === undefined) {
+        continue;
+      }
+      const moduleSpecifier = getStaticModuleSpecifier(ast, statement);
+      if (moduleSpecifier !== undefined) {
+        specifiers.add(moduleSpecifier);
+      }
+    }
+  }
+  return [...specifiers].sort();
+}
+
 function collectValueModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly string[] {
   const specifiers = new Set<string>();
   for (const sourceFile of sourceFiles) {
@@ -32,6 +66,16 @@ function collectValueModuleSpecifiers(ast: AstReader, sourceFiles: readonly Sour
     }
   }
   return [...specifiers].sort();
+}
+
+function getStaticModuleSpecifier(ast: AstReader, statement: Node): string | undefined {
+  if (ast.is.IsImportDeclaration(statement)) {
+    return readModuleSpecifierText(ast, ast.as.AsImportDeclaration(statement)?.ModuleSpecifier);
+  }
+  if (ast.is.IsExportDeclaration(statement)) {
+    return readModuleSpecifierText(ast, ast.as.AsExportDeclaration(statement)?.ModuleSpecifier);
+  }
+  return undefined;
 }
 
 function getValueModuleSpecifier(ast: AstReader, statement: Node): string | undefined {

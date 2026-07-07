@@ -228,4 +228,3 @@ test("CLI rejects Map and Set without selected JS surface declarations", async (
   assert.match(build.stderr, /C# property access 'size' must be selected by TSTS\/provider facts before emission/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMapSetWithoutJsSurface.csproj")), false);
 });
-

@@ -45,4 +45,3 @@ test("CLI emits array literals from finalized runtime carrier facts", async () =
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayLiteralFacts.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-

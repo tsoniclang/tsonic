@@ -275,33 +275,33 @@ test("host composes target provider extensions before selected surface extension
   const events = [];
   const targetExtension = { name: "target" };
   const jsExtension = { name: "surface-js" };
-  const nodejsExtension = { name: "surface-nodejs" };
+  const webExtension = { name: "surface-web" };
   const targetPack = createFakeTargetPack(events, {
     targetExtension,
     surfaces: [
       createFakeSurface("js", { events, extension: jsExtension }),
-      createFakeSurface("nodejs", { events, requiredSurfaces: ["js"], extension: nodejsExtension }),
+      createFakeSurface("web", { events, requiredSurfaces: ["js"], extension: webExtension }),
       createFakeSurface("webworker", { events, extension: { name: "unselected" } }),
     ],
   });
   const project = parseTsonicProjectConfig({
     entryPoint: "index.ts",
-    targets: [{ id: "demo", surfaces: ["js", "nodejs"] }],
+    targets: [{ id: "demo", surfaces: ["js", "web"] }],
   });
   const target = project.targets[0];
 
   const composition = createTargetCompilerExtensions({ project, target, targetPack });
 
   assert.deepEqual(events, [
-    "provider:demo:surfaces=js,nodejs",
-    "surface-extension:js:target=demo:surfaces=js,nodejs",
-    "surface-extension:nodejs:target=demo:surfaces=js,nodejs",
+    "provider:demo:surfaces=js,web",
+    "surface-extension:js:target=demo:surfaces=js,web",
+    "surface-extension:web:target=demo:surfaces=js,web",
   ]);
-  assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js", "nodejs"]);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "surface-js", "surface-nodejs"]);
+  assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js", "web"]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "surface-js", "surface-web"]);
   assert.equal(composition.extensions[1], targetExtension);
   assert.equal(composition.extensions[2], jsExtension);
-  assert.equal(composition.extensions[3], nodejsExtension);
+  assert.equal(composition.extensions[3], webExtension);
 });
 test("host rejects stale or unowned supplied surface composition", () => {
   const events = [];
@@ -449,20 +449,20 @@ test("host reports missing selected surface dependency as target diagnostic", as
   const targetPack = createFakeTargetPack(events, {
     surfaces: [
       createFakeSurface("js"),
-      createFakeSurface("nodejs", ["js"]),
+      createFakeSurface("web", ["js"]),
     ],
   });
 
   const result = await compileFakeProject("missing-surface-dependency", targetPack, {
     id: "demo",
-    surfaces: ["nodejs"],
+    surfaces: ["web"],
   });
 
   assert.deepEqual(events, []);
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(result.diagnostics[0].message, "target 'demo' surface 'nodejs' requires surface 'js'");
+  assert.equal(result.diagnostics[0].message, "target 'demo' surface 'web' requires surface 'js'");
   assert.equal(result.targets[0].compileResult.artifacts.length, 0);
 });
 test("host rejects unsafe configured target and surface identifiers", () => {
@@ -476,9 +476,9 @@ test("host rejects unsafe configured target and surface identifiers", () => {
   assert.throws(
     () => parseTsonicProjectConfig({
       entryPoint: "index.ts",
-      targets: [{ id: "csharp", surfaces: ["../nodejs"] }],
+      targets: [{ id: "csharp", surfaces: ["../web"] }],
     }),
-    /Target 'csharp' surface '\.\.\/nodejs' must match/,
+    /Target 'csharp' surface '\.\.\/web' must match/,
   );
   assert.throws(
     () => parseTsonicProjectConfig({
@@ -499,7 +499,7 @@ test("target registry rejects unsafe pack and required surface identifiers", () 
     () => createTargetRegistry([
       createFakeTargetPack([], {
         surfaces: [
-          createFakeSurface("nodejs", ["../js"]),
+          createFakeSurface("web", ["../js"]),
         ],
       }),
     ]),
@@ -523,7 +523,7 @@ test("host does not pass unselected surfaces to the target provider", () => {
     targetExtension,
     surfaces: [
       createFakeSurface("js"),
-      createFakeSurface("nodejs", ["js"]),
+      createFakeSurface("web", ["js"]),
     ],
   });
   const project = parseTsonicProjectConfig({
@@ -565,11 +565,11 @@ test("host composes provider, selected surface, and backend artifacts for toolch
           createFakeArtifact("asset", "runtime/js.txt", "js"),
         ],
       }),
-      createFakeSurface("nodejs", {
+      createFakeSurface("web", {
         events,
         requiredSurfaces: ["js"],
         artifacts: [
-          createFakeArtifact("asset", "runtime/nodejs.txt", "nodejs"),
+          createFakeArtifact("asset", "runtime/web.txt", "web"),
         ],
       }),
     ],
@@ -592,7 +592,7 @@ test("host composes provider, selected surface, and backend artifacts for toolch
   assert.equal(toolchainArtifactsRoot, resolve(projectDirectory, "out/demo"));
   assert.equal(toolchainTargetId, "demo");
   assert.deepEqual(toolchainProjectTargetIds, ["demo"]);
-  assert.equal(events.includes("surface-runtime:nodejs"), false);
+  assert.equal(events.includes("surface-runtime:web"), false);
   assert.equal(events.includes("provider-runtime:demo"), true);
   assert.equal(events.includes("surface-runtime:js"), true);
   assert.equal(events.includes("backend:demo"), true);
@@ -652,8 +652,7 @@ test("host composes selected target capability runtime artifacts before surfaces
   ]);
   assert.deepEqual(events, [
     "provider:demo:surfaces=js",
-    "capability-extension:acme:target=demo:capabilities=acme,unused",
-    "capability-extension:unused:target=demo:capabilities=acme,unused",
+    "capability-extension:acme:target=demo:capabilities=acme",
     "provider-resolve:acme:@acme/native/named.js:named:named as named",
     "provider-runtime:demo",
     "capability-runtime:acme",
@@ -662,4 +661,43 @@ test("host composes selected target capability runtime artifacts before surfaces
     "toolchain:demo:artifacts=runtime/provider.txt,runtime/acme.txt,runtime/js.txt,src/App.demo",
   ]);
   assert.equal(events.includes("capability-runtime:unused"), false);
+});
+
+test("host activates target capability source profiles only for imported owned modules", async () => {
+  const events = [];
+  const acme = createFakeVirtualTargetCapability("acme", {
+    events,
+    sourceProfileDeclarations: [
+      targetSourceProfileDeclaration("capability-globals.d.ts", "declare const capabilityOnlyValue: number;\n"),
+    ],
+  });
+  const unused = createFakeVirtualTargetCapability("unused", {
+    events,
+    moduleOwnership: [{ specifierPrefix: "@unused/native/" }],
+    sourceProfileDeclarations: [
+      targetSourceProfileDeclaration("unused-globals.d.ts", "declare const unusedCapabilityValue: number;\n"),
+    ],
+  });
+  const targetPack = createFakeTargetPack(events);
+
+  const result = await compileFakeProject("target-capability-source-profile-activation", targetPack, {
+    id: "demo",
+  }, {
+    installedCapabilities: [acme, unused],
+    source: [
+      "import { named } from \"@acme/native/named.js\";",
+      "export const value = named + capabilityOnlyValue;",
+      "export const blocked = unusedCapabilityValue;",
+      "",
+    ].join("\n"),
+  });
+
+  assert.ok(result.diagnostics.some((diagnostic) =>
+    diagnostic.category === "error" &&
+    diagnostic.message.includes("Cannot find name 'unusedCapabilityValue'")
+  ));
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.message.includes("Cannot find name 'capabilityOnlyValue'")), false);
+  assert.equal(events.includes("capability-source-profile:acme:target=demo:capabilities=acme"), true);
+  assert.equal(events.includes("capability-source-profile:unused:target=demo:capabilities=unused"), false);
+  assert.equal(events.includes("capability-extension:unused:target=demo:capabilities=unused"), false);
 });

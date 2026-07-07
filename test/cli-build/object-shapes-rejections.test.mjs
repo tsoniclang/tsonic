@@ -50,4 +50,3 @@ test("CLI rejects structural binary operators without selected target facts", as
   assert.match(build.stderr, /C# operator '==' requires finalized provider operator facts for type-parameter operands/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

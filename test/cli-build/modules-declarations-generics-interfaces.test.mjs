@@ -437,4 +437,3 @@ test("CLI emits arrays and interfaces containing callable target types", async (
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCallableContainers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-

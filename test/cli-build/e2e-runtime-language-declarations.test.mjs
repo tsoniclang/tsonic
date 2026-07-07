@@ -341,4 +341,3 @@ test("CLI runs generated C# executable preserving shadowed lexical bindings", as
     "",
   ].join("\n"));
 });
-

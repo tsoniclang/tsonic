@@ -1,7 +1,7 @@
 import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "./harness.mjs";
 
 test("CLI builds and runs existing Node-style code when Node provider package is selected", async () => {
-  const projectDirectory = resolve(tempRoot, "existing-node-style-surface-code");
+  const projectDirectory = resolve(tempRoot, "existing-node-provider-package-code");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
     "tsonic.json": JSON.stringify({
@@ -14,7 +14,7 @@ test("CLI builds and runs existing Node-style code when Node provider package is
           surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedExistingNodeStyleSurfaceCode",
+            assemblyName: "SmokeGeneratedExistingNodeProviderPackageCode",
             outputType: "Exe",
           },
         },
@@ -66,7 +66,7 @@ test("CLI builds and runs existing Node-style code when Node provider package is
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
-  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleSurfaceCode.csproj"), "utf8");
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeProviderPackageCode.csproj"), "utf8");
   assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath="[^"]*Tsonic\.CSharp\.Runtime\.dll" \/>/);
   assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Js" HintPath="[^"]*Tsonic\.CSharp\.Js\.dll" \/>/);
   assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Node" HintPath="[^"]*Tsonic\.CSharp\.Node\.dll" \/>/);
@@ -87,9 +87,9 @@ test("CLI builds and runs existing Node-style code when Node provider package is
   assert.doesNotMatch(generatedSource, /return randomUUID\(/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeStyleSurfaceCode.csproj"), "--nologo", "--v:minimal"]);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeProviderPackageCode.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
-  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedExistingNodeStyleSurfaceCode"), "file.txt.txt|ok|36|argv|platform\n");
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedExistingNodeProviderPackageCode"), "file.txt.txt|ok|36|argv|platform\n");
 });
 
 test("CLI rejects Node-style builtins when Node provider package is unselected", async () => {

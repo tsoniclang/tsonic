@@ -117,4 +117,3 @@ test("CLI runs array parameter destructuring from real TSTS binding facts", asyn
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|30|15\n");
 });
-

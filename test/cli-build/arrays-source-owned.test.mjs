@@ -53,4 +53,3 @@ test("CLI runs inferred source-owned array returns through finalized carrier fac
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4|2|7\n");
 });
-

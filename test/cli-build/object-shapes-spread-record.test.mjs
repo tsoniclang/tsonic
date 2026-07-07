@@ -111,4 +111,3 @@ test("CLI rejects non-identifier object spread until single-evaluation provider 
   assert.match(build.stderr, /Object literal spread requires a single-evaluation provider lowering/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

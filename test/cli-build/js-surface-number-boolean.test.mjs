@@ -256,4 +256,3 @@ test("CLI rejects JS Boolean wrapper construction until a closed wrapper carrier
   assert.match(build.stdout + build.stderr, /Boolean\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanWrapperRejected.csproj")), false);
 });
-

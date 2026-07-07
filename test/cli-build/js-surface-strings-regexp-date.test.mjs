@@ -629,4 +629,3 @@ test("CLI rejects string methods without exact provider-backed JS semantics", as
   assert.match(build.stderr, /Property 'at' does not exist on type 'string'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

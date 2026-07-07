@@ -652,4 +652,3 @@ test("CLI emits array callbacks with JS callback arities from provider facts", a
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayCallbacks.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-

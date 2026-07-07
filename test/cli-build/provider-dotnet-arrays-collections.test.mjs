@@ -483,4 +483,3 @@ test("CLI emits provider-owned generic byref collection calls from virtual targe
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "11|-1\n");
 });
-

@@ -388,4 +388,3 @@ test("CLI runs required tuple defaults and tuple rest destructuring", async () =
   assert.equal(executed.status, 0, executed.stdout + executed.stderr);
   assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready\ntuple:7:True\nsingle:8\nempty\n");
 });
-

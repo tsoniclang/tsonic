@@ -164,4 +164,3 @@ test("CLI enforces provider-backed generic interface constraints through TSTS de
   assert.match(invalidBuild.stdout + invalidBuild.stderr, /Plain|IMarker|value type|unmanaged|non-null|constraint/u);
   assert.equal(existsSync(resolve(invalidProjectDirectory, "out/csharp/SmokeGeneratedProviderGenericConstraintInvalid.csproj")), false);
 });
-

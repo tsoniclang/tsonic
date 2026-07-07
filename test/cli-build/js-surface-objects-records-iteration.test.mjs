@@ -225,4 +225,3 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
   assert.match(build.stderr, /descriptor, prototype, extensibility/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
 });
-

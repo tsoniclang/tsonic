@@ -103,7 +103,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
   };
 }
 
-function collectResolvedSourceFilesForBackend(compiler: CompilerSession): readonly SourceFile[] {
+export function collectResolvedSourceFilesForBackend(compiler: CompilerSession): readonly SourceFile[] {
   return compiler.getSourceFiles()
     .filter((sourceFile): sourceFile is SourceFile =>
       sourceFile !== undefined &&

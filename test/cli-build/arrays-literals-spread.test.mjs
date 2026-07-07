@@ -284,4 +284,3 @@ test("CLI rejects untyped empty array returns with a target diagnostic", async (
   assert.doesNotMatch(build.stderr, /resolvedTypeArguments|TypeError|Cannot read properties/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysEmptyReturnRequiresElementEvidence.csproj")), false);
 });
-

@@ -305,6 +305,16 @@ export function createFakeTargetCapability(id, options = {}) {
         references: options.references ?? [],
       };
     },
+    ...(options.sourceProfileDeclarations === undefined
+      ? {}
+      : {
+          sourceProfileContributions(context) {
+            options.events?.push(`capability-source-profile:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilities.map((capability) => capability.id).join(",")}`);
+            return {
+              declarations: options.sourceProfileDeclarations,
+            };
+          },
+        }),
   };
 }
 

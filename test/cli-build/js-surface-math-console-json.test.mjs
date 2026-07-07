@@ -450,4 +450,3 @@ test("CLI rejects Math.f16round because the current TSTS default library does no
   assert.match(build.stdout + build.stderr, /Property 'f16round' does not exist on type 'Math'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMathF16RoundCurrentLibExclusion.csproj")), false);
 });
-

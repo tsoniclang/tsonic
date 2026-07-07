@@ -305,4 +305,3 @@ test("CLI runs generated C# executable for nullish, optional, flow, ternary, and
     "",
   ].join("\n"));
 });
-

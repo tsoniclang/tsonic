@@ -362,4 +362,3 @@ test("CLI rejects tuple out-of-range indexes through TSTS before C# emission", a
   assert.match(build.stderr, /TS2493: Tuple type '\[string, number\]' of length '2' has no element at index '2'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleOutOfRangeIndex.csproj")), false);
 });
-

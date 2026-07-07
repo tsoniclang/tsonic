@@ -289,4 +289,3 @@ test("CLI runs object parameter rename rest nested and callable destructuring fr
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "3|4|6|7\n");
 });
-

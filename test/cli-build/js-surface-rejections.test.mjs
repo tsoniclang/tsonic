@@ -376,4 +376,3 @@ test("CLI rejects non-source-owned constructors without selected target signatur
   assert.match(build.stderr, /Cannot find name 'Date'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-

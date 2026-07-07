@@ -415,4 +415,3 @@ async function collectFiles(directory, predicate) {
   }
   return files;
 }
-
