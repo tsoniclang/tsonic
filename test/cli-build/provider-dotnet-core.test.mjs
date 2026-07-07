@@ -519,7 +519,8 @@ test("CLI emits provider-owned byref-like System span operations from .NET virtu
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static double tailLength\(string value\)/);
   assert.match(generatedSource, /System\.ReadOnlySpan<char> span = System\.MemoryExtensions\.AsSpan\(value, 1\);/);
-  assert.match(generatedSource, /return \(\(System\.ReadOnlySpan<char>\)span\)\.Length;/);
+  assert.match(generatedSource, /return span\.Length;/);
+  assert.doesNotMatch(generatedSource, /\(\(System\.ReadOnlySpan<char>\)span\)\.Length/);
   assert.doesNotMatch(generatedSource, /MemoryExtensions\.asSpan|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderSpan.csproj"), "--nologo", "--v:minimal"]);
