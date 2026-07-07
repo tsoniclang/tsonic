@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
 import { relative, resolve, sep } from "node:path";
 import { createParallelSuiteDefinition } from "./suite-definition.mjs";
@@ -10,7 +10,9 @@ const options = parseArgs(process.argv.slice(2));
 const runId = `parallel-${timestamp()}-${process.pid}`;
 const runRoot = resolve(tsonicRoot, ".temp/test-runs/parallel-runs", runId);
 const logRoot = resolve(runRoot, "logs");
+const statusRoot = resolve(runRoot, "status");
 mkdirSync(logRoot, { recursive: true });
+mkdirSync(statusRoot, { recursive: true });
 
 const env = {
   ...process.env,
@@ -50,7 +52,14 @@ const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).l
 console.log(`parallel-run: shards=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
 
 const startedAt = Date.now();
-const results = await runShards(shards, options.concurrency);
+const progress = createProgressTracker(shards, options.progressIntervalMs);
+progress.start();
+let results;
+try {
+  results = await runShards(shards, options.concurrency);
+} finally {
+  progress.stop();
+}
 const durationMs = Date.now() - startedAt;
 const failures = results.filter((result) => result.status !== 0);
 const testCounts = aggregateTestCounts(results);
@@ -68,6 +77,7 @@ const report = {
     cpus: typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
   },
   repos: repoSnapshot(),
+  progress: progress.summary(),
   durationMs,
   shardCounts: {
     total: results.length,
@@ -422,24 +432,194 @@ async function runShardQueue(allShards, concurrency) {
 function runShard(shard) {
   return new Promise((resolveResult) => {
     const startedAt = Date.now();
-    const logPath = resolve(logRoot, `${safeName(shard.id)}.log`);
+    const shardSafeName = safeName(shard.id);
+    const logPath = resolve(logRoot, `${shardSafeName}.log`);
+    const statusPath = resolve(statusRoot, `${shardSafeName}.json`);
+    const logStream = createWriteStream(logPath, { flags: "w" });
+    writeShardStatus(statusPath, {
+      id: shard.id,
+      group: shard.group,
+      scope: shard.scope,
+      status: "running",
+      startedAt: new Date(startedAt).toISOString(),
+      command: shard.command,
+      args: shard.args,
+      cwd: toPosix(shard.cwd),
+      log: toPosix(relative(tsonicRoot, logPath)),
+    });
+    progress.startShard(shard, startedAt);
     const child = spawn(shard.command, shard.args, {
       cwd: shard.cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks = [];
-    child.stdout.on("data", (chunk) => chunks.push(chunk));
-    child.stderr.on("data", (chunk) => chunks.push(chunk));
+    child.stdout.on("data", (chunk) => {
+      chunks.push(chunk);
+      logStream.write(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      chunks.push(chunk);
+      logStream.write(chunk);
+    });
     child.on("close", (status) => {
       const durationMs = Date.now() - startedAt;
       const logText = Buffer.concat(chunks).toString("utf8");
-      writeFileSync(logPath, logText);
       const normalizedStatus = status ?? 1;
+      writeShardStatus(statusPath, {
+        id: shard.id,
+        group: shard.group,
+        scope: shard.scope,
+        status: normalizedStatus === 0 ? "passed" : "failed",
+        exitStatus: normalizedStatus,
+        startedAt: new Date(startedAt).toISOString(),
+        endedAt: new Date().toISOString(),
+        durationMs,
+        command: shard.command,
+        args: shard.args,
+        cwd: toPosix(shard.cwd),
+        log: toPosix(relative(tsonicRoot, logPath)),
+        testCounts: parseTestCounts(logText),
+      });
       console.log(`${normalizedStatus === 0 ? "PASS" : "FAIL"} ${shard.id} ${durationMs}ms`);
-      resolveResult({ shard, status: normalizedStatus, durationMs, logPath, testCounts: parseTestCounts(logText) });
+      progress.finishShard(shard, normalizedStatus, durationMs);
+      logStream.end(() => {
+        resolveResult({ shard, status: normalizedStatus, durationMs, logPath, statusPath, testCounts: parseTestCounts(logText) });
+      });
     });
   });
+}
+
+function writeShardStatus(statusPath, status) {
+  writeFileSync(statusPath, `${JSON.stringify(status, null, 2)}\n`);
+}
+
+function createProgressTracker(allShards, progressIntervalMs) {
+  const running = new Map();
+  const samples = [];
+  const cpuSampler = createCpuSampler();
+  const state = {
+    total: allShards.length,
+    completed: 0,
+    passed: 0,
+    failed: 0,
+    startedAt: Date.now(),
+  };
+  let interval;
+  return {
+    start() {
+      emitProgress("start");
+      if (progressIntervalMs > 0) {
+        interval = setInterval(() => emitProgress("interval"), progressIntervalMs);
+      }
+    },
+    stop() {
+      if (interval !== undefined) {
+        clearInterval(interval);
+      }
+      emitProgress("final");
+    },
+    startShard(shard, startedAt) {
+      running.set(shard.id, {
+        id: shard.id,
+        group: shard.group,
+        scope: shard.scope,
+        startedAt,
+      });
+      console.log(`START ${shard.id}`);
+    },
+    finishShard(shard, status) {
+      running.delete(shard.id);
+      state.completed += 1;
+      if (status === 0) {
+        state.passed += 1;
+      } else {
+        state.failed += 1;
+      }
+    },
+    summary() {
+      return {
+        intervalMs: progressIntervalMs,
+        samples,
+      };
+    },
+  };
+
+  function emitProgress(reason) {
+    const now = Date.now();
+    const cpu = cpuSampler.sample();
+    const runningShards = [...running.values()]
+      .map((entry) => ({
+        id: entry.id,
+        group: entry.group,
+        scope: entry.scope,
+        elapsedMs: now - entry.startedAt,
+      }))
+      .sort((left, right) => right.elapsedMs - left.elapsedMs);
+    const sample = {
+      reason,
+      timestamp: new Date(now).toISOString(),
+      elapsedMs: now - state.startedAt,
+      total: state.total,
+      completed: state.completed,
+      passed: state.passed,
+      failed: state.failed,
+      running: runningShards.length,
+      queued: Math.max(0, state.total - state.completed - runningShards.length),
+      cpuAllCoresPercent: cpu?.allCoresPercent,
+      longestRunning: runningShards.slice(0, 10),
+    };
+    samples.push(sample);
+    const cpuText = sample.cpuAllCoresPercent === undefined ? "unknown" : `${sample.cpuAllCoresPercent.toFixed(1)}%`;
+    console.log(
+      `parallel-progress: reason=${reason} completed=${sample.completed}/${sample.total} ` +
+        `passed=${sample.passed} failed=${sample.failed} running=${sample.running} queued=${sample.queued} ` +
+        `cpu=${cpuText} elapsedMs=${sample.elapsedMs}`,
+    );
+    for (const shard of runningShards.slice(0, 5)) {
+      console.log(`  running ${shard.elapsedMs}ms ${shard.id}`);
+    }
+  }
+}
+
+function createCpuSampler() {
+  let previous = readCpuSnapshot();
+  return {
+    sample() {
+      const current = readCpuSnapshot();
+      if (previous === undefined || current === undefined) {
+        previous = current;
+        return undefined;
+      }
+      const totalDelta = current.total - previous.total;
+      const idleDelta = current.idle - previous.idle;
+      previous = current;
+      if (totalDelta <= 0) {
+        return undefined;
+      }
+      return {
+        allCoresPercent: (1 - idleDelta / totalDelta) * 100,
+      };
+    },
+  };
+}
+
+function readCpuSnapshot() {
+  try {
+    const cpuLine = readFileSync("/proc/stat", "utf8").split("\n")[0]?.trim();
+    if (cpuLine === undefined || !cpuLine.startsWith("cpu ")) {
+      return undefined;
+    }
+    const values = cpuLine.split(/\s+/u).slice(1).map((value) => Number(value));
+    if (values.some((value) => !Number.isFinite(value))) {
+      return undefined;
+    }
+    const idle = (values[3] ?? 0) + (values[4] ?? 0);
+    const total = values.reduce((sum, value) => sum + value, 0);
+    return { idle, total };
+  } catch {
+    return undefined;
+  }
 }
 
 function groupFailures(failures) {
