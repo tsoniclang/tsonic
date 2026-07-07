@@ -25,11 +25,13 @@ const repos = {
   tsonicCsharp: resolve(tsonicRoot, "../tsonic-csharp"),
   csharpJs: resolve(tsonicRoot, "../csharp-js"),
   csharpNodejs: resolve(tsonicRoot, "../csharp-nodejs"),
+  csharpRuntime: resolve(tsonicRoot, "../csharp-runtime"),
 };
 const suiteDefinition = createParallelSuiteDefinition(repos);
 
 const allShards = buildShards();
 validateShardCoverage(allShards);
+const inventory = createInventory(allShards);
 
 const shards = allShards.filter((shard) =>
   (options.scopes.size === 0 || options.scopes.has(shard.scope)) &&
@@ -47,11 +49,16 @@ if (options.list) {
   }
   process.exit(0);
 }
+if (options.inventory) {
+  console.log(JSON.stringify(inventory, null, 2));
+  process.exit(0);
+}
 
 const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).length;
 console.log(`parallel-run: tasks=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
 
 const startedAt = Date.now();
+const preRunResults = options.withPreruns ? runPreRuns(requiredPreRuns(shards)) : [];
 const progress = createProgressTracker(shards, options.progressIntervalMs);
 progress.start();
 let results;
@@ -77,7 +84,9 @@ const report = {
     cpus: typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
   },
   repos: repoSnapshot(),
+  inventory,
   progress: progress.summary(),
+  preRuns: preRunResults,
   durationMs,
   taskCounts: {
     total: results.length,
@@ -149,19 +158,26 @@ function buildShards() {
         .flatMap((file) => nodeTestShards(testSuite.scope, testSuite.group, file))
     ),
     ...suiteDefinition.dotnetSuites.flatMap((testSuite) =>
-      listDotnetTestFiles(testSuite.directory)
-        .flatMap((file) => dotnetTestShards(testSuite, file))
+      dotnetTestShards(testSuite)
     ),
   ];
 }
 
 function validateShardCoverage(shardsToValidate) {
-  const representedFiles = new Set(
-    shardsToValidate
-      .filter((shard) => shard.file)
-      .map((shard) => toPosix(relative(shard.cwd, shard.file)))
-  );
+  const representedFileCounts = new Map();
+  for (const shard of shardsToValidate) {
+    for (const file of shard.files ?? (shard.file === undefined ? [] : [shard.file])) {
+      const key = inventoryFileKey(shard.scope, file);
+      representedFileCounts.set(key, (representedFileCounts.get(key) ?? 0) + 1);
+    }
+  }
+  const representedFiles = new Set(representedFileCounts.keys());
   const failures = [];
+  for (const [file, count] of representedFileCounts.entries()) {
+    if (count !== 1) {
+      failures.push(`test file is represented by ${count} parallel tasks: ${file}`);
+    }
+  }
   for (const testSuite of suiteDefinition.nodeSuites) {
     validateNodeSuiteCoverage(testSuite);
   }
@@ -191,7 +207,7 @@ function validateShardCoverage(shardsToValidate) {
         continue;
       }
       validateNoDisabledOrFocusedTests(file, relativeFile);
-      if (!representedFiles.has(relativeFile)) {
+      if (!representedFiles.has(`${testSuite.scope}:${relativeFile}`)) {
         failures.push(`${testSuite.scope} test file has no parallel task: ${relativeFile}`);
       }
     }
@@ -202,7 +218,7 @@ function validateShardCoverage(shardsToValidate) {
     for (const file of listExecutableArchitectureTests(testSuite.directory)) {
       const relativeFile = toPosix(relative(repos[repoKey], file));
       validateNoDisabledOrFocusedTests(file, relativeFile);
-      if (!representedFiles.has(relativeFile)) {
+      if (!representedFiles.has(`${testSuite.scope}:${relativeFile}`)) {
         failures.push(`${testSuite.scope} architecture test module has no parallel task: ${relativeFile}`);
       }
     }
@@ -246,6 +262,9 @@ function validateShardCoverage(shardsToValidate) {
       if (extractDotnetTestClasses(file).length === 0) {
         failures.push(`${testSuite.scope} dotnet test file has no test class task: ${relativeFile}`);
       }
+      if (!representedFiles.has(`${testSuite.scope}:${relativeFile}`)) {
+        failures.push(`${testSuite.scope} dotnet test file has no parallel task: ${relativeFile}`);
+      }
     }
   }
 
@@ -267,32 +286,102 @@ function nodeTestShard(scope, group, file) {
     scope,
     group,
     file,
+    files: [file],
+    preRunIds: preRunsForTask(scope, group),
     cwd: repos[scopeToRepoKey(scope)],
     command: process.execPath,
     args: ["--test", "--test-reporter=tap", toPosix(relative(repos[scopeToRepoKey(scope)], file))],
   };
 }
 
-function dotnetTestShards(testSuite, file) {
-  const relativeFile = toPosix(relative(testSuite.cwd, file));
-  return extractDotnetTestClasses(file).map((className) => ({
-    id: `${testSuite.scope}:${relativeFile}:${className}`,
+function dotnetTestShards(testSuite) {
+  const files = listDotnetTestFiles(testSuite.directory);
+  if (testSuite.taskMode === "assembly") {
+    return [dotnetTestShard(testSuite, "assembly", files, undefined)];
+  }
+  if (testSuite.taskMode === "directory") {
+    return [...groupFilesByDirectory(testSuite.directory, files).entries()]
+      .map(([directory, directoryFiles]) => {
+        const classNames = directoryFiles.flatMap((file) => extractDotnetTestClasses(file));
+        return dotnetTestShard(testSuite, directory, directoryFiles, classNames);
+      });
+  }
+  throw new Error(`Unknown dotnet test task mode: ${testSuite.taskMode}`);
+}
+
+function dotnetTestShard(testSuite, groupName, files, classNames) {
+  const relativeGroup = groupName === "assembly" ? "assembly" : toPosix(groupName);
+  return {
+    id: `${testSuite.scope}:dotnet:${relativeGroup}`,
     scope: testSuite.scope,
     group: testSuite.group,
-    file,
+    files,
+    preRunIds: preRunsForTask(testSuite.scope, testSuite.group),
     cwd: testSuite.cwd,
     command: "dotnet",
-    args: [
-      "test",
-      testSuite.projectOrSolution,
-      "--no-build",
-      "--no-restore",
-      "--filter",
-      `FullyQualifiedName~${className}`,
-      "--verbosity",
-      "minimal",
-    ],
-  }));
+    args: dotnetTestArgs(testSuite.projectOrSolution, classNames),
+  };
+}
+
+function preRunsForTask(scope, group) {
+  switch (scope) {
+    case "tsonic":
+      return [
+        "tsonic.build",
+        "tsonic-csharp.build",
+        "csharp-runtime.build",
+        "csharp-js.build",
+        "csharp-nodejs.install",
+        "csharp-nodejs.build",
+        "csharp-nodejs.test-build",
+      ];
+    case "tsonic-csharp":
+      return group === "csharp-provider"
+        ? ["tsonic.build", "tsonic-csharp.build", "tsonic-csharp.provider-fixtures"]
+        : ["tsonic.build", "tsonic-csharp.build"];
+    case "csharp-js":
+      return ["csharp-runtime.build", "csharp-js.build"];
+    case "csharp-nodejs":
+      return [
+        "tsonic.build",
+        "tsonic-csharp.build",
+        "csharp-runtime.build",
+        "csharp-js.build",
+        "csharp-nodejs.install",
+        "csharp-nodejs.build",
+        "csharp-nodejs.test-build",
+      ];
+    default:
+      throw new Error(`Unknown pre-run scope: ${scope}`);
+  }
+}
+
+function dotnetTestArgs(projectOrSolution, classNames) {
+  const args = [
+    "test",
+    projectOrSolution,
+    "--no-build",
+    "--no-restore",
+    "--verbosity",
+    "minimal",
+  ];
+  if (classNames !== undefined && classNames.length > 0) {
+    args.push("--filter", classNames.map((className) => `FullyQualifiedName~${className}`).join("|"));
+  }
+  return args;
+}
+
+function groupFilesByDirectory(rootDirectory, files) {
+  const groups = new Map();
+  for (const file of files) {
+    const relativeFile = toPosix(relative(rootDirectory, file));
+    const slash = relativeFile.lastIndexOf("/");
+    const group = slash === -1 ? "." : relativeFile.slice(0, slash);
+    const groupFiles = groups.get(group) ?? [];
+    groupFiles.push(file);
+    groups.set(group, groupFiles);
+  }
+  return new Map([...groups.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function listDotnetTestFiles(directory) {
@@ -339,6 +428,18 @@ function scopeToRepoKey(scope) {
   }
 }
 
+function repoForFile(file) {
+  const normalized = toPosix(file);
+  const matches = Object.entries(repos)
+    .filter(([_key, repoPath]) => normalized === toPosix(repoPath) || normalized.startsWith(`${toPosix(repoPath)}/`))
+    .sort((left, right) => right[1].length - left[1].length);
+  return matches[0]?.[1] ?? tsonicRoot;
+}
+
+function inventoryFileKey(scope, file) {
+  return `${scope}:${toPosix(relative(repoForFile(file), file))}`;
+}
+
 function isIntentionallySkipped(testSuite, file) {
   if (testSuite.intentionallySkipped === undefined) {
     return false;
@@ -352,6 +453,132 @@ function groupForSuiteFile(testSuite, file) {
     return testSuite.groupForFile(file);
   }
   return testSuite.group;
+}
+
+function createInventory(shardsToInventory) {
+  const files = new Map();
+  for (const shard of shardsToInventory) {
+    for (const file of shard.files ?? (shard.file === undefined ? [] : [shard.file])) {
+      const repoPath = repoForFile(file);
+      const relativeFile = toPosix(relative(repoPath, file));
+      const existing = files.get(`${shard.scope}:${relativeFile}`);
+      const entry = {
+        scope: shard.scope,
+        group: shard.group,
+        path: relativeFile,
+        taskId: shard.id,
+        preRunIds: shard.preRunIds ?? [],
+        runner: shard.command === "dotnet" ? "dotnet" : "node",
+      };
+      if (existing !== undefined) {
+        existing.tasks.push(entry);
+      } else {
+        files.set(`${shard.scope}:${relativeFile}`, { ...entry, tasks: [entry] });
+      }
+    }
+  }
+  const entries = [...files.values()]
+    .map((entry) => ({
+      scope: entry.scope,
+      group: entry.group,
+      path: entry.path,
+      runner: entry.runner,
+      taskIds: entry.tasks.map((task) => task.taskId).sort(),
+      preRunIds: [...new Set(entry.tasks.flatMap((task) => task.preRunIds))].sort(),
+    }))
+    .sort((left, right) => `${left.scope}:${left.path}`.localeCompare(`${right.scope}:${right.path}`));
+  const filesByScope = {};
+  const filesByGroup = {};
+  for (const entry of entries) {
+    filesByScope[entry.scope] = (filesByScope[entry.scope] ?? 0) + 1;
+    filesByGroup[entry.group] = (filesByGroup[entry.group] ?? 0) + 1;
+  }
+  return {
+    fileCount: entries.length,
+    taskCount: shardsToInventory.length,
+    preRuns: suiteDefinition.preRuns.map((preRun) => ({
+      id: preRun.id,
+      dependsOn: preRun.dependsOn ?? [],
+      cwd: toPosix(preRun.cwd),
+      command: preRun.command,
+      args: preRun.args,
+    })),
+    filesByScope,
+    filesByGroup,
+    files: entries,
+  };
+}
+
+function requiredPreRuns(shardsToRun) {
+  const byId = new Map(suiteDefinition.preRuns.map((preRun) => [preRun.id, preRun]));
+  const required = new Set();
+  for (const shard of shardsToRun) {
+    for (const id of shard.preRunIds ?? []) {
+      addWithDependencies(id);
+    }
+  }
+  return suiteDefinition.preRuns.filter((preRun) => required.has(preRun.id));
+
+  function addWithDependencies(id) {
+    if (required.has(id)) {
+      return;
+    }
+    const preRun = byId.get(id);
+    if (preRun === undefined) {
+      throw new Error(`Unknown pre-run id: ${id}`);
+    }
+    for (const dependency of preRun.dependsOn ?? []) {
+      addWithDependencies(dependency);
+    }
+    required.add(id);
+  }
+}
+
+function runPreRuns(preRuns) {
+  const results = [];
+  for (const preRun of preRuns) {
+    const startedAt = Date.now();
+    const logPath = resolve(logRoot, `${safeName(`prerun:${preRun.id}`)}.log`);
+    console.log(`PRERUN ${preRun.id}`);
+    const result = spawnSync(preRun.command, preRun.args, {
+      cwd: preRun.cwd,
+      env: { ...env, ...(preRun.env ?? {}) },
+      encoding: "utf8",
+    });
+    writeFileSync(logPath, `${result.stdout ?? ""}${result.stderr ?? ""}`);
+    const durationMs = Date.now() - startedAt;
+    const status = result.status ?? 1;
+    const entry = {
+      id: preRun.id,
+      status,
+      durationMs,
+      command: preRun.command,
+      args: preRun.args,
+      cwd: toPosix(preRun.cwd),
+      log: toPosix(relative(tsonicRoot, logPath)),
+    };
+    results.push(entry);
+    console.log(`${status === 0 ? "PRERUN PASS" : "PRERUN FAIL"} ${preRun.id} ${durationMs}ms log=${entry.log}`);
+    if (status !== 0) {
+      writeFileSync(resolve(runRoot, "report.json"), `${JSON.stringify({
+        runId,
+        createdAt: new Date().toISOString(),
+        command: {
+          cwd: toPosix(tsonicRoot),
+          argv: process.argv.slice(1),
+        },
+        repos: repoSnapshot(),
+        preRuns: results,
+        taskCounts: {
+          total: shards.length,
+          passed: 0,
+          failed: shards.length,
+        },
+      }, null, 2)}\n`);
+      process.exit(status);
+    }
+  }
+  return results;
 }
 
 function listFiles(directory, suffix, maxDepth) {
@@ -729,6 +956,8 @@ function parseArgs(args) {
   const scopes = new Set();
   const matches = [];
   let list = false;
+  let inventory = false;
+  let withPreruns = false;
   let concurrency = Math.max(1, Math.ceil((typeof availableParallelism === "function" ? availableParallelism() : cpus().length) * 0.75));
   let progressIntervalMs = Number(process.env.TSONIC_TEST_PROGRESS_INTERVAL_MS ?? 180_000);
   for (let index = 0; index < args.length; index += 1) {
@@ -743,8 +972,12 @@ function parseArgs(args) {
       matches.push(args[++index]);
     } else if (arg === "--list") {
       list = true;
+    } else if (arg === "--inventory") {
+      inventory = true;
+    } else if (arg === "--with-preruns") {
+      withPreruns = true;
     } else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: scripts/test/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--match <task-substring>] [--list]");
+      console.log("Usage: scripts/test/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--match <task-substring>] [--list] [--inventory] [--with-preruns]");
       process.exit(0);
     } else {
       console.error(`FAIL: unknown argument: ${arg}`);
@@ -757,7 +990,7 @@ function parseArgs(args) {
   if (!Number.isFinite(progressIntervalMs) || progressIntervalMs < 0) {
     progressIntervalMs = 180_000;
   }
-  return { concurrency, progressIntervalMs, scopes, matches, list };
+  return { concurrency, progressIntervalMs, scopes, matches, list, inventory, withPreruns };
 }
 
 function safeName(value) {

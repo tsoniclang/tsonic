@@ -9,7 +9,7 @@
     "build:quick": "./scripts/build/all.sh --no-format",
     "clean": "./scripts/build/clean.sh",
     "clean:all": "./scripts/build/clean.sh --all",
-    "test": "npm run test:build && npm run test:parallel",
+    "test": "node scripts/test/run-parallel.mjs --with-preruns",
     "test:build": "bash scripts/test/build.sh",
     "test:parallel": "node scripts/test/run-parallel.mjs",
     "typecheck": "npm run build"

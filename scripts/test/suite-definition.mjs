@@ -2,6 +2,63 @@ import { basename, resolve } from "node:path";
 
 export function createParallelSuiteDefinition(repos) {
   return {
+    preRuns: [
+      {
+        id: "tsonic.build",
+        cwd: repos.tsonic,
+        command: "npm",
+        args: ["run", "build"],
+      },
+      {
+        id: "tsonic-csharp.build",
+        dependsOn: ["tsonic.build"],
+        cwd: repos.tsonicCsharp,
+        command: "npm",
+        args: ["run", "build"],
+        env: { TSONIC_SKIP_DEPENDENCY_BUILDS: "1" },
+      },
+      {
+        id: "csharp-runtime.build",
+        cwd: repos.csharpRuntime,
+        command: "dotnet",
+        args: ["build", "Tsonic.CSharp.Runtime.sln", "--verbosity", "minimal"],
+      },
+      {
+        id: "csharp-js.build",
+        dependsOn: ["csharp-runtime.build"],
+        cwd: repos.csharpJs,
+        command: "dotnet",
+        args: ["build", "Tsonic.CSharp.Js.sln", "--verbosity", "minimal"],
+      },
+      {
+        id: "csharp-nodejs.install",
+        cwd: repos.csharpNodejs,
+        command: "npm",
+        args: ["install", "--ignore-scripts"],
+      },
+      {
+        id: "csharp-nodejs.build",
+        dependsOn: ["tsonic.build", "tsonic-csharp.build", "csharp-js.build", "csharp-nodejs.install"],
+        cwd: repos.csharpNodejs,
+        command: "npm",
+        args: ["run", "build"],
+        env: { TSONIC_SKIP_DEPENDENCY_BUILDS: "1" },
+      },
+      {
+        id: "csharp-nodejs.test-build",
+        dependsOn: ["csharp-nodejs.build"],
+        cwd: repos.csharpNodejs,
+        command: "dotnet",
+        args: ["build", "Tsonic.CSharp.Node.slnx", "--verbosity", "minimal"],
+      },
+      {
+        id: "tsonic-csharp.provider-fixtures",
+        dependsOn: ["tsonic-csharp.build"],
+        cwd: repos.tsonicCsharp,
+        command: "node",
+        args: ["scripts/test/build-dotnet-provider-fixtures.mjs"],
+      },
+    ],
     nodeSuites: [
       {
         scope: "tsonic",
@@ -51,6 +108,7 @@ export function createParallelSuiteDefinition(repos) {
       {
         scope: "csharp-js",
         group: "runtime-dotnet",
+        taskMode: "assembly",
         cwd: repos.csharpJs,
         projectOrSolution: resolve(repos.csharpJs, "Tsonic.CSharp.Js.sln"),
         directory: resolve(repos.csharpJs, "tests/Tsonic.CSharp.Js.Tests"),
@@ -58,6 +116,7 @@ export function createParallelSuiteDefinition(repos) {
       {
         scope: "csharp-nodejs",
         group: "runtime-dotnet",
+        taskMode: "directory",
         cwd: repos.csharpNodejs,
         projectOrSolution: resolve(repos.csharpNodejs, "Tsonic.CSharp.Node.slnx"),
         directory: resolve(repos.csharpNodejs, "csharp/test/Tsonic.CSharp.Node.Tests"),
