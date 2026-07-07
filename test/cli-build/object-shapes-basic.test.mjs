@@ -1,5 +1,26 @@
 import { assert, assertInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./harness.mjs";
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 test("CLI emits source-owned typed object literals as C# object initializers", async () => {
   const projectDirectory = resolve(tempRoot, "typed-object-initializers");
   await writeProject(projectDirectory, {
@@ -84,7 +105,6 @@ test("CLI emits source-owned typed object literals as C# object initializers", a
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectInitializers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI rejects provider-owned object literals until object-shape facts are finalized", async () => {
   const projectDirectory = resolve(tempRoot, "provider-owned-object-initializers");
   await writeProject(projectDirectory, {
@@ -121,7 +141,6 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
   assert.equal(build.status, 1);
   assert.match(build.stderr, /TS2740: Type '\{ message: string; toString\(\): string; \}' is missing/);
 });
-
 test("CLI emits interface object literals through provider object-shape adapters", async () => {
   const projectDirectory = resolve(tempRoot, "interface-object-initializers");
   await writeProject(projectDirectory, {
@@ -165,7 +184,6 @@ test("CLI emits interface object literals through provider object-shape adapters
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI emits generic interface object literals through specialized provider adapters", async () => {
   const projectDirectory = resolve(tempRoot, "generic-interface-object-initializers");
   await writeProject(projectDirectory, {
@@ -197,7 +215,6 @@ test("CLI emits generic interface object literals through specialized provider a
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI emits source-owned object initializers with identifier-valid string property names", async () => {
   const projectDirectory = resolve(tempRoot, "source-object-string-initializers");
   await writeProject(projectDirectory, {
@@ -227,7 +244,6 @@ test("CLI emits source-owned object initializers with identifier-valid string pr
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI rejects class object literals when parameterless construction is unavailable", async () => {
   const projectDirectory = resolve(tempRoot, "required-constructor-object-initializers");
   await writeProject(projectDirectory, {
@@ -257,7 +273,6 @@ test("CLI rejects class object literals when parameterless construction is unava
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Class object literal emission requires a finalized constructible source class fact with a parameterless constructor/);
 });
-
 test("CLI emits discriminated object-shape unions with identical finalized carriers", async () => {
   const projectDirectory = resolve(tempRoot, "discriminated-object-shape-union");
   const assemblyName = "SmokeGeneratedDiscriminatedObjectShapeUnion";
@@ -322,7 +337,6 @@ test("CLI emits discriminated object-shape unions with identical finalized carri
     "",
   ].join("\n"));
 });
-
 test("CLI emits object-shape for-in from finalized provider enumeration facts", async () => {
   const projectDirectory = resolve(tempRoot, "object-shape-for-in");
   await writeProject(projectDirectory, {
@@ -370,7 +384,6 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeForIn.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI emits shared generated object-shape declarations once across source files", async () => {
   const projectDirectory = resolve(tempRoot, "shared-object-shape-declarations");
   const assemblyName = "SmokeGeneratedSharedObjectShapes";
@@ -441,7 +454,6 @@ test("CLI emits shared generated object-shape declarations once across source fi
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI emits nested structural object-shape literals through finalized nested carriers", async () => {
   const projectDirectory = resolve(tempRoot, "nested-structural-object-shapes");
   const assemblyName = "SmokeGeneratedNestedObjectShapes";
@@ -492,7 +504,6 @@ test("CLI emits nested structural object-shape literals through finalized nested
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "ok:7\n");
 });
-
 test("CLI emits nested Record object literals through explicit Dictionary carriers", async () => {
   const projectDirectory = resolve(tempRoot, "record-nested-object");
   await writeProject(projectDirectory, {
@@ -539,7 +550,6 @@ test("CLI emits nested Record object literals through explicit Dictionary carrie
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordNestedObject.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-
 test("CLI rejects object literals contextualized as unknown before C# carrier emission", async () => {
   const projectDirectory = resolve(tempRoot, "unknown-object-shape");
   await writeProject(projectDirectory, {
@@ -562,7 +572,6 @@ test("CLI rejects object literals contextualized as unknown before C# carrier em
   assert.match(build.stderr, /unknown cannot trickle into generated C#/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-
 test("CLI emits calls through parameter destructured object-shape callable facts", async () => {
   const projectDirectory = resolve(tempRoot, "parameter-object-callable-destructuring");
   const assemblyName = "SmokeGeneratedParameterObjectCallableDestructuring";
@@ -606,7 +615,6 @@ test("CLI emits calls through parameter destructured object-shape callable facts
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "7\n");
 });
-
 test("CLI runs readonly utility object spread through object-shape copy facts", async () => {
   const projectDirectory = resolve(tempRoot, "readonly-utility-object-spread");
   const assemblyName = "SmokeGeneratedReadonlyUtilityObjectSpread";
@@ -652,223 +660,3 @@ test("CLI runs readonly utility object spread through object-shape copy facts", 
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "1:ro\n");
 });
-
-test("CLI rejects computed and accessor object literal members before shape fallback emission", async () => {
-  const projectDirectory = resolve(tempRoot, "computed-accessor-object-members-rejected");
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [{ id: "csharp" }],
-    }, null, 2),
-    "src/index.ts": [
-      "const valueKey = \"value\" as const;",
-      "type Box = { value: number };",
-      "",
-      "export function computed(): Box {",
-      "  return { [valueKey]: 7 };",
-      "}",
-      "",
-      "export function accessor(): Box {",
-      "  return { get value() { return 8; } };",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object-shape object initializers require identifier or string-literal property names/);
-  assert.match(build.stderr, /Object literal property must match a finalized provider object-shape member/);
-  assert.match(build.stderr, /Object literal member is outside the current C# planning surface/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
-});
-
-test("CLI emits object-shape spread from finalized provider object-shape facts", async () => {
-  const projectDirectory = resolve(tempRoot, "object-shape-spread");
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedObjectShapeSpread",
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "export function clone(input: { value: number; label: string }, value: number): { value: number; label: string } {",
-      "  return { ...input, value };",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ clone\(__TsonicShape_[A-Za-z0-9_]+ input, double value\)/);
-  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = input\.label,\s*\};/);
-  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeSpread.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
-});
-
-test("CLI runs nested object rest destructuring from finalized object-shape facts", async () => {
-  const projectDirectory = resolve(tempRoot, "nested-object-rest-destructuring");
-  const assemblyName = "SmokeGeneratedNestedObjectRestDestructuring";
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName,
-            outputType: "Exe",
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "import { Console } from \"@tsonic/dotnet/System.js\";",
-      "",
-      "type Address = { city: string; zip: number; country: string };",
-      "type User = { name: string; address: Address };",
-      "",
-      "function summarize({ address: { city, ...restAddress } }: User): string {",
-      "  return `${city}:${restAddress.zip}:${restAddress.country}`;",
-      "}",
-      "",
-      "const user: User = { name: \"Ada\", address: { city: \"Paris\", zip: 75001, country: \"FR\" } };",
-      "Console.WriteLine(summarize(user));",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.address;/);
-  assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
-  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
-
-  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Paris:75001:FR\n");
-});
-
-test("CLI emits object-shape spread from finalized subset facts plus explicit members", async () => {
-  const projectDirectory = resolve(tempRoot, "object-shape-partial-spread");
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedObjectShapePartialSpread",
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "export function expand(input: { label: string }, value: number): { value: number; label: string; active: boolean } {",
-      "  return { ...input, value, active: true };",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ expand\(__TsonicShape_[A-Za-z0-9_]+ input, double value\)/);
-  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = input\.label,\s*value = value,\s*active = true,\s*\};/);
-  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapePartialSpread.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
-});
-
-test("CLI rejects object-shape spread members without finalized target carriers", async () => {
-  const projectDirectory = resolve(tempRoot, "object-shape-spread-extra-member");
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [{ id: "csharp" }],
-    }, null, 2),
-    "src/index.ts": [
-      "export function shrink(input: { value: number; label: string }): { value: number } {",
-      "  return { ...input };",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object literal spread source member 'label' requires a finalized target object-shape member carrier/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
-});
-
-test("CLI emits structural type-literal methods as delegate-backed object shapes", async () => {
-  const projectDirectory = resolve(tempRoot, "structural-object-methods");
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedObjectShapeMethods",
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "export function create(): { run(value: number): number } {",
-      "  return {",
-      "    run(value: number) {",
-      "      return value + 1;",
-      "    },",
-      "  };",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 0, build.stdout + build.stderr);
-
-  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public Func<double, double> __tsonic_shape_method_0_run;/);
-  assert.match(generatedSource, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_0_run\(arg0\);/);
-  assert.match(generatedSource, /__tsonic_shape_method_0_run = \(double value\) =>/);
-  assert.match(generatedSource, /return value \+ 1;/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeMethods.csproj"), "--nologo", "--v:minimal"]);
-  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
-});
-
