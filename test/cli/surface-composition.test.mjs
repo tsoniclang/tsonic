@@ -734,7 +734,8 @@ test("host composes selected target capability runtime artifacts before surfaces
   ]);
   assert.deepEqual(events, [
     "provider:demo:surfaces=js",
-    "capability-extension:acme:target=demo:capabilities=acme",
+    "capability-extension:acme:target=demo:capabilities=acme,unused",
+    "capability-extension:unused:target=demo:capabilities=acme,unused",
     "provider-resolve:acme:@acme/native/named.js:named:named as named",
     "provider-runtime:demo",
     "capability-runtime:acme",
@@ -1654,10 +1655,6 @@ function createFakeVirtualTargetCapability(id, options = {}) {
         id: `${id}-extension`,
         version: "1.0.0",
         capabilityNamespace: `test.${id}`,
-      },
-      composition: {
-        kind: "target",
-        target: "demo",
       },
       initialize(context) {
         context.registerTargetBindingProvider(createFakeVirtualBindingProvider(id, moduleOwnership, options.events));

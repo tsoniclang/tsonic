@@ -1,36 +1,19 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
 import { relative, resolve, sep } from "node:path";
-import { createPreparedSuiteDefinition } from "./suite-definition.mjs";
+import { createParallelSuiteDefinition } from "./suite-definition.mjs";
 
 const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
-const defaultManifestPath = resolve(tsonicRoot, ".temp/test-runs/prepared/latest-manifest.json");
 const options = parseArgs(process.argv.slice(2));
-const manifestSourcePath = resolve(options.manifest ?? defaultManifestPath);
-
-if (!existsSync(manifestSourcePath)) {
-  console.error(`FAIL: prepared manifest not found: ${manifestSourcePath}`);
-  console.error("Run scripts/test/prepare.sh before scripts/test/run-prepared.mjs.");
-  process.exit(1);
-}
-
-const manifestText = readFileSync(manifestSourcePath, "utf8");
-const manifest = JSON.parse(manifestText);
-validatePreparedManifest(manifest);
-const runId = `${manifest.runId ?? "prepared"}-run-${timestamp()}-${process.pid}`;
-const runRoot = resolve(tsonicRoot, ".temp/test-runs/prepared-runs", runId);
+const runId = `parallel-${timestamp()}-${process.pid}`;
+const runRoot = resolve(tsonicRoot, ".temp/test-runs/parallel-runs", runId);
 const logRoot = resolve(runRoot, "logs");
 mkdirSync(logRoot, { recursive: true });
-const immutableManifestPath = resolve(runRoot, "prepared-manifest.json");
-writeFileSync(immutableManifestPath, manifestText);
 
 const env = {
   ...process.env,
-  TSONIC_TEST_PREPARED: "1",
-  TSONIC_PREPARED_MANIFEST: immutableManifestPath,
   TSONIC_TEST_RUN_ID: runId,
   NUGET_PACKAGES: process.env.NUGET_PACKAGES ?? resolve(tsonicRoot, ".temp/test-runs/nuget/packages"),
 };
@@ -41,7 +24,7 @@ const repos = {
   csharpJs: resolve(tsonicRoot, "../csharp-js"),
   csharpNodejs: resolve(tsonicRoot, "../csharp-nodejs"),
 };
-const suiteDefinition = createPreparedSuiteDefinition(repos);
+const suiteDefinition = createParallelSuiteDefinition(repos);
 
 const allShards = buildShards();
 validateShardCoverage(allShards);
@@ -51,22 +34,20 @@ const shards = allShards.filter((shard) =>
   (options.matches.length === 0 || options.matches.some((match) => shard.id.includes(match)))
 );
 if (shards.length === 0) {
-  console.error("FAIL: no prepared test shards selected.");
+  console.error("FAIL: no parallel test shards selected.");
   process.exit(2);
 }
 
 if (options.list) {
-  console.log(`prepared-run: manifest=${toPosix(relative(tsonicRoot, immutableManifestPath))}`);
-  console.log(`prepared-run: shards=${shards.length}`);
+  console.log(`parallel-run: shards=${shards.length}`);
   for (const shard of shards) {
     console.log(`${shard.group}\t${shard.scope}\t${shard.id}`);
   }
   process.exit(0);
 }
 
-console.log(`prepared-run: manifest=${toPosix(relative(tsonicRoot, immutableManifestPath))}`);
 const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).length;
-console.log(`prepared-run: shards=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
+console.log(`parallel-run: shards=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
 
 const startedAt = Date.now();
 const results = await runShards(shards, options.concurrency);
@@ -76,8 +57,17 @@ const testCounts = aggregateTestCounts(results);
 const missingTestCountResults = results.filter((result) => result.testCounts === undefined);
 const report = {
   runId,
-  manifestPath: toPosix(immutableManifestPath),
-  manifestSourcePath: toPosix(manifestSourcePath),
+  createdAt: new Date().toISOString(),
+  command: {
+    cwd: toPosix(tsonicRoot),
+    argv: process.argv.slice(1),
+  },
+  host: {
+    platform: process.platform,
+    arch: process.arch,
+    cpus: typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
+  },
+  repos: repoSnapshot(),
   durationMs,
   shardCounts: {
     total: results.length,
@@ -111,12 +101,12 @@ const report = {
 };
 writeFileSync(resolve(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 
-console.log(`prepared-run: shardsPassed=${report.shardCounts.passed} shardsFailed=${report.shardCounts.failed} durationMs=${durationMs}`);
+console.log(`parallel-run: shardsPassed=${report.shardCounts.passed} shardsFailed=${report.shardCounts.failed} durationMs=${durationMs}`);
 if (testCounts.reportedShards > 0) {
-  console.log(`prepared-run: reportedTests=${testCounts.total} passed=${testCounts.passed} failed=${testCounts.failed} skipped=${testCounts.skipped} reportingShards=${testCounts.reportedShards}`);
+  console.log(`parallel-run: reportedTests=${testCounts.total} passed=${testCounts.passed} failed=${testCounts.failed} skipped=${testCounts.skipped} reportingShards=${testCounts.reportedShards}`);
 }
 if (missingTestCountResults.length > 0) {
-  console.log(`prepared-run: missingTestCountShards=${missingTestCountResults.length}`);
+  console.log(`parallel-run: missingTestCountShards=${missingTestCountResults.length}`);
   for (const result of missingTestCountResults) {
     console.log(`  ${result.shard.id} log=${toPosix(relative(tsonicRoot, result.logPath))}`);
   }
@@ -133,7 +123,7 @@ console.log("slowest-shards:");
 for (const shard of report.slowestShards) {
   console.log(`  ${shard.durationMs}ms ${shard.status === 0 ? "PASS" : "FAIL"} ${shard.id} (${shard.log})`);
 }
-console.log(`prepared-run: report=${toPosix(relative(tsonicRoot, resolve(runRoot, "report.json")))}`);
+console.log(`parallel-run: report=${toPosix(relative(tsonicRoot, resolve(runRoot, "report.json")))}`);
 
 process.exitCode = failures.length === 0 && missingTestCountResults.length === 0 ? 0 : 1;
 
@@ -174,7 +164,7 @@ function validateShardCoverage(shardsToValidate) {
   }
 
   if (failures.length > 0) {
-    console.error("FAIL: prepared test shard coverage validation failed.");
+    console.error("FAIL: parallel test shard coverage validation failed.");
     for (const failure of failures) {
       console.error(`  - ${failure}`);
     }
@@ -190,7 +180,7 @@ function validateShardCoverage(shardsToValidate) {
       }
       validateNoDisabledOrFocusedTests(file, relativeFile);
       if (!representedFiles.has(relativeFile)) {
-        failures.push(`${testSuite.scope} test file has no prepared shard: ${relativeFile}`);
+        failures.push(`${testSuite.scope} test file has no parallel shard: ${relativeFile}`);
       }
     }
   }
@@ -201,7 +191,7 @@ function validateShardCoverage(shardsToValidate) {
       const relativeFile = toPosix(relative(repos[repoKey], file));
       validateNoDisabledOrFocusedTests(file, relativeFile);
       if (!representedFiles.has(relativeFile)) {
-        failures.push(`${testSuite.scope} architecture test module has no prepared shard: ${relativeFile}`);
+        failures.push(`${testSuite.scope} architecture test module has no parallel shard: ${relativeFile}`);
       }
     }
   }
@@ -214,7 +204,7 @@ function validateShardCoverage(shardsToValidate) {
       .replaceAll(/^\s*import\s+(?<quote>["'])(?<specifier>\.\/[^"']+)\k<quote>\s*;\s*$/gmu, "")
       .trim();
     if (stripped.length > 0) {
-      failures.push(`${aggregateRelativeFile} must be import-only for prepared direct-shard equivalence`);
+      failures.push(`${aggregateRelativeFile} must be import-only for direct parallel shard equivalence`);
     }
     const importedFiles = new Set();
     const importPattern = /^\s*import\s+(?<quote>["'])(?<specifier>\.\/[^"']+)\k<quote>\s*;\s*$/gmu;
@@ -467,107 +457,24 @@ function groupFailures(failures) {
   return groups;
 }
 
-function validatePreparedManifest(value) {
-  const failures = [];
-  if (!isRecord(value)) {
-    console.error("FAIL: prepared manifest is not an object.");
-    process.exit(2);
-  }
-  if (value.status !== "passed") {
-    failures.push(`manifest status is '${String(value.status)}', expected 'passed'`);
-  }
-  if (!isRecord(value.artifacts)) {
-    failures.push("manifest artifacts must be an object");
-  } else {
-    for (const [key, artifact] of Object.entries(value.artifacts)) {
-      if (!isRecord(artifact)) {
-        failures.push(`${key}: artifact entry is not an object`);
-        continue;
-      }
-      if (artifact.required === true && artifact.exists !== true) {
-        failures.push(`${key}: required prepared artifact was missing at prepare time`);
-        continue;
-      }
-      if (artifact.exists !== true) {
-        continue;
-      }
-      if (typeof artifact.path !== "string") {
-        failures.push(`${key}: artifact path must be a string`);
-        continue;
-      }
-      const current = fingerprintPath(artifact.path);
-      if (!sameFingerprint(artifact, current)) {
-        failures.push(`${key}: prepared artifact fingerprint changed or is missing: ${artifact.path}`);
-      }
-    }
-  }
-  if (failures.length > 0) {
-    console.error("FAIL: prepared manifest validation failed.");
-    for (const failure of failures) {
-      console.error(`  - ${failure}`);
-    }
-    process.exit(2);
-  }
+function repoSnapshot() {
+  return Object.fromEntries(Object.entries(repos).map(([name, repoPath]) => [
+    name,
+    {
+      path: toPosix(repoPath),
+      head: commandOutput(repoPath, "git", ["rev-parse", "HEAD"]),
+      branch: commandOutput(repoPath, "git", ["branch", "--show-current"]),
+      dirty: (commandOutput(repoPath, "git", ["status", "--porcelain"]) ?? "").length > 0,
+    },
+  ]));
 }
 
-function sameFingerprint(left, right) {
-  return left.exists === right.exists &&
-    left.kind === right.kind &&
-    left.bytes === right.bytes &&
-    left.files === right.files &&
-    left.sha256 === right.sha256;
-}
-
-function fingerprintPath(path) {
-  if (!existsSync(path)) {
-    return { path: toPosix(path), exists: false };
+function commandOutput(cwd, command, args) {
+  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) {
+    return undefined;
   }
-  const stats = statSync(path);
-  if (stats.isFile()) {
-    return {
-      path: toPosix(path),
-      exists: true,
-      kind: "file",
-      bytes: stats.size,
-      sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
-    };
-  }
-  const hash = createHash("sha256");
-  let files = 0;
-  let bytes = 0;
-  for (const filePath of walkFiles(path).sort()) {
-    const relativePath = toPosix(relative(path, filePath));
-    const fileStats = statSync(filePath);
-    const content = readFileSync(filePath);
-    files += 1;
-    bytes += fileStats.size;
-    hash.update(relativePath);
-    hash.update("\0");
-    hash.update(String(fileStats.size));
-    hash.update("\0");
-    hash.update(createHash("sha256").update(content).digest("hex"));
-    hash.update("\n");
-  }
-  return {
-    path: toPosix(path),
-    exists: true,
-    kind: "directory",
-    files,
-    bytes,
-    sha256: hash.digest("hex"),
-  };
-}
-
-function walkFiles(directory, output = []) {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const filePath = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      walkFiles(filePath, output);
-    } else if (entry.isFile()) {
-      output.push(filePath);
-    }
-  }
-  return output;
+  return result.stdout.trim();
 }
 
 function parseTestCounts(logText) {
@@ -627,21 +534,14 @@ function aggregateTestCounts(results) {
   }, { reportedShards: 0, total: 0, passed: 0, failed: 0, skipped: 0 });
 }
 
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function parseArgs(args) {
   const scopes = new Set();
   const matches = [];
   let list = false;
-  let manifest;
   let concurrency = Math.max(1, Math.ceil((typeof availableParallelism === "function" ? availableParallelism() : cpus().length) * 0.75));
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--manifest") {
-      manifest = args[++index];
-    } else if (arg === "--concurrency") {
+    if (arg === "--concurrency") {
       concurrency = Number(args[++index]);
     } else if (arg === "--scope") {
       scopes.add(args[++index]);
@@ -650,7 +550,7 @@ function parseArgs(args) {
     } else if (arg === "--list") {
       list = true;
     } else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: scripts/test/run-prepared.mjs [--manifest <path>] [--concurrency <n>] [--scope <name>] [--match <shard-substring>] [--list]");
+      console.log("Usage: scripts/test/run-parallel.mjs [--concurrency <n>] [--scope <name>] [--match <shard-substring>] [--list]");
       process.exit(0);
     } else {
       console.error(`FAIL: unknown argument: ${arg}`);
@@ -660,7 +560,7 @@ function parseArgs(args) {
   if (!Number.isInteger(concurrency) || concurrency <= 0) {
     concurrency = 1;
   }
-  return { manifest, concurrency, scopes, matches, list };
+  return { concurrency, scopes, matches, list };
 }
 
 function safeName(value) {

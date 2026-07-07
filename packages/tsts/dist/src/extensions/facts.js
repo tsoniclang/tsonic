@@ -293,6 +293,7 @@ function optionalTargetOperationProvenanceEquals(left, right) {
         && left.sourceReceiver === right.sourceReceiver
         && left.sourceCallee === right.sourceCallee
         && left.sourceSelectedSymbol === right.sourceSelectedSymbol
+        && left.sourceSelectedDeclaration === right.sourceSelectedDeclaration
         && left.sourceSelectedSignature === right.sourceSelectedSignature;
 }
 function sourceSelectedMethodTypeArgumentArrayEquals(left, right) {

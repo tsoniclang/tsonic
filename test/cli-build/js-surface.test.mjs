@@ -1476,7 +1476,8 @@ test("CLI rejects sparse JS array operations without selected JS surface facts",
 
   const lengthBuild = runNode([cliPath, "build", "--project", resolve(lengthProjectDirectory, "tsonic.json")]);
   assert.equal(lengthBuild.status, 1);
-  assert.match(lengthBuild.stderr, /C# native array source contract has no target-backed property 'length'/);
+  assert.match(lengthBuild.stderr, /Property 'length' does not exist on type 'number\[\]'|Property 'length' does not exist on type 'int32\[\]'/);
+  assert.match(lengthBuild.stderr, /C# property access 'length' must be selected by TSTS\/provider facts before emission/);
   assert.equal(existsSync(resolve(lengthProjectDirectory, "out/csharp/SmokeGeneratedArraySparseLengthWithoutJsSurface.csproj")), false);
 });
 

@@ -14,9 +14,9 @@ import {
   createTsonicSemanticSession,
   collectTstsDiagnostics,
 } from "./compiler-session.js";
-import { collectProjectModuleSpecifiers } from "./module-specifier-scan.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
+import { collectRuntimeActivatedTargetCapabilities } from "./target/capability-activation.js";
 import { getMissingTargetProviderMessage, selectInstalledTargetCapabilities, selectTargetSurfaceImplementations } from "./target/extensions.js";
 import { collectTargetSourceProfileContributions } from "./target/source-profile.js";
 
@@ -51,7 +51,6 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   const targets: TargetBuildResult[] = [];
   const diagnostics: TargetDiagnostic[] = [];
   const buildPlans: TargetBuildPlan[] = [];
-  let moduleSpecifiers: readonly string[] | undefined;
   for (const target of input.project.targets) {
     const targetPack = getRequiredTargetPack(input.registry, target);
     if (isTargetDiagnostic(targetPack)) {
@@ -63,8 +62,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
       continue;
     }
-    moduleSpecifiers ??= collectProjectModuleSpecifiers(paths.projectRoot, paths.outputRoot);
-    const selectedCapabilities = getTargetSelectedCapabilities(input.installedCapabilities ?? [], targetPack, target, selectedSurfaces, moduleSpecifiers);
+    const selectedCapabilities = getTargetSelectedCapabilities(input.installedCapabilities ?? [], targetPack, target, selectedSurfaces);
     if (isTargetDiagnostic(selectedCapabilities)) {
       buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedCapabilities] });
       continue;
@@ -129,11 +127,17 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       continue;
     }
     const targetPaths = getTargetCompilationPaths(paths, target);
+    const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
+      session.ast,
+      session.sourceFiles,
+      selectedCapabilities,
+    );
     const runtimeContributions = collectTargetRuntimeContributions({
       project: input.project,
       target,
       targetPack,
       selectedCapabilities,
+      runtimeActivatedCapabilities,
       selectedSurfaces,
       paths: targetPaths,
     });
@@ -229,9 +233,8 @@ function getTargetSelectedCapabilities(
   targetPack: TargetPack,
   target: TargetSelection,
   selectedSurfaces: readonly TargetSurfaceImplementation[],
-  moduleSpecifiers: readonly string[],
 ): readonly TargetCapabilityImplementation[] | TargetDiagnostic {
-  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces, moduleSpecifiers);
+  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces);
   if ("error" in result) {
     return {
       code: "TARGET_CAPABILITY_SELECTION",

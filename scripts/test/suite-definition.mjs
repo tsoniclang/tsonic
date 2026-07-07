@@ -1,6 +1,6 @@
 import { basename, resolve } from "node:path";
 
-export function createPreparedSuiteDefinition(repos) {
+export function createParallelSuiteDefinition(repos) {
   return {
     nodeSuites: [
       {

@@ -213,6 +213,7 @@ export interface TargetOperationProvenance {
     readonly sourceReceiver?: ExtensionFactSubject;
     readonly sourceCallee?: ExtensionFactSubject;
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly sourceSelectedSignature?: ExtensionFactSubject;
 }
 export interface FlowStateFact {

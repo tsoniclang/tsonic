@@ -5,7 +5,7 @@ import { TokenToString } from "../internal/scanner/scanner.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
 import { getExtensionHost } from "./host.js";
-export function recordExtensionCheckedCallMapping(checker, callExpression, sourceSelectedSignature) {
+export function recordExtensionCheckedCallMapping(checker, callExpression, sourceSelectedSignature, resolvedCalleeSymbol) {
     if (checker === undefined || callExpression === undefined) {
         return;
     }
@@ -17,7 +17,8 @@ export function recordExtensionCheckedCallMapping(checker, callExpression, sourc
     if (callee === undefined) {
         return;
     }
-    const sourceCalleeSymbol = Node_Symbol(callee);
+    const sourceCalleeSymbol = selectedSourceSymbol(checker, resolvedCalleeSymbol ?? Node_Symbol(callee));
+    const sourceCalleeDeclaration = primarySymbolDeclaration(sourceCalleeSymbol);
     const sourceSelectedMethodTypeArguments = getSourceSelectedMethodTypeArguments(callExpression, sourceSelectedSignature);
     const result = extensionHost.runObservation(ExtensionObservationPoint.mapCheckedCall, {
         call: callExpression,
@@ -27,6 +28,7 @@ export function recordExtensionCheckedCallMapping(checker, callExpression, sourc
         ...(sourceSelectedSignature?.declaration !== undefined ? { sourceSelectedDeclaration: sourceSelectedSignature.declaration } : {}),
         ...(sourceSelectedMethodTypeArguments !== undefined ? { sourceSelectedMethodTypeArguments } : {}),
         ...(sourceCalleeSymbol !== undefined ? { sourceCalleeSymbol } : {}),
+        ...(sourceCalleeDeclaration !== undefined ? { sourceCalleeDeclaration } : {}),
         ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     }, () => {
         throw new Error("Extension-owned checked call mapping unexpectedly reached core fallback.");
@@ -40,7 +42,7 @@ export function recordExtensionCheckedCallMapping(checker, callExpression, sourc
     recordExtensionCallParameterModes(extensionHost, { ...result.value, selectedSignature }, arguments_);
     recordExtensionCallArgumentConversions(extensionHost, { ...result.value, selectedSignature }, arguments_);
 }
-export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAccessExpression) {
+export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAccessExpression, resolvedSelectedSymbol) {
     if (checker === undefined || propertyAccessExpression === undefined) {
         return;
     }
@@ -53,12 +55,14 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
     if (receiver === undefined || propertyName === "") {
         return;
     }
-    const sourceSelectedSymbol = Node_Symbol(Node_Name(propertyAccessExpression));
+    const sourceSelectedSymbol = selectedSourceSymbol(checker, resolvedSelectedSymbol ?? Node_Symbol(Node_Name(propertyAccessExpression)));
+    const sourceSelectedDeclaration = primarySymbolDeclaration(sourceSelectedSymbol);
     const result = extensionHost.runObservation(ExtensionObservationPoint.mapCheckedPropertyAccess, {
         expression: propertyAccessExpression,
         receiver,
         propertyName,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
+        ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
         ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     }, () => {
         throw new Error("Extension-owned checked property access mapping unexpectedly reached core fallback.");
@@ -73,9 +77,10 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
         sourceExpression: propertyAccessExpression,
         sourceReceiver: receiver,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
+        ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
     }), result.evidence ?? []);
 }
-export function recordExtensionCheckedElementAccessMapping(checker, elementAccessExpression) {
+export function recordExtensionCheckedElementAccessMapping(checker, elementAccessExpression, resolvedSelectedSymbol) {
     if (checker === undefined || elementAccessExpression === undefined) {
         return;
     }
@@ -88,12 +93,14 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
     if (receiver === undefined || argument === undefined) {
         return;
     }
-    const sourceSelectedSymbol = Node_Symbol(elementAccessExpression);
+    const sourceSelectedSymbol = selectedSourceSymbol(checker, resolvedSelectedSymbol ?? Node_Symbol(elementAccessExpression));
+    const sourceSelectedDeclaration = primarySymbolDeclaration(sourceSelectedSymbol);
     const result = extensionHost.runObservation(ExtensionObservationPoint.mapCheckedElementAccess, {
         expression: elementAccessExpression,
         receiver,
         argument,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
+        ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
         ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     }, () => {
         throw new Error("Extension-owned checked element access mapping unexpectedly reached core fallback.");
@@ -108,6 +115,7 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
         sourceExpression: elementAccessExpression,
         sourceReceiver: receiver,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
+        ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
     }), result.evidence ?? []);
 }
 export function recordExtensionCheckedOperatorMapping(checker, expression, operatorToken, left, right) {
@@ -403,6 +411,12 @@ function recordExtensionCallArgumentConversions(extensionHost, callResult, argum
 }
 function definedFactSubjects(subjects) {
     return subjects.filter((subject) => subject !== undefined);
+}
+function selectedSourceSymbol(checker, symbol) {
+    return symbol === undefined || symbol === checker?.unknownSymbol ? undefined : symbol;
+}
+function primarySymbolDeclaration(symbol) {
+    return symbol?.ValueDeclaration ?? symbol?.Declarations?.find((candidate) => candidate !== undefined);
 }
 function withSelectedTargetSignatureProvenance(signature, sourceSelectedSignature, sourceSelectedMethodTypeArguments) {
     return {

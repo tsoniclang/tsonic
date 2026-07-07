@@ -1527,7 +1527,7 @@ test("CLI rejects open-carrier node:util format operations without fallback", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:util' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'format'/);
   assert.match(build.stderr, /System\.Object/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1560,7 +1560,7 @@ test("CLI rejects default node:util format operations without fallback", async (
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:util' export 'NodeUtilModule' member 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'NodeUtilModule' member 'format'/);
   assert.match(build.stderr, /node:util\.format\(System\.Object,System\.Object\[\]\)/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1598,7 +1598,7 @@ test("CLI rejects other open-carrier node:util operations without fallback", asy
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:util' export '(formatWithOptions|inspect|isDeepStrictEqual|debuglog|deprecate)'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export '(formatWithOptions|inspect|isDeepStrictEqual|debuglog|deprecate)'/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|JsonSerializer|GetType/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -1775,7 +1775,7 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:url' export 'format'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'format'/);
   assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1809,7 +1809,7 @@ test("CLI rejects unsupported node:url URLPattern operations without fallback", 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:url' export 'URLPattern' member 'constructor'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'URLPattern' member 'constructor'/);
   assert.match(build.stderr, /URLPattern\.constructor/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
@@ -1847,15 +1847,15 @@ test("CLI rejects unsupported selected Node fs provider-package operations witho
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'readFile'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'readFile'/);
   assert.match(build.stderr, /node:fs\.readFile/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
   assert.match(build.stderr, /node:fs\.writeFile/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'watch'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watch'/);
   assert.match(build.stderr, /node:fs\.watch/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
   assert.match(build.stderr, /node:fs\.watchFile/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
   assert.match(build.stderr, /node:fs\.createReadStream/);
   assert.doesNotMatch(build.stderr, /readFile is not a function|writeFile is not a function|watch is not a function|createReadStream is not a function/);
   assert.doesNotMatch(build.stderr, /watchFile is not a function/);
@@ -1903,29 +1903,29 @@ test("CLI rejects unsupported selected Node crypto and os provider-package opera
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createCipheriv'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createCipheriv'/);
   assert.match(build.stderr, /node:crypto\.createCipheriv/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createDecipheriv'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createDecipheriv'/);
   assert.match(build.stderr, /node:crypto\.createDecipheriv/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'scryptSync'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'scryptSync'/);
   assert.match(build.stderr, /node:crypto\.scryptSync/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'pbkdf2Sync'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'pbkdf2Sync'/);
   assert.match(build.stderr, /node:crypto\.pbkdf2Sync/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createSign'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createSign'/);
   assert.match(build.stderr, /node:crypto\.createSign/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:crypto' export 'createVerify'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:crypto' export 'createVerify'/);
   assert.match(build.stderr, /node:crypto\.createVerify/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'cpus'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'cpus'/);
   assert.match(build.stderr, /node:os\.cpus/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'networkInterfaces'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'networkInterfaces'/);
   assert.match(build.stderr, /node:os\.networkInterfaces/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'userInfo'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'userInfo'/);
   assert.match(build.stderr, /node:os\.userInfo/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'getPriority'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'getPriority'/);
   assert.match(build.stderr, /node:os\.getPriority/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected call 'node:os' export 'setPriority'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'setPriority'/);
   assert.match(build.stderr, /node:os\.setPriority/);
-  assert.match(build.stderr, /C# Node provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.os\.constants/);
   assert.doesNotMatch(build.stderr, /createCipheriv is not a function|cpus is not a function|constants is undefined/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
