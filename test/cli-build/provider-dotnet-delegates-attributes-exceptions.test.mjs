@@ -69,6 +69,27 @@ test("CLI emits provider constructor parameter modes and delegate invocation fro
       "    public int Value { get; }",
       "}",
       "",
+      "public sealed class OutOnlyTarget",
+      "{",
+      "    public OutOnlyTarget(out short value)",
+      "    {",
+      "        value = 3;",
+      "        Value = value;",
+      "    }",
+      "",
+      "    public int Value { get; }",
+      "}",
+      "",
+      "public sealed class InOnlyTarget",
+      "{",
+      "    public InOnlyTarget(in bool flag, char marker = 'x')",
+      "    {",
+      "        Value = flag ? marker : 0;",
+      "    }",
+      "",
+      "    public int Value { get; }",
+      "}",
+      "",
       "public delegate int IntTransform(int value);",
       "",
       "public static class DelegateTarget",
@@ -107,7 +128,7 @@ test("CLI emits provider constructor parameter modes and delegate invocation fro
     "src/index.ts": [
       "import { out, ref, inref } from \"@tsonic/csharp/lang.js\";",
       "import type { bool, int, long, short } from \"@tsonic/csharp/types.js\";",
-      "import { ConstructorTarget, DelegateTarget, RefOnlyTarget } from \"@tsonic/dotnet/Provider.ParameterModes.js\";",
+      "import { ConstructorTarget, DelegateTarget, InOnlyTarget, OutOnlyTarget, RefOnlyTarget } from \"@tsonic/dotnet/Provider.ParameterModes.js\";",
       "",
       "export function constructDefaults(): int {",
       "  const target = new ConstructorTarget(7);",
@@ -120,7 +141,7 @@ test("CLI emits provider constructor parameter modes and delegate invocation fro
       "}",
       "",
       "export function constructRef(current: long): int {",
-      "  const target = new ConstructorTarget(ref(current));",
+      "  const target = new RefOnlyTarget(ref(current));",
       "  return target.Value;",
       "}",
       "",
@@ -131,12 +152,12 @@ test("CLI emits provider constructor parameter modes and delegate invocation fro
       "",
       "export function constructOut(): short {",
       "  let value: short = 0;",
-      "  const target = new ConstructorTarget(out(value));",
+      "  const target = new OutOnlyTarget(out(value));",
       "  return value;",
       "}",
       "",
       "export function constructIn(flag: bool): int {",
-      "  const target = new ConstructorTarget(inref(flag), \"z\");",
+      "  const target = new InOnlyTarget(inref(flag), \"z\");",
       "  return target.Value;",
       "}",
       "",
@@ -153,10 +174,9 @@ test("CLI emits provider constructor parameter modes and delegate invocation fro
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(7\);/);
   assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(1, 2, 3\);/);
-  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(ref current\);/);
   assert.match(generatedSource, /new Provider\.ParameterModes\.RefOnlyTarget\(ref current\);/);
-  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(out value\);/);
-  assert.match(generatedSource, /new Provider\.ParameterModes\.ConstructorTarget\(in flag, 'z'\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.OutOnlyTarget\(out value\);/);
+  assert.match(generatedSource, /new Provider\.ParameterModes\.InOnlyTarget\(in flag, 'z'\);/);
   assert.match(generatedSource, /Provider\.ParameterModes\.DelegateTarget\.Invoke\(\(int current\) => current, value\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|ConstructorTarget\(current\)|bindings\.json/);
 
@@ -593,4 +613,3 @@ test("CLI runs provider-backed exception throw, catch, and finally semantics", a
     "",
   ].join("\n"));
 });
-

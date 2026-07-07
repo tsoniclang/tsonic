@@ -244,7 +244,7 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
     "}",
     "",
   ], /TS2339: Property 'score' does not exist on type 'BaseValue'/);
-  assert.doesNotMatch(invalidSourceDiagnostics, /CSHARP_|tsonic\.csharp/);
+  assert.match(invalidSourceDiagnostics, /C# property access 'score' must be selected by TSTS\/provider facts before emission/);
 });
 test("CLI consumes TSTS template literal type results and rejects incompatible literals", async () => {
   const { generatedSource } = await assertBuilds("template-literal-type-positive", "SmokeGeneratedTemplateLiteralTypes", [

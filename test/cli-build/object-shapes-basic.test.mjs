@@ -139,7 +139,9 @@ test("CLI rejects provider-owned object literals until object-shape facts are fi
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS2740: Type '\{ message: string; toString\(\): string; \}' is missing/);
+  assert.match(build.stderr, /TS2561: Object literal may only specify known properties, but 'message' does not exist in type 'Exception'/);
+  assert.match(build.stderr, /Did you mean to write 'Message'/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderObjectInitializers.csproj")), false);
 });
 test("CLI emits interface object literals through provider object-shape adapters", async () => {
   const projectDirectory = resolve(tempRoot, "interface-object-initializers");

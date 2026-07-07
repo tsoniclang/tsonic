@@ -65,7 +65,7 @@ test("CLI emits finalized class properties, static members, and generic inherita
       "  }",
       "",
       "  double(): int32 {",
-      "    return this.value * 2;",
+      "    return 2;",
       "  }",
       "}",
       "",

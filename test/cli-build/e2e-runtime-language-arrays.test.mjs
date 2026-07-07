@@ -99,8 +99,8 @@ test("CLI runs generated C# executable for array literals, spreads, destructurin
       "Console.WriteLine(`number[]: ${doubleArr[0]}, ${doubleArr[1]}, ${doubleArr[2]}`);",
       "const decimalArr: decimal[] = [1.5, 2.5, 3.5];",
       "Console.WriteLine(`decimal[]: ${decimalArr[0]}, ${decimalArr[1]}, ${decimalArr[2]}`);",
-      "const uintArr: uint32[] = [1, 2, 3];",
-      "Console.WriteLine(`uint32[]: ${uintArr[0]}, ${uintArr[1]}, ${uintArr[2]}`);",
+      "const uintArr: uint[] = [1, 2, 3];",
+      "Console.WriteLine(`uint[]: ${uintArr[0]}, ${uintArr[1]}, ${uintArr[2]}`);",
       "const ulongArr: ulong[] = [1, 2, 3];",
       "Console.WriteLine(`ulong[]: ${ulongArr[0]}, ${ulongArr[1]}, ${ulongArr[2]}`);",
       "const longMatrix: long[][] = [[1, 2], [3, 4]];",
@@ -136,7 +136,7 @@ test("CLI runs generated C# executable for array literals, spreads, destructurin
     "float[]: 1.5, 2.5, 3.5",
     "number[]: 1.5, 2.5, 3.5",
     "decimal[]: 1.5, 2.5, 3.5",
-    "uint32[]: 1, 2, 3",
+    "uint[]: 1, 2, 3",
     "ulong[]: 1, 2, 3",
     "long[0][0]: 1",
     "long[1][1]: 4",
@@ -146,4 +146,3 @@ test("CLI runs generated C# executable for array literals, spreads, destructurin
     "",
   ].join("\n"));
 });
-

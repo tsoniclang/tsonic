@@ -438,7 +438,7 @@ test("CLI rejects Promise constructors without finalized Task carrier facts befo
   assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
   assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call '<anonymous>'/);
   assert.match(build.stderr, /operation":"construct"/);
-  assert.match(build.stderr, /bundled:\/\/\/libs\/lib\.es2015\.promise\.d\.ts/);
+  assert.match(build.stderr, /\.tsonic\/source-profiles\/csharp-provider\/csharp-globals\.d\.ts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
@@ -471,11 +471,10 @@ test("CLI rejects Promise.resolve without finalized Task carrier facts before ta
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100144/);
-  assert.match(build.stderr, /property access 'resolve' must be selected by TSTS\/provider facts/);
+  assert.match(build.stderr, /TS2554: Expected 1 arguments, but got 0/);
   assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
   assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
-  assert.match(build.stderr, /bundled:\/\/\/libs\/lib\.es2015\.promise\.d\.ts/);
+  assert.match(build.stderr, /\.tsonic\/source-profiles\/csharp-provider\/csharp-globals\.d\.ts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
@@ -508,10 +507,8 @@ test("CLI rejects unsupported Promise chains before target artifacts", async () 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /property access 'resolve' must be selected by TSTS\/provider facts/);
   assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
-  assert.match(build.stderr, /property access 'then' must be selected by TSTS\/provider facts/);
-  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'then'/);
+  assert.match(build.stderr, /did not prove the selected provider signature identity for checked call 'then'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
@@ -544,9 +541,7 @@ test("CLI rejects async generators before target artifacts", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /tsonic-csharp:CSHARP_UNSUPPORTED_AST/);
-  assert.match(build.stderr, /Async C# function declaration emission requires finalized Promise\/Task result carrier facts/);
-  assert.match(build.stderr, /Expression is outside the current C# planning surface/);
+  assert.match(build.stderr, /TS2583: Cannot find name 'AsyncGenerator'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });

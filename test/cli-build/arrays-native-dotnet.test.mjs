@@ -25,7 +25,7 @@ test("CLI emits native .NET array element access and JS-selected length facts", 
       "export function readFirstPlusLength(): int {",
       "  const stream = new MemoryStream([65, 66]);",
       "  const reader = new BinaryReader(stream);",
-      "  const bytes = reader.readBytes(2);",
+      "  const bytes = reader.ReadBytes(2);",
       "  return bytes[0] + bytes.length;",
       "}",
       "",
@@ -69,7 +69,7 @@ test("CLI rejects native array length without selected JS or provider facts", as
       "export function readLength(): int {",
       "  const stream = new MemoryStream([65, 66]);",
       "  const reader = new BinaryReader(stream);",
-      "  const bytes = reader.readBytes(2);",
+      "  const bytes = reader.ReadBytes(2);",
       "  return bytes.length;",
       "}",
       "",
@@ -78,7 +78,7 @@ test("CLI rejects native array length without selected JS or provider facts", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# native array source contract has no target-backed property 'length'/);
+  assert.match(build.stderr, /TS2551: Property 'length' does not exist on type 'number\[\]'/);
+  assert.match(build.stderr, /Did you mean 'Length'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysNativeLengthRequiresFacts.csproj")), false);
 });
-
