@@ -36,12 +36,12 @@ const shards = allShards.filter((shard) =>
   (options.matches.length === 0 || options.matches.some((match) => shard.id.includes(match)))
 );
 if (shards.length === 0) {
-  console.error("FAIL: no parallel test shards selected.");
+  console.error("FAIL: no parallel test tasks selected.");
   process.exit(2);
 }
 
 if (options.list) {
-  console.log(`parallel-run: shards=${shards.length}`);
+  console.log(`parallel-run: tasks=${shards.length}`);
   for (const shard of shards) {
     console.log(`${shard.group}\t${shard.scope}\t${shard.id}`);
   }
@@ -49,7 +49,7 @@ if (options.list) {
 }
 
 const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).length;
-console.log(`parallel-run: shards=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
+console.log(`parallel-run: tasks=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
 
 const startedAt = Date.now();
 const progress = createProgressTracker(shards, options.progressIntervalMs);
@@ -79,7 +79,7 @@ const report = {
   repos: repoSnapshot(),
   progress: progress.summary(),
   durationMs,
-  shardCounts: {
+  taskCounts: {
     total: results.length,
     passed: results.length - failures.length,
     failed: failures.length,
@@ -89,7 +89,7 @@ const report = {
     required: results.length,
     reported: testCounts.reportedShards,
     missing: missingTestCountResults.length,
-    missingShards: missingTestCountResults.map((result) => ({
+    missingTasks: missingTestCountResults.map((result) => ({
       id: result.shard.id,
       group: result.shard.group,
       scope: result.shard.scope,
@@ -97,7 +97,7 @@ const report = {
     })),
   },
   failuresByGroup: groupFailures(failures),
-  slowestShards: [...results]
+  slowestTasks: [...results]
     .sort((left, right) => right.durationMs - left.durationMs)
     .slice(0, 20)
     .map((result) => ({
@@ -111,12 +111,12 @@ const report = {
 };
 writeFileSync(resolve(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
 
-console.log(`parallel-run: shardsPassed=${report.shardCounts.passed} shardsFailed=${report.shardCounts.failed} durationMs=${durationMs}`);
+console.log(`parallel-run: tasksPassed=${report.taskCounts.passed} tasksFailed=${report.taskCounts.failed} durationMs=${durationMs}`);
 if (testCounts.reportedShards > 0) {
-  console.log(`parallel-run: reportedTests=${testCounts.total} passed=${testCounts.passed} failed=${testCounts.failed} skipped=${testCounts.skipped} reportingShards=${testCounts.reportedShards}`);
+  console.log(`parallel-run: reportedTests=${testCounts.total} passed=${testCounts.passed} failed=${testCounts.failed} skipped=${testCounts.skipped} reportingTasks=${testCounts.reportedShards}`);
 }
 if (missingTestCountResults.length > 0) {
-  console.log(`parallel-run: missingTestCountShards=${missingTestCountResults.length}`);
+  console.log(`parallel-run: missingTestCountTasks=${missingTestCountResults.length}`);
   for (const result of missingTestCountResults) {
     console.log(`  ${result.shard.id} log=${toPosix(relative(tsonicRoot, result.logPath))}`);
   }
@@ -129,8 +129,8 @@ if (failures.length > 0) {
     }
   }
 }
-console.log("slowest-shards:");
-for (const shard of report.slowestShards) {
+console.log("slowest-tasks:");
+for (const shard of report.slowestTasks) {
   console.log(`  ${shard.durationMs}ms ${shard.status === 0 ? "PASS" : "FAIL"} ${shard.id} (${shard.log})`);
 }
 console.log(`parallel-run: report=${toPosix(relative(tsonicRoot, resolve(runRoot, "report.json")))}`);
@@ -148,7 +148,10 @@ function buildShards() {
       listExecutableArchitectureTests(testSuite.directory)
         .flatMap((file) => nodeTestShards(testSuite.scope, testSuite.group, file))
     ),
-    ...suiteDefinition.dotnetShards.map((shard) => ({ ...shard })),
+    ...suiteDefinition.dotnetSuites.flatMap((testSuite) =>
+      listDotnetTestFiles(testSuite.directory)
+        .flatMap((file) => dotnetTestShards(testSuite, file))
+    ),
   ];
 }
 
@@ -168,13 +171,12 @@ function validateShardCoverage(shardsToValidate) {
   for (const contract of suiteDefinition.aggregateImportContracts) {
     validateAggregateImportContract(contract);
   }
-  validateTitleShardContracts();
-  for (const shard of suiteDefinition.dotnetShards) {
-    validateDotnetShard(shard);
+  for (const testSuite of suiteDefinition.dotnetSuites) {
+    validateDotnetSuite(testSuite);
   }
 
   if (failures.length > 0) {
-    console.error("FAIL: parallel test shard coverage validation failed.");
+    console.error("FAIL: parallel test task coverage validation failed.");
     for (const failure of failures) {
       console.error(`  - ${failure}`);
     }
@@ -190,7 +192,7 @@ function validateShardCoverage(shardsToValidate) {
       }
       validateNoDisabledOrFocusedTests(file, relativeFile);
       if (!representedFiles.has(relativeFile)) {
-        failures.push(`${testSuite.scope} test file has no parallel shard: ${relativeFile}`);
+        failures.push(`${testSuite.scope} test file has no parallel task: ${relativeFile}`);
       }
     }
   }
@@ -201,7 +203,7 @@ function validateShardCoverage(shardsToValidate) {
       const relativeFile = toPosix(relative(repos[repoKey], file));
       validateNoDisabledOrFocusedTests(file, relativeFile);
       if (!representedFiles.has(relativeFile)) {
-        failures.push(`${testSuite.scope} architecture test module has no parallel shard: ${relativeFile}`);
+        failures.push(`${testSuite.scope} architecture test module has no parallel task: ${relativeFile}`);
       }
     }
   }
@@ -214,7 +216,7 @@ function validateShardCoverage(shardsToValidate) {
       .replaceAll(/^\s*import\s+(?<quote>["'])(?<specifier>\.\/[^"']+)\k<quote>\s*;\s*$/gmu, "")
       .trim();
     if (stripped.length > 0) {
-      failures.push(`${aggregateRelativeFile} must be import-only for direct parallel shard equivalence`);
+      failures.push(`${aggregateRelativeFile} must be import-only for direct parallel task equivalence`);
     }
     const importedFiles = new Set();
     const importPattern = /^\s*import\s+(?<quote>["'])(?<specifier>\.\/[^"']+)\k<quote>\s*;\s*$/gmu;
@@ -234,32 +236,16 @@ function validateShardCoverage(shardsToValidate) {
     }
   }
 
-  function validateTitleShardContracts() {
-    for (const shard of shardsToValidate) {
-      if (shard.title === undefined || shard.file === undefined) {
-        continue;
-      }
-      const file = shard.file;
-      const repoRoot = shard.cwd;
-      const titles = extractTestTitles(file);
-      const staticTestCount = countTopLevelTestInvocations(file);
-      if (titles.length !== staticTestCount) {
-        failures.push(`${toPosix(relative(repoRoot, file))} is title-sharded but has ${staticTestCount} test(...) calls and ${titles.length} static literal titles`);
-      }
-      const uniqueTitles = new Set(titles);
-      if (uniqueTitles.size !== titles.length) {
-        failures.push(`${toPosix(relative(repoRoot, file))} is title-sharded but has duplicate test titles`);
-      }
-    }
-  }
-
-  function validateDotnetShard(shard) {
-    if (!existsSync(shard.projectOrSolution)) {
-      failures.push(`${shard.id} project/solution does not exist: ${toPosix(shard.projectOrSolution)}`);
+  function validateDotnetSuite(testSuite) {
+    if (!existsSync(testSuite.projectOrSolution)) {
+      failures.push(`${testSuite.scope} dotnet project/solution does not exist: ${toPosix(testSuite.projectOrSolution)}`);
       return;
     }
-    if (!shardsToValidate.some((candidate) => candidate.id === shard.id)) {
-      failures.push(`${shard.id} dotnet shard is not registered`);
+    for (const file of listDotnetTestFiles(testSuite.directory)) {
+      const relativeFile = toPosix(relative(testSuite.cwd, file));
+      if (extractDotnetTestClasses(file).length === 0) {
+        failures.push(`${testSuite.scope} dotnet test file has no test class task: ${relativeFile}`);
+      }
     }
   }
 
@@ -272,28 +258,7 @@ function validateShardCoverage(shardsToValidate) {
 }
 
 function nodeTestShards(scope, group, file) {
-  const repoKey = scopeToRepoKey(scope);
-  const relativeFile = toPosix(relative(repos[repoKey], file));
-  const titles = extractTestTitles(file);
-  const staticTestCount = countTopLevelTestInvocations(file);
-  if (!suiteDefinition.shouldTitleShard({ scope, file, relativeFile, staticTestCount, literalTitleCount: titles.length })) {
-    return [nodeTestShard(scope, group, file)];
-  }
-  return titles.map((title, index) => ({
-    id: `${scope}:${relativeFile}::${String(index + 1).padStart(3, "0")}-${slug(title)}`,
-    scope,
-    group,
-    file,
-    cwd: repos[repoKey],
-    command: process.execPath,
-    args: [
-      "--test",
-      "--test-reporter=tap",
-      `--test-name-pattern=^${escapeRegExp(title)}$`,
-      relativeFile,
-    ],
-    title,
-  }));
+  return [nodeTestShard(scope, group, file)];
 }
 
 function nodeTestShard(scope, group, file) {
@@ -308,19 +273,47 @@ function nodeTestShard(scope, group, file) {
   };
 }
 
-function extractTestTitles(file) {
-  const text = readFileSync(file, "utf8");
-  const titles = [];
-  const pattern = /(?:^|\n)\s*test\(\s*(["'])(?<title>(?:\\.|(?!\1).)+)\1\s*,/gu;
-  for (const match of text.matchAll(pattern)) {
-    titles.push(unescapeJsString(match.groups.title));
-  }
-  return titles;
+function dotnetTestShards(testSuite, file) {
+  const relativeFile = toPosix(relative(testSuite.cwd, file));
+  return extractDotnetTestClasses(file).map((className) => ({
+    id: `${testSuite.scope}:${relativeFile}:${className}`,
+    scope: testSuite.scope,
+    group: testSuite.group,
+    file,
+    cwd: testSuite.cwd,
+    command: "dotnet",
+    args: [
+      "test",
+      testSuite.projectOrSolution,
+      "--no-build",
+      "--no-restore",
+      "--filter",
+      `FullyQualifiedName~${className}`,
+      "--verbosity",
+      "minimal",
+    ],
+  }));
 }
 
-function countTopLevelTestInvocations(file) {
+function listDotnetTestFiles(directory) {
+  return listFilesRecursive(directory, ".cs")
+    .filter((file) => {
+      const text = readFileSync(file, "utf8");
+      return /\[(?:Fact|Theory|Test)\]/u.test(text);
+    });
+}
+
+function extractDotnetTestClasses(file) {
   const text = readFileSync(file, "utf8");
-  return [...text.matchAll(/(?:^|\n)\s*test(?:\.(?:todo|skip|only))?\(\s*/gu)].length;
+  const namespaceName =
+    text.match(/^\s*namespace\s+(?<name>[A-Za-z_][A-Za-z0-9_.]*)\s*;/mu)?.groups.name ??
+    text.match(/^\s*namespace\s+(?<name>[A-Za-z_][A-Za-z0-9_.]*)\s*\{/mu)?.groups.name;
+  const classes = [];
+  const classPattern = /\b(?:public\s+|internal\s+)?(?:sealed\s+|abstract\s+|partial\s+)*class\s+(?<name>[A-Za-z_][A-Za-z0-9_]*)\b/gu;
+  for (const match of text.matchAll(classPattern)) {
+    classes.push(namespaceName === undefined ? match.groups.name : `${namespaceName}.${match.groups.name}`);
+  }
+  return classes;
 }
 
 function extractBannedTestModifiers(file) {
@@ -407,13 +400,31 @@ function listExecutableArchitectureTests(directory) {
 }
 
 async function runShards(allShards, concurrency) {
-  const parallelShards = allShards.filter((shard) => shard.exclusive !== true);
-  const exclusiveShards = allShards.filter((shard) => shard.exclusive === true);
-  const results = await runShardQueue(parallelShards, concurrency);
-  for (const shard of exclusiveShards) {
-    results.push(await runShard(shard));
+  const results = [];
+  for (const group of orderedGroups(allShards)) {
+    const groupShards = allShards.filter((shard) => shard.group === group);
+    const parallelShards = groupShards.filter((shard) => shard.exclusive !== true);
+    const exclusiveShards = groupShards.filter((shard) => shard.exclusive === true);
+    console.log(`parallel-group: start group=${group} tasks=${groupShards.length} parallel=${parallelShards.length} exclusive=${exclusiveShards.length}`);
+    results.push(...await runShardQueue(parallelShards, concurrency));
+    for (const shard of exclusiveShards) {
+      results.push(await runShard(shard));
+    }
+    const failed = results.filter((result) => result.shard.group === group && result.status !== 0).length;
+    console.log(`parallel-group: done group=${group} failed=${failed}`);
   }
   return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
+}
+
+function orderedGroups(allShards) {
+  const groups = new Set(allShards.map((shard) => shard.group));
+  const ordered = [];
+  for (const group of suiteDefinition.groupOrder ?? []) {
+    if (groups.delete(group)) {
+      ordered.push(group);
+    }
+  }
+  return [...ordered, ...[...groups].sort()];
 }
 
 async function runShardQueue(allShards, concurrency) {
@@ -719,10 +730,13 @@ function parseArgs(args) {
   const matches = [];
   let list = false;
   let concurrency = Math.max(1, Math.ceil((typeof availableParallelism === "function" ? availableParallelism() : cpus().length) * 0.75));
+  let progressIntervalMs = Number(process.env.TSONIC_TEST_PROGRESS_INTERVAL_MS ?? 180_000);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--concurrency") {
       concurrency = Number(args[++index]);
+    } else if (arg === "--progress-interval-ms") {
+      progressIntervalMs = Number(args[++index]);
     } else if (arg === "--scope") {
       scopes.add(args[++index]);
     } else if (arg === "--match") {
@@ -730,7 +744,7 @@ function parseArgs(args) {
     } else if (arg === "--list") {
       list = true;
     } else if (arg === "--help" || arg === "-h") {
-      console.log("Usage: scripts/test/run-parallel.mjs [--concurrency <n>] [--scope <name>] [--match <shard-substring>] [--list]");
+      console.log("Usage: scripts/test/run-parallel.mjs [--concurrency <n>] [--progress-interval-ms <ms>] [--scope <name>] [--match <task-substring>] [--list]");
       process.exit(0);
     } else {
       console.error(`FAIL: unknown argument: ${arg}`);
@@ -740,23 +754,14 @@ function parseArgs(args) {
   if (!Number.isInteger(concurrency) || concurrency <= 0) {
     concurrency = 1;
   }
-  return { concurrency, scopes, matches, list };
+  if (!Number.isFinite(progressIntervalMs) || progressIntervalMs < 0) {
+    progressIntervalMs = 180_000;
+  }
+  return { concurrency, progressIntervalMs, scopes, matches, list };
 }
 
 function safeName(value) {
   return value.replaceAll(/[^A-Za-z0-9._-]+/g, "-");
-}
-
-function slug(value) {
-  return value
-    .slice(0, 80)
-    .replaceAll(/[^A-Za-z0-9]+/g, "-")
-    .replaceAll(/^-|-$/g, "")
-    .toLowerCase() || "test";
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[\\^$.*+?()[\]{}|]/gu, "\\$&");
 }
 
 function unescapeJsString(value) {
