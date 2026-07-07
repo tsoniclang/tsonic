@@ -247,7 +247,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     status: "ported",
     featureArea: "nodejs-surface",
     owner: "C# NodeJS provider package",
-    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    newPath: "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     reason:
       "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:* modules participate through existing provider declarations, while unsupported historical modules child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations produce deterministic provider diagnostics with no target artifacts.",
   }),
@@ -805,7 +805,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     status: "ported",
     featureArea: "nodejs-surface",
     owner: "C# NodeJS provider package + C# NodeJS runtime",
-    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    newPath: "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
     reason:
       "Ported as current-architecture executable proof for node:path posix joins through selected NodeJS provider-package declarations, generated C# AST, dotnet build/run, and exact stdout.",
   }),
@@ -814,7 +814,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     status: "ported",
     featureArea: "nodejs-surface",
     owner: "C# NodeJS provider package + C# NodeJS runtime",
-    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    newPath: "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     reason:
       "Ported as current-architecture executable proof for provider-backed default node:fs imports when the NodeJS provider package is selected, plus adjacent no-package diagnostics in the same current test file.",
   }),
@@ -823,7 +823,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     status: "ported",
     featureArea: "nodejs-surface",
     owner: "C# NodeJS provider package + C# NodeJS runtime",
-    newPath: "test/cli-build/nodejs-surface.test.mjs",
+    newPath: "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
     reason:
       "Ported as current-architecture executable proof for a multi-file NodeJS provider-package module graph using node:path, node:fs, node:crypto, node:os, and node:process through selected provider facts, generated C# AST, dotnet build/run, and exact stdout.",
   }),
