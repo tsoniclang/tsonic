@@ -2,6 +2,7 @@ import type { CompilerExtension } from "@tsonic/tsts";
 import type { TargetRuntimeContributions } from "./artifacts.js";
 import type { TargetSelection, TsonicProjectConfig } from "./config.js";
 import type { TargetCompilationPaths, TargetPack, TargetProviderModuleOwnership, TargetSurfaceImplementation } from "./pack.js";
+import type { TargetSourceProfileContributions } from "./source-profile.js";
 
 export type TsonicPlugin =
   | TsonicTargetPlugin
@@ -38,6 +39,7 @@ export interface TsonicTargetCapabilityPlugin {
   readonly displayName: string;
   readonly requiredSurfaces?: readonly string[];
   readonly moduleOwnership: readonly TargetProviderModuleOwnership[];
+  sourceProfileContributions?(context: TargetCapabilityContext): TargetSourceProfileContributions;
   createExtensions(context: TargetCapabilityContext): readonly CompilerExtension[];
   createOperationMappers?(context: TargetCapabilityContext): readonly TargetCapabilityOperationMapper[];
   runtimeContributions?(context: TargetCapabilityRuntimeContributionContext): TargetRuntimeContributions;

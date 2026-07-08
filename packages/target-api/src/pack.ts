@@ -26,6 +26,9 @@ import type {
   TargetCapabilityRuntimeContributionContext,
   TsonicTargetCapabilityPlugin,
 } from "./plugins.js";
+import type {
+  TargetSourceProfileContributions,
+} from "./source-profile.js";
 
 export interface TargetProviderContext {
   readonly project: TsonicProjectConfig;
@@ -73,6 +76,18 @@ export interface TargetRuntimeContributionContext {
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
+}
+
+export interface TargetProviderSourceProfileContext {
+  readonly project: TsonicProjectConfig;
+  readonly target: TargetSelection;
+  readonly targetPack: TargetPack;
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+}
+
+export interface TargetSurfaceSourceProfileContext extends TargetProviderSourceProfileContext {
+  readonly surface: TargetSurfaceImplementation;
 }
 
 export interface TargetAnalysisNodeOptions {
@@ -196,6 +211,7 @@ export interface TargetProvider {
   readonly id: string;
   readonly displayName: string;
   readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
+  sourceProfileContributions?(context: TargetProviderSourceProfileContext): TargetSourceProfileContributions;
   createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
@@ -208,6 +224,7 @@ export interface TargetSurfaceImplementation {
   readonly id: TargetSurfaceId;
   readonly displayName: string;
   readonly requiredSurfaces?: readonly TargetSurfaceId[];
+  sourceProfileContributions?(context: TargetSurfaceSourceProfileContext): TargetSourceProfileContributions;
   createExtensions?(context: TargetSurfaceExtensionContext): readonly CompilerExtension[];
   runtimeContributions(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }

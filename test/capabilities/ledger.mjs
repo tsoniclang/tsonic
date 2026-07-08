@@ -672,12 +672,12 @@ const baseCapabilityDefinitions = Object.freeze([
   ["surface.js.date", "Date operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.js.object-runtime", "Object runtime operations use selected JS surface facts", "complete", "surface-provider"],
   ["surface.node.fs-path-process", "node:fs, node:path, and process use selected Node provider-package facts", "complete", "surface-provider"],
-  ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node surface facts", "complete", "surface-provider"],
-  ["surface.node.fs", "node:fs uses selected Node surface facts", "complete", "surface-provider"],
-  ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node and JS surface facts", "complete", "surface-provider"],
+  ["surface.node.buffer-crypto-os", "Buffer, crypto, and os use selected Node provider-package facts", "complete", "surface-provider"],
+  ["surface.node.fs", "node:fs uses selected Node provider-package facts", "complete", "surface-provider"],
+  ["surface.node.fs-stats-date", "node:fs Stats Date members use selected Node provider-package and JS surface facts", "complete", "surface-provider"],
   ["surface.node.process", "node:process uses selected Node provider-package facts", "complete", "surface-provider"],
-  ["surface.node.util", "node:util uses selected Node surface facts and rejects open-carrier helpers without fallback", "complete", "surface-provider"],
-  ["surface.node.url", "node:url uses selected Node surface facts and rejects open-object URL helpers without fallback", "complete", "surface-provider"],
+  ["surface.node.util", "node:util uses selected Node provider-package facts and rejects open-carrier helpers without fallback", "complete", "surface-provider"],
+  ["surface.node.url", "node:url uses selected Node provider-package facts and rejects open-object URL helpers without fallback", "complete", "surface-provider"],
 
   ["compat.mode.strict-native", "Strict-native mode rejects unsupported compat-runtime behavior", "complete", "target-provider"],
   ["compat.mode.compat", "Compatibility mode enables explicit compat-runtime carriers", "complete", "target-provider"],
@@ -1933,12 +1933,18 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/target-config.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/cli/src/commands/build-cases/local-package-ownership.test.ts",
@@ -2526,7 +2532,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/provider-dotnet.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/cli/src/package-manifests/bindings.test.ts",
@@ -2544,7 +2553,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2559,14 +2571,20 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.virtual-module.no-fallback": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-performance.test.mjs",
@@ -2621,12 +2639,18 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.module.no-file-backed-fallback": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2643,7 +2667,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -3849,7 +3876,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -3857,7 +3887,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/provider-selection.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4553,7 +4586,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Complete proof: the C# architecture validator now reports zero findings across product code after JS/Node surface member routing and object-shape member lookup were moved behind selected identity, finalized facts, declarative metadata, generic selectors, or structured missing diagnostics. Lazy generic analysis tests prove checked-source structural queries without policy conclusions, and surface/object-shape tests prove selected declarations/facts are required for JS, Node, and object-shape operations.",
+      "Complete proof: the C# architecture validator now reports zero findings across product code after JS surface and Node provider-package member routing and object-shape member lookup were moved behind selected identity, finalized facts, declarative metadata, generic selectors, or structured missing diagnostics. Lazy generic analysis tests prove checked-source structural queries without policy conclusions, and surface/object-shape tests prove selected declarations/facts are required for JS surface, Node provider-package, and object-shape operations.",
   }),
   "architecture.native-compilable.esm-only": Object.freeze({
     sourceExamples: Object.freeze([
@@ -4844,7 +4877,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
@@ -4927,7 +4963,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       ],
     }),
     notes:
-      "Reviewed proof: selected JS surface facts cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts, including Object.toString delegation for closed bool primitive receivers. Boolean(value) maps only from selected BooleanConstructor call signature identity, call-vs-construct expression shape, and closed conversion argument facts to Tsonic.CSharp.Js.Globals.Boolean; zero-argument Boolean() uses the runtime default false value. new Boolean(value) is deliberately hard-rejected until an explicit wrapper-object carrier exists, so wrapper construction never falls back to object/dynamic/native bool semantics. C# JS runtime tests prove lowercase JavaScript boolean toString(), valueOf(), and Boolean conversion behavior; CLI evidence emits BooleanOps/Globals.Boolean calls, dotnet-builds the generated project, and proves unsupported wrapper construction fails before artifacts. Node surface evidence proves a provider-returned boolean from Buffer.isEncoding chains through the JS BooleanOps.toString fact instead of native bool.ToString().",
+      "Reviewed proof: selected JS surface facts cover Boolean.toString and Boolean.valueOf only from selected Boolean declaration identity plus closed bool receiver facts, including Object.toString delegation for closed bool primitive receivers. Boolean(value) maps only from selected BooleanConstructor call signature identity, call-vs-construct expression shape, and closed conversion argument facts to Tsonic.CSharp.Js.Globals.Boolean; zero-argument Boolean() uses the runtime default false value. new Boolean(value) is deliberately hard-rejected until an explicit wrapper-object carrier exists, so wrapper construction never falls back to object/dynamic/native bool semantics. C# JS runtime tests prove lowercase JavaScript boolean toString(), valueOf(), and Boolean conversion behavior; CLI evidence emits BooleanOps/Globals.Boolean calls, dotnet-builds the generated project, and proves unsupported wrapper construction fails before artifacts. Node provider-package evidence proves a provider-returned boolean from Buffer.isEncoding chains through the JS BooleanOps.toString fact instead of native bool.ToString().",
   }),
   "surface.js.number-methods": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5522,14 +5558,20 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "../tsonic-csharp/test/js-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-json-typed-parse/",
@@ -5548,7 +5590,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       ],
       backendEmission: [
         "test/cli-build/js-surface.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
         "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
@@ -5571,12 +5616,18 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-path-posix-join/",
@@ -5587,36 +5638,54 @@ const reviewedCapabilityEvidence = Object.freeze({
       selectedOperationFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       providerFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       failClosedDiagnostics: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: selected NodeJS provider package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, process availableMemory/constrainedMemory/hrtime call facts, path.posix/path.win32 PathModule member facts, expanded node:fs/promises chmod/cp/readlink/realpath/rmdir/symlink target facts, and rejection of node:path/fs without the NodeJS provider package. Current executable proof runs selected fs/path/process with Buffer, crypto, os, url, and util through the generated C# Node runtime. Recovered old Node fixture evidence now has current runtime/toolchain proof for path.posix joins, provider-backed default fs imports, no-package import diagnostics, and the multi-file fs/path/process/os/crypto module graph through the generic provider-package path without source-name fallback.",
+      "Reviewed proof: selected Node provider-package facts cover unchanged ESM Node imports for bare fs/assert/buffer/url/util and canonical node:path/node:process modules, canonical node:path imports, bare path imports, provider-backed default imports for node:fs/node:path/node:process module objects, namespace imports for bare fs/crypto/os/process and canonical node:* modules, process property and environment indexer access, process availableMemory/constrainedMemory/hrtime call facts, path.posix/path.win32 PathModule member facts, expanded node:fs/promises chmod/cp/readlink/realpath/rmdir/symlink target facts, and rejection of node:path/fs without the Node provider package. Current executable proof runs selected fs/path/process with Buffer, crypto, os, url, and util through the generated C# Node runtime. Recovered old Node fixture evidence now has current runtime/toolchain proof for path.posix joins, provider-backed default fs imports, no-package import diagnostics, and the multi-file fs/path/process/os/crypto module graph through the generic provider-package path without source-name fallback.",
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/accessSync.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/closeSync.tests.cs",
@@ -5632,7 +5701,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
@@ -5647,10 +5719,16 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/accessSync.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/chmod.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/closeSync.tests.cs",
@@ -5666,15 +5744,21 @@ const reviewedCapabilityEvidence = Object.freeze({
       failClosedDiagnostics: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: selected NodeJS provider package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, every currently declared node:fs and node:fs/promises supported provider row from the provider metadata tables, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors plus writeSync string overload, access/chmod/close/open/truncate/rmdir/symlink/readlink/realpath/cp variants, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises access/readFile/readdir/writeFile/copyFile/truncate/stat/unlink/mkdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-surface negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.readFile/writeFile/watch/watchFile/createReadStream fail closed without runtime fallback. Current provider tests prove fs/promises readFile(path, \"utf8\") selects Task<string> while readFile(path) selects Task<Buffer>, including default fsPromises imports; runtime tests prove both fs.promises and fs_promises module helpers preserve string-vs-Buffer overload behavior. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, unlinks, expanded sync filesystem operations, and fs/promises async roundtrip operations through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Broader Node module families outside the declared fs provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
+      "Reviewed proof: selected Node provider-package facts cover unchanged bare fs imports, bare fs and node:fs namespace imports, provider-backed default node:fs module object calls such as fs.existsSync, every currently declared node:fs and node:fs/promises supported provider row from the provider metadata tables, existsSync/readFileSync string and Buffer returns, readdirSync string-array returns, statSync/fstatSync, readSync/writeSync Buffer descriptors plus writeSync string overload, access/chmod/close/open/truncate/rmdir/symlink/readlink/realpath/cp variants, writeFileSync/appendFileSync/copyFileSync/renameSync/rmSync/unlinkSync writes and cleanup, node:fs/promises access/readFile/readdir/writeFile/copyFile/truncate/stat/unlink/mkdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink Promise-returning target facts, no-provider-package negative paths block Node-owned modules before artifact emission, unsupported node:vm provider-package imports fail closed, and unsupported selected fs.readFile/writeFile/watch/watchFile/createReadStream fail closed without runtime fallback. Current provider tests prove fs/promises readFile(path, \"utf8\") selects Task<string> while readFile(path) selects Task<Buffer>, including default fsPromises imports; runtime tests prove both fs.promises and fs_promises module helpers preserve string-vs-Buffer overload behavior. Current executable proof writes, stats, reads, directory listing, rename/copy cleanup, unlinks, expanded sync filesystem operations, and fs/promises async roundtrip operations through generated C# Node runtime calls. Stats Date-valued members are tracked under surface.node.fs-stats-date. Broader Node module families outside the declared fs provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
   }),
   "surface.node.fs-stats-date": Object.freeze({
     sourceExamples: Object.freeze([
@@ -5682,7 +5766,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "return resolved.toISOString().length.toString();",
     ]),
     tstsDecision:
-      "TSTS validates node:fs Stats members from selected NodeJS virtual declarations and Date instance calls from selected JS declarations; nullish Date unions must preserve the closed Date carrier across both surfaces.",
+      "TSTS validates node:fs Stats members from selected Node provider-package virtual declarations and Date instance calls from selected JS declarations; nullish Date unions must preserve the closed Date carrier across both surfaces.",
     providerFacts: Object.freeze([
       "nodeFsStatSyncOperationFact",
       "nodeFsStatsMtimeMemberFact",
@@ -5691,17 +5775,23 @@ const reviewedCapabilityEvidence = Object.freeze({
       "crossSurfaceDateCarrierFact",
     ]),
     backendContract:
-      "C# emits Stats.mtime Date access and Date instance calls only from finalized NodeJS and JS surface facts; it must not reinterpret Stats timestamps as native DateTime, string, dynamic object, or unproven nullable union carriers.",
+      "C# emits Stats.mtime Date access and Date instance calls only from finalized Node provider-package and JS surface facts; it must not reinterpret Stats timestamps as native DateTime, string, dynamic object, or unproven nullable union carriers.",
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/fstatSync.tests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/js-surface-node-date-union/",
@@ -5709,13 +5799,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
         "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       providerFacts: [
         "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
@@ -5724,21 +5820,30 @@ const reviewedCapabilityEvidence = Object.freeze({
       ],
       failClosedDiagnostics: [
         "../tsonic-csharp/test/nodejs-stats-date-surface.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed complete proof: selected NodeJS provider declarations expose Stats.mtime as the JS Date source shape, property mapping requires the selected provider member identity, JS Date instance calls require selected JS declarations, Date | undefined nullish coalescing preserves the closed JS Date carrier across surfaces, CLI/toolchain emission produces Tsonic.CSharp.Js.Date rather than DateTime/string/dynamic carriers, no-surface Node imports fail before artifact emission, and runtime tests cover Stats Date values plus JS Date behavior.",
+      "Reviewed complete proof: selected Node provider-package declarations expose Stats.mtime as the JS Date source shape, property mapping requires the selected provider member identity, JS Date instance calls require selected JS declarations, Date | undefined nullish coalescing preserves the closed JS Date carrier across surfaces, CLI/toolchain emission produces Tsonic.CSharp.Js.Date rather than DateTime/string/dynamic carriers, no-provider-package Node imports fail before artifact emission, and runtime tests cover Stats Date values plus JS Date behavior.",
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/arch.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/argv.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
@@ -5758,7 +5863,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
     ]),
@@ -5769,14 +5877,20 @@ const reviewedCapabilityEvidence = Object.freeze({
       selectedOperationFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       providerFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/arch.tests.cs",
@@ -5788,23 +5902,32 @@ const reviewedCapabilityEvidence = Object.freeze({
       ],
       failClosedDiagnostics: [
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/chdir.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/kill.tests.cs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: selected NodeJS provider package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime/availableMemory/constrainedMemory/hrtime, runtime behavior tests, and no-package fail-closed diagnostics. The recovered old module-graph fixture proves node:process through the generic provider-package path, and selected unsupported process.stdin/stdout/stderr/nextTick provider identities fail closed with precise CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED diagnostics before artifacts. Tsonic consumes finalized provider-package facts only and does not add process source-name fallback.",
+      "Reviewed proof: selected Node provider-package facts cover process module imports, provider-backed default node:process module object calls/properties such as cwd and platform, scalar metadata properties, env closed ProcessEnv indexer facts, versions closed ProcessVersions facts, memoryUsage closed MemoryUsage object facts, process function calls including uptime/availableMemory/constrainedMemory/hrtime, runtime behavior tests, and no-package fail-closed diagnostics. The recovered old module-graph fixture proves node:process through the generic provider-package path, and selected unsupported process.stdin/stdout/stderr/nextTick provider identities fail closed with precise CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED diagnostics before artifacts. Tsonic consumes finalized provider-package facts only and does not add process source-name fallback.",
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/crypto/createHash.tests.cs",
@@ -5823,7 +5946,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-module-graph/",
@@ -5838,10 +5964,16 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/crypto/createHash.tests.cs",
@@ -5860,28 +5992,40 @@ const reviewedCapabilityEvidence = Object.freeze({
       failClosedDiagnostics: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: selected NodeJS provider package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; every currently declared supported node:crypto and node:os provider metadata row by provider declaration/member/signature identity; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getCiphers/getCurves/getHashes array returns, and os arch/availableParallelism/endianness/freemem/homedir/hostname/loadavg/machine/platform/release/tmpdir/totalmem/type/uptime/version/EOL/devNull by selected provider declaration identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. Unsupported crypto createCipheriv/createDecipheriv/scryptSync/pbkdf2Sync/createSign/createVerify and os constants/cpus/networkInterfaces/userInfo/getPriority/setPriority fail closed from selected provider identities before artifacts, without runtime fallback. Broader Node module families outside the declared Buffer/crypto/os provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
+      "Reviewed proof: selected Node provider-package facts cover Buffer provider virtual declarations, Buffer static calls including from(string), from(number[]), from(Buffer), static Buffer.compare, Buffer.isBuffer, Buffer.poolSize, buffer.transcode, Buffer instance length/toString/copy/write/compare/includes/indexOf/lastIndexOf/readUInt8/writeUInt8 plus descriptor-backed numeric read/write members such as readUInt16LE, readInt16BE, readUInt32BE, readFloatLE, readDoubleBE, writeUInt16LE, writeInt16BE, writeUInt32BE, writeFloatLE, and writeDoubleBE; every currently declared supported node:crypto and node:os provider metadata row by provider declaration/member/signature identity; bare crypto/os and canonical node:crypto/node:os imports, provider-backed default node:crypto/node:os module object calls/properties such as randomUUID and EOL, crypto.randomUUID/randomInt/randomBytes/randomFillSync/timingSafeEqual, createHash/createHmac Hash/Hmac update/digest closed Buffer/string paths, getCiphers/getCurves/getHashes array returns, and os arch/availableParallelism/endianness/freemem/homedir/hostname/loadavg/machine/platform/release/tmpdir/totalmem/type/uptime/version/EOL/devNull by selected provider declaration identity. Current executable proof runs Buffer.from/toString, representative Buffer numeric read/write roundtrips, createHash(...).update(...).digest(\"hex\"), randomUUID, and os.platform through generated C# Node runtime calls. Unsupported crypto createCipheriv/createDecipheriv/scryptSync/pbkdf2Sync/createSign/createVerify and os constants/cpus/networkInterfaces/userInfo/getPriority/setPriority fail closed from selected provider identities before artifacts, without runtime fallback. Broader Node module families outside the declared Buffer/crypto/os provider-package surface are classified by explicit unsupported provider-package diagnostics instead of fallback emission.",
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
     ]),
@@ -5892,29 +6036,44 @@ const reviewedCapabilityEvidence = Object.freeze({
       selectedOperationFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       providerFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       failClosedDiagnostics: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.extras.tests.cs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
@@ -5925,13 +6084,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-alias-coverage/",
@@ -5940,26 +6105,41 @@ const reviewedCapabilityEvidence = Object.freeze({
       selectedOperationFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       providerFacts: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
       ],
       backendEmission: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       runtimeBehavior: [
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       failClosedDiagnostics: [
         "../tsonic-csharp/test/node-surface-completion.test.mjs",
         "../tsonic-csharp/test/surface-boundary.test.mjs",
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
       backendNoFallback: [
-        "test/cli-build/nodejs-surface.test.mjs",
+        "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       ],
     }),
     blockers: Object.freeze([]),
@@ -5970,7 +6150,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
@@ -5983,7 +6166,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-alias-coverage/",
     ]),
     notes:
-      "Reviewed partial proof: host composition includes provider, selected-surface, and selected provider-package runtime contributions before backend/toolchain handoff, omits unselected surface/package runtime contributions, emits no target artifacts when TSTS rejects the source program, and selected C# JS surface plus NodeJS provider package now add real runtime project references without test-local reference configuration. Remains partial until runtime contribution coverage spans every selected first-party surface/package and unsupported target/toolchain combinations fail with focused diagnostics.",
+      "Reviewed partial proof: host composition includes provider, selected-surface, and selected provider-package runtime contributions before backend/toolchain handoff, omits unselected surface/package runtime contributions, emits no target artifacts when TSTS rejects the source program, and selected C# JS surface plus Node provider package now add real runtime project references without test-local reference configuration. Remains partial until runtime contribution coverage spans every selected first-party surface/package and unsupported target/toolchain combinations fail with focused diagnostics.",
   }),
   "runtime.csharp.js": Object.freeze({
     positiveTests: Object.freeze([
@@ -6009,7 +6192,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/runtime-toolchain-proof.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/buffer/buffer.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/buffer/buffer.module.tests.cs",
@@ -6031,7 +6217,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/runtime-toolchain-proof.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6041,7 +6230,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/fixtures/nodejs-surface-module-graph/",
     ]),
     notes:
-      "Reviewed proof: selected NodeJS provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current NodeJS provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:fs/promises/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises readFile string-vs-Buffer overloads, access/chmod/close/open/cp/readlink/realpath/rmdir/symlink/truncate/writeSync runtime helpers, mkdir/readdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables run both node:path.join and composite provider-package scenarios covering fs write/read/stat/unlink/access/chmod/truncate/rmdir/symlink/readlink/realpath/cp, fs/promises async file roundtrip with access/copyFile/truncate, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Unsupported selected Node provider-package APIs and unsupported Node modules fail closed before target artifacts, while runtime source scans prove no reflection/dynamic/open-dispatch semantics in csharp-nodejs runtime paths.",
+      "Reviewed proof: selected Node provider package runtime contributions are represented in host composition, generated C# library projects include the real csharp-nodejs project reference together with the required csharp-runtime/csharp-js references, current Node provider package tests build node:path/fs/crypto/os/process/url mappings and provider-backed default node:fs/node:fs/promises/node:path/node:process/node:crypto/node:os/node:util/node:url module object mappings through that reference, closed fs Buffer descriptor/file helpers plus fs/promises readFile string-vs-Buffer overloads, access/chmod/close/open/cp/readlink/realpath/rmdir/symlink/truncate/writeSync runtime helpers, mkdir/readdir/rename/rm/chmod/cp/readlink/realpath/rmdir/symlink, Buffer includes/indexOf/lastIndexOf/readUInt8/writeUInt8/isBuffer/poolSize/transcode helpers, crypto Buffer/Hash/Hmac helpers, process environment and memory metrics/hrtime helpers, URL base-overload and URLSearchParams helpers, and scalar util helpers are available as runtime-owned APIs. Generated executables run both node:path.join and composite provider-package scenarios covering fs write/read/stat/unlink/access/chmod/truncate/rmdir/symlink/readlink/realpath/cp, fs/promises async file roundtrip with access/copyFile/truncate, path/process, Buffer, crypto hash/randomUUID, os.platform, url file conversion, live URL.searchParams mutation coupling, and util.toUSVString through the C# Node runtime. Unsupported selected Node provider-package APIs and unsupported Node modules fail closed before target artifacts, while runtime source scans prove no reflection/dynamic/open-dispatch semantics in csharp-nodejs runtime paths.",
   }),
   "runtime.no-reflection-semantics": Object.freeze({
     positiveTests: Object.freeze([
@@ -6149,7 +6338,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
       "test/cli-build/e2e-runtime-language.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../tsonic-csharp/test/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
@@ -6161,7 +6353,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
@@ -6176,7 +6371,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   "runtime.undefined.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
@@ -6186,7 +6384,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/expressions-control-flow.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
@@ -6485,7 +6686,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
@@ -6629,7 +6833,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/source-semantics.test.mjs",
       "test/async-cli-build.test.mjs",
       "test/cli-build/expressions-control-flow.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/declaration-classes.test.mjs",
@@ -8357,7 +8564,10 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/provider-dotnet.test.mjs",
@@ -8372,7 +8582,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "toolchain.csharp.build-run remains partial until all complete language capabilities have generated C# project build/run proof and downstream projects execute against the current architecture.",
     ]),
     notes:
-      "Reviewed partial proof: provider-dotnet CLI suite now builds generated C# projects for provider-owned static/instance/nested/byref/generic/delegate/attribute/exception operations and runs provider-backed exception semantics; JS and Node surface suites provide separate selected-runtime build proof.",
+      "Reviewed partial proof: provider-dotnet CLI suite now builds generated C# projects for provider-owned static/instance/nested/byref/generic/delegate/attribute/exception operations and runs provider-backed exception semantics; JS surface and Node provider-package suites provide separate selected-runtime build proof.",
   }),
   "toolchain.csharp.library": Object.freeze({
     positiveTests: Object.freeze([
@@ -8440,7 +8650,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
     blockers: Object.freeze([
-      "diagnostic.missing-target-fact remains partial until missing-fact negatives cover each backend operation family separately: provider calls/properties/indexers/conversions, JS/Node surface operations, object/array/tuple/union/nullish carriers, iteration/spread/destructuring, runtime artifacts, precise source spans, and no artifact/toolchain handoff.",
+      "diagnostic.missing-target-fact remains partial until missing-fact negatives cover each backend operation family separately: provider calls/properties/indexers/conversions, JS surface and Node provider-package operations, object/array/tuple/union/nullish carriers, iteration/spread/destructuring, runtime artifacts, precise source spans, and no artifact/toolchain handoff.",
     ]),
     laneClassification: freezeLaneClassification({
       patternKind: "fail-closed-missing-target-fact",
@@ -8657,11 +8867,17 @@ const reviewedCapabilityEvidence = Object.freeze({
       "Unsupported, unknown, stale, missing-dependency, or unselected surfaces must diagnose before backend artifacts are emitted.",
     positiveTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli/surface-composition.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-surface-imports-negative/",
@@ -8694,13 +8910,19 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/node-surface-completion.test.mjs",
       "../tsonic-csharp/test/surface-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/dotnet-disallowed-js-builtins/",
@@ -8735,7 +8957,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed proof: all current first-party JS and Node surface/provider-package rows are complete, and unsupported selected operations fail closed through the owning surface/provider diagnostic path rather than backend lookup. C# JS and NodeJS provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Selected JS and Node unsupported-operation diagnostics carry checked operation nodes through ExtensionDiagnostic.nodeOrSpan, so CLI rendering uses exact source spans instead of parsing evidence text. CLI evidence hard-rejects selected JS Object descriptor/prototype operations, String.match/String.raw/String.matchAll, JSON.stringify carrier gaps, and selected unsupported Node provider-package operations before artifacts, with no placeholder calls, runtime fallback, source-name recovery, dynamic dispatch, or reflection.",
+      "Reviewed proof: all current first-party JS and Node provider-package rows are complete, and unsupported selected operations fail closed through the owning surface/provider diagnostic path rather than backend lookup. C# JS and Node provider package tests hard-reject declared unsupported selected operations with CSHARP_JS_SURFACE_OPERATION_UNSUPPORTED or CSHARP_NODEJS_PROVIDER_PACKAGE_OPERATION_UNSUPPORTED and diagnostic evidence naming selected source/provider identity, required facts, reason, and capability id. Selected JS and Node unsupported-operation diagnostics carry checked operation nodes through ExtensionDiagnostic.nodeOrSpan, so CLI rendering uses exact source spans instead of parsing evidence text. CLI evidence hard-rejects selected JS Object descriptor/prototype operations, String.match/String.raw/String.matchAll, JSON.stringify carrier gaps, and selected unsupported Node provider-package operations before artifacts, with no placeholder calls, runtime fallback, source-name recovery, dynamic dispatch, or reflection.",
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
@@ -8833,7 +9055,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
@@ -8843,7 +9068,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend-diagnostics.test.mjs",
       "../tsonic-csharp/test/object-shape-boundary.test.mjs",
       "test/cli-build/js-surface.test.mjs",
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
       "test/cli-build/provider-dotnet.test.mjs",
       "test/cli-build/source-semantics.test.mjs",
       "test/cli/surface-composition.test.mjs",
@@ -8877,7 +9105,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "downstream.smoke.simple-apps": Object.freeze({
     sourceExamples: Object.freeze([
-      "Console.writeLine(greeting(\"Ada\"));",
+      "Console.WriteLine(greeting(\"Ada\"));",
       "console.log(Math.trunc(Math.abs(-7.8)));",
       "external SDK project references generated SmokeGeneratedDownstreamLibrary.csproj",
       "import path from \"node:path\";",
@@ -8912,7 +9140,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "downstream.dotnet.aspnet": Object.freeze({
     sourceExamples: Object.freeze([
       "import { CLSCompliantAttribute, DateTime, DateTimeOffset, Guid } from \"@tsonic/dotnet/System.js\";",
-      "export class UserEntity implements NamedEntity { id: Guid = Guid.empty; score: int32 | null = null; roles: List<string> = new List<string>([\"admin\", \"user\"]); }",
+      "export class UserEntity implements NamedEntity { id: Guid = Guid.Empty; score: int32 | null = null; roles: List<string> = new List<string>([\"admin\", \"user\"]); }",
       "export async function loadUser(name: string): Promise<UserEntity> { return new UserEntity(name); }",
       "external Microsoft.NET.Sdk.Web project consumes generated library through ProjectReference and Microsoft.AspNetCore.Http.Results",
     ]),
@@ -8959,12 +9187,18 @@ const reviewedCapabilityEvidence = Object.freeze({
       "selectedRuntimeArtifactFact",
     ]),
     backendContract:
-      "Generated C# for Node-style source must consume selected NodeJS provider-package facts and runtime artifacts, then fail closed when the package is unselected or a selected operation is unsupported.",
+      "Generated C# for Node-style source must consume selected Node provider-package facts and runtime artifacts, then fail closed when the package is unselected or a selected operation is unsupported.",
     positiveTests: Object.freeze([
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "test/cli-build/nodejs-surface.test.mjs",
+      "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
+      "test/cli-build/nodejs-provider-package-process-buffer-crypto-os.test.mjs",
+      "test/cli-build/nodejs-provider-package-util-url.test.mjs",
+      "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nodejs-path-posix-join/",
@@ -8974,7 +9208,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: nodejs-surface builds and runs existing Node-style source with selected js surface plus nodejs provider package, including node:fs, node:path, node:process namespace imports, node:os namespace imports, node:buffer, and node:crypto through selected provider declarations, generated C# runtime project references, dotnet build, dotnet run, and exact stdout. Adjacent negatives prove node:* imports fail when the NodeJS provider package is unselected. The recovered historical alias-coverage fixture is represented by deterministic provider-package diagnostics for unsupported child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations, with no C# artifacts or reflection/dynamic fallback.",
+      "Reviewed proof: Node provider-package proof builds and runs existing Node-style source with selected js surface plus nodejs provider package, including node:fs, node:path, node:process namespace imports, node:os namespace imports, node:buffer, and node:crypto through selected provider declarations, generated C# runtime project references, dotnet build, dotnet run, and exact stdout. Adjacent negatives prove node:* imports fail when the Node provider package is unselected. The recovered historical alias-coverage fixture is represented by deterministic provider-package diagnostics for unsupported child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations, with no C# artifacts or reflection/dynamic fallback.",
   }),
   "downstream.no-old-runtime-reflection": Object.freeze({
     sourceExamples: Object.freeze([
@@ -9207,7 +9441,7 @@ function capabilityDefaults(capabilityId, owner) {
 
   if (capabilityId.startsWith("diagnostic.") || capabilityId.startsWith("downstream.") || capabilityId.startsWith("target.") || capabilityId.startsWith("rust.")) {
     return {
-      sourceExamples: ["values.add(1);"],
+      sourceExamples: ["values.Add(1);"],
       tstsDecision:
         "TSTS reports source diagnostics and preserves provider diagnostics without allowing target extensions to override TS-Go decisions.",
       providerFacts: ["diagnosticEvidenceFact", "targetCapabilityFact"],

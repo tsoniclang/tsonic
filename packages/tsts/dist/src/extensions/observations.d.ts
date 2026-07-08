@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, ArgumentPassingMode, RuntimeCarrierProvenance, SelectedTargetSignatureFact, TargetConstraint, TargetOperationProvenance, TargetOperationFact, TargetTypeRef } from "./facts.js";
+import type { ArgumentPassingFact, ArgumentPassingMode, RuntimeCarrierProvenance, SelectedTargetSignatureFact, SourceSelectedMethodTypeArgument, TargetConstraint, TargetOperationProvenance, TargetOperationFact, TargetTypeRef } from "./facts.js";
 import type { GoPtr } from "../go/compat.js";
 import type { SourceFile } from "../internal/ast/ast.js";
 import type { AstReader } from "../services/ast-reader.js";
@@ -93,7 +93,9 @@ export interface CheckedCallMappingRequest {
     readonly arguments: readonly ExtensionFactSubject[];
     readonly sourceSelectedSignature?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
+    readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
     readonly sourceCalleeSymbol?: ExtensionFactSubject;
+    readonly sourceCalleeDeclaration?: ExtensionFactSubject;
     readonly sourceReturnType?: ExtensionFactSubject;
     readonly target?: string;
 }
@@ -105,6 +107,7 @@ export interface TargetTypeArgumentMappingRequest {
     readonly declaration: ExtensionFactSubject;
     readonly arguments: readonly ExtensionFactSubject[];
     readonly sourceSelectedSignature?: ExtensionFactSubject;
+    readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
     readonly contextualType?: ExtensionFactSubject;
 }
 export interface TargetTypeArgumentMappingResult {
@@ -115,6 +118,7 @@ export interface CheckedPropertyAccessMappingRequest {
     readonly receiver: ExtensionFactSubject;
     readonly propertyName: string;
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly target?: string;
 }
 export interface CheckedElementAccessMappingRequest {
@@ -122,6 +126,7 @@ export interface CheckedElementAccessMappingRequest {
     readonly receiver: ExtensionFactSubject;
     readonly argument: ExtensionFactSubject;
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly target?: string;
 }
 export interface CheckedOperatorMappingRequest {

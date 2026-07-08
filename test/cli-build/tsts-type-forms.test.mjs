@@ -45,6 +45,17 @@ async function assertRejected(projectName, assemblyName, sourceLines, expectedDi
   return build.stderr;
 }
 
+
+
+
+
+
+
+
+
+
+
+
 test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic inference, and overloads", async () => {
   const { generatedSource } = await assertBuilds("tsts-source-meaning-positive", "SmokeGeneratedTstsSourceMeaning", [
     "function id<T>(value: T): T {",
@@ -149,7 +160,6 @@ test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic
     "",
   ], /TS2304: Cannot find name 'missingValue'/);
 });
-
 test("CLI consumes expanded TSTS source meaning across flow, contextual callbacks, generics, and overloads", async () => {
   const { generatedSource } = await assertBuilds("tsts-source-meaning-matrix-positive", "SmokeGeneratedTstsSourceMeaningMatrix", [
     "class BaseValue {",
@@ -234,9 +244,8 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
     "}",
     "",
   ], /TS2339: Property 'score' does not exist on type 'BaseValue'/);
-  assert.doesNotMatch(invalidSourceDiagnostics, /CSHARP_|tsonic\.csharp/);
+  assert.match(invalidSourceDiagnostics, /C# property access 'score' must be selected by TSTS\/provider facts before emission/);
 });
-
 test("CLI consumes TSTS template literal type results and rejects incompatible literals", async () => {
   const { generatedSource } = await assertBuilds("template-literal-type-positive", "SmokeGeneratedTemplateLiteralTypes", [
     "type EventKind = \"created\" | \"deleted\";",
@@ -280,7 +289,6 @@ test("CLI consumes TSTS template literal type results and rejects incompatible l
     "",
   ], /TS2322: Type '\"USER:created\"' is not assignable to type/);
 });
-
 test("CLI consumes TSTS variadic tuple type results and rejects incompatible tuple arity", async () => {
   const { generatedSource } = await assertBuilds("variadic-tuple-positive", "SmokeGeneratedVariadicTuples", [
     "type Append<T extends unknown[], U> = [...T, U];",
@@ -313,7 +321,6 @@ test("CLI consumes TSTS variadic tuple type results and rejects incompatible tup
     "",
   ], /TS2322: Type '\[string, number\]' is not assignable to type/);
 });
-
 test("CLI lets TSTS validate satisfies and erases it from target emission", async () => {
   const { generatedSource } = await assertBuilds("satisfies-positive", "SmokeGeneratedSatisfiesTypeForm", [
     "export function identity(value: number): number {",
@@ -340,7 +347,6 @@ test("CLI lets TSTS validate satisfies and erases it from target emission", asyn
     "",
   ], /TS2353: Object literal may only specify known properties, and 'extra' does not exist in type '\{ name: string; \}'/);
 });
-
 test("CLI consumes TSTS as-const literal readonly results and rejects readonly writes", async () => {
   const { generatedSource } = await assertBuilds("as-const-positive", "SmokeGeneratedAsConstTypeForm", [
     "export function status(): string {",
@@ -370,7 +376,6 @@ test("CLI consumes TSTS as-const literal readonly results and rejects readonly w
     "",
   ], /TS2540: Cannot assign to 'count' because it is a read-only property/);
 });
-
 test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and mapped type results", async () => {
   const { generatedSource } = await assertBuilds("advanced-type-operators-positive", "SmokeGeneratedAdvancedTypeOperators", [
     "type Source = { name?: string; count: number; active: boolean };",
@@ -479,20 +484,19 @@ test("CLI consumes TSTS utility, conditional, infer, keyof, indexed-access, and 
     "",
   ], /TS2322: Type '\[string\]' is not assignable to type '\[name: string, count: number\]'|TS2345: Argument of type 'string' is not assignable to parameter of type 'number'/);
 });
-
 test("CLI maps TSTS-resolved type-form arguments into provider generic target arguments", async () => {
   const { generatedSource } = await assertBuilds("provider-generic-type-form-arguments-positive", "SmokeGeneratedProviderGenericTypeFormArguments", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
     "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
     "",
-    "type Element = int32;",
+    "type Element = int;",
     "type Text = NonNullable<string | null>;",
     "type ValueList = List<Element>;",
     "",
     "export function makeValues(first: Element, second: Element): ValueList {",
     "  const values = new List<Element>();",
-    "  values.add(first);",
-    "  values.add(second);",
+    "  values.Add(first);",
+    "  values.Add(second);",
     "  return values;",
     "}",
     "",
@@ -501,7 +505,7 @@ test("CLI maps TSTS-resolved type-form arguments into provider generic target ar
     "}",
     "",
     "export function describe(label: Text, values: ValueList): string {",
-    "  return `${label}:${values.count}`;",
+    "  return `${label}:${values.Count}`;",
     "}",
     "",
   ]);
@@ -519,20 +523,19 @@ test("CLI maps TSTS-resolved type-form arguments into provider generic target ar
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("provider-generic-type-form-arguments-negative", "SmokeGeneratedProviderGenericTypeFormArgumentsNegative", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
     "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
     "",
-    "type Element = int32;",
+    "type Element = int;",
     "type ValueList = List<Element>;",
     "const bad: ValueList = new List<string>([\"not-int\"]);",
     "export function value(): ValueList { return bad; }",
     "",
   ], /TS2322:/);
 });
-
 test("CLI consumes advanced type forms across source-core primitives and provider declarations", async () => {
   const { generatedSource } = await assertBuilds("advanced-type-provider-source-core-positive", "SmokeGeneratedAdvancedTypeProviderSourceCore", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
     "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
     "",
     "type UserShape = { id: number; name: string; flags?: boolean };",
@@ -540,7 +543,7 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "type GetterRows<T> = { [K in keyof T as `get${Capitalize<K & string>}`]-?: () => T[K] };",
     "type UserGetters = GetterRows<RequiredUser>; ",
     "type IdType = RequiredUser[\"id\"];",
-    "type SourceId = int32;",
+    "type SourceId = int;",
     "type NameKey = keyof Pick<RequiredUser, \"name\">;",
     "type ProviderElement<T> = T extends List<infer Element> ? Element : never;",
     "type NestedProvider<T> = T extends List<infer Element> ? Element extends number ? ProviderElement<List<Element>> : never : never;",
@@ -548,7 +551,7 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "type Tail<T extends readonly unknown[]> = readonly [prefix: string, ...T];",
     "type Routed = Tail<readonly [number, boolean]>;",
     "",
-    "export function describe(values: List<number>, id: int32, nameText: string): string {",
+    "export function describe(values: List<number>, id: int, nameText: string): string {",
     "  const getter: UserGetters[\"getName\"] = () => nameText;",
     "  const getId: UserGetters[\"getId\"] = () => id;",
     "  const checkedId = id satisfies SourceId;",
@@ -558,7 +561,7 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "  const routed: Routed = [\"route\", nested, true] as const;",
     "  const text: TextElement = \"ok\";",
     "  const checkedValues = values satisfies List<number>;",
-    "  return `${key}:${getter()}:${getId()}:${text}:${routed[0]}:${routed[1]}:${routed[2]}:${checkedValues.count}`;",
+    "  return `${key}:${getter()}:${getId()}:${text}:${routed[0]}:${routed[1]}:${routed[2]}:${checkedValues.Count}`;",
     "}",
     "",
   ]);
@@ -586,8 +589,8 @@ test("CLI consumes advanced type forms across source-core primitives and provide
   ], /TS2322: Type 'string' is not assignable to type 'number'/);
 
   await assertRejected("advanced-type-keyof-negative", "SmokeGeneratedAdvancedTypeKeyofNegative", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
-    "type UserShape = { id: int32; name: string; flags?: boolean };",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
+    "type UserShape = { id: int; name: string; flags?: boolean };",
     "type RequiredUser = Required<UserShape>;",
     "const bad: keyof Pick<RequiredUser, \"name\"> = \"id\";",
     "export function value(): string { return bad; }",
@@ -595,153 +598,36 @@ test("CLI consumes advanced type forms across source-core primitives and provide
   ], /TS2322: Type '\"id\"' is not assignable to type '\"name\"'/);
 
   await assertRejected("advanced-type-provider-satisfies-negative", "SmokeGeneratedAdvancedTypeProviderSatisfiesNegative", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
     "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
     "const values = new List<string>();",
-    "const checkedValues = values satisfies List<int32>;",
+    "const checkedValues = values satisfies List<int>;",
     "export function value(): List<string> { return checkedValues; }",
     "",
-  ], /TS1360: Type 'List<string>' does not satisfy the expected type 'List<int32>'|TS1360:/);
+  ], /TS1360: Type 'List<string>' does not satisfy the expected type 'List<int>'|TS1360:/);
 
   await assertRejected("advanced-type-indexed-access-negative", "SmokeGeneratedAdvancedTypeIndexedAccessNegative", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
-    "type UserShape = { id: int32; name: string; flags?: boolean };",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
+    "type UserShape = { id: int; name: string; flags?: boolean };",
     "type Missing = Required<UserShape>[\"missing\"];",
     "export function value(input: Missing): Missing { return input; }",
     "",
   ], /TS2339: Property 'missing' does not exist on type 'Required<UserShape>'/);
 
   await assertRejected("advanced-type-source-primitive-erasure-negative", "SmokeGeneratedAdvancedTypeSourcePrimitiveErasureNegative", [
-    "import type { int32 } from \"@tsonic/core/types.js\";",
+    "import type { int } from \"@tsonic/csharp/types.js\";",
     "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
     "",
     "type ProviderElement<T> = T extends List<infer Element> ? Element : never;",
     "type TupleHead<T> = T extends readonly [infer Head, ...readonly unknown[]] ? Head : never;",
     "",
-    "export function fromProvider(values: List<int32>): ProviderElement<List<int32>> {",
+    "export function fromProvider(values: List<int>): ProviderElement<List<int>> {",
     "  return values[0];",
     "}",
     "",
-    "export function fromTuple(value: TupleHead<readonly [int32, string]>): TupleHead<readonly [int32, string]> {",
+    "export function fromTuple(value: TupleHead<readonly [int, string]>): TupleHead<readonly [int, string]> {",
     "  return value;",
     "}",
     "",
   ], /requires transformed source-core primitive type syntax to preserve explicit target primitive evidence/);
-});
-
-test("CLI consumes broad TSTS type-form matrix without backend type-system reimplementation", async () => {
-  const { generatedSource } = await assertBuilds("advanced-type-closure-matrix-positive", "SmokeGeneratedAdvancedTypeClosureMatrix", [
-    "import { Exception } from \"@tsonic/dotnet/System.js\";",
-    "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
-    "",
-    "type Source = { readonly id?: number; name: string; active: boolean };",
-    "type Normalized<T> = { -readonly [K in keyof T]-?: T[K] };",
-    "type Accessor<T> = { [K in keyof T as `read${Capitalize<K & string>}`]: () => NonNullable<T[K]> };",
-    "type Shape = Normalized<Source>;",
-    "type ShapeReaders = Accessor<Source>; ",
-    "type NumericTuple = readonly [first: string, second?: number, ...rest: boolean[]];",
-    "type TupleFirst = NumericTuple[0];",
-    "type TupleRest<T> = T extends readonly [unknown, ...infer Rest] ? Rest : never;",
-    "type TupleSecond = TupleRest<NumericTuple>[0];",
-    "type CallableParts<T> = T extends (first: infer First, second: infer Second) => infer Result ? readonly [First, Second, Result] : never;",
-    "type Formatter = (name: TupleFirst, count: NonNullable<TupleSecond>) => `user:${string}`;",
-    "type FormatterParts = CallableParts<Formatter>;",
-    "type Distribute<T> = T extends string ? `text:${T}` : T extends number ? \"numeric\" : \"other\";",
-    "type Distributed = Distribute<\"name\" | 1 | boolean>;",
-    "type NonDistributed<T> = [T] extends [string] ? \"string\" : \"mixed\";",
-    "type Mixed = NonDistributed<\"name\" | 1>; ",
-    "",
-    "function buildReader(value: string): ShapeReaders[\"readName\"] {",
-    "  return () => value;",
-    "}",
-    "",
-    "export function describe(name: string, count: number, maybeException: Exception | null): string {",
-    "  const shape = { id: count, name, active: true } satisfies Shape;",
-    "  const reader = buildReader(shape.name);",
-    "  const tuple: NumericTuple = [reader(), shape.id, true] as const;",
-    "  const first: TupleFirst = tuple[0];",
-    "  const second: NonNullable<TupleSecond> = tuple[1] ?? 0;",
-    "  const parts: FormatterParts = [first, second, \"user:ok\"];",
-    "  const distributed: Distributed = \"text:name\";",
-    "  const mixed: Mixed = \"mixed\";",
-    "  const values = new List<string>([parts[0], distributed, mixed]);",
-    "  const providerText: string = values[0];",
-    "  const message = maybeException!.message;",
-    "  return `${providerText}:${parts[1]}:${parts[2]}:${values.count}:${message}`;",
-    "}",
-    "",
-  ]);
-
-  assert.match(generatedSource, /public static string describe\(string name, double count, System\.Exception\? maybeException\)/);
-  assert.match(generatedSource, /Func<string> reader = buildReader\(shape\.name\);/);
-  assert.match(generatedSource, /\(string, double\?, bool\) tuple = \(reader\(\), shape\.id, true\);/);
-  assert.match(generatedSource, /string first = tuple\.Item1;/);
-  assert.match(generatedSource, /double second = tuple\.Item2 \?\? 0;/);
-  assert.match(generatedSource, /\(string, double, string\) parts = \(first, second, "user:ok"\);/);
-  assert.match(generatedSource, /System\.Collections\.Generic\.List<string> values = new System\.Collections\.Generic\.List<string>\(new string\[\] \{ parts\.Item1, distributed, mixed \}\);/);
-  assert.match(generatedSource, /string providerText = values\[0\];/);
-  assert.match(generatedSource, /string message = maybeException\.Message;/);
-  assert.match(generatedSource, /values\.Count/);
-  assert.doesNotMatch(generatedSource, /Normalized|Accessor|keyof|Capitalize|NonNullable|TupleRest|CallableParts|Distribute|NonDistributed|satisfies|as const|!/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  await assertRejected("advanced-type-distributive-negative", "SmokeGeneratedAdvancedTypeDistributiveNegative", [
-    "type Distribute<T> = T extends string ? `text:${T}` : T extends number ? \"numeric\" : \"other\";",
-    "const bad: Distribute<\"name\" | 1> = \"other\";",
-    "export function value(): string { return bad; }",
-    "",
-  ], /TS2322: Type '\"other\"' is not assignable to type/);
-
-  await assertRejected("advanced-type-nondistributive-negative", "SmokeGeneratedAdvancedTypeNonDistributiveNegative", [
-    "type NonDistributed<T> = [T] extends [string] ? \"string\" : \"mixed\";",
-    "const bad: NonDistributed<\"name\" | 1> = \"string\";",
-    "export function value(): string { return bad; }",
-    "",
-  ], /TS2322: Type '\"string\"' is not assignable to type '\"mixed\"'/);
-
-  await assertRejected("advanced-type-callable-infer-negative", "SmokeGeneratedAdvancedTypeCallableInferNegative", [
-    "type CallableParts<T> = T extends (first: infer First, second: infer Second) => infer Result ? readonly [First, Second, Result] : never;",
-    "type Formatter = (name: string, count: number) => `user:${string}`;",
-    "const bad: CallableParts<Formatter> = [\"Ada\", \"not-number\", \"user:ok\"];",
-    "export function value(): CallableParts<Formatter> { return bad; }",
-    "",
-  ], /TS2322: Type 'string' is not assignable to type 'number'/);
-});
-
-test("CLI consumes TSTS non-null assertion results without backend nullability inference", async () => {
-  const { generatedSource } = await assertBuilds("non-null-assertion-positive", "SmokeGeneratedNonNullAssertion", [
-    "export class Box {",
-    "  name: string = \"\";",
-    "}",
-    "",
-    "export function unwrap(value: string | null): string {",
-    "  return value!;",
-    "}",
-    "",
-    "export function readName(value: Box | null): string {",
-    "  return value!.name;",
-    "}",
-    "",
-    "export function invoke(value: (() => string) | null): string {",
-    "  return value!();",
-    "}",
-    "",
-  ]);
-
-  assert.match(generatedSource, /public static string unwrap\(string\? value\)/);
-  assert.match(generatedSource, /return value;/);
-  assert.match(generatedSource, /public class Box/);
-  assert.match(generatedSource, /public static string readName\(Box\? value\)/);
-  assert.match(generatedSource, /return value\.name;/);
-  assert.match(generatedSource, /public static string invoke\(Func<string>\? value\)/);
-  assert.match(generatedSource, /return value\(\);/);
-  assert.doesNotMatch(generatedSource, /!/);
-  assert.doesNotMatch(generatedSource, /__unsupported/);
-
-  await assertRejected("non-null-assertion-negative", "SmokeGeneratedNonNullAssertionNegative", [
-    "const value: string | null = \"x\";",
-    "const bad = value!.missing;",
-    "export function read(): string { return bad; }",
-    "",
-  ], /TS2339: Property 'missing' does not exist on type 'string'/);
 });

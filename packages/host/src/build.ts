@@ -8,16 +8,19 @@ import type {
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import { createCompilerSession } from "@tsonic/tsts";
 import {
+  collectResolvedSourceFilesForBackend,
   collectTargetRuntimeContributions,
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
   collectTstsDiagnostics,
 } from "./compiler-session.js";
-import { collectProjectModuleSpecifiers } from "./module-specifier-scan.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
+import { collectImportActivatedTargetCapabilities, collectRuntimeActivatedTargetCapabilities } from "./target/capability-activation.js";
 import { getMissingTargetProviderMessage, selectInstalledTargetCapabilities, selectTargetSurfaceImplementations } from "./target/extensions.js";
+import { collectTargetSourceProfileContributions } from "./target/source-profile.js";
 
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
@@ -47,10 +50,10 @@ interface TargetBuildPlan {
 
 export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   const paths = resolveProjectPaths(input);
+  let activationContext: ReturnType<typeof createCapabilityActivationContext> | undefined;
   const targets: TargetBuildResult[] = [];
   const diagnostics: TargetDiagnostic[] = [];
   const buildPlans: TargetBuildPlan[] = [];
-  let moduleSpecifiers: readonly string[] | undefined;
   for (const target of input.project.targets) {
     const targetPack = getRequiredTargetPack(input.registry, target);
     if (isTargetDiagnostic(targetPack)) {
@@ -62,15 +65,21 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
       continue;
     }
-    moduleSpecifiers ??= collectProjectModuleSpecifiers(paths.projectRoot, paths.outputRoot);
-    const selectedCapabilities = getTargetSelectedCapabilities(input.installedCapabilities ?? [], targetPack, target, selectedSurfaces, moduleSpecifiers);
-    if (isTargetDiagnostic(selectedCapabilities)) {
-      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedCapabilities] });
-      continue;
-    }
     const providerDiagnostic = getTargetProviderDiagnostic(targetPack, target);
     if (providerDiagnostic !== undefined) {
-      buildPlans.push({ target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: [providerDiagnostic] });
+      buildPlans.push({ target, targetPack, selectedCapabilities: [], selectedSurfaces, diagnostics: [providerDiagnostic] });
+      continue;
+    }
+    activationContext ??= createCapabilityActivationContext(input);
+    const importActivatedCapabilities = collectImportActivatedTargetCapabilities(
+      activationContext.ast,
+      activationContext.sourceFiles,
+      input.installedCapabilities ?? [],
+      target,
+    );
+    const selectedCapabilities = getTargetSelectedCapabilities(importActivatedCapabilities, targetPack, target, selectedSurfaces);
+    if (isTargetDiagnostic(selectedCapabilities)) {
+      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedCapabilities] });
       continue;
     }
     buildPlans.push({ target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: [] });
@@ -82,7 +91,6 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       diagnostics,
     };
   }
-  const created = createProgramOptionsForProject(input);
   for (const { target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
     if (hasBlockingDiagnostics(planDiagnostics)) {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, planDiagnostics);
@@ -91,6 +99,22 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     if (targetPack === undefined || selectedCapabilities === undefined || selectedSurfaces === undefined) {
       throw new Error(`Target '${target.id}' build planning produced no provider-backed target pack.`);
     }
+    const sourceProfile = collectTargetSourceProfileContributions({
+      project: input.project,
+      projectRoot: paths.projectRoot,
+      target,
+      targetPack,
+      selectedCapabilities,
+      selectedSurfaces,
+    });
+    if (hasBlockingDiagnostics(sourceProfile.diagnostics)) {
+      pushDiagnosticOnlyTarget(targets, diagnostics, target, sourceProfile.diagnostics);
+      continue;
+    }
+    const created = createProgramOptionsForProject({
+      ...input,
+      sourceProfileFiles: sourceProfile.files,
+    });
     const session = createTsonicSemanticSession({
       programOptions: created.programOptions,
       project: input.project,
@@ -113,11 +137,17 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       continue;
     }
     const targetPaths = getTargetCompilationPaths(paths, target);
+    const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
+      session.ast,
+      session.sourceFiles,
+      selectedCapabilities,
+    );
     const runtimeContributions = collectTargetRuntimeContributions({
       project: input.project,
       target,
       targetPack,
       selectedCapabilities,
+      runtimeActivatedCapabilities,
       selectedSurfaces,
       paths: targetPaths,
     });
@@ -176,6 +206,20 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   };
 }
 
+function createCapabilityActivationContext(input: CompileProjectInput): {
+  readonly ast: ReturnType<typeof createCompilerSession>["ast"];
+  readonly sourceFiles: ReturnType<typeof collectResolvedSourceFilesForBackend>;
+} {
+  const activationSession = createCompilerSession({
+    programOptions: createProgramOptionsForProject(input).programOptions,
+  });
+  activationSession.ensureBound();
+  return {
+    ast: activationSession.ast,
+    sourceFiles: collectResolvedSourceFilesForBackend(activationSession),
+  };
+}
+
 function getRequiredTargetPack(
   registry: TargetRegistry,
   target: TargetSelection,
@@ -213,9 +257,8 @@ function getTargetSelectedCapabilities(
   targetPack: TargetPack,
   target: TargetSelection,
   selectedSurfaces: readonly TargetSurfaceImplementation[],
-  moduleSpecifiers: readonly string[],
 ): readonly TargetCapabilityImplementation[] | TargetDiagnostic {
-  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces, moduleSpecifiers);
+  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces);
   if ("error" in result) {
     return {
       code: "TARGET_CAPABILITY_SELECTION",

@@ -278,7 +278,7 @@ test("CLI generated C# executable publishes and runs through NativeAOT", async (
     "src/index.ts": [
       "import { Console } from \"@tsonic/dotnet/System.js\";",
       "",
-      "Console.writeLine(\"native-aot-ok\");",
+      "Console.WriteLine(\"native-aot-ok\");",
       "",
     ].join("\n"),
   });

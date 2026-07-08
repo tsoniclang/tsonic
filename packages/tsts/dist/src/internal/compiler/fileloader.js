@@ -5,8 +5,8 @@ import * as cmp from "../../go/cmp.js";
 import * as slices from "../../go/slices.js";
 import * as strings from "../../go/strings.js";
 import { Once as OnceImpl } from "../../go/sync.js";
-import { ImportAttributesNode_GetResolutionModeOverride, Node_Text, SourceFile_FileName, SourceFile_Imports, SourceFile_Path, SourceFile_as_ast_HasFileName, } from "../ast/ast.js";
-import { GetEmitModuleFormatOfFileWorker, GetImpliedNodeFormatForEmitWorker, GetImpliedNodeFormatForFile, GetJSXImplicitImportBase, GetJSXRuntimeImport, IsExclusivelyTypeOnlyImportOrExport, IsExternalModule, IsImportCall, IsInJSFile, IsRequireCall, IsSourceFileJS, NewHasFileName, ShouldTransformImportCall, WalkUpParenthesizedExpressions, } from "../ast/utilities.js";
+import { ImportAttributesNode_GetResolutionModeOverride, Node_ModuleSpecifier, Node_Text, SourceFile_FileName, SourceFile_Imports, SourceFile_Path, SourceFile_as_ast_HasFileName, } from "../ast/ast.js";
+import { GetEmitModuleFormatOfFileWorker, GetImpliedNodeFormatForEmitWorker, GetImpliedNodeFormatForFile, GetJSXImplicitImportBase, GetJSXRuntimeImport, GetSourceFileOfNode, IsExclusivelyTypeOnlyImportOrExport, IsExternalModule, IsImportCall, IsInJSFile, IsRequireCall, IsSourceFileJS, NewHasFileName, ShouldTransformImportCall, WalkUpParenthesizedExpressions, } from "../ast/utilities.js";
 import { NewNodeFactory, NodeDefault_AsNode } from "../ast/spine.js";
 import * as casts from "../ast/generated/casts.js";
 import { IsExportDeclaration, IsImportDeclaration, IsImportEqualsDeclaration, IsExternalModuleReference, IsJSDocImportTag, IsLiteralTypeNode, IsImportTypeNode } from "../ast/generated/predicates.js";
@@ -100,22 +100,35 @@ function fileLoader_getProviderVirtualPackageId(resolution) {
     }
     return {
         Name: packageName,
-        SubModuleName: fileLoader_getProviderVirtualSubModuleName(packageName, resolution.moduleSpecifier),
+        SubModuleName: fileLoader_getProviderVirtualSubModuleName(packageName, resolution.moduleSpecifier, resolution.virtualFileName),
         Version: resolution.packageVersion ?? "",
         PeerDependencies: "",
     };
 }
-function fileLoader_getProviderVirtualSubModuleName(packageName, moduleSpecifier) {
-    if (moduleSpecifier === packageName) {
+function fileLoader_getProviderVirtualSubModuleName(packageName, moduleSpecifier, virtualFileName) {
+    const publicSubModuleName = moduleSpecifier === packageName
+        ? ""
+        : strings.HasPrefix(moduleSpecifier, `${packageName}/`)
+            ? moduleSpecifier.slice(`${packageName}/`.length)
+            : moduleSpecifier;
+    const sliceMarker = getProviderVirtualPackageSliceMarker(virtualFileName);
+    if (sliceMarker !== "") {
+        return `${publicSubModuleName}#${sliceMarker}`;
+    }
+    return publicSubModuleName;
+}
+function getProviderVirtualPackageSliceMarker(virtualFileName) {
+    const markerIndex = virtualFileName.indexOf("#tsts-slice-");
+    if (markerIndex < 0) {
         return "";
     }
-    const packagePrefix = `${packageName}/`;
-    if (strings.HasPrefix(moduleSpecifier, packagePrefix)) {
-        return moduleSpecifier.slice(packagePrefix.length);
-    }
-    return moduleSpecifier;
+    return virtualFileName.slice(markerIndex + 1);
 }
 function fileLoader_getProviderImportSlice(moduleSpecifier, importSite) {
+    const directSlice = fileLoader_getDirectProviderImportSlice(moduleSpecifier, importSite);
+    return fileLoader_composeProviderImportSlicesForSourceFile(moduleSpecifier, importSite, directSlice);
+}
+function fileLoader_getDirectProviderImportSlice(moduleSpecifier, importSite) {
     if (importSite === undefined) {
         return {
             moduleSpecifier,
@@ -211,6 +224,71 @@ function fileLoader_getProviderImportSlice(moduleSpecifier, importSite) {
         moduleSpecifier,
         kind: "unknown",
         broadImport: true,
+    };
+}
+function fileLoader_composeProviderImportSlicesForSourceFile(moduleSpecifier, importSite, directSlice) {
+    if (importSite === undefined || importSite.Parent === undefined) {
+        return directSlice;
+    }
+    const sourceFile = GetSourceFileOfNode(importSite.Parent);
+    const statements = sourceFile?.Statements?.Nodes ?? [];
+    const matchingSlices = [];
+    for (const statement of statements) {
+        const statementImportSite = fileLoader_getProviderStatementImportSite(statement);
+        if (statementImportSite === undefined || Node_Text(statementImportSite) !== moduleSpecifier) {
+            continue;
+        }
+        matchingSlices.push(fileLoader_getDirectProviderImportSlice(moduleSpecifier, statementImportSite));
+    }
+    if (matchingSlices.length <= 1) {
+        return directSlice;
+    }
+    return fileLoader_mergeProviderImportSlices(moduleSpecifier, matchingSlices);
+}
+function fileLoader_getProviderStatementImportSite(statement) {
+    if (statement === undefined || (statement.Kind !== KindImportDeclaration && statement.Kind !== KindJSImportDeclaration && statement.Kind !== KindExportDeclaration)) {
+        return undefined;
+    }
+    const moduleSpecifier = Node_ModuleSpecifier(statement);
+    if (moduleSpecifier?.Kind !== KindStringLiteral) {
+        return undefined;
+    }
+    return moduleSpecifier;
+}
+function fileLoader_mergeProviderImportSlices(moduleSpecifier, slicesToMerge) {
+    const requestedExportsByKey = new globalThis.Map();
+    let hasBroadImport = false;
+    let allTypeOnly = true;
+    let hasDefaultRequest = false;
+    let hasReexportRequest = false;
+    const sliceKinds = new globalThis.Set();
+    for (const slice of slicesToMerge) {
+        sliceKinds.add(slice.kind);
+        hasBroadImport ||= slice.broadImport === true;
+        allTypeOnly &&= slice.typeOnly === true;
+        hasReexportRequest ||= slice.kind === "reexport";
+        for (const requestedExport of slice.requestedExports ?? []) {
+            const key = JSON.stringify([requestedExport.exportedName, requestedExport.localName ?? "", requestedExport.kind ?? "unknown"]);
+            requestedExportsByKey.set(key, requestedExport);
+            hasDefaultRequest ||= requestedExport.exportedName === "default";
+        }
+    }
+    const requestedExports = [...requestedExportsByKey.values()];
+    const kind = hasBroadImport
+        ? requestedExports.length > 0 ? "mixed" : "namespace"
+        : sliceKinds.size > 1
+            ? "mixed"
+            : hasReexportRequest
+                ? "reexport"
+                : hasDefaultRequest
+                    ? requestedExports.length > 1 ? "mixed" : "default"
+                    : requestedExports.length > 0 ? "named" : "unknown";
+    return {
+        moduleSpecifier,
+        kind,
+        ...(requestedExports.length > 0 ? { requestedExports } : {}),
+        ...(hasBroadImport || requestedExports.length === 0 ? { broadImport: true } : {}),
+        ...(allTypeOnly ? { typeOnly: true } : {}),
     };
 }
 function getProviderImportRequestKind(typeOnly) {

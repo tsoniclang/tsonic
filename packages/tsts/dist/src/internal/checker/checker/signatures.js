@@ -2251,7 +2251,7 @@ export function Checker_checkCallExpression(receiver, node, checkMode) {
         return receiver.silentNeverType;
     }
     Checker_checkDeprecatedSignature(receiver, signature, node);
-    recordExtensionCheckedCallMapping(receiver, node, signature);
+    recordExtensionCheckedCallMapping(receiver, node, signature, Checker_getResolvedSymbolOrNil(receiver, Node_Expression(node)));
     if (Node_Expression(node).Kind === KindSuperKeyword) {
         return receiver.voidType;
     }

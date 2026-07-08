@@ -41,6 +41,16 @@ export type {
 export {
   createLazyTargetSourceAnalysis,
 } from "./analysis/lazy.js";
+export {
+  isTsonicSourceProfileDeclarationPath,
+  normalizeTargetSourceProfileSegment,
+  targetSourceProfileDeclaration,
+  tsonicSourceProfileVirtualDirectory,
+} from "./source-profile.js";
+export type {
+  TargetSourceProfileContributions,
+  TargetSourceProfileDeclaration,
+} from "./source-profile.js";
 export type {
   TargetBackend,
   TargetBackendContext,
@@ -61,11 +71,13 @@ export type {
   TargetProvider,
   TargetProviderModuleOwnership,
   TargetProviderContext,
+  TargetProviderSourceProfileContext,
   TargetProjectSourceModuleDependency,
   TargetRuntimeContributionContext,
   TargetSourceAnalysisQueries,
   TargetSurfaceExtensionContext,
   TargetSurfaceImplementation,
+  TargetSurfaceSourceProfileContext,
   TargetToolchain,
   TargetToolchainContext,
   TargetToolchainInput,

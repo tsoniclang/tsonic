@@ -38,7 +38,7 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
       "  return \"fallback\";",
       "}",
       "",
-      "Console.writeLine(`${read(choose(false))}|${read(choose(true))}`);",
+      "Console.WriteLine(`${read(choose(false))}|${read(choose(true))}`);",
       "",
     ].join("\n"),
   });
@@ -87,7 +87,7 @@ test("CLI emits neutral nullish runtime-union arms from finalized facts", async 
       "  return flag === 0 ? undefined : flag === 1 ? 1 : \"ready\";",
       "}",
       "",
-      "Console.writeLine(`${choose(0)}|${choose(1)}|${choose(2)}`);",
+      "Console.WriteLine(`${choose(0)}|${choose(1)}|${choose(2)}`);",
       "",
     ].join("\n"),
   });
@@ -142,7 +142,7 @@ test("CLI emits object-shape runtime-union declarations and member projections f
       "  return `square:${shape.size}`;",
       "}",
       "",
-      "Console.writeLine(describe({ kind: \"circle\", radius: 4 }));",
+      "Console.WriteLine(describe({ kind: \"circle\", radius: 4 }));",
       "",
     ].join("\n"),
   });

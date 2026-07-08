@@ -1,6 +1,7 @@
 import { Node_Body, Node_Members, Node_ModifierFlags, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
+import { GetSymbolId } from "../internal/ast/utilities.js";
 import { KindConstructSignature, KindConstructor, KindEnumMember, KindFunctionDeclaration, KindIndexSignature, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertySignature, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { canonicalIdentityFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent, getExtensionHost } from "./host.js";
@@ -106,8 +107,9 @@ function recordProviderVirtualMemberFacts(extensionHost, exportSymbol, virtualMo
             && !usedMemberNodes.has(node)
             && providerMemberMatchesNode(member, node));
         const memberSymbol = findProviderMemberSymbol(exportSymbol, member, matchingMemberNodes);
+        const memberFact = getProviderVirtualDeclarationFact(virtualModule, declaration, member);
         if (memberSymbol !== undefined) {
-            extensionHost.facts.set(memberSymbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, member), evidence);
+            setProviderVirtualDeclarationSymbolFact(extensionHost, memberSymbol, memberFact, evidence);
         }
         for (let index = 0; index < matchingMemberNodes.length; index++) {
             const memberNode = matchingMemberNodes[index];
@@ -119,10 +121,17 @@ function recordProviderVirtualMemberFacts(extensionHost, exportSymbol, virtualMo
             extensionHost.facts.set(memberNode, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, member, signature), evidence);
             const nodeSymbol = Node_Symbol(memberNode);
             if (nodeSymbol !== undefined && nodeSymbol !== memberSymbol) {
-                extensionHost.facts.set(nodeSymbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, member), evidence);
+                setProviderVirtualDeclarationSymbolFact(extensionHost, nodeSymbol, memberFact, evidence);
             }
         }
     }
+}
+function setProviderVirtualDeclarationSymbolFact(extensionHost, symbol, fact, evidence) {
+    const existing = extensionHost.facts.get(symbol, providerVirtualDeclarationFactKey);
+    if (existing !== undefined && !providerVirtualDeclarationFactKey.equals(existing, fact)) {
+        return;
+    }
+    extensionHost.facts.set(symbol, providerVirtualDeclarationFactKey, fact, evidence);
 }
 function findProviderMemberSymbol(exportSymbol, member, matchingMemberNodes) {
     for (const node of matchingMemberNodes) {
@@ -132,6 +141,12 @@ function findProviderMemberSymbol(exportSymbol, member, matchingMemberNodes) {
         }
     }
     const memberName = getProviderPropertyNameText(member.name);
+    if (member.static === true) {
+        return exportSymbol.Exports?.get(memberName);
+    }
+    if (member.static === false) {
+        return exportSymbol.Members?.get(memberName);
+    }
     return exportSymbol.Members?.get(memberName) ?? exportSymbol.Exports?.get(memberName);
 }
 function providerMemberMatchesNode(member, node) {
@@ -199,7 +214,7 @@ function recordProviderVirtualSignatureFacts(extensionHost, symbol, virtualModul
     }
 }
 function getSymbolFactId(symbol) {
-    return `${symbol.Name}:${String(symbol.id)}`;
+    return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
 }
 function getTargetBindingFact(virtualModule, declaration) {
     if (declaration.targetIdentity === undefined) {
@@ -336,6 +351,7 @@ function getProviderVirtualDeclarationFact(virtualModule, declaration, member, s
         ...(declaration !== undefined ? { exportId: declaration.id } : {}),
         ...(member !== undefined ? { memberName: getProviderPropertyNameText(member.name) } : {}),
         ...(member !== undefined ? { memberId: member.id } : {}),
+        ...(member?.static !== undefined ? { memberStatic: member.static } : {}),
         ...(signature !== undefined ? { signatureId: signature.id } : {}),
         ...(declaration?.targetIdentity !== undefined
             ? {

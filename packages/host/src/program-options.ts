@@ -1,7 +1,6 @@
 import {
   createCompilerHost,
   createInMemoryFileSystem,
-  getBundledLibraryPath,
   ParseCommandLine,
   formatDiagnostics,
 } from "@tsonic/tsts";
@@ -14,6 +13,10 @@ import { resolveProjectPaths } from "./project-paths.js";
 export interface CreateProgramOptionsInput {
   readonly project: TsonicProjectConfig;
   readonly projectFilePath: string;
+  readonly sourceProfileFiles?: readonly {
+    readonly path: string;
+    readonly text: string;
+  }[];
 }
 
 export interface CreatedProgramOptions {
@@ -25,15 +28,23 @@ export interface CreatedProgramOptions {
 
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
   const paths = resolveProjectPaths(input);
+  const projectFiles = collectProjectFiles(paths.projectRoot, paths.outputRoot);
+  for (const file of input.sourceProfileFiles ?? []) {
+    projectFiles.set(file.path, file.text);
+  }
   const fileSystem = createInMemoryFileSystem({
-    files: collectProjectFiles(paths.projectRoot, paths.outputRoot),
+    files: projectFiles,
+    includeBundledLibraries: false,
   });
   const host = createCompilerHost({
     currentDirectory: paths.projectRoot,
     fileSystem,
-    defaultLibraryPath: getBundledLibraryPath(),
+    includeBundledLibraries: false,
   });
   const parsed = ParseCommandLine([
+    "--noLib",
+    "--noEmit",
+    "--allowImportingTsExtensions",
     "--target",
     "es2024",
     "--module",
@@ -46,6 +57,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     "--allowArbitraryExtensions",
     "--rootDir",
     paths.projectRoot,
+    ...(input.sourceProfileFiles ?? []).map((file) => file.path),
     paths.entryPointPath,
   ], host);
   if (parsed === undefined) {
@@ -66,7 +78,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
   };
 }
 
-function collectProjectFiles(projectRoot: string, outputRoot: string): ReadonlyMap<string, string> {
+function collectProjectFiles(projectRoot: string, outputRoot: string): Map<string, string> {
   const files = new Map<string, string>();
   visitDirectory(projectRoot, files, outputRoot);
   return files;

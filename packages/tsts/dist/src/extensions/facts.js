@@ -79,6 +79,7 @@ export const selectedTargetSignatureFactKey = defineExtensionFactKey({
     name: "selectedTargetSignature",
     equals: (left, right) => targetMemberEquals(left.member, right.member)
         && factSubjectArrayEquals(left.typeArguments, right.typeArguments)
+        && sourceSelectedMethodTypeArgumentArrayEquals(left.sourceSelectedMethodTypeArguments, right.sourceSelectedMethodTypeArguments)
         && targetTypeRefArrayEquals(left.targetTypeArguments, right.targetTypeArguments)
         && targetTypeRefArrayEquals(left.argumentConversions, right.argumentConversions)
         && left.sourceSignature === right.sourceSignature
@@ -124,6 +125,7 @@ export const providerVirtualDeclarationFactKey = defineExtensionFactKey({
         && left.exportId === right.exportId
         && left.memberName === right.memberName
         && left.memberId === right.memberId
+        && left.memberStatic === right.memberStatic
         && left.signatureId === right.signatureId
         && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity),
 });
@@ -159,6 +161,7 @@ function providerDeclarationIdentityEquals(left, right) {
         && left.exportId === right.exportId
         && left.memberName === right.memberName
         && left.memberId === right.memberId
+        && left.memberStatic === right.memberStatic
         && left.signatureId === right.signatureId
         && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity);
 }
@@ -290,7 +293,23 @@ function optionalTargetOperationProvenanceEquals(left, right) {
         && left.sourceReceiver === right.sourceReceiver
         && left.sourceCallee === right.sourceCallee
         && left.sourceSelectedSymbol === right.sourceSelectedSymbol
+        && left.sourceSelectedDeclaration === right.sourceSelectedDeclaration
         && left.sourceSelectedSignature === right.sourceSelectedSignature;
+}
+function sourceSelectedMethodTypeArgumentArrayEquals(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    if (left.length !== right.length) {
+        return false;
+    }
+    return left.every((argument, index) => sourceSelectedMethodTypeArgumentEquals(argument, right[index]));
+}
+function sourceSelectedMethodTypeArgumentEquals(left, right) {
+    return left.typeParameterName === right.typeParameterName
+        && left.typeParameter === right.typeParameter
+        && left.selectedType === right.selectedType
+        && left.explicitTypeNode === right.explicitTypeNode;
 }
 function optionalRuntimeCarrierProvenanceEquals(left, right) {
     if (left === undefined || right === undefined) {

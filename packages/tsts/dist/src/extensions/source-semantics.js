@@ -2,7 +2,7 @@ import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import { KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
-import { IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
+import { GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent } from "./host.js";
 function createSourceSemanticsModules(modules) {
@@ -886,7 +886,7 @@ export function sourcePrimitive(exportName, primitiveKind, runtimeBase, signed, 
     };
 }
 function getSymbolFactId(symbol) {
-    return `${symbol.Name}:${String(symbol.id)}`;
+    return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
 }
 function getLifecycleSourceFile(request) {
     if (typeof request.sourceFile !== "object" || request.sourceFile === null) {

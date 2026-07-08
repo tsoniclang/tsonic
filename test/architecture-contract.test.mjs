@@ -31,6 +31,8 @@ const bannedProductFileNames = Object.freeze([
   "property-policy.ts",
   "provider-metadata.ts",
   "selection-policy.ts",
+  "module-specifier-scan.ts",
+  "source-usage.ts",
 ]);
 
 const forbiddenSourcePatterns = Object.freeze([
@@ -61,6 +63,44 @@ const forbiddenSourcePatterns = Object.freeze([
   {
     name: "ambient module shim",
     pattern: /^\s*declare\s+module\s+["{]/mu,
+  },
+]);
+
+const forbiddenSourceUsageMemberScanningPatterns = Object.freeze([
+  {
+    name: "TargetSourceUsageHints API",
+    pattern: /\bTargetSourceUsageHints\b/u,
+  },
+  {
+    name: "sourceUsage context channel",
+    pattern: /\bsourceUsage\b/u,
+  },
+  {
+    name: "sourceMemberNames context channel",
+    pattern: /\bsourceMemberNames\b/u,
+  },
+  {
+    name: "collectProjectSourceUsageHints scan hook",
+    pattern: /\bcollectProjectSourceUsageHints\b/u,
+  },
+  {
+    name: "raw property-access member regex scan",
+    pattern: /\/\(\?:\\\?\\\.\|\\\.\)\\s\*/u,
+  },
+]);
+
+const forbiddenRawModuleSpecifierScanningPatterns = Object.freeze([
+  {
+    name: "collectProjectModuleSpecifiers scan hook",
+    pattern: /\bcollectProjectModuleSpecifiers\b/u,
+  },
+  {
+    name: "collectModuleSpecifiersFromText raw text parser",
+    pattern: /\bcollectModuleSpecifiersFromText\b/u,
+  },
+  {
+    name: "raw module import regex scan",
+    pattern: /\\bimport\\s\+/u,
   },
 ]);
 
@@ -96,6 +136,82 @@ test("architecture validator rejects non-ESM and non-native source snippets", ()
       `expected snippet to be rejected as ${name}`,
     );
   }
+});
+
+test("product compiler source has no source-usage member scanning channel", async () => {
+  const failures = [];
+  for (const sourceFile of await productSourceFiles()) {
+    const relativePath = repoRelative(sourceFile);
+    const text = await readFile(sourceFile, "utf8");
+    failures.push(...sourceUsageMemberScanningFailures(relativePath, text));
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+test("architecture validator rejects source-usage member scanning snippets", () => {
+  assert.deepEqual(
+    sourceUsageMemberScanningFailures(
+      "packages/host/src/source-usage.ts",
+      `
+        export interface TargetSourceUsageHints {
+          readonly memberNames?: readonly string[];
+        }
+        export function collectProjectSourceUsageHints(projectRoot) {
+          const propertyAccessPattern = /(?:\\?\\.|\\.)\\s*([A-Za-z_$][\\w$]*)/gu;
+          return { sourceUsage: [...projectRoot.matchAll(propertyAccessPattern)] };
+        }
+      `,
+    ),
+    [
+      "packages/host/src/source-usage.ts: banned source-usage product file",
+      "packages/host/src/source-usage.ts: TargetSourceUsageHints API",
+      "packages/host/src/source-usage.ts: sourceUsage context channel",
+      "packages/host/src/source-usage.ts: collectProjectSourceUsageHints scan hook",
+      "packages/host/src/source-usage.ts: raw property-access member regex scan",
+    ],
+  );
+
+  assert.deepEqual(
+    sourceUsageMemberScanningFailures(
+      "packages/host/src/target/extensions.ts",
+      "provider.createExtensions({ sourceMemberNames: context.sourceUsage?.memberNames });",
+    ),
+    [
+      "packages/host/src/target/extensions.ts: sourceUsage context channel",
+      "packages/host/src/target/extensions.ts: sourceMemberNames context channel",
+    ],
+  );
+});
+
+test("product compiler source has no raw module specifier scanning channel", async () => {
+  const failures = [];
+  for (const sourceFile of await productSourceFiles()) {
+    const relativePath = repoRelative(sourceFile);
+    const text = await readFile(sourceFile, "utf8");
+    failures.push(...rawModuleSpecifierScanningFailures(relativePath, text));
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+test("architecture validator rejects raw module specifier scanning snippets", () => {
+  assert.deepEqual(
+    rawModuleSpecifierScanningFailures(
+      "packages/host/src/module-specifier-scan.ts",
+      `
+        export function collectProjectModuleSpecifiers(projectRoot) {
+          return collectModuleSpecifiersFromText(projectRoot).matchAll(/\\bimport\\s+/g);
+        }
+      `,
+    ),
+    [
+      "packages/host/src/module-specifier-scan.ts: banned raw module-specifier scanner product file",
+      "packages/host/src/module-specifier-scan.ts: collectProjectModuleSpecifiers scan hook",
+      "packages/host/src/module-specifier-scan.ts: collectModuleSpecifiersFromText raw text parser",
+      "packages/host/src/module-specifier-scan.ts: raw module import regex scan",
+    ],
+  );
 });
 
 test("architecture scan scope covers every first-party product source root", async () => {
@@ -223,6 +339,32 @@ function catchAllSemanticFailures(relativePath, text) {
   }
   if (/\bTargetSemantic(?:Queries|NodeOptions)\b/u.test(text)) {
     failures.push(`${relativePath}: catch-all TargetSemantic API`);
+  }
+  return failures;
+}
+
+function sourceUsageMemberScanningFailures(relativePath, text) {
+  const failures = [];
+  if (basename(relativePath) === "source-usage.ts") {
+    failures.push(`${relativePath}: banned source-usage product file`);
+  }
+  for (const forbidden of forbiddenSourceUsageMemberScanningPatterns) {
+    if (forbidden.pattern.test(text)) {
+      failures.push(`${relativePath}: ${forbidden.name}`);
+    }
+  }
+  return failures;
+}
+
+function rawModuleSpecifierScanningFailures(relativePath, text) {
+  const failures = [];
+  if (basename(relativePath) === "module-specifier-scan.ts") {
+    failures.push(`${relativePath}: banned raw module-specifier scanner product file`);
+  }
+  for (const forbidden of forbiddenRawModuleSpecifierScanningPatterns) {
+    if (forbidden.pattern.test(text)) {
+      failures.push(`${relativePath}: ${forbidden.name}`);
+    }
   }
   return failures;
 }

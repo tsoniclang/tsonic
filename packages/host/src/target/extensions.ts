@@ -135,9 +135,8 @@ export function getSelectedTargetCapabilities(
   target: TargetSelection,
   installedCapabilities: readonly TargetCapabilityImplementation[],
   selectedSurfaces: readonly TargetSurfaceImplementation[] = [],
-  moduleSpecifiers: readonly string[] = [],
 ): readonly TargetCapabilityImplementation[] {
-  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces, moduleSpecifiers);
+  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces);
   if ("error" in result) {
     throw new Error(result.error);
   }
@@ -148,16 +147,12 @@ export function selectInstalledTargetCapabilities(
   target: TargetSelection,
   installedCapabilities: readonly TargetCapabilityImplementation[],
   selectedSurfaces: readonly TargetSurfaceImplementation[] = [],
-  moduleSpecifiers: readonly string[] = [],
 ): TargetCapabilitySelectionResult {
   const selectedCapabilities: TargetCapabilityImplementation[] = [];
   const moduleOwners = new Map<string, string>();
   const selectedSurfaceIds = new Set(selectedSurfaces.map((surface) => surface.id));
   for (const capability of installedCapabilities) {
     if (capability.targetId !== target.id) {
-      continue;
-    }
-    if (!capabilityIsUsed(capability, moduleSpecifiers)) {
       continue;
     }
     for (const requiredSurfaceId of capability.requiredSurfaces ?? []) {
@@ -177,19 +172,7 @@ export function selectInstalledTargetCapabilities(
   return { selectedCapabilities };
 }
 
-function capabilityIsUsed(
-  capability: TargetCapabilityImplementation,
-  moduleSpecifiers: readonly string[],
-): boolean {
-  if (moduleSpecifiers.length === 0) {
-    return false;
-  }
-  return capability.moduleOwnership.some((ownership) =>
-    moduleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
-  );
-}
-
-function moduleSpecifierMatchesOwnership(specifier: string, specifierPrefix: string): boolean {
+export function moduleSpecifierMatchesOwnership(specifier: string, specifierPrefix: string): boolean {
   if (specifier.startsWith(specifierPrefix) && /[:/]$/.test(specifierPrefix)) {
     return true;
   }

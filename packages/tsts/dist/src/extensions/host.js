@@ -286,6 +286,7 @@ export class ProviderRegistry {
     #virtualModules = new Map();
     #virtualModulesByFileName = new Map();
     #virtualDocumentsByUri = new Map();
+    #virtualSourceVariantsByBaseFileName = new Map();
     constructor(diagnostics, requiredProviderModules = []) {
         this.#diagnostics = diagnostics;
         this.#requiredProviderModules = requiredProviderModules;
@@ -424,11 +425,15 @@ export class ProviderRegistry {
             return { kind: "rejected", diagnostic };
         }
         const virtualSourceText = renderProviderDeclarationModel(declarationModel);
+        const effectiveVirtualFileName = this.#getEffectiveVirtualFileName(resolution.virtualFileName, virtualSourceText, cacheKey);
+        const effectiveResolution = effectiveVirtualFileName === resolution.virtualFileName
+            ? resolution
+            : { ...resolution, virtualFileName: effectiveVirtualFileName };
         const virtualDocument = {
-            uri: resolution.virtualFileName,
-            fileName: resolution.virtualFileName,
-            moduleSpecifier: resolution.moduleSpecifier,
-            providerModuleId: resolution.providerModuleId,
+            uri: effectiveResolution.virtualFileName,
+            fileName: effectiveResolution.virtualFileName,
+            moduleSpecifier: effectiveResolution.moduleSpecifier,
+            providerModuleId: effectiveResolution.providerModuleId,
             provider: owner.provider.identity,
             context,
             declarationModel,
@@ -440,7 +445,7 @@ export class ProviderRegistry {
         };
         const module = {
             provider: owner.provider,
-            resolution,
+            resolution: effectiveResolution,
             declarationModel,
             context,
             virtualSourceText,
@@ -448,9 +453,22 @@ export class ProviderRegistry {
             cacheKey,
         };
         this.#virtualModules.set(cacheKey, module);
-        this.#virtualModulesByFileName.set(resolution.virtualFileName, module);
+        this.#virtualModulesByFileName.set(effectiveResolution.virtualFileName, module);
         this.#virtualDocumentsByUri.set(virtualDocument.uri, virtualDocument);
         return { kind: "resolved", module };
+    }
+    #getEffectiveVirtualFileName(baseFileName, sourceText, cacheKey) {
+        const variants = this.#virtualSourceVariantsByBaseFileName.get(baseFileName) ?? [];
+        const existing = variants.find((variant) => variant.sourceText === sourceText);
+        if (existing !== undefined) {
+            return existing.fileName;
+        }
+        const fileName = variants.length === 0
+            ? baseFileName
+            : getProviderVirtualSliceFileName(baseFileName, cacheKey, variants);
+        variants.push({ sourceText, fileName });
+        this.#virtualSourceVariantsByBaseFileName.set(baseFileName, variants);
+        return fileName;
     }
     getVirtualModuleByFileName(fileName) {
         return this.#virtualModulesByFileName.get(fileName);
@@ -1105,6 +1123,24 @@ function getProviderResolveCacheKey(identity, specifier, context) {
         ...(importSlice?.requestedExports ?? []).map((request) => `${request.exportedName}:${request.localName ?? ""}:${request.kind ?? ""}`).sort(),
     ].join("\0");
 }
+function getProviderVirtualSliceFileName(baseFileName, cacheKey, variants) {
+    const suffix = getStableProviderVirtualSliceSuffix(cacheKey);
+    let candidate = `${baseFileName}#tsts-slice-${suffix}`;
+    let disambiguator = 1;
+    while (variants.some((variant) => variant.fileName === candidate)) {
+        disambiguator += 1;
+        candidate = `${baseFileName}#tsts-slice-${suffix}-${disambiguator}`;
+    }
+    return candidate;
+}
+function getStableProviderVirtualSliceSuffix(value) {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < value.length; index++) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+}
 function renderProviderDeclarationModel(model) {
     const lines = [
         `// @tsts-provider-module ${model.providerModuleId}`,
@@ -1296,6 +1332,13 @@ function renderProviderParameter(parameter) {
     return `${restPrefix}${parameter.name}${optionalSuffix}: ${renderProviderTypeExpression(parameter.type)}`;
 }
 function renderProviderTypeExpression(type) {
+    return renderProviderTypeExpressionWorker(type, providerTypePrecedenceNone);
+}
+const providerTypePrecedenceNone = 0;
+const providerTypePrecedenceUnion = 1;
+const providerTypePrecedenceIntersection = 2;
+const providerTypePrecedencePostfix = 3;
+function renderProviderTypeExpressionWorker(type, parentPrecedence) {
     switch (type.kind) {
         case "any":
         case "unknown":
@@ -1313,17 +1356,23 @@ function renderProviderTypeExpression(type) {
             return type.name;
         case "target-named":
         case "opaque":
-            return renderProviderTypeExpression(type.sourceShape);
+            return renderProviderTypeExpressionWorker(type.sourceShape, parentPrecedence);
         case "array":
-            return `${renderProviderTypeExpression(type.elementType)}[]`;
+            return `${renderProviderTypeExpressionWorker(type.elementType, providerTypePrecedencePostfix)}[]`;
         case "tuple":
             return `[${type.elementTypes.map(renderProviderTypeExpression).join(", ")}]`;
-        case "union":
-            return type.types.map(renderProviderTypeExpression).join(" | ");
-        case "intersection":
-            return type.types.map(renderProviderTypeExpression).join(" & ");
-        case "function":
-            return `${renderProviderTypeParameters(type.typeParameters ?? [])}(${type.parameters.map(renderProviderParameter).join(", ")}) => ${renderProviderTypeExpression(type.returnType)}`;
+        case "union": {
+            const text = type.types.map((unionType) => renderProviderTypeExpressionWorker(unionType, providerTypePrecedenceUnion)).join(" | ");
+            return parentPrecedence > providerTypePrecedenceUnion ? `(${text})` : text;
+        }
+        case "intersection": {
+            const text = type.types.map((intersectionType) => renderProviderTypeExpressionWorker(intersectionType, providerTypePrecedenceIntersection)).join(" & ");
+            return parentPrecedence > providerTypePrecedenceIntersection ? `(${text})` : text;
+        }
+        case "function": {
+            const text = `${renderProviderTypeParameters(type.typeParameters ?? [])}(${type.parameters.map(renderProviderParameter).join(", ")}) => ${renderProviderTypeExpression(type.returnType)}`;
+            return parentPrecedence > providerTypePrecedenceNone ? `(${text})` : text;
+        }
         case "literal":
             return type.value === null ? "null" : JSON.stringify(type.value);
         case "provider-ref":

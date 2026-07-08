@@ -59,7 +59,8 @@ export function createTargetFactQueries(
       if (isTypeSyntaxNode(ast, node)) {
         return carrierResolution(
           refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
-            getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles),
+            getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles) ??
+            semanticCarrier,
           "Runtime carrier resolved from explicit type syntax facts and TSTS-selected declaration graph evidence.",
           "Runtime carrier is missing for TSTS-selected type syntax; no provider/source-core fact proved every leaf carrier.",
           node,
