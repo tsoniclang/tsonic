@@ -4,7 +4,7 @@ import { Program_GetSourceFiles, Program_GetTypeCheckerForFile } from "../intern
 import { Checker_GetPropertyOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_getResolvedSignature } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
-import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getResolvedSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
 import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
 import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
@@ -15,7 +15,7 @@ export function createTypeCheckerQueries(program, defaultOptions = {}) {
         getTypeFromTypeNode: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         getContextualType: (node, contextFlags = ContextFlagsNone, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getContextualType(checker, node, contextFlags)),
         getSymbolAtLocation: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetSymbolAtLocation(checker, node)),
-        getResolvedSymbol: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSymbol(checker, node)),
+        getResolvedSymbol: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => getDiagnosticFreeResolvedSymbol(checker, node)),
         getResolvedSymbolOrNil: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSymbolOrNil(checker, node)),
         getAliasedSymbol: (symbol, options = {}) => withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_GetAliasedSymbol(checker, symbol)),
         getTypeOfSymbol: (symbol, options = {}) => withCheckerForSymbol(program, symbol, defaultOptions, options, (checker) => Checker_getTypeOfSymbol(checker, symbol)),
@@ -42,6 +42,12 @@ export function createTypeCheckerQueries(program, defaultOptions = {}) {
         getSignatureParameters: (signature) => signature?.parameters ?? [],
         getSignatureThisParameter: (signature) => signature?.thisParameter,
     };
+}
+function getDiagnosticFreeResolvedSymbol(checker, node) {
+    const resolved = Checker_getResolvedSymbolOrNil(checker, node);
+    return resolved !== undefined && resolved !== checker?.unknownSymbol
+        ? resolved
+        : Checker_GetSymbolAtLocation(checker, node);
 }
 function withCheckerForNode(program, node, defaultOptions, options, callback) {
     if (node === undefined) {

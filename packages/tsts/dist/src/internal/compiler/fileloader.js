@@ -50,6 +50,13 @@ function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, module
     if (extensionHost === undefined) {
         return undefined;
     }
+    const containingVirtualModule = extensionHost.providers.getVirtualModuleByFileName(containingFile);
+    const directVirtualModule = containingVirtualModule === undefined
+        ? undefined
+        : extensionHost.providers.getVirtualModuleByFileName(moduleName);
+    if (directVirtualModule !== undefined) {
+        return fileLoader_createProviderVirtualResolvedModule(directVirtualModule);
+    }
     const context = {
         containingFile,
         resolutionMode: mode,
@@ -76,20 +83,23 @@ function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, module
             AlternateResult: "",
         };
     }
+    return fileLoader_createProviderVirtualResolvedModule(result.module);
+}
+function fileLoader_createProviderVirtualResolvedModule(module) {
     return {
         ResolutionDiagnostics: [],
-        ResolvedFileName: result.module.resolution.virtualFileName,
+        ResolvedFileName: module.resolution.virtualFileName,
         OriginalPath: "",
         Extension: ResolvedModuleExtensionProviderVirtual,
         ResolvedUsingTsExtension: false,
-        PackageId: fileLoader_getProviderVirtualPackageId(result.module.resolution),
+        PackageId: fileLoader_getProviderVirtualPackageId(module.resolution),
         IsExternalLibraryImport: true,
         AlternateResult: "",
         ProviderVirtual: {
-            ProviderId: result.module.provider.identity.id,
-            ProviderTarget: result.module.provider.identity.target,
-            ProviderModuleId: result.module.resolution.providerModuleId,
-            ModuleSpecifier: result.module.resolution.moduleSpecifier,
+            ProviderId: module.provider.identity.id,
+            ProviderTarget: module.provider.identity.target,
+            ProviderModuleId: module.resolution.providerModuleId,
+            ModuleSpecifier: module.resolution.moduleSpecifier,
         },
     };
 }

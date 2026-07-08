@@ -287,6 +287,8 @@ export class ProviderRegistry {
     #virtualModulesByFileName = new Map();
     #virtualDocumentsByUri = new Map();
     #virtualSourceVariantsByBaseFileName = new Map();
+    #canonicalExportsByBaseFileName = new Map();
+    #renderedExportSetsByBaseFileName = new Map();
     constructor(diagnostics, requiredProviderModules = []) {
         this.#diagnostics = diagnostics;
         this.#requiredProviderModules = requiredProviderModules;
@@ -424,8 +426,10 @@ export class ProviderRegistry {
             this.#diagnostics.append(diagnostic);
             return { kind: "rejected", diagnostic };
         }
-        const virtualSourceText = renderProviderDeclarationModel(declarationModel);
+        const canonicalExports = this.#getCanonicalExportsForRender(resolution.virtualFileName, declarationModel);
+        const virtualSourceText = renderProviderDeclarationModel(declarationModel, { canonicalExports });
         const effectiveVirtualFileName = this.#getEffectiveVirtualFileName(resolution.virtualFileName, virtualSourceText, cacheKey);
+        this.#recordCanonicalExports(resolution.virtualFileName, declarationModel, effectiveVirtualFileName, canonicalExports);
         const effectiveResolution = effectiveVirtualFileName === resolution.virtualFileName
             ? resolution
             : { ...resolution, virtualFileName: effectiveVirtualFileName };
@@ -469,6 +473,38 @@ export class ProviderRegistry {
         variants.push({ sourceText, fileName });
         this.#virtualSourceVariantsByBaseFileName.set(baseFileName, variants);
         return fileName;
+    }
+    #getCanonicalExportsForRender(baseFileName, declarationModel) {
+        const canonicalExports = this.#canonicalExportsByBaseFileName.get(baseFileName);
+        if (canonicalExports === undefined || canonicalExports.size === 0) {
+            return new Map();
+        }
+        const exportNames = getProviderDeclarationModelExportNames(declarationModel);
+        if (exportNames.every((exportName) => canonicalExports.has(exportName))
+            && this.#renderedExportSetsByBaseFileName.get(baseFileName)?.has(getProviderExportSetKey(exportNames)) === true) {
+            return new Map();
+        }
+        const exportNameSet = new Set(exportNames);
+        return new Map([...canonicalExports].filter(([exportName]) => exportNameSet.has(exportName)));
+    }
+    #recordCanonicalExports(baseFileName, declarationModel, effectiveVirtualFileName, canonicalizedExports) {
+        let canonicalExports = this.#canonicalExportsByBaseFileName.get(baseFileName);
+        if (canonicalExports === undefined) {
+            canonicalExports = new Map();
+            this.#canonicalExportsByBaseFileName.set(baseFileName, canonicalExports);
+        }
+        const exportNames = getProviderDeclarationModelExportNames(declarationModel);
+        if (canonicalizedExports.size === 0) {
+            const renderedExportSets = this.#renderedExportSetsByBaseFileName.get(baseFileName) ?? new Set();
+            renderedExportSets.add(getProviderExportSetKey(exportNames));
+            this.#renderedExportSetsByBaseFileName.set(baseFileName, renderedExportSets);
+        }
+        for (const declaration of declarationModel.exports) {
+            const exportName = getProviderSourceExportName(declaration);
+            if (!canonicalizedExports.has(exportName) && !canonicalExports.has(exportName)) {
+                canonicalExports.set(exportName, effectiveVirtualFileName);
+            }
+        }
     }
     getVirtualModuleByFileName(fileName) {
         return this.#virtualModulesByFileName.get(fileName);
@@ -1123,6 +1159,12 @@ function getProviderResolveCacheKey(identity, specifier, context) {
         ...(importSlice?.requestedExports ?? []).map((request) => `${request.exportedName}:${request.localName ?? ""}:${request.kind ?? ""}`).sort(),
     ].join("\0");
 }
+function getProviderDeclarationModelExportNames(model) {
+    return [...new Set(model.exports.map(getProviderSourceExportName))].sort();
+}
+function getProviderExportSetKey(exportNames) {
+    return [...exportNames].sort().join("\0");
+}
 function getProviderVirtualSliceFileName(baseFileName, cacheKey, variants) {
     const suffix = getStableProviderVirtualSliceSuffix(cacheKey);
     let candidate = `${baseFileName}#tsts-slice-${suffix}`;
@@ -1141,24 +1183,43 @@ function getStableProviderVirtualSliceSuffix(value) {
     }
     return (hash >>> 0).toString(36);
 }
-function renderProviderDeclarationModel(model) {
+function renderProviderDeclarationModel(model, options = {}) {
     const lines = [
         `// @tsts-provider-module ${model.providerModuleId}`,
         `// @tsts-provider-specifier ${JSON.stringify(model.moduleSpecifier)}`,
     ];
     const typeFamilyGroups = collectProviderTypeFamilyRenderGroups(model.exports);
+    const canonicalLocalNameByExportName = getProviderCanonicalExportLocalNameMap(options.canonicalExports ?? new Map());
     const renderContext = {
+        moduleSpecifier: model.moduleSpecifier,
+        canonicalLocalNameByExportName,
         typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, typeFamilyGroups),
     };
     for (const importDeclaration of model.imports ?? []) {
         lines.push(renderProviderImportDeclaration(importDeclaration));
+    }
+    for (const [exportName, localName] of canonicalLocalNameByExportName) {
+        const canonicalFileName = options.canonicalExports?.get(exportName);
+        if (canonicalFileName !== undefined) {
+            lines.push(`import { ${exportName} as ${localName} } from ${JSON.stringify(canonicalFileName)};`);
+        }
     }
     if (typeFamilyGroups.size > 0) {
         lines.push(`declare const ${providerTypeFamilyDefaultValueName}: unique symbol;`);
         lines.push(`type ${providerTypeFamilyDefaultTypeName} = typeof ${providerTypeFamilyDefaultValueName};`);
     }
     const renderedFamilies = new Set();
+    const renderedCanonicalExports = new Set();
     for (const exportDeclaration of model.exports) {
+        const exportName = getProviderSourceExportName(exportDeclaration);
+        const canonicalLocalName = canonicalLocalNameByExportName.get(exportName);
+        if (canonicalLocalName !== undefined) {
+            if (!renderedCanonicalExports.has(exportName)) {
+                lines.push(`export { ${canonicalLocalName} as ${exportName} };`);
+                renderedCanonicalExports.add(exportName);
+            }
+            continue;
+        }
         if (exportDeclaration.sourceTypeFamily !== undefined) {
             const familyName = exportDeclaration.sourceTypeFamily.exportName;
             if (!renderedFamilies.has(familyName)) {
@@ -1193,6 +1254,13 @@ function renderProviderImportDeclaration(declaration) {
 }
 const providerTypeFamilyDefaultValueName = "__tstsProviderTypeFamilyDefault";
 const providerTypeFamilyDefaultTypeName = "__TstsProviderTypeFamilyDefault";
+function getProviderCanonicalExportLocalNameMap(canonicalExports) {
+    return new Map([...canonicalExports.keys()].map((exportName) => [exportName, getProviderCanonicalExportLocalName(exportName)]));
+}
+function getProviderCanonicalExportLocalName(exportName) {
+    const identifier = exportName.replace(/[^A-Za-z0-9_$]/g, "_");
+    return `__TstsProviderCanonical_${identifier === "" || /^[0-9]/.test(identifier) ? `_${identifier}` : identifier}`;
+}
 function renderProviderExportDeclaration(declaration, context, options = {}) {
     const declarationName = options.localName ?? declaration.name;
     const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], context);
@@ -1290,7 +1358,7 @@ function renderProviderTypeFamilyVariantReference(variant, maxTypeParameters) {
     return `${name}<${maxTypeParameters.slice(0, arity).map((parameter) => parameter.name).join(", ")}>`;
 }
 function renderProviderHeritage(heritage, declarationKind, context) {
-    const extendsTypes = heritage.filter((clause) => clause.kind === "extends").map((clause) => renderProviderTypeExpression(clause.type, context));
+    const extendsTypes = heritage.filter((clause) => clause.kind === "extends").map((clause) => renderProviderTypeExpression(clause.type, context, providerTypeExpressionRenderValueHeritage));
     const implementsTypes = declarationKind === "class"
         ? heritage.filter((clause) => clause.kind === "implements").map((clause) => renderProviderTypeExpression(clause.type, context))
         : [];
@@ -1347,6 +1415,9 @@ function canRenderInlineDefaultProviderExport(kind) {
 function getProviderExportName(declaration) {
     return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
 }
+function getProviderSourceExportName(declaration) {
+    return declaration.sourceTypeFamily?.exportName ?? getProviderExportName(declaration);
+}
 function renderProviderPropertyName(name) {
     if (typeof name === "string") {
         return name;
@@ -1400,14 +1471,20 @@ function renderProviderParameter(parameter, context) {
     const optionalSuffix = parameter.optional === true && parameter.rest !== true ? "?" : "";
     return `${restPrefix}${parameter.name}${optionalSuffix}: ${renderProviderTypeExpression(parameter.type, context)}`;
 }
-function renderProviderTypeExpression(type, context) {
-    return renderProviderTypeExpressionWorker(type, providerTypePrecedenceNone, context);
+const providerTypeExpressionRenderType = {
+    providerRefPosition: "type",
+};
+const providerTypeExpressionRenderValueHeritage = {
+    providerRefPosition: "value-heritage",
+};
+function renderProviderTypeExpression(type, context, options = providerTypeExpressionRenderType) {
+    return renderProviderTypeExpressionWorker(type, providerTypePrecedenceNone, context, options);
 }
 const providerTypePrecedenceNone = 0;
 const providerTypePrecedenceUnion = 1;
 const providerTypePrecedenceIntersection = 2;
 const providerTypePrecedencePostfix = 3;
-function renderProviderTypeExpressionWorker(type, parentPrecedence, context) {
+function renderProviderTypeExpressionWorker(type, parentPrecedence, context, options) {
     switch (type.kind) {
         case "any":
         case "unknown":
@@ -1425,17 +1502,17 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context) {
             return type.name;
         case "target-named":
         case "opaque":
-            return renderProviderTypeExpressionWorker(type.sourceShape, parentPrecedence, context);
+            return renderProviderTypeExpressionWorker(type.sourceShape, parentPrecedence, context, options);
         case "array":
-            return `${renderProviderTypeExpressionWorker(type.elementType, providerTypePrecedencePostfix, context)}[]`;
+            return `${renderProviderTypeExpressionWorker(type.elementType, providerTypePrecedencePostfix, context, options)}[]`;
         case "tuple":
             return `[${type.elementTypes.map((elementType) => renderProviderTypeExpression(elementType, context)).join(", ")}]`;
         case "union": {
-            const text = type.types.map((unionType) => renderProviderTypeExpressionWorker(unionType, providerTypePrecedenceUnion, context)).join(" | ");
+            const text = type.types.map((unionType) => renderProviderTypeExpressionWorker(unionType, providerTypePrecedenceUnion, context, options)).join(" | ");
             return parentPrecedence > providerTypePrecedenceUnion ? `(${text})` : text;
         }
         case "intersection": {
-            const text = type.types.map((intersectionType) => renderProviderTypeExpressionWorker(intersectionType, providerTypePrecedenceIntersection, context)).join(" & ");
+            const text = type.types.map((intersectionType) => renderProviderTypeExpressionWorker(intersectionType, providerTypePrecedenceIntersection, context, options)).join(" & ");
             return parentPrecedence > providerTypePrecedenceIntersection ? `(${text})` : text;
         }
         case "function": {
@@ -1448,13 +1525,28 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context) {
             const familyVariant = context.typeFamilyVariantByProviderRefKey.get(getProviderRefKey(type.moduleSpecifier, type.exportName));
             const family = familyVariant?.sourceTypeFamily;
             const typeArgumentCount = type.typeArguments?.length ?? 0;
+            const canonicalLocalName = type.moduleSpecifier === context.moduleSpecifier
+                ? context.canonicalLocalNameByExportName.get(family?.exportName ?? type.exportName)
+                : undefined;
             const providerRefName = type.namespaceImport === undefined
-                ? type.localName ?? (family !== undefined && family.typeArgumentCount === typeArgumentCount ? family.exportName : type.exportName)
+                ? type.localName ?? canonicalLocalName ?? renderProviderRefIdentifier(type.exportName, familyVariant, typeArgumentCount, options)
                 : `${type.namespaceImport}.${type.exportName}`;
             return type.typeArguments === undefined || type.typeArguments.length === 0
                 ? providerRefName
                 : `${providerRefName}<${type.typeArguments.map((typeArgument) => renderProviderTypeExpression(typeArgument, context)).join(", ")}>`;
     }
+}
+function renderProviderRefIdentifier(exportName, familyVariant, typeArgumentCount, options) {
+    if (familyVariant === undefined) {
+        return exportName;
+    }
+    const family = familyVariant?.sourceTypeFamily;
+    if (family === undefined || family.typeArgumentCount !== typeArgumentCount) {
+        return exportName;
+    }
+    return options.providerRefPosition === "value-heritage"
+        ? getProviderTypeFamilyVariantLocalName(familyVariant)
+        : family.exportName;
 }
 function renderSourcePrimitiveType(name) {
     switch (name) {

@@ -2,7 +2,7 @@ import { Node_Body, Node_Locals, Node_Members, Node_ModifierFlags, Node_Symbol, 
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
 import { GetSymbolId } from "../internal/ast/utilities.js";
-import { KindConstructSignature, KindConstructor, KindEnumMember, KindFunctionDeclaration, KindIndexSignature, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertySignature, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindClassDeclaration, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindFunctionDeclaration, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertySignature, KindTypeAliasDeclaration, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { canonicalIdentityFactKey, instantiatedTargetTypeFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent, getExtensionHost } from "./host.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
@@ -229,8 +229,16 @@ function getProviderMemberCandidateNodes(exportDeclaration) {
     if (exportDeclaration === undefined) {
         return [];
     }
-    if (exportDeclaration.Kind !== KindModuleDeclaration) {
+    if (exportDeclaration.Kind === KindClassDeclaration
+        || exportDeclaration.Kind === KindInterfaceDeclaration
+        || exportDeclaration.Kind === KindEnumDeclaration
+        || exportDeclaration.Kind === KindTypeAliasDeclaration
+        || exportDeclaration.Kind === KindFunctionDeclaration
+        || exportDeclaration.Kind === KindVariableDeclaration) {
         return Node_Members(exportDeclaration) ?? [];
+    }
+    if (exportDeclaration.Kind !== KindModuleDeclaration) {
+        return [];
     }
     const candidates = [];
     collectProviderNamespaceMemberCandidateNodes(Node_Body(exportDeclaration), candidates);
