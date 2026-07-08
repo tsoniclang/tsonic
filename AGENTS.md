@@ -59,6 +59,14 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - If semantics cannot be proven without runtime reflection, emit a deterministic diagnostic instead of guessing or falling back.
 - Build-time tooling may inspect assemblies as tooling input, but that reflection must not appear in product runtime paths or generated user code.
 
+## Target Toolchain Config Boundary (IMPORTANT)
+
+- Advanced target build/toolchain configuration belongs in the target ecosystem's native config files, not in `tsonic.json`.
+- For .NET/C#, keep MSBuild, SDK selection, NuGet/package references, framework references, assembly aliases, analyzers, publish profiles, trimming, NativeAOT knobs, and deployment settings in user-owned `.csproj`/MSBuild files whenever the target toolchain already supports them.
+- Do not mirror open-ended target-toolchain knobs into Tsonic config. Add Tsonic config only when the value is compiler semantic input, source-profile selection, provider metadata selection, or deterministic codegen policy.
+- User-owned project modes must emit generated target source without mutating the user project file; the user project owns how those generated sources are included and built.
+- If generated source needs alias-qualified names or other target-code semantics, Tsonic must still prove and emit that source shape from explicit source/provider facts. The target config may declare the build capability, but it must not become a hidden semantic input or fallback.
+
 ## Reports and Analysis
 
 - All technical reports, plans, status updates, and failure analyses must include concrete source-level examples unless the maintainer explicitly says examples are unnecessary.

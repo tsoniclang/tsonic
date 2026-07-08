@@ -190,6 +190,10 @@ export interface ProviderModuleResolution {
 }
 export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function" | "class" | "interface" | "enum" | "opaque";
 export type ProviderExportKind = "named" | "default";
+export interface ProviderTypeFamilyDeclaration {
+    readonly exportName: string;
+    readonly typeArgumentCount: number;
+}
 export type ProviderPropertyName = string | {
     readonly kind: "identifier";
     readonly text: string;
@@ -306,6 +310,7 @@ export interface ProviderExportDeclaration {
     readonly name: string;
     readonly exportName?: string;
     readonly exportKind?: ProviderExportKind;
+    readonly sourceTypeFamily?: ProviderTypeFamilyDeclaration;
     readonly kind: ProviderDeclarationKind;
     readonly targetIdentity?: TargetIdentity;
     readonly type?: ProviderTypeExpression;

@@ -1,9 +1,9 @@
-import { Node_Body, Node_Members, Node_ModifierFlags, Node_Symbol, Node_Text, SourceFile_FileName } from "../internal/ast/ast.js";
+import { Node_Body, Node_Locals, Node_Members, Node_ModifierFlags, Node_Symbol, Node_Text, Node_TypeArguments, SourceFile_FileName } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
 import { GetSymbolId } from "../internal/ast/utilities.js";
 import { KindConstructSignature, KindConstructor, KindEnumMember, KindFunctionDeclaration, KindIndexSignature, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertySignature, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
-import { canonicalIdentityFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
+import { canonicalIdentityFactKey, instantiatedTargetTypeFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent, getExtensionHost } from "./host.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
     const extensionHost = getExtensionHost(program);
@@ -29,6 +29,39 @@ export function finalizeExtensionSemantics(program) {
     extensionHost.finalizeSemantics();
     return extensionHost;
 }
+export function recordProviderTypeFamilyReferenceFacts(extensionHost, typeReference, type, symbol) {
+    if (typeReference === undefined || symbol === undefined) {
+        return;
+    }
+    const family = extensionHost.facts.get(symbol, providerTypeFamilyFactKey);
+    if (family === undefined) {
+        return;
+    }
+    const sourceTypeArgumentCount = (Node_TypeArguments(typeReference) ?? []).length;
+    const variant = family.variants.find((candidate) => candidate.sourceTypeArgumentCount === sourceTypeArgumentCount);
+    if (variant === undefined) {
+        return;
+    }
+    const evidence = [{
+            message: "provider type-family variant selected by source type-argument count",
+            details: {
+                exportName: family.exportName,
+                sourceTypeArgumentCount,
+                exportId: variant.declaration.exportId,
+            },
+        }];
+    extensionHost.facts.set(typeReference, providerVirtualDeclarationFactKey, variant.declaration, evidence);
+    if (variant.targetBinding !== undefined) {
+        extensionHost.facts.set(typeReference, targetBindingFactKey, variant.targetBinding, evidence);
+        if (type !== undefined) {
+            extensionHost.facts.set(type, targetBindingFactKey, variant.targetBinding, evidence);
+        }
+        extensionHost.facts.set(typeReference, instantiatedTargetTypeFactKey, {
+            targetType: variant.targetBinding,
+            typeArguments: (Node_TypeArguments(typeReference) ?? []).filter((argument) => argument !== undefined),
+        }, evidence);
+    }
+}
 function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
     const evidence = getProviderVirtualModuleEvidence(virtualModule);
     extensionHost.facts.set(file, canonicalIdentityFactKey, {
@@ -52,15 +85,33 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
         canonicalSymbolId: getSymbolFactId(fileSymbol),
     }, evidence);
     extensionHost.facts.set(fileSymbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule), evidence);
+    for (const family of getProviderTypeFamilies(virtualModule)) {
+        const familySymbol = fileSymbol.Exports?.get(family.exportName);
+        if (familySymbol === undefined) {
+            continue;
+        }
+        extensionHost.facts.set(familySymbol, canonicalIdentityFactKey, {
+            kind: "export",
+            id: `${virtualModule.declarationModel.providerModuleId}::${family.exportName}`,
+            ...(virtualModule.resolution.packageName !== undefined ? { packageName: virtualModule.resolution.packageName } : {}),
+            ...(virtualModule.resolution.packageVersion !== undefined ? { packageVersion: virtualModule.resolution.packageVersion } : {}),
+            subpath: virtualModule.resolution.moduleSpecifier,
+            exportName: family.exportName,
+            canonicalSymbolId: getSymbolFactId(familySymbol),
+        }, evidence);
+        extensionHost.facts.set(familySymbol, providerTypeFamilyFactKey, getProviderTypeFamilyFact(virtualModule, family), evidence);
+    }
     for (const declaration of virtualModule.declarationModel.exports) {
-        const exportName = getProviderExportName(declaration);
-        const symbol = fileSymbol.Exports?.get(exportName) ?? fileSymbol.Exports?.get(declaration.name);
+        const exportName = getProviderSourceExportName(declaration);
+        const symbol = getProviderDeclarationSymbol(file, fileSymbol, declaration);
         if (symbol === undefined) {
             continue;
         }
         extensionHost.facts.set(symbol, canonicalIdentityFactKey, {
             kind: "export",
-            id: `${virtualModule.declarationModel.providerModuleId}::${exportName}`,
+            id: declaration.sourceTypeFamily === undefined
+                ? `${virtualModule.declarationModel.providerModuleId}::${exportName}`
+                : `${virtualModule.declarationModel.providerModuleId}::${exportName}:${declaration.sourceTypeFamily.typeArgumentCount}`,
             ...(virtualModule.resolution.packageName !== undefined ? { packageName: virtualModule.resolution.packageName } : {}),
             ...(virtualModule.resolution.packageVersion !== undefined ? { packageVersion: virtualModule.resolution.packageVersion } : {}),
             subpath: virtualModule.resolution.moduleSpecifier,
@@ -222,7 +273,7 @@ function getTargetBindingFact(virtualModule, declaration) {
     }
     return {
         id: declaration.targetIdentity.id,
-        sourceName: getProviderExportName(declaration),
+        sourceName: getProviderSourceExportName(declaration),
         targetName: declaration.targetIdentity.displayName ?? declaration.targetIdentity.id,
         target: declaration.targetIdentity.target,
         kind: getTargetBindingKind(declaration.kind),
@@ -347,7 +398,7 @@ function getProviderVirtualDeclarationFact(virtualModule, declaration, member, s
         providerModuleId: virtualModule.resolution.providerModuleId,
         moduleSpecifier: virtualModule.resolution.moduleSpecifier,
         virtualFileName: virtualModule.resolution.virtualFileName,
-        ...(declaration !== undefined ? { exportName: getProviderExportName(declaration) } : {}),
+        ...(declaration !== undefined ? { exportName: getProviderSourceExportName(declaration) } : {}),
         ...(declaration !== undefined ? { exportId: declaration.id } : {}),
         ...(member !== undefined ? { memberName: getProviderPropertyNameText(member.name) } : {}),
         ...(member !== undefined ? { memberId: member.id } : {}),
@@ -363,8 +414,51 @@ function getProviderVirtualDeclarationFact(virtualModule, declaration, member, s
             : {}),
     };
 }
+function getProviderTypeFamilyFact(virtualModule, family) {
+    return {
+        exportName: family.exportName,
+        variants: family.variants
+            .map((declaration) => {
+            const targetBinding = getTargetBindingFact(virtualModule, declaration);
+            return {
+                sourceTypeArgumentCount: declaration.sourceTypeFamily.typeArgumentCount,
+                declaration: getProviderVirtualDeclarationFact(virtualModule, declaration),
+                ...(targetBinding !== undefined ? { targetBinding } : {}),
+            };
+        })
+            .sort((left, right) => left.sourceTypeArgumentCount - right.sourceTypeArgumentCount),
+    };
+}
 function getProviderExportName(declaration) {
     return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
+}
+function getProviderSourceExportName(declaration) {
+    return declaration.sourceTypeFamily?.exportName ?? getProviderExportName(declaration);
+}
+function getProviderDeclarationSymbol(file, fileSymbol, declaration) {
+    if (declaration.sourceTypeFamily !== undefined) {
+        return Node_Locals(file)?.get(getProviderTypeFamilyVariantLocalName(declaration));
+    }
+    const exportName = getProviderExportName(declaration);
+    return fileSymbol.Exports?.get(exportName) ?? fileSymbol.Exports?.get(declaration.name);
+}
+function getProviderTypeFamilies(virtualModule) {
+    const groups = new Map();
+    for (const declaration of virtualModule.declarationModel.exports) {
+        if (declaration.sourceTypeFamily === undefined) {
+            continue;
+        }
+        const variants = groups.get(declaration.sourceTypeFamily.exportName) ?? [];
+        variants.push(declaration);
+        groups.set(declaration.sourceTypeFamily.exportName, variants);
+    }
+    return [...groups].map(([exportName, variants]) => ({
+        exportName,
+        variants: variants.sort((left, right) => left.sourceTypeFamily.typeArgumentCount - right.sourceTypeFamily.typeArgumentCount),
+    }));
+}
+function getProviderTypeFamilyVariantLocalName(declaration) {
+    return `__TstsProvider_${declaration.sourceTypeFamily.exportName}_${declaration.sourceTypeFamily.typeArgumentCount}`;
 }
 function getProviderPropertyNameText(name) {
     if (typeof name === "string") {
