@@ -3,8 +3,9 @@ import { Node_Name } from "../internal/ast/spine.js";
 import { AsElementAccessExpression, AsForInOrOfStatement } from "../internal/ast/generated/casts.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
 import { ExtensionObservationPoint } from "./observations.js";
-import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
+import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
 import { getExtensionHost } from "./host.js";
+import { recordProviderTypeFamilyReferenceFacts } from "./compiler-integration.js";
 export function recordExtensionCheckedCallMapping(checker, callExpression, sourceSelectedSignature, resolvedCalleeSymbol) {
     if (checker === undefined || callExpression === undefined) {
         return;
@@ -220,7 +221,11 @@ export function recordExtensionRuntimeCarrierFact(checker, typeReference, type, 
         return;
     }
     const extensionHost = getExtensionHost(checker.program);
-    if (extensionHost === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.resolveRuntimeCarrier) === undefined) {
+    if (extensionHost === undefined) {
+        return;
+    }
+    recordProviderTypeFamilyReferenceFacts(extensionHost, typeReference, type, symbol);
+    if (extensionHost.getObservationOwner(ExtensionObservationPoint.resolveRuntimeCarrier) === undefined) {
         return;
     }
     if (!hasExtensionOwnedSubject(extensionHost, type) && !hasExtensionOwnedSubject(extensionHost, typeReference) && !hasExtensionOwnedSubject(extensionHost, symbol) && !hasExtensionOwnedSubject(extensionHost, type.symbol)) {
@@ -483,6 +488,7 @@ function hasExtensionOwnedSubject(extensionHost, subject) {
         return false;
     }
     return extensionHost.facts.get(subject, targetBindingFactKey) !== undefined
+        || extensionHost.facts.get(subject, providerTypeFamilyFactKey) !== undefined
         || extensionHost.facts.get(subject, providerVirtualDeclarationFactKey) !== undefined
         || extensionHost.facts.get(subject, sourcePrimitiveFactKey) !== undefined
         || extensionHost.facts.get(subject, argumentPassingFactKey) !== undefined

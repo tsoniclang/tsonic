@@ -250,6 +250,15 @@ export interface ProviderVirtualDeclarationFact {
     readonly signatureId?: string;
     readonly targetIdentity?: TargetTypeRef;
 }
+export interface ProviderTypeFamilyVariantFact {
+    readonly sourceTypeArgumentCount: number;
+    readonly declaration: ProviderVirtualDeclarationFact;
+    readonly targetBinding?: TargetBindingFact;
+}
+export interface ProviderTypeFamilyFact {
+    readonly exportName: string;
+    readonly variants: readonly ProviderTypeFamilyVariantFact[];
+}
 export interface AssociatedTypeFact {
     readonly owner: ExtensionFactSubject;
     readonly name: string;
@@ -277,6 +286,7 @@ export declare const flowStateFactKey: import("./host.js").ExtensionFactKey<Flow
 export declare const runtimeCarrierFactKey: import("./host.js").ExtensionFactKey<RuntimeCarrierFact>;
 export declare const targetConversionFactKey: import("./host.js").ExtensionFactKey<TargetConversionFact>;
 export declare const providerVirtualDeclarationFactKey: import("./host.js").ExtensionFactKey<ProviderVirtualDeclarationFact>;
+export declare const providerTypeFamilyFactKey: import("./host.js").ExtensionFactKey<ProviderTypeFamilyFact>;
 export declare const associatedTypeFactKey: import("./host.js").ExtensionFactKey<AssociatedTypeFact>;
 export declare const constGenericFactKey: import("./host.js").ExtensionFactKey<ConstGenericFact>;
 //# sourceMappingURL=facts.d.ts.map

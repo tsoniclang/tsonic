@@ -129,6 +129,12 @@ export const providerVirtualDeclarationFactKey = defineExtensionFactKey({
         && left.signatureId === right.signatureId
         && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity),
 });
+export const providerTypeFamilyFactKey = defineExtensionFactKey({
+    extensionId: "tsts.provider",
+    name: "typeFamily",
+    equals: (left, right) => left.exportName === right.exportName
+        && providerTypeFamilyVariantArrayEquals(left.variants, right.variants),
+});
 export const associatedTypeFactKey = defineExtensionFactKey({
     extensionId: "tsts.target-bindings",
     name: "associatedType",
@@ -150,6 +156,20 @@ function optionalProviderDeclarationIdentityEquals(left, right) {
         return left === right;
     }
     return providerDeclarationIdentityEquals(left, right);
+}
+function providerTypeFamilyVariantArrayEquals(left, right) {
+    return left.length === right.length && left.every((variant, index) => providerTypeFamilyVariantEquals(variant, right[index]));
+}
+function providerTypeFamilyVariantEquals(left, right) {
+    return left.sourceTypeArgumentCount === right.sourceTypeArgumentCount
+        && providerDeclarationIdentityEquals(left.declaration, right.declaration)
+        && optionalTargetBindingFactEquals(left.targetBinding, right.targetBinding);
+}
+function optionalTargetBindingFactEquals(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    return targetBindingFactEquals(left, right);
 }
 function providerDeclarationIdentityEquals(left, right) {
     return left.providerId === right.providerId

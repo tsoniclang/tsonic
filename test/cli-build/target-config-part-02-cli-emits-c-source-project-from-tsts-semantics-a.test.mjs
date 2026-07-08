@@ -187,6 +187,56 @@ test("CLI emits explicit C# target .NET references without host inference", asyn
   assert.match(generatedProject, /<FrameworkReference Include="Microsoft\.AspNetCore\.App" \/>/);
   assert.match(generatedProject, /<Reference Include="Example\.Assembly" HintPath="\.\.\/lib\/Example\.Assembly\.dll" \/>/);
 });
+test("CLI user-owned C# project mode emits generated sources without mutating or replacing the project file", async () => {
+  const projectDirectory = resolve(tempRoot, "user-owned-csharp-project");
+  const userProject = [
+    "<Project Sdk=\"Microsoft.NET.Sdk\">",
+    "  <PropertyGroup>",
+    "    <TargetFramework>net10.0</TargetFramework>",
+    "    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>",
+    "    <ImplicitUsings>disable</ImplicitUsings>",
+    "    <Nullable>enable</Nullable>",
+    "  </PropertyGroup>",
+    "  <ItemGroup>",
+    "    <Compile Include=\"out/csharp/src/**/*.cs\" />",
+    "  </ItemGroup>",
+    "</Project>",
+    "",
+  ].join("\n");
+  await writeProject(projectDirectory, {
+    "App.csproj": userProject,
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName: "SmokeGeneratedUserOwnedProject",
+            projectFile: "App.csproj",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "export function value(): number {",
+      "  return 42;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUserOwnedProject.csproj")), false);
+  assert.equal(await readFile(resolve(projectDirectory, "App.csproj"), "utf8"), userProject);
+  assert.match(await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8"), /public static double value\(\)/u);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "App.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
 test("CLI escapes TypeScript identifiers that are C# reserved words", async () => {
   const projectDirectory = resolve(tempRoot, "csharp-keyword-identifiers");
   await writeProject(projectDirectory, {
