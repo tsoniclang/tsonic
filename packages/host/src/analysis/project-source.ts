@@ -11,7 +11,6 @@ import type {
   TargetProjectSourceModuleDependency,
   TargetSourceAnalysisQueries,
 } from "@tsonic/target-api";
-import { asNode } from "./guards.js";
 import {
   getAliasedSymbolIfAlias,
   getPrimaryDeclaration,
@@ -46,10 +45,6 @@ export function getProjectSourceReferenceForNode(
   if (node === undefined) {
     return undefined;
   }
-  const namespacePropertyReference = getProjectSourceReferenceForNamespacePropertyAccess(ast, checker, node, options, sourceFiles);
-  if (namespacePropertyReference !== undefined) {
-    return namespacePropertyReference;
-  }
   const directSymbol = getSymbolAtReferenceNode(ast, checker, node, options);
   const importedReference = getImportedProjectSourceReferenceForSymbol(ast, checker, directSymbol, options, sourceFiles);
   if (importedReference !== undefined) {
@@ -60,7 +55,7 @@ export function getProjectSourceReferenceForNode(
     directSymbol,
   ].flatMap((symbol) => symbol === undefined
     ? []
-    : [getAliasedSymbolIfAlias(checker, symbol, options), symbol]);
+    : [getAliasedSymbolIfAlias(ast, checker, symbol, options), symbol]);
   for (const symbol of symbols) {
     const reference = getProjectSourceReferenceForSymbol(ast, checker, symbol, sourceFiles);
     if (reference !== undefined) {
@@ -158,13 +153,13 @@ function getRuntimeModuleDependency(
     if (isExclusivelyTypeOnlyImportDeclaration(ast, statement)) {
       return undefined;
     }
-    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(statement), "import", sourceFile, sourceFiles);
+    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(ast, statement), "import", sourceFile, sourceFiles);
   }
   if (ast.is.IsExportDeclaration(statement)) {
     if (ast.isTypeOnlyImportOrExportDeclaration(statement)) {
       return undefined;
     }
-    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(statement), "export", sourceFile, sourceFiles);
+    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(ast, statement), "export", sourceFile, sourceFiles);
   }
   return undefined;
 }
@@ -173,8 +168,8 @@ function isExclusivelyTypeOnlyImportDeclaration(ast: AstReader, declaration: Nod
   if (ast.isTypeOnlyImportDeclaration(declaration)) {
     return true;
   }
-  const importClause = (declaration as { readonly ImportClause?: Node }).ImportClause;
-  const namedBindings = (importClause as { readonly NamedBindings?: Node } | undefined)?.NamedBindings;
+  const importClause = ast.as.AsImportDeclaration(declaration)?.ImportClause;
+  const namedBindings = ast.as.AsImportClause(importClause)?.NamedBindings;
   if (importClause === undefined || namedBindings === undefined) {
     return false;
   }
@@ -183,7 +178,7 @@ function isExclusivelyTypeOnlyImportDeclaration(ast: AstReader, declaration: Nod
   }
   const elements = ast.elements(namedBindings);
   return elements.length > 0 &&
-    elements.every((element) => element !== undefined && (element as { readonly IsTypeOnly?: boolean }).IsTypeOnly === true);
+    elements.every((element) => element !== undefined && ast.isTypeOnlyImportOrExportDeclaration(element));
 }
 
 function resolveRuntimeModuleDependency(
@@ -221,9 +216,14 @@ function getResolvedRuntimeModuleSourceFile(
   return ast.getSourceFile(getPrimaryDeclaration(checker, resolvedModuleSymbol) ?? getPrimaryDeclaration(checker, moduleSymbol));
 }
 
-function getModuleSpecifier(node: Node): Node | undefined {
-  const moduleSpecifier = (node as { readonly ModuleSpecifier?: unknown }).ModuleSpecifier;
-  return asNode(moduleSpecifier);
+function getModuleSpecifier(ast: AstReader, node: Node): Node | undefined {
+  if (ast.is.IsImportDeclaration(node)) {
+    return ast.as.AsImportDeclaration(node)?.ModuleSpecifier;
+  }
+  if (ast.is.IsExportDeclaration(node)) {
+    return ast.as.AsExportDeclaration(node)?.ModuleSpecifier;
+  }
+  return undefined;
 }
 
 function isProjectSourceFile(
@@ -445,37 +445,6 @@ function collectProjectSourceClassDeclarations(ast: AstReader, node: Node | unde
   });
 }
 
-function getProjectSourceReferenceForNamespacePropertyAccess(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  node: Node,
-  options: { readonly sourceFile: SourceFile },
-  sourceFiles: readonly SourceFile[],
-): ReturnType<TargetSourceAnalysisQueries["getProjectSourceReferenceForNode"]> {
-  if (!ast.is.IsPropertyAccessExpression(node)) {
-    return undefined;
-  }
-  const propertyAccess = ast.as.AsPropertyAccessExpression(node);
-  const receiver = propertyAccess?.Expression;
-  const propertyName = ast.text(propertyAccess?.name ?? ast.name(node));
-  if (receiver === undefined || propertyName.length === 0) {
-    return undefined;
-  }
-  const receiverType = getSemanticTypeForNode(ast, checker, receiver, options);
-  const propertySymbol = checker.getPropertyOfType(receiverType, propertyName, options);
-  const candidates = [
-    getAliasedSymbolIfAlias(checker, propertySymbol, options),
-    propertySymbol,
-  ];
-  for (const candidate of candidates) {
-    const reference = getProjectSourceReferenceForSymbol(ast, checker, candidate, sourceFiles);
-    if (reference !== undefined) {
-      return reference;
-    }
-  }
-  return undefined;
-}
-
 function getImportedProjectSourceReferenceForSymbol(
   ast: AstReader,
   checker: TypeCheckerQueries,
@@ -491,7 +460,7 @@ function getImportedProjectSourceReferenceForSymbol(
     if (imported === undefined) {
       continue;
     }
-    const alias = getAliasedSymbolIfAlias(checker, imported.symbol, { sourceFile: imported.sourceFile });
+    const alias = getAliasedSymbolIfAlias(ast, checker, imported.symbol, { sourceFile: imported.sourceFile });
     const candidates = ast.is.IsExportAssignment(getPrimaryDeclaration(checker, imported.symbol))
       ? [imported.symbol, alias]
       : [alias, imported.symbol];
@@ -524,7 +493,7 @@ function getImportedModuleExport(
   const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options);
   const exportSymbol = checker.getExportsOfModule(resolvedModuleSymbol, options)
-    .find((candidate) => candidate?.Name === exportName);
+    .find((candidate) => candidate !== undefined && checker.getSymbolName(candidate) === exportName);
   const sourceFile = ast.getSourceFile(getPrimaryDeclaration(checker, exportSymbol));
   return exportSymbol === undefined || sourceFile === undefined ? undefined : { symbol: exportSymbol, sourceFile };
 }
@@ -562,6 +531,25 @@ function findImportDeclaration(ast: AstReader, node: Node): Node | undefined {
   return undefined;
 }
 
-export function getDeclarationTypeNode(declaration: Node | undefined): Node | undefined {
-  return asNode((declaration as { readonly Type?: unknown } | undefined)?.Type);
+export function getDeclarationTypeNode(ast: AstReader, declaration: Node | undefined): Node | undefined {
+  if (declaration === undefined) {
+    return undefined;
+  }
+  return ast.as.AsVariableDeclaration(declaration)?.Type ??
+    ast.as.AsParameterDeclaration(declaration)?.Type ??
+    ast.as.AsTypeAliasDeclaration(declaration)?.Type ??
+    ast.as.AsPropertyDeclaration(declaration)?.Type ??
+    ast.as.AsPropertySignatureDeclaration(declaration)?.Type ??
+    ast.as.AsMethodDeclaration(declaration)?.Type ??
+    ast.as.AsMethodSignatureDeclaration(declaration)?.Type ??
+    ast.as.AsFunctionDeclaration(declaration)?.Type ??
+    ast.as.AsFunctionExpression(declaration)?.Type ??
+    ast.as.AsArrowFunction(declaration)?.Type ??
+    ast.as.AsCallSignatureDeclaration(declaration)?.Type ??
+    ast.as.AsConstructSignatureDeclaration(declaration)?.Type ??
+    ast.as.AsGetAccessorDeclaration(declaration)?.Type ??
+    ast.as.AsSetAccessorDeclaration(declaration)?.Type ??
+    ast.as.AsIndexSignatureDeclaration(declaration)?.Type ??
+    ast.as.AsFunctionTypeNode(declaration)?.Type ??
+    ast.as.AsConstructorTypeNode(declaration)?.Type;
 }

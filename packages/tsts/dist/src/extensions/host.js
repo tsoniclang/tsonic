@@ -287,6 +287,7 @@ export class ProviderRegistry {
     #virtualModulesByFileName = new Map();
     #virtualDocumentsByUri = new Map();
     #virtualSourceVariantsByBaseFileName = new Map();
+    #virtualBaseFileIdentities = new Map();
     #canonicalExportsByBaseFileName = new Map();
     #renderedExportSetsByBaseFileName = new Map();
     constructor(diagnostics, requiredProviderModules = []) {
@@ -426,6 +427,11 @@ export class ProviderRegistry {
             this.#diagnostics.append(diagnostic);
             return { kind: "rejected", diagnostic };
         }
+        const virtualBaseFileDiagnostic = this.#validateVirtualBaseFileIdentity(owner.provider.identity, resolution, declarationModel);
+        if (virtualBaseFileDiagnostic !== undefined) {
+            this.#diagnostics.append(virtualBaseFileDiagnostic);
+            return { kind: "rejected", diagnostic: virtualBaseFileDiagnostic };
+        }
         const canonicalExports = this.#getCanonicalExportsForRender(resolution.virtualFileName, declarationModel);
         const virtualSourceText = renderProviderDeclarationModel(declarationModel, { canonicalExports });
         const effectiveVirtualFileName = this.#getEffectiveVirtualFileName(resolution.virtualFileName, virtualSourceText, cacheKey);
@@ -505,6 +511,27 @@ export class ProviderRegistry {
                 canonicalExports.set(exportName, effectiveVirtualFileName);
             }
         }
+    }
+    #validateVirtualBaseFileIdentity(provider, resolution, declarationModel) {
+        const identity = getProviderVirtualBaseFileIdentity(provider, resolution, declarationModel);
+        const existing = this.#virtualBaseFileIdentities.get(resolution.virtualFileName);
+        if (existing === undefined) {
+            this.#virtualBaseFileIdentities.set(resolution.virtualFileName, identity);
+            return undefined;
+        }
+        if (existing === identity) {
+            return undefined;
+        }
+        return createHostDiagnostic({
+            extensionCode: "INVALID_PROVIDER_MODULE_RESOLUTION",
+            numericCode: ExtensionHostDiagnosticCode.providerResolutionFailed,
+            message: `Provider virtual base file '${resolution.virtualFileName}' is used for multiple public provider module identities.`,
+            evidence: [
+                { message: "Existing virtual base identity", details: existing },
+                { message: "Incoming virtual base identity", details: identity },
+            ],
+            identity: `provider-virtual-base-conflict:${resolution.virtualFileName}:${existing}:${identity}`,
+        });
     }
     getVirtualModuleByFileName(fileName) {
         return this.#virtualModulesByFileName.get(fileName);
@@ -1159,6 +1186,17 @@ function getProviderResolveCacheKey(identity, specifier, context) {
         ...(importSlice?.requestedExports ?? []).map((request) => `${request.exportedName}:${request.localName ?? ""}:${request.kind ?? ""}`).sort(),
     ].join("\0");
 }
+function getProviderVirtualBaseFileIdentity(provider, resolution, declarationModel) {
+    return [
+        provider.id,
+        provider.version,
+        provider.target,
+        provider.extensionContractVersion,
+        provider.configHash ?? "",
+        resolution.moduleSpecifier,
+        declarationModel.moduleSpecifier,
+    ].join("\0");
+}
 function getProviderDeclarationModelExportNames(model) {
     return [...new Set(model.exports.map(getProviderSourceExportName))].sort();
 }
@@ -1332,7 +1370,17 @@ function renderProviderTypeFamilyDeclaration(group, context) {
             return `${parameter.name}${constraintText}${defaultText}`;
         }).join(", ")}>`;
     const aliasType = renderProviderTypeFamilyAliasType(variants, maxTypeParameters);
-    return `${variantDeclarations.join("\n")}\nexport type ${group.exportName}${familyTypeParameters} = ${aliasType};`;
+    const valueExport = renderProviderTypeFamilyValueExport(group.exportName, variants);
+    return `${variantDeclarations.join("\n")}\nexport type ${group.exportName}${familyTypeParameters} = ${aliasType};${valueExport}`;
+}
+function renderProviderTypeFamilyValueExport(exportName, variants) {
+    if (!variants.every((variant) => variant.kind === "class")) {
+        return "";
+    }
+    const valueType = variants
+        .map((variant) => `typeof ${getProviderTypeFamilyVariantLocalName(variant)}`)
+        .join(" & ");
+    return `\nexport declare const ${exportName}: ${valueType};`;
 }
 function renderProviderTypeFamilyAliasType(variants, maxTypeParameters) {
     const variantByArity = new Map(variants.map((variant) => [variant.sourceTypeFamily.typeArgumentCount, variant]));
@@ -1490,6 +1538,7 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
         case "unknown":
         case "void":
         case "never":
+        case "undefined":
         case "boolean":
         case "string":
         case "number":
@@ -1644,12 +1693,36 @@ function isValidProviderModuleResolution(value, specifier) {
         && value.providerModuleId.length > 0;
 }
 function isValidProviderDeclarationModel(value, resolution) {
+    const context = createProviderDeclarationValidationContext(value);
     return value.moduleSpecifier === resolution.moduleSpecifier
         && value.providerModuleId === resolution.providerModuleId
         && (value.imports ?? []).every(isValidProviderImportDeclaration)
         && Array.isArray(value.exports)
         && value.exports.every(isValidProviderExportDeclaration)
+        && value.exports.every(hasValidProviderExportTypeParameterScope)
+        && value.exports.every((declaration) => hasValidProviderReferenceBindingsForExport(declaration, context))
+        && value.exports.every((declaration) => hasValidProviderValueHeritageReferences(declaration, context))
         && isValidProviderTypeFamilyDeclarations(value.exports, value.imports ?? []);
+}
+function createProviderDeclarationValidationContext(model) {
+    const sameModuleProviderRefNames = new Set();
+    const exportsByName = new Map();
+    for (const declaration of model.exports) {
+        const exportName = getProviderExportName(declaration);
+        const sourceExportName = getProviderSourceExportName(declaration);
+        sameModuleProviderRefNames.add(exportName);
+        sameModuleProviderRefNames.add(sourceExportName);
+        exportsByName.set(exportName, declaration);
+        if (!exportsByName.has(sourceExportName)) {
+            exportsByName.set(sourceExportName, declaration);
+        }
+    }
+    return {
+        moduleSpecifier: model.moduleSpecifier,
+        sameModuleProviderRefNames,
+        exportsByName,
+        importBindings: model.imports ?? [],
+    };
 }
 function isValidProviderImportDeclaration(value) {
     const hasNamespace = value.namespaceImport !== undefined;
@@ -1713,6 +1786,7 @@ function isValidProviderTypeFamilyDeclarations(exports, imports) {
     const publicExports = new Set();
     const familyGroups = new Map();
     const localNames = new Set(exports.filter((declaration) => declaration.sourceTypeFamily === undefined).map((declaration) => declaration.name));
+    const generatedCanonicalLocalNames = new Set(exports.map((declaration) => getProviderCanonicalExportLocalName(getProviderSourceExportName(declaration))));
     for (const declaration of exports) {
         if (declaration.sourceTypeFamily === undefined) {
             const exportName = getProviderExportName(declaration);
@@ -1730,7 +1804,10 @@ function isValidProviderTypeFamilyDeclarations(exports, imports) {
         group.push(declaration);
         familyGroups.set(familyName, group);
     }
-    if (familyGroups.size > 0 && [...reservedLocalNames].some((name) => localNames.has(name) || importLocalNames.has(name))) {
+    if (familyGroups.size > 0 && [...reservedLocalNames].some((name) => localNames.has(name) || importLocalNames.has(name) || publicExports.has(name))) {
+        return false;
+    }
+    if ([...generatedCanonicalLocalNames].some((name) => localNames.has(name) || importLocalNames.has(name) || publicExports.has(name) || reservedLocalNames.has(name))) {
         return false;
     }
     for (const [familyName, variants] of familyGroups) {
@@ -1854,6 +1931,7 @@ function isValidProviderTypeExpression(value) {
         case "unknown":
         case "void":
         case "never":
+        case "undefined":
         case "boolean":
         case "string":
         case "number":
@@ -1895,6 +1973,251 @@ function isValidProviderTypeExpression(value) {
             return value.id.length > 0
                 && value.sourceShape !== undefined
                 && isValidProviderTypeExpression(value.sourceShape);
+    }
+}
+function hasValidProviderExportTypeParameterScope(value) {
+    const exportTypeParameters = value.typeParameters ?? [];
+    if (!hasValidProviderTypeParameterDeclarations(exportTypeParameters, new Set())) {
+        return false;
+    }
+    const exportTypeParameterScope = getProviderTypeParameterScope(new Set(), exportTypeParameters);
+    if (value.type !== undefined && !hasValidProviderTypeExpressionScope(value.type, exportTypeParameterScope)) {
+        return false;
+    }
+    if ((value.heritage ?? []).some((heritage) => !hasValidProviderTypeExpressionScope(heritage.type, exportTypeParameterScope))) {
+        return false;
+    }
+    if ((value.signatures ?? []).some((signature) => !hasValidProviderSignatureTypeParameterScope(signature, new Set()))) {
+        return false;
+    }
+    if (value.kind === "namespace") {
+        return (value.members ?? []).every((member) => hasValidProviderNamespaceMemberTypeParameterScope(member));
+    }
+    if (value.kind === "enum") {
+        return true;
+    }
+    return (value.members ?? []).every((member) => hasValidProviderMemberTypeParameterScope(member, exportTypeParameterScope));
+}
+function hasValidProviderMemberTypeParameterScope(member, parentScope) {
+    const memberParentScope = member.static === true ? new Set() : parentScope;
+    if (member.type !== undefined && !hasValidProviderTypeExpressionScope(member.type, memberParentScope)) {
+        return false;
+    }
+    return (member.signatures ?? []).every((signature) => hasValidProviderSignatureTypeParameterScope(signature, memberParentScope));
+}
+function hasValidProviderNamespaceMemberTypeParameterScope(member) {
+    if (member.type !== undefined && !hasValidProviderTypeExpressionScope(member.type, new Set())) {
+        return false;
+    }
+    return (member.signatures ?? []).every((signature) => hasValidProviderSignatureTypeParameterScope(signature, new Set()));
+}
+function hasValidProviderSignatureTypeParameterScope(signature, parentScope) {
+    const typeParameters = signature.typeParameters ?? [];
+    if (!hasValidProviderTypeParameterDeclarations(typeParameters, parentScope)) {
+        return false;
+    }
+    const scope = getProviderTypeParameterScope(parentScope, typeParameters);
+    return signature.parameters.every((parameter) => hasValidProviderParameterTypeParameterScope(parameter, scope))
+        && (signature.returnType === undefined || hasValidProviderTypeExpressionScope(signature.returnType, scope));
+}
+function hasValidProviderParameterTypeParameterScope(parameter, scope) {
+    return hasValidProviderTypeExpressionScope(parameter.type, scope)
+        && (parameter.defaultType === undefined || hasValidProviderTypeExpressionScope(parameter.defaultType, scope));
+}
+function hasValidProviderTypeParameterDeclarations(typeParameters, parentScope) {
+    const names = new Set();
+    let hasDefault = false;
+    for (const parameter of typeParameters) {
+        if (names.has(parameter.name) || parentScope.has(parameter.name)) {
+            return false;
+        }
+        if (hasDefault && parameter.defaultType === undefined) {
+            return false;
+        }
+        if (parameter.defaultType !== undefined) {
+            hasDefault = true;
+        }
+        names.add(parameter.name);
+    }
+    const scope = new Set(parentScope);
+    for (const parameter of typeParameters) {
+        const constraintScope = new Set(scope);
+        constraintScope.add(parameter.name);
+        if ((parameter.constraints ?? []).some((constraint) => !hasValidProviderTypeExpressionScope(constraint, constraintScope))) {
+            return false;
+        }
+        if (parameter.defaultType !== undefined && !hasValidProviderTypeExpressionScope(parameter.defaultType, scope)) {
+            return false;
+        }
+        scope.add(parameter.name);
+    }
+    return true;
+}
+function hasValidProviderReferenceBindingsForExport(declaration, context) {
+    if (declaration.type !== undefined && !hasValidProviderReferenceBindings(declaration.type, context)) {
+        return false;
+    }
+    if ((declaration.typeParameters ?? []).some((parameter) => !hasValidProviderTypeParameterReferenceBindings(parameter, context))) {
+        return false;
+    }
+    if ((declaration.heritage ?? []).some((heritage) => !hasValidProviderReferenceBindings(heritage.type, context))) {
+        return false;
+    }
+    if ((declaration.signatures ?? []).some((signature) => !hasValidProviderSignatureReferenceBindings(signature, context))) {
+        return false;
+    }
+    return (declaration.members ?? []).every((member) => hasValidProviderMemberReferenceBindings(member, context));
+}
+function hasValidProviderTypeParameterReferenceBindings(parameter, context) {
+    return (parameter.constraints ?? []).every((constraint) => hasValidProviderReferenceBindings(constraint, context))
+        && (parameter.defaultType === undefined || hasValidProviderReferenceBindings(parameter.defaultType, context));
+}
+function hasValidProviderSignatureReferenceBindings(signature, context) {
+    return (signature.typeParameters ?? []).every((parameter) => hasValidProviderTypeParameterReferenceBindings(parameter, context))
+        && signature.parameters.every((parameter) => hasValidProviderParameterReferenceBindings(parameter, context))
+        && (signature.returnType === undefined || hasValidProviderReferenceBindings(signature.returnType, context));
+}
+function hasValidProviderParameterReferenceBindings(parameter, context) {
+    return hasValidProviderReferenceBindings(parameter.type, context)
+        && (parameter.defaultType === undefined || hasValidProviderReferenceBindings(parameter.defaultType, context));
+}
+function hasValidProviderMemberReferenceBindings(member, context) {
+    return (member.type === undefined || hasValidProviderReferenceBindings(member.type, context))
+        && (member.signatures ?? []).every((signature) => hasValidProviderSignatureReferenceBindings(signature, context));
+}
+function hasValidProviderReferenceBindings(type, context) {
+    switch (type.kind) {
+        case "any":
+        case "unknown":
+        case "void":
+        case "never":
+        case "undefined":
+        case "boolean":
+        case "string":
+        case "number":
+        case "bigint":
+        case "object":
+        case "source-primitive":
+        case "type-parameter":
+        case "literal":
+            return true;
+        case "target-named":
+            return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderReferenceBindings(typeArgument, context))
+                && type.sourceShape !== undefined
+                && hasValidProviderReferenceBindings(type.sourceShape, context);
+        case "array":
+            return hasValidProviderReferenceBindings(type.elementType, context);
+        case "tuple":
+            return type.elementTypes.every((elementType) => hasValidProviderReferenceBindings(elementType, context));
+        case "union":
+        case "intersection":
+            return type.types.every((memberType) => hasValidProviderReferenceBindings(memberType, context));
+        case "function":
+            return (type.typeParameters ?? []).every((parameter) => hasValidProviderTypeParameterReferenceBindings(parameter, context))
+                && type.parameters.every((parameter) => hasValidProviderParameterReferenceBindings(parameter, context))
+                && hasValidProviderReferenceBindings(type.returnType, context);
+        case "provider-ref":
+            return hasValidProviderRefBinding(type, context)
+                && (type.typeArguments ?? []).every((typeArgument) => hasValidProviderReferenceBindings(typeArgument, context));
+        case "opaque":
+            return type.sourceShape !== undefined && hasValidProviderReferenceBindings(type.sourceShape, context);
+    }
+}
+function hasValidProviderRefBinding(type, context) {
+    if (type.moduleSpecifier === context.moduleSpecifier) {
+        const declaration = context.exportsByName.get(type.exportName);
+        if (declaration === undefined || !context.sameModuleProviderRefNames.has(type.exportName)) {
+            return false;
+        }
+        if (declaration.sourceTypeFamily === undefined || type.exportName === declaration.sourceTypeFamily.exportName) {
+            return true;
+        }
+        return (type.typeArguments?.length ?? 0) === declaration.sourceTypeFamily.typeArgumentCount;
+    }
+    if (type.namespaceImport !== undefined) {
+        return context.importBindings.some((importDeclaration) => importDeclaration.moduleSpecifier === type.moduleSpecifier
+            && importDeclaration.namespaceImport === type.namespaceImport);
+    }
+    if (type.exportName === "default") {
+        return type.localName !== undefined
+            && context.importBindings.some((importDeclaration) => importDeclaration.moduleSpecifier === type.moduleSpecifier
+                && importDeclaration.defaultImport === type.localName);
+    }
+    const renderedLocalName = type.localName ?? type.exportName;
+    return context.importBindings.some((importDeclaration) => importDeclaration.moduleSpecifier === type.moduleSpecifier
+        && (importDeclaration.namedImports ?? []).some((namedImport) => namedImport.exportedName === type.exportName
+            && (namedImport.localName ?? namedImport.exportedName) === renderedLocalName));
+}
+function hasValidProviderValueHeritageReferences(declaration, context) {
+    if (declaration.kind !== "class") {
+        return true;
+    }
+    return (declaration.heritage ?? []).every((heritage) => heritage.kind !== "extends" || hasValidProviderValueHeritageReference(heritage.type, context));
+}
+function hasValidProviderValueHeritageReference(type, context) {
+    if (type.kind !== "provider-ref" || type.moduleSpecifier !== context.moduleSpecifier) {
+        return true;
+    }
+    const declaration = context.exportsByName.get(type.exportName);
+    if (declaration === undefined) {
+        return false;
+    }
+    if (declaration.sourceTypeFamily === undefined) {
+        return declaration.kind === "class";
+    }
+    const sourceTypeArgumentCount = type.typeArguments?.length ?? 0;
+    const selectedVariant = [...context.exportsByName.values()].find((candidate) => candidate.sourceTypeFamily?.exportName === declaration.sourceTypeFamily?.exportName
+        && candidate.sourceTypeFamily?.typeArgumentCount === sourceTypeArgumentCount);
+    return selectedVariant?.kind === "class";
+}
+function getProviderTypeParameterScope(parentScope, typeParameters) {
+    const scope = new Set(parentScope);
+    for (const parameter of typeParameters) {
+        scope.add(parameter.name);
+    }
+    return scope;
+}
+function hasValidProviderTypeExpressionScope(type, scope) {
+    switch (type.kind) {
+        case "any":
+        case "unknown":
+        case "void":
+        case "never":
+        case "undefined":
+        case "boolean":
+        case "string":
+        case "number":
+        case "bigint":
+        case "object":
+        case "source-primitive":
+        case "literal":
+            return true;
+        case "type-parameter":
+            return scope.has(type.name);
+        case "target-named":
+            return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderTypeExpressionScope(typeArgument, scope))
+                && type.sourceShape !== undefined
+                && hasValidProviderTypeExpressionScope(type.sourceShape, scope);
+        case "array":
+            return hasValidProviderTypeExpressionScope(type.elementType, scope);
+        case "tuple":
+            return type.elementTypes.every((elementType) => hasValidProviderTypeExpressionScope(elementType, scope));
+        case "union":
+        case "intersection":
+            return type.types.every((memberType) => hasValidProviderTypeExpressionScope(memberType, scope));
+        case "function": {
+            const typeParameters = type.typeParameters ?? [];
+            if (!hasValidProviderTypeParameterDeclarations(typeParameters, scope)) {
+                return false;
+            }
+            const functionScope = getProviderTypeParameterScope(scope, typeParameters);
+            return type.parameters.every((parameter) => hasValidProviderParameterTypeParameterScope(parameter, functionScope))
+                && hasValidProviderTypeExpressionScope(type.returnType, functionScope);
+        }
+        case "provider-ref":
+            return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderTypeExpressionScope(typeArgument, scope));
+        case "opaque":
+            return type.sourceShape !== undefined && hasValidProviderTypeExpressionScope(type.sourceShape, scope);
     }
 }
 function isIdentifierText(text) {

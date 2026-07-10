@@ -392,6 +392,7 @@ function getTargetTypeRef(type) {
         case "unknown":
         case "void":
         case "never":
+        case "undefined":
         case "object":
         case "union":
         case "intersection":

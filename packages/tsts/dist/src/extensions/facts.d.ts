@@ -193,6 +193,9 @@ export interface SelectedTargetSignatureFact {
     readonly argumentConversions?: readonly TargetTypeRef[];
     readonly sourceSignature?: ExtensionFactSubject;
     readonly sourceDeclaration?: ExtensionFactSubject;
+    readonly sourceCalleeSymbol?: ExtensionFactSubject;
+    readonly sourceCalleeDeclaration?: ExtensionFactSubject;
+    readonly sourceReturnType?: ExtensionFactSubject;
     readonly providerDeclaration?: ProviderDeclarationIdentity;
 }
 export interface ContextualTargetTypeFact {
@@ -215,6 +218,7 @@ export interface TargetOperationProvenance {
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly sourceSelectedSignature?: ExtensionFactSubject;
+    readonly sourceResultType?: ExtensionFactSubject;
 }
 export interface FlowStateFact {
     readonly state: "moved" | "borrowed-shared" | "borrowed-mut" | "initialized" | "uninitialized" | "target-validation-required";

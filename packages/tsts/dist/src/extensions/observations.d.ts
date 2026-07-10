@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, ArgumentPassingMode, RuntimeCarrierProvenance, SelectedTargetSignatureFact, SourceSelectedMethodTypeArgument, TargetConstraint, TargetOperationProvenance, TargetOperationFact, TargetTypeRef } from "./facts.js";
+import type { ArgumentPassingFact, ArgumentPassingMode, RuntimeCarrierProvenance, SelectedTargetSignatureFact, SourceSelectedMethodTypeArgument, TargetConstraint, TargetOperationProvenance, TargetOperationFact, TargetParameter, TargetTypeRef } from "./facts.js";
 import type { GoPtr } from "../go/compat.js";
 import type { SourceFile } from "../internal/ast/ast.js";
 import type { AstReader } from "../services/ast-reader.js";
@@ -104,11 +104,17 @@ export interface CheckedCallMappingResult {
     readonly returnType?: ExtensionFactSubject;
 }
 export interface TargetTypeArgumentMappingRequest {
+    readonly call?: ExtensionFactSubject;
     readonly declaration: ExtensionFactSubject;
     readonly arguments: readonly ExtensionFactSubject[];
     readonly sourceSelectedSignature?: ExtensionFactSubject;
+    readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
+    readonly sourceCalleeSymbol?: ExtensionFactSubject;
+    readonly sourceCalleeDeclaration?: ExtensionFactSubject;
+    readonly sourceReturnType?: ExtensionFactSubject;
     readonly contextualType?: ExtensionFactSubject;
+    readonly target?: string;
 }
 export interface TargetTypeArgumentMappingResult {
     readonly targetTypeArguments: readonly TargetTypeRef[];
@@ -119,6 +125,8 @@ export interface CheckedPropertyAccessMappingRequest {
     readonly propertyName: string;
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
+    readonly sourceResultType?: ExtensionFactSubject;
+    readonly optionalChain?: boolean;
     readonly target?: string;
 }
 export interface CheckedElementAccessMappingRequest {
@@ -127,6 +135,8 @@ export interface CheckedElementAccessMappingRequest {
     readonly argument: ExtensionFactSubject;
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
+    readonly sourceResultType?: ExtensionFactSubject;
+    readonly optionalChain?: boolean;
     readonly target?: string;
 }
 export interface CheckedOperatorMappingRequest {
@@ -154,6 +164,11 @@ export interface CheckedConversionMappingRequest {
     readonly expression: ExtensionFactSubject;
     readonly source: ExtensionFactSubject;
     readonly target: ExtensionFactSubject;
+    readonly call?: ExtensionFactSubject;
+    readonly parameterIndex?: number;
+    readonly targetParameter?: TargetParameter;
+    readonly sourceSelectedSignature?: ExtensionFactSubject;
+    readonly selectedSignature?: SelectedTargetSignatureFact;
     readonly targetPlatform?: string;
 }
 export interface CheckedConversionMappingResult {
@@ -164,6 +179,7 @@ export interface ParameterPassingRequest {
     readonly parameter: ExtensionFactSubject;
     readonly argument?: ExtensionFactSubject;
     readonly parameterIndex?: number;
+    readonly targetParameter?: TargetParameter;
     readonly call?: ExtensionFactSubject;
     readonly sourceSelectedSignature?: ExtensionFactSubject;
     readonly selectedSignature?: SelectedTargetSignatureFact;

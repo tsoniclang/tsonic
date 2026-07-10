@@ -7,6 +7,16 @@ import type {
   SourceSemanticsModule,
   SourceTypeMarkerDeclaration,
 } from "@tsonic/tsts";
+
+export const tsonicAttributeBuilderMemberIds = Object.freeze({
+  add: "__TsonicAttributeBuilder.add",
+  property: "__TsonicAttributeBuilder.property",
+  method: "__TsonicAttributeBuilder.method",
+  constructor: "__TsonicAttributeBuilder.constructor",
+  memberAdd: "__TsonicAttributeMemberBuilder.add",
+  parameter: "__TsonicAttributeMemberBuilder.parameter",
+  target: "__TsonicAttributeMemberBuilder.target",
+});
 import {
   tsonicCoreLangModule,
 } from "./identity.js";
@@ -131,13 +141,13 @@ export function attributeBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      methodMember("__TsonicAttributeBuilder.add", "add", [
+      methodMember(tsonicAttributeBuilderMemberIds.add, "add", [
         { name: "attribute", type: { kind: "object" } },
         { name: "args", type: { kind: "array", elementType: { kind: "unknown" } }, rest: true },
       ], { kind: "void" }),
-      memberSelector("__TsonicAttributeBuilder.property", "property", ownerType, memberBuilder),
-      memberSelector("__TsonicAttributeBuilder.method", "method", ownerType, memberBuilder),
-      callablePropertyMember("__TsonicAttributeBuilder.constructor", "constructor", [], memberBuilder),
+      memberSelector(tsonicAttributeBuilderMemberIds.property, "property", ownerType, memberBuilder),
+      memberSelector(tsonicAttributeBuilderMemberIds.method, "method", ownerType, memberBuilder),
+      callablePropertyMember(tsonicAttributeBuilderMemberIds.constructor, "constructor", [], memberBuilder),
     ],
   };
 }
@@ -156,14 +166,14 @@ export function attributeMemberBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      methodMember("__TsonicAttributeMemberBuilder.add", "add", [
+      methodMember(tsonicAttributeBuilderMemberIds.memberAdd, "add", [
         { name: "attribute", type: { kind: "object" } },
         { name: "args", type: { kind: "array", elementType: { kind: "unknown" } }, rest: true },
       ], { kind: "void" }),
-      methodMember("__TsonicAttributeMemberBuilder.parameter", "parameter", [
+      methodMember(tsonicAttributeBuilderMemberIds.parameter, "parameter", [
         { name: "name", type: { kind: "string" } },
       ], self),
-      methodMember("__TsonicAttributeMemberBuilder.target", "target", [
+      methodMember(tsonicAttributeBuilderMemberIds.target, "target", [
         { name: "specifier", type: { kind: "string" } },
       ], self),
     ],

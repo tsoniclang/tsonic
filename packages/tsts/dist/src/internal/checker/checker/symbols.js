@@ -5319,11 +5319,12 @@ export function Checker_checkIndexedAccess(receiver, node, checkMode) {
         return Checker_checkElementAccessChain(receiver, node, checkMode);
     }
     const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullExpression(receiver, Node_Expression(node)), checkMode);
-    recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node));
+    recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), result);
     return result;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessChain","kind":"method","status":"implemented","sigHash":"87c91ac1dd6b496bfe2958fdb3dd1e0df6978e08f1f8ab4c9f61519478895348","bodyHash":"16ff9421739abc3918fc26481c0c7b7e280cd0bb97dbb046bbd9febfbfd2f23b"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go optional-chain element access checking, extension-enabled programs record the same selected source evidence exposed for non-optional element access."}
  *
  * Go source:
  * func (c *Checker) checkElementAccessChain(node *ast.Node, checkMode CheckMode) *Type {
@@ -5335,7 +5336,9 @@ export function Checker_checkIndexedAccess(receiver, node, checkMode) {
 export function Checker_checkElementAccessChain(receiver, node, checkMode) {
     const exprType = Checker_checkExpression(receiver, Node_Expression(node));
     const nonOptionalType = Checker_getOptionalExpressionType(receiver, exprType, Node_Expression(node));
-    return Checker_propagateOptionalTypeMarker(receiver, Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), checkMode), node, nonOptionalType !== exprType);
+    const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), checkMode);
+    recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), result);
+    return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== exprType);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessExpression","kind":"method","status":"implemented","sigHash":"2f39be35c54aa297aa6da29e087ef31836844e9c96d08ac4a5d6679bc793bbda","bodyHash":"11932af46c7b11e3fd365479ad08c039f5afd3b81ae23f567ec842c2f141ef7e"}
@@ -6304,11 +6307,12 @@ export function Checker_checkPropertyAccessExpression(receiver, node, checkMode,
     }
     const expr = Node_Expression(node);
     const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, expr, Checker_checkNonNullExpression(receiver, expr), AsPropertyAccessExpression(node).name, checkMode, writeOnly);
-    recordExtensionCheckedPropertyAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node));
+    recordExtensionCheckedPropertyAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), result);
     return result;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessChain","kind":"method","status":"implemented","sigHash":"8fddaeae38c55291a27039fd3e34d4f23b91a1185f6450fd8a87c8ef77aeb85e","bodyHash":"8d099873c74d1d2075853d42ef27cf852f70d2462e0b439c46f9177816bb5aa8"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go optional-chain property access checking, extension-enabled programs record the same selected source evidence exposed for non-optional property access."}
  *
  * Go source:
  * func (c *Checker) checkPropertyAccessChain(node *ast.Node, checkMode CheckMode) *Type {
@@ -6320,10 +6324,13 @@ export function Checker_checkPropertyAccessExpression(receiver, node, checkMode,
 export function Checker_checkPropertyAccessChain(receiver, node, checkMode) {
     const leftType = Checker_checkExpression(receiver, Node_Expression(node));
     const nonOptionalType = Checker_getOptionalExpressionType(receiver, leftType, Node_Expression(node));
-    return Checker_propagateOptionalTypeMarker(receiver, Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, Node_Expression(node), Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), Node_Name(node), checkMode, false), node, nonOptionalType !== leftType);
+    const result = Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, node, Node_Expression(node), Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), Node_Name(node), checkMode, false);
+    recordExtensionCheckedPropertyAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), result);
+    return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== leftType);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpressionOrQualifiedName","kind":"method","status":"implemented","sigHash":"9215f415f7607d418e5a3a390b0bf838e9a2f44b6cd177065016f5a85a4714b1","bodyHash":"c9ee642c0561d3b1c6f6fcf3a43fb2def31c2e6dcf98504b1f6a3169813218e3"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"When TS-Go selects an index signature for property access, extension-selected evidence needs the same resolved-symbol cache that TS-Go already creates for public symbol queries."}
  *
  * Go source:
  * func (c *Checker) checkPropertyAccessExpressionOrQualifiedName(node *ast.Node, left *ast.Node, leftType *Type, right *ast.Node, checkMode CheckMode, writeOnly bool) *Type {
@@ -6557,6 +6564,9 @@ export function Checker_checkPropertyAccessExpressionOrQualifiedName(receiver, n
         }
         if (indexInfo.isReadonly && (IsAssignmentTarget(node) || isDeleteTarget(node))) {
             Checker_error(receiver, node, Index_signature_in_type_0_only_permits_reading, Checker_TypeToString(receiver, apparentType));
+        }
+        if (IsPropertyAccessExpression(node)) {
+            cacheIndexSignatureResolvedSymbol(receiver, node, apparentType, indexInfo);
         }
         propType = indexInfo.valueType;
         if (receiver.compilerOptions.NoUncheckedIndexedAccess === TSTrue && getAssignmentTargetKind(node) !== AssignmentKindDefinite) {
@@ -16334,6 +16344,7 @@ export function Checker_getIndexedAccessTypeOrUndefined(receiver, objectType, in
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getPropertyTypeForIndexType","kind":"method","status":"implemented","sigHash":"b165e26df1bd4167798c456fec8881582ad4a6c35f9d23dd470b4c9da80f6f58","bodyHash":"78ac5563270df952a0013017c2c289f27c217028281aef86cf17062c9ee47126"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"When TS-Go selects an index signature for element access, extension-selected evidence needs the same resolved-symbol cache that TS-Go already creates for public symbol queries."}
  *
  * Go source:
  * func (c *Checker) getPropertyTypeForIndexType(originalObjectType *Type, objectType *Type, indexType *Type, fullIndexType *Type, accessNode *ast.Node, accessFlags AccessFlags) *Type {
@@ -16661,6 +16672,9 @@ export function Checker_getPropertyTypeForIndexType(receiver, originalObjectType
                 return indexInfo.valueType;
             }
             Checker_errorIfWritingToReadonlyIndex(receiver, indexInfo, objectType, accessExpression);
+            if ((accessFlags & AccessFlagsCacheSymbol) !== 0 && accessExpression !== undefined) {
+                cacheIndexSignatureResolvedSymbol(receiver, accessExpression, objectType, indexInfo);
+            }
             if ((accessFlags & AccessFlagsIncludeUndefined) !== 0 &&
                 !(objectType.symbol !== undefined &&
                     (objectType.symbol.Flags & (SymbolFlagsRegularEnum | SymbolFlagsConstEnum)) !== 0 &&
@@ -16762,6 +16776,13 @@ export function Checker_getPropertyTypeForIndexType(receiver, originalObjectType
         return indexType;
     }
     return undefined;
+}
+function cacheIndexSignatureResolvedSymbol(receiver, accessNode, objectType, indexInfo) {
+    const indexSymbol = Checker_getApplicableIndexSymbol(receiver, objectType, indexInfo.keyType);
+    if (indexSymbol === undefined) {
+        return;
+    }
+    LinkStore_Get(receiver.symbolNodeLinks, accessNode).resolvedSymbol = indexSymbol;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.typeHasStaticProperty","kind":"method","status":"implemented","sigHash":"0abb127ac6acdd3eb73f1d9cadd85a1657080c9094f49a03f8676767003d1373","bodyHash":"b34383b42643a1e29df78ae3838f9ce193aaf63b8a7e3c1e5c8bc114518fd84a"}

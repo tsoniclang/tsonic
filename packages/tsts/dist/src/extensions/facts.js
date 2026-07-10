@@ -84,6 +84,9 @@ export const selectedTargetSignatureFactKey = defineExtensionFactKey({
         && targetTypeRefArrayEquals(left.argumentConversions, right.argumentConversions)
         && left.sourceSignature === right.sourceSignature
         && left.sourceDeclaration === right.sourceDeclaration
+        && left.sourceCalleeSymbol === right.sourceCalleeSymbol
+        && left.sourceCalleeDeclaration === right.sourceCalleeDeclaration
+        && left.sourceReturnType === right.sourceReturnType
         && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration),
 });
 export const contextualTargetTypeFactKey = defineExtensionFactKey({
@@ -314,7 +317,8 @@ function optionalTargetOperationProvenanceEquals(left, right) {
         && left.sourceCallee === right.sourceCallee
         && left.sourceSelectedSymbol === right.sourceSelectedSymbol
         && left.sourceSelectedDeclaration === right.sourceSelectedDeclaration
-        && left.sourceSelectedSignature === right.sourceSelectedSignature;
+        && left.sourceSelectedSignature === right.sourceSelectedSignature
+        && left.sourceResultType === right.sourceResultType;
 }
 function sourceSelectedMethodTypeArgumentArrayEquals(left, right) {
     if (left === undefined || right === undefined) {

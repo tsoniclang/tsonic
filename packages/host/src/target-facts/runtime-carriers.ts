@@ -228,7 +228,7 @@ function getProjectSourceCallReturnCarrier(
   }
   const callee = ast.as.AsCallExpression(node)?.Expression;
   const reference = getProjectSourceReferenceForNode(ast, checker, types, callee, options, sourceFiles);
-  const returnTypeNode = getDeclarationTypeNode(reference?.declaration);
+  const returnTypeNode = getDeclarationTypeNode(ast, reference?.declaration);
   if (returnTypeNode === undefined || reference === undefined) {
     return undefined;
   }
@@ -449,7 +449,7 @@ function getRuntimeCarrierFromTypeAliasFactGraph(
   seen: ReadonlySet<Node>,
 ): TargetTypeRef | undefined {
   for (const declaration of checker.getSymbolDeclarations(symbol)) {
-    const typeNode = getDeclarationTypeNode(declaration);
+    const typeNode = getDeclarationTypeNode(ast, declaration);
     if (typeNode === undefined || typeNode === currentNode) {
       continue;
     }

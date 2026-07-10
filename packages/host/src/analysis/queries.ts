@@ -1,7 +1,5 @@
 import type {
   AstReader,
-  ExtensionFactSubject,
-  Signature,
   SourceFile,
   TypeCheckerQueries,
   TypeShapeQueries,
@@ -19,7 +17,6 @@ import {
   hasParameterlessConstruction,
 } from "./project-source.js";
 import {
-  getPrimaryDeclaration,
   getResolvedSymbolForReferenceNode,
   getSemanticTypeForNode,
   getSymbolAtReferenceNode,
@@ -71,25 +68,6 @@ export function createTargetSourceAnalysisQueries(
       const node = asNode(subject);
       return node === undefined ? undefined : checker.getTypeFromTypeNode(node, options);
     },
-    getResolvedCallReturnType(subject, options) {
-      const node = asNode(subject);
-      const signature = node === undefined ? undefined : checker.getResolvedSignature(node, options);
-      return signature === undefined
-        ? undefined
-        : checker.getReturnTypeOfSignature(signature, options);
-    },
-    getResolvedCallParameterDeclarations(subject, options) {
-      const signature = getResolvedSignatureForNode(subject, options);
-      return signature === undefined
-        ? undefined
-        : checker.getSignatureParameters(signature).map((parameter) => getPrimaryDeclaration(checker, parameter));
-    },
-    getResolvedCallParameterTypes(subject, options) {
-      const signature = getResolvedSignatureForNode(subject, options);
-      return signature === undefined
-        ? undefined
-        : checker.getSignatureParameters(signature).map((parameter) => checker.getTypeOfSymbol(parameter, options));
-    },
     getEnumMemberConstant(subject, options) {
       const node = asNode(subject);
       const value = node === undefined ? undefined : checker.getConstantValue(node, options);
@@ -140,11 +118,4 @@ export function createTargetSourceAnalysisQueries(
     },
   };
 
-  function getResolvedSignatureForNode(
-    subject: ExtensionFactSubject | undefined,
-    options: { readonly sourceFile: SourceFile },
-  ): Signature | undefined {
-    const node = asNode(subject);
-    return node === undefined ? undefined : checker.getResolvedSignature(node, options);
-  }
 }

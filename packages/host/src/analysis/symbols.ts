@@ -85,16 +85,31 @@ export function isTypeReferenceQuery(ast: AstReader, node: Node): boolean {
   return ast.as.AsTypeReferenceNode(parent)?.TypeName === current;
 }
 
-const symbolFlagsAlias = 1 << 21;
-
 export function getAliasedSymbolIfAlias(
+  ast: AstReader,
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
   options: { readonly sourceFile: SourceFile },
 ): Symbol | undefined {
-  return symbol !== undefined && (symbol.Flags & symbolFlagsAlias) !== 0
+  return symbol !== undefined && checker.getSymbolDeclarations(symbol).some((declaration) => isAliasDeclaration(ast, declaration))
     ? checker.getAliasedSymbol(symbol, options)
     : undefined;
+}
+
+function isAliasDeclaration(ast: AstReader, declaration: Node | undefined): boolean {
+  let current = declaration;
+  for (let depth = 0; current !== undefined && depth < 3; depth += 1) {
+    if (
+      ast.is.IsImportClause(current) ||
+      ast.is.IsImportSpecifier(current) ||
+      ast.is.IsNamespaceImport(current) ||
+      ast.is.IsExportSpecifier(current)
+    ) {
+      return true;
+    }
+    current = ast.parent(current);
+  }
+  return false;
 }
 
 export function getPrimaryDeclaration(

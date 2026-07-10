@@ -278,8 +278,8 @@ function fileLoader_mergeProviderImportSlices(moduleSpecifier, slicesToMerge) {
         allTypeOnly &&= slice.typeOnly === true;
         hasReexportRequest ||= slice.kind === "reexport";
         for (const requestedExport of slice.requestedExports ?? []) {
-            const key = JSON.stringify([requestedExport.exportedName, requestedExport.localName ?? "", requestedExport.kind ?? "unknown"]);
-            requestedExportsByKey.set(key, requestedExport);
+            const key = requestedExport.exportedName;
+            requestedExportsByKey.set(key, mergeProviderRequestedExport(requestedExportsByKey.get(key), requestedExport));
             hasDefaultRequest ||= requestedExport.exportedName === "default";
         }
     }
@@ -303,6 +303,27 @@ function fileLoader_mergeProviderImportSlices(moduleSpecifier, slicesToMerge) {
 }
 function getProviderImportRequestKind(typeOnly) {
     return typeOnly ? "type" : "value";
+}
+function mergeProviderRequestedExport(existing, incoming) {
+    if (existing === undefined) {
+        return {
+            exportedName: incoming.exportedName,
+            ...(incoming.kind !== undefined ? { kind: incoming.kind } : {}),
+        };
+    }
+    return {
+        exportedName: existing.exportedName,
+        kind: mergeProviderImportRequestKind(existing.kind, incoming.kind),
+    };
+}
+function mergeProviderImportRequestKind(left, right) {
+    if (left === "unknown" || right === "unknown") {
+        return "unknown";
+    }
+    if (left === "value" || right === "value") {
+        return "value";
+    }
+    return "type";
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::varGroup::_","kind":"varGroup","status":"implemented","sigHash":"49fbaf64ae10ed60e869e0234672578cdcd492d18042f56b9c710f8c12be2c3e","bodyHash":"8284e921f9f925885aeaa798132fe24f86ec0403613b3a5953059d91a14dc916"}

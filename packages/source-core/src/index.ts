@@ -12,6 +12,7 @@ export {
   providerExportDeclarationsForSourceModule,
   providerPrimitiveDeclaration,
   providerTypeMarkerDeclaration,
+  tsonicAttributeBuilderMemberIds,
 } from "./provider-declarations.js";
 export { createTsonicCoreSourceExtension } from "./source-extension.js";
 export { tsonicCoreSourceSemanticsModules } from "./source-modules.js";

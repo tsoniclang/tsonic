@@ -223,6 +223,8 @@ export type ProviderTypeExpression = {
 } | {
     readonly kind: "never";
 } | {
+    readonly kind: "undefined";
+} | {
     readonly kind: "boolean";
 } | {
     readonly kind: "string";

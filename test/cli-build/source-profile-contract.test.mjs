@@ -23,18 +23,20 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
       "const path = \"/todos/42\";",
       "const parts = path.Split(\"/\");",
       "const ok = path.StartsWith(\"/\");",
-      "Console.WriteLine(`${parts.Length}:${ok}`);",
+      "const first = parts[1];",
+      "Console.WriteLine(`${parts.Length}:${ok}:${first}`);",
       "",
     ].join("\n"),
   });
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const output = runGeneratedProject(projectDirectory, "SmokeGeneratedSourceProfile");
-  assert.equal(output.trim(), "3:True");
+  assert.equal(output.trim(), "3:True:todos");
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/App.cs"), "utf8");
   assert.match(generated, /path\.Split\("\/"\)/u);
   assert.match(generated, /path\.StartsWith\("\/"\)/u);
   assert.match(generated, /parts\.Length/u);
+  assert.match(generated, /parts\[1\]/u);
 });
 
 test("CLI pure C# source profile rejects JS names without JS surface", async () => {

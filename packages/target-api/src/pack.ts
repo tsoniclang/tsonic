@@ -150,9 +150,6 @@ export interface TargetSourceAnalysisQueries {
   getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
   getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
   getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
-  getResolvedCallReturnType(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
-  getResolvedCallParameterDeclarations(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): readonly (Node | undefined)[] | undefined;
-  getResolvedCallParameterTypes(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): readonly (Type | undefined)[] | undefined;
   getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): { readonly value: string | number | undefined } | undefined;
   isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): boolean;
   isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): boolean;
