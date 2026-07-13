@@ -20,11 +20,6 @@
   "bin": {
     "tsts": "./dist/src/cli/index.js"
   },
-  "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json",
-    "package:check": "node tools/package/check-built-package.mjs",
-    "prepack": "npm run build && npm run package:check"
-  },
   "files": [
     "dist/src/**/*.js",
     "dist/src/**/*.js.map",

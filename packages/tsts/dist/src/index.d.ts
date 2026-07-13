@@ -14,7 +14,7 @@ export type { TypeCheckerQueries, TypeCheckerQueryOptions } from "./services/typ
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export type { CompilerFileSystem, CompilerHostOptions, CompilerTraceCallback, InMemoryFileSystemOptions } from "./services/embedding-host.js";
 export { createAstReader } from "./services/ast-reader.js";
-export type { AstModifierKind, AstReader } from "./services/ast-reader.js";
+export type { AstModifierKind, AstReader, AstVariableDeclarationKind } from "./services/ast-reader.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
 export type { CompilerDiagnosticKind, CompilerSession, CompilerSessionOptions, InMemoryCompilerSessionOptions } from "./services/compiler-session.js";
 export { createTypeShapeQueries } from "./services/type-shape.js";

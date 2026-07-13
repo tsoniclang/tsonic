@@ -1,9 +1,13 @@
-import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_TypeArguments } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Expression, Node_Symbol, Node_Text, Node_Type, Node_TypeArguments } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
+import { SkipParentheses } from "../internal/ast/utilities.js";
 import { AsElementAccessExpression, AsForInOrOfStatement } from "../internal/ast/generated/casts.js";
 import { NodeFlagsOptionalChain } from "../internal/ast/generated/flags.js";
 import { TokenToString } from "../internal/scanner/scanner.js";
+import { Type_Flags, Type_Symbol, TypeFlagsUniqueESSymbol } from "../internal/checker/types.js";
 import { Checker_GetReturnTypeOfSignature } from "../internal/checker/exports.js";
+import { Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
+import { Checker_getResolvedSymbolOrNil } from "../internal/checker/checker/symbols.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import { argumentPassingFactKey, contextualTargetTypeFactKey, flowStateFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, targetBindingFactKey, targetConversionFactKey, targetOperationFactKey } from "./facts.js";
 import { getExtensionHost } from "./host.js";
@@ -87,15 +91,16 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
     const operation = result.value.provenance === undefined
         ? operationWithResult
         : withTargetOperationProvenance(operationWithResult, result.value.provenance);
-    extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, withTargetOperationProvenance(operation, {
+    const operationWithProvenance = withTargetOperationProvenance(operation, {
         sourceExpression: propertyAccessExpression,
         sourceReceiver: receiver,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
         ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
         ...(sourceResultType !== undefined ? { sourceResultType } : {}),
-    }), result.evidence ?? []);
+    });
+    extensionHost.facts.set(propertyAccessExpression, targetOperationFactKey, preserveEquivalentCheckedSourceResultType(checker, extensionHost, propertyAccessExpression, operationWithProvenance, sourceResultType), result.evidence ?? []);
 }
-export function recordExtensionCheckedElementAccessMapping(checker, elementAccessExpression, resolvedSelectedSymbol, sourceResultType) {
+export function recordExtensionCheckedElementAccessMapping(checker, elementAccessExpression, resolvedSelectedSymbol, sourceResultType, sourceSelectedElementIndex) {
     if (checker === undefined || elementAccessExpression === undefined) {
         return;
     }
@@ -116,6 +121,7 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
         argument,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
         ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
+        ...(sourceSelectedElementIndex !== undefined ? { sourceSelectedElementIndex } : {}),
         ...(sourceResultType !== undefined ? { sourceResultType } : {}),
         ...(((elementAccessExpression.Flags ?? 0) & NodeFlagsOptionalChain) !== 0 ? { optionalChain: true } : {}),
         ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
@@ -129,13 +135,44 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
     const operation = result.value.provenance === undefined
         ? operationWithResult
         : withTargetOperationProvenance(operationWithResult, result.value.provenance);
-    extensionHost.facts.set(elementAccessExpression, targetOperationFactKey, withTargetOperationProvenance(operation, {
+    const operationWithProvenance = withTargetOperationProvenance(operation, {
         sourceExpression: elementAccessExpression,
         sourceReceiver: receiver,
         ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
         ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
         ...(sourceResultType !== undefined ? { sourceResultType } : {}),
-    }), result.evidence ?? []);
+    });
+    extensionHost.facts.set(elementAccessExpression, targetOperationFactKey, preserveEquivalentCheckedSourceResultType(checker, extensionHost, elementAccessExpression, operationWithProvenance, sourceResultType), result.evidence ?? []);
+}
+export function recordExtensionCheckedAssertionConversion(checker, assertionExpression, sourceType, targetType, assertionKind) {
+    if (checker === undefined || assertionExpression === undefined || sourceType === undefined || targetType === undefined) {
+        return;
+    }
+    const extensionHost = getExtensionHost(checker.program);
+    if (extensionHost === undefined) {
+        return;
+    }
+    const sourceExpression = Node_Expression(assertionExpression);
+    const explicitTargetTypeNode = Node_Type(assertionExpression);
+    if (sourceExpression === undefined || explicitTargetTypeNode === undefined) {
+        return;
+    }
+    const sourceSelectedSymbol = selectedSourceSymbol(checker, Checker_getResolvedSymbolOrNil(checker, SkipParentheses(sourceExpression)));
+    const sourceSelectedDeclaration = primarySymbolDeclaration(sourceSelectedSymbol);
+    const sourceSelectedDeclarationTypeNode = sourceSelectedDeclaration === undefined ? undefined : Node_Type(sourceSelectedDeclaration);
+    recordExtensionCheckedConversion(extensionHost, {
+        conversionKind: "assertion",
+        assertionKind,
+        expression: assertionExpression,
+        source: sourceType,
+        target: targetType,
+        sourceExpression,
+        ...(sourceSelectedSymbol !== undefined ? { sourceSelectedSymbol } : {}),
+        ...(sourceSelectedDeclaration !== undefined ? { sourceSelectedDeclaration } : {}),
+        ...(sourceSelectedDeclarationTypeNode !== undefined ? { sourceSelectedDeclarationTypeNode } : {}),
+        explicitTargetTypeNode,
+        ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
+    });
 }
 export function recordExtensionCheckedOperatorMapping(checker, expression, operatorToken, left, right) {
     if (operatorToken === undefined) {
@@ -259,6 +296,8 @@ export function recordExtensionRuntimeCarrierFact(checker, typeReference, type, 
     }
     const result = extensionHost.runObservation(ExtensionObservationPoint.resolveRuntimeCarrier, {
         type,
+        ...(typeReference !== undefined ? { sourceTypeReference: typeReference } : {}),
+        ...(symbol !== undefined ? { sourceSymbol: symbol } : {}),
         ...(extensionHost.activeTarget !== undefined ? { target: extensionHost.activeTarget } : {}),
     }, () => {
         throw new Error("Extension-owned runtime carrier resolution unexpectedly reached core fallback.");
@@ -421,7 +460,7 @@ function recordExtensionTargetTypeArgumentMapping(extensionHost, callExpression,
     };
 }
 function recordExtensionCallArgumentConversions(extensionHost, callExpression, callResult, arguments_) {
-    if (extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedConversion) === undefined) {
+    if (callExpression === undefined || extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedConversion) === undefined) {
         return;
     }
     const parameters = callResult.selectedSignature.member.parameters;
@@ -431,27 +470,34 @@ function recordExtensionCallArgumentConversions(extensionHost, callExpression, c
         if (parameter === undefined || argument === undefined) {
             continue;
         }
-        const result = extensionHost.runObservation(ExtensionObservationPoint.mapCheckedConversion, {
+        recordExtensionCheckedConversion(extensionHost, {
+            conversionKind: "call-argument",
             expression: argument,
             source: argument,
             target: parameter.type,
-            ...(callExpression !== undefined ? { call: callExpression } : {}),
+            call: callExpression,
             parameterIndex: index,
             targetParameter: parameter,
             ...(callResult.selectedSignature.sourceSignature !== undefined ? { sourceSelectedSignature: callResult.selectedSignature.sourceSignature } : {}),
             selectedSignature: callResult.selectedSignature,
             ...(extensionHost.activeTarget !== undefined ? { targetPlatform: extensionHost.activeTarget } : {}),
-        }, () => {
-            throw new Error("Extension-owned conversion resolution unexpectedly reached core fallback.");
-        }, { requireOwner: true });
-        if (result.kind !== "accept" || (result.value.convertedType === undefined && result.value.operation === undefined)) {
-            continue;
-        }
-        extensionHost.facts.set(argument, targetConversionFactKey, {
-            ...(result.value.convertedType !== undefined ? { convertedType: result.value.convertedType } : {}),
-            ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
-        }, result.evidence ?? []);
+        });
     }
+}
+function recordExtensionCheckedConversion(extensionHost, request) {
+    if (extensionHost.getObservationOwner(ExtensionObservationPoint.mapCheckedConversion) === undefined) {
+        return;
+    }
+    const result = extensionHost.runObservation(ExtensionObservationPoint.mapCheckedConversion, request, () => {
+        throw new Error("Extension-owned conversion resolution unexpectedly reached core fallback.");
+    }, { requireOwner: true });
+    if (result.kind !== "accept" || (result.value.convertedType === undefined && result.value.operation === undefined)) {
+        return;
+    }
+    extensionHost.facts.set(request.expression, targetConversionFactKey, {
+        ...(result.value.convertedType !== undefined ? { convertedType: result.value.convertedType } : {}),
+        ...(result.value.operation !== undefined ? { operation: result.value.operation } : {}),
+    }, result.evidence ?? []);
 }
 function definedFactSubjects(subjects) {
     return subjects.filter((subject) => subject !== undefined);
@@ -514,6 +560,40 @@ function withTargetOperationProvenance(operation, provenance) {
             ...provenance,
         },
     };
+}
+function preserveEquivalentCheckedSourceResultType(checker, extensionHost, subject, incoming, incomingSourceResultType) {
+    if (incomingSourceResultType === undefined) {
+        return incoming;
+    }
+    const existing = extensionHost.facts.get(subject, targetOperationFactKey);
+    const existingSourceResultType = existing?.provenance?.sourceResultType;
+    if (existing === undefined || existingSourceResultType === undefined || existingSourceResultType === incomingSourceResultType) {
+        return incoming;
+    }
+    const withExistingSourceResultType = withTargetOperationProvenance(incoming, {
+        sourceResultType: existingSourceResultType,
+    });
+    if (!targetOperationFactKey.equals(existing, withExistingSourceResultType)) {
+        return incoming;
+    }
+    return checkedSourceResultTypesEquivalent(checker, existingSourceResultType, incomingSourceResultType)
+        ? withExistingSourceResultType
+        : incoming;
+}
+function checkedSourceResultTypesEquivalent(checker, left, right) {
+    if (Checker_isTypeIdenticalTo(checker, left, right)) {
+        return true;
+    }
+    if ((Type_Flags(left) & TypeFlagsUniqueESSymbol) === 0 || (Type_Flags(right) & TypeFlagsUniqueESSymbol) === 0) {
+        return false;
+    }
+    const leftSymbol = Type_Symbol(left);
+    const rightSymbol = Type_Symbol(right);
+    if (leftSymbol === undefined || leftSymbol !== rightSymbol) {
+        return false;
+    }
+    const declaration = primarySymbolDeclaration(leftSymbol);
+    return declaration !== undefined && declaration === primarySymbolDeclaration(rightSymbol);
 }
 function withCheckedOperationResultType(operation, resultType) {
     if (operation.resultType !== undefined || resultType === undefined) {

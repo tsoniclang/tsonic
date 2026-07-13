@@ -3,8 +3,9 @@ import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/as
 import { KindString } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
+import { NodeFlagsBlockScoped, NodeFlagsNone } from "../internal/ast/generated/flags.js";
 import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsAsync, ModifierFlagsConst, ModifierFlagsDefault, ModifierFlagsExport, ModifierFlagsOverride, ModifierFlagsPrivate, ModifierFlagsProtected, ModifierFlagsPublic, ModifierFlagsReadonly, ModifierFlagsStatic, } from "../internal/ast/modifierflags.js";
-import { GetHeritageElements, GetSourceFileOfNode, HasModifier, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration } from "../internal/ast/utilities.js";
+import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing } from "../internal/ast/utilities.js";
 import { KindExtendsKeyword, KindImplementsKeyword } from "../internal/ast/generated/kinds.js";
 export function createAstReader() {
     return {
@@ -36,6 +37,7 @@ export function createAstReader() {
         modifierFlags: (node) => node === undefined ? 0 : Node_ModifierFlags(node),
         hasModifier: (node, flags) => node !== undefined && HasModifier(node, flags) === true,
         hasModifierKind: (node, kind) => node !== undefined && HasModifier(node, modifierFlagForKind(kind)) === true,
+        variableDeclarationKind,
         heritageElements: (node, kind) => GetHeritageElements(node, kind === "extends" ? KindExtendsKeyword : KindImplementsKeyword) ?? [],
         extendsHeritageElements: (node) => GetHeritageElements(node, KindExtendsKeyword) ?? [],
         implementsHeritageElements: (node) => GetHeritageElements(node, KindImplementsKeyword) ?? [],
@@ -62,6 +64,40 @@ export function createAstReader() {
         is: predicates,
         as: casts,
     };
+}
+function variableDeclarationKind(node) {
+    const declarationList = variableDeclarationList(node);
+    if (declarationList === undefined) {
+        return undefined;
+    }
+    if (IsVarAwaitUsing(declarationList)) {
+        return "await using";
+    }
+    if (IsVarUsing(declarationList)) {
+        return "using";
+    }
+    if (IsVarConst(declarationList)) {
+        return "const";
+    }
+    if (IsVarLet(declarationList)) {
+        return "let";
+    }
+    return (GetCombinedNodeFlags(declarationList) & NodeFlagsBlockScoped) === NodeFlagsNone ? "var" : undefined;
+}
+function variableDeclarationList(node) {
+    if (node === undefined) {
+        return undefined;
+    }
+    if (predicates.IsVariableStatement(node)) {
+        return casts.AsVariableStatement(node)?.DeclarationList;
+    }
+    if (predicates.IsVariableDeclarationList(node)) {
+        return node;
+    }
+    if (predicates.IsVariableDeclaration(node) && predicates.IsVariableDeclarationList(node.Parent)) {
+        return node.Parent;
+    }
+    return undefined;
 }
 function modifierFlagForKind(kind) {
     switch (kind) {

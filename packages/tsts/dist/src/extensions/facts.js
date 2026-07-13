@@ -304,7 +304,7 @@ function targetOperationFactEquals(left, right) {
     return left.operationId === right.operationId
         && left.operationKind === right.operationKind
         && left.targetOperation === right.targetOperation
-        && left.resultType === right.resultType
+        && optionalTargetTypeRefEquals(left.resultType, right.resultType)
         && optionalTargetOperationProvenanceEquals(left.provenance, right.provenance);
 }
 function optionalTargetOperationProvenanceEquals(left, right) {

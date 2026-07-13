@@ -5304,7 +5304,6 @@ export function Checker_checkQualifiedName(receiver, node, checkMode) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIndexedAccess","kind":"method","status":"implemented","sigHash":"32fa0a002cb05468dc7def68493137d7aedba03aeb689f7a70ba4ca9a71ad6b7","bodyHash":"889b5dc89357c094a4d04e010b1e12026e834b898e2ef917803c8abceca31716"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go element access checking, extension-enabled programs may record provider-selected surface/target indexer facts for consumers; no-extension programs and unowned accesses remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkIndexedAccess(node *ast.Node, checkMode CheckMode) *Type {
@@ -5318,13 +5317,10 @@ export function Checker_checkIndexedAccess(receiver, node, checkMode) {
     if ((node.Flags & NodeFlagsOptionalChain) !== 0) {
         return Checker_checkElementAccessChain(receiver, node, checkMode);
     }
-    const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullExpression(receiver, Node_Expression(node)), checkMode);
-    recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), result);
-    return result;
+    return Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullExpression(receiver, Node_Expression(node)), checkMode);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessChain","kind":"method","status":"implemented","sigHash":"87c91ac1dd6b496bfe2958fdb3dd1e0df6978e08f1f8ab4c9f61519478895348","bodyHash":"16ff9421739abc3918fc26481c0c7b7e280cd0bb97dbb046bbd9febfbfd2f23b"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go optional-chain element access checking, extension-enabled programs record the same selected source evidence exposed for non-optional element access."}
  *
  * Go source:
  * func (c *Checker) checkElementAccessChain(node *ast.Node, checkMode CheckMode) *Type {
@@ -5336,12 +5332,11 @@ export function Checker_checkIndexedAccess(receiver, node, checkMode) {
 export function Checker_checkElementAccessChain(receiver, node, checkMode) {
     const exprType = Checker_checkExpression(receiver, Node_Expression(node));
     const nonOptionalType = Checker_getOptionalExpressionType(receiver, exprType, Node_Expression(node));
-    const result = Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), checkMode);
-    recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), result);
-    return Checker_propagateOptionalTypeMarker(receiver, result, node, nonOptionalType !== exprType);
+    return Checker_propagateOptionalTypeMarker(receiver, Checker_checkElementAccessExpression(receiver, node, Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node)), checkMode), node, nonOptionalType !== exprType);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessExpression","kind":"method","status":"implemented","sigHash":"2f39be35c54aa297aa6da29e087ef31836844e9c96d08ac4a5d6679bc793bbda","bodyHash":"11932af46c7b11e3fd365479ad08c039f5afd3b81ae23f567ec842c2f141ef7e"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go element selection has resolved the effective receiver, selected symbol, and result type, extension-enabled programs record that exact evidence, including a fixed tuple ordinal when every selected receiver constituent proves it."}
  *
  * Go source:
  * func (c *Checker) checkElementAccessExpression(node *ast.Node, exprType *Type, checkMode CheckMode) *Type {
@@ -5383,10 +5378,12 @@ export function Checker_checkElementAccessExpression(receiver, node, exprType, c
     const indexExpression = AsElementAccessExpression(node).ArgumentExpression;
     const indexType = Checker_checkExpression(receiver, indexExpression);
     if (Checker_isErrorType(receiver, objectType) || objectType === receiver.silentNeverType) {
+        recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), objectType);
         return objectType;
     }
     if (isConstEnumObjectType(objectType) && !IsStringLiteralLike(indexExpression)) {
         Checker_error(receiver, indexExpression, A_const_enum_member_can_only_be_accessed_using_a_string_literal);
+        recordExtensionCheckedElementAccessMapping(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), receiver.errorType);
         return receiver.errorType;
     }
     let effectiveIndexType = indexType;
@@ -5400,7 +5397,36 @@ export function Checker_checkElementAccessExpression(receiver, node, exprType, c
             (assignmentTargetKind === AssignmentKindCompound ? AccessFlagsExpressionPosition : 0) |
             (Checker_isGenericObjectType(receiver, objectType) && !isThisTypeParameter(objectType) ? AccessFlagsNoIndexSignatures : 0));
     const indexedAccessType = OrElse(Checker_getIndexedAccessTypeOrUndefined(receiver, objectType, effectiveIndexType, accessFlags, node, undefined), receiver.errorType);
-    return Checker_checkIndexedAccessIndexType(receiver, Checker_getFlowTypeOfAccessExpression(receiver, node, Checker_getResolvedSymbolOrNil(receiver, node), indexedAccessType, indexExpression, checkMode), node);
+    const resolvedSelectedSymbol = Checker_getResolvedSymbolOrNil(receiver, node);
+    const result = Checker_checkIndexedAccessIndexType(receiver, Checker_getFlowTypeOfAccessExpression(receiver, node, resolvedSelectedSymbol, indexedAccessType, indexExpression, checkMode), node);
+    recordExtensionCheckedElementAccessMapping(receiver, node, resolvedSelectedSymbol, result, getSelectedFixedTupleElementIndex(objectType, resolvedSelectedSymbol));
+    return result;
+}
+function getSelectedFixedTupleElementIndex(objectType, selectedSymbol) {
+    const selectedName = selectedSymbol?.Name;
+    if (selectedName === undefined || !isNumericLiteralName(selectedName)) {
+        return undefined;
+    }
+    const index = FromString(selectedName);
+    if (index < 0 || index % 1 !== 0) {
+        return undefined;
+    }
+    if (!typeSelectionProvesFixedTupleIndex(objectType, index)) {
+        return undefined;
+    }
+    return index;
+}
+function typeSelectionProvesFixedTupleIndex(type, index) {
+    if (isTupleType(type)) {
+        return index < Type_TargetTupleType(type).fixedLength;
+    }
+    if ((type.flags & TypeFlagsUnion) !== 0) {
+        return Every(Type_Types(type), (constituent) => typeSelectionProvesFixedTupleIndex(constituent, index));
+    }
+    if ((type.flags & TypeFlagsIntersection) !== 0) {
+        return Some(Type_Types(type), (constituent) => typeSelectionProvesFixedTupleIndex(constituent, index));
+    }
+    return false;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isForInVariableForNumericPropertyNames","kind":"method","status":"implemented","sigHash":"82601ddae714cee228e98f32cf1c7a1dcce43471aea4e3478c9359c3c4816f2b","bodyHash":"070ed4e5c450a954fbbde2e6c60a694dd5c1766d496995219eed7571ac56ec18"}

@@ -135,6 +135,7 @@ export interface CheckedElementAccessMappingRequest {
     readonly argument: ExtensionFactSubject;
     readonly sourceSelectedSymbol?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
+    readonly sourceSelectedElementIndex?: number;
     readonly sourceResultType?: ExtensionFactSubject;
     readonly optionalChain?: boolean;
     readonly target?: string;
@@ -157,20 +158,42 @@ export interface CheckedIterationMappingRequest {
 }
 export interface CheckedOperationMappingResult {
     readonly operation: TargetOperationFact;
-    readonly resultType?: ExtensionFactSubject;
+    readonly resultType?: TargetTypeRef;
     readonly provenance?: TargetOperationProvenance;
 }
-export interface CheckedConversionMappingRequest {
+interface CheckedConversionMappingRequestBase {
     readonly expression: ExtensionFactSubject;
     readonly source: ExtensionFactSubject;
     readonly target: ExtensionFactSubject;
-    readonly call?: ExtensionFactSubject;
-    readonly parameterIndex?: number;
-    readonly targetParameter?: TargetParameter;
-    readonly sourceSelectedSignature?: ExtensionFactSubject;
-    readonly selectedSignature?: SelectedTargetSignatureFact;
     readonly targetPlatform?: string;
 }
+export type CheckedConversionMappingRequest = CheckedConversionMappingRequestBase & ({
+    readonly conversionKind: "call-argument";
+    readonly call: ExtensionFactSubject;
+    readonly parameterIndex: number;
+    readonly targetParameter: TargetParameter;
+    readonly sourceSelectedSignature?: ExtensionFactSubject;
+    readonly selectedSignature: SelectedTargetSignatureFact;
+    readonly assertionKind?: never;
+    readonly sourceExpression?: never;
+    readonly sourceSelectedSymbol?: never;
+    readonly sourceSelectedDeclaration?: never;
+    readonly sourceSelectedDeclarationTypeNode?: never;
+    readonly explicitTargetTypeNode?: never;
+} | {
+    readonly conversionKind: "assertion";
+    readonly assertionKind: "as" | "angle-bracket" | "jsdoc";
+    readonly sourceExpression: ExtensionFactSubject;
+    readonly sourceSelectedSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedDeclaration?: ExtensionFactSubject;
+    readonly sourceSelectedDeclarationTypeNode?: ExtensionFactSubject;
+    readonly explicitTargetTypeNode: ExtensionFactSubject;
+    readonly call?: never;
+    readonly parameterIndex?: never;
+    readonly targetParameter?: never;
+    readonly sourceSelectedSignature?: never;
+    readonly selectedSignature?: never;
+});
 export interface CheckedConversionMappingResult {
     readonly convertedType?: TargetTypeRef;
     readonly operation?: TargetOperationFact;
@@ -190,6 +213,8 @@ export interface ParameterPassingResult {
 }
 export interface RuntimeCarrierFactRequest {
     readonly type: ExtensionFactSubject;
+    readonly sourceTypeReference?: ExtensionFactSubject;
+    readonly sourceSymbol?: ExtensionFactSubject;
     readonly target?: string;
 }
 export interface RuntimeCarrierFactResult {
@@ -277,4 +302,5 @@ export type ExtensionObservationHook<TObservation extends ExtensionObservationPo
 export declare const deferObservation: ExtensionObservation<never>;
 export declare function acceptObservation<T>(value: T, evidence?: readonly ExtensionEvidence[]): ExtensionObservation<T>;
 export declare function rejectObservation<T>(diagnostic: ExtensionDiagnostic): ExtensionObservation<T>;
+export {};
 //# sourceMappingURL=observations.d.ts.map

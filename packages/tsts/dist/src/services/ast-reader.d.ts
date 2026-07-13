@@ -4,6 +4,7 @@ import type { Kind } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
 export type AstModifierKind = "public" | "private" | "protected" | "readonly" | "override" | "export" | "abstract" | "ambient" | "static" | "async" | "default" | "const";
+export type AstVariableDeclarationKind = "var" | "let" | "const" | "using" | "await using";
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
@@ -24,7 +25,10 @@ export interface AstReader {
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifierFlags: (node: GoPtr<Node>) => number;
     readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;
+    /** Tests syntactic modifiers. `"const"` means the `const enum` modifier, not a variable declaration kind. */
     readonly hasModifierKind: (node: GoPtr<Node>, kind: AstModifierKind) => boolean;
+    /** Classifies a variable statement, declaration list, or direct variable declaration. */
+    readonly variableDeclarationKind: (node: GoPtr<Node>) => AstVariableDeclarationKind | undefined;
     readonly heritageElements: (node: GoPtr<Node>, kind: "extends" | "implements") => readonly GoPtr<Node>[];
     readonly extendsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly implementsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
