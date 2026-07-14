@@ -4,6 +4,7 @@ import type { ExtensionCompilerQueryContext, ExtensionObservationHook, Extension
 import { ExtensionObservationPoint } from "./observations.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
 import type { SourcePrimitiveKind } from "./facts.js";
+import { providerVirtualCompilerArtifactLookup } from "./provider-virtual-internal.js";
 export interface ExtensionEvidence {
     readonly message: string;
     readonly details?: unknown;
@@ -58,6 +59,7 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly diagnosticRangeInvalid: 9000027;
     readonly diagnosticCodeOutOfRange: 9000028;
     readonly invalidFactSubject: 9000029;
+    readonly registrationClosed: 9000030;
 };
 export declare const TstsProviderContractVersion = "tsts.provider.1";
 export interface CompilerExtensionIdentity {
@@ -150,25 +152,26 @@ export interface RequiredProviderModuleSpec {
     readonly message?: string;
 }
 export interface ProviderModuleContext {
-    readonly containingFile?: string;
-    readonly resolutionMode?: unknown;
-    readonly activeTarget?: string;
-    readonly activeSurface?: string;
-    readonly importSlice?: ProviderImportSlice;
+    readonly containingFile?: string | undefined;
+    readonly resolutionMode?: ProviderResolutionMode | undefined;
+    readonly activeTarget?: string | undefined;
+    readonly activeSurface?: string | undefined;
+    readonly importSlice?: ProviderImportSlice | undefined;
 }
+export type ProviderResolutionMode = "none" | "require" | "import";
 export type ProviderImportSliceKind = "bare" | "default" | "named" | "namespace" | "mixed" | "reexport" | "dynamic" | "synthetic" | "unknown";
 export type ProviderImportRequestKind = "type" | "value" | "unknown";
 export interface ProviderRequestedExport {
     readonly exportedName: string;
-    readonly localName?: string;
-    readonly kind?: ProviderImportRequestKind;
+    readonly localName?: string | undefined;
+    readonly kind?: ProviderImportRequestKind | undefined;
 }
 export interface ProviderImportSlice {
     readonly moduleSpecifier: string;
     readonly kind: ProviderImportSliceKind;
-    readonly requestedExports?: readonly ProviderRequestedExport[];
-    readonly broadImport?: boolean;
-    readonly typeOnly?: boolean;
+    readonly requestedExports?: readonly ProviderRequestedExport[] | undefined;
+    readonly broadImport?: boolean | undefined;
+    readonly typeOnly?: boolean | undefined;
 }
 export type ProviderOwnership = {
     readonly kind: "unowned";
@@ -340,12 +343,6 @@ export interface ProviderDeclarationModel {
     readonly exports: readonly ProviderExportDeclaration[];
     readonly evidence?: readonly ExtensionEvidence[];
 }
-export interface ProviderSymbolIdentity {
-    readonly moduleSpecifier: string;
-    readonly exportName?: string;
-    readonly memberName?: string;
-    readonly signatureId?: string;
-}
 export interface TargetIdentity {
     readonly target: string;
     readonly id: string;
@@ -354,25 +351,36 @@ export interface TargetIdentity {
     readonly packageVersion?: string;
 }
 export interface ProviderResolvedModule {
-    readonly provider: TargetBindingProvider;
     readonly resolution: ProviderModuleResolution;
     readonly declarationModel: ProviderDeclarationModel;
     readonly context: ProviderModuleContext;
-    readonly virtualSourceText: string;
-    readonly virtualDocument: ProviderVirtualDeclarationDocument;
+    readonly artifact: ProviderVirtualModuleArtifact;
     readonly cacheKey: string;
+}
+export interface ProviderVirtualModuleArtifact {
+    readonly kind: "public" | "canonical-export-owner";
+    readonly id: string;
+    readonly provider: ProviderIdentity;
+    readonly moduleSpecifier: string;
+    readonly providerModuleId: string;
+    readonly packageName?: string;
+    readonly packageVersion?: string;
+    readonly fileName: string;
+    readonly declarationModel: ProviderDeclarationModel;
+    readonly sourceText: string;
+    readonly document: ProviderVirtualDeclarationDocument;
 }
 export interface ProviderVirtualDeclarationDocument {
     readonly uri: string;
     readonly fileName: string;
+    readonly artifactId: string;
+    readonly artifactKind: ProviderVirtualModuleArtifact["kind"];
     readonly moduleSpecifier: string;
     readonly providerModuleId: string;
     readonly provider: ProviderIdentity;
-    readonly context: ProviderModuleContext;
     readonly declarationModel: ProviderDeclarationModel;
     readonly sourceText: string;
     readonly readOnly: true;
-    readonly evidence?: readonly ExtensionEvidence[];
 }
 export declare const ExtensionLifecycleEvent: {
     readonly afterSourceFileBound: "binder.afterSourceFileBound";
@@ -388,7 +396,7 @@ export type ExtensionLifecycleHook<TRequest> = (request: TRequest, context: Exte
 export interface SourceFileBoundLifecycleRequest {
     readonly sourceFile: ExtensionFactSubject;
     readonly fileName: string;
-    readonly providerVirtualModule?: ProviderResolvedModule;
+    readonly providerVirtualArtifact?: ProviderVirtualModuleArtifact;
 }
 export interface BeforeSemanticsFinalizedLifecycleRequest {
     readonly host: ExtensionHost;
@@ -403,14 +411,13 @@ export type ProviderModuleResolveResult = {
     readonly diagnostic: ExtensionDiagnostic;
 } | {
     readonly kind: "conflict";
-    readonly providers: readonly TargetBindingProvider[];
+    readonly providers: readonly ProviderIdentity[];
 };
 export interface TargetBindingProvider {
     readonly identity: ProviderIdentity;
     ownsModule(specifier: string, context: ProviderModuleContext): ProviderOwnership;
     resolveModule(specifier: string, context: ProviderModuleContext): ProviderModuleResolution | ExtensionDiagnostic;
     getDeclarationModel(module: ProviderModuleResolution): ProviderDeclarationModel | ExtensionDiagnostic;
-    getTargetIdentity(symbol: ProviderSymbolIdentity): TargetIdentity | undefined;
 }
 export interface TargetSemanticProvider {
     readonly identity: ProviderIdentity;
@@ -428,6 +435,7 @@ export interface TargetSemanticProvider {
     resolveRuntimeCarrier?: ExtensionObservationHook<typeof ExtensionObservationPoint.resolveRuntimeCarrier>;
     validateExtensionFlowUse?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateExtensionFlowUse>;
 }
+declare const sealProviderRegistrations: unique symbol;
 export interface ExtendedProgram<TProgram extends object = object> {
     readonly program: TProgram;
     readonly extensionHost: ExtensionHost;
@@ -466,14 +474,12 @@ export declare class ProviderRegistry {
     constructor(diagnostics: ExtensionDiagnosticStore, requiredProviderModules?: readonly RequiredProviderModuleSpec[]);
     registerTargetBindingProvider(provider: TargetBindingProvider): boolean;
     registerTargetSemanticProvider(provider: TargetSemanticProvider): boolean;
-    get bindingProviders(): readonly TargetBindingProvider[];
-    get semanticProviders(): readonly TargetSemanticProvider[];
+    get hasBindingProviders(): boolean;
     requiresProviderForModule(specifier: string, context?: ProviderModuleContext): RequiredProviderModuleSpec | undefined;
-    getTargetBindingProvider(id: string): TargetBindingProvider | undefined;
-    getTargetSemanticProvider(id: string): TargetSemanticProvider | undefined;
-    getModuleOwner(specifier: string, context?: ProviderModuleContext): TargetBindingProvider | undefined;
+    [sealProviderRegistrations](): void;
     resolveVirtualModule(specifier: string, context?: ProviderModuleContext): ProviderModuleResolveResult;
-    getVirtualModuleByFileName(fileName: string): ProviderResolvedModule | undefined;
+    getVirtualArtifactByFileName(fileName: string): ProviderVirtualModuleArtifact | undefined;
+    [providerVirtualCompilerArtifactLookup](fileName: string): ProviderVirtualModuleArtifact | undefined;
     getVirtualDeclarationDocument(uriOrFileName: string): ProviderVirtualDeclarationDocument | undefined;
     getVirtualDeclarationDocuments(): readonly ProviderVirtualDeclarationDocument[];
 }
@@ -496,7 +502,7 @@ export declare class ExtensionHost {
     registerLifecycleHook<TRequest>(event: string, extensionId: string, hook: ExtensionLifecycleHook<TRequest>): void;
     registerTargetSemanticProvider(extensionId: string, provider: TargetSemanticProvider): boolean;
     runObservation<TObservation extends ExtensionObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, options?: ExtensionObservationRunOptions): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
-    runLifecycle<TRequest>(event: string, request: TRequest): void;
+    runLifecycle<TRequest extends object>(event: string, request: TRequest): void;
     finalizeSemantics(): void;
     get finalized(): boolean;
     getCompilerQueryContext(): ExtensionCompilerQueryContext;
@@ -511,4 +517,5 @@ export declare function attachExtensionHost<TProgram extends object>(program: TP
 export declare function attachExtensionHostToProgram<TProgram extends object>(hostOwner: object, program: TProgram, options?: AttachExtensionHostToProgramOptions): ExtendedProgram<TProgram> | undefined;
 export declare function getExtensionHost(program: object): ExtensionHost | undefined;
 export declare function hasExtensionHost(program: object): boolean;
+export {};
 //# sourceMappingURL=host.d.ts.map

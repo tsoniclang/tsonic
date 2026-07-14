@@ -62,9 +62,6 @@ export function createTsonicCoreVirtualModulesProvider(): TargetBindingProvider 
         evidence: [{ message: "Declaration model is generated from target-neutral Tsonic source semantics." }],
       };
     },
-    getTargetIdentity() {
-      return undefined;
-    },
   };
 }
 

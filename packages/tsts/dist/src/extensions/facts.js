@@ -123,10 +123,11 @@ export const providerVirtualDeclarationFactKey = defineExtensionFactKey({
         && left.providerVersion === right.providerVersion
         && left.providerModuleId === right.providerModuleId
         && left.moduleSpecifier === right.moduleSpecifier
-        && left.virtualFileName === right.virtualFileName
+        && left.artifactFileName === right.artifactFileName
         && left.exportName === right.exportName
         && left.exportId === right.exportId
         && left.memberName === right.memberName
+        && optionalProviderMemberKeyEquals(left.memberKey, right.memberKey)
         && left.memberId === right.memberId
         && left.memberStatic === right.memberStatic
         && left.signatureId === right.signatureId
@@ -174,15 +175,22 @@ function optionalTargetBindingFactEquals(left, right) {
     }
     return targetBindingFactEquals(left, right);
 }
+function optionalProviderMemberKeyEquals(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    return left.kind === right.kind && left.name === right.name;
+}
 function providerDeclarationIdentityEquals(left, right) {
     return left.providerId === right.providerId
         && left.providerVersion === right.providerVersion
         && left.providerModuleId === right.providerModuleId
         && left.moduleSpecifier === right.moduleSpecifier
-        && left.virtualFileName === right.virtualFileName
+        && left.artifactFileName === right.artifactFileName
         && left.exportName === right.exportName
         && left.exportId === right.exportId
         && left.memberName === right.memberName
+        && optionalProviderMemberKeyEquals(left.memberKey, right.memberKey)
         && left.memberId === right.memberId
         && left.memberStatic === right.memberStatic
         && left.signatureId === right.signatureId

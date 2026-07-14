@@ -403,12 +403,6 @@ export function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
         evidence: [{ message: `${id} target capability declaration model` }],
       };
     },
-    getTargetIdentity(symbol) {
-      return {
-        target: "demo",
-        id: `${id}:${symbol.moduleSpecifier}:${symbol.exportName ?? "module"}:${symbol.memberName ?? ""}:${symbol.signatureId ?? ""}`,
-      };
-    },
   };
 }
 

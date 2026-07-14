@@ -1,7 +1,9 @@
 import { Background } from "../go/context.js";
+import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSourceFiles, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
 import { attachExtensionHost, finalizeExtensionSemantics, getExtensionHost } from "../extensions/index.js";
+import { getProviderVirtualArtifactForCompiler } from "../extensions/provider-virtual-internal.js";
 import { createCompilerHost, createInMemoryFileSystem } from "./embedding-host.js";
 import { createTypeCheckerQueries } from "./type-checker.js";
 import { createTypeShapeQueries } from "./type-shape.js";
@@ -27,9 +29,20 @@ export function createCompilerSessionFromProgram(program, host, config, extensio
         ast,
         checker,
         types,
-        getSourceFiles: () => Program_GetSourceFiles(program) ?? [],
-        getSourceFile: (fileName) => Program_GetSourceFile(program, fileName),
-        getSourceFilesToEmit: (targetSourceFile, forceDtsEmit = false) => Program_getSourceFilesToEmit(program, targetSourceFile, forceDtsEmit) ?? [],
+        getSourceFiles: () => (Program_GetSourceFiles(program) ?? [])
+            .filter((file) => extensionHost === undefined
+            || getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind !== "canonical-export-owner"),
+        getSourceFile: (fileName) => {
+            const file = Program_GetSourceFile(program, fileName);
+            return file !== undefined
+                && extensionHost !== undefined
+                && getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind === "canonical-export-owner"
+                ? undefined
+                : file;
+        },
+        getSourceFilesToEmit: (targetSourceFile, forceDtsEmit = false) => (Program_getSourceFilesToEmit(program, targetSourceFile, forceDtsEmit) ?? [])
+            .filter((file) => extensionHost === undefined
+            || getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind !== "canonical-export-owner"),
         ensureBound: () => Program_BindSourceFiles(program),
         ensureChecked: (sourceFile) => Program_GetSemanticDiagnostics(program, context, sourceFile),
         getDiagnostics: (kind = "all", sourceFile) => getDiagnostics(program, context, kind, sourceFile),
