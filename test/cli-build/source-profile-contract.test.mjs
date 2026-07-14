@@ -18,25 +18,68 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
       }],
     }, null, 2),
     "src/App.ts": [
-      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import { Console, Span } from \"@tsonic/dotnet/System.js\";",
+      "import type { int, long } from \"@tsonic/csharp/types.js\";",
       "",
       "const path = \"/todos/42\";",
       "const parts = path.Split(\"/\");",
       "const ok = path.StartsWith(\"/\");",
       "const first = parts[1];",
-      "Console.WriteLine(`${parts.Length}:${ok}:${first}`);",
+      "const wideValues: long[] = [1, 2];",
+      "const wideValue: long = wideValues[1];",
+      "function chunkLength(): int {",
+      "  const values: int[] = [1, 2, 3];",
+      "  const span = new Span<int>(values);",
+      "  const offset: int = 0;",
+      "  const chunkSize: int = 2;",
+      "  const remaining = span.Length - offset;",
+      "  const selectedChunkSize = remaining < chunkSize ? remaining : chunkSize;",
+      "  const chunk = span.Slice(offset, selectedChunkSize);",
+      "  return chunk.Length;",
+      "}",
+      "Console.WriteLine(`${parts.Length}:${ok}:${first}:${wideValue}:${chunkLength()}`);",
       "",
     ].join("\n"),
   });
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const output = runGeneratedProject(projectDirectory, "SmokeGeneratedSourceProfile");
-  assert.equal(output.trim(), "3:True:todos");
+  assert.equal(output.trim(), "3:True:todos:2:2");
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/App.cs"), "utf8");
   assert.match(generated, /path\.Split\("\/"\)/u);
   assert.match(generated, /path\.StartsWith\("\/"\)/u);
   assert.match(generated, /parts\.Length/u);
   assert.match(generated, /parts\[1\]/u);
+  assert.match(generated, /public static readonly long wideValue;/u);
+  assert.match(generated, /wideValue = wideValues\[1\];/u);
+  assert.match(generated, /span\.Slice\(offset, selectedChunkSize\)/u);
+});
+
+test("CLI exact provider calls reject conditional arguments with incompatible target carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-source-profile-provider-conditional-reject");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "App.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/App.ts": [
+      "import { Span } from \"@tsonic/dotnet/System.js\";",
+      "import type { bool, double, int } from \"@tsonic/csharp/types.js\";",
+      "",
+      "export function invalid(flag: bool, left: int, right: double, span: Span<int>): Span<int> {",
+      "  const offset: int = 0;",
+      "  const selected = flag ? left : right;",
+      "  return span.Slice(offset, selected);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /TS9100100: C# provider could not map checked call 'Slice'/u);
+  assert.match(result.stdout + result.stderr, /Artifacts: 0/u);
 });
 
 test("CLI pure C# source profile rejects JS names without JS surface", async () => {
