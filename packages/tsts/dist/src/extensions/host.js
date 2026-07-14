@@ -5,6 +5,7 @@ import { createTypeShapeQueries } from "../services/type-shape.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
 import { getProviderExportContractKeyMap } from "./provider-export-contract.js";
+import { providerFamilyVariantCompanionMarker } from "./provider-virtual-internal.js";
 export const ExtensionHostDiagnosticCode = {
     factConflict: 9000001,
     duplicateExtension: 9000002,
@@ -290,6 +291,9 @@ export class ProviderRegistry {
     #virtualSourceVariantsByModuleIdentity = new Map();
     #virtualFileIdentities = new Map();
     #canonicalExportsByModuleIdentity = new Map();
+    #exactValueHeritageImportsByFileName = new Map();
+    #familyVariantCompanionsByCanonicalFileName = new Map();
+    #exactValueHeritageResolutionStack = new Set();
     constructor(diagnostics, requiredProviderModules = []) {
         this.#diagnostics = diagnostics;
         this.#requiredProviderModules = requiredProviderModules;
@@ -438,11 +442,16 @@ export class ProviderRegistry {
             this.#diagnostics.append(canonicalExportDiagnostic);
             return { kind: "rejected", diagnostic: canonicalExportDiagnostic };
         }
-        const directVirtualSourceText = renderProviderDeclarationModel(declarationModel);
+        const exactValueHeritage = this.#prepareExactValueHeritageImports(owner.provider.identity, declarationModel, resolution, context);
+        if (exactValueHeritage.kind === "rejected") {
+            return exactValueHeritage;
+        }
+        const renderOptions = { exactValueHeritageImports: exactValueHeritage.imports };
+        const directVirtualSourceText = renderProviderDeclarationModel(declarationModel, renderOptions);
         const canonicalExports = this.#getCanonicalExportsForRender(virtualModuleIdentity, declarationModel, directVirtualSourceText);
         const virtualSourceText = canonicalExports.size === 0
             ? directVirtualSourceText
-            : renderProviderDeclarationModel(declarationModel, { canonicalExports });
+            : renderProviderDeclarationModel(declarationModel, { ...renderOptions, canonicalExports });
         const effectiveVirtualFileName = this.#getEffectiveVirtualFileName(virtualModuleIdentity, resolution.virtualFileName, virtualSourceText, cacheKey);
         this.#recordVirtualFileIdentity(resolution.virtualFileName, virtualModuleIdentity);
         this.#recordVirtualFileIdentity(effectiveVirtualFileName, virtualModuleIdentity);
@@ -476,7 +485,147 @@ export class ProviderRegistry {
         this.#virtualModules.set(cacheKey, module);
         this.#virtualModulesByFileName.set(effectiveResolution.virtualFileName, module);
         this.#virtualDocumentsByUri.set(virtualDocument.uri, virtualDocument);
+        this.#exactValueHeritageImportsByFileName.set(effectiveResolution.virtualFileName, exactValueHeritage.imports);
         return { kind: "resolved", module };
+    }
+    #prepareExactValueHeritageImports(provider, declarationModel, resolution, context) {
+        const imports = new Map();
+        const usedLocalNames = collectProviderRenderedLocalNames(declarationModel);
+        for (const reference of collectProviderValueHeritageReferences(declarationModel)) {
+            if (reference.moduleSpecifier === declarationModel.moduleSpecifier) {
+                continue;
+            }
+            const typeArgumentCount = reference.typeArguments?.length ?? 0;
+            const referenceKey = getProviderRefKey(reference.moduleSpecifier, reference.exportName, typeArgumentCount);
+            if (imports.has(referenceKey)) {
+                continue;
+            }
+            const resolutionKey = JSON.stringify([
+                context.activeTarget ?? "",
+                context.activeSurface ?? "",
+                String(context.resolutionMode ?? ""),
+                reference.moduleSpecifier,
+                reference.exportName,
+                typeArgumentCount,
+            ]);
+            if (this.#exactValueHeritageResolutionStack.has(resolutionKey)) {
+                const diagnostic = createInvalidProviderDeclarationDiagnostic(provider, declarationModel, `Provider value heritage contains a recursive type-family dependency through '${reference.moduleSpecifier}#${reference.exportName}' with ${typeArgumentCount} source type argument(s).`, `provider-family-value-heritage-cycle:${provider.id}:${declarationModel.moduleSpecifier}:${getStableProviderVirtualSliceSuffix(resolutionKey)}`, [{ message: "Recursive provider family reference", details: { reference, resolution } }]);
+                this.#diagnostics.append(diagnostic);
+                return { kind: "rejected", diagnostic };
+            }
+            this.#exactValueHeritageResolutionStack.add(resolutionKey);
+            try {
+                const dependency = this.resolveVirtualModule(reference.moduleSpecifier, {
+                    ...(context.activeTarget !== undefined ? { activeTarget: context.activeTarget } : {}),
+                    ...(context.activeSurface !== undefined ? { activeSurface: context.activeSurface } : {}),
+                    ...(context.resolutionMode !== undefined ? { resolutionMode: context.resolutionMode } : {}),
+                    containingFile: resolution.virtualFileName,
+                    importSlice: {
+                        moduleSpecifier: reference.moduleSpecifier,
+                        kind: "synthetic",
+                        requestedExports: [{ exportedName: reference.exportName, kind: "value" }],
+                        typeOnly: false,
+                    },
+                });
+                if (dependency.kind === "unowned") {
+                    continue;
+                }
+                if (dependency.kind === "rejected") {
+                    return dependency;
+                }
+                if (dependency.kind === "conflict") {
+                    return { kind: "rejected", diagnostic: this.#diagnostics.all().at(-1) };
+                }
+                const dependencyFamilies = collectProviderTypeFamilyRenderGroups(dependency.module.declarationModel.exports);
+                const dependencyVariant = getProviderTypeFamilyVariantExportMap(dependency.module.declarationModel.moduleSpecifier, dependencyFamilies).get(referenceKey);
+                const referencedFamily = getProviderTypeFamilyForReference(dependencyFamilies, reference.exportName);
+                if (dependencyVariant === undefined) {
+                    if (referencedFamily !== undefined) {
+                        const diagnostic = createInvalidProviderDeclarationDiagnostic(provider, declarationModel, `Provider value heritage references unavailable type-family arity ${typeArgumentCount} for '${reference.moduleSpecifier}#${reference.exportName}'.`, `provider-family-value-heritage-arity:${provider.id}:${declarationModel.moduleSpecifier}:${getStableProviderVirtualSliceSuffix(referenceKey)}`, [{ message: "Provider family variants", details: referencedFamily.variants.map((variant) => variant.sourceTypeFamily?.typeArgumentCount) }]);
+                        this.#diagnostics.append(diagnostic);
+                        return { kind: "rejected", diagnostic };
+                    }
+                    continue;
+                }
+                if (dependencyVariant.kind !== "class") {
+                    const diagnostic = createInvalidProviderDeclarationDiagnostic(provider, declarationModel, `Provider value heritage requires a class variant for '${reference.moduleSpecifier}#${reference.exportName}' with ${typeArgumentCount} source type argument(s).`, `provider-family-value-heritage-nonclass:${provider.id}:${declarationModel.moduleSpecifier}:${getStableProviderVirtualSliceSuffix(referenceKey)}`);
+                    this.#diagnostics.append(diagnostic);
+                    return { kind: "rejected", diagnostic };
+                }
+                const companion = this.#getOrCreateFamilyVariantCompanion(dependency.module, dependencyVariant.sourceTypeFamily.exportName);
+                if (companion.kind === "rejected") {
+                    return companion;
+                }
+                const localName = allocateProviderExactValueHeritageLocalName(reference, usedLocalNames);
+                imports.set(referenceKey, {
+                    fileName: companion.module.resolution.virtualFileName,
+                    exportedName: getProviderTypeFamilyVariantLocalName(dependencyVariant),
+                    localName,
+                });
+            }
+            finally {
+                this.#exactValueHeritageResolutionStack.delete(resolutionKey);
+            }
+        }
+        return { kind: "resolved", imports };
+    }
+    #getOrCreateFamilyVariantCompanion(resolvedModule, familyExportName) {
+        const moduleIdentity = getProviderVirtualModuleIdentity(resolvedModule.provider.identity, resolvedModule.resolution, resolvedModule.declarationModel);
+        const canonicalExport = this.#canonicalExportsByModuleIdentity.get(moduleIdentity)?.get(familyExportName);
+        const canonicalModule = canonicalExport === undefined
+            ? resolvedModule
+            : this.#virtualModulesByFileName.get(canonicalExport.fileName);
+        if (canonicalModule === undefined) {
+            const diagnostic = createInvalidProviderDeclarationDiagnostic(resolvedModule.provider.identity, resolvedModule.declarationModel, `Canonical provider family '${resolvedModule.declarationModel.moduleSpecifier}#${familyExportName}' has no registered owner module.`, `provider-family-canonical-owner-missing:${resolvedModule.provider.identity.id}:${resolvedModule.declarationModel.moduleSpecifier}:${familyExportName}`);
+            this.#diagnostics.append(diagnostic);
+            return { kind: "rejected", diagnostic };
+        }
+        const existing = this.#familyVariantCompanionsByCanonicalFileName.get(canonicalModule.resolution.virtualFileName);
+        if (existing !== undefined) {
+            return { kind: "resolved", module: existing };
+        }
+        const companionFileName = getProviderFamilyVariantCompanionFileName(canonicalModule.resolution.virtualFileName, canonicalModule.cacheKey);
+        if (this.#virtualFileIdentities.has(companionFileName)
+            || this.#virtualModulesByFileName.has(companionFileName)
+            || this.#virtualDocumentsByUri.has(companionFileName)) {
+            const diagnostic = createInvalidProviderDeclarationDiagnostic(canonicalModule.provider.identity, canonicalModule.declarationModel, `Provider family companion file '${companionFileName}' conflicts with an existing virtual module.`, `provider-family-companion-file-conflict:${canonicalModule.provider.identity.id}:${companionFileName}`);
+            this.#diagnostics.append(diagnostic);
+            return { kind: "rejected", diagnostic };
+        }
+        const exactValueHeritageImports = this.#exactValueHeritageImportsByFileName.get(canonicalModule.resolution.virtualFileName) ?? new Map();
+        const sourceText = renderProviderDeclarationModel(canonicalModule.declarationModel, {
+            exactValueHeritageImports,
+            mode: "family-variants",
+        });
+        const companionResolution = {
+            ...canonicalModule.resolution,
+            virtualFileName: companionFileName,
+        };
+        const virtualDocument = {
+            ...canonicalModule.virtualDocument,
+            uri: companionFileName,
+            fileName: companionFileName,
+            sourceText,
+            evidence: [
+                ...(canonicalModule.virtualDocument.evidence ?? []),
+                { message: "internal exact provider type-family variants", details: { canonicalFileName: canonicalModule.resolution.virtualFileName } },
+            ],
+        };
+        const companion = {
+            provider: canonicalModule.provider,
+            resolution: companionResolution,
+            declarationModel: canonicalModule.declarationModel,
+            context: canonicalModule.context,
+            virtualSourceText: sourceText,
+            virtualDocument,
+            cacheKey: `${canonicalModule.cacheKey}\0tsts-family-variants`,
+        };
+        this.#recordVirtualFileIdentity(companionFileName, moduleIdentity);
+        this.#virtualModulesByFileName.set(companionFileName, companion);
+        this.#virtualDocumentsByUri.set(companionFileName, virtualDocument);
+        this.#exactValueHeritageImportsByFileName.set(companionFileName, exactValueHeritageImports);
+        this.#familyVariantCompanionsByCanonicalFileName.set(canonicalModule.resolution.virtualFileName, companion);
+        return { kind: "resolved", module: companion };
     }
     #getEffectiveVirtualFileName(moduleIdentity, baseFileName, sourceText, cacheKey) {
         const variants = this.#virtualSourceVariantsByModuleIdentity.get(moduleIdentity) ?? [];
@@ -1254,6 +1403,83 @@ function getStableProviderVirtualSliceSuffix(value) {
     }
     return (hash >>> 0).toString(36);
 }
+function collectProviderValueHeritageReferences(model) {
+    return model.exports.flatMap((declaration) => declaration.kind === "class"
+        ? (declaration.heritage ?? []).flatMap((heritage) => {
+            if (heritage.kind !== "extends") {
+                return [];
+            }
+            const reference = getProviderValueHeritageReference(heritage.type);
+            return reference === undefined ? [] : [reference];
+        })
+        : []);
+}
+function getProviderValueHeritageReference(type) {
+    if (type.kind === "target-named" || type.kind === "opaque") {
+        return type.sourceShape === undefined ? undefined : getProviderValueHeritageReference(type.sourceShape);
+    }
+    return type.kind === "provider-ref" ? type : undefined;
+}
+function collectProviderRenderedLocalNames(model) {
+    const names = new Set([providerTypeFamilyDefaultValueName, providerTypeFamilyDefaultTypeName]);
+    for (const declaration of model.imports ?? []) {
+        if (declaration.defaultImport !== undefined) {
+            names.add(declaration.defaultImport);
+        }
+        if (declaration.namespaceImport !== undefined) {
+            names.add(declaration.namespaceImport);
+        }
+        for (const namedImport of declaration.namedImports ?? []) {
+            names.add(namedImport.localName ?? namedImport.exportedName);
+        }
+    }
+    for (const declaration of model.exports) {
+        names.add(declaration.name);
+        names.add(getProviderExportName(declaration));
+        names.add(getProviderSourceExportName(declaration));
+        names.add(getProviderCanonicalExportLocalName(getProviderSourceExportName(declaration)));
+        if (declaration.sourceTypeFamily !== undefined) {
+            names.add(getProviderTypeFamilyVariantLocalName(declaration));
+        }
+    }
+    return names;
+}
+function allocateProviderExactValueHeritageLocalName(reference, usedNames) {
+    const typeArgumentCount = reference.typeArguments?.length ?? 0;
+    const identifier = reference.exportName.replace(/[^A-Za-z0-9_$]/g, "_");
+    const stem = `__TstsProviderHeritage_${identifier === "" || /^[0-9]/.test(identifier) ? `_${identifier}` : identifier}_${typeArgumentCount}_${getStableProviderVirtualSliceSuffix(reference.moduleSpecifier)}`;
+    let candidate = stem;
+    let disambiguator = 1;
+    while (usedNames.has(candidate)) {
+        disambiguator += 1;
+        candidate = `${stem}_${disambiguator}`;
+    }
+    usedNames.add(candidate);
+    return candidate;
+}
+function getProviderTypeFamilyForReference(groups, exportName) {
+    const direct = groups.get(exportName);
+    if (direct !== undefined) {
+        return direct;
+    }
+    return [...groups.values()].find((group) => group.variants.some((variant) => getProviderExportName(variant) === exportName));
+}
+function getProviderFamilyVariantCompanionFileName(canonicalFileName, cacheKey) {
+    return `${canonicalFileName}${providerFamilyVariantCompanionMarker}${getStableProviderVirtualSliceSuffix(cacheKey)}.d.ts`;
+}
+function createInvalidProviderDeclarationDiagnostic(provider, model, message, identity, evidence = []) {
+    return createHostDiagnostic({
+        extensionCode: "INVALID_PROVIDER_DECLARATION_MODEL",
+        numericCode: ExtensionHostDiagnosticCode.invalidProviderDeclaration,
+        message,
+        evidence: [
+            { message: "Provider", details: provider },
+            { message: "Provider declaration module", details: { moduleSpecifier: model.moduleSpecifier, providerModuleId: model.providerModuleId } },
+            ...evidence,
+        ],
+        identity,
+    });
+}
 function renderProviderDeclarationModel(model, options = {}) {
     const lines = [
         `// @tsts-provider-module ${model.providerModuleId}`,
@@ -1266,9 +1492,20 @@ function renderProviderDeclarationModel(model, options = {}) {
         canonicalLocalNameByExportName,
         localDeclarationNameByExportName: getProviderLocalDeclarationNameByExportName(model.exports),
         typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, typeFamilyGroups),
+        exactValueHeritageLocalNameByProviderRefKey: new Map([...(options.exactValueHeritageImports ?? new Map())].map(([key, binding]) => [key, binding.localName])),
     };
+    const locallyRequiredValueHeritageFamilies = new Set(collectProviderValueHeritageReferences(model)
+        .filter((reference) => reference.moduleSpecifier === model.moduleSpecifier)
+        .flatMap((reference) => {
+        const variant = renderContext.typeFamilyVariantByProviderRefKey.get(getProviderRefKey(reference.moduleSpecifier, reference.exportName, reference.typeArguments?.length ?? 0));
+        return variant?.sourceTypeFamily === undefined ? [] : [variant.sourceTypeFamily.exportName];
+    }));
     for (const importDeclaration of model.imports ?? []) {
         lines.push(renderProviderImportDeclaration(importDeclaration));
+    }
+    for (const binding of [...(options.exactValueHeritageImports?.values() ?? [])]
+        .sort((left, right) => left.localName < right.localName ? -1 : left.localName > right.localName ? 1 : 0)) {
+        lines.push(`import { ${binding.exportedName} as ${binding.localName} } from ${JSON.stringify(binding.fileName)};`);
     }
     for (const [exportName, localName] of canonicalLocalNameByExportName) {
         const canonicalExport = options.canonicalExports?.get(exportName);
@@ -1284,8 +1521,34 @@ function renderProviderDeclarationModel(model, options = {}) {
     const renderedCanonicalExports = new Set();
     for (const exportDeclaration of model.exports) {
         const exportName = getProviderSourceExportName(exportDeclaration);
+        if (options.mode === "family-variants") {
+            if (exportDeclaration.sourceTypeFamily !== undefined) {
+                const familyName = exportDeclaration.sourceTypeFamily.exportName;
+                if (!renderedFamilies.has(familyName)) {
+                    const family = typeFamilyGroups.get(familyName);
+                    if (family !== undefined) {
+                        lines.push(renderProviderTypeFamilyDeclaration(family, renderContext, false));
+                        renderedFamilies.add(familyName);
+                    }
+                }
+            }
+            else {
+                lines.push(renderProviderExportDeclaration(exportDeclaration, renderContext));
+            }
+            continue;
+        }
         const canonicalLocalName = canonicalLocalNameByExportName.get(exportName);
         if (canonicalLocalName !== undefined) {
+            if (exportDeclaration.sourceTypeFamily !== undefined) {
+                const familyName = exportDeclaration.sourceTypeFamily.exportName;
+                if (!renderedFamilies.has(familyName) && locallyRequiredValueHeritageFamilies.has(familyName)) {
+                    const family = typeFamilyGroups.get(familyName);
+                    if (family !== undefined) {
+                        lines.push(renderProviderTypeFamilyLocalVariants(family, renderContext));
+                    }
+                }
+                renderedFamilies.add(familyName);
+            }
             if (!renderedCanonicalExports.has(exportName)) {
                 const canonicalExport = options.canonicalExports?.get(exportName);
                 lines.push(`export ${canonicalExport?.typeOnly === true ? "type " : ""}{ ${canonicalLocalName} as ${exportName} };`);
@@ -1305,6 +1568,9 @@ function renderProviderDeclarationModel(model, options = {}) {
             continue;
         }
         lines.push(renderProviderExportDeclaration(exportDeclaration, renderContext));
+    }
+    if (options.mode === "family-variants") {
+        lines.push(renderProviderTypeFamilyVariantExports(typeFamilyGroups));
     }
     return `${lines.join("\n")}\n`;
 }
@@ -1401,7 +1667,7 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         ? `${rendered}\nexport default ${declarationName};`
         : `${rendered}\nexport { ${declarationName} as ${exportName} };`;
 }
-function renderProviderTypeFamilyDeclaration(group, context) {
+function renderProviderTypeFamilyDeclaration(group, context, publicExport = true) {
     const variants = [...group.variants].sort((left, right) => left.sourceTypeFamily.typeArgumentCount - right.sourceTypeFamily.typeArgumentCount);
     const maxVariant = variants[variants.length - 1];
     const minArity = variants[0].sourceTypeFamily.typeArgumentCount;
@@ -1417,8 +1683,8 @@ function renderProviderTypeFamilyDeclaration(group, context) {
             return `${parameter.name}${constraintText}${defaultText}`;
         }).join(", ")}>`;
     const aliasType = renderProviderTypeFamilyAliasType(variants, maxTypeParameters);
-    const valueExport = renderProviderTypeFamilyValueExport(group.exportName, variants);
-    return `${variantDeclarations}\nexport type ${group.exportName}${familyTypeParameters} = ${aliasType};${valueExport}`;
+    const valueExport = publicExport ? renderProviderTypeFamilyValueExport(group.exportName, variants) : "";
+    return `${variantDeclarations}\n${publicExport ? "export " : ""}type ${group.exportName}${familyTypeParameters} = ${aliasType};${valueExport}`;
 }
 function renderProviderTypeFamilyLocalVariants(group, context) {
     return group.variants.map((variant) => renderProviderExportDeclaration(variant, context, {
@@ -1434,6 +1700,12 @@ function renderProviderTypeFamilyValueExport(exportName, variants) {
         .map((variant) => `typeof ${getProviderTypeFamilyVariantLocalName(variant)}`)
         .join(" & ");
     return `\nexport declare const ${exportName}: ${valueType};`;
+}
+function renderProviderTypeFamilyVariantExports(groups) {
+    return [...groups.values()]
+        .flatMap((group) => group.variants.map((variant) => getProviderTypeFamilyVariantLocalName(variant)))
+        .map((name) => `export { ${name} };`)
+        .join("\n");
 }
 function renderProviderTypeFamilyAliasType(variants, maxTypeParameters) {
     const variantByArity = new Map(variants.map((variant) => [variant.sourceTypeFamily.typeArgumentCount, variant]));
@@ -1459,7 +1731,7 @@ function renderProviderTypeFamilyVariantReference(variant, maxTypeParameters) {
     return `${name}<${maxTypeParameters.slice(0, arity).map((parameter) => parameter.name).join(", ")}>`;
 }
 function renderProviderHeritage(heritage, declarationKind, context) {
-    const extendsTypes = heritage.filter((clause) => clause.kind === "extends").map((clause) => renderProviderTypeExpression(clause.type, context, providerTypeExpressionRenderValueHeritage));
+    const extendsTypes = heritage.filter((clause) => clause.kind === "extends").map((clause) => renderProviderTypeExpression(clause.type, context, declarationKind === "class" ? providerTypeExpressionRenderValueHeritage : providerTypeExpressionRenderType));
     const implementsTypes = declarationKind === "class"
         ? heritage.filter((clause) => clause.kind === "implements").map((clause) => renderProviderTypeExpression(clause.type, context))
         : [];
@@ -1625,22 +1897,25 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
             return type.value === null ? "null" : JSON.stringify(type.value);
         case "provider-ref":
             const typeArgumentCount = type.typeArguments?.length ?? 0;
-            const familyVariant = context.typeFamilyVariantByProviderRefKey.get(getProviderRefKey(type.moduleSpecifier, type.exportName, typeArgumentCount));
+            const providerRefKey = getProviderRefKey(type.moduleSpecifier, type.exportName, typeArgumentCount);
+            const familyVariant = context.typeFamilyVariantByProviderRefKey.get(providerRefKey);
             const family = familyVariant?.sourceTypeFamily;
             const sameModule = type.moduleSpecifier === context.moduleSpecifier;
             const canonicalLocalName = sameModule
                 ? context.canonicalLocalNameByExportName.get(family?.exportName ?? type.exportName)
                 : undefined;
             const providerRefName = sameModule
-                ? options.providerRefPosition === "value-heritage" && familyVariant !== undefined && canonicalLocalName === undefined
+                ? options.providerRefPosition === "value-heritage" && familyVariant !== undefined
                     ? getProviderTypeFamilyVariantLocalName(familyVariant)
                     : canonicalLocalName
                         ?? (familyVariant === undefined
                             ? context.localDeclarationNameByExportName.get(type.exportName) ?? type.exportName
                             : renderProviderRefIdentifier(type.exportName, familyVariant, typeArgumentCount, options))
-                : type.namespaceImport === undefined
-                    ? type.localName ?? type.exportName
-                    : `${type.namespaceImport}.${type.exportName}`;
+                : options.providerRefPosition === "value-heritage" && context.exactValueHeritageLocalNameByProviderRefKey.has(providerRefKey)
+                    ? context.exactValueHeritageLocalNameByProviderRefKey.get(providerRefKey)
+                    : type.namespaceImport === undefined
+                        ? type.localName ?? type.exportName
+                        : `${type.namespaceImport}.${type.exportName}`;
             return type.typeArguments === undefined || type.typeArguments.length === 0
                 ? providerRefName
                 : `${providerRefName}<${type.typeArguments.map((typeArgument) => renderProviderTypeExpression(typeArgument, context)).join(", ")}>`;
@@ -1758,6 +2033,7 @@ function isValidProviderModuleResolution(value, specifier) {
     return value.kind === "virtual"
         && value.moduleSpecifier === specifier
         && value.virtualFileName.length > 0
+        && !value.virtualFileName.includes(providerFamilyVariantCompanionMarker)
         && value.providerModuleId.length > 0;
 }
 function isValidProviderDeclarationModel(value, resolution) {
@@ -1789,6 +2065,7 @@ function createProviderDeclarationValidationContext(model) {
         moduleSpecifier: model.moduleSpecifier,
         sameModuleProviderRefNames,
         exportsByName,
+        typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, collectProviderTypeFamilyRenderGroups(model.exports)),
         importBindings: model.imports ?? [],
     };
 }
@@ -2200,10 +2477,10 @@ function hasValidProviderRefBinding(type, context) {
         if (declaration === undefined || !context.sameModuleProviderRefNames.has(type.exportName)) {
             return false;
         }
-        if (declaration.sourceTypeFamily === undefined || type.exportName === declaration.sourceTypeFamily.exportName) {
+        if (declaration.sourceTypeFamily === undefined) {
             return true;
         }
-        return (type.typeArguments?.length ?? 0) === declaration.sourceTypeFamily.typeArgumentCount;
+        return context.typeFamilyVariantByProviderRefKey.has(getProviderRefKey(type.moduleSpecifier, type.exportName, type.typeArguments?.length ?? 0));
     }
     if (type.namespaceImport !== undefined) {
         return context.importBindings.some((importDeclaration) => importDeclaration.moduleSpecifier === type.moduleSpecifier
@@ -2226,8 +2503,14 @@ function hasValidProviderValueHeritageReferences(declaration, context) {
     return (declaration.heritage ?? []).every((heritage) => heritage.kind !== "extends" || hasValidProviderValueHeritageReference(heritage.type, context));
 }
 function hasValidProviderValueHeritageReference(type, context) {
-    if (type.kind !== "provider-ref" || type.moduleSpecifier !== context.moduleSpecifier) {
-        return true;
+    if (type.kind === "target-named" || type.kind === "opaque") {
+        return type.sourceShape !== undefined && hasValidProviderValueHeritageReference(type.sourceShape, context);
+    }
+    if (type.kind !== "provider-ref") {
+        return false;
+    }
+    if (type.moduleSpecifier !== context.moduleSpecifier) {
+        return hasValueCapableProviderImportBinding(type, context.importBindings);
     }
     const declaration = context.exportsByName.get(type.exportName);
     if (declaration === undefined) {
@@ -2240,6 +2523,23 @@ function hasValidProviderValueHeritageReference(type, context) {
     const selectedVariant = [...context.exportsByName.values()].find((candidate) => candidate.sourceTypeFamily?.exportName === declaration.sourceTypeFamily?.exportName
         && candidate.sourceTypeFamily?.typeArgumentCount === sourceTypeArgumentCount);
     return selectedVariant?.kind === "class";
+}
+function hasValueCapableProviderImportBinding(type, imports) {
+    return imports.some((importDeclaration) => {
+        if (importDeclaration.moduleSpecifier !== type.moduleSpecifier || importDeclaration.typeOnly === true) {
+            return false;
+        }
+        if (type.namespaceImport !== undefined) {
+            return importDeclaration.namespaceImport === type.namespaceImport;
+        }
+        if (type.exportName === "default") {
+            return type.localName !== undefined && importDeclaration.defaultImport === type.localName;
+        }
+        const localName = type.localName ?? type.exportName;
+        return (importDeclaration.namedImports ?? []).some((namedImport) => namedImport.exportedName === type.exportName
+            && (namedImport.localName ?? namedImport.exportedName) === localName
+            && namedImport.kind !== "type");
+    });
 }
 function getProviderTypeParameterScope(parentScope, typeParameters) {
     const scope = new Set(parentScope);

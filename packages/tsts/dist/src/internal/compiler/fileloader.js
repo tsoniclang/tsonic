@@ -40,6 +40,7 @@ import { createProjectReferenceParseTasks, projectReferenceParser_parse, } from 
 import { PhaseParse, PhaseProgram, Tracing_Push } from "../tracing/tracing.js";
 import { ParseSourceFile } from "../parser/parser/statements-declarations.js";
 import { getExtensionHost } from "../../extensions/host.js";
+import { providerFamilyVariantCompanionMarker } from "../../extensions/provider-virtual-internal.js";
 function fileLoader_getExtensionHost(receiver) {
     return getExtensionHost(receiver.opts);
 }
@@ -129,10 +130,13 @@ function fileLoader_getProviderVirtualSubModuleName(packageName, moduleSpecifier
 }
 function getProviderVirtualPackageSliceMarker(virtualFileName) {
     const markerIndex = virtualFileName.indexOf("#tsts-slice-");
-    if (markerIndex < 0) {
-        return "";
+    if (markerIndex >= 0) {
+        return virtualFileName.slice(markerIndex + 1);
     }
-    return virtualFileName.slice(markerIndex + 1);
+    const familyVariantMarkerIndex = virtualFileName.indexOf(providerFamilyVariantCompanionMarker);
+    return familyVariantMarkerIndex < 0
+        ? ""
+        : virtualFileName.slice(familyVariantMarkerIndex + 1);
 }
 function fileLoader_getProviderImportSlice(moduleSpecifier, importSite) {
     const directSlice = fileLoader_getDirectProviderImportSlice(moduleSpecifier, importSite);
