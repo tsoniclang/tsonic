@@ -1,24 +1,25 @@
-export const providerBoundaryMaxArrayEntries = 65_536;
-export const providerBoundaryMaxDepth = 64;
-export const providerBoundaryMaxStringCodeUnits = 65_536;
-export const providerBoundaryMaxTotalStringCodeUnits = 262_144;
+import { providerAncillaryDataLimits } from "./provider-resource-limits.js";
 export function formatProviderBoundarySnapshotFailure(failure) {
     return `${failure.path}: ${failure.message}`;
 }
-export function snapshotProviderBoundaryData(value, path = "details") {
-    const state = {
+function createProviderBoundarySnapshotState() {
+    return {
         active: new WeakMap(),
         completed: new WeakMap(),
-        entries: 0,
+        completedEvidence: new WeakMap(),
+        physicalNodeAndCollectionEntryCount: 0,
         scalarCodeUnits: 0,
     };
+}
+export function snapshotProviderBoundaryData(value, path = "details") {
+    const state = createProviderBoundarySnapshotState();
     try {
         const snapshot = snapshotProviderBoundaryDataNode(value, path, 0, state);
         return Object.freeze({
             kind: "valid",
-            value: snapshot,
+            value: snapshot.value,
             scalarCodeUnits: state.scalarCodeUnits,
-            entries: state.entries,
+            physicalNodeAndCollectionEntryCount: state.physicalNodeAndCollectionEntryCount,
         });
     }
     catch (error) {
@@ -30,8 +31,14 @@ export function snapshotProviderBoundaryData(value, path = "details") {
 }
 export function snapshotProviderEvidenceArray(value, path = "evidence") {
     if (value === undefined) {
-        return Object.freeze({ kind: "valid", value: undefined, scalarCodeUnits: 0, entries: 0 });
+        return Object.freeze({
+            kind: "valid",
+            value: undefined,
+            scalarCodeUnits: 0,
+            physicalNodeAndCollectionEntryCount: 0,
+        });
     }
+    const state = createProviderBoundarySnapshotState();
     try {
         if (!Array.isArray(value)) {
             throw new ProviderBoundarySnapshotError("shape", path, "must be an array when present");
@@ -41,63 +48,29 @@ export function snapshotProviderEvidenceArray(value, path = "evidence") {
         const length = lengthDescriptor !== undefined && "value" in lengthDescriptor
             ? lengthDescriptor.value
             : undefined;
-        if (!Number.isSafeInteger(length) || length < 0 || length > providerBoundaryMaxArrayEntries) {
-            throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the array limit of ${providerBoundaryMaxArrayEntries}`, { limit: providerBoundaryMaxArrayEntries });
+        if (!Number.isSafeInteger(length) || length < 0 || length > providerAncillaryDataLimits.maxArrayEntries) {
+            throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the array limit of ${providerAncillaryDataLimits.maxArrayEntries}`, { limit: providerAncillaryDataLimits.maxArrayEntries });
         }
         if (ownKeys.some((key) => typeof key !== "string" || key !== "length" && !isExactArrayIndex(key, length))) {
             throw new ProviderBoundarySnapshotError("shape", path, "must contain only indexed evidence entries");
         }
+        reserveProviderBoundaryPhysicalResources(state, 1 + length, path);
+        state.active.set(value, path);
         const evidence = [];
-        let totalEntries = length;
-        let totalScalarCodeUnits = 0;
         for (let index = 0; index < length; index++) {
             const entryPath = `${path}[${index}]`;
             const entryDescriptor = Object.getOwnPropertyDescriptor(value, String(index));
             if (entryDescriptor === undefined || !("value" in entryDescriptor) || entryDescriptor.enumerable !== true) {
                 throw new ProviderBoundarySnapshotError("shape", entryPath, "must be an enumerable data property");
             }
-            const entry = entryDescriptor.value;
-            if (typeof entry !== "object" || entry === null) {
-                throw new ProviderBoundarySnapshotError("shape", entryPath, "must be an object");
-            }
-            const prototype = Object.getPrototypeOf(entry);
-            if (prototype !== Object.prototype && prototype !== null) {
-                throw new ProviderBoundarySnapshotError("shape", entryPath, "must have Object.prototype or null prototype");
-            }
-            const entryKeys = Reflect.ownKeys(entry);
-            if (entryKeys.some((key) => typeof key !== "string" || key !== "message" && key !== "details")) {
-                throw new ProviderBoundarySnapshotError("shape", entryPath, "contains unsupported evidence fields");
-            }
-            const messageDescriptor = Object.getOwnPropertyDescriptor(entry, "message");
-            if (messageDescriptor === undefined || !("value" in messageDescriptor) || messageDescriptor.enumerable !== true) {
-                throw new ProviderBoundarySnapshotError("shape", `${entryPath}.message`, "must be an enumerable data property");
-            }
-            const message = messageDescriptor.value;
-            const detailsDescriptor = Object.getOwnPropertyDescriptor(entry, "details");
-            const hasDetails = detailsDescriptor !== undefined;
-            assertProviderBoundaryString(message, `${entryPath}.message`, false);
-            totalScalarCodeUnits = addProviderBoundaryCodeUnits(totalScalarCodeUnits, message.length, `${entryPath}.message`);
-            if (!hasDetails) {
-                evidence.push(Object.freeze({ message }));
-                continue;
-            }
-            if (!("value" in detailsDescriptor) || detailsDescriptor.enumerable !== true) {
-                throw new ProviderBoundarySnapshotError("shape", `${entryPath}.details`, "must be an enumerable data property");
-            }
-            const details = detailsDescriptor.value;
-            const detailsSnapshot = snapshotProviderBoundaryData(details, `${entryPath}.details`);
-            if (detailsSnapshot.kind === "invalid") {
-                throw ProviderBoundarySnapshotError.fromResult(detailsSnapshot);
-            }
-            totalEntries = addProviderBoundaryEntries(totalEntries, detailsSnapshot.entries, `${entryPath}.details`);
-            totalScalarCodeUnits = addProviderBoundaryCodeUnits(totalScalarCodeUnits, detailsSnapshot.scalarCodeUnits, `${entryPath}.details`);
-            evidence.push(Object.freeze({ message, details: detailsSnapshot.value }));
+            evidence.push(snapshotProviderEvidenceEntry(entryDescriptor.value, entryPath, 1, state).value);
         }
+        state.active.delete(value);
         return Object.freeze({
             kind: "valid",
             value: Object.freeze(evidence),
-            scalarCodeUnits: totalScalarCodeUnits,
-            entries: totalEntries,
+            scalarCodeUnits: state.scalarCodeUnits,
+            physicalNodeAndCollectionEntryCount: state.physicalNodeAndCollectionEntryCount,
         });
     }
     catch (error) {
@@ -111,33 +84,102 @@ export function assertProviderBoundaryString(value, path, allowEmpty) {
     if (typeof value !== "string" || (!allowEmpty && value.length === 0)) {
         throw new ProviderBoundarySnapshotError("shape", path, `must be ${allowEmpty ? "a string" : "a non-empty string"}`);
     }
-    if (value.length > providerBoundaryMaxStringCodeUnits) {
-        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the string limit of ${providerBoundaryMaxStringCodeUnits} UTF-16 code units`, { limit: providerBoundaryMaxStringCodeUnits });
+    if (value.length > providerAncillaryDataLimits.maxStringCodeUnits) {
+        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the string limit of ${providerAncillaryDataLimits.maxStringCodeUnits} UTF-16 code units`, { limit: providerAncillaryDataLimits.maxStringCodeUnits });
+    }
+}
+export function assertProviderAncillaryAggregateScalarCodeUnits(codeUnits, path) {
+    if (!Number.isSafeInteger(codeUnits)
+        || codeUnits < 0
+        || codeUnits > providerAncillaryDataLimits.maxTotalScalarCodeUnits) {
+        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the total string limit of ${providerAncillaryDataLimits.maxTotalScalarCodeUnits} UTF-16 code units`, { limit: providerAncillaryDataLimits.maxTotalScalarCodeUnits });
+    }
+}
+function snapshotProviderEvidenceEntry(value, path, depth, state) {
+    if (depth > providerAncillaryDataLimits.maxDepth) {
+        throw new ProviderBoundarySnapshotError("depth", path, `exceeds the nesting limit of ${providerAncillaryDataLimits.maxDepth}`, { depth, limit: providerAncillaryDataLimits.maxDepth });
+    }
+    if (typeof value !== "object" || value === null) {
+        throw new ProviderBoundarySnapshotError("shape", path, "must be an object");
+    }
+    const completed = state.completedEvidence.get(value);
+    if (completed !== undefined) {
+        assertProviderBoundaryCompletedDepth(depth, completed.maximumRelativeDepth, path);
+        return completed;
+    }
+    const firstPath = state.active.get(value);
+    if (firstPath !== undefined) {
+        throw new ProviderBoundarySnapshotError("cycle", path, "must not contain cycles", { firstPath, depth });
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+        throw new ProviderBoundarySnapshotError("shape", path, "must have Object.prototype or null prototype");
+    }
+    const entryKeys = Reflect.ownKeys(value);
+    if (entryKeys.some((key) => typeof key !== "string" || key !== "message" && key !== "details")) {
+        throw new ProviderBoundarySnapshotError("shape", path, "contains unsupported evidence fields");
+    }
+    reserveProviderBoundaryPhysicalResources(state, 1 + entryKeys.length, path);
+    const messageDescriptor = Object.getOwnPropertyDescriptor(value, "message");
+    if (messageDescriptor === undefined || !("value" in messageDescriptor) || messageDescriptor.enumerable !== true) {
+        throw new ProviderBoundarySnapshotError("shape", `${path}.message`, "must be an enumerable data property");
+    }
+    const message = messageDescriptor.value;
+    assertProviderBoundaryString(message, `${path}.message`, false);
+    state.scalarCodeUnits = addProviderBoundaryCodeUnits(state.scalarCodeUnits, message.length, `${path}.message`);
+    const detailsDescriptor = Object.getOwnPropertyDescriptor(value, "details");
+    if (detailsDescriptor === undefined) {
+        const snapshot = { value: Object.freeze({ message }), maximumRelativeDepth: 0 };
+        state.completedEvidence.set(value, snapshot);
+        return snapshot;
+    }
+    if (!("value" in detailsDescriptor) || detailsDescriptor.enumerable !== true) {
+        throw new ProviderBoundarySnapshotError("shape", `${path}.details`, "must be an enumerable data property");
+    }
+    state.active.set(value, path);
+    try {
+        const details = snapshotProviderBoundaryDataNode(detailsDescriptor.value, `${path}.details`, depth + 1, state);
+        const snapshot = {
+            value: Object.freeze({ message, details: details.value }),
+            maximumRelativeDepth: details.maximumRelativeDepth + 1,
+        };
+        state.completedEvidence.set(value, snapshot);
+        return snapshot;
+    }
+    finally {
+        state.active.delete(value);
+    }
+}
+function assertProviderBoundaryCompletedDepth(depth, maximumRelativeDepth, path) {
+    const maximumDepth = depth + maximumRelativeDepth;
+    if (maximumDepth > providerAncillaryDataLimits.maxDepth) {
+        throw new ProviderBoundarySnapshotError("depth", path, `exceeds the nesting limit of ${providerAncillaryDataLimits.maxDepth}`, { depth: maximumDepth, limit: providerAncillaryDataLimits.maxDepth });
     }
 }
 function snapshotProviderBoundaryDataNode(value, path, depth, state) {
-    if (depth > providerBoundaryMaxDepth) {
-        throw new ProviderBoundarySnapshotError("depth", path, `exceeds the nesting limit of ${providerBoundaryMaxDepth}`, { depth, limit: providerBoundaryMaxDepth });
+    if (depth > providerAncillaryDataLimits.maxDepth) {
+        throw new ProviderBoundarySnapshotError("depth", path, `exceeds the nesting limit of ${providerAncillaryDataLimits.maxDepth}`, { depth, limit: providerAncillaryDataLimits.maxDepth });
     }
     if (value === undefined || value === null || typeof value === "boolean") {
-        return value;
+        return { value, maximumRelativeDepth: 0 };
     }
     if (typeof value === "number") {
         if (!Number.isFinite(value)) {
             throw new ProviderBoundarySnapshotError("shape", path, "must contain only finite numbers");
         }
-        return value;
+        return { value, maximumRelativeDepth: 0 };
     }
     if (typeof value === "string") {
         assertProviderBoundaryString(value, path, true);
         state.scalarCodeUnits = addProviderBoundaryCodeUnits(state.scalarCodeUnits, value.length, path);
-        return value;
+        return { value, maximumRelativeDepth: 0 };
     }
     if (typeof value !== "object") {
         throw new ProviderBoundarySnapshotError("shape", path, "must contain only immutable data values");
     }
     const completed = state.completed.get(value);
     if (completed !== undefined) {
+        assertProviderBoundaryCompletedDepth(depth, completed.maximumRelativeDepth, path);
         return completed;
     }
     const firstPath = state.active.get(value);
@@ -145,6 +187,7 @@ function snapshotProviderBoundaryDataNode(value, path, depth, state) {
         throw new ProviderBoundarySnapshotError("cycle", path, "must not contain cycles", { firstPath, depth });
     }
     state.active.set(value, path);
+    reserveProviderBoundaryPhysicalResources(state, 1, path);
     try {
         const snapshot = Array.isArray(value)
             ? snapshotProviderBoundaryArray(value, path, depth, state)
@@ -159,23 +202,26 @@ function snapshotProviderBoundaryDataNode(value, path, depth, state) {
 function snapshotProviderBoundaryArray(value, path, depth, state) {
     const keys = Reflect.ownKeys(value);
     const length = value.length;
-    if (!Number.isSafeInteger(length) || length < 0 || length > providerBoundaryMaxArrayEntries) {
-        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the array limit of ${providerBoundaryMaxArrayEntries}`, { limit: providerBoundaryMaxArrayEntries });
+    if (!Number.isSafeInteger(length) || length < 0 || length > providerAncillaryDataLimits.maxArrayEntries) {
+        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the array limit of ${providerAncillaryDataLimits.maxArrayEntries}`, { limit: providerAncillaryDataLimits.maxArrayEntries });
     }
     if (keys.some((key) => typeof key !== "string" || key !== "length" && !isExactArrayIndex(key, length))) {
         throw new ProviderBoundarySnapshotError("shape", path, "arrays must contain only indexed data entries");
     }
-    state.entries = addProviderBoundaryEntries(state.entries, length, path);
+    reserveProviderBoundaryPhysicalResources(state, length, path);
     const snapshot = [];
+    let maximumRelativeDepth = 0;
     for (let index = 0; index < length; index++) {
         const elementPath = `${path}[${index}]`;
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true) {
             throw new ProviderBoundarySnapshotError("shape", elementPath, "must be an enumerable data property");
         }
-        snapshot.push(snapshotProviderBoundaryDataNode(descriptor.value, elementPath, depth + 1, state));
+        const child = snapshotProviderBoundaryDataNode(descriptor.value, elementPath, depth + 1, state);
+        snapshot.push(child.value);
+        maximumRelativeDepth = Math.max(maximumRelativeDepth, child.maximumRelativeDepth + 1);
     }
-    return Object.freeze(snapshot);
+    return { value: Object.freeze(snapshot), maximumRelativeDepth };
 }
 function snapshotProviderBoundaryObject(value, path, depth, state) {
     const prototype = Object.getPrototypeOf(value);
@@ -187,8 +233,9 @@ function snapshotProviderBoundaryObject(value, path, depth, state) {
         throw new ProviderBoundarySnapshotError("shape", path, "objects must not contain symbol keys");
     }
     const keys = ownKeys.sort();
-    state.entries = addProviderBoundaryEntries(state.entries, keys.length, path);
+    reserveProviderBoundaryPhysicalResources(state, keys.length, path);
     const snapshot = Object.create(null);
+    let maximumRelativeDepth = 0;
     for (const key of keys) {
         assertProviderBoundaryString(key, `${path}.${key}`, true);
         state.scalarCodeUnits = addProviderBoundaryCodeUnits(state.scalarCodeUnits, key.length, `${path}.${key}`);
@@ -196,9 +243,11 @@ function snapshotProviderBoundaryObject(value, path, depth, state) {
         if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true) {
             throw new ProviderBoundarySnapshotError("shape", `${path}.${key}`, "must be an enumerable data property");
         }
-        snapshot[key] = snapshotProviderBoundaryDataNode(descriptor.value, `${path}.${key}`, depth + 1, state);
+        const child = snapshotProviderBoundaryDataNode(descriptor.value, `${path}.${key}`, depth + 1, state);
+        snapshot[key] = child.value;
+        maximumRelativeDepth = Math.max(maximumRelativeDepth, child.maximumRelativeDepth + 1);
     }
-    return Object.freeze(snapshot);
+    return { value: Object.freeze(snapshot), maximumRelativeDepth };
 }
 function isExactArrayIndex(value, length) {
     if (!/^(0|[1-9][0-9]*)$/.test(value)) {
@@ -207,17 +256,19 @@ function isExactArrayIndex(value, length) {
     const index = Number(value);
     return Number.isSafeInteger(index) && index >= 0 && index < length && String(index) === value;
 }
-function addProviderBoundaryEntries(current, incoming, path) {
-    const next = current + incoming;
-    if (!Number.isSafeInteger(next) || next > providerBoundaryMaxArrayEntries) {
-        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the total entry limit of ${providerBoundaryMaxArrayEntries}`, { limit: providerBoundaryMaxArrayEntries });
+function reserveProviderBoundaryPhysicalResources(state, incoming, path) {
+    const next = state.physicalNodeAndCollectionEntryCount + incoming;
+    if (!Number.isSafeInteger(next)
+        || incoming < 0
+        || next > providerAncillaryDataLimits.maxTotalEntries) {
+        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the total entry limit of ${providerAncillaryDataLimits.maxTotalEntries}`, { limit: providerAncillaryDataLimits.maxTotalEntries });
     }
-    return next;
+    state.physicalNodeAndCollectionEntryCount = next;
 }
 function addProviderBoundaryCodeUnits(current, incoming, path) {
     const next = current + incoming;
-    if (!Number.isSafeInteger(next) || next > providerBoundaryMaxTotalStringCodeUnits) {
-        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the total string limit of ${providerBoundaryMaxTotalStringCodeUnits} UTF-16 code units`, { limit: providerBoundaryMaxTotalStringCodeUnits });
+    if (!Number.isSafeInteger(next) || next > providerAncillaryDataLimits.maxTotalScalarCodeUnits) {
+        throw new ProviderBoundarySnapshotError("complexity", path, `exceeds the total string limit of ${providerAncillaryDataLimits.maxTotalScalarCodeUnits} UTF-16 code units`, { limit: providerAncillaryDataLimits.maxTotalScalarCodeUnits });
     }
     return next;
 }

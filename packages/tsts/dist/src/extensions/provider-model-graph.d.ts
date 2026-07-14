@@ -1,7 +1,9 @@
 import type { ProviderDeclarationModel, ProviderTypeParameterDeclaration } from "./host.js";
 export interface ProviderDeclarationModelGraphMetrics {
+    readonly physicalNodeAndArrayEntryCount: number;
+    readonly physicalScalarCodeUnitCount: number;
     readonly expandedSemanticNodeAndArrayEntryCount: number;
-    readonly totalScalarCodeUnitCount: number;
+    readonly expandedSemanticScalarCodeUnitCount: number;
 }
 export type ProviderDeclarationModelGraphValidation = {
     readonly kind: "valid";

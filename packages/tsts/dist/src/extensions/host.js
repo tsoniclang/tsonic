@@ -6,9 +6,10 @@ import { createTypeShapeQueries } from "../services/type-shape.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
 import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } from "./provider-export-contract.js";
-import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualInternalRoot, providerVirtualPublicRoot } from "./provider-virtual-internal.js";
+import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualInternalRoot, providerVirtualPublicRoot } from "./provider-virtual-internal.js";
 import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } from "./provider-model-graph.js";
-import { assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, providerBoundaryMaxArrayEntries, providerBoundaryMaxTotalStringCodeUnits, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
+import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
+import { providerAncillaryDataLimits, providerDeclarationClosureLimits } from "./provider-resource-limits.js";
 export const ExtensionHostDiagnosticCode = {
     factConflict: 9000001,
     duplicateExtension: 9000002,
@@ -305,6 +306,7 @@ export class ProviderRegistry {
     #canonicalExportsByModuleIdentity = new Map();
     #canonicalExportOwnersByExportIdentity = new Map();
     #publicModuleIdentitiesByEnvironmentKey = new Map();
+    #canonicalModuleDependencyContextIdentitiesByFileName = new Map();
     #providerRegistrationsSealed = false;
     #activeResolutionTransaction;
     constructor(diagnostics, requiredProviderModules = []) {
@@ -417,6 +419,23 @@ export class ProviderRegistry {
     }
     resolveVirtualModule(specifier, context = {}) {
         const activeTransaction = this.#activeResolutionTransaction;
+        try {
+            assertProviderBoundaryString(specifier, "specifier", false);
+        }
+        catch (error) {
+            const diagnostic = createHostDiagnostic({
+                extensionCode: "INVALID_PROVIDER_MODULE_SPECIFIER",
+                numericCode: ExtensionHostDiagnosticCode.providerResolutionFailed,
+                message: "Provider virtual module resolution received an invalid module specifier.",
+                evidence: [{ message: "Module specifier rejection", details: error instanceof Error ? error.message : String(error) }],
+                identity: "invalid-provider-module-specifier",
+            });
+            this.#diagnostics.append(diagnostic);
+            if (activeTransaction !== undefined) {
+                activeTransaction.reentrantDiagnostic ??= diagnostic;
+            }
+            return { kind: "rejected", diagnostic };
+        }
         if (activeTransaction !== undefined) {
             const diagnostic = createHostDiagnostic({
                 extensionCode: "PROVIDER_RESOLUTION_REENTRANT",
@@ -446,7 +465,7 @@ export class ProviderRegistry {
         }
         let exactContext;
         try {
-            exactContext = snapshotProviderModuleContext(context);
+            exactContext = snapshotProviderModuleContext(context).context;
         }
         catch (error) {
             const diagnostic = createHostDiagnostic({
@@ -464,7 +483,10 @@ export class ProviderRegistry {
         if (cachedResult !== undefined) {
             return cachedResult;
         }
-        const transaction = { specifier };
+        const transaction = {
+            specifier,
+            stagedDeclarationLoadOutcomesByRequestKey: new Map(),
+        };
         this.#activeResolutionTransaction = transaction;
         try {
             const result = Object.freeze(this.#resolveVirtualModuleTransaction(specifier, exactContext, transaction));
@@ -520,6 +542,7 @@ export class ProviderRegistry {
             cacheKey,
         });
         this.#commitProviderPublicModuleIdentities(canonicalExportsPreparation.state);
+        this.#commitProviderPlanningIdentities(canonicalExportsPreparation.state);
         this.#commitPreparedCanonicalExportOwners(ownerPreparation.owners);
         this.#commitVirtualArtifact(artifact, true);
         this.#recordVirtualSourceVariant(virtualModuleIdentity, virtualSourceText, artifact.fileName);
@@ -527,12 +550,13 @@ export class ProviderRegistry {
         this.#recordVirtualFileIdentity(artifact.fileName, virtualModuleIdentity);
         this.#virtualModules.set(cacheKey, module);
         this.#declarationCandidatesByCacheKey.set(cacheKey, loaded.candidate);
+        this.#commitProviderResolutionTransaction(transaction);
         return { kind: "resolved", module };
     }
     #loadProviderDeclarationCandidate(specifier, context, planningCandidates) {
-        let exactContext;
+        let contextSnapshot;
         try {
-            exactContext = snapshotProviderModuleContext(context);
+            contextSnapshot = snapshotProviderModuleContext(context);
         }
         catch (error) {
             const diagnostic = createHostDiagnostic({
@@ -545,12 +569,14 @@ export class ProviderRegistry {
             this.#diagnostics.append(diagnostic);
             return { kind: "rejected", diagnostic };
         }
+        const exactContext = contextSnapshot.context;
         const requestKey = getProviderRequestCacheKey(specifier, exactContext);
         const cachedResult = this.#virtualModuleResultsByRequestKey.get(requestKey);
         if (cachedResult !== undefined) {
             return cachedResult;
         }
-        const cachedOutcome = this.#declarationLoadOutcomesByRequestKey.get(requestKey);
+        const cachedOutcome = this.#activeResolutionTransaction?.stagedDeclarationLoadOutcomesByRequestKey.get(requestKey)
+            ?? this.#declarationLoadOutcomesByRequestKey.get(requestKey);
         if (cachedOutcome !== undefined) {
             if (cachedOutcome.kind === "candidate" && planningCandidates !== undefined) {
                 planningCandidates.set(cachedOutcome.candidate.cacheKey, cachedOutcome.candidate);
@@ -682,6 +708,7 @@ export class ProviderRegistry {
             declarationModel,
             artifactDeclarationModel: freezeProviderDeclarationModel(canonicalizeProviderAbiModel(declarationModel)),
             graphMetrics: graphValidation.metrics,
+            retainedAncillaryMetrics: addProviderAncillaryResourceMetrics(contextSnapshot.metrics, resolutionSnapshot.metrics),
             context: exactContext,
             cacheKey,
             moduleIdentity: virtualModuleIdentity,
@@ -694,13 +721,22 @@ export class ProviderRegistry {
         return this.#cacheDeclarationLoadOutcome(requestKey, { kind: "candidate", candidate });
     }
     #cacheDeclarationLoadOutcome(requestKey, outcome) {
-        const cached = this.#declarationLoadOutcomesByRequestKey.get(requestKey);
+        const outcomes = this.#activeResolutionTransaction?.stagedDeclarationLoadOutcomesByRequestKey
+            ?? this.#declarationLoadOutcomesByRequestKey;
+        const cached = outcomes.get(requestKey);
         if (cached !== undefined) {
             return cached;
         }
         const immutableOutcome = Object.freeze(outcome);
-        this.#declarationLoadOutcomesByRequestKey.set(requestKey, immutableOutcome);
+        outcomes.set(requestKey, immutableOutcome);
         return immutableOutcome;
+    }
+    #commitProviderResolutionTransaction(transaction) {
+        for (const [requestKey, outcome] of transaction.stagedDeclarationLoadOutcomesByRequestKey) {
+            if (!this.#declarationLoadOutcomesByRequestKey.has(requestKey)) {
+                this.#declarationLoadOutcomesByRequestKey.set(requestKey, outcome);
+            }
+        }
     }
     #prepareCanonicalProviderExports(rootCandidate) {
         const state = createProviderCanonicalExportPlanningState();
@@ -745,23 +781,38 @@ export class ProviderRegistry {
         if (state.registeredCandidateRequestKeys.has(candidateRequestKey)) {
             return { kind: "registered", candidateRequestKey };
         }
-        if (state.candidateCount >= providerPlanningMaxCandidates) {
-            return this.#rejectProviderPlanningBudget(candidate, "candidate modules", state.candidateCount + 1, providerPlanningMaxCandidates);
+        if (state.candidateCount >= providerDeclarationClosureLimits.maxCandidates) {
+            return this.#rejectProviderPlanningBudget(candidate, "candidate modules", state.candidateCount + 1, providerDeclarationClosureLimits.maxCandidates);
         }
         const nextExportCount = state.exportCount + candidate.canonicalDeclarationModelsBySourceExportName.size;
-        if (!Number.isSafeInteger(nextExportCount) || nextExportCount > providerPlanningMaxExports) {
-            return this.#rejectProviderPlanningBudget(candidate, "canonical exports", nextExportCount, providerPlanningMaxExports);
+        if (!Number.isSafeInteger(nextExportCount) || nextExportCount > providerDeclarationClosureLimits.maxExports) {
+            return this.#rejectProviderPlanningBudget(candidate, "canonical exports", nextExportCount, providerDeclarationClosureLimits.maxExports);
+        }
+        const nextRetainedNodeAndCollectionEntryCount = state.retainedNodeAndCollectionEntryCount
+            + candidate.graphMetrics.physicalNodeAndArrayEntryCount
+            + candidate.retainedAncillaryMetrics.physicalNodeAndCollectionEntryCount;
+        if (!Number.isSafeInteger(nextRetainedNodeAndCollectionEntryCount)
+            || nextRetainedNodeAndCollectionEntryCount > providerDeclarationClosureLimits.maxRetainedNodeAndCollectionEntries) {
+            return this.#rejectProviderPlanningBudget(candidate, "retained provider closure nodes and collection entries", nextRetainedNodeAndCollectionEntryCount, providerDeclarationClosureLimits.maxRetainedNodeAndCollectionEntries);
+        }
+        const nextRetainedScalarCodeUnitCount = state.retainedScalarCodeUnitCount
+            + candidate.graphMetrics.physicalScalarCodeUnitCount
+            + candidate.retainedAncillaryMetrics.scalarCodeUnitCount;
+        if (!Number.isSafeInteger(nextRetainedScalarCodeUnitCount)
+            || nextRetainedScalarCodeUnitCount > providerDeclarationClosureLimits.maxRetainedScalarCodeUnits) {
+            return this.#rejectProviderPlanningBudget(candidate, "retained provider closure scalar code units", nextRetainedScalarCodeUnitCount, providerDeclarationClosureLimits.maxRetainedScalarCodeUnits);
         }
         const nextExpandedSemanticNodeCount = state.expandedSemanticNodeCount
             + candidate.graphMetrics.expandedSemanticNodeAndArrayEntryCount;
         if (!Number.isSafeInteger(nextExpandedSemanticNodeCount)
-            || nextExpandedSemanticNodeCount > providerPlanningMaxExpandedSemanticNodes) {
-            return this.#rejectProviderPlanningBudget(candidate, "expanded semantic declaration nodes", nextExpandedSemanticNodeCount, providerPlanningMaxExpandedSemanticNodes);
+            || nextExpandedSemanticNodeCount > providerDeclarationClosureLimits.maxExpandedSemanticNodeAndArrayEntries) {
+            return this.#rejectProviderPlanningBudget(candidate, "expanded semantic declaration nodes", nextExpandedSemanticNodeCount, providerDeclarationClosureLimits.maxExpandedSemanticNodeAndArrayEntries);
         }
-        const nextScalarCodeUnitCount = state.scalarCodeUnitCount + candidate.graphMetrics.totalScalarCodeUnitCount;
-        if (!Number.isSafeInteger(nextScalarCodeUnitCount)
-            || nextScalarCodeUnitCount > providerPlanningMaxScalarCodeUnits) {
-            return this.#rejectProviderPlanningBudget(candidate, "provider declaration scalar code units", nextScalarCodeUnitCount, providerPlanningMaxScalarCodeUnits);
+        const nextExpandedSemanticScalarCodeUnitCount = state.expandedSemanticScalarCodeUnitCount
+            + candidate.graphMetrics.expandedSemanticScalarCodeUnitCount;
+        if (!Number.isSafeInteger(nextExpandedSemanticScalarCodeUnitCount)
+            || nextExpandedSemanticScalarCodeUnitCount > providerDeclarationClosureLimits.maxExpandedSemanticScalarCodeUnits) {
+            return this.#rejectProviderPlanningBudget(candidate, "expanded semantic provider declaration scalar code units", nextExpandedSemanticScalarCodeUnitCount, providerDeclarationClosureLimits.maxExpandedSemanticScalarCodeUnits);
         }
         const existingPublicModuleIdentity = state.publicModuleIdentitiesByEnvironmentKey.get(candidate.publicModuleEnvironmentKey)
             ?? this.#publicModuleIdentitiesByEnvironmentKey.get(candidate.publicModuleEnvironmentKey);
@@ -804,8 +855,10 @@ export class ProviderRegistry {
         state.registeredCandidateRequestKeys.add(candidateRequestKey);
         state.candidateCount += 1;
         state.exportCount = nextExportCount;
+        state.retainedNodeAndCollectionEntryCount = nextRetainedNodeAndCollectionEntryCount;
+        state.retainedScalarCodeUnitCount = nextRetainedScalarCodeUnitCount;
         state.expandedSemanticNodeCount = nextExpandedSemanticNodeCount;
-        state.scalarCodeUnitCount = nextScalarCodeUnitCount;
+        state.expandedSemanticScalarCodeUnitCount = nextExpandedSemanticScalarCodeUnitCount;
         for (const exportName of candidate.canonicalDeclarationModelsBySourceExportName.keys()) {
             const owner = this.#getOrPlanCanonicalExportOwner(candidate, exportName, state);
             if (owner.kind === "rejected") {
@@ -824,10 +877,24 @@ export class ProviderRegistry {
         }
         return { kind: "registered", candidateRequestKey };
     }
-    #resolveProviderReferenceTarget(sourceCandidate, reference, valueHeritage, sourceArtifactFileName, state) {
+    #resolveProviderReferenceTarget(sourceCandidate, reference, valueHeritage, state) {
         let targetCandidate = sourceCandidate;
         if (reference.moduleSpecifier !== sourceCandidate.declarationModel.moduleSpecifier) {
-            const dependencyContext = getProviderReferenceDependencyContext(sourceCandidate, reference, valueHeritage, sourceArtifactFileName);
+            const dependencyContextFileName = getProviderCanonicalModuleDependencyContextFileName(sourceCandidate.moduleIdentity);
+            const existingDependencyContextIdentity = state.canonicalModuleDependencyContextIdentitiesByFileName.get(dependencyContextFileName)
+                ?? this.#canonicalModuleDependencyContextIdentitiesByFileName.get(dependencyContextFileName);
+            if (existingDependencyContextIdentity !== undefined
+                && existingDependencyContextIdentity !== sourceCandidate.moduleIdentity) {
+                const [firstIdentity, secondIdentity] = orderStablePair(existingDependencyContextIdentity, sourceCandidate.moduleIdentity);
+                const diagnostic = createInvalidProviderDeclarationDiagnostic(sourceCandidate.providerIdentity, sourceCandidate.declarationModel, "Canonical provider dependency context identity collided with a different public module.", `provider-dependency-context-identity-conflict:${sourceCandidate.providerIdentity.id}:${dependencyContextFileName}`, [
+                    { message: "Provider module identity A", details: firstIdentity },
+                    { message: "Provider module identity B", details: secondIdentity },
+                ]);
+                this.#diagnostics.append(diagnostic);
+                return { kind: "rejected", diagnostic };
+            }
+            state.canonicalModuleDependencyContextIdentitiesByFileName.set(dependencyContextFileName, sourceCandidate.moduleIdentity);
+            const dependencyContext = getProviderReferenceDependencyContext(sourceCandidate, reference, valueHeritage, dependencyContextFileName);
             const loaded = this.#loadProviderDeclarationCandidate(reference.moduleSpecifier, dependencyContext, state.planningCandidatesByRequestKey);
             if (loaded.kind === "unowned") {
                 return loaded;
@@ -932,10 +999,10 @@ export class ProviderRegistry {
                     : { kind: "rejected", diagnostic: environmentDiagnostic };
             }
         }
-        const visitKey = `${owner.exportIdentity}\0${candidate.cacheKey}`;
+        const visitKey = `${owner.exportIdentity}\0${candidate.publicModuleEnvironmentKey}`;
         if (!state.ownerVisitsByKey.has(visitKey)) {
-            if (state.ownerVisitsByKey.size >= providerPlanningMaxOwnerVisits) {
-                return this.#rejectProviderPlanningBudget(candidate, "canonical owner visits", state.ownerVisitsByKey.size + 1, providerPlanningMaxOwnerVisits);
+            if (state.ownerVisitsByKey.size >= providerDeclarationClosureLimits.maxOwnerVisits) {
+                return this.#rejectProviderPlanningBudget(candidate, "canonical owner visits", state.ownerVisitsByKey.size + 1, providerDeclarationClosureLimits.maxOwnerVisits);
             }
             state.ownerVisitsByKey.set(visitKey, { key: visitKey, candidate, owner, parentKey: parentVisitKey });
             state.ownerVisitQueue.push(visitKey);
@@ -949,14 +1016,14 @@ export class ProviderRegistry {
         const uses = collectProviderDeclarationReferenceUses(visit.owner.declarationModel.exports)
             .sort(compareProviderDeclarationReferenceUses);
         const nextReferenceCount = state.referenceCount + uses.length;
-        if (!Number.isSafeInteger(nextReferenceCount) || nextReferenceCount > providerPlanningMaxReferences) {
-            return this.#rejectProviderPlanningBudget(visit.candidate, "provider references", nextReferenceCount, providerPlanningMaxReferences);
+        if (!Number.isSafeInteger(nextReferenceCount) || nextReferenceCount > providerDeclarationClosureLimits.maxReferences) {
+            return this.#rejectProviderPlanningBudget(visit.candidate, "provider references", nextReferenceCount, providerDeclarationClosureLimits.maxReferences);
         }
         state.referenceCount = nextReferenceCount;
         for (const use of uses) {
             const reference = use.reference;
             const referenceKey = getProviderRefKey(reference.moduleSpecifier, reference.exportName, reference.typeArguments?.length ?? 0);
-            const target = this.#resolveProviderReferenceTarget(visit.candidate, reference, use.valueHeritage, visit.owner.fileName, state);
+            const target = this.#resolveProviderReferenceTarget(visit.candidate, reference, use.valueHeritage, state);
             if (target.kind === "rejected") {
                 return target;
             }
@@ -1177,6 +1244,14 @@ export class ProviderRegistry {
     #commitProviderPublicModuleIdentities(state) {
         for (const [environmentKey, moduleIdentity] of state.publicModuleIdentitiesByEnvironmentKey) {
             this.#publicModuleIdentitiesByEnvironmentKey.set(environmentKey, moduleIdentity);
+        }
+    }
+    #commitProviderPlanningIdentities(state) {
+        for (const [fileName, moduleIdentity] of state.virtualFileIdentities) {
+            this.#recordVirtualFileIdentity(fileName, moduleIdentity);
+        }
+        for (const [fileName, moduleIdentity] of state.canonicalModuleDependencyContextIdentitiesByFileName) {
+            this.#canonicalModuleDependencyContextIdentitiesByFileName.set(fileName, moduleIdentity);
         }
     }
     #planEffectiveVirtualFileName(candidate, sourceText) {
@@ -2094,10 +2169,18 @@ function getProviderRequestCacheKey(specifier, context) {
 }
 function snapshotProviderModuleContext(context) {
     let scalarCodeUnits = 0;
+    let physicalNodeAndCollectionEntryCount = 1;
     const countString = (value, path) => {
         scalarCodeUnits += value.length;
-        if (!Number.isSafeInteger(scalarCodeUnits) || scalarCodeUnits > providerBoundaryMaxTotalStringCodeUnits) {
-            throw new Error(`${path} exceeds the total provider string limit of ${providerBoundaryMaxTotalStringCodeUnits} UTF-16 code units`);
+        if (!Number.isSafeInteger(scalarCodeUnits) || scalarCodeUnits > providerAncillaryDataLimits.maxTotalScalarCodeUnits) {
+            throw new Error(`${path} exceeds the total provider string limit of ${providerAncillaryDataLimits.maxTotalScalarCodeUnits} UTF-16 code units`);
+        }
+    };
+    const countPhysicalResources = (count, path) => {
+        physicalNodeAndCollectionEntryCount += count;
+        if (!Number.isSafeInteger(physicalNodeAndCollectionEntryCount)
+            || physicalNodeAndCollectionEntryCount > providerAncillaryDataLimits.maxTotalEntries) {
+            throw new Error(`${path} exceeds the total provider entry limit of ${providerAncillaryDataLimits.maxTotalEntries}`);
         }
     };
     const hasContainingFile = Object.prototype.hasOwnProperty.call(context, "containingFile");
@@ -2118,6 +2201,11 @@ function snapshotProviderModuleContext(context) {
     const hasRequestedExports = importSlice === undefined ? false : Object.prototype.hasOwnProperty.call(importSlice, "requestedExports");
     const hasBroadImport = importSlice === undefined ? false : Object.prototype.hasOwnProperty.call(importSlice, "broadImport");
     const hasTypeOnly = importSlice === undefined ? false : Object.prototype.hasOwnProperty.call(importSlice, "typeOnly");
+    countPhysicalResources(Number(hasContainingFile)
+        + Number(hasResolutionMode)
+        + Number(hasActiveTarget)
+        + Number(hasActiveSurface)
+        + Number(hasImportSlice), "context");
     if (containingFile !== undefined) {
         assertProviderBoundaryString(containingFile, "context.containingFile", true);
         countString(containingFile, "context.containingFile");
@@ -2150,11 +2238,18 @@ function snapshotProviderModuleContext(context) {
         assertProviderBoundaryString(moduleSpecifier, "context.importSlice.moduleSpecifier", false);
         countString(moduleSpecifier, "context.importSlice.moduleSpecifier");
     }
+    if (importSlice !== undefined) {
+        countPhysicalResources(3
+            + Number(hasRequestedExports)
+            + Number(hasBroadImport)
+            + Number(hasTypeOnly), "context.importSlice");
+    }
     let snapshotRequestedExports;
     if (requestedExports !== undefined) {
-        if (requestedExports.length > providerBoundaryMaxArrayEntries) {
-            throw new Error(`context.importSlice.requestedExports exceeds the provider array limit of ${providerBoundaryMaxArrayEntries}`);
+        if (requestedExports.length > providerAncillaryDataLimits.maxArrayEntries) {
+            throw new Error(`context.importSlice.requestedExports exceeds the provider array limit of ${providerAncillaryDataLimits.maxArrayEntries}`);
         }
+        countPhysicalResources(1 + requestedExports.length, "context.importSlice.requestedExports");
         const entries = [];
         for (let index = 0; index < requestedExports.length; index++) {
             const request = requestedExports[index];
@@ -2166,6 +2261,7 @@ function snapshotProviderModuleContext(context) {
             const exportedName = request.exportedName;
             const localName = request.localName;
             const requestKind = request.kind;
+            countPhysicalResources(2 + Number(hasLocalName) + Number(hasKind), `context.importSlice.requestedExports[${index}]`);
             assertProviderBoundaryString(exportedName, "context.importSlice.requestedExports[].exportedName", false);
             countString(exportedName, "context.importSlice.requestedExports[].exportedName");
             if (localName !== undefined) {
@@ -2199,13 +2295,30 @@ function snapshotProviderModuleContext(context) {
             ...(hasBroadImport ? { broadImport } : {}),
             ...(hasTypeOnly ? { typeOnly } : {}),
         });
-    return Object.freeze({
+    const snapshot = Object.freeze({
         ...(hasContainingFile ? { containingFile } : {}),
         ...(hasResolutionMode ? { resolutionMode } : {}),
         ...(hasActiveTarget ? { activeTarget } : {}),
         ...(hasActiveSurface ? { activeSurface } : {}),
         ...(hasImportSlice ? { importSlice: snapshotImportSlice } : {}),
     });
+    return Object.freeze({
+        context: snapshot,
+        metrics: Object.freeze({
+            physicalNodeAndCollectionEntryCount,
+            scalarCodeUnitCount: scalarCodeUnits,
+        }),
+    });
+}
+function addProviderAncillaryResourceMetrics(left, right) {
+    const physicalNodeAndCollectionEntryCount = left.physicalNodeAndCollectionEntryCount
+        + right.physicalNodeAndCollectionEntryCount;
+    const scalarCodeUnitCount = left.scalarCodeUnitCount + right.scalarCodeUnitCount;
+    if (!Number.isSafeInteger(physicalNodeAndCollectionEntryCount)
+        || !Number.isSafeInteger(scalarCodeUnitCount)) {
+        throw new Error("Provider ancillary resource accounting exceeded safe integer bounds.");
+    }
+    return Object.freeze({ physicalNodeAndCollectionEntryCount, scalarCodeUnitCount });
 }
 function isProviderImportSliceKind(value) {
     return value === "bare"
@@ -2463,8 +2576,8 @@ function snapshotProviderIdentity(identity) {
         + (configHash?.length ?? 0)
         + (displayName?.length ?? 0);
     if (!Number.isSafeInteger(identityScalarCodeUnits)
-        || identityScalarCodeUnits > providerBoundaryMaxTotalStringCodeUnits) {
-        throw new Error(`provider identity exceeds the total string limit of ${providerBoundaryMaxTotalStringCodeUnits} UTF-16 code units`);
+        || identityScalarCodeUnits > providerAncillaryDataLimits.maxTotalScalarCodeUnits) {
+        throw new Error(`provider identity exceeds the total string limit of ${providerAncillaryDataLimits.maxTotalScalarCodeUnits} UTF-16 code units`);
     }
     if (diagnosticRange !== undefined && (typeof diagnosticRange !== "object" || diagnosticRange === null)) {
         throw new Error("identity.diagnosticRange must be an object when present");
@@ -2624,19 +2737,16 @@ function createProviderCanonicalExportPlanningState() {
         classEdges: new Map(),
         classNodeLabels: new Map(),
         publicModuleIdentitiesByEnvironmentKey: new Map(),
+        canonicalModuleDependencyContextIdentitiesByFileName: new Map(),
         candidateCount: 0,
         exportCount: 0,
         referenceCount: 0,
+        retainedNodeAndCollectionEntryCount: 0,
+        retainedScalarCodeUnitCount: 0,
         expandedSemanticNodeCount: 0,
-        scalarCodeUnitCount: 0,
+        expandedSemanticScalarCodeUnitCount: 0,
     };
 }
-const providerPlanningMaxCandidates = 4_096;
-const providerPlanningMaxExports = 65_536;
-const providerPlanningMaxOwnerVisits = 65_536;
-const providerPlanningMaxReferences = 65_536;
-const providerPlanningMaxExpandedSemanticNodes = providerBoundaryMaxArrayEntries;
-const providerPlanningMaxScalarCodeUnits = providerBoundaryMaxTotalStringCodeUnits;
 function getProviderPlanningExportIdentity(moduleIdentity, exportName) {
     return `${moduleIdentity}\0${exportName}`;
 }
@@ -2666,12 +2776,12 @@ function getProviderCanonicalExportOwnerContractKey(moduleIdentity, model) {
     const contracts = [...getProviderExportContractKeyMap(model.moduleSpecifier, model.exports)];
     return JSON.stringify([moduleIdentity, contracts]);
 }
-function getProviderReferenceDependencyContext(candidate, reference, valueRequired, sourceArtifactFileName) {
+function getProviderReferenceDependencyContext(candidate, reference, valueRequired, containingFile) {
     return {
         ...(candidate.context.activeTarget !== undefined ? { activeTarget: candidate.context.activeTarget } : {}),
         ...(candidate.context.activeSurface !== undefined ? { activeSurface: candidate.context.activeSurface } : {}),
         ...(candidate.context.resolutionMode !== undefined ? { resolutionMode: candidate.context.resolutionMode } : {}),
-        containingFile: sourceArtifactFileName,
+        containingFile,
         importSlice: {
             moduleSpecifier: reference.moduleSpecifier,
             kind: "synthetic",
@@ -2679,6 +2789,9 @@ function getProviderReferenceDependencyContext(candidate, reference, valueRequir
             typeOnly: !valueRequired,
         },
     };
+}
+function getProviderCanonicalModuleDependencyContextFileName(moduleIdentity) {
+    return `${providerVirtualInternalRoot}${getStableProviderVirtualSliceSuffix(moduleIdentity)}${providerCanonicalModuleDependencyContextMarker}.d.ts`;
 }
 function createProviderCanonicalExportDeclarationModelMap(model) {
     const declarationsBySourceExportName = new Map();
@@ -3750,6 +3863,12 @@ function snapshotExtensionDiagnostic(value) {
         if (hasEvidence && evidenceSnapshot.kind === "valid" && evidenceSnapshot.value === undefined) {
             return { kind: "invalid", reason: "diagnostic.evidence must be an array when present" };
         }
+        assertProviderAncillaryAggregateScalarCodeUnits(extensionId.length
+            + extensionCode.length
+            + (publicCode?.length ?? 0)
+            + message.length
+            + (identity?.length ?? 0)
+            + (evidenceSnapshot.kind === "valid" ? evidenceSnapshot.scalarCodeUnits : 0), "diagnostic");
         return {
             kind: "valid",
             diagnostic: Object.freeze({
@@ -3785,25 +3904,27 @@ function snapshotProviderModuleResolution(value, specifier) {
         const packageVersion = resolutionValue.packageVersion;
         const hasEvidence = Object.prototype.hasOwnProperty.call(value, "evidence");
         const providedEvidence = resolutionValue.evidence;
-        if (kind !== "virtual"
-            || moduleSpecifier !== specifier
-            || typeof virtualFileName !== "string"
-            || virtualFileName.length === 0
-            || isHostOwnedProviderVirtualFileName(virtualFileName)
-            || typeof providerModuleId !== "string"
-            || providerModuleId.length === 0) {
+        if (kind !== "virtual" || moduleSpecifier !== specifier) {
             return { kind: "invalid", reason: "required virtual-module identity fields are invalid" };
         }
-        if (hasPackageName && (typeof packageName !== "string" || packageName.length === 0)) {
-            return { kind: "invalid", reason: "packageName must be omitted or a non-empty string" };
+        assertProviderBoundaryString(moduleSpecifier, "resolution.moduleSpecifier", false);
+        assertProviderBoundaryString(virtualFileName, "resolution.virtualFileName", false);
+        assertProviderBoundaryString(providerModuleId, "resolution.providerModuleId", false);
+        if (isHostOwnedProviderVirtualFileName(virtualFileName)) {
+            return { kind: "invalid", reason: "required virtual-module identity fields are invalid" };
         }
-        if (hasPackageVersion && (typeof packageVersion !== "string" || packageVersion.length === 0)) {
-            return { kind: "invalid", reason: "packageVersion must be omitted or a non-empty string" };
+        if (hasPackageName) {
+            assertProviderBoundaryString(packageName, "resolution.packageName", false);
+        }
+        if (hasPackageVersion) {
+            assertProviderBoundaryString(packageVersion, "resolution.packageVersion", false);
         }
         if (hasPackageVersion && !hasPackageName) {
             return { kind: "invalid", reason: "packageVersion requires packageName" };
         }
         let evidence;
+        let evidencePhysicalNodeAndCollectionEntryCount = 0;
+        let evidenceScalarCodeUnits = 0;
         if (hasEvidence) {
             const evidenceSnapshot = snapshotProviderEvidenceArray(providedEvidence, "resolution.evidence");
             if (evidenceSnapshot.kind === "invalid") {
@@ -3813,6 +3934,26 @@ function snapshotProviderModuleResolution(value, specifier) {
                 return { kind: "invalid", reason: "resolution.evidence must be an array when present" };
             }
             evidence = evidenceSnapshot.value;
+            evidencePhysicalNodeAndCollectionEntryCount = evidenceSnapshot.physicalNodeAndCollectionEntryCount;
+            evidenceScalarCodeUnits = evidenceSnapshot.scalarCodeUnits;
+        }
+        const scalarCodeUnitCount = moduleSpecifier.length
+            + virtualFileName.length
+            + providerModuleId.length
+            + (packageName?.length ?? 0)
+            + (packageVersion?.length ?? 0)
+            + evidenceScalarCodeUnits;
+        assertProviderAncillaryAggregateScalarCodeUnits(scalarCodeUnitCount, "resolution");
+        const physicalNodeAndCollectionEntryCount = 5
+            + Number(hasPackageName)
+            + Number(hasPackageVersion)
+            + Number(hasEvidence)
+            + evidencePhysicalNodeAndCollectionEntryCount;
+        if (physicalNodeAndCollectionEntryCount > providerAncillaryDataLimits.maxTotalEntries) {
+            return {
+                kind: "invalid",
+                reason: `resolution exceeds the total provider entry limit of ${providerAncillaryDataLimits.maxTotalEntries}`,
+            };
         }
         return {
             kind: "valid",
@@ -3825,6 +3966,7 @@ function snapshotProviderModuleResolution(value, specifier) {
                 ...(hasPackageVersion ? { packageVersion } : {}),
                 ...(evidence === undefined ? {} : { evidence }),
             }),
+            metrics: Object.freeze({ physicalNodeAndCollectionEntryCount, scalarCodeUnitCount }),
         };
     }
     catch (error) {

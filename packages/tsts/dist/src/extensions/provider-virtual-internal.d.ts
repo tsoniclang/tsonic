@@ -2,6 +2,7 @@ import type { ProviderVirtualModuleArtifact } from "./host.js";
 export declare const providerVirtualInternalRoot = "tsts-provider://tsts-internal/";
 export declare const providerVirtualPublicRoot = "tsts-provider://tsts-public/";
 export declare const providerCanonicalExportOwnerMarker = ".tsts-export-owner-";
+export declare const providerCanonicalModuleDependencyContextMarker = ".tsts-module-context";
 export declare const providerPublicVirtualSliceMarker = ".tsts-slice-";
 export declare const providerVirtualCompilerArtifactLookup: unique symbol;
 export interface ProviderVirtualCompilerRegistryAccess {

@@ -1,6 +1,7 @@
 export const providerVirtualInternalRoot = "tsts-provider://tsts-internal/";
 export const providerVirtualPublicRoot = "tsts-provider://tsts-public/";
 export const providerCanonicalExportOwnerMarker = ".tsts-export-owner-";
+export const providerCanonicalModuleDependencyContextMarker = ".tsts-module-context";
 export const providerPublicVirtualSliceMarker = ".tsts-slice-";
 export const providerVirtualCompilerArtifactLookup = Symbol("tsts.provider.virtualCompilerArtifactLookup");
 export function getProviderVirtualArtifactForCompiler(registry, fileName) {
