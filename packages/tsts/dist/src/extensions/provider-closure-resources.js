@@ -45,8 +45,11 @@ function reserveProviderClosureResourceDimension(current, contribution, limit, d
         || !Number.isSafeInteger(contribution) || contribution < 0) {
         throw new RangeError(`Provider closure resource '${dimension}' requires non-negative safe-integer accounting.`);
     }
+    if (current > Number.MAX_SAFE_INTEGER - contribution) {
+        throw new RangeError(`Provider closure resource '${dimension}' requires non-negative safe-integer accounting.`);
+    }
     const actual = current + contribution;
-    return Number.isSafeInteger(actual) && actual <= limit
+    return actual <= limit
         ? { kind: "reserved", actual }
         : { kind: "exceeded", dimension, actual, limit };
 }
