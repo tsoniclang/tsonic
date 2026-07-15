@@ -102,6 +102,9 @@ function validatePlugin(packageName: string, plugin: TsonicPlugin): TargetDiagno
     if (typeof plugin.createExtensions !== "function") {
       return pluginDiagnostic(packageName, "Tsonic target capability plugin must provide createExtensions().");
     }
+    if (plugin.createTargetContributions !== undefined && typeof plugin.createTargetContributions !== "function") {
+      return pluginDiagnostic(packageName, "Tsonic target capability plugin createTargetContributions must be a function when provided.");
+    }
   }
   return undefined;
 }

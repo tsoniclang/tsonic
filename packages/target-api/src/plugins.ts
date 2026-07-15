@@ -28,7 +28,7 @@ export interface TargetCapabilityRuntimeContributionContext extends TargetCapabi
   readonly paths: TargetCompilationPaths;
 }
 
-export interface TargetCapabilityOperationMapper {
+export interface TargetCapabilityContribution {
   readonly kind: string;
 }
 
@@ -41,6 +41,6 @@ export interface TsonicTargetCapabilityPlugin {
   readonly moduleOwnership: readonly TargetProviderModuleOwnership[];
   sourceProfileContributions?(context: TargetCapabilityContext): TargetSourceProfileContributions;
   createExtensions(context: TargetCapabilityContext): readonly CompilerExtension[];
-  createOperationMappers?(context: TargetCapabilityContext): readonly TargetCapabilityOperationMapper[];
+  createTargetContributions?(context: TargetCapabilityContext): readonly TargetCapabilityContribution[];
   runtimeContributions?(context: TargetCapabilityRuntimeContributionContext): TargetRuntimeContributions;
 }

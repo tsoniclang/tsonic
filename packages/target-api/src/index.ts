@@ -23,7 +23,7 @@ export {
 } from "./config.js";
 export type {
   TargetCapabilityContext,
-  TargetCapabilityOperationMapper,
+  TargetCapabilityContribution,
   TargetCapabilityRuntimeContributionContext,
   TsonicPlugin,
   TsonicTargetCapabilityPlugin,
@@ -66,7 +66,6 @@ export type {
   TargetFactQueries,
   TargetPack,
   TargetCapabilityImplementation,
-  TargetCapabilityMapper,
   TargetCapabilityRuntimeContext,
   TargetProvider,
   TargetProviderModuleOwnership,

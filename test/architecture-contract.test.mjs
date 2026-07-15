@@ -104,6 +104,17 @@ const forbiddenRawModuleSpecifierScanningPatterns = Object.freeze([
   },
 ]);
 
+const forbiddenLegacyCapabilityContributionPatterns = Object.freeze([
+  {
+    name: "legacy TargetCapabilityOperationMapper contract",
+    pattern: /\bTargetCapabilityOperationMapper\b/u,
+  },
+  {
+    name: "legacy createOperationMappers hook",
+    pattern: /\bcreateOperationMappers\b/u,
+  },
+]);
+
 test("product compiler source stays ESM-only and native-compilable", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
@@ -210,6 +221,38 @@ test("architecture validator rejects raw module specifier scanning snippets", ()
       "packages/host/src/module-specifier-scan.ts: collectProjectModuleSpecifiers scan hook",
       "packages/host/src/module-specifier-scan.ts: collectModuleSpecifiersFromText raw text parser",
       "packages/host/src/module-specifier-scan.ts: raw module import regex scan",
+    ],
+  );
+});
+
+test("product compiler source uses one standard target capability contribution hook", async () => {
+  const failures = [];
+  for (const sourceFile of await productSourceFiles()) {
+    const relativePath = repoRelative(sourceFile);
+    const text = await readFile(sourceFile, "utf8");
+    for (const forbidden of forbiddenLegacyCapabilityContributionPatterns) {
+      if (forbidden.pattern.test(text)) {
+        failures.push(`${relativePath}: ${forbidden.name}`);
+      }
+    }
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+test("architecture validator rejects legacy target capability contribution hooks", () => {
+  const text = `
+    interface LegacyPlugin {
+      createOperationMappers(): readonly TargetCapabilityOperationMapper[];
+    }
+  `;
+  assert.deepEqual(
+    forbiddenLegacyCapabilityContributionPatterns
+      .filter((forbidden) => forbidden.pattern.test(text))
+      .map((forbidden) => forbidden.name),
+    [
+      "legacy TargetCapabilityOperationMapper contract",
+      "legacy createOperationMappers hook",
     ],
   );
 });

@@ -22,7 +22,6 @@ import type {
   TsonicProjectConfig,
 } from "./config.js";
 import type {
-  TargetCapabilityOperationMapper,
   TargetCapabilityRuntimeContributionContext,
   TsonicTargetCapabilityPlugin,
 } from "./plugins.js";
@@ -214,7 +213,6 @@ export interface TargetProvider {
 }
 
 export type TargetCapabilityImplementation = TsonicTargetCapabilityPlugin;
-export type TargetCapabilityMapper = TargetCapabilityOperationMapper;
 export type TargetCapabilityRuntimeContext = TargetCapabilityRuntimeContributionContext;
 
 export interface TargetSurfaceImplementation {
