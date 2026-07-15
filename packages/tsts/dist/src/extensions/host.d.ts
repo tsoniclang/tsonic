@@ -241,6 +241,10 @@ export type ProviderTypeExpression = {
     readonly kind: "source-primitive";
     readonly name: SourcePrimitiveKind;
 } | {
+    readonly kind: "source-global";
+    readonly name: string;
+    readonly typeArguments?: readonly ProviderTypeExpression[];
+} | {
     readonly kind: "type-parameter";
     readonly name: string;
 } | {

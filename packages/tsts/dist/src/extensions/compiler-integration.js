@@ -408,6 +408,12 @@ function getTargetTypeRef(type) {
             return { kind: "opaque", id: type.id };
         case "provider-ref":
             return { kind: "opaque", id: `${type.moduleSpecifier}::${type.exportName}` };
+        case "source-global":
+            return {
+                kind: "source-global",
+                name: type.name,
+                ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
+            };
         case "string":
         case "number":
         case "any":

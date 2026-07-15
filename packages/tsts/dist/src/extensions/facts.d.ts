@@ -81,6 +81,10 @@ export type TargetTypeRef = {
     readonly kind: "source-primitive";
     readonly name: SourcePrimitiveKind;
 } | {
+    readonly kind: "source-global";
+    readonly name: string;
+    readonly typeArguments?: readonly TargetTypeRef[];
+} | {
     readonly kind: "target-named";
     readonly id: string;
     readonly typeArguments?: readonly TargetTypeRef[];

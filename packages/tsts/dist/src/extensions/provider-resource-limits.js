@@ -18,9 +18,10 @@ export const providerDeclarationClosureLimits = Object.freeze({
     maxExports: 65_536,
     maxOwnerVisits: 65_536,
     maxReferences: 65_536,
-    maxRetainedNodeAndCollectionEntries: 1_048_576,
+    maxSnapshottedInputNodeAndCollectionEntries: 2_097_152,
     maxExpandedSemanticNodeAndArrayEntries: 1_048_576,
-    maxRetainedScalarCodeUnits: 67_108_864,
+    maxSnapshottedInputScalarCodeUnits: 67_108_864,
     maxExpandedSemanticScalarCodeUnits: 67_108_864,
+    maxDeclarationSourceCodeUnits: 67_108_864,
 });
 //# sourceMappingURL=provider-resource-limits.js.map

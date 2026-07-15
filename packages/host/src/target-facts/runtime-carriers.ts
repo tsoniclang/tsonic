@@ -370,6 +370,7 @@ function substituteTargetTypeParameters(
   switch (type.kind) {
     case "type-parameter":
       return substitutions.get(type.name) ?? type;
+    case "source-global":
     case "target-named":
       return {
         ...type,
@@ -570,6 +571,7 @@ export function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): boole
       return targetTypeRefContainsSourcePrimitive(type.element);
     case "tuple":
       return type.elements.some(targetTypeRefContainsSourcePrimitive);
+    case "source-global":
     case "target-named":
       return (type.typeArguments ?? []).some(targetTypeRefContainsSourcePrimitive);
     case "pointer":
@@ -577,7 +579,12 @@ export function targetTypeRefContainsSourcePrimitive(type: TargetTypeRef): boole
     case "function-pointer":
       return targetTypeRefContainsSourcePrimitive(type.result) ||
         type.args.some(targetTypeRefContainsSourcePrimitive);
-    default:
+    case "associated-type":
+      return targetTypeRefContainsSourcePrimitive(type.owner);
+    case "type-parameter":
+    case "opaque":
+    case "lifetime":
+    case "target-specific":
       return false;
   }
 }

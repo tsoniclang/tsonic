@@ -9,6 +9,7 @@ import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } 
 import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualInternalRoot, providerVirtualPublicRoot } from "./provider-virtual-internal.js";
 import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } from "./provider-model-graph.js";
 import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
+import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
 import { providerAncillaryDataLimits, providerDeclarationClosureLimits } from "./provider-resource-limits.js";
 export const ExtensionHostDiagnosticCode = {
     factConflict: 9000001,
@@ -521,6 +522,10 @@ export class ProviderRegistry {
             return { kind: "rejected", diagnostic };
         }
         const virtualSourceText = renderProviderDeclarationModel(artifactDeclarationModel, { canonicalExports });
+        const publicSourceReservation = this.#reserveProviderDeclarationSource(loaded.candidate, canonicalExportsPreparation.state, virtualSourceText);
+        if (publicSourceReservation.kind === "rejected") {
+            return publicSourceReservation;
+        }
         const effectiveVirtualFileNamePlan = this.#planEffectiveVirtualFileName(loaded.candidate, virtualSourceText);
         if (effectiveVirtualFileNamePlan.kind === "rejected") {
             return effectiveVirtualFileNamePlan;
@@ -702,18 +707,19 @@ export class ProviderRegistry {
             this.#diagnostics.append(canonicalExportDiagnostic);
             return this.#cacheDeclarationLoadOutcome(requestKey, { kind: "rejected", diagnostic: canonicalExportDiagnostic });
         }
+        const artifactDeclarationModel = freezeProviderDeclarationModel(canonicalizeProviderAbiModel(declarationModel));
         const candidate = Object.freeze({
             providerIdentity: owner.provider.identity,
             resolution,
             declarationModel,
-            artifactDeclarationModel: freezeProviderDeclarationModel(canonicalizeProviderAbiModel(declarationModel)),
+            artifactDeclarationModel,
             graphMetrics: graphValidation.metrics,
-            retainedAncillaryMetrics: addProviderAncillaryResourceMetrics(contextSnapshot.metrics, resolutionSnapshot.metrics),
+            snapshottedAncillaryMetrics: addProviderAncillaryResourceMetrics(contextSnapshot.metrics, resolutionSnapshot.metrics),
             context: exactContext,
             cacheKey,
             moduleIdentity: virtualModuleIdentity,
             publicModuleEnvironmentKey: getProviderPublicModuleEnvironmentKey(owner.provider.identity, specifier, exactContext),
-            canonicalDeclarationModelsBySourceExportName: createProviderCanonicalExportDeclarationModelMap(declarationModel),
+            canonicalDeclarationModelsBySourceExportName: createProviderCanonicalExportDeclarationModelMap(artifactDeclarationModel),
         });
         if (planningKey !== undefined) {
             planningCandidates.set(planningKey, candidate);
@@ -788,31 +794,17 @@ export class ProviderRegistry {
         if (!Number.isSafeInteger(nextExportCount) || nextExportCount > providerDeclarationClosureLimits.maxExports) {
             return this.#rejectProviderPlanningBudget(candidate, "canonical exports", nextExportCount, providerDeclarationClosureLimits.maxExports);
         }
-        const nextRetainedNodeAndCollectionEntryCount = state.retainedNodeAndCollectionEntryCount
-            + candidate.graphMetrics.physicalNodeAndArrayEntryCount
-            + candidate.retainedAncillaryMetrics.physicalNodeAndCollectionEntryCount;
-        if (!Number.isSafeInteger(nextRetainedNodeAndCollectionEntryCount)
-            || nextRetainedNodeAndCollectionEntryCount > providerDeclarationClosureLimits.maxRetainedNodeAndCollectionEntries) {
-            return this.#rejectProviderPlanningBudget(candidate, "retained provider closure nodes and collection entries", nextRetainedNodeAndCollectionEntryCount, providerDeclarationClosureLimits.maxRetainedNodeAndCollectionEntries);
-        }
-        const nextRetainedScalarCodeUnitCount = state.retainedScalarCodeUnitCount
-            + candidate.graphMetrics.physicalScalarCodeUnitCount
-            + candidate.retainedAncillaryMetrics.scalarCodeUnitCount;
-        if (!Number.isSafeInteger(nextRetainedScalarCodeUnitCount)
-            || nextRetainedScalarCodeUnitCount > providerDeclarationClosureLimits.maxRetainedScalarCodeUnits) {
-            return this.#rejectProviderPlanningBudget(candidate, "retained provider closure scalar code units", nextRetainedScalarCodeUnitCount, providerDeclarationClosureLimits.maxRetainedScalarCodeUnits);
-        }
-        const nextExpandedSemanticNodeCount = state.expandedSemanticNodeCount
-            + candidate.graphMetrics.expandedSemanticNodeAndArrayEntryCount;
-        if (!Number.isSafeInteger(nextExpandedSemanticNodeCount)
-            || nextExpandedSemanticNodeCount > providerDeclarationClosureLimits.maxExpandedSemanticNodeAndArrayEntries) {
-            return this.#rejectProviderPlanningBudget(candidate, "expanded semantic declaration nodes", nextExpandedSemanticNodeCount, providerDeclarationClosureLimits.maxExpandedSemanticNodeAndArrayEntries);
-        }
-        const nextExpandedSemanticScalarCodeUnitCount = state.expandedSemanticScalarCodeUnitCount
-            + candidate.graphMetrics.expandedSemanticScalarCodeUnitCount;
-        if (!Number.isSafeInteger(nextExpandedSemanticScalarCodeUnitCount)
-            || nextExpandedSemanticScalarCodeUnitCount > providerDeclarationClosureLimits.maxExpandedSemanticScalarCodeUnits) {
-            return this.#rejectProviderPlanningBudget(candidate, "expanded semantic provider declaration scalar code units", nextExpandedSemanticScalarCodeUnitCount, providerDeclarationClosureLimits.maxExpandedSemanticScalarCodeUnits);
+        const resourceReservation = reserveProviderClosureResources(state.resources, {
+            snapshottedInputNodeAndCollectionEntryCount: candidate.graphMetrics.physicalNodeAndArrayEntryCount
+                + candidate.snapshottedAncillaryMetrics.physicalNodeAndCollectionEntryCount,
+            snapshottedInputScalarCodeUnitCount: candidate.graphMetrics.physicalScalarCodeUnitCount
+                + candidate.snapshottedAncillaryMetrics.scalarCodeUnitCount,
+            expandedSemanticNodeAndArrayEntryCount: candidate.graphMetrics.expandedSemanticNodeAndArrayEntryCount,
+            expandedSemanticScalarCodeUnitCount: candidate.graphMetrics.expandedSemanticScalarCodeUnitCount,
+            declarationSourceCodeUnitCount: 0,
+        });
+        if (resourceReservation.kind === "exceeded") {
+            return this.#rejectProviderPlanningBudget(candidate, resourceReservation.dimension, resourceReservation.actual, resourceReservation.limit);
         }
         const existingPublicModuleIdentity = state.publicModuleIdentitiesByEnvironmentKey.get(candidate.publicModuleEnvironmentKey)
             ?? this.#publicModuleIdentitiesByEnvironmentKey.get(candidate.publicModuleEnvironmentKey);
@@ -855,10 +847,7 @@ export class ProviderRegistry {
         state.registeredCandidateRequestKeys.add(candidateRequestKey);
         state.candidateCount += 1;
         state.exportCount = nextExportCount;
-        state.retainedNodeAndCollectionEntryCount = nextRetainedNodeAndCollectionEntryCount;
-        state.retainedScalarCodeUnitCount = nextRetainedScalarCodeUnitCount;
-        state.expandedSemanticNodeCount = nextExpandedSemanticNodeCount;
-        state.expandedSemanticScalarCodeUnitCount = nextExpandedSemanticScalarCodeUnitCount;
+        state.resources = resourceReservation.usage;
         for (const exportName of candidate.canonicalDeclarationModelsBySourceExportName.keys()) {
             const owner = this.#getOrPlanCanonicalExportOwner(candidate, exportName, state);
             if (owner.kind === "rejected") {
@@ -1129,6 +1118,20 @@ export class ProviderRegistry {
         this.#diagnostics.append(diagnostic);
         return { kind: "rejected", diagnostic };
     }
+    #reserveProviderDeclarationSource(candidate, state, sourceText) {
+        const reservation = reserveProviderClosureResources(state.resources, {
+            snapshottedInputNodeAndCollectionEntryCount: 0,
+            snapshottedInputScalarCodeUnitCount: 0,
+            expandedSemanticNodeAndArrayEntryCount: 0,
+            expandedSemanticScalarCodeUnitCount: 0,
+            declarationSourceCodeUnitCount: sourceText.length,
+        });
+        if (reservation.kind === "exceeded") {
+            return this.#rejectProviderPlanningBudget(candidate, reservation.dimension, reservation.actual, reservation.limit);
+        }
+        state.resources = reservation.usage;
+        return { kind: "reserved" };
+    }
     #validateRecursiveProviderDependencyEnvironment(sourceCandidate, targetSourceExportName, incomingCandidate, ancestorCandidate) {
         const incomingEnvironment = getProviderCanonicalDependencyEnvironmentKey(incomingCandidate);
         const ancestorEnvironment = getProviderCanonicalDependencyEnvironmentKey(ancestorCandidate);
@@ -1163,7 +1166,6 @@ export class ProviderRegistry {
     }
     #preparePlannedCanonicalExportOwners(state) {
         const plans = [...state.ownersByExportIdentity.values()]
-            .filter((plan) => plan.existingOwner === undefined)
             .sort((left, right) => left.fileName < right.fileName ? -1 : left.fileName > right.fileName ? 1 : 0);
         const prepared = [];
         for (const plan of plans) {
@@ -1172,11 +1174,19 @@ export class ProviderRegistry {
                 this.#diagnostics.append(diagnostic);
                 return { kind: "rejected", diagnostic };
             }
-            const sourceText = renderProviderDeclarationModel(plan.declarationModel, {
-                exactImports: plan.exactImports,
-                exactImportsInTypePositions: true,
-                mode: "canonical-export",
-            });
+            const sourceText = plan.existingOwner?.artifact.sourceText
+                ?? renderProviderDeclarationModel(plan.declarationModel, {
+                    exactImports: plan.exactImports,
+                    exactImportsInTypePositions: true,
+                    mode: "canonical-export",
+                });
+            const sourceReservation = this.#reserveProviderDeclarationSource(plan.candidate, state, sourceText);
+            if (sourceReservation.kind === "rejected") {
+                return sourceReservation;
+            }
+            if (plan.existingOwner !== undefined) {
+                continue;
+            }
             const ownerResolution = getCanonicalProviderExportOwnerResolution(plan);
             const artifactId = getProviderCanonicalExportOwnerArtifactId(plan.exportIdentity);
             const document = Object.freeze({
@@ -2496,6 +2506,12 @@ function freezeProviderTypeExpression(type, frozen) {
             }
             freezeProviderArray(type.typeArguments);
             break;
+        case "source-global":
+            for (const argument of type.typeArguments ?? []) {
+                freezeProviderTypeExpression(argument, frozen);
+            }
+            freezeProviderArray(type.typeArguments);
+            break;
         case "array":
             freezeProviderTypeExpression(type.elementType, frozen);
             break;
@@ -2741,10 +2757,7 @@ function createProviderCanonicalExportPlanningState() {
         candidateCount: 0,
         exportCount: 0,
         referenceCount: 0,
-        retainedNodeAndCollectionEntryCount: 0,
-        retainedScalarCodeUnitCount: 0,
-        expandedSemanticNodeCount: 0,
-        expandedSemanticScalarCodeUnitCount: 0,
+        resources: emptyProviderClosureResourceUsage(),
     };
 }
 function getProviderPlanningExportIdentity(moduleIdentity, exportName) {
@@ -2793,9 +2806,9 @@ function getProviderReferenceDependencyContext(candidate, reference, valueRequir
 function getProviderCanonicalModuleDependencyContextFileName(moduleIdentity) {
     return `${providerVirtualInternalRoot}${getStableProviderVirtualSliceSuffix(moduleIdentity)}${providerCanonicalModuleDependencyContextMarker}.d.ts`;
 }
-function createProviderCanonicalExportDeclarationModelMap(model) {
+function createProviderCanonicalExportDeclarationModelMap(canonicalModel) {
     const declarationsBySourceExportName = new Map();
-    for (const declaration of model.exports) {
+    for (const declaration of canonicalModel.exports) {
         const sourceExportName = getProviderSourceExportName(declaration);
         const declarations = declarationsBySourceExportName.get(sourceExportName);
         if (declarations === undefined) {
@@ -2807,13 +2820,11 @@ function createProviderCanonicalExportDeclarationModelMap(model) {
     }
     return new Map([...declarationsBySourceExportName]
         .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-        .map(([sourceExportName, declarations]) => [sourceExportName, freezeProviderDeclarationModel(canonicalizeProviderAbiModel({
-            moduleSpecifier: model.moduleSpecifier,
-            providerModuleId: model.providerModuleId,
-            exports: declarations.every((declaration) => declaration.sourceTypeFamily !== undefined)
-                ? [...declarations].sort((left, right) => left.sourceTypeFamily.typeArgumentCount - right.sourceTypeFamily.typeArgumentCount)
-                : declarations,
-        }))]));
+        .map(([sourceExportName, declarations]) => [sourceExportName, Object.freeze({
+            moduleSpecifier: canonicalModel.moduleSpecifier,
+            providerModuleId: canonicalModel.providerModuleId,
+            exports: Object.freeze(declarations),
+        })]));
 }
 function collectProviderDeclarationReferenceUses(declarations) {
     const uses = [];
@@ -2860,6 +2871,11 @@ function collectProviderDeclarationReferenceUses(declarations) {
                 case "source-primitive":
                 case "type-parameter":
                 case "literal":
+                    return;
+                case "source-global":
+                    for (const typeArgument of type.typeArguments ?? []) {
+                        visitType(typeArgument, false);
+                    }
                     return;
                 case "target-named":
                     for (const typeArgument of type.typeArguments ?? []) {
@@ -3537,6 +3553,10 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
             return type.kind;
         case "source-primitive":
             return renderSourcePrimitiveType(type.name);
+        case "source-global":
+            return type.typeArguments === undefined || type.typeArguments.length === 0
+                ? `globalThis.${type.name}`
+                : `globalThis.${type.name}<${type.typeArguments.map((typeArgument) => renderProviderTypeExpression(typeArgument, context)).join(", ")}>`;
         case "type-parameter":
             return type.name;
         case "target-named":
@@ -4293,6 +4313,9 @@ function isValidProviderTypeExpression(value) {
             return true;
         case "source-primitive":
             return isKnownSourcePrimitive(value.name);
+        case "source-global":
+            return isIdentifierText(value.name)
+                && (value.typeArguments ?? []).every(isValidProviderTypeExpression);
         case "type-parameter":
             return isIdentifierText(value.name);
         case "target-named":
@@ -4455,6 +4478,8 @@ function hasValidProviderReferenceBindings(type, context) {
         case "type-parameter":
         case "literal":
             return true;
+        case "source-global":
+            return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderReferenceBindings(typeArgument, context));
         case "target-named":
             return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderReferenceBindings(typeArgument, context))
                 && type.sourceShape !== undefined
@@ -4575,6 +4600,8 @@ function hasValidProviderTypeExpressionScope(type, scope) {
         case "source-primitive":
         case "literal":
             return true;
+        case "source-global":
+            return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderTypeExpressionScope(typeArgument, scope));
         case "type-parameter":
             return scope.has(type.name);
         case "target-named":

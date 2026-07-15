@@ -18,9 +18,10 @@ export declare const providerDeclarationClosureLimits: Readonly<{
     maxExports: 65536;
     maxOwnerVisits: 65536;
     maxReferences: 65536;
-    maxRetainedNodeAndCollectionEntries: 1048576;
+    maxSnapshottedInputNodeAndCollectionEntries: 2097152;
     maxExpandedSemanticNodeAndArrayEntries: 1048576;
-    maxRetainedScalarCodeUnits: 67108864;
+    maxSnapshottedInputScalarCodeUnits: 67108864;
     maxExpandedSemanticScalarCodeUnits: 67108864;
+    maxDeclarationSourceCodeUnits: 67108864;
 }>;
 //# sourceMappingURL=provider-resource-limits.d.ts.map
