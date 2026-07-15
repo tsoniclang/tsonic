@@ -157,10 +157,10 @@ test("CLI rejects unsupported process nextTick without fallback", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /hard-rejected selected property 'node:process' export 'NodeProcessModule' member 'nextTick'/);
   assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'NodeProcessModule' member 'nextTick'/);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.process\.nextTick\(Function,System\.Object\[\]\)/);
   assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.doesNotMatch(build.stderr, /CSHARP_NODEJS_PROPERTY_NOT_MAPPED|could not map checked .* to a target property/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
