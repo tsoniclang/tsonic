@@ -55,6 +55,71 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
   assert.match(generated, /span\.Slice\(offset, selectedChunkSize\)/u);
 });
 
+test("CLI pure C# profile infers integral literal local storage for CLR array indexes", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-source-profile-inferred-array-index");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "App.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName: "SmokeGeneratedInferredArrayIndex",
+          outputType: "Exe",
+          targetFramework: "net10.0",
+        },
+      }],
+    }, null, 2),
+    "src/App.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "function sum(values: number[]): number {",
+      "  let result: number = 0;",
+      "  for (let index = 0; index < values.Length; index++) {",
+      "    result += values[index];",
+      "  }",
+      "  return result;",
+      "}",
+      "",
+      "Console.WriteLine(`${sum([1, 2, 3])}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const generated = await readFile(resolve(projectDirectory, "out/csharp/src/App.cs"), "utf8");
+  assert.match(generated, /for \(int index = 0; index < values\.Length; index\+\+\)/u);
+  assert.match(generated, /result \+= values\[index\]/u);
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedInferredArrayIndex").trim(), "6");
+});
+
+test("CLI pure C# profile rejects non-integral inferred CLR array indexes", async () => {
+  const projectDirectory = resolve(tempRoot, "csharp-source-profile-non-integral-array-index");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "App.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/App.ts": [
+      "export function invalid(values: number[]): number {",
+      "  const index = 0.5;",
+      "  return values[index];",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /TS9100109: C# native array element access requires an integral TSTS\/provider-backed index type\./u);
+  assert.match(result.stdout + result.stderr, /Artifacts: 0/u);
+});
+
 test("CLI exact provider calls reject conditional arguments with incompatible target carriers", async () => {
   const projectDirectory = resolve(tempRoot, "csharp-source-profile-provider-conditional-reject");
   await writeProject(projectDirectory, {
