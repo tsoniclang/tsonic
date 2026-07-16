@@ -9,6 +9,7 @@ import type { TsonicProjectConfig } from "@tsonic/target-api";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { resolveProjectPaths } from "./project-paths.js";
+import { appendInstalledSourcePackageFiles } from "./source-package-inputs.js";
 
 export interface CreateProgramOptionsInput {
   readonly project: TsonicProjectConfig;
@@ -29,6 +30,8 @@ export interface CreatedProgramOptions {
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
   const paths = resolveProjectPaths(input);
   const projectFiles = collectProjectFiles(paths.projectRoot, paths.outputRoot);
+  appendProjectPackageJson(paths.projectDirectory, projectFiles);
+  appendInstalledSourcePackageFiles(paths.projectDirectory, projectFiles);
   for (const file of input.sourceProfileFiles ?? []) {
     projectFiles.set(file.path, file.text);
   }
@@ -76,6 +79,13 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     projectRoot: paths.projectRoot,
     outputRoot: paths.outputRoot,
   };
+}
+
+function appendProjectPackageJson(projectDirectory: string, files: Map<string, string>): void {
+  const packageJsonPath = join(projectDirectory, "package.json");
+  if (existsSync(packageJsonPath)) {
+    files.set(packageJsonPath.split("\\").join("/"), readFileSync(packageJsonPath, "utf8"));
+  }
 }
 
 function collectProjectFiles(projectRoot: string, outputRoot: string): Map<string, string> {

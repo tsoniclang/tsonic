@@ -51,6 +51,7 @@ import "./cli-build/slice6-control-flow-closure.test.mjs";
 import "./cli-build/source-semantics.test.mjs";
 import "./cli-build/source-semantics-part-02-cli-emits-c-default-expressions-from-neutral-def.test.mjs";
 import "./cli-build/source-profile-contract.test.mjs";
+import "./cli-build/source-packages.test.mjs";
 import "./cli-build/target-config.test.mjs";
 import "./cli-build/target-config-part-02-cli-emits-c-source-project-from-tsts-semantics-a.test.mjs";
 import "./cli-build/tsts-type-forms.test.mjs";
