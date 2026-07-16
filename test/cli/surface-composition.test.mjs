@@ -701,3 +701,35 @@ test("host activates target capability source profiles only for imported owned m
   assert.equal(events.includes("capability-source-profile:unused:target=demo:capabilities=unused"), false);
   assert.equal(events.includes("capability-extension:unused:target=demo:capabilities=unused"), false);
 });
+
+test("host activates and validates transitive installed capability dependencies", async () => {
+  const events = [];
+  const dependency = createFakeVirtualTargetCapability("dependency", {
+    events,
+    moduleOwnership: [{ specifierPrefix: "@dependency/native/" }],
+    artifacts: [createFakeArtifact("asset", "runtime/dependency.txt", "dependency")],
+  });
+  const feature = createFakeVirtualTargetCapability("feature", {
+    events,
+    requiredCapabilities: ["dependency"],
+    artifacts: [createFakeArtifact("asset", "runtime/feature.txt", "feature")],
+  });
+  const targetPack = createFakeTargetPack(events);
+
+  const result = await compileFakeProject("target-capability-transitive-dependency", targetPack, { id: "demo" }, {
+    installedCapabilities: [dependency, feature],
+    source: "import { named } from \"@feature/native/named.js\";\nexport const value = named;\n",
+  });
+
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.category === "error"), false, JSON.stringify(result.diagnostics));
+  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+    "runtime/dependency.txt",
+    "runtime/feature.txt",
+  ]);
+
+  const missing = await compileFakeProject("target-capability-missing-dependency", targetPack, { id: "demo" }, {
+    installedCapabilities: [feature],
+    source: "import { named } from \"@feature/native/named.js\";\nexport const value = named;\n",
+  });
+  assert.ok(missing.diagnostics.some((diagnostic) => diagnostic.code === "TARGET_CAPABILITY_SELECTION" && diagnostic.message.includes("requires capability 'dependency'")));
+});

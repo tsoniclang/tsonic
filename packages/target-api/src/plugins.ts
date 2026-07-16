@@ -38,6 +38,7 @@ export interface TsonicTargetCapabilityPlugin {
   readonly targetId: string;
   readonly displayName: string;
   readonly requiredSurfaces?: readonly string[];
+  readonly requiredCapabilities?: readonly string[];
   readonly moduleOwnership: readonly TargetProviderModuleOwnership[];
   sourceProfileContributions?(context: TargetCapabilityContext): TargetSourceProfileContributions;
   createExtensions(context: TargetCapabilityContext): readonly CompilerExtension[];

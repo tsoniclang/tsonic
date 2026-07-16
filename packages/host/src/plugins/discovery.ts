@@ -80,6 +80,12 @@ function validatePlugin(packageName: string, plugin: TsonicPlugin): TargetDiagno
   if (plugin.kind !== "target" && plugin.kind !== "target-capability") {
     return pluginDiagnostic(packageName, "Tsonic plugin kind must be 'target' or 'target-capability'.");
   }
+  const unsupportedProperties = Object.keys(plugin)
+    .filter((property) => !pluginProperties(plugin.kind).has(property))
+    .sort();
+  if (unsupportedProperties.length > 0) {
+    return pluginDiagnostic(packageName, `Tsonic ${plugin.kind} plugin declares unsupported properties: ${unsupportedProperties.join(", ")}.`);
+  }
   if (typeof plugin.id !== "string" || plugin.id.length === 0) {
     return pluginDiagnostic(packageName, "Tsonic plugin id must be a non-empty string.");
   }
@@ -107,6 +113,31 @@ function validatePlugin(packageName: string, plugin: TsonicPlugin): TargetDiagno
     }
   }
   return undefined;
+}
+
+const targetPluginProperties = new Set([
+  "kind",
+  "id",
+  "targetId",
+  "createTargetPack",
+]);
+
+const targetCapabilityPluginProperties = new Set([
+  "kind",
+  "id",
+  "targetId",
+  "displayName",
+  "requiredSurfaces",
+  "requiredCapabilities",
+  "moduleOwnership",
+  "sourceProfileContributions",
+  "createExtensions",
+  "createTargetContributions",
+  "runtimeContributions",
+]);
+
+function pluginProperties(kind: TsonicPlugin["kind"]): ReadonlySet<string> {
+  return kind === "target" ? targetPluginProperties : targetCapabilityPluginProperties;
 }
 
 function pluginDiagnostic(packageName: string, message: string): TargetDiagnostic {

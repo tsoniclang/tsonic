@@ -292,6 +292,7 @@ export function createFakeTargetCapability(id, options = {}) {
     targetId: "demo",
     displayName: `${id} Target Capability`,
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
+    ...((options.requiredCapabilities ?? []).length > 0 ? { requiredCapabilities: options.requiredCapabilities } : {}),
     moduleOwnership: options.moduleOwnership ?? [],
     createExtensions(context) {
       options.events?.push(`capability-extension:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilities.map((capability) => capability.id).join(",")}`);

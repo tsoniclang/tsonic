@@ -12,12 +12,13 @@ export function collectImportActivatedTargetCapabilities(
     return [];
   }
   const moduleSpecifiers = collectStaticModuleSpecifiers(ast, sourceFiles);
-  return installedCapabilities.filter((capability) =>
+  const directlyActivated = installedCapabilities.filter((capability) =>
     capability.targetId === target.id &&
     capability.moduleOwnership.some((ownership) =>
       moduleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
     )
   );
+  return closeRequiredCapabilities(directlyActivated, installedCapabilities, target.id);
 }
 
 export function collectRuntimeActivatedTargetCapabilities(
@@ -29,11 +30,34 @@ export function collectRuntimeActivatedTargetCapabilities(
     return [];
   }
   const valueModuleSpecifiers = collectValueModuleSpecifiers(ast, sourceFiles);
-  return selectedCapabilities.filter((capability) =>
+  const directlyActivated = selectedCapabilities.filter((capability) =>
     capability.moduleOwnership.some((ownership) =>
       valueModuleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
     )
   );
+  return closeRequiredCapabilities(directlyActivated, selectedCapabilities, selectedCapabilities[0]?.targetId);
+}
+
+function closeRequiredCapabilities(
+  roots: readonly TargetCapabilityImplementation[],
+  available: readonly TargetCapabilityImplementation[],
+  targetId: string | undefined,
+): readonly TargetCapabilityImplementation[] {
+  const availableById = new Map(available
+    .filter((capability) => targetId === undefined || capability.targetId === targetId)
+    .map((capability) => [capability.id, capability]));
+  const selectedIds = new Set(roots.map((capability) => capability.id));
+  const pending = [...roots];
+  for (let index = 0; index < pending.length; index++) {
+    for (const requiredId of pending[index]!.requiredCapabilities ?? []) {
+      const required = availableById.get(requiredId);
+      if (required !== undefined && !selectedIds.has(required.id)) {
+        selectedIds.add(required.id);
+        pending.push(required);
+      }
+    }
+  }
+  return available.filter((capability) => selectedIds.has(capability.id));
 }
 
 function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly string[] {

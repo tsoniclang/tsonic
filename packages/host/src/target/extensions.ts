@@ -150,6 +150,9 @@ export function selectInstalledTargetCapabilities(
 ): TargetCapabilitySelectionResult {
   const selectedCapabilities: TargetCapabilityImplementation[] = [];
   const moduleOwners = new Map<string, string>();
+  const selectedCapabilityIds = new Set(installedCapabilities
+    .filter((capability) => capability.targetId === target.id)
+    .map((capability) => capability.id));
   const selectedSurfaceIds = new Set(selectedSurfaces.map((surface) => surface.id));
   for (const capability of installedCapabilities) {
     if (capability.targetId !== target.id) {
@@ -158,6 +161,11 @@ export function selectInstalledTargetCapabilities(
     for (const requiredSurfaceId of capability.requiredSurfaces ?? []) {
       if (!selectedSurfaceIds.has(requiredSurfaceId)) {
         return { error: `installed capability '${capability.id}' for target '${target.id}' requires surface '${requiredSurfaceId}'` };
+      }
+    }
+    for (const requiredCapabilityId of capability.requiredCapabilities ?? []) {
+      if (!selectedCapabilityIds.has(requiredCapabilityId)) {
+        return { error: `installed capability '${capability.id}' for target '${target.id}' requires capability '${requiredCapabilityId}'` };
       }
     }
     for (const ownership of capability.moduleOwnership) {
