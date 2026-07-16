@@ -64,6 +64,7 @@ export interface TsonicSemanticSession {
 export interface CreateTsonicSemanticSessionOptions {
   readonly programOptions: ProgramOptions;
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];

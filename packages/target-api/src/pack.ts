@@ -31,6 +31,7 @@ import type {
 
 export interface TargetProviderContext {
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
@@ -45,6 +46,7 @@ export interface TargetProviderModuleOwnership {
 
 export interface TargetSurfaceExtensionContext {
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];

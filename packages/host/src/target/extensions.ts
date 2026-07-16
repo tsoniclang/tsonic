@@ -11,6 +11,7 @@ import type {
 
 export interface CreateTargetCompilerExtensionsOptions {
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
@@ -47,6 +48,7 @@ export function createTargetCompilerExtensions(options: CreateTargetCompilerExte
   const provider = requireTargetProvider(options.targetPack, options.target);
   const providerContext = {
     project: options.project,
+    projectDirectory: options.projectDirectory,
     target: options.target,
     targetPack: options.targetPack,
     selectedCapabilities,
