@@ -35,6 +35,7 @@ const auditRows = Object.freeze([
   row("packages/host/src/diagnostics.ts", "bounded diagnostic serialization", "provider-declaration-production", "Allowed validation and bounded display of diagnostic payloads; raw shape reads are not semantic compiler input.", "Diagnostic contract tests plus this occurrence-level inventory."),
   row("packages/host/src/plugins/discovery.ts", "plugin manifest validation", "provider-declaration-production", "Allowed object-shape validation of installed plugin metadata.", "Plugin discovery contract tests plus this occurrence-level inventory."),
   row("packages/host/src/project-config.ts", "project config validation", "provider-declaration-production", "Allowed object-shape validation of user project config.", "Project-config negative tests plus this occurrence-level inventory."),
+  row("packages/host/src/source-package-inputs.ts", "source package manifest validation", "provider-declaration-production", "Allowed object-shape validation of source-package manifest fields; it does not inspect compiler nodes or select semantic identity.", "Source-package input validation tests plus this occurrence-level inventory."),
   row("packages/host/src/target-facts/queries.ts", "target fact query materialization", "selected-evidence-compliant", "Consumes finalized selected-target facts and performs declaration/type-only queries without reselecting source calls.", "Target-fact/backend fail-closed tests plus the ban on getResolvedCall* query APIs."),
 ]);
 

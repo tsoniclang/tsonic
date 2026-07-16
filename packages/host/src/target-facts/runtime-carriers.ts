@@ -11,6 +11,7 @@ import type {
   TypeShapeQueries,
 } from "@tsonic/tsts";
 import {
+  getDeclarationCarrierSubject,
   getDeclarationTypeNode,
   getProjectSourceDeclarationForType,
   getProjectSourceReferenceForNode,
@@ -159,8 +160,7 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
     return direct;
   }
   const reference = getProjectSourceReferenceForNode(ast, checker, types, node, options, sourceFiles);
-  const declaration = reference?.declaration as (Node & { readonly Type?: Node; readonly Initializer?: Node }) | undefined;
-  const declarationSubject = declaration?.Type ?? declaration?.Initializer;
+  const declarationSubject = getDeclarationCarrierSubject(ast, reference?.declaration);
   return declarationSubject === undefined
     ? direct
     : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, declarationSubject, options, sourceFiles, nextSeen) ?? direct;
@@ -177,8 +177,7 @@ function getProjectSourceReferenceDeclarationCarrier(
   seen: ReadonlySet<Node>,
 ): TargetTypeRef | undefined {
   const reference = getProjectSourceReferenceForNode(ast, checker, types, node, options, sourceFiles);
-  const declaration = reference?.declaration as (Node & { readonly Type?: Node; readonly Initializer?: Node }) | undefined;
-  const subject = declaration?.Type ?? declaration?.Initializer;
+  const subject = getDeclarationCarrierSubject(ast, reference?.declaration);
   if (reference === undefined || subject === undefined || subject === node) {
     return undefined;
   }
@@ -205,8 +204,7 @@ function getValueDeclarationCarrier(
   ) {
     return undefined;
   }
-  const declaration = node as Node & { readonly Type?: Node; readonly Initializer?: Node };
-  const subject = declaration.Type ?? declaration.Initializer;
+  const subject = getDeclarationCarrierSubject(ast, node);
   return subject === undefined
     ? undefined
     : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, subject, options, sourceFiles, seen) ??
@@ -312,7 +310,9 @@ function getProjectSourceCallTypeParameterSubstitutions(
   seen: ReadonlySet<Node>,
 ): ReadonlyMap<string, TargetTypeRef> {
   const substitutions = new Map<string, TargetTypeRef>();
-  const receiver = callee === undefined ? undefined : ast.as.AsPropertyAccessExpression(callee)?.Expression;
+  const receiver = callee !== undefined && ast.is.IsPropertyAccessExpression(callee)
+    ? ast.as.AsPropertyAccessExpression(callee)?.Expression
+    : undefined;
   if (receiver !== undefined) {
     const receiverCarrier = getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, receiver, options, sourceFiles, seen) ??
       getRuntimeCarrierForSemanticType(ast, checker, types, facts, receiver, options);

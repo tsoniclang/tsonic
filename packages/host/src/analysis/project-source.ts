@@ -18,6 +18,7 @@ import {
   getSemanticTypeForNode,
   getSymbolAtReferenceNode,
 } from "./symbols.js";
+import { getStaticModuleReference } from "./module-reference.js";
 
 export function getProjectSourceDeclarationForNode(
   ast: AstReader,
@@ -149,36 +150,19 @@ function getRuntimeModuleDependency(
   sourceFile: SourceFile,
   sourceFiles: readonly SourceFile[],
 ): TargetProjectSourceModuleDependency | undefined {
-  if (ast.is.IsImportDeclaration(statement)) {
-    if (isExclusivelyTypeOnlyImportDeclaration(ast, statement)) {
-      return undefined;
-    }
-    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(ast, statement), "import", sourceFile, sourceFiles);
+  const reference = getStaticModuleReference(ast, statement);
+  if (reference === undefined || !reference.hasRuntimeValue) {
+    return undefined;
   }
-  if (ast.is.IsExportDeclaration(statement)) {
-    if (ast.isTypeOnlyImportOrExportDeclaration(statement)) {
-      return undefined;
-    }
-    return resolveRuntimeModuleDependency(ast, checker, statement, getModuleSpecifier(ast, statement), "export", sourceFile, sourceFiles);
-  }
-  return undefined;
-}
-
-function isExclusivelyTypeOnlyImportDeclaration(ast: AstReader, declaration: Node): boolean {
-  if (ast.isTypeOnlyImportDeclaration(declaration)) {
-    return true;
-  }
-  const importClause = ast.as.AsImportDeclaration(declaration)?.ImportClause;
-  const namedBindings = ast.as.AsImportClause(importClause)?.NamedBindings;
-  if (importClause === undefined || namedBindings === undefined) {
-    return false;
-  }
-  if (ast.is.IsNamespaceImport(namedBindings) || !ast.is.IsNamedImports(namedBindings)) {
-    return false;
-  }
-  const elements = ast.elements(namedBindings);
-  return elements.length > 0 &&
-    elements.every((element) => element !== undefined && ast.isTypeOnlyImportOrExportDeclaration(element));
+  return resolveRuntimeModuleDependency(
+    ast,
+    checker,
+    reference.declaration,
+    reference.moduleSpecifier,
+    reference.kind,
+    sourceFile,
+    sourceFiles,
+  );
 }
 
 function resolveRuntimeModuleDependency(
@@ -214,16 +198,6 @@ function getResolvedRuntimeModuleSourceFile(
   const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options) ?? moduleSymbol;
   return ast.getSourceFile(getPrimaryDeclaration(checker, resolvedModuleSymbol) ?? getPrimaryDeclaration(checker, moduleSymbol));
-}
-
-function getModuleSpecifier(ast: AstReader, node: Node): Node | undefined {
-  if (ast.is.IsImportDeclaration(node)) {
-    return ast.as.AsImportDeclaration(node)?.ModuleSpecifier;
-  }
-  if (ast.is.IsExportDeclaration(node)) {
-    return ast.as.AsExportDeclaration(node)?.ModuleSpecifier;
-  }
-  return undefined;
 }
 
 function isProjectSourceFile(
@@ -417,6 +391,9 @@ function getProjectSourceBaseClassDeclaration(
 
 function getBaseClassReferenceNode(ast: AstReader, classDeclaration: Node): Node | undefined {
   for (const heritageType of ast.extendsHeritageElements(classDeclaration)) {
+    if (heritageType === undefined || !ast.is.IsExpressionWithTypeArguments(heritageType)) {
+      continue;
+    }
     const expression = ast.as.AsExpressionWithTypeArguments(heritageType)?.Expression;
     if (expression !== undefined) {
       return expression;
@@ -489,6 +466,9 @@ function getImportedModuleExport(
     return undefined;
   }
   const importDeclaration = findImportDeclaration(ast, importBinding);
+  if (importDeclaration === undefined || !ast.is.IsImportDeclaration(importDeclaration)) {
+    return undefined;
+  }
   const moduleSpecifier = ast.as.AsImportDeclaration(importDeclaration)?.ModuleSpecifier;
   const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier, options);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(moduleSymbol, false, options);
@@ -535,21 +515,73 @@ export function getDeclarationTypeNode(ast: AstReader, declaration: Node | undef
   if (declaration === undefined) {
     return undefined;
   }
-  return ast.as.AsVariableDeclaration(declaration)?.Type ??
-    ast.as.AsParameterDeclaration(declaration)?.Type ??
-    ast.as.AsTypeAliasDeclaration(declaration)?.Type ??
-    ast.as.AsPropertyDeclaration(declaration)?.Type ??
-    ast.as.AsPropertySignatureDeclaration(declaration)?.Type ??
-    ast.as.AsMethodDeclaration(declaration)?.Type ??
-    ast.as.AsMethodSignatureDeclaration(declaration)?.Type ??
-    ast.as.AsFunctionDeclaration(declaration)?.Type ??
-    ast.as.AsFunctionExpression(declaration)?.Type ??
-    ast.as.AsArrowFunction(declaration)?.Type ??
-    ast.as.AsCallSignatureDeclaration(declaration)?.Type ??
-    ast.as.AsConstructSignatureDeclaration(declaration)?.Type ??
-    ast.as.AsGetAccessorDeclaration(declaration)?.Type ??
-    ast.as.AsSetAccessorDeclaration(declaration)?.Type ??
-    ast.as.AsIndexSignatureDeclaration(declaration)?.Type ??
-    ast.as.AsFunctionTypeNode(declaration)?.Type ??
-    ast.as.AsConstructorTypeNode(declaration)?.Type;
+  if (ast.is.IsVariableDeclaration(declaration)) {
+    return ast.as.AsVariableDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsParameterDeclaration(declaration)) {
+    return ast.as.AsParameterDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsTypeAliasDeclaration(declaration)) {
+    return ast.as.AsTypeAliasDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsPropertyDeclaration(declaration)) {
+    return ast.as.AsPropertyDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsPropertySignatureDeclaration(declaration)) {
+    return ast.as.AsPropertySignatureDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsMethodDeclaration(declaration)) {
+    return ast.as.AsMethodDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsMethodSignatureDeclaration(declaration)) {
+    return ast.as.AsMethodSignatureDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsFunctionDeclaration(declaration)) {
+    return ast.as.AsFunctionDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsFunctionExpression(declaration)) {
+    return ast.as.AsFunctionExpression(declaration)?.Type;
+  }
+  if (ast.is.IsArrowFunction(declaration)) {
+    return ast.as.AsArrowFunction(declaration)?.Type;
+  }
+  if (ast.is.IsCallSignatureDeclaration(declaration)) {
+    return ast.as.AsCallSignatureDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsConstructSignatureDeclaration(declaration)) {
+    return ast.as.AsConstructSignatureDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsGetAccessorDeclaration(declaration)) {
+    return ast.as.AsGetAccessorDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsSetAccessorDeclaration(declaration)) {
+    return ast.as.AsSetAccessorDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsIndexSignatureDeclaration(declaration)) {
+    return ast.as.AsIndexSignatureDeclaration(declaration)?.Type;
+  }
+  if (ast.is.IsFunctionTypeNode(declaration)) {
+    return ast.as.AsFunctionTypeNode(declaration)?.Type;
+  }
+  if (ast.is.IsConstructorTypeNode(declaration)) {
+    return ast.as.AsConstructorTypeNode(declaration)?.Type;
+  }
+  return undefined;
+}
+
+export function getDeclarationCarrierSubject(ast: AstReader, declaration: Node | undefined): Node | undefined {
+  const type = getDeclarationTypeNode(ast, declaration);
+  if (type !== undefined || declaration === undefined) {
+    return type;
+  }
+  if (ast.is.IsVariableDeclaration(declaration)) {
+    return ast.as.AsVariableDeclaration(declaration)?.Initializer;
+  }
+  if (ast.is.IsParameterDeclaration(declaration)) {
+    return ast.as.AsParameterDeclaration(declaration)?.Initializer;
+  }
+  if (ast.is.IsPropertyDeclaration(declaration)) {
+    return ast.as.AsPropertyDeclaration(declaration)?.Initializer;
+  }
+  return undefined;
 }
