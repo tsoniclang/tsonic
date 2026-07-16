@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, ArgumentPassingMode, RuntimeCarrierProvenance, SelectedTargetSignatureFact, SourceSelectedMethodTypeArgument, TargetConstraint, TargetOperationProvenance, TargetOperationFact, TargetParameter, TargetTypeRef } from "./facts.js";
+import type { ArgumentPassingFact, ArgumentPassingMode, RuntimeCarrierProvenance, SelectedTargetSignatureFact, SourceSelectedMethodTypeArgument, SourceSelectedSignatureKind, SourceSelectedSignatureParameter, TargetSignatureSelection, TargetConstraint, TargetOperationProvenance, TargetOperationFact, TargetParameter, TargetTypeRef } from "./facts.js";
 import type { GoPtr } from "../go/compat.js";
 import type { SourceFile } from "../internal/ast/ast.js";
 import type { AstReader } from "../services/ast-reader.js";
@@ -94,13 +94,17 @@ export interface CheckedCallMappingRequest {
     readonly sourceSelectedSignature?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
+    readonly sourceSelectedSignatureParameters?: readonly SourceSelectedSignatureParameter[];
+    readonly sourceSelectedSignatureKind?: SourceSelectedSignatureKind;
     readonly sourceCalleeSymbol?: ExtensionFactSubject;
     readonly sourceCalleeDeclaration?: ExtensionFactSubject;
+    readonly sourceSelectedCalleeSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedCalleeDeclaration?: ExtensionFactSubject;
     readonly sourceReturnType?: ExtensionFactSubject;
     readonly target?: string;
 }
 export interface CheckedCallMappingResult {
-    readonly selectedSignature: SelectedTargetSignatureFact;
+    readonly selectedSignature: TargetSignatureSelection;
     readonly returnType?: ExtensionFactSubject;
 }
 export interface TargetTypeArgumentMappingRequest {
@@ -110,8 +114,12 @@ export interface TargetTypeArgumentMappingRequest {
     readonly sourceSelectedSignature?: ExtensionFactSubject;
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
+    readonly sourceSelectedSignatureParameters?: readonly SourceSelectedSignatureParameter[];
+    readonly sourceSelectedSignatureKind?: SourceSelectedSignatureKind;
     readonly sourceCalleeSymbol?: ExtensionFactSubject;
     readonly sourceCalleeDeclaration?: ExtensionFactSubject;
+    readonly sourceSelectedCalleeSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedCalleeDeclaration?: ExtensionFactSubject;
     readonly sourceReturnType?: ExtensionFactSubject;
     readonly contextualType?: ExtensionFactSubject;
     readonly target?: string;

@@ -197,18 +197,34 @@ export interface SourceSelectedMethodTypeArgument {
     readonly selectedType: ExtensionFactSubject;
     readonly explicitTypeNode?: ExtensionFactSubject;
 }
-export interface SelectedTargetSignatureFact {
+export type SourceSelectedSignatureKind = "resolved" | "untyped" | "error" | "silent-never";
+export interface SourceSelectedSignatureParameter {
+    readonly parameterIndex: number;
+    readonly parameterName: string;
+    readonly parameterSymbol: ExtensionFactSubject;
+    readonly parameterDeclaration?: ExtensionFactSubject;
+    readonly selectedType: ExtensionFactSubject;
+    readonly authoredTypeNode?: ExtensionFactSubject;
+    readonly acceptsOmission: boolean;
+    readonly rest: boolean;
+}
+export interface TargetSignatureSelection {
     readonly member: TargetMember;
-    readonly typeArguments?: readonly ExtensionFactSubject[];
-    readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
     readonly targetTypeArguments?: readonly TargetTypeRef[];
     readonly argumentConversions?: readonly TargetTypeRef[];
+    readonly providerDeclaration?: ProviderDeclarationIdentity;
+}
+export interface SelectedTargetSignatureFact extends TargetSignatureSelection {
+    readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
+    readonly sourceSelectedSignatureParameters?: readonly SourceSelectedSignatureParameter[];
+    readonly sourceSelectedSignatureKind?: SourceSelectedSignatureKind;
     readonly sourceSignature?: ExtensionFactSubject;
     readonly sourceDeclaration?: ExtensionFactSubject;
     readonly sourceCalleeSymbol?: ExtensionFactSubject;
     readonly sourceCalleeDeclaration?: ExtensionFactSubject;
+    readonly sourceSelectedCalleeSymbol?: ExtensionFactSubject;
+    readonly sourceSelectedCalleeDeclaration?: ExtensionFactSubject;
     readonly sourceReturnType?: ExtensionFactSubject;
-    readonly providerDeclaration?: ProviderDeclarationIdentity;
 }
 export interface ContextualTargetTypeFact {
     readonly type: ExtensionFactSubject;

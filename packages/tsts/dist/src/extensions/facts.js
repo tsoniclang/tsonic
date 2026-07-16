@@ -78,14 +78,17 @@ export const selectedTargetSignatureFactKey = defineExtensionFactKey({
     extensionId: "tsts.target-bindings",
     name: "selectedTargetSignature",
     equals: (left, right) => targetMemberEquals(left.member, right.member)
-        && factSubjectArrayEquals(left.typeArguments, right.typeArguments)
         && sourceSelectedMethodTypeArgumentArrayEquals(left.sourceSelectedMethodTypeArguments, right.sourceSelectedMethodTypeArguments)
+        && sourceSelectedSignatureParameterArrayEquals(left.sourceSelectedSignatureParameters, right.sourceSelectedSignatureParameters)
+        && left.sourceSelectedSignatureKind === right.sourceSelectedSignatureKind
         && targetTypeRefArrayEquals(left.targetTypeArguments, right.targetTypeArguments)
         && targetTypeRefArrayEquals(left.argumentConversions, right.argumentConversions)
         && left.sourceSignature === right.sourceSignature
         && left.sourceDeclaration === right.sourceDeclaration
         && left.sourceCalleeSymbol === right.sourceCalleeSymbol
         && left.sourceCalleeDeclaration === right.sourceCalleeDeclaration
+        && left.sourceSelectedCalleeSymbol === right.sourceSelectedCalleeSymbol
+        && left.sourceSelectedCalleeDeclaration === right.sourceSelectedCalleeDeclaration
         && left.sourceReturnType === right.sourceReturnType
         && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration),
 });
@@ -342,6 +345,25 @@ function sourceSelectedMethodTypeArgumentEquals(left, right) {
         && left.typeParameter === right.typeParameter
         && left.selectedType === right.selectedType
         && left.explicitTypeNode === right.explicitTypeNode;
+}
+function sourceSelectedSignatureParameterArrayEquals(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    if (left.length !== right.length) {
+        return false;
+    }
+    return left.every((parameter, index) => sourceSelectedSignatureParameterEquals(parameter, right[index]));
+}
+function sourceSelectedSignatureParameterEquals(left, right) {
+    return left.parameterIndex === right.parameterIndex
+        && left.parameterName === right.parameterName
+        && left.parameterSymbol === right.parameterSymbol
+        && left.parameterDeclaration === right.parameterDeclaration
+        && left.selectedType === right.selectedType
+        && left.authoredTypeNode === right.authoredTypeNode
+        && left.acceptsOmission === right.acceptsOmission
+        && left.rest === right.rest;
 }
 function optionalRuntimeCarrierProvenanceEquals(left, right) {
     if (left === undefined || right === undefined) {
