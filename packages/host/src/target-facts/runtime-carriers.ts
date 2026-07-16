@@ -13,7 +13,6 @@ import type {
 import {
   getDeclarationCarrierSubject,
   getDeclarationTypeNode,
-  getProjectSourceDeclarationForType,
   getProjectSourceReferenceForNode,
 } from "../analysis/project-source.js";
 import {
@@ -31,8 +30,40 @@ export function getRuntimeCarrier(
   if (runtimeCarrier !== undefined) {
     return runtimeCarrier;
   }
+  const selectedCallCarrier = getSelectedCallReturnCarrier(facts, subject);
+  if (selectedCallCarrier !== undefined) {
+    return selectedCallCarrier;
+  }
   const primitive = facts.getSourcePrimitiveFact(subject);
   return primitive === undefined ? undefined : { kind: "source-primitive", name: primitive.kind };
+}
+
+function getSelectedCallReturnCarrier(
+  facts: ExtensionConsumerQueries,
+  subject: ExtensionFactSubject | undefined,
+): TargetTypeRef | undefined {
+  const selectedCall = facts.getSelectedTargetCall(subject);
+  if (selectedCall === undefined) {
+    return undefined;
+  }
+  const targetTypeArguments = selectedCall.targetTypeArguments ?? [];
+  const targetTypeParameters = selectedCall.member.typeParameters ?? [];
+  if (targetTypeArguments.length === 0) {
+    return selectedCall.member.returnType;
+  }
+  if (targetTypeArguments.length !== targetTypeParameters.length) {
+    return undefined;
+  }
+  const substitutions = new Map<string, TargetTypeRef>();
+  for (let index = 0; index < targetTypeParameters.length; index += 1) {
+    const parameter = targetTypeParameters[index];
+    const argument = targetTypeArguments[index];
+    if (parameter === undefined || argument === undefined) {
+      return undefined;
+    }
+    substitutions.set(parameter.name, argument);
+  }
+  return substituteTargetTypeParameters(selectedCall.member.returnType, substitutions);
 }
 
 export function getRuntimeCarrierFromDeclaredFactGraph(
@@ -54,32 +85,6 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
       ? getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options))
       : getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
         getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)));
-  const projectSourceCallReturn = getProjectSourceCallReturnCarrier(
-    ast,
-    checker,
-    types,
-    facts,
-    node,
-    options,
-    sourceFiles,
-    nextSeen,
-  );
-  if (projectSourceCallReturn !== undefined) {
-    return projectSourceCallReturn;
-  }
-  const projectSourceConstruction = getProjectSourceConstructionCarrier(
-    ast,
-    checker,
-    types,
-    facts,
-    node,
-    options,
-    sourceFiles,
-    nextSeen,
-  );
-  if (projectSourceConstruction !== undefined) {
-    return projectSourceConstruction;
-  }
   const valueDeclarationCarrier = getValueDeclarationCarrier(
     ast,
     checker,
@@ -209,155 +214,6 @@ function getValueDeclarationCarrier(
     ? undefined
     : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, subject, options, sourceFiles, seen) ??
       getRuntimeCarrierForSemanticType(ast, checker, types, facts, subject, options);
-}
-
-function getProjectSourceCallReturnCarrier(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  types: TypeShapeQueries,
-  facts: ExtensionConsumerQueries,
-  node: Node,
-  options: { readonly sourceFile: SourceFile },
-  sourceFiles: readonly SourceFile[],
-  seen: ReadonlySet<Node>,
-): TargetTypeRef | undefined {
-  if (!ast.is.IsCallExpression(node)) {
-    return undefined;
-  }
-  const callee = ast.as.AsCallExpression(node)?.Expression;
-  const reference = getProjectSourceReferenceForNode(ast, checker, types, callee, options, sourceFiles);
-  const returnTypeNode = getDeclarationTypeNode(ast, reference?.declaration);
-  if (returnTypeNode === undefined || reference === undefined) {
-    return undefined;
-  }
-  const referenceOptions = { sourceFile: reference.sourceFile };
-  const returnCarrier = getRuntimeCarrierFromDeclaredFactGraph(
-    ast,
-    checker,
-    types,
-    facts,
-    returnTypeNode,
-    referenceOptions,
-    sourceFiles,
-    seen,
-  ) ?? getRuntimeCarrierForSemanticType(ast, checker, types, facts, returnTypeNode, referenceOptions);
-  const substitutions = getProjectSourceCallTypeParameterSubstitutions(
-    ast,
-    checker,
-    types,
-    facts,
-    node,
-    callee,
-    reference.declaration,
-    options,
-    sourceFiles,
-    seen,
-  );
-  return substituteTargetTypeParameters(returnCarrier, substitutions);
-}
-
-function getProjectSourceConstructionCarrier(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  types: TypeShapeQueries,
-  facts: ExtensionConsumerQueries,
-  node: Node,
-  options: { readonly sourceFile: SourceFile },
-  sourceFiles: readonly SourceFile[],
-  seen: ReadonlySet<Node>,
-): TargetTypeRef | undefined {
-  if (!ast.is.IsNewExpression(node)) {
-    return undefined;
-  }
-  const expression = ast.as.AsNewExpression(node)?.Expression;
-  const reference = getProjectSourceReferenceForNode(ast, checker, types, expression, options, sourceFiles);
-  if (reference === undefined || !ast.is.IsClassDeclaration(reference.declaration)) {
-    return undefined;
-  }
-  const baseCarrier = expression === undefined
-    ? undefined
-    : getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, expression, options, sourceFiles, seen) ??
-      getRuntimeCarrierForSemanticType(ast, checker, types, facts, expression, options);
-  if (baseCarrier?.kind !== "target-named") {
-    return undefined;
-  }
-  const explicitTypeArguments = ast.typeArguments(node);
-  if (explicitTypeArguments.length === 0) {
-    return baseCarrier;
-  }
-  const typeArguments = explicitTypeArguments.map((argument) =>
-    argument === undefined
-      ? undefined
-      : getTargetTypeRefFromDeclaredTypeNode(ast, checker, types, facts, argument, options, sourceFiles, seen));
-  return typeArguments.some((argument) => argument === undefined)
-    ? undefined
-    : {
-        ...baseCarrier,
-        typeArguments: typeArguments as readonly TargetTypeRef[],
-      };
-}
-
-function getProjectSourceCallTypeParameterSubstitutions(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  types: TypeShapeQueries,
-  facts: ExtensionConsumerQueries,
-  call: Node,
-  callee: Node | undefined,
-  selectedDeclaration: Node,
-  options: { readonly sourceFile: SourceFile },
-  sourceFiles: readonly SourceFile[],
-  seen: ReadonlySet<Node>,
-): ReadonlyMap<string, TargetTypeRef> {
-  const substitutions = new Map<string, TargetTypeRef>();
-  const receiver = callee !== undefined && ast.is.IsPropertyAccessExpression(callee)
-    ? ast.as.AsPropertyAccessExpression(callee)?.Expression
-    : undefined;
-  if (receiver !== undefined) {
-    const receiverCarrier = getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, receiver, options, sourceFiles, seen) ??
-      getRuntimeCarrierForSemanticType(ast, checker, types, facts, receiver, options);
-    const receiverType = getSemanticTypeForNode(ast, checker, receiver, options);
-    const receiverDeclaration = getProjectSourceDeclarationForType(ast, checker, types, receiverType, sourceFiles);
-    addTypeParameterSubstitutions(ast, substitutions, receiverDeclaration, receiverCarrier);
-  }
-  const explicitCallTypeArguments = ast.typeArguments(call);
-  if (explicitCallTypeArguments.length > 0) {
-    const selectedDeclarationSourceFile = ast.getSourceFile(selectedDeclaration) ?? options.sourceFile;
-    const selectedOptions = { sourceFile: selectedDeclarationSourceFile };
-    const callTypeArguments = explicitCallTypeArguments.map((argument) =>
-      argument === undefined
-        ? undefined
-        : getTargetTypeRefFromDeclaredTypeNode(ast, checker, types, facts, argument, selectedOptions, sourceFiles, seen));
-    addTypeArgumentSubstitutions(ast, substitutions, ast.typeParameters(selectedDeclaration), callTypeArguments);
-  }
-  return substitutions;
-}
-
-function addTypeParameterSubstitutions(
-  ast: AstReader,
-  substitutions: Map<string, TargetTypeRef>,
-  declaration: Node | undefined,
-  carrier: TargetTypeRef | undefined,
-): void {
-  if (declaration === undefined || carrier?.kind !== "target-named") {
-    return;
-  }
-  addTypeArgumentSubstitutions(ast, substitutions, ast.typeParameters(declaration), carrier.typeArguments ?? []);
-}
-
-function addTypeArgumentSubstitutions(
-  ast: AstReader,
-  substitutions: Map<string, TargetTypeRef>,
-  typeParameters: readonly (Node | undefined)[],
-  typeArguments: readonly (TargetTypeRef | undefined)[],
-): void {
-  for (let index = 0; index < typeParameters.length; index += 1) {
-    const name = ast.text(ast.name(typeParameters[index]));
-    const typeArgument = typeArguments[index];
-    if (name.length > 0 && typeArgument !== undefined) {
-      substitutions.set(name, typeArgument);
-    }
-  }
 }
 
 function substituteTargetTypeParameters(

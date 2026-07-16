@@ -304,6 +304,65 @@ test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI finalizes interface-backed JSON shapes and compat typeof checks after all object shapes are known", async () => {
+  const projectDirectory = resolve(tempRoot, "json-interface-shape-finalization");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        surfaces: ["js"],
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName: "SmokeGeneratedJsonInterfaceShapeFinalization",
+          typescriptCompatibility: "compat",
+        },
+      }],
+    }, null, 2),
+    "src/index.ts": [
+      "export interface Todo {",
+      "  id: number;",
+      "  title: string;",
+      "  completed: boolean;",
+      "}",
+      "",
+      "export function createTodos(): Todo[] {",
+      "  const first: Todo = { id: 1, title: \"first\", completed: false };",
+      "  const second: Todo = { id: 2, title: \"second\", completed: true };",
+      "  return [first, second];",
+      "}",
+      "",
+      "export function serializeTodos(values: Todo[]): string {",
+      "  return JSON.stringify(values);",
+      "}",
+      "",
+      "export function readTitle(text: string): string | undefined {",
+      "  const value = JSON.parse(text) as { title?: unknown };",
+      "  if (typeof value.title !== \"string\") return undefined;",
+      "  return value.title;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedShape = generatedSource.match(/public class (__TsonicShape_[A-Za-z0-9_]+) : Todo, Tsonic\.CSharp\.Js\.IJsonValue/u);
+  assert.notEqual(generatedShape, null, generatedSource);
+  assert.equal(generatedSource.match(/public class __TsonicShape_[A-Za-z0-9_]+ : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
+  assert.equal(generatedSource.match(new RegExp(`new ${generatedShape[1]}`, "gu"))?.length, 2);
+  assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; \}\s*string title \{ get; \}\s*bool completed \{ get; \}\s*\}/u);
+  assert.equal(generatedSource.match(/void __tsonicWriteJson\(/gu)?.length, 1);
+  assert.match(generatedSource, /TsValue\.ApplyCompatTypeof\(value\.ReadCompatSlot\("title"\)\) != "string"/u);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedJsonInterfaceShapeFinalization.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI compiles existing TypeScript JS-surface utility code when JS surface is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-typescript-js-surface-utility-code");
   await writeProject(projectDirectory, {
