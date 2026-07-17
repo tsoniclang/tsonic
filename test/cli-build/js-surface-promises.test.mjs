@@ -38,7 +38,18 @@ test("CLI maps selected JS Promise construction and all to Task-backed runtime o
       "  });",
       "}",
       "",
+      "function settled(): Promise<void> {",
+      "  return new Promise<void>((resolve) => {",
+      "    resolve();",
+      "  });",
+      "}",
+      "",
+      "export function passthrough(input: PromiseLike<number>): PromiseLike<number> {",
+      "  return input;",
+      "}",
+      "",
       "export async function run(): Promise<string> {",
+      "  await settled();",
       "  const values = await Promise.all([value(3), value(5)]);",
       "  return `${values[0]}:${values[1]}`;",
       "}",
@@ -54,6 +65,8 @@ test("CLI maps selected JS Promise construction and all to Task-backed runtime o
   assertInstalledAssemblyReference(projectText, "Tsonic.CSharp.Js");
   assertNoRuntimeProjectReference(projectText, "Tsonic.CSharp.Js");
   assert.match(generatedText, /System\.Threading\.Tasks\.Task<double>/u);
+  assert.match(generatedText, /System\.Threading\.Tasks\.Task<double> passthrough\(System\.Threading\.Tasks\.Task<double> input\)/u);
+  assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime\.Create/u);
   assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.Create/u);
   assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.All/u);
   assert.match(generatedText, /new System\.Threading\.Tasks\.Task<double>\[\]/u);
