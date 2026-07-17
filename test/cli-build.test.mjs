@@ -23,6 +23,7 @@ import "./cli-build/js-surface-arrays.test.mjs";
 import "./cli-build/js-surface-objects-records-iteration.test.mjs";
 import "./cli-build/js-surface-strings-regexp-date.test.mjs";
 import "./cli-build/js-surface-number-boolean.test.mjs";
+import "./cli-build/js-surface-promises.test.mjs";
 import "./cli-build/js-surface-rejections.test.mjs";
 import "./cli-build/modules-declarations-modules.test.mjs";
 import "./cli-build/modules-declarations-modules-part-02-cli-preserves-export-star-module-initialization.test.mjs";
