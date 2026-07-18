@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, AssociatedTypeFact, AttributeFact, ContextualTargetTypeFact, ConstGenericFact, DefaultValueFact, FieldFact, FunctionPointerFact, InstantiatedTargetTypeFact, PointerFact, ProviderVirtualDeclarationFact, RuntimeCarrierFact, SelectedTargetSignatureFact, SourcePrimitiveFact, StructFact, TargetConversionFact, TargetBindingFact, TargetOperationFact } from "./facts.js";
+import type { ArgumentPassingFact, AssociatedTypeFact, AttributeFact, ContextualTargetTypeFact, ConstGenericFact, DefaultValueFact, FieldFact, FunctionPointerFact, InstantiatedTargetTypeFact, PointerFact, ProviderVirtualDeclarationFact, RuntimeCarrierFact, SelectedTargetSignatureFact, SourcePrimitiveFact, StructFact, TargetCallArgumentConversionSlot, TargetCallArgumentConversionFact, TargetCallArgumentPassingFact, TargetConversionFact, TargetBindingFact, TargetOperationFact } from "./facts.js";
 import type { ExtensionFactEntry, ExtensionFactKey, ExtensionFactSubject, ExtensionHost, ProviderVirtualDeclarationDocument } from "./host.js";
 export declare class ExtensionConsumerQueries {
     #private;
@@ -38,6 +38,12 @@ export declare class ExtensionConsumerQueries {
     getTargetConversionFact(subject: ExtensionFactSubject | undefined): TargetConversionFact | undefined;
     requireTargetConversionFact(subject: ExtensionFactSubject, purpose?: string): TargetConversionFact | undefined;
     mustTargetConversionFact(subject: ExtensionFactSubject, purpose?: string): TargetConversionFact;
+    getTargetCallArgumentConversionFact(slot: TargetCallArgumentConversionSlot | undefined): TargetCallArgumentConversionFact | undefined;
+    requireTargetCallArgumentConversionFact(slot: TargetCallArgumentConversionSlot, purpose?: string): TargetCallArgumentConversionFact | undefined;
+    mustTargetCallArgumentConversionFact(slot: TargetCallArgumentConversionSlot, purpose?: string): TargetCallArgumentConversionFact;
+    getTargetCallArgumentPassingFact(slot: TargetCallArgumentConversionSlot | undefined): TargetCallArgumentPassingFact | undefined;
+    requireTargetCallArgumentPassingFact(slot: TargetCallArgumentConversionSlot, purpose?: string): TargetCallArgumentPassingFact | undefined;
+    mustTargetCallArgumentPassingFact(slot: TargetCallArgumentConversionSlot, purpose?: string): TargetCallArgumentPassingFact;
     getArgumentPassingFact(subject: ExtensionFactSubject | undefined): ArgumentPassingFact | undefined;
     requireArgumentPassingFact(subject: ExtensionFactSubject, purpose?: string): ArgumentPassingFact | undefined;
     mustArgumentPassingFact(subject: ExtensionFactSubject, purpose?: string): ArgumentPassingFact;

@@ -800,8 +800,46 @@ export interface SourceFileLinks {
     localJsxFragmentFactory: GoPtr<EntityName>;
     jsxFragmentType: GoPtr<Type>;
 }
+export interface CheckedCallSourceSelectionProvenance {
+    readonly symbol?: Symbol_62f2f8bf;
+    readonly declaration?: Node;
+    readonly selectedSymbol?: Symbol_62f2f8bf;
+    readonly selectedDeclaration?: Node;
+    readonly authoredTypeNode?: Node;
+}
+export interface CheckedCallSelectionSeed {
+    readonly calleeProvenance?: CheckedCallSourceSelectionProvenance;
+    readonly receiver?: ResolvedCallSourceValueEvidence;
+    readonly inputOperationSubjects?: readonly Node[];
+}
+export interface ResolvedCallSourceValueEvidence extends CheckedCallSourceSelectionProvenance {
+    readonly expression: Node;
+    readonly type: Type;
+}
+export interface ResolvedCallArgumentEvidence {
+    readonly sourceArgumentIndex: number;
+    readonly effectiveArgumentIndex: number;
+    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+    readonly spreadElementIndex?: number;
+    readonly sourceParameterIndex: number;
+    readonly sourceParameterForm: "parameter" | "rest-element" | "rest-sequence";
+    readonly selectedArgumentType: Type;
+    readonly selectedParameterType: Type;
+}
+export interface ResolvedCallEvidence {
+    readonly outcome: "applicable" | "untyped" | "error" | "deferred";
+    readonly call: Node;
+    readonly selectedSignature: Signature;
+    readonly sourceCallee: ResolvedCallSourceValueEvidence;
+    readonly sourceArguments: readonly ResolvedCallSourceValueEvidence[];
+    readonly sourceArgumentBindings: readonly ResolvedCallArgumentEvidence[];
+    readonly sourceReceiver?: ResolvedCallSourceValueEvidence;
+    readonly inputOperationSubjects?: readonly Node[];
+    readonly sourceResultType?: Type;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SignatureLinks","kind":"type","status":"implemented","sigHash":"a347e845fe887e23f08134d6a7c13472dcdb4602c6c632618c72b27e056bdc28","bodyHash":"4bf2baf0e113cf93bff152edafa4b1d395e4fdfca289065c748d902c87e78b3e"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Cache immutable selected-call evidence beside TS-Go's resolvedSignature so source-order cache arbitration chooses the signature and its evidence atomically.","goSignature":"interface{decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}","tsSignature":"interface{checkedCallSelectionSeed:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CheckedCallSelectionSeed>;decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::ResolvedCallEvidence>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}"}
  *
  * Go source:
  * SignatureLinks struct {
@@ -814,6 +852,8 @@ export interface SignatureLinks {
     resolvedSignature: GoPtr<Signature>;
     effectsSignature: GoPtr<Signature>;
     decoratorSignature: GoPtr<Signature>;
+    checkedCallSelectionSeed: GoPtr<CheckedCallSelectionSeed>;
+    resolvedCallEvidence: GoPtr<ResolvedCallEvidence>;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::TypeFlags","kind":"type","status":"implemented","sigHash":"f25175c625db0f67dfd7e928ddb1b660e03ad62f59d0c4ee937cfa78968b53ec","bodyHash":"06d2339bb07513679d9db9d3361917653e5f784b5a3d9fda1db10a4184c759c9"}

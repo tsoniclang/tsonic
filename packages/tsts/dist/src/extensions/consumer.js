@@ -1,4 +1,4 @@
-import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, contextualTargetTypeFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, functionPointerFactKey, instantiatedTargetTypeFactKey, providerVirtualDeclarationFactKey, pointerFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, structFactKey, targetConversionFactKey, targetBindingFactKey, targetOperationFactKey, } from "./facts.js";
+import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, contextualTargetTypeFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, functionPointerFactKey, instantiatedTargetTypeFactKey, providerVirtualDeclarationFactKey, pointerFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, structFactKey, targetCallArgumentConversionFactKey, targetCallArgumentPassingFactKey, targetConversionFactKey, targetBindingFactKey, targetOperationFactKey, } from "./facts.js";
 export class ExtensionConsumerQueries {
     #host;
     #consumer;
@@ -111,6 +111,28 @@ export class ExtensionConsumerQueries {
     mustTargetConversionFact(subject, purpose) {
         return this.mustFact(subject, targetConversionFactKey, purpose);
     }
+    getTargetCallArgumentConversionFact(slot) {
+        const fact = this.getFact(slot, targetCallArgumentConversionFactKey);
+        return fact === undefined || slot === undefined ? undefined : assertTargetCallArgumentConversionSlot(fact, slot);
+    }
+    requireTargetCallArgumentConversionFact(slot, purpose) {
+        const fact = this.requireFact(slot, targetCallArgumentConversionFactKey, purpose);
+        return fact === undefined ? undefined : assertTargetCallArgumentConversionSlot(fact, slot);
+    }
+    mustTargetCallArgumentConversionFact(slot, purpose) {
+        return assertTargetCallArgumentConversionSlot(this.mustFact(slot, targetCallArgumentConversionFactKey, purpose), slot);
+    }
+    getTargetCallArgumentPassingFact(slot) {
+        const fact = this.getFact(slot, targetCallArgumentPassingFactKey);
+        return fact === undefined || slot === undefined ? undefined : assertTargetCallArgumentPassingSlot(fact, slot);
+    }
+    requireTargetCallArgumentPassingFact(slot, purpose) {
+        const fact = this.requireFact(slot, targetCallArgumentPassingFactKey, purpose);
+        return fact === undefined ? undefined : assertTargetCallArgumentPassingSlot(fact, slot);
+    }
+    mustTargetCallArgumentPassingFact(slot, purpose) {
+        return assertTargetCallArgumentPassingSlot(this.mustFact(slot, targetCallArgumentPassingFactKey, purpose), slot);
+    }
     getArgumentPassingFact(subject) {
         return this.getFact(subject, argumentPassingFactKey);
     }
@@ -210,6 +232,18 @@ export class ExtensionConsumerQueries {
     mustVirtualDeclaration(subject, purpose) {
         return this.mustFact(subject, providerVirtualDeclarationFactKey, purpose);
     }
+}
+function assertTargetCallArgumentConversionSlot(fact, slot) {
+    if (fact.slot !== slot) {
+        throw new Error("Target call-argument conversion fact does not match the selected call conversion slot.");
+    }
+    return fact;
+}
+function assertTargetCallArgumentPassingSlot(fact, slot) {
+    if (fact.slot !== slot) {
+        throw new Error("Target call-argument passing fact does not match the selected call conversion slot.");
+    }
+    return fact;
 }
 export function createExtensionConsumerQueries(host, consumer) {
     return new ExtensionConsumerQueries(host, consumer);

@@ -24,9 +24,6 @@ export interface SourcePrimitiveFact {
 export interface ArgumentPassingFact {
     readonly mode: ArgumentPassingMode;
     readonly targetExpression?: ExtensionFactSubject;
-    readonly parameterIndex?: number;
-    readonly targetParameter?: TargetParameter;
-    readonly selectedSignature?: ProviderDeclarationIdentity;
 }
 export interface FunctionPointerFact {
     readonly parameters: readonly ExtensionFactSubject[];
@@ -198,6 +195,8 @@ export interface SourceSelectedMethodTypeArgument {
     readonly explicitTypeNode?: ExtensionFactSubject;
 }
 export type SourceSelectedSignatureKind = "resolved" | "untyped" | "error" | "silent-never";
+export type CheckedCallKind = "call" | "construct";
+export type CheckedAccessMode = "read" | "write" | "read-write" | "delete";
 export interface SourceSelectedSignatureParameter {
     readonly parameterIndex: number;
     readonly parameterName: string;
@@ -208,23 +207,53 @@ export interface SourceSelectedSignatureParameter {
     readonly acceptsOmission: boolean;
     readonly rest: boolean;
 }
+export interface SourceSelectedCallArgumentBinding {
+    readonly sourceArgumentIndex: number;
+    readonly effectiveArgumentIndex: number;
+    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+    readonly spreadElementIndex?: number;
+    readonly sourceParameterIndex: number;
+    readonly sourceParameterForm: "parameter" | "rest-element" | "rest-sequence";
+    readonly selectedArgumentType: ExtensionFactSubject;
+    readonly selectedParameterType: ExtensionFactSubject;
+}
+export interface SelectedSourceTypeEvidence {
+    readonly type: ExtensionFactSubject;
+    readonly symbol?: ExtensionFactSubject;
+    readonly declaration?: ExtensionFactSubject;
+    readonly selectedSymbol?: ExtensionFactSubject;
+    readonly selectedDeclaration?: ExtensionFactSubject;
+    readonly authoredTypeNode?: ExtensionFactSubject;
+}
+export interface SelectedSourceValueEvidence extends SelectedSourceTypeEvidence {
+    readonly expression: ExtensionFactSubject;
+}
 export interface TargetSignatureSelection {
     readonly member: TargetMember;
     readonly targetTypeArguments?: readonly TargetTypeRef[];
-    readonly argumentConversions?: readonly TargetTypeRef[];
     readonly providerDeclaration?: ProviderDeclarationIdentity;
 }
+export interface TargetCallArgumentConversionSlot {
+    readonly sourceArgumentIndex: number;
+    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+    readonly spreadElementIndex?: number;
+    readonly targetParameterIndex: number;
+    readonly targetForm: "parameter" | "params-element" | "params-sequence";
+}
 export interface SelectedTargetSignatureFact extends TargetSignatureSelection {
+    readonly argumentConversions: readonly TargetCallArgumentConversionSlot[];
+    readonly sourceArgumentBindings: readonly SourceSelectedCallArgumentBinding[];
     readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
     readonly sourceSelectedSignatureParameters?: readonly SourceSelectedSignatureParameter[];
     readonly sourceSelectedSignatureKind?: SourceSelectedSignatureKind;
+    readonly sourceCallKind: CheckedCallKind;
     readonly sourceSignature?: ExtensionFactSubject;
     readonly sourceDeclaration?: ExtensionFactSubject;
-    readonly sourceCalleeSymbol?: ExtensionFactSubject;
-    readonly sourceCalleeDeclaration?: ExtensionFactSubject;
-    readonly sourceSelectedCalleeSymbol?: ExtensionFactSubject;
-    readonly sourceSelectedCalleeDeclaration?: ExtensionFactSubject;
-    readonly sourceReturnType?: ExtensionFactSubject;
+    readonly sourceCallee: SelectedSourceValueEvidence;
+    readonly sourceArguments: readonly SelectedSourceValueEvidence[];
+    readonly sourceResult: SelectedSourceValueEvidence;
+    readonly sourceOptionalChain?: boolean;
+    readonly sourceReceiver?: SelectedSourceValueEvidence;
 }
 export interface ContextualTargetTypeFact {
     readonly type: ExtensionFactSubject;
@@ -247,6 +276,10 @@ export interface TargetOperationProvenance {
     readonly sourceSelectedDeclaration?: ExtensionFactSubject;
     readonly sourceSelectedSignature?: ExtensionFactSubject;
     readonly sourceResultType?: ExtensionFactSubject;
+    readonly sourceReceiverType?: ExtensionFactSubject;
+    readonly sourceOptionalChain?: boolean;
+    readonly sourceAccessMode?: CheckedAccessMode;
+    readonly sourceCallCallee?: boolean;
 }
 export interface FlowStateFact {
     readonly state: "moved" | "borrowed-shared" | "borrowed-mut" | "initialized" | "uninitialized" | "target-validation-required";
@@ -267,6 +300,28 @@ export interface RuntimeCarrierProvenance {
 export interface TargetConversionFact {
     readonly convertedType?: TargetTypeRef;
     readonly operation?: TargetOperationFact;
+}
+export interface TargetCallArgumentConversionFact extends TargetConversionFact {
+    readonly slot: TargetCallArgumentConversionSlot;
+    readonly call: ExtensionFactSubject;
+    readonly sourceArgumentIndex: number;
+    readonly targetParameterIndex: number;
+    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+    readonly spreadElementIndex?: number;
+    readonly targetForm: "parameter" | "params-element" | "params-sequence";
+    readonly sourceBinding: SourceSelectedCallArgumentBinding;
+}
+export interface TargetCallArgumentPassingFact extends ArgumentPassingFact {
+    readonly slot: TargetCallArgumentConversionSlot;
+    readonly call: ExtensionFactSubject;
+    readonly sourceArgumentIndex: number;
+    readonly targetParameterIndex: number;
+    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+    readonly spreadElementIndex?: number;
+    readonly targetForm: "parameter" | "params-element" | "params-sequence";
+    readonly sourceBinding: SourceSelectedCallArgumentBinding;
+    readonly targetParameter: TargetParameter;
+    readonly selectedSignature?: ProviderDeclarationIdentity;
 }
 export interface ProviderVirtualDeclarationFact {
     readonly providerId: string;
@@ -313,13 +368,18 @@ export declare const defaultValueFactKey: import("./host.js").ExtensionFactKey<D
 export declare const targetBindingFactKey: import("./host.js").ExtensionFactKey<TargetBindingFact>;
 export declare const instantiatedTargetTypeFactKey: import("./host.js").ExtensionFactKey<InstantiatedTargetTypeFact>;
 export declare const selectedTargetSignatureFactKey: import("./host.js").ExtensionFactKey<SelectedTargetSignatureFact>;
+export declare function selectedTargetSignatureEquals(left: SelectedTargetSignatureFact, right: SelectedTargetSignatureFact): boolean;
 export declare const contextualTargetTypeFactKey: import("./host.js").ExtensionFactKey<ContextualTargetTypeFact>;
 export declare const targetOperationFactKey: import("./host.js").ExtensionFactKey<TargetOperationFact>;
 export declare const flowStateFactKey: import("./host.js").ExtensionFactKey<FlowStateFact>;
 export declare const runtimeCarrierFactKey: import("./host.js").ExtensionFactKey<RuntimeCarrierFact>;
 export declare const targetConversionFactKey: import("./host.js").ExtensionFactKey<TargetConversionFact>;
+export declare const targetCallArgumentConversionFactKey: import("./host.js").ExtensionFactKey<TargetCallArgumentConversionFact>;
+export declare const targetCallArgumentPassingFactKey: import("./host.js").ExtensionFactKey<TargetCallArgumentPassingFact>;
 export declare const providerVirtualDeclarationFactKey: import("./host.js").ExtensionFactKey<ProviderVirtualDeclarationFact>;
 export declare const providerTypeFamilyFactKey: import("./host.js").ExtensionFactKey<ProviderTypeFamilyFact>;
 export declare const associatedTypeFactKey: import("./host.js").ExtensionFactKey<AssociatedTypeFact>;
 export declare const constGenericFactKey: import("./host.js").ExtensionFactKey<ConstGenericFact>;
+export declare function targetParameterEquals(left: TargetParameter, right: TargetParameter): boolean;
+export declare function targetTypeRefEquals(left: TargetTypeRef, right: TargetTypeRef): boolean;
 //# sourceMappingURL=facts.d.ts.map

@@ -20,10 +20,7 @@ export const argumentPassingFactKey = defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "argumentPassing",
     equals: (left, right) => left.mode === right.mode
-        && left.targetExpression === right.targetExpression
-        && left.parameterIndex === right.parameterIndex
-        && optionalTargetParameterEquals(left.targetParameter, right.targetParameter)
-        && optionalProviderDeclarationIdentityEquals(left.selectedSignature, right.selectedSignature),
+        && left.targetExpression === right.targetExpression,
 });
 export const functionPointerFactKey = defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
@@ -77,21 +74,73 @@ export const instantiatedTargetTypeFactKey = defineExtensionFactKey({
 export const selectedTargetSignatureFactKey = defineExtensionFactKey({
     extensionId: "tsts.target-bindings",
     name: "selectedTargetSignature",
-    equals: (left, right) => targetMemberEquals(left.member, right.member)
+    equals: selectedTargetSignatureEquals,
+});
+export function selectedTargetSignatureEquals(left, right) {
+    return targetMemberEquals(left.member, right.member)
+        && targetCallArgumentConversionSlotArrayEquals(left.argumentConversions, right.argumentConversions)
+        && sourceSelectedCallArgumentBindingArrayEquals(left.sourceArgumentBindings, right.sourceArgumentBindings)
         && sourceSelectedMethodTypeArgumentArrayEquals(left.sourceSelectedMethodTypeArguments, right.sourceSelectedMethodTypeArguments)
         && sourceSelectedSignatureParameterArrayEquals(left.sourceSelectedSignatureParameters, right.sourceSelectedSignatureParameters)
         && left.sourceSelectedSignatureKind === right.sourceSelectedSignatureKind
+        && left.sourceCallKind === right.sourceCallKind
         && targetTypeRefArrayEquals(left.targetTypeArguments, right.targetTypeArguments)
-        && targetTypeRefArrayEquals(left.argumentConversions, right.argumentConversions)
         && left.sourceSignature === right.sourceSignature
         && left.sourceDeclaration === right.sourceDeclaration
-        && left.sourceCalleeSymbol === right.sourceCalleeSymbol
-        && left.sourceCalleeDeclaration === right.sourceCalleeDeclaration
-        && left.sourceSelectedCalleeSymbol === right.sourceSelectedCalleeSymbol
-        && left.sourceSelectedCalleeDeclaration === right.sourceSelectedCalleeDeclaration
-        && left.sourceReturnType === right.sourceReturnType
-        && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration),
-});
+        && selectedSourceValueEvidenceEquals(left.sourceCallee, right.sourceCallee)
+        && selectedSourceValueEvidenceArrayEquals(left.sourceArguments, right.sourceArguments)
+        && selectedSourceValueEvidenceEquals(left.sourceResult, right.sourceResult)
+        && left.sourceOptionalChain === right.sourceOptionalChain
+        && optionalSelectedSourceValueEvidenceEquals(left.sourceReceiver, right.sourceReceiver)
+        && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration);
+}
+function sourceSelectedCallArgumentBindingArrayEquals(left, right) {
+    return left.length === right.length
+        && left.every((binding, index) => {
+            const other = right[index];
+            return other !== undefined
+                && binding.sourceArgumentIndex === other.sourceArgumentIndex
+                && binding.effectiveArgumentIndex === other.effectiveArgumentIndex
+                && binding.sourceForm === other.sourceForm
+                && binding.spreadElementIndex === other.spreadElementIndex
+                && binding.sourceParameterIndex === other.sourceParameterIndex
+                && binding.sourceParameterForm === other.sourceParameterForm
+                && binding.selectedArgumentType === other.selectedArgumentType
+                && binding.selectedParameterType === other.selectedParameterType;
+        });
+}
+function selectedSourceTypeEvidenceEquals(left, right) {
+    return left.type === right.type
+        && left.symbol === right.symbol
+        && left.declaration === right.declaration
+        && left.selectedSymbol === right.selectedSymbol
+        && left.selectedDeclaration === right.selectedDeclaration
+        && left.authoredTypeNode === right.authoredTypeNode;
+}
+function selectedSourceValueEvidenceEquals(left, right) {
+    return left.expression === right.expression && selectedSourceTypeEvidenceEquals(left, right);
+}
+function optionalSelectedSourceValueEvidenceEquals(left, right) {
+    return left === undefined || right === undefined
+        ? left === right
+        : selectedSourceValueEvidenceEquals(left, right);
+}
+function selectedSourceValueEvidenceArrayEquals(left, right) {
+    return left.length === right.length
+        && left.every((evidence, index) => selectedSourceValueEvidenceEquals(evidence, right[index]));
+}
+function targetCallArgumentConversionSlotArrayEquals(left, right) {
+    return left.length === right.length
+        && left.every((slot, index) => {
+            const other = right[index];
+            return other !== undefined
+                && slot.sourceArgumentIndex === other.sourceArgumentIndex
+                && slot.sourceForm === other.sourceForm
+                && slot.spreadElementIndex === other.spreadElementIndex
+                && slot.targetParameterIndex === other.targetParameterIndex
+                && slot.targetForm === other.targetForm;
+        });
+}
 export const contextualTargetTypeFactKey = defineExtensionFactKey({
     extensionId: "tsts.target-bindings",
     name: "contextualTargetType",
@@ -118,6 +167,34 @@ export const targetConversionFactKey = defineExtensionFactKey({
     extensionId: "tsts.target-bindings",
     name: "targetConversion",
     equals: (left, right) => optionalTargetTypeRefEquals(left.convertedType, right.convertedType) && optionalTargetOperationFactEquals(left.operation, right.operation),
+});
+export const targetCallArgumentConversionFactKey = defineExtensionFactKey({
+    extensionId: "tsts.target-bindings",
+    name: "targetCallArgumentConversion",
+    equals: (left, right) => left.slot === right.slot
+        && left.call === right.call
+        && left.sourceArgumentIndex === right.sourceArgumentIndex
+        && left.targetParameterIndex === right.targetParameterIndex
+        && left.sourceForm === right.sourceForm
+        && left.spreadElementIndex === right.spreadElementIndex
+        && left.targetForm === right.targetForm
+        && optionalTargetTypeRefEquals(left.convertedType, right.convertedType)
+        && optionalTargetOperationFactEquals(left.operation, right.operation),
+});
+export const targetCallArgumentPassingFactKey = defineExtensionFactKey({
+    extensionId: "tsts.target-bindings",
+    name: "targetCallArgumentPassing",
+    equals: (left, right) => left.slot === right.slot
+        && left.mode === right.mode
+        && left.targetExpression === right.targetExpression
+        && left.call === right.call
+        && left.sourceArgumentIndex === right.sourceArgumentIndex
+        && left.targetParameterIndex === right.targetParameterIndex
+        && left.sourceForm === right.sourceForm
+        && left.spreadElementIndex === right.spreadElementIndex
+        && left.targetForm === right.targetForm
+        && targetParameterEquals(left.targetParameter, right.targetParameter)
+        && optionalProviderDeclarationIdentityEquals(left.selectedSignature, right.selectedSignature),
 });
 export const providerVirtualDeclarationFactKey = defineExtensionFactKey({
     extensionId: "tsts.provider",
@@ -248,16 +325,10 @@ function targetMemberEquals(left, right) {
         && left.overloadGroup === right.overloadGroup
         && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration);
 }
-function optionalTargetParameterEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return targetParameterEquals(left, right);
-}
 function targetParameterArrayEquals(left, right) {
     return left.length === right.length && left.every((value, index) => targetParameterEquals(value, right[index]));
 }
-function targetParameterEquals(left, right) {
+export function targetParameterEquals(left, right) {
     return left.name === right.name
         && targetTypeRefEquals(left.type, right.type)
         && left.passingMode === right.passingMode
@@ -329,7 +400,11 @@ function optionalTargetOperationProvenanceEquals(left, right) {
         && left.sourceSelectedSymbol === right.sourceSelectedSymbol
         && left.sourceSelectedDeclaration === right.sourceSelectedDeclaration
         && left.sourceSelectedSignature === right.sourceSelectedSignature
-        && left.sourceResultType === right.sourceResultType;
+        && left.sourceResultType === right.sourceResultType
+        && left.sourceReceiverType === right.sourceReceiverType
+        && left.sourceOptionalChain === right.sourceOptionalChain
+        && left.sourceAccessMode === right.sourceAccessMode
+        && left.sourceCallCallee === right.sourceCallCallee;
 }
 function sourceSelectedMethodTypeArgumentArrayEquals(left, right) {
     if (left === undefined || right === undefined) {
@@ -374,46 +449,100 @@ function optionalRuntimeCarrierProvenanceEquals(left, right) {
         && left.sourceSymbol === right.sourceSymbol
         && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration);
 }
-function targetTypeRefEquals(left, right) {
-    if (left.kind !== right.kind) {
-        return false;
+export function targetTypeRefEquals(left, right) {
+    const pending = [[left, right]];
+    const compared = new WeakMap();
+    const queueLists = (leftItems, rightItems) => {
+        if (leftItems.length !== rightItems.length) {
+            return false;
+        }
+        for (let index = 0; index < leftItems.length; index++) {
+            pending.push([leftItems[index], rightItems[index]]);
+        }
+        return true;
+    };
+    while (pending.length !== 0) {
+        const [currentLeft, currentRight] = pending.pop();
+        if (currentLeft === currentRight) {
+            continue;
+        }
+        let rightComparisons = compared.get(currentLeft);
+        if (rightComparisons?.has(currentRight) === true) {
+            continue;
+        }
+        if (rightComparisons === undefined) {
+            rightComparisons = new WeakSet();
+            compared.set(currentLeft, rightComparisons);
+        }
+        rightComparisons.add(currentRight);
+        if (currentLeft.kind !== currentRight.kind) {
+            return false;
+        }
+        switch (currentLeft.kind) {
+            case "source-primitive":
+                if (currentRight.kind !== "source-primitive" || currentLeft.name !== currentRight.name)
+                    return false;
+                break;
+            case "source-global":
+                if (currentRight.kind !== "source-global"
+                    || currentLeft.name !== currentRight.name
+                    || !queueLists(currentLeft.typeArguments ?? [], currentRight.typeArguments ?? []))
+                    return false;
+                break;
+            case "target-named":
+                if (currentRight.kind !== "target-named"
+                    || currentLeft.id !== currentRight.id
+                    || !queueLists(currentLeft.typeArguments ?? [], currentRight.typeArguments ?? []))
+                    return false;
+                break;
+            case "type-parameter":
+                if (currentRight.kind !== "type-parameter" || currentLeft.name !== currentRight.name)
+                    return false;
+                break;
+            case "array":
+                if (currentRight.kind !== "array" || currentLeft.rank !== currentRight.rank)
+                    return false;
+                pending.push([currentLeft.element, currentRight.element]);
+                break;
+            case "tuple":
+                if (currentRight.kind !== "tuple" || !queueLists(currentLeft.elements, currentRight.elements))
+                    return false;
+                break;
+            case "pointer":
+                if (currentRight.kind !== "pointer" || currentLeft.mutability !== currentRight.mutability)
+                    return false;
+                pending.push([currentLeft.pointee, currentRight.pointee]);
+                break;
+            case "function-pointer":
+                if (currentRight.kind !== "function-pointer"
+                    || !stringListEquals(currentLeft.abi ?? [], currentRight.abi ?? [])
+                    || !queueLists(currentLeft.args, currentRight.args))
+                    return false;
+                pending.push([currentLeft.result, currentRight.result]);
+                break;
+            case "opaque":
+                if (currentRight.kind !== "opaque" || currentLeft.id !== currentRight.id)
+                    return false;
+                break;
+            case "associated-type":
+                if (currentRight.kind !== "associated-type" || currentLeft.name !== currentRight.name)
+                    return false;
+                pending.push([currentLeft.owner, currentRight.owner]);
+                break;
+            case "lifetime":
+                if (currentRight.kind !== "lifetime" || currentLeft.name !== currentRight.name)
+                    return false;
+                break;
+            case "target-specific":
+                if (currentRight.kind !== "target-specific"
+                    || currentLeft.target !== currentRight.target
+                    || currentLeft.name !== currentRight.name
+                    || !Object.is(currentLeft.value, currentRight.value))
+                    return false;
+                break;
+        }
     }
-    switch (left.kind) {
-        case "source-primitive":
-            return right.kind === "source-primitive" && left.name === right.name;
-        case "source-global":
-            return right.kind === "source-global"
-                && left.name === right.name
-                && targetTypeRefListEquals(left.typeArguments ?? [], right.typeArguments ?? []);
-        case "target-named":
-            return right.kind === "target-named"
-                && left.id === right.id
-                && targetTypeRefListEquals(left.typeArguments ?? [], right.typeArguments ?? []);
-        case "type-parameter":
-            return right.kind === "type-parameter" && left.name === right.name;
-        case "array":
-            return right.kind === "array" && left.rank === right.rank && targetTypeRefEquals(left.element, right.element);
-        case "tuple":
-            return right.kind === "tuple" && targetTypeRefListEquals(left.elements, right.elements);
-        case "pointer":
-            return right.kind === "pointer" && left.mutability === right.mutability && targetTypeRefEquals(left.pointee, right.pointee);
-        case "function-pointer":
-            return right.kind === "function-pointer"
-                && targetTypeRefListEquals(left.args, right.args)
-                && targetTypeRefEquals(left.result, right.result)
-                && stringListEquals(left.abi ?? [], right.abi ?? []);
-        case "opaque":
-            return right.kind === "opaque" && left.id === right.id;
-        case "associated-type":
-            return right.kind === "associated-type" && left.name === right.name && targetTypeRefEquals(left.owner, right.owner);
-        case "lifetime":
-            return right.kind === "lifetime" && left.name === right.name;
-        case "target-specific":
-            return right.kind === "target-specific" && left.target === right.target && left.name === right.name && Object.is(left.value, right.value);
-    }
-}
-function targetTypeRefListEquals(left, right) {
-    return left.length === right.length && left.every((item, index) => targetTypeRefEquals(item, right[index]));
+    return true;
 }
 function stringListEquals(left, right) {
     return left.length === right.length && left.every((item, index) => item === right[index]);

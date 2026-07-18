@@ -1,7 +1,9 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
-import type { ExtensionCompilerQueryContext, ExtensionObservationHook, ExtensionObservationPointName, ExtensionObservationRequest, ExtensionObservationResponse, ExtensionObservationResult, ExtensionObservationRunOptions } from "./observations.js";
+import type { CheckedOperationObservationPointName, CheckedOperationReference, ExtensionCompilerQueryContext, ExtensionObservationHook, ExtensionObservationPointName, ImmediateExtensionObservationPointName, ExtensionObservationRequest, ExtensionObservationResponse, ExtensionObservationResult, ExtensionObservationRunOptions } from "./observations.js";
 import { ExtensionObservationPoint } from "./observations.js";
+import { type CheckedOperationApplyOutcome } from "./checked-operation-finalization.js";
+import type { CheckedOperationRequestSnapshotCache } from "./checked-operation-value-snapshot.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
 import type { SourcePrimitiveKind } from "./facts.js";
 import { providerVirtualCompilerArtifactLookup } from "./provider-virtual-internal.js";
@@ -61,7 +63,54 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly invalidFactSubject: 9000029;
     readonly registrationClosed: 9000030;
 };
-export declare const TstsProviderContractVersion = "tsts.provider.1";
+export declare const TstsProviderContractVersion = "tsts.provider.2";
+export declare const extensionHostRunCheckedOperation: unique symbol;
+export declare const extensionHostGetCheckedOperationRequest: unique symbol;
+export declare const extensionHostGetCheckedOperationReference: unique symbol;
+export declare const extensionHostHasCheckedOperationOwner: unique symbol;
+declare const factStoreBeginTransaction: unique symbol;
+declare const factStoreAssertCanCommitTransaction: unique symbol;
+declare const factStoreCommitTransaction: unique symbol;
+declare const factStoreRollbackTransaction: unique symbol;
+declare const factStoreCreateSavepoint: unique symbol;
+declare const factStoreAssertCanCommitSavepoint: unique symbol;
+declare const factStoreCommitSavepoint: unique symbol;
+declare const factStoreRollbackToSavepoint: unique symbol;
+declare const factStoreCaptureSavepoint: unique symbol;
+declare const factStoreApplyDelta: unique symbol;
+declare const factStoreTransactionActive: unique symbol;
+declare const factStoreInvalidate: unique symbol;
+declare const diagnosticStoreCreateSavepoint: unique symbol;
+declare const diagnosticStoreAssertCanCommitSavepoint: unique symbol;
+declare const diagnosticStoreCommitSavepoint: unique symbol;
+declare const diagnosticStoreRollbackToSavepoint: unique symbol;
+declare const diagnosticStoreCaptureSavepoint: unique symbol;
+declare const diagnosticStoreApplyDelta: unique symbol;
+interface ExtensionFactInsertion {
+    readonly subject: ExtensionFactSubject;
+    readonly key: ExtensionFactKey<unknown>;
+    readonly value: unknown;
+    readonly evidence: readonly ExtensionEvidence[];
+}
+interface ExtensionFactTransaction {
+    readonly insertions: ExtensionFactInsertion[];
+    readonly savepoints: ExtensionFactSavepoint[];
+    active: boolean;
+    failed: boolean;
+}
+interface ExtensionFactSavepoint {
+    readonly transaction: ExtensionFactTransaction;
+    readonly insertionIndex: number;
+    active: boolean;
+    failed: boolean;
+}
+interface ExtensionFactDelta {
+    readonly insertions: readonly ExtensionFactInsertion[];
+}
+interface ExtensionDiagnosticSavepoint {
+    readonly index: number;
+    active: boolean;
+}
 export interface CompilerExtensionIdentity {
     readonly id: string;
     readonly version: string;
@@ -428,14 +477,12 @@ export interface TargetSemanticProvider {
     validateTargetConstraint?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateTargetConstraint>;
     observePostCheckAssignability?: ExtensionObservationHook<typeof ExtensionObservationPoint.observePostCheckAssignability>;
     mapCheckedCall?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedCall>;
-    mapInferredSourceTypeArgumentsToTarget?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget>;
     mapCheckedPropertyAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedPropertyAccess>;
     mapCheckedElementAccess?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedElementAccess>;
     mapCheckedOperator?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedOperator>;
     mapCheckedIteration?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedIteration>;
     recordContextualTargetType?: ExtensionObservationHook<typeof ExtensionObservationPoint.recordContextualTargetType>;
     mapCheckedConversion?: ExtensionObservationHook<typeof ExtensionObservationPoint.mapCheckedConversion>;
-    resolveParameterPassing?: ExtensionObservationHook<typeof ExtensionObservationPoint.resolveParameterPassing>;
     resolveRuntimeCarrier?: ExtensionObservationHook<typeof ExtensionObservationPoint.resolveRuntimeCarrier>;
     validateExtensionFlowUse?: ExtensionObservationHook<typeof ExtensionObservationPoint.validateExtensionFlowUse>;
 }
@@ -454,6 +501,12 @@ export declare class ExtensionDiagnosticStore {
     append(diagnostic: ExtensionDiagnostic): boolean;
     all(): readonly ExtensionDiagnostic[];
     hasErrors(): boolean;
+    [diagnosticStoreCreateSavepoint](): ExtensionDiagnosticSavepoint;
+    [diagnosticStoreCommitSavepoint](savepoint: ExtensionDiagnosticSavepoint): void;
+    [diagnosticStoreAssertCanCommitSavepoint](savepoint: ExtensionDiagnosticSavepoint): void;
+    [diagnosticStoreRollbackToSavepoint](savepoint: ExtensionDiagnosticSavepoint): void;
+    [diagnosticStoreCaptureSavepoint](savepoint: ExtensionDiagnosticSavepoint): readonly ExtensionDiagnostic[];
+    [diagnosticStoreApplyDelta](diagnostics: readonly ExtensionDiagnostic[]): void;
 }
 export declare class ExtensionFactStore {
     #private;
@@ -466,6 +519,18 @@ export declare class ExtensionFactStore {
     entries(subject: ExtensionFactSubject | undefined): readonly ExtensionFactEntry<unknown>[];
     seal(): void;
     get sealed(): boolean;
+    [factStoreBeginTransaction](): ExtensionFactTransaction;
+    [factStoreCommitTransaction](transaction: ExtensionFactTransaction): void;
+    [factStoreAssertCanCommitTransaction](transaction: ExtensionFactTransaction): void;
+    [factStoreRollbackTransaction](transaction: ExtensionFactTransaction): void;
+    [factStoreCreateSavepoint](): ExtensionFactSavepoint;
+    [factStoreCommitSavepoint](savepoint: ExtensionFactSavepoint): void;
+    [factStoreAssertCanCommitSavepoint](savepoint: ExtensionFactSavepoint): void;
+    [factStoreRollbackToSavepoint](savepoint: ExtensionFactSavepoint): void;
+    [factStoreCaptureSavepoint](savepoint: ExtensionFactSavepoint): ExtensionFactDelta;
+    [factStoreApplyDelta](delta: ExtensionFactDelta): void;
+    [factStoreTransactionActive](): boolean;
+    [factStoreInvalidate](): void;
 }
 export declare class ExtensionFactResolver {
     #private;
@@ -505,7 +570,11 @@ export declare class ExtensionHost {
     registerObservation<TObservation extends ExtensionObservationPointName>(observation: TObservation, extensionId: string, hook: ExtensionObservationHook<TObservation>): void;
     registerLifecycleHook<TRequest>(event: string, extensionId: string, hook: ExtensionLifecycleHook<TRequest>): void;
     registerTargetSemanticProvider(extensionId: string, provider: TargetSemanticProvider): boolean;
-    runObservation<TObservation extends ExtensionObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, options?: ExtensionObservationRunOptions): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
+    runObservation<TObservation extends ImmediateExtensionObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, options?: ExtensionObservationRunOptions, onAccept?: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: ExtensionObservationRequest<TObservation>) => void): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
+    [extensionHostRunCheckedOperation]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, onAccept: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: ExtensionObservationRequest<TObservation>) => void | CheckedOperationApplyOutcome, options?: ExtensionObservationRunOptions, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[], atomicOwner?: CheckedOperationReference): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
+    [extensionHostGetCheckedOperationRequest]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, subject: ExtensionFactSubject | undefined, reference?: CheckedOperationReference<TObservation>): ExtensionObservationRequest<TObservation> | undefined;
+    [extensionHostGetCheckedOperationReference](subject: ExtensionFactSubject | undefined): CheckedOperationReference | undefined;
+    [extensionHostHasCheckedOperationOwner](observation: CheckedOperationObservationPointName): boolean;
     runLifecycle<TRequest extends object>(event: string, request: TRequest): void;
     finalizeSemantics(): void;
     get finalized(): boolean;

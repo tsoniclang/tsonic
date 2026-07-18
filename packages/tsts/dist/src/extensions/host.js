@@ -4,6 +4,9 @@ import { createAstReader } from "../services/ast-reader.js";
 import { createTypeCheckerQueries } from "../services/type-checker.js";
 import { createTypeShapeQueries } from "../services/type-shape.js";
 import { ExtensionObservationPoint } from "./observations.js";
+import { CheckedOperationInventory } from "./checked-operation-finalization.js";
+import { differingCheckedOperationRequestFields } from "./checked-operation-request-equality.js";
+import { snapshotCheckedOperationResponse } from "./checked-operation-value-snapshot.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
 import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } from "./provider-export-contract.js";
 import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualInternalRoot, providerVirtualPublicRoot } from "./provider-virtual-internal.js";
@@ -43,7 +46,30 @@ export const ExtensionHostDiagnosticCode = {
     invalidFactSubject: 9000029,
     registrationClosed: 9000030,
 };
-export const TstsProviderContractVersion = "tsts.provider.1";
+export const TstsProviderContractVersion = "tsts.provider.2";
+export const extensionHostRunCheckedOperation = Symbol("tsts.extensionHost.runCheckedOperation");
+export const extensionHostGetCheckedOperationRequest = Symbol("tsts.extensionHost.getCheckedOperationRequest");
+export const extensionHostGetCheckedOperationReference = Symbol("tsts.extensionHost.getCheckedOperationReference");
+export const extensionHostHasCheckedOperationOwner = Symbol("tsts.extensionHost.hasCheckedOperationOwner");
+const factStoreBeginTransaction = Symbol("tsts.extensionFactStore.beginTransaction");
+const factStoreAssertCanCommitTransaction = Symbol("tsts.extensionFactStore.assertCanCommitTransaction");
+const factStoreCommitTransaction = Symbol("tsts.extensionFactStore.commitTransaction");
+const factStoreRollbackTransaction = Symbol("tsts.extensionFactStore.rollbackTransaction");
+const factStoreCreateSavepoint = Symbol("tsts.extensionFactStore.createSavepoint");
+const factStoreAssertCanCommitSavepoint = Symbol("tsts.extensionFactStore.assertCanCommitSavepoint");
+const factStoreCommitSavepoint = Symbol("tsts.extensionFactStore.commitSavepoint");
+const factStoreRollbackToSavepoint = Symbol("tsts.extensionFactStore.rollbackToSavepoint");
+const factStoreCaptureSavepoint = Symbol("tsts.extensionFactStore.captureSavepoint");
+const factStoreApplyDelta = Symbol("tsts.extensionFactStore.applyDelta");
+const factStoreTransactionActive = Symbol("tsts.extensionFactStore.transactionActive");
+const factStoreInvalidate = Symbol("tsts.extensionFactStore.invalidate");
+const diagnosticStoreCreateSavepoint = Symbol("tsts.extensionDiagnosticStore.createSavepoint");
+const diagnosticStoreAssertCanCommitSavepoint = Symbol("tsts.extensionDiagnosticStore.assertCanCommitSavepoint");
+const diagnosticStoreCommitSavepoint = Symbol("tsts.extensionDiagnosticStore.commitSavepoint");
+const diagnosticStoreRollbackToSavepoint = Symbol("tsts.extensionDiagnosticStore.rollbackToSavepoint");
+const diagnosticStoreCaptureSavepoint = Symbol("tsts.extensionDiagnosticStore.captureSavepoint");
+const diagnosticStoreApplyDelta = Symbol("tsts.extensionDiagnosticStore.applyDelta");
+const hostDiagnosticOrigin = Symbol("tsts.extensionDiagnostic.hostOrigin");
 export const ExtensionLifecycleEvent = {
     afterSourceFileBound: "binder.afterSourceFileBound",
     beforeSemanticsFinalized: "semantics.beforeFinalized",
@@ -66,8 +92,10 @@ export function defineExtensionFactKey(options) {
 }
 export class ExtensionDiagnosticStore {
     #diagnostics = [];
+    #diagnosticIdentities = [];
     #identities = new Set();
     #diagnosticRanges = new Map();
+    #savepoints = [];
     registerDiagnosticRange(extensionId, range) {
         if (range === undefined) {
             return true;
@@ -133,13 +161,14 @@ export class ExtensionDiagnosticStore {
         }
         return this.#appendUnchecked(diagnostic);
     }
-    #appendUnchecked(diagnostic) {
-        const identity = getDiagnosticIdentity(diagnostic);
+    #appendUnchecked(diagnostic, preservedIdentity) {
+        const identity = preservedIdentity ?? getDiagnosticIdentity(diagnostic);
         if (this.#identities.has(identity)) {
             return false;
         }
         this.#identities.add(identity);
         this.#diagnostics.push(diagnostic);
+        this.#diagnosticIdentities.push(identity);
         return true;
     }
     all() {
@@ -148,13 +177,65 @@ export class ExtensionDiagnosticStore {
     hasErrors() {
         return this.#diagnostics.some((diagnostic) => diagnostic.category === "error");
     }
+    [diagnosticStoreCreateSavepoint]() {
+        const savepoint = { index: this.#diagnostics.length, active: true };
+        this.#savepoints.push(savepoint);
+        return savepoint;
+    }
+    [diagnosticStoreCommitSavepoint](savepoint) {
+        this[diagnosticStoreAssertCanCommitSavepoint](savepoint);
+        this.#savepoints.pop();
+        savepoint.active = false;
+    }
+    [diagnosticStoreAssertCanCommitSavepoint](savepoint) {
+        this.#assertActiveSavepoint(savepoint);
+    }
+    [diagnosticStoreRollbackToSavepoint](savepoint) {
+        this.#assertActiveSavepoint(savepoint);
+        const retainedHostDiagnostics = this.#diagnostics
+            .slice(savepoint.index)
+            .map((diagnostic, offset) => ({
+            diagnostic,
+            identity: this.#diagnosticIdentities[savepoint.index + offset],
+        }))
+            .filter(({ diagnostic }) => isHostOwnedExtensionDiagnostic(diagnostic));
+        for (let index = this.#diagnostics.length - 1; index >= savepoint.index; index -= 1) {
+            this.#identities.delete(this.#diagnosticIdentities[index]);
+        }
+        this.#diagnostics.length = savepoint.index;
+        this.#diagnosticIdentities.length = savepoint.index;
+        for (const retained of retainedHostDiagnostics) {
+            this.#appendUnchecked(retained.diagnostic, retained.identity);
+        }
+        this.#savepoints.pop();
+        savepoint.active = false;
+    }
+    [diagnosticStoreCaptureSavepoint](savepoint) {
+        this.#assertActiveSavepoint(savepoint);
+        return Object.freeze(this.#diagnostics.slice(savepoint.index));
+    }
+    [diagnosticStoreApplyDelta](diagnostics) {
+        if (this.#savepoints.length === 0) {
+            throw new Error("Cannot apply an extension diagnostic delta without an active savepoint.");
+        }
+        for (const diagnostic of diagnostics) {
+            this.#appendUnchecked(diagnostic);
+        }
+    }
+    #assertActiveSavepoint(savepoint) {
+        if (!savepoint.active || this.#savepoints[this.#savepoints.length - 1] !== savepoint) {
+            throw new Error("Extension diagnostic savepoints must be completed exactly once in LIFO order.");
+        }
+    }
 }
 export class ExtensionFactStore {
     #objectFacts = new WeakMap();
     #objectSubjectIds = new WeakMap();
     #diagnostics;
+    #activeTransaction;
     #nextObjectSubjectId = 1;
     #sealed = false;
+    #invalidated = false;
     constructor(diagnostics) {
         this.#diagnostics = diagnostics;
     }
@@ -166,6 +247,7 @@ export class ExtensionFactStore {
     }
     #set(subject, key, value, evidence, allowSealedResolverCacheWrite) {
         if (!isExtensionFactSubject(subject)) {
+            this.#recordAttemptFailure();
             this.#diagnostics.append(createHostDiagnostic({
                 extensionCode: "INVALID_FACT_SUBJECT",
                 numericCode: ExtensionHostDiagnosticCode.invalidFactSubject,
@@ -175,7 +257,8 @@ export class ExtensionFactStore {
             }));
             return "invalid-subject";
         }
-        if (this.#sealed && !allowSealedResolverCacheWrite) {
+        if (this.#invalidated || (this.#sealed && !allowSealedResolverCacheWrite)) {
+            this.#recordAttemptFailure();
             this.#diagnostics.append(createHostDiagnostic({
                 extensionCode: "FACT_STORE_SEALED",
                 numericCode: ExtensionHostDiagnosticCode.factStoreSealed,
@@ -187,12 +270,20 @@ export class ExtensionFactStore {
         const subjectFacts = this.#getOrCreateSubjectFacts(subject);
         const existing = subjectFacts.get(key.id);
         if (existing === undefined) {
-            subjectFacts.set(key.id, { key: key, value, evidence });
+            const entry = { key: key, value, evidence };
+            subjectFacts.set(key.id, entry);
+            this.#activeTransaction?.insertions.push({
+                subject,
+                key: entry.key,
+                value: entry.value,
+                evidence: entry.evidence,
+            });
             return "inserted";
         }
         if (key.equals(existing.value, value)) {
             return "idempotent";
         }
+        this.#recordAttemptFailure();
         this.#diagnostics.append(createHostDiagnostic({
             extensionCode: "FACT_CONFLICT",
             numericCode: ExtensionHostDiagnosticCode.factConflict,
@@ -225,10 +316,157 @@ export class ExtensionFactStore {
         return Array.from(this.#getSubjectFacts(subject)?.values() ?? []);
     }
     seal() {
+        if (this.#activeTransaction !== undefined) {
+            throw new Error("Cannot seal the extension fact store while a fact transaction is active.");
+        }
         this.#sealed = true;
     }
     get sealed() {
         return this.#sealed;
+    }
+    [factStoreBeginTransaction]() {
+        if (this.#sealed) {
+            throw new Error("Cannot begin an extension fact transaction after the fact store is sealed.");
+        }
+        if (this.#activeTransaction !== undefined) {
+            throw new Error("Extension fact transactions cannot be nested.");
+        }
+        const transaction = {
+            insertions: [],
+            savepoints: [],
+            active: true,
+            failed: false,
+        };
+        this.#activeTransaction = transaction;
+        return transaction;
+    }
+    [factStoreCommitTransaction](transaction) {
+        this[factStoreAssertCanCommitTransaction](transaction);
+        transaction.active = false;
+        this.#activeTransaction = undefined;
+    }
+    [factStoreAssertCanCommitTransaction](transaction) {
+        this.#assertActiveTransaction(transaction);
+        if (transaction.savepoints.length !== 0) {
+            throw new Error("Cannot commit an extension fact transaction with active savepoints.");
+        }
+        if (transaction.failed) {
+            throw new Error("Cannot commit an extension fact transaction after a fact write failed.");
+        }
+    }
+    [factStoreRollbackTransaction](transaction) {
+        this.#assertActiveTransaction(transaction);
+        this.#rollbackInsertions(transaction, 0);
+        for (const savepoint of transaction.savepoints) {
+            savepoint.active = false;
+        }
+        transaction.savepoints.length = 0;
+        transaction.active = false;
+        this.#activeTransaction = undefined;
+    }
+    [factStoreCreateSavepoint]() {
+        const transaction = this.#activeTransaction;
+        if (transaction === undefined) {
+            throw new Error("Cannot create an extension fact savepoint without an active transaction.");
+        }
+        const savepoint = {
+            transaction,
+            insertionIndex: transaction.insertions.length,
+            active: true,
+            failed: false,
+        };
+        transaction.savepoints.push(savepoint);
+        return savepoint;
+    }
+    [factStoreCommitSavepoint](savepoint) {
+        this[factStoreAssertCanCommitSavepoint](savepoint);
+        savepoint.transaction.savepoints.pop();
+        savepoint.active = false;
+    }
+    [factStoreAssertCanCommitSavepoint](savepoint) {
+        this.#assertActiveSavepoint(savepoint);
+        if (savepoint.failed) {
+            throw new Error("Cannot commit an extension fact savepoint after a fact write failed.");
+        }
+    }
+    [factStoreRollbackToSavepoint](savepoint) {
+        this.#assertActiveSavepoint(savepoint);
+        this.#rollbackInsertions(savepoint.transaction, savepoint.insertionIndex);
+        savepoint.transaction.savepoints.pop();
+        savepoint.active = false;
+    }
+    [factStoreCaptureSavepoint](savepoint) {
+        this.#assertActiveSavepoint(savepoint);
+        if (savepoint.failed) {
+            throw new Error("Cannot retain extension facts from a savepoint after a fact write failed.");
+        }
+        const insertions = Object.freeze(savepoint.transaction.insertions.slice(savepoint.insertionIndex));
+        return Object.freeze({ insertions });
+    }
+    [factStoreApplyDelta](delta) {
+        if (this.#activeTransaction === undefined) {
+            throw new Error("Cannot apply an extension fact delta without an active transaction.");
+        }
+        for (const insertion of delta.insertions) {
+            const result = this.#set(insertion.subject, insertion.key, insertion.value, insertion.evidence, false);
+            if (result !== "inserted" && result !== "idempotent") {
+                throw new Error(`Cannot apply extension fact delta for '${insertion.key.id}': ${result}.`);
+            }
+        }
+    }
+    [factStoreTransactionActive]() {
+        return this.#activeTransaction !== undefined;
+    }
+    [factStoreInvalidate]() {
+        this.#objectFacts = new WeakMap();
+        if (this.#activeTransaction !== undefined) {
+            for (const savepoint of this.#activeTransaction.savepoints) {
+                savepoint.active = false;
+            }
+            this.#activeTransaction.savepoints.length = 0;
+            this.#activeTransaction.active = false;
+        }
+        this.#activeTransaction = undefined;
+        this.#sealed = true;
+        this.#invalidated = true;
+    }
+    #assertActiveSavepoint(savepoint) {
+        const transaction = this.#activeTransaction;
+        if (transaction === undefined || transaction !== savepoint.transaction || !transaction.active) {
+            throw new Error("Cannot use an extension fact savepoint without an active transaction.");
+        }
+        if (!savepoint.active || transaction.savepoints[transaction.savepoints.length - 1] !== savepoint) {
+            throw new Error("Extension fact savepoints must be completed exactly once in LIFO order.");
+        }
+    }
+    #assertActiveTransaction(transaction) {
+        if (!transaction.active || this.#activeTransaction !== transaction) {
+            throw new Error("Extension fact transactions must be completed exactly once by their owner.");
+        }
+    }
+    #recordAttemptFailure() {
+        const transaction = this.#activeTransaction;
+        if (transaction === undefined) {
+            return;
+        }
+        const savepoint = transaction.savepoints[transaction.savepoints.length - 1];
+        if (savepoint === undefined) {
+            transaction.failed = true;
+        }
+        else {
+            savepoint.failed = true;
+        }
+    }
+    #rollbackInsertions(transaction, insertionIndex) {
+        for (let index = transaction.insertions.length - 1; index >= insertionIndex; index--) {
+            const insertion = transaction.insertions[index];
+            const subjectFacts = this.#objectFacts.get(insertion.subject);
+            subjectFacts?.delete(insertion.key.id);
+            if (subjectFacts?.size === 0) {
+                this.#objectFacts.delete(insertion.subject);
+            }
+        }
+        transaction.insertions.length = insertionIndex;
     }
     #getSubjectFacts(subject) {
         return this.#objectFacts.get(subject);
@@ -262,6 +500,9 @@ export class ExtensionFactResolver {
         this.#diagnostics = diagnostics;
     }
     register(key, resolver) {
+        if (this.#facts.sealed) {
+            throw new Error("Cannot register an extension fact resolver after semantic finalization.");
+        }
         const resolvers = this.#resolvers.get(key.id);
         if (resolvers === undefined) {
             this.#resolvers.set(key.id, [resolver]);
@@ -281,8 +522,10 @@ export class ExtensionFactResolver {
         for (const resolver of resolvers) {
             const resolved = resolver(subject, { facts: this.#facts, diagnostics: this.#diagnostics });
             if (resolved !== undefined) {
-                this.#facts.setResolved(subject, key, resolved.value, resolved.evidence ?? []);
-                return resolved.value;
+                const writeResult = this.#facts.setResolved(subject, key, resolved.value, resolved.evidence ?? []);
+                return writeResult === "inserted" || writeResult === "idempotent"
+                    ? this.#facts.get(subject, key)
+                    : undefined;
             }
         }
         return undefined;
@@ -1492,18 +1735,76 @@ export class ExtensionHost {
     #observationOwners = new Map();
     #observationHooks = new Map();
     #lifecycleHooks = new Map();
+    #checkedOperations;
     #consumerSubjectIds = new WeakMap();
     #program;
     #compilerContext;
+    #observationPhase = "checking";
+    #semanticFinalizationState = "open";
     #nextConsumerSubjectId = 1;
-    #finalized = false;
     #hookRegistrationsSealed = false;
+    #observationHookDepth = 0;
     constructor(program, options = {}) {
         this.#program = program;
         this.diagnostics = new ExtensionDiagnosticStore();
         this.facts = new ExtensionFactStore(this.diagnostics);
         this.factResolver = new ExtensionFactResolver(this.facts, this.diagnostics);
         this.providers = new ProviderRegistry(this.diagnostics, options.requiredProviderModules ?? []);
+        this.#checkedOperations = new CheckedOperationInventory({
+            beginAttempt: () => this.#beginFactAttempt(),
+            captureAttemptEffects: (attempt) => this.#captureFactAttemptEffects(attempt),
+            applyAttemptEffects: (attempt, effects) => this.#applyFactAttemptEffects(attempt, effects),
+            commitAttempt: (attempt) => this.#commitFactAttempt(attempt),
+            rollbackAttempt: (attempt) => this.#rollbackFactAttempt(attempt),
+            discardAttemptPreservingDiagnostics: (attempt) => this.#discardFactAttemptPreservingDiagnostics(attempt),
+            deferAttemptPreservingOperations: (attempt) => this.#deferFactAttemptPreservingOperations(attempt),
+            onRequestConflict: (observation, subject, existing, incoming) => {
+                this.diagnostics.append(createHostDiagnostic({
+                    extensionCode: "CHECKED_OPERATION_REQUEST_CONFLICT",
+                    numericCode: ExtensionHostDiagnosticCode.observationConflict,
+                    message: `Checked semantic operation '${observation}' was observed with conflicting selected source evidence.`,
+                    nodeOrSpan: subject,
+                    evidence: [{
+                            message: "Conflicting checked-operation request fields",
+                            details: differingCheckedOperationRequestFields(observation, existing, incoming),
+                        }],
+                    identity: `checked-operation-request-conflict:${observation}:${this.#getConsumerSubjectIdentity(subject)}`,
+                }));
+            },
+            onDependencyConflict: (observation, subject) => {
+                this.diagnostics.append(createHostDiagnostic({
+                    extensionCode: "CHECKED_OPERATION_DEPENDENCY_CONFLICT",
+                    numericCode: ExtensionHostDiagnosticCode.observationConflict,
+                    message: `Checked semantic operation '${observation}' was observed with conflicting nested-operation dependencies.`,
+                    nodeOrSpan: subject,
+                    identity: `checked-operation-dependency-conflict:${observation}:${this.#getConsumerSubjectIdentity(subject)}`,
+                }));
+            },
+            onAtomicOwnerConflict: (observation, subject) => {
+                this.diagnostics.append(createHostDiagnostic({
+                    extensionCode: "CHECKED_OPERATION_ATOMIC_OWNER_CONFLICT",
+                    numericCode: ExtensionHostDiagnosticCode.observationConflict,
+                    message: `Checked semantic operation '${observation}' was observed with conflicting atomic transaction ownership.`,
+                    nodeOrSpan: subject,
+                    identity: `checked-operation-atomic-owner-conflict:${observation}:${this.#getConsumerSubjectIdentity(subject)}`,
+                }));
+            },
+            onUnresolved: (observation, subject) => {
+                const owner = this.getObservationOwner(observation);
+                this.diagnostics.append(createHostDiagnostic({
+                    extensionCode: "OBSERVATION_OWNER_DEFERRED",
+                    numericCode: ExtensionHostDiagnosticCode.observationOwnerDeferred,
+                    message: owner === undefined
+                        ? `Checked semantic operation '${observation}' remained unresolved after semantic finalization.`
+                        : `Extension '${owner.identity.id}' still deferred checked semantic operation '${observation}' after semantic finalization.`,
+                    nodeOrSpan: subject,
+                    identity: `checked-operation-finalization-deferred:${observation}:${owner?.identity.id ?? "unowned"}:${this.#getConsumerSubjectIdentity(subject)}`,
+                }));
+            },
+            onFatalFailure: () => {
+                this.#failSemanticFinalization();
+            },
+        });
         this.activeTarget = options.activeTarget;
         this.activeSurface = options.activeSurface;
         const orderedExtensions = orderExtensions(options.extensions ?? [], this.diagnostics);
@@ -1633,7 +1934,202 @@ export class ExtensionHost {
         this.#registerTargetSemanticProviderObservations(extensionId, registration.provider);
         return true;
     }
-    runObservation(observation, request, core, options = {}) {
+    runObservation(observation, request, core, options = {}, onAccept) {
+        if (isCheckedOperationObservationPoint(observation)) {
+            throw new Error(`Checked semantic operation '${observation}' must use the host-owned finalization inventory.`);
+        }
+        const factAttempt = this.#beginFactAttempt();
+        let attemptOpen = true;
+        try {
+            const result = this.#runObservation(observation, request, core, options, this.#observationPhase, true);
+            if (result.kind === "accept") {
+                onAccept?.(result.value, result.evidence ?? [], request);
+                this.#commitFactAttempt(factAttempt);
+                attemptOpen = false;
+            }
+            else {
+                attemptOpen = false;
+                this.#discardFactAttemptPreservingDiagnostics(factAttempt);
+            }
+            return result;
+        }
+        catch (error) {
+            if (attemptOpen) {
+                attemptOpen = false;
+                this.#rollbackFactAttempt(factAttempt);
+            }
+            throw error;
+        }
+    }
+    [extensionHostRunCheckedOperation](observation, request, core, onAccept, options = {}, requestSnapshotCache, dependencies = [], atomicOwner) {
+        this.#assertCheckedOperationRecordingAvailable();
+        if (this.#observationHookDepth !== 0) {
+            const error = new Error("Observation hooks cannot record checked operations while observation candidates are being arbitrated.");
+            this.#failSemanticFinalization();
+            throw error;
+        }
+        try {
+            return this.#checkedOperations.run(observation, request, (immutableRequest, phase) => this.#runObservation(observation, immutableRequest, core, options, phase, false), (accepted, immutableRequest) => {
+                if (accepted.kind === "accept") {
+                    return onAccept(accepted.value, accepted.evidence ?? [], immutableRequest);
+                }
+            }, this.#observationPhase, requestSnapshotCache, dependencies, atomicOwner);
+        }
+        catch (error) {
+            this.#failSemanticFinalization();
+            throw error;
+        }
+    }
+    [extensionHostGetCheckedOperationRequest](observation, subject, reference) {
+        return this.#checkedOperations.getRequest(observation, subject, reference);
+    }
+    [extensionHostGetCheckedOperationReference](subject) {
+        return this.#checkedOperations.getReference(subject);
+    }
+    [extensionHostHasCheckedOperationOwner](observation) {
+        return this.#semanticFinalizationState !== "failed"
+            && this.#semanticFinalizationState !== "finalized"
+            && this.#observationOwners.has(observation);
+    }
+    #assertCheckedOperationRecordingAvailable() {
+        if (this.#semanticFinalizationState === "failed") {
+            throw new Error("Cannot record a checked operation after semantic finalization failed.");
+        }
+        if (this.#semanticFinalizationState === "finalized") {
+            throw new Error("Cannot record a checked operation after semantic finalization.");
+        }
+    }
+    #failSemanticFinalization() {
+        if (this.#semanticFinalizationState === "finalized") {
+            throw new Error("Finalized extension semantics cannot transition to failure.");
+        }
+        this.#semanticFinalizationState = "failed";
+        this.facts[factStoreInvalidate]();
+    }
+    #beginFactAttempt() {
+        const checkedOperationSavepoint = this.#checkedOperations.createSavepoint();
+        if (this.facts[factStoreTransactionActive]()) {
+            const savepoint = this.facts[factStoreCreateSavepoint]();
+            return {
+                ownsTransaction: false,
+                savepoint,
+                checkedOperationSavepoint,
+                diagnosticSavepoint: this.diagnostics[diagnosticStoreCreateSavepoint](),
+                active: true,
+            };
+        }
+        const transaction = this.facts[factStoreBeginTransaction]();
+        return {
+            ownsTransaction: true,
+            transaction,
+            checkedOperationSavepoint,
+            diagnosticSavepoint: this.diagnostics[diagnosticStoreCreateSavepoint](),
+            active: true,
+        };
+    }
+    #commitFactAttempt(attempt) {
+        this.#assertActiveFactAttempt(attempt);
+        if (attempt.ownsTransaction) {
+            this.facts[factStoreAssertCanCommitTransaction](attempt.transaction);
+        }
+        else {
+            this.facts[factStoreAssertCanCommitSavepoint](attempt.savepoint);
+        }
+        this.diagnostics[diagnosticStoreAssertCanCommitSavepoint](attempt.diagnosticSavepoint);
+        if (attempt.ownsTransaction) {
+            this.facts[factStoreCommitTransaction](attempt.transaction);
+        }
+        else {
+            this.facts[factStoreCommitSavepoint](attempt.savepoint);
+        }
+        this.diagnostics[diagnosticStoreCommitSavepoint](attempt.diagnosticSavepoint);
+        attempt.active = false;
+    }
+    #rollbackFactAttempt(attempt) {
+        this.#completeRolledBackFactAttempt(attempt, false);
+    }
+    #discardFactAttemptPreservingDiagnostics(attempt) {
+        this.#completeRolledBackFactAttempt(attempt, true);
+    }
+    #deferFactAttemptPreservingOperations(attempt) {
+        return this.#completeRolledBackFactAttempt(attempt, true, true);
+    }
+    #completeRolledBackFactAttempt(attempt, preserveDiagnostics, preserveCheckedOperations = false) {
+        this.#assertActiveFactAttempt(attempt);
+        attempt.active = false;
+        let deferredOperations = Object.freeze([]);
+        try {
+            if (this.facts[factStoreTransactionActive]() || this.#semanticFinalizationState !== "failed") {
+                if (attempt.ownsTransaction) {
+                    this.facts[factStoreRollbackTransaction](attempt.transaction);
+                }
+                else {
+                    this.facts[factStoreRollbackToSavepoint](attempt.savepoint);
+                }
+            }
+        }
+        finally {
+            try {
+                if (preserveCheckedOperations) {
+                    deferredOperations = this.#checkedOperations.deferFromSavepoint(attempt.checkedOperationSavepoint);
+                }
+                else {
+                    this.#checkedOperations.rollbackToSavepoint(attempt.checkedOperationSavepoint);
+                }
+            }
+            finally {
+                if (attempt.diagnosticSavepoint.active) {
+                    if (preserveDiagnostics) {
+                        this.diagnostics[diagnosticStoreCommitSavepoint](attempt.diagnosticSavepoint);
+                    }
+                    else {
+                        this.diagnostics[diagnosticStoreRollbackToSavepoint](attempt.diagnosticSavepoint);
+                    }
+                }
+            }
+        }
+        return deferredOperations;
+    }
+    #captureAndRollbackFactAttempt(attempt) {
+        this.#assertActiveFactAttempt(attempt);
+        if (attempt.ownsTransaction) {
+            throw new Error("Observation candidate isolation requires an enclosing fact transaction.");
+        }
+        try {
+            const facts = this.facts[factStoreCaptureSavepoint](attempt.savepoint);
+            const diagnostics = this.diagnostics[diagnosticStoreCaptureSavepoint](attempt.diagnosticSavepoint);
+            this.#completeRolledBackFactAttempt(attempt, false);
+            return Object.freeze({ facts, diagnostics });
+        }
+        catch (error) {
+            if (attempt.active) {
+                this.#completeRolledBackFactAttempt(attempt, false);
+            }
+            throw error;
+        }
+    }
+    #captureFactAttemptEffects(attempt) {
+        this.#assertActiveFactAttempt(attempt);
+        const facts = attempt.ownsTransaction
+            ? (() => {
+                this.facts[factStoreAssertCanCommitTransaction](attempt.transaction);
+                return Object.freeze({ insertions: Object.freeze([...attempt.transaction.insertions]) });
+            })()
+            : this.facts[factStoreCaptureSavepoint](attempt.savepoint);
+        const diagnostics = this.diagnostics[diagnosticStoreCaptureSavepoint](attempt.diagnosticSavepoint);
+        return Object.freeze({ facts, diagnostics });
+    }
+    #applyFactAttemptEffects(attempt, effects) {
+        this.#assertActiveFactAttempt(attempt);
+        this.facts[factStoreApplyDelta](effects.facts);
+        this.diagnostics[diagnosticStoreApplyDelta](effects.diagnostics);
+    }
+    #assertActiveFactAttempt(attempt) {
+        if (!attempt.active) {
+            throw new Error("Extension fact attempts must be completed exactly once by their owner.");
+        }
+    }
+    #runObservation(observation, request, core, options, phase, reportDeferred) {
         this.#hookRegistrationsSealed = true;
         this.providers[sealProviderRegistrations]();
         const owner = this.getObservationOwner(observation);
@@ -1645,6 +2141,9 @@ export class ExtensionHost {
         const selectedHooks = Object.freeze(owner === undefined ? [...hooks] : hooks.filter((hook) => hook.extensionId === owner.identity.id));
         if (selectedHooks.length === 0) {
             if (owner !== undefined && options.requireOwner === true) {
+                if (!reportDeferred) {
+                    return { kind: "owner-deferred", observation, extensionId: owner.identity.id };
+                }
                 this.diagnostics.append(createHostDiagnostic({
                     extensionCode: "OBSERVATION_OWNER_DEFERRED",
                     numericCode: ExtensionHostDiagnosticCode.observationOwnerDeferred,
@@ -1658,23 +2157,76 @@ export class ExtensionHost {
         const nonDeferred = [];
         for (const registered of selectedHooks) {
             let observationResult;
+            const factAttempt = this.#beginFactAttempt();
+            let attemptOpen = true;
             try {
-                const returned = registered.hook(request, {
-                    observation,
-                    extensionId: registered.extensionId,
-                    compiler: this.getCompilerQueryContext(),
-                    host: this,
-                    facts: this.facts,
-                    factResolver: this.factResolver,
-                    diagnostics: this.diagnostics,
-                });
+                this.#observationHookDepth += 1;
+                let returned;
+                try {
+                    const contextBase = {
+                        observation,
+                        phase,
+                        extensionId: registered.extensionId,
+                        facts: this.facts,
+                        factResolver: this.factResolver,
+                        diagnostics: this.diagnostics,
+                    };
+                    const context = isCheckedOperationObservationPoint(observation)
+                        ? Object.freeze(contextBase)
+                        : Object.freeze({
+                            ...contextBase,
+                            compiler: this.getCompilerQueryContext(),
+                            host: this,
+                        });
+                    returned = registered.hook(request, context);
+                }
+                finally {
+                    this.#observationHookDepth -= 1;
+                }
                 const snapshot = snapshotExtensionObservationEnvelope(returned);
                 if (snapshot.kind === "invalid") {
                     throw new Error(`Invalid observation result: ${snapshot.reason}`);
                 }
-                observationResult = snapshot.observation;
+                if (snapshot.observation.kind === "accept" && isCheckedOperationObservationPoint(observation)) {
+                    observationResult = Object.freeze({
+                        kind: "accept",
+                        value: snapshotCheckedOperationResponse(observation, snapshot.observation.value),
+                        ...(snapshot.observation.evidence === undefined ? {} : { evidence: snapshot.observation.evidence }),
+                    });
+                }
+                else {
+                    observationResult = snapshot.observation;
+                }
+                if (observationResult.kind === "defer") {
+                    attemptOpen = false;
+                    this.#rollbackFactAttempt(factAttempt);
+                    continue;
+                }
+                if (observationResult.kind === "reject") {
+                    attemptOpen = false;
+                    this.#rollbackFactAttempt(factAttempt);
+                    nonDeferred.push({
+                        result: { kind: "reject", diagnostic: observationResult.diagnostic, extensionId: registered.extensionId },
+                    });
+                    continue;
+                }
+                attemptOpen = false;
+                const effects = this.#captureAndRollbackFactAttempt(factAttempt);
+                nonDeferred.push({
+                    result: {
+                        kind: "accept",
+                        value: observationResult.value,
+                        extensionId: registered.extensionId,
+                        ...(observationResult.evidence !== undefined ? { evidence: observationResult.evidence } : {}),
+                    },
+                    effects,
+                });
             }
             catch (error) {
+                if (attemptOpen) {
+                    attemptOpen = false;
+                    this.#rollbackFactAttempt(factAttempt);
+                }
                 const diagnostic = createHostDiagnostic({
                     extensionCode: "OBSERVATION_HOOK_FAILED",
                     numericCode: ExtensionHostDiagnosticCode.observationHookFailed,
@@ -1682,27 +2234,14 @@ export class ExtensionHost {
                     evidence: [{ message: "Thrown value", details: error }],
                     identity: `observation-hook-failed:${observation}:${registered.extensionId}`,
                 });
-                this.diagnostics.append(diagnostic);
-                nonDeferred.push({ kind: "reject", diagnostic, extensionId: registered.extensionId });
-                continue;
+                nonDeferred.push({ result: { kind: "reject", diagnostic, extensionId: registered.extensionId } });
             }
-            if (observationResult.kind === "defer") {
-                continue;
-            }
-            if (observationResult.kind === "reject") {
-                this.diagnostics.append(observationResult.diagnostic);
-                nonDeferred.push({ kind: "reject", diagnostic: observationResult.diagnostic, extensionId: registered.extensionId });
-                continue;
-            }
-            nonDeferred.push({
-                kind: "accept",
-                value: observationResult.value,
-                extensionId: registered.extensionId,
-                ...(observationResult.evidence !== undefined ? { evidence: observationResult.evidence } : {}),
-            });
         }
         if (nonDeferred.length === 0) {
             if (owner !== undefined && options.requireOwner === true) {
+                if (!reportDeferred) {
+                    return { kind: "owner-deferred", observation, extensionId: owner.identity.id };
+                }
                 this.diagnostics.append(createHostDiagnostic({
                     extensionCode: "OBSERVATION_OWNER_DEFERRED",
                     numericCode: ExtensionHostDiagnosticCode.observationOwnerDeferred,
@@ -1720,12 +2259,26 @@ export class ExtensionHost {
                 message: owner === undefined
                     ? `Multiple extensions observed semantic point '${observation}' without a registered owner.`
                     : `Extension '${owner.identity.id}' returned multiple non-deferred observations for semantic point '${observation}'.`,
-                evidence: nonDeferred.map((result) => ({ message: `Observation result kind: ${result.kind}`, details: result })),
+                evidence: nonDeferred.map((candidate) => ({
+                    message: `Observation result kind: ${candidate.result.kind}`,
+                    details: candidate.result,
+                })),
                 identity: `observation-conflict:${observation}:${owner?.identity.id ?? "unowned"}`,
             }));
             return { kind: "conflict", observation };
         }
-        return nonDeferred[0];
+        const selected = nonDeferred[0];
+        if (selected.result.kind === "accept") {
+            if (selected.effects === undefined) {
+                throw new Error("Accepted observation candidate has no isolated effect delta.");
+            }
+            this.facts[factStoreApplyDelta](selected.effects.facts);
+            this.diagnostics[diagnosticStoreApplyDelta](selected.effects.diagnostics);
+        }
+        else {
+            this.diagnostics.append(selected.result.diagnostic);
+        }
+        return selected.result;
     }
     runLifecycle(event, request) {
         this.#hookRegistrationsSealed = true;
@@ -1737,6 +2290,7 @@ export class ExtensionHost {
         }
         const immutableRequest = Object.freeze({ ...request });
         for (const registered of hooks) {
+            const factAttempt = this.#beginFactAttempt();
             try {
                 registered.hook(immutableRequest, {
                     event,
@@ -1744,8 +2298,10 @@ export class ExtensionHost {
                     compiler: this.getCompilerQueryContext(),
                     host: this,
                 });
+                this.#commitFactAttempt(factAttempt);
             }
             catch (error) {
+                this.#rollbackFactAttempt(factAttempt);
                 this.diagnostics.append(createHostDiagnostic({
                     extensionCode: "LIFECYCLE_HOOK_FAILED",
                     numericCode: ExtensionHostDiagnosticCode.lifecycleHookFailed,
@@ -1757,15 +2313,47 @@ export class ExtensionHost {
         }
     }
     finalizeSemantics() {
-        if (this.#finalized) {
+        if (this.#semanticFinalizationState === "finalized") {
             return;
         }
-        this.runLifecycle(ExtensionLifecycleEvent.beforeSemanticsFinalized, { host: this });
-        this.facts.seal();
-        this.#finalized = true;
+        if (this.#semanticFinalizationState === "finalizing") {
+            throw new Error("Extension semantic finalization cannot re-enter itself.");
+        }
+        if (this.#semanticFinalizationState === "failed") {
+            throw new Error("Extension semantic finalization previously failed and cannot be retried.");
+        }
+        let transaction;
+        const checkedOperationSavepoint = this.#checkedOperations.createSavepoint();
+        const diagnosticSavepoint = this.diagnostics[diagnosticStoreCreateSavepoint]();
+        try {
+            transaction = this.facts[factStoreBeginTransaction]();
+            this.#semanticFinalizationState = "finalizing";
+            this.#observationPhase = "finalization";
+            this.runLifecycle(ExtensionLifecycleEvent.beforeSemanticsFinalized, { host: this });
+            this.#checkedOperations.finalize();
+            this.facts[factStoreAssertCanCommitTransaction](transaction);
+            this.diagnostics[diagnosticStoreAssertCanCommitSavepoint](diagnosticSavepoint);
+            this.#checkedOperations.releaseRetainedEffects();
+            this.facts[factStoreCommitTransaction](transaction);
+            transaction = undefined;
+            this.facts.seal();
+            this.#semanticFinalizationState = "finalized";
+            this.diagnostics[diagnosticStoreCommitSavepoint](diagnosticSavepoint);
+        }
+        catch (error) {
+            if (transaction !== undefined && transaction.active) {
+                this.facts[factStoreRollbackTransaction](transaction);
+            }
+            this.#checkedOperations.rollbackToSavepoint(checkedOperationSavepoint);
+            if (diagnosticSavepoint.active) {
+                this.diagnostics[diagnosticStoreRollbackToSavepoint](diagnosticSavepoint);
+            }
+            this.#failSemanticFinalization();
+            throw error;
+        }
     }
     get finalized() {
-        return this.#finalized;
+        return this.#semanticFinalizationState === "finalized";
     }
     getCompilerQueryContext() {
         if (this.#compilerContext === undefined) {
@@ -1789,7 +2377,7 @@ export class ExtensionHost {
         return this.#compilerContext;
     }
     assertFinalizedForConsumer(consumer) {
-        if (this.#finalized) {
+        if (this.#semanticFinalizationState === "finalized") {
             return true;
         }
         this.diagnostics.append(createHostDiagnostic({
@@ -1908,14 +2496,12 @@ export class ExtensionHost {
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateTargetConstraint, provider.validateTargetConstraint);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.observePostCheckAssignability, provider.observePostCheckAssignability);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedCall, provider.mapCheckedCall);
-        registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapInferredSourceTypeArgumentsToTarget, provider.mapInferredSourceTypeArgumentsToTarget);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedPropertyAccess, provider.mapCheckedPropertyAccess);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedElementAccess, provider.mapCheckedElementAccess);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedOperator, provider.mapCheckedOperator);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedIteration, provider.mapCheckedIteration);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.recordContextualTargetType, provider.recordContextualTargetType);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.mapCheckedConversion, provider.mapCheckedConversion);
-        registerProviderObservation(this, extensionId, ExtensionObservationPoint.resolveParameterPassing, provider.resolveParameterPassing);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.resolveRuntimeCarrier, provider.resolveRuntimeCarrier);
         registerProviderObservation(this, extensionId, ExtensionObservationPoint.validateExtensionFlowUse, provider.validateExtensionFlowUse);
     }
@@ -2085,17 +2671,35 @@ function callProvider(diagnostics, identity, operation, specifier, callback) {
         return { kind: "threw", diagnostic };
     }
 }
+function isCheckedOperationObservationPoint(observation) {
+    switch (observation) {
+        case ExtensionObservationPoint.mapCheckedCall:
+        case ExtensionObservationPoint.mapCheckedPropertyAccess:
+        case ExtensionObservationPoint.mapCheckedElementAccess:
+        case ExtensionObservationPoint.mapCheckedOperator:
+        case ExtensionObservationPoint.mapCheckedIteration:
+        case ExtensionObservationPoint.mapCheckedConversion:
+            return true;
+        default:
+            return false;
+    }
+}
 function createHostDiagnostic(input) {
     return {
+        [hostDiagnosticOrigin]: true,
         extensionId: "tsts.extension-host",
         extensionCode: input.extensionCode,
         numericCode: input.numericCode,
         publicCode: `TSEXT${input.numericCode}`,
         category: "error",
         message: input.message,
+        ...(input.nodeOrSpan !== undefined ? { nodeOrSpan: input.nodeOrSpan } : {}),
         evidence: input.evidence ?? [],
         ...(input.identity !== undefined ? { identity: input.identity } : {}),
     };
+}
+function isHostOwnedExtensionDiagnostic(diagnostic) {
+    return diagnostic[hostDiagnosticOrigin] === true;
 }
 function createRegistrationClosedDiagnostic(registrationKind) {
     return createHostDiagnostic({
@@ -2658,28 +3262,24 @@ function snapshotTargetSemanticProviderRegistration(provider) {
         const validateTargetConstraint = provider.validateTargetConstraint;
         const observePostCheckAssignability = provider.observePostCheckAssignability;
         const mapCheckedCall = provider.mapCheckedCall;
-        const mapInferredSourceTypeArgumentsToTarget = provider.mapInferredSourceTypeArgumentsToTarget;
         const mapCheckedPropertyAccess = provider.mapCheckedPropertyAccess;
         const mapCheckedElementAccess = provider.mapCheckedElementAccess;
         const mapCheckedOperator = provider.mapCheckedOperator;
         const mapCheckedIteration = provider.mapCheckedIteration;
         const recordContextualTargetType = provider.recordContextualTargetType;
         const mapCheckedConversion = provider.mapCheckedConversion;
-        const resolveParameterPassing = provider.resolveParameterPassing;
         const resolveRuntimeCarrier = provider.resolveRuntimeCarrier;
         const validateExtensionFlowUse = provider.validateExtensionFlowUse;
         const handlers = {
             validateTargetConstraint,
             observePostCheckAssignability,
             mapCheckedCall,
-            mapInferredSourceTypeArgumentsToTarget,
             mapCheckedPropertyAccess,
             mapCheckedElementAccess,
             mapCheckedOperator,
             mapCheckedIteration,
             recordContextualTargetType,
             mapCheckedConversion,
-            resolveParameterPassing,
             resolveRuntimeCarrier,
             validateExtensionFlowUse,
         };
@@ -2698,14 +3298,12 @@ function snapshotTargetSemanticProviderRegistration(provider) {
                 ...(validateTargetConstraint === undefined ? {} : { validateTargetConstraint: bind(validateTargetConstraint) }),
                 ...(observePostCheckAssignability === undefined ? {} : { observePostCheckAssignability: bind(observePostCheckAssignability) }),
                 ...(mapCheckedCall === undefined ? {} : { mapCheckedCall: bind(mapCheckedCall) }),
-                ...(mapInferredSourceTypeArgumentsToTarget === undefined ? {} : { mapInferredSourceTypeArgumentsToTarget: bind(mapInferredSourceTypeArgumentsToTarget) }),
                 ...(mapCheckedPropertyAccess === undefined ? {} : { mapCheckedPropertyAccess: bind(mapCheckedPropertyAccess) }),
                 ...(mapCheckedElementAccess === undefined ? {} : { mapCheckedElementAccess: bind(mapCheckedElementAccess) }),
                 ...(mapCheckedOperator === undefined ? {} : { mapCheckedOperator: bind(mapCheckedOperator) }),
                 ...(mapCheckedIteration === undefined ? {} : { mapCheckedIteration: bind(mapCheckedIteration) }),
                 ...(recordContextualTargetType === undefined ? {} : { recordContextualTargetType: bind(recordContextualTargetType) }),
                 ...(mapCheckedConversion === undefined ? {} : { mapCheckedConversion: bind(mapCheckedConversion) }),
-                ...(resolveParameterPassing === undefined ? {} : { resolveParameterPassing: bind(resolveParameterPassing) }),
                 ...(resolveRuntimeCarrier === undefined ? {} : { resolveRuntimeCarrier: bind(resolveRuntimeCarrier) }),
                 ...(validateExtensionFlowUse === undefined ? {} : { validateExtensionFlowUse: bind(validateExtensionFlowUse) }),
             }),

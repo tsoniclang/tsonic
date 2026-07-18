@@ -2,10 +2,10 @@ import type {
   ProviderExportDeclaration,
   ProviderParameterDeclaration,
   ProviderTypeExpression,
-  SourceCallMarkerDeclaration,
+  SourceCallMarkerKind,
   SourcePrimitiveKind,
   SourceSemanticsModule,
-  SourceTypeMarkerDeclaration,
+  SourceTypeMarkerKind,
 } from "@tsonic/tsts";
 
 export const tsonicAttributeBuilderMemberIds = Object.freeze({
@@ -48,7 +48,7 @@ function providerExportDeclarationForSourceSemantics(declaration: SourceSemantic
   }
 }
 
-export function providerTypeMarkerDeclaration(exportName: string, marker: SourceTypeMarkerDeclaration["marker"]): ProviderExportDeclaration {
+export function providerTypeMarkerDeclaration(exportName: string, marker: SourceTypeMarkerKind): ProviderExportDeclaration {
   const typeParameters = marker === "ptr"
     ? [{ name: "T" }]
     : [{ name: "TArgs" }, { name: "TReturn" }];
@@ -61,7 +61,7 @@ export function providerTypeMarkerDeclaration(exportName: string, marker: Source
   };
 }
 
-export function providerCallMarkerDeclaration(exportName: string, marker: SourceCallMarkerDeclaration["marker"]): ProviderExportDeclaration {
+export function providerCallMarkerDeclaration(exportName: string, marker: SourceCallMarkerKind): ProviderExportDeclaration {
   const typeParameter = { kind: "type-parameter" as const, name: "T" };
   switch (marker) {
     case "out":

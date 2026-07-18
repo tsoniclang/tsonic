@@ -8,7 +8,7 @@ import type { Symbol, SymbolTable } from "../../ast/symbol.js";
 import type { Message } from "../../diagnostics/diagnostics.js";
 import type { TypeMapper } from "../mapper.js";
 import type { Relation } from "../relater.js";
-import type { ContextFlags, IndexInfo, Signature, SignatureFlags, SignatureKind, Type, TypeComparer, TypeFlags, TypePredicate, TypeReference } from "../types.js";
+import type { ContextFlags, IndexInfo, ResolvedCallEvidence, Signature, SignatureFlags, SignatureKind, Type, TypeComparer, TypeFlags, TypePredicate, TypeReference } from "../types.js";
 import type { CallState, Checker, CheckMode, InferenceContext, IterationTypeKind, IterationTypes, thisAssignmentDeclarationKind } from "./state.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.GetTypeAliasTypeParameters","kind":"method","status":"implemented","sigHash":"0b4f54cda41fb6e460b50792c13ecf63a5a90b07e65ca4c27484c2ebd3b2b5d9","bodyHash":"02fa6e6ef34ba705f2d33b3f81000aaa91ecff0d2cb63d373a5a89e9c30a511d"}
@@ -1236,7 +1236,6 @@ export declare function Checker_isInConstructorArgumentInitializer(receiver: GoP
 export declare function Checker_checkImportCallExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkCallExpression","kind":"method","status":"implemented","sigHash":"c7077a9359a5dabbb7b33b07409cf7ae319dc8d4ee9862f71076afb9296c19cc","bodyHash":"8d143d4d304de3843b2932373cebb5a3e5a974a05b6bbf1f1e0ea960bebc8d4e"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go call resolution, extension-enabled programs may record provider-selected target call, parameter mode, and argument conversion facts for consumers; no-extension programs and unowned calls remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkCallExpression(node *ast.Node, checkMode CheckMode) *Type {
@@ -1308,6 +1307,7 @@ export declare function Checker_checkCallExpression(receiver: GoPtr<Checker>, no
 export declare function Checker_isSymbolOrSymbolForCall(receiver: GoPtr<Checker>, node: GoPtr<Node>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getResolvedSignature","kind":"method","status":"implemented","sigHash":"6e07804e3f703a58b1aa0928481fd12ea132aadd55c97ab134180b75f6514591","bodyHash":"74d5204a564f7e9db52bc5cb606cb05647d136732d76b5ef07aeb9e879c450c0"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"TS-Go's source-order and flow-loop signature cache arbitration is preserved exactly while immutable evidence from the same resolution attempt is committed, reused, or restored atomically with resolvedSignature."}
  *
  * Go source:
  * func (c *Checker) getResolvedSignature(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -1357,8 +1357,10 @@ export declare function Checker_isSymbolOrSymbolForCall(receiver: GoPtr<Checker>
  * }
  */
 export declare function Checker_getResolvedSignature(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode): GoPtr<Signature>;
+export declare function Checker_finalizeResolvedCallEvidence(receiver: GoPtr<Checker>, node: GoPtr<Node>, sourceResultType: GoPtr<Type>): ResolvedCallEvidence | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveSignature","kind":"method","status":"implemented","sigHash":"3f5f24d8b322f3d2262569dc0fad3eb979984d3500a3322bee3b45508bd47345","bodyHash":"03f051b64a78b179daad017cbd3815451b58a183c849bc42a6a4be0c48e8d1fc"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go resolver dispatch is retained; call/new branches additionally return the immutable evidence produced by the same resolution attempt to the cache arbiter."}
  *
  * Go source:
  * func (c *Checker) resolveSignature(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -1382,6 +1384,7 @@ export declare function Checker_getResolvedSignature(receiver: GoPtr<Checker>, n
 export declare function Checker_resolveSignature(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveCallExpression","kind":"method","status":"implemented","sigHash":"c7b5867f2eec833277bb9e32e3697824bf56540407f05569487a0dd36b4f8c44","bodyHash":"5a1375e7886d41d36ed4c383b5a85a326a5aadf24796c557259856bf618e312c"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go call resolver is retained; an internal worker returns immutable evidence from the same successful overload-selection attempt for atomic resolved-signature caching."}
  *
  * Go source:
  * func (c *Checker) resolveCallExpression(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -1489,6 +1492,9 @@ export declare function Checker_resolveSignature(receiver: GoPtr<Checker>, node:
  * }
  */
 export declare function Checker_resolveCallExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode): GoPtr<Signature>;
+interface ResolvedSignatureEvidenceOutput {
+    evidence?: ResolvedCallEvidence;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isConstructorAccessible","kind":"method","status":"implemented","sigHash":"08733b3be47d5f962517bd2ff7291f4439a94f22e926cd00859f19e2d83f5601","bodyHash":"f26528f99bb86349d0d19a96d4bd77594aac160b4ec6d8ae42319b0e9b9ac776"}
  *
@@ -1645,6 +1651,11 @@ export declare function Checker_isConstructorAccessible(receiver: GoPtr<Checker>
  * }
  */
 export declare function Checker_resolveCall(receiver: GoPtr<Checker>, node: GoPtr<Node>, signatures: GoSlice<GoPtr<Signature>>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode, callChainFlags: SignatureFlags, headMessage: GoPtr<Message>): GoPtr<Signature>;
+export interface ResolvedCallWithEvidenceResult {
+    readonly signature: GoPtr<Signature>;
+    readonly evidence?: ResolvedCallEvidence;
+}
+export declare function Checker_resolveCallWithEvidence(receiver: GoPtr<Checker>, node: GoPtr<Node>, signatures: GoSlice<GoPtr<Signature>>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode, callChainFlags: SignatureFlags, headMessage: GoPtr<Message>, sourceCalleeType: GoPtr<Type>): ResolvedCallWithEvidenceResult;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reorderCandidates","kind":"method","status":"implemented","sigHash":"35ebf926781ad9829f89337e383e4c3e53de8d5dfae3d53aa2ac291bcd5998f8","bodyHash":"bd76d93811b5b9de65e879ef734438a56c7660697e4024d8f7df96386f86afb4"}
  *
@@ -1721,6 +1732,7 @@ export declare function Checker_reorderCandidates(receiver: GoPtr<Checker>, sign
 export declare function Checker_getOptionalCallSignature(receiver: GoPtr<Checker>, signature: GoPtr<Signature>, callChainFlags: SignatureFlags): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.chooseOverload","kind":"method","status":"implemented","sigHash":"35dba3b0efe4936419b69fa992defebeee5d256f458d7f9e4380a90f01ebf523","bodyHash":"700e21c92d57c8a4855429b73ba64cf71315dc211322c7e729c564783475cdec"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After the unchanged TS-Go overload winner is established, extension-enabled programs retain the exact contextual argument types computed by that successful applicability pass; failed and preliminary passes publish no evidence."}
  *
  * Go source:
  * func (c *Checker) chooseOverload(s *CallState, relation *Relation) *Signature {
@@ -1973,85 +1985,6 @@ export declare function Checker_hasCorrectTypeArgumentArity(receiver: GoPtr<Chec
  * }
  */
 export declare function Checker_checkTypeArguments(receiver: GoPtr<Checker>, signature: GoPtr<Signature>, typeArgumentNodes: GoSlice<GoPtr<Node>>, reportErrors: bool, headMessage: GoPtr<Message>): GoPtr<GoSlice<GoPtr<Type>>>;
-/**
- * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isSignatureApplicable","kind":"method","status":"implemented","sigHash":"5707b58d565ca9504f11871fcfeff062bb8599288f1d09c6e802f1443961906e","bodyHash":"4dd2ef04c249ba264d83a86632ceb3b30973a6df168b9afe28e23359c12d439b"}
- *
- * Go source:
- * func (c *Checker) isSignatureApplicable(node *ast.Node, args []*ast.Node, signature *Signature, relation *Relation, checkMode CheckMode, reportErrors bool, diagnosticOutput *[]*ast.Diagnostic) bool {
- * 	if ast.IsJsxCallLike(node) {
- * 		return c.checkApplicableSignatureForJsxCallLikeElement(node, signature, relation, checkMode, reportErrors, diagnosticOutput)
- * 	}
- * 	thisType := c.getThisTypeOfSignature(signature)
- * 	if thisType != nil && thisType != c.voidType && !(ast.IsNewExpression(node) || ast.IsCallExpression(node) && ast.IsSuperProperty(node.Expression())) {
- * 		// If the called expression is not of the form `x.f` or `x["f"]`, then sourceType = voidType
- * 		// If the signature's 'this' type is voidType, then the check is skipped -- anything is compatible.
- * 		// If the expression is a new expression or super call expression, then the check is skipped.
- * 		thisArgumentNode := c.getThisArgumentOfCall(node)
- * 		thisArgumentType := c.getThisArgumentType(thisArgumentNode)
- * 		var errorNode *ast.Node
- * 		if reportErrors {
- * 			errorNode = thisArgumentNode
- * 			if errorNode == nil {
- * 				errorNode = node
- * 			}
- * 		}
- * 		headMessage := diagnostics.The_this_context_of_type_0_is_not_assignable_to_method_s_this_of_type_1
- * 		if !c.checkTypeRelatedToEx(thisArgumentType, thisType, relation, errorNode, headMessage, diagnosticOutput) {
- * 			return false
- * 		}
- * 	}
- * 	headMessage := diagnostics.Argument_of_type_0_is_not_assignable_to_parameter_of_type_1
- * 	restType := c.getNonArrayRestType(signature)
- * 	var argCount int
- * 	if restType != nil {
- * 		argCount = min(c.getParameterCount(signature)-1, len(args))
- * 	} else {
- * 		argCount = len(args)
- * 	}
- * 	for i := range argCount {
- * 		arg := args[i]
- * 		if !ast.IsOmittedExpression(arg) {
- * 			paramType := c.getTypeAtPosition(signature, i)
- * 			argType := c.checkExpressionWithContextualType(arg, paramType, nil /*inferenceContext* /, checkMode)
- * 			// If one or more arguments are still excluded (as indicated by CheckMode.SkipContextSensitive),
- * 			// we obtain the regular type of any object literal arguments because we may not have inferred complete
- * 			// parameter types yet and therefore excess property checks may yield false positives (see #17041).
- * 			var checkArgType *Type
- * 			if checkMode&CheckModeSkipContextSensitive != 0 {
- * 				checkArgType = c.getRegularTypeOfObjectLiteral(argType)
- * 			} else {
- * 				checkArgType = argType
- * 			}
- * 			effectiveCheckArgumentNode := c.getEffectiveCheckNode(arg)
- * 			if !c.checkTypeRelatedToAndOptionallyElaborate(checkArgType, paramType, relation, core.IfElse(reportErrors, effectiveCheckArgumentNode, nil), effectiveCheckArgumentNode, headMessage, diagnosticOutput) {
- * 				c.maybeAddMissingAwaitInfo(arg, checkArgType, paramType, relation, reportErrors, diagnosticOutput)
- * 				return false
- * 			}
- * 		}
- * 	}
- * 	if restType != nil {
- * 		spreadType := c.getSpreadArgumentType(args, argCount, len(args), restType, nil /*context* /, checkMode)
- * 		restArgCount := len(args) - argCount
- * 		var errorNode *ast.Node
- * 		if reportErrors {
- * 			switch restArgCount {
- * 			case 0:
- * 				errorNode = node
- * 			case 1:
- * 				errorNode = c.getEffectiveCheckNode(args[argCount])
- * 			default:
- * 				errorNode = c.createSyntheticExpression(node, spreadType, false, nil)
- * 				errorNode.Loc = core.NewTextRange(args[argCount].Pos(), args[len(args)-1].End())
- * 			}
- * 		}
- * 		if !c.checkTypeRelatedToEx(spreadType, restType, relation, errorNode, headMessage, diagnosticOutput) {
- * 			c.maybeAddMissingAwaitInfo(errorNode, spreadType, restType, relation, reportErrors, diagnosticOutput)
- * 			return false
- * 		}
- * 	}
- * 	return true
- * }
- */
 export declare function Checker_isSignatureApplicable(receiver: GoPtr<Checker>, node: GoPtr<Node>, args: GoSlice<GoPtr<Node>>, signature: GoPtr<Signature>, relation: GoPtr<Relation>, checkMode: CheckMode, reportErrors: bool, diagnosticOutput: GoPtr<GoSlice<GoPtr<Diagnostic>>>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getThisArgumentOfCall","kind":"method","status":"implemented","sigHash":"0fa52a64d6ecd3f611aca35b259ffb6c0b62406a019efcdfa6f4c5e80d62ad99","bodyHash":"6c1c2c66ca52e6346e924ecd69eb8c8a9e472c3d3edd4e72f85aae249a994b29"}
@@ -2429,6 +2362,7 @@ export declare function Checker_tryGetRestTypeOfSignature(receiver: GoPtr<Checke
  * }
  */
 export declare function Checker_resolveUntypedCall(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Signature>;
+export declare function Checker_resolveUntypedCallWithEvidence(receiver: GoPtr<Checker>, node: GoPtr<Node>, sourceCalleeType: GoPtr<Type>, output: ResolvedSignatureEvidenceOutput | undefined): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isUntypedFunctionCall","kind":"method","status":"implemented","sigHash":"5687d856700d885e66b95d32af1a98aa745bf4d75e7d3e5dc2c6dc465503d7e1","bodyHash":"c5c158118acf483a5b2760a71dc2feb5e8cb4f633210021e3dad74e615786b38"}
  *
@@ -5657,6 +5591,7 @@ export declare function Checker_getTypeOfPropertyOrIndexSignatureOfType(receiver
 export declare function Checker_getContextuallyTypedParameterType(receiver: GoPtr<Checker>, parameter: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSpreadArgumentType","kind":"method","status":"implemented","sigHash":"4e8f6dbb44b876df7d02f68dd625421f501897189f1a55fc170732f038c7dcc2","bodyHash":"f209cac7ead6222449a541eff70fe6b43ac12f8a56a043e0557c3c9b84f3be14"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go spread/rest algorithm is retained; an internal worker additionally returns each already-computed effective argument type for checked-call evidence without rechecking expressions."}
  *
  * Go source:
  * func (c *Checker) getSpreadArgumentType(args []*ast.Node, index int, argCount int, restType *Type, context *InferenceContext, checkMode CheckMode) *Type {
@@ -5851,6 +5786,7 @@ export declare function Checker_getContextualTypeForArgument(receiver: GoPtr<Che
 export declare function Checker_getContextualTypeForArgumentAtIndex(receiver: GoPtr<Checker>, callTarget: GoPtr<Node>, argIndex: int): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getEffectiveCallArguments","kind":"method","status":"implemented","sigHash":"9572850d74760078277e606e3ca1190dd1ff030be0b6c377f9590082088ceb55","bodyHash":"d818b86f07e456fa22ba6d79ca15d5252643ffc272ca3fb8fff7073be588e37a"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"While TS-Go expands authored spreads into effective call arguments, extension-enabled programs retain the exact already-computed spread expression type by authored argument index; effective arguments and source checking are unchanged."}
  *
  * Go source:
  * func (c *Checker) getEffectiveCallArguments(node *ast.Node) []*ast.Node {
@@ -6418,4 +6354,5 @@ export declare function Checker_getApplicableIndexSymbol(receiver: GoPtr<Checker
  * }
  */
 export declare function Checker_containsArgumentsReference(receiver: GoPtr<Checker>, node: GoPtr<Node>): bool;
+export {};
 //# sourceMappingURL=signatures.d.ts.map

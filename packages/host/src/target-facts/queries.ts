@@ -114,7 +114,7 @@ export function createTargetFactQueries(
       const selectedCall = facts.getSelectedTargetCall(node);
       const directCallCarrier = getRuntimeCarrier(facts, node);
       const selectedReturnCarrier = selectedCall?.member.returnType;
-      const sourceReturnCarrier = getRuntimeCarrier(facts, selectedCall?.sourceReturnType);
+      const sourceReturnCarrier = getRuntimeCarrier(facts, selectedCall?.sourceResult.type);
       return carrierResolution(
         directCallCarrier ??
           selectedReturnCarrier ??
