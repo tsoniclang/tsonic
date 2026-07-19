@@ -1,9 +1,9 @@
 import {
   attributeFactKey,
-  canonicalIdentityFactKey,
   createSourceSemanticsExtension,
   ExtensionLifecycleEvent,
   fieldFactKey,
+  structFactKey,
 } from "@tsonic/tsts";
 import type {
   AstReader,
@@ -15,7 +15,6 @@ import type {
   FieldFact,
   Node,
   SourceFileBoundLifecycleRequest,
-  TypeCheckerQueries,
 } from "@tsonic/tsts";
 import {
   tsonicCoreLangModule,
@@ -49,8 +48,7 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
         }
         recordUnsupportedTsonicCoreLangReExportDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.host.diagnostics);
         recordTsonicAttributeBuilderFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts);
-        recordTsonicStructFieldFactsAndDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
-        recordTsonicMissingTypeEvidenceDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.compiler.checker, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
+        validateTsonicStructFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
       });
     },
   };
@@ -68,34 +66,11 @@ const attributeBuilderEvidence = [{
   message: "Tsonic source-core attribute builder chain",
 }] satisfies readonly ExtensionEvidence[];
 
-const missingTypeEvidenceDiagnostics = {
-  attribute: {
-    extensionCode: "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
-    numericCode: 9901105,
-    message: "attribute<T>() requires explicit target type evidence.",
-  },
-  defaultof: {
-    extensionCode: "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
-    numericCode: 9901106,
-    message: "defaultof<T>() requires explicit type evidence.",
-  },
-  field: {
-    extensionCode: "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
-    numericCode: 9901102,
-    message: "field<T>() requires explicit field type evidence.",
-  },
-} as const;
-
 const structFieldDiagnostics = {
   duplicateField: {
     extensionCode: "SOURCE_SEMANTICS_STRUCT_DUPLICATE_FIELD",
     numericCode: 9901107,
     message: "struct(...) field shape contains a duplicate static field name.",
-  },
-  fieldContext: {
-    extensionCode: "SOURCE_SEMANTICS_FIELD_CONTEXT_NOT_PROVEN",
-    numericCode: 9901108,
-    message: "field<T>() requires a proven static field-containing context.",
   },
   structMember: {
     extensionCode: "SOURCE_SEMANTICS_STRUCT_FIELD_NOT_PROVEN",
@@ -234,64 +209,19 @@ function recordTsonicAttributeBuilderFacts(
   });
 }
 
-function recordTsonicStructFieldFactsAndDiagnostics(
+function validateTsonicStructFacts(
   request: SourceFileBoundLifecycleRequest,
   ast: AstReader,
-  checker: TypeCheckerQueries,
   facts: ExtensionFactStore,
   diagnostics: DiagnosticSink,
 ): void {
   const sourceFile = request.sourceFile as Node | undefined;
   visitSourceFile(sourceFile, ast, (node): void => {
-    if (!ast.is.IsCallExpression(node) || ast.typeArguments(node).length === 0) {
+    if (!ast.is.IsCallExpression(node) || facts.get(node, structFactKey) === undefined) {
       return;
     }
-    const callee = ast.as.AsCallExpression(node)?.Expression;
-    if (resolveSourceCoreLangExportName(callee, ast, checker, facts) === "field") {
-      recordSourceCoreFieldContextFact(node, ast, facts, diagnostics);
-    }
+    validateSourceCoreStructShape(node, ast, facts, diagnostics);
   });
-  visitSourceFile(sourceFile, ast, (node): void => {
-    if (!ast.is.IsCallExpression(node)) {
-      return;
-    }
-    const callee = ast.as.AsCallExpression(node)?.Expression;
-    if (resolveSourceCoreLangExportName(callee, ast, checker, facts) === "struct") {
-      validateSourceCoreStructShape(node, ast, facts, diagnostics);
-    }
-  });
-}
-
-function recordSourceCoreFieldContextFact(
-  callExpression: Node,
-  ast: AstReader,
-  facts: ExtensionFactStore,
-  diagnostics: DiagnosticSink,
-): void {
-  if (facts.get<FieldFact>(callExpression, fieldFactKey) !== undefined) {
-    return;
-  }
-  const fieldType = ast.typeArguments(callExpression)[0];
-  if (fieldType === undefined) {
-    return;
-  }
-  const context = fieldContainingContext(callExpression, ast);
-  if (context === undefined) {
-    appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.fieldContext, callExpression, [
-      { message: "Source-core field marker was not the initializer of a static field declaration or struct-shape property." },
-    ]);
-    return;
-  }
-  const fact = {
-    name: context.name,
-    type: fieldType,
-  } satisfies FieldFact;
-  const evidence = [{ message: "Tsonic source-core field fact from proven static field-containing context." }];
-  facts.set(callExpression, fieldFactKey, fact, evidence);
-  facts.set(context.owner, fieldFactKey, fact, evidence);
-  if (context.nameNode !== undefined) {
-    facts.set(context.nameNode, fieldFactKey, fact, evidence);
-  }
 }
 
 function validateSourceCoreStructShape(
@@ -335,38 +265,6 @@ function validateSourceCoreStructShape(
   }
 }
 
-function recordTsonicMissingTypeEvidenceDiagnostics(
-  request: SourceFileBoundLifecycleRequest,
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  facts: ExtensionFactStore,
-  diagnostics: DiagnosticSink,
-): void {
-  const sourceFile = request.sourceFile as Node | undefined;
-  visitSourceFile(sourceFile, ast, (node): void => {
-    if (!ast.is.IsCallExpression(node) || ast.typeArguments(node).length > 0) {
-      return;
-    }
-    const callee = ast.as.AsCallExpression(node)?.Expression;
-    const marker = resolveSourceCoreLangExportName(callee, ast, checker, facts);
-    if (marker !== "attribute" && marker !== "defaultof" && marker !== "field") {
-      return;
-    }
-    const diagnostic = missingTypeEvidenceDiagnostics[marker];
-    diagnostics.append({
-      extensionId: tsonicCoreSourceExtensionId,
-      extensionCode: diagnostic.extensionCode,
-      numericCode: diagnostic.numericCode,
-      publicCode: `TSONIC_SOURCE_CORE_${diagnostic.numericCode}`,
-      category: "error",
-      message: diagnostic.message,
-      nodeOrSpan: node,
-      evidence: [{ message: "Tsonic source-core marker requires explicit type evidence.", details: { marker } }],
-      identity: `source-core-missing-type-evidence:${marker}:${String((node as { readonly id?: unknown }).id ?? "unknown")}`,
-    });
-  });
-}
-
 function appendStructFieldDiagnostic(
   diagnostics: DiagnosticSink,
   diagnostic: typeof structFieldDiagnostics[keyof typeof structFieldDiagnostics],
@@ -384,44 +282,6 @@ function appendStructFieldDiagnostic(
     evidence,
     identity: `source-core-struct-field:${diagnostic.extensionCode}:${String((node as { readonly id?: unknown }).id ?? "unknown")}`,
   });
-}
-
-function resolveSourceCoreLangExportName(
-  node: Node | undefined,
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  facts: ExtensionFactStore,
-): string | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  const symbol = getSymbolAtLocationIfAvailable(checker, node);
-  const symbolIdentity = facts.get(symbol, canonicalIdentityFactKey);
-  if (symbolIdentity?.kind === "export" && symbolIdentity.id === `${tsonicCoreLangModule}::${symbolIdentity.exportName}`) {
-    return symbolIdentity.exportName;
-  }
-  if (!ast.is.IsPropertyAccessExpression(node)) {
-    return undefined;
-  }
-  const receiver = ast.as.AsPropertyAccessExpression(node)?.Expression;
-  const receiverSymbol = getSymbolAtLocationIfAvailable(checker, receiver);
-  const receiverIdentity = facts.get(receiverSymbol, canonicalIdentityFactKey);
-  if (receiverIdentity?.kind !== "module" || receiverIdentity.id !== tsonicCoreLangModule) {
-    return undefined;
-  }
-  const propertyName = ast.text(ast.name(node));
-  return propertyName === "" ? undefined : propertyName;
-}
-
-function getSymbolAtLocationIfAvailable(checker: TypeCheckerQueries, node: Node | undefined): ExtensionFactSubject | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  try {
-    return checker.getSymbolAtLocation(node);
-  } catch {
-    return undefined;
-  }
 }
 
 function resolveAttributeBuilderTarget(
@@ -455,33 +315,6 @@ function staticExpressionName(node: Node, ast: AstReader): string {
     return receiver === "" ? name : `${receiver}.${name}`;
   }
   return ast.text(ast.name(node) ?? node);
-}
-
-function fieldContainingContext(
-  callExpression: Node,
-  ast: AstReader,
-): { readonly owner: Node; readonly nameNode: Node | undefined; readonly name: string } | undefined {
-  const parent = ast.parent(callExpression);
-  if (parent === undefined) {
-    return undefined;
-  }
-  const propertyAssignment = ast.is.IsPropertyAssignment(parent)
-    ? ast.as.AsPropertyAssignment(parent)
-    : undefined;
-  if (propertyAssignment?.Initializer === callExpression) {
-    const nameNode = ast.name(parent);
-    const name = staticSourcePropertyName(nameNode, ast);
-    return name === undefined ? undefined : { owner: parent, nameNode, name };
-  }
-  const propertyDeclaration = ast.is.IsPropertyDeclaration(parent)
-    ? ast.as.AsPropertyDeclaration(parent)
-    : undefined;
-  if (propertyDeclaration?.Initializer === callExpression) {
-    const nameNode = ast.name(parent);
-    const name = staticSourcePropertyName(nameNode, ast);
-    return name === undefined ? undefined : { owner: parent, nameNode, name };
-  }
-  return undefined;
 }
 
 function staticSourcePropertyName(node: Node | undefined, ast: AstReader): string | undefined {
