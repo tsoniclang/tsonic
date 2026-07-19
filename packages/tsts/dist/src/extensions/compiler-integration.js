@@ -8,9 +8,13 @@ import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature,
 import { canonicalIdentityFactKey, instantiatedTargetTypeFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
 import { ExtensionLifecycleEvent, extensionHostSetFact, getExtensionHost } from "./host.js";
 import { getProviderVirtualArtifactForCompiler } from "./provider-virtual-internal.js";
+import { extensionHostAllowsSemanticQueryPreflight } from "./host-attachment.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
     const extensionHost = getExtensionHost(program);
     if (extensionHost === undefined || file === undefined) {
+        return;
+    }
+    if (!extensionHost[extensionHostAllowsSemanticQueryPreflight]()) {
         return;
     }
     const fileName = SourceFile_FileName(file);

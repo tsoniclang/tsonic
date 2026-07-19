@@ -9,6 +9,7 @@ import type { SourcePrimitiveKind } from "./facts.js";
 import { type ExtensionFactKey } from "./fact-key.js";
 export { defineExtensionFactKey, type ExtensionFactKey, type ExtensionFactKeyOptions, } from "./fact-key.js";
 import { providerVirtualCompilerArtifactLookup } from "./provider-virtual-internal.js";
+import { extensionHostAllowsSemanticQueryPreflight } from "./host-attachment.js";
 export interface ExtensionEvidence {
     readonly message: string;
     readonly details?: unknown;
@@ -676,6 +677,7 @@ export declare class ExtensionHost {
     readonly providers: ProviderRegistry;
     readonly activeTarget: string | undefined;
     readonly activeSurface: string | undefined;
+    [extensionHostAllowsSemanticQueryPreflight](): boolean;
     [extensionHostSetFact]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     [extensionHostRegisterFactResolver]<T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>): void;
     constructor(program: object, options?: ExtensionHostOptions);

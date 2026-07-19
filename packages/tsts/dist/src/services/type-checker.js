@@ -9,6 +9,7 @@ import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../interna
 import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
+import { extensionHostAllowsSemanticQueryPreflight, lookupAttachedExtensionHost, } from "../extensions/host-attachment.js";
 export function createTypeCheckerQueries(program, defaultOptions = {}) {
     return {
         getTypeAtLocation: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetTypeAtLocation(checker, node)),
@@ -73,7 +74,10 @@ function withChecker(program, sourceFile, defaultOptions, options, callback) {
         return undefined;
     }
     const context = options.context ?? defaultOptions.context ?? Background();
-    Program_GetSemanticDiagnostics(program, context, sourceFile);
+    const extensionHost = lookupAttachedExtensionHost(program);
+    if (extensionHost === undefined || extensionHost[extensionHostAllowsSemanticQueryPreflight]()) {
+        Program_GetSemanticDiagnostics(program, context, sourceFile);
+    }
     const [checker, done] = Program_GetTypeCheckerForFile(program, context, sourceFile);
     try {
         return callback(checker);

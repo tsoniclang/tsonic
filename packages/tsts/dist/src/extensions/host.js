@@ -17,6 +17,7 @@ import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } 
 import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
 import { providerAncillaryDataLimits, providerDeclarationClosureLimits } from "./provider-resource-limits.js";
+import { extensionHostAllowsSemanticQueryPreflight, hasAttachedExtensionHost, lookupAttachedExtensionHost, registerAttachedExtensionHost, } from "./host-attachment.js";
 export const ExtensionHostDiagnosticCode = {
     factConflict: 9000001,
     duplicateExtension: 9000002,
@@ -2503,6 +2504,9 @@ export class ExtensionHost {
     #nextConsumerSubjectId = 1;
     #hookRegistrationsSealed = false;
     #observationHookDepth = 0;
+    [extensionHostAllowsSemanticQueryPreflight]() {
+        return this.#semanticFinalizationState === "open";
+    }
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
     }
@@ -3610,32 +3614,31 @@ function registerProviderObservation(host, extensionId, observation, handler) {
     host.registerObservationOwner(observation, extensionId);
     host.registerObservation(observation, extensionId, (request, context) => handler(request, context));
 }
-const attachedExtensionHosts = new WeakMap();
 export function attachExtensionHost(program, options = {}) {
     const host = new ExtensionHost(program, options);
-    attachedExtensionHosts.set(program, host);
+    registerAttachedExtensionHost(program, host);
     return Object.freeze({ program, extensionHost: host });
 }
 export function attachExtensionHostToProgram(hostOwner, program, options = {}) {
-    const host = attachedExtensionHosts.get(hostOwner);
+    const host = lookupAttachedExtensionHost(hostOwner);
     if (host === undefined) {
         return undefined;
     }
-    const existing = attachedExtensionHosts.get(program);
+    const existing = lookupAttachedExtensionHost(program);
     if (existing !== undefined && existing !== host) {
         throw new Error("Program already has a different ExtensionHost.");
     }
     if (options.bindCompilerProgram !== false) {
         host.bindCompilerProgram(program);
     }
-    attachedExtensionHosts.set(program, host);
+    registerAttachedExtensionHost(program, host);
     return Object.freeze({ program, extensionHost: host });
 }
 export function getExtensionHost(program) {
-    return attachedExtensionHosts.get(program);
+    return lookupAttachedExtensionHost(program);
 }
 export function hasExtensionHost(program) {
-    return attachedExtensionHosts.has(program);
+    return hasAttachedExtensionHost(program);
 }
 function orderExtensions(extensions, diagnostics) {
     const extensionsById = new Map();
