@@ -63,11 +63,7 @@ export function createTargetFactQueries(
         );
       }
       const declaredCarrier = getRuntimeCarrierFromDeclaredFactGraph(ast, checker, types, facts, node, options, sourceFiles);
-      const directCarrier = refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier) ??
-        refineTargetNamedCarrier(getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)), semanticCarrier) ??
-        refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(ast, checker, getSymbolAtReferenceNode(ast, checker, node, options), options)), semanticCarrier) ??
-        refineTargetNamedCarrier(getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)), semanticCarrier) ??
-        refineTargetNamedCarrier(getRuntimeCarrier(facts, getAliasedSymbolIfAlias(ast, checker, getResolvedSymbolForReferenceNode(ast, checker, node, options), options)), semanticCarrier);
+      const directCarrier = refineTargetNamedCarrier(getRuntimeCarrier(facts, node), semanticCarrier);
       if (
         declaredCarrier !== undefined &&
         (directCarrier === undefined || targetTypeRefContainsSourcePrimitive(declaredCarrier))
@@ -83,7 +79,7 @@ export function createTargetFactQueries(
         directCarrier ??
           declaredCarrier ??
           semanticCarrier,
-        "Runtime carrier resolved from explicit subject, symbol, alias, resolved symbol, declaration, or semantic type facts.",
+        "Runtime carrier resolved from exact source-use, declaration, or semantic-type facts.",
         "Runtime carrier is missing; no explicit provider/source-core fact or complete TSTS-selected derivation was available.",
         node,
       );
@@ -174,7 +170,6 @@ export function createTargetFactQueries(
         : types.getReturnTypeOfSignature(signature, options);
       return carrierResolution(
         getRuntimeCarrier(facts, returnType) ??
-          getRuntimeCarrier(facts, returnType?.symbol) ??
           getRuntimeCarrierForType(ast, checker, types, facts, returnType, options),
         "Declaration return carrier resolved from TSTS-selected declaration signature return type facts.",
         signature === undefined

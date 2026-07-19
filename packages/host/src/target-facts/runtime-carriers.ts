@@ -19,13 +19,18 @@ import {
   getResolvedSymbolForReferenceNode,
   getSemanticTypeForNode,
   getSymbolAtReferenceNode,
-  isTypeReferenceQuery,
 } from "../analysis/symbols.js";
+import {
+  asSymbol,
+} from "../analysis/guards.js";
 
 export function getRuntimeCarrier(
   facts: ExtensionConsumerQueries,
   subject: ExtensionFactSubject | undefined,
 ): TargetTypeRef | undefined {
+  if (asSymbol(subject) !== undefined) {
+    return getSourcePrimitiveCarrier(facts, subject);
+  }
   const runtimeCarrier = facts.getRuntimeCarrierFact(subject)?.carrier;
   if (runtimeCarrier !== undefined) {
     return runtimeCarrier;
@@ -34,6 +39,13 @@ export function getRuntimeCarrier(
   if (selectedCallCarrier !== undefined) {
     return selectedCallCarrier;
   }
+  return getSourcePrimitiveCarrier(facts, subject);
+}
+
+function getSourcePrimitiveCarrier(
+  facts: ExtensionConsumerQueries,
+  subject: ExtensionFactSubject | undefined,
+): TargetTypeRef | undefined {
   const primitive = facts.getSourcePrimitiveFact(subject);
   return primitive === undefined ? undefined : { kind: "source-primitive", name: primitive.kind };
 }
@@ -81,10 +93,8 @@ export function getRuntimeCarrierFromDeclaredFactGraph(
   }
   const nextSeen = new Set(seen).add(node);
   const direct = getRuntimeCarrier(facts, node) ??
-    (isTypeReferenceQuery(ast, node)
-      ? getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options))
-      : getRuntimeCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
-        getRuntimeCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options)));
+    getSourcePrimitiveCarrier(facts, getSymbolAtReferenceNode(ast, checker, node, options)) ??
+    getSourcePrimitiveCarrier(facts, getResolvedSymbolForReferenceNode(ast, checker, node, options));
   const valueDeclarationCarrier = getValueDeclarationCarrier(
     ast,
     checker,
@@ -290,7 +300,6 @@ export function getRuntimeCarrierForType(
   options: { readonly sourceFile: SourceFile },
 ): TargetTypeRef | undefined {
   return discardSourcePrimitiveSemanticCarrier(getRuntimeCarrier(facts, type)) ??
-    discardSourcePrimitiveSemanticCarrier(instantiateSemanticSymbolCarrier(ast, checker, types, facts, type, getRuntimeCarrier(facts, type?.symbol), options)) ??
     discardSourcePrimitiveSemanticCarrier(getTargetTypeRefForSemanticType(ast, checker, types, facts, type, options));
 }
 
@@ -405,8 +414,8 @@ function typeSyntaxContainsSourcePrimitiveEvidence(
     const symbol = getSymbolAtReferenceNode(ast, checker, current, options);
     const resolvedSymbol = getResolvedSymbolForReferenceNode(ast, checker, current, options);
     if (
-      getRuntimeCarrier(facts, symbol)?.kind === "source-primitive" ||
-      getRuntimeCarrier(facts, resolvedSymbol)?.kind === "source-primitive"
+      getSourcePrimitiveCarrier(facts, symbol)?.kind === "source-primitive" ||
+      getSourcePrimitiveCarrier(facts, resolvedSymbol)?.kind === "source-primitive"
     ) {
       found = true;
       return;
@@ -465,10 +474,6 @@ function getTargetTypeRefForSemanticType(
   if (directCarrier !== undefined) {
     return directCarrier;
   }
-  const symbolCarrier = getRuntimeCarrier(facts, type.symbol);
-  if (symbolCarrier !== undefined) {
-    return instantiateSemanticSymbolCarrier(ast, checker, types, facts, type, symbolCarrier, options, seen);
-  }
   if (!types.isTypeReference(type)) {
     return undefined;
   }
@@ -488,33 +493,6 @@ function getTargetTypeRefForSemanticType(
     id: binding.id,
     ...(typeArguments.length > 0 ? { typeArguments: typeArguments as readonly TargetTypeRef[] } : {}),
   };
-}
-
-function instantiateSemanticSymbolCarrier(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  types: TypeShapeQueries,
-  facts: ExtensionConsumerQueries,
-  type: Type | undefined,
-  carrier: TargetTypeRef | undefined,
-  options: { readonly sourceFile: SourceFile },
-  seen: ReadonlySet<Type> = new Set(),
-): TargetTypeRef | undefined {
-  if (type === undefined || carrier === undefined || carrier.kind !== "target-named" || !types.isTypeReference(type)) {
-    return carrier;
-  }
-  const nextSeen = new Set(seen).add(type);
-  const typeArguments = types.getTypeArguments(type, options)
-    .map((argument) => getTargetTypeRefForSemanticType(ast, checker, types, facts, argument, options, nextSeen));
-  if (typeArguments.some((argument) => argument === undefined)) {
-    return undefined;
-  }
-  return typeArguments.length === 0
-    ? carrier
-    : {
-        ...carrier,
-        typeArguments: typeArguments as readonly TargetTypeRef[],
-      };
 }
 
 function getTypeParameterName(ast: AstReader, checker: TypeCheckerQueries, type: Type): string | undefined {
