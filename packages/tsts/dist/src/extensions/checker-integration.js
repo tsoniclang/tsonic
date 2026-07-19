@@ -1514,24 +1514,6 @@ function publishExtensionRuntimeCarrierFact(extensionHost, typeReference, type, 
                 },
             }, evidence);
         }
-        if (symbol !== undefined) {
-            extensionHost[extensionHostSetFact](symbol, runtimeCarrierFactKey, {
-                ...commonFact,
-                provenance: {
-                    ...providerProvenance,
-                    sourceSymbol: symbol,
-                },
-            }, evidence);
-        }
-        if (type.symbol !== undefined) {
-            extensionHost[extensionHostSetFact](type.symbol, runtimeCarrierFactKey, {
-                ...commonFact,
-                provenance: {
-                    ...providerProvenance,
-                    sourceSymbol: type.symbol,
-                },
-            }, evidence);
-        }
     });
 }
 export function recordExtensionContextualTargetTypeFact(checker, expression, contextualType) {
