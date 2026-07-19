@@ -30,6 +30,7 @@ export declare function retainExtensionCheckedIdentifierCalleeSelection(checker:
 export declare function recordExtensionCheckedCallMapping(checker: GoPtr<Checker>, callExpression: GoPtr<Node>, resolvedCallEvidence: ResolvedCallEvidence): void;
 export interface CheckedPropertyAccessSourceEvidence {
     readonly selectedSymbol: GoPtr<Symbol>;
+    readonly selectedDeclaration?: GoPtr<Node>;
     readonly resultType: GoPtr<Type>;
     readonly receiverType: GoPtr<Type>;
     readonly selectionMode: "read" | "write";
@@ -39,6 +40,7 @@ export interface CheckedPropertyAccessSourceEvidence {
 export declare function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Checker>, propertyAccessExpression: GoPtr<Node>, selected: CheckedPropertyAccessSourceEvidence): void;
 export interface CheckedElementAccessSourceEvidence {
     readonly selectedSymbol: GoPtr<Symbol>;
+    readonly selectedDeclaration?: GoPtr<Node>;
     readonly resultType: GoPtr<Type>;
     readonly selectedElementIndex?: number;
     readonly receiverType: GoPtr<Type>;

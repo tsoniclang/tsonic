@@ -6279,8 +6279,6 @@ export declare function Checker_getThisTypeArgument(receiver: GoPtr<Checker>, t:
 export declare function Checker_getApplicableIndexInfos(receiver: GoPtr<Checker>, t: GoPtr<Type>, keyType: GoPtr<Type>): GoSlice<GoPtr<IndexInfo>>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getApplicableIndexSymbol","kind":"method","status":"implemented","sigHash":"a40817fe1af41ea59c2da8e72d9850088ef890ade45f2e789374df947fa9e7c5","bodyHash":"74ac15ed3ed74c01b2426c8687027941d736cb99a64e2c0fab87abd42939938d"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Extension-selected element-access evidence needs a stable synthetic symbol for mapped index signatures, whose TS-Go index infos have no concrete IndexSignatureDeclaration; normal index-type selection and diagnostics remain unchanged."}
- *
  * Go source:
  * func (c *Checker) getApplicableIndexSymbol(t *Type, keyType *Type) *ast.Symbol {
  * 	if info := c.getApplicableIndexInfo(t, keyType); info != nil && info != c.anyBaseTypeIndexInfo {
@@ -6312,7 +6310,6 @@ export declare function Checker_getApplicableIndexInfos(receiver: GoPtr<Checker>
  * }
  */
 export declare function Checker_getApplicableIndexSymbol(receiver: GoPtr<Checker>, t: GoPtr<Type>, keyType: GoPtr<Type>): GoPtr<Symbol>;
-export declare function Checker_getIndexSymbolForSelectedInfo(receiver: GoPtr<Checker>, t: GoPtr<Type>, info: GoPtr<IndexInfo>, selectedKeyType?: GoPtr<Type>): GoPtr<Symbol>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.containsArgumentsReference","kind":"method","status":"implemented","sigHash":"d4ce4269801db06d19db13e54b586d39a519483923f2b47cb713e8f8c7ccd862","bodyHash":"7f8b145dfec356ee7f3ab9d1c6b5673b2c947cb744ead9fd3d2c2a59bd6027e9"}
  *

@@ -3548,7 +3548,7 @@ export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Ch
 export declare function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpressionOrQualifiedName","kind":"method","status":"implemented","sigHash":"9215f415f7607d418e5a3a390b0bf838e9a2f44b6cd177065016f5a85a4714b1","bodyHash":"c9ee642c0561d3b1c6f6fcf3a43fb2def31c2e6dcf98504b1f6a3169813218e3"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"When TS-Go selects an index signature for property access, extension-selected evidence needs the same resolved-symbol cache that TS-Go already creates for public symbol queries."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact checker path additionally retains the selected index declaration for extension evidence without synthesizing a checker-visible symbol or mutating TS-Go core symbol caches."}
  * Go source:
  * func (c *Checker) checkPropertyAccessExpressionOrQualifiedName(node *ast.Node, left *ast.Node, leftType *Type, right *ast.Node, checkMode CheckMode, writeOnly bool) *Type {
  * 	parentSymbol := c.getResolvedSymbolOrNil(left)
@@ -9335,6 +9335,7 @@ export declare function Checker_getIndexedAccessType(receiver: GoPtr<Checker>, o
 export declare function Checker_getIndexedAccessTypeEx(receiver: GoPtr<Checker>, objectType: GoPtr<Type>, indexType: GoPtr<Type>, accessFlags: AccessFlags, accessNode: GoPtr<Node>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIndexedAccessTypeOrUndefined","kind":"method","status":"implemented","sigHash":"d3713965735851a9deab87bfb2f9295d6712e67d34c160acab1e88fc8a1a0112","bodyHash":"67cdcb10f24bb41623761bc86627a1638cf3dc86c0448b17d465669ebc7aa244"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The public TS-Go operation delegates to an exact worker that can additionally retain the index infos selected by the same check for extension evidence; the ordinary path supplies no collector and source checking is unchanged."}
  *
  * Go source:
  * func (c *Checker) getIndexedAccessTypeOrUndefined(objectType *Type, indexType *Type, accessFlags AccessFlags, accessNode *ast.Node, alias *TypeAlias) *Type {
@@ -9406,7 +9407,7 @@ export declare function Checker_getIndexedAccessTypeEx(receiver: GoPtr<Checker>,
 export declare function Checker_getIndexedAccessTypeOrUndefined(receiver: GoPtr<Checker>, objectType: GoPtr<Type>, indexType: GoPtr<Type>, accessFlags: AccessFlags, accessNode: GoPtr<Node>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getPropertyTypeForIndexType","kind":"method","status":"implemented","sigHash":"b165e26df1bd4167798c456fec8881582ad4a6c35f9d23dd470b4c9da80f6f58","bodyHash":"78ac5563270df952a0013017c2c289f27c217028281aef86cf17062c9ee47126"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"When TS-Go selects an index signature for element access, extension-selected evidence needs the same resolved-symbol cache that TS-Go already creates for public symbol queries."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The public TS-Go operation delegates to an exact worker that records the already-selected index info only when an extension evidence collector is supplied; core symbol caches and ordinary checking remain identical to TS-Go."}
  *
  * Go source:
  * func (c *Checker) getPropertyTypeForIndexType(originalObjectType *Type, objectType *Type, indexType *Type, fullIndexType *Type, accessNode *ast.Node, accessFlags AccessFlags) *Type {

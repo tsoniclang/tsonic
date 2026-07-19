@@ -14,6 +14,7 @@ export type ExtensionSourceDecisionEvent = {
     readonly kind: "checked-property";
     readonly origin: Node;
     readonly selectedSymbol: Symbol | undefined;
+    readonly selectedDeclaration: Node | undefined;
     readonly resultType: Type;
     readonly receiverType: Type;
     readonly selectionMode: "read" | "write";
@@ -23,6 +24,7 @@ export type ExtensionSourceDecisionEvent = {
     readonly kind: "checked-element";
     readonly origin: Node;
     readonly selectedSymbol: Symbol | undefined;
+    readonly selectedDeclaration: Node | undefined;
     readonly resultType: Type;
     readonly selectedElementIndex: number | undefined;
     readonly receiverType: Type;

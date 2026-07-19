@@ -569,6 +569,7 @@ function sourceDecisionEventsEquivalent(left, right) {
         case "checked-property":
             return right.kind === left.kind
                 && left.selectedSymbol === right.selectedSymbol
+                && left.selectedDeclaration === right.selectedDeclaration
                 && checkedSourceTypesShareStableIdentity(left.resultType, right.resultType)
                 && checkedSourceTypesShareStableIdentity(left.receiverType, right.receiverType)
                 && left.selectionMode === right.selectionMode
@@ -577,6 +578,7 @@ function sourceDecisionEventsEquivalent(left, right) {
         case "checked-element":
             return right.kind === left.kind
                 && left.selectedSymbol === right.selectedSymbol
+                && left.selectedDeclaration === right.selectedDeclaration
                 && checkedSourceTypesShareStableIdentity(left.resultType, right.resultType)
                 && left.selectedElementIndex === right.selectedElementIndex
                 && checkedSourceTypesShareStableIdentity(left.receiverType, right.receiverType)

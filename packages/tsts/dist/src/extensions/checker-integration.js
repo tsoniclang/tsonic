@@ -222,6 +222,7 @@ function publishExtensionSourceDecisionEvent(checker, extensionHost, event) {
         case "checked-element":
             publishExtensionCheckedElementAccessMapping(checker, extensionHost, event.origin, {
                 selectedSymbol: event.selectedSymbol,
+                selectedDeclaration: event.selectedDeclaration,
                 resultType: event.resultType,
                 ...(event.selectedElementIndex === undefined ? {} : { selectedElementIndex: event.selectedElementIndex }),
                 receiverType: event.receiverType,
@@ -491,6 +492,7 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
         kind: "checked-property",
         origin: propertyAccessExpression,
         selectedSymbol: selected.selectedSymbol,
+        selectedDeclaration: selected.selectedDeclaration,
         resultType: selected.resultType,
         receiverType: selected.receiverType,
         selectionMode: selected.selectionMode,
@@ -506,7 +508,8 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
         throw new Error("Checked property callee evidence has no exact receiver or enclosing call expression.");
     }
     const sourceSelectedSymbol = selectedSourceSymbol(checker, selected.selectedSymbol);
-    const sourceSelectedDeclaration = symbolValueDeclaration(sourceSelectedSymbol);
+    const sourceSelectedDeclaration = selected.selectedDeclaration
+        ?? symbolValueDeclaration(sourceSelectedSymbol);
     retainCheckedCallSelectionSeed(checker, callExpression, {
         calleeProvenance: Object.freeze({
             ...(sourceSelectedSymbol === undefined ? {} : { symbol: sourceSelectedSymbol, selectedSymbol: sourceSelectedSymbol }),
@@ -616,7 +619,8 @@ function publishExtensionCheckedPropertyAccessMapping(checker, extensionHost, pr
 }
 function selectedPropertySelectionProvenance(checker, selected) {
     const sourceSelectedSymbol = selectedSourceSymbol(checker, selected.selectedSymbol);
-    const sourceSelectedDeclaration = symbolValueDeclaration(sourceSelectedSymbol);
+    const sourceSelectedDeclaration = selected.selectedDeclaration
+        ?? symbolValueDeclaration(sourceSelectedSymbol);
     return {
         ...(sourceSelectedSymbol === undefined ? {} : { selectedSymbol: sourceSelectedSymbol }),
         ...(sourceSelectedDeclaration === undefined ? {} : { selectedDeclaration: sourceSelectedDeclaration }),
@@ -646,6 +650,7 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
         kind: "checked-element",
         origin: elementAccessExpression,
         selectedSymbol: selected.selectedSymbol,
+        selectedDeclaration: selected.selectedDeclaration,
         resultType: selected.resultType,
         selectedElementIndex: selected.selectedElementIndex,
         receiverType: selected.receiverType,
@@ -663,7 +668,8 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
         throw new Error("Checked element callee evidence has no exact receiver, argument, or enclosing call expression.");
     }
     const sourceSelectedSymbol = selectedSourceSymbol(checker, selected.selectedSymbol);
-    const sourceSelectedDeclaration = symbolValueDeclaration(sourceSelectedSymbol);
+    const sourceSelectedDeclaration = selected.selectedDeclaration
+        ?? symbolValueDeclaration(sourceSelectedSymbol);
     retainCheckedCallSelectionSeed(checker, callExpression, {
         calleeProvenance: Object.freeze({
             ...(sourceSelectedSymbol === undefined ? {} : { symbol: sourceSelectedSymbol, selectedSymbol: sourceSelectedSymbol }),
@@ -685,7 +691,8 @@ function publishExtensionCheckedElementAccessMapping(checker, extensionHost, ele
         return;
     }
     const sourceSelectedSymbol = selectedSourceSymbol(checker, selected.selectedSymbol);
-    const sourceSelectedDeclaration = symbolValueDeclaration(sourceSelectedSymbol);
+    const sourceSelectedDeclaration = selected.selectedDeclaration
+        ?? symbolValueDeclaration(sourceSelectedSymbol);
     const retainedRequest = extensionHost[extensionHostGetCheckedOperationRequest](ExtensionObservationPoint.mapCheckedElementAccess, elementAccessExpression);
     const canonicalSourceReceiverType = preserveEquivalentCheckedSourceType(retainedRequest?.sourceReceiver.type, selected.receiverType);
     const retainedReadType = retainedRequest?.accessMode === "read"
