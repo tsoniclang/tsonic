@@ -4,7 +4,13 @@ import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImpo
 import { KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
-import { ExtensionLifecycleEvent } from "./host.js";
+import { ExtensionLifecycleEvent, extensionHostRegisterFactResolver, extensionHostSetFact, } from "./host.js";
+function createSourceSemanticsFactAccess(host) {
+    return {
+        get: (subject, key) => host.facts.get(subject, key),
+        set: (subject, key, value, evidence = []) => host[extensionHostSetFact](subject, key, value, evidence),
+    };
+}
 function createSourceSemanticsModules(modules) {
     return modules.map((module) => {
         const primitivesByExportName = new Map();
@@ -54,9 +60,10 @@ export function createSourceSemanticsExtension(options) {
             ],
         },
         initialize(context) {
-            context.factResolver.register(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
+            const facts = createSourceSemanticsFactAccess(context.host);
+            context.host[extensionHostRegisterFactResolver](sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
             context.registerLifecycleHook(ExtensionLifecycleEvent.afterSourceFileBound, (request) => {
-                recordSourceSemanticsFacts(request, context.facts, context.diagnostics, options.identity.id, modules);
+                recordSourceSemanticsFacts(request, facts, context.diagnostics, options.identity.id, modules);
             });
         },
     };

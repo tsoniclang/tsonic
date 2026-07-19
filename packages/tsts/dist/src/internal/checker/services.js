@@ -1,3 +1,4 @@
+import { beginExtensionCheckedSourceDiscardDecision, rollbackExtensionCheckedSourceDiscardDecision } from "../../extensions/checker-integration.js";
 import { Index } from "../../go/strings.js";
 import { SourceFile_Path, SourceFile_Text } from "../ast/ast.js";
 import { byteAt, byteLen, byteSlice } from "../parser/utilities.js";
@@ -719,6 +720,8 @@ export function Checker_GetContextualType(receiver, node, contextFlags) {
  * }
  */
 export function runWithInferenceBlockedFromSourceNode(c, node, fn) {
+    const previousInferencePartiallyBlocked = c.isInferencePartiallyBlocked;
+    const previousSkipDirectInferenceNodes = new globalThis.Map(c.skipDirectInferenceNodes.M);
     const containingCall = FindAncestor(node, IsCallLikeExpression);
     if (containingCall !== undefined) {
         let toMarkSkip = node;
@@ -731,10 +734,16 @@ export function runWithInferenceBlockedFromSourceNode(c, node, fn) {
         }
     }
     c.isInferencePartiallyBlocked = true;
-    const result = runWithoutResolvedSignatureCaching(c, node, fn);
-    c.isInferencePartiallyBlocked = false;
-    Set_Clear(c.skipDirectInferenceNodes);
-    return result;
+    try {
+        return runWithoutResolvedSignatureCaching(c, node, fn);
+    }
+    finally {
+        c.isInferencePartiallyBlocked = previousInferencePartiallyBlocked;
+        Set_Clear(c.skipDirectInferenceNodes);
+        for (const [skipNode, value] of previousSkipDirectInferenceNodes) {
+            c.skipDirectInferenceNodes.M.set(skipNode, value);
+        }
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::func::GetResolvedSignatureForSignatureHelp","kind":"func","status":"implemented","sigHash":"2f835bae262779696e4c9406d7421d267ef0f46a545e6f24693b35cba96ed9b0","bodyHash":"93f77f76de050c32420d25e50c7cdb3dee8cbc044bc8fa0cd2e42138ba7a5187"}
@@ -793,33 +802,53 @@ export function GetResolvedSignatureForSignatureHelp(node, argumentCount, c) {
  * }
  */
 export function runWithoutResolvedSignatureCaching(c, node, fn) {
+    const discardDecision = beginExtensionCheckedSourceDiscardDecision(c);
     let ancestorNode = FindAncestor(node, IsCallLikeOrFunctionLikeExpression);
-    if (ancestorNode !== undefined) {
-        const cachedResolvedSignatures = new globalThis.Map();
-        const cachedTypes = new globalThis.Map();
-        let current = ancestorNode;
-        while (current !== undefined) {
-            const signatureLinks = LinkStore_Get(c.signatureLinks, current);
-            cachedResolvedSignatures.set(signatureLinks, signatureLinks.resolvedSignature);
-            signatureLinks.resolvedSignature = undefined;
-            if (IsFunctionExpressionOrArrowFunction(current)) {
-                const symbolLinks = LinkStore_Get(c.valueSymbolLinks, Checker_getSymbolOfDeclaration(c, current));
-                const resolvedType = symbolLinks.resolvedType;
-                cachedTypes.set(symbolLinks, resolvedType);
-                symbolLinks.resolvedType = undefined;
+    const cachedResolvedSignatures = new globalThis.Map();
+    const cachedTypes = new globalThis.Map();
+    try {
+        if (ancestorNode !== undefined) {
+            let current = ancestorNode;
+            while (current !== undefined) {
+                const signatureLinks = LinkStore_Get(c.signatureLinks, current);
+                cachedResolvedSignatures.set(signatureLinks, {
+                    resolvedSignature: signatureLinks.resolvedSignature,
+                    checkedCallSelectionSeed: signatureLinks.checkedCallSelectionSeed,
+                    resolvedCallSelectionEvidence: signatureLinks.resolvedCallSelectionEvidence,
+                    resolvedCallEvidence: signatureLinks.resolvedCallEvidence,
+                    extensionSourceDecisionOwner: signatureLinks.extensionSourceDecisionOwner,
+                });
+                signatureLinks.resolvedSignature = undefined;
+                signatureLinks.checkedCallSelectionSeed = undefined;
+                signatureLinks.resolvedCallSelectionEvidence = undefined;
+                signatureLinks.resolvedCallEvidence = undefined;
+                signatureLinks.extensionSourceDecisionOwner = undefined;
+                if (IsFunctionExpressionOrArrowFunction(current)) {
+                    const symbolLinks = LinkStore_Get(c.valueSymbolLinks, Checker_getSymbolOfDeclaration(c, current));
+                    const resolvedType = symbolLinks.resolvedType;
+                    cachedTypes.set(symbolLinks, resolvedType);
+                    symbolLinks.resolvedType = undefined;
+                }
+                current = FindAncestor(current.Parent, IsCallLikeOrFunctionLikeExpression);
             }
-            current = FindAncestor(current.Parent, IsCallLikeOrFunctionLikeExpression);
         }
-        const result = fn();
-        for (const [signatureLinks, resolvedSignature] of cachedResolvedSignatures) {
-            signatureLinks.resolvedSignature = resolvedSignature;
+        return fn();
+    }
+    finally {
+        for (const [signatureLinks, snapshot] of cachedResolvedSignatures) {
+            signatureLinks.resolvedSignature = snapshot.resolvedSignature;
+            signatureLinks.checkedCallSelectionSeed = snapshot.checkedCallSelectionSeed;
+            signatureLinks.resolvedCallSelectionEvidence = snapshot.resolvedCallSelectionEvidence;
+            signatureLinks.resolvedCallEvidence = snapshot.resolvedCallEvidence;
+            signatureLinks.extensionSourceDecisionOwner = snapshot.extensionSourceDecisionOwner;
         }
         for (const [symbolLinks, resolvedType] of cachedTypes) {
             symbolLinks.resolvedType = resolvedType;
         }
-        return result;
+        if (discardDecision !== undefined) {
+            rollbackExtensionCheckedSourceDiscardDecision(c, discardDecision);
+        }
     }
-    return fn();
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.SkipAlias","kind":"method","status":"implemented","sigHash":"109c3b6afadb4e6b6c4b27ae73bb4262aabb5a9c6c4c9fbffd122df9860fcc10","bodyHash":"c97d4c305e1d8d0fca27be06f9b9c9f2e8ba7d6f283712428a448e23e8015ae5"}
@@ -2199,6 +2228,7 @@ export function Checker_GetPropertySymbolOfDestructuringAssignment(receiver, loc
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.getTypeOfAssignmentPattern","kind":"method","status":"implemented","sigHash":"2529d6a29263410934acc184582d341c589621207b599f48715e02e8489f006d","bodyHash":"5ef48e94a19a1ad96fbf829854c373f64741f7ea677009fe8da927c12a262198"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Assignment-pattern services may query a for-of source element during implementation checking; the exact TS-Go query runs inside a discard frame so only the owning statement publishes the runtime iteration decision."}
  *
  * Go source:
  * func (c *Checker) getTypeOfAssignmentPattern(expr *ast.Node) *Type {
@@ -2236,7 +2266,14 @@ export function Checker_getTypeOfAssignmentPattern(receiver, expr) {
     //     for ( { a } of elems) {
     //     }
     if (IsForOfStatement(expr.Parent)) {
-        const iteratedType = Checker_checkRightHandSideOfForOf(receiver, expr.Parent);
+        const discardDecision = beginExtensionCheckedSourceDiscardDecision(receiver);
+        let iteratedType;
+        try {
+            iteratedType = Checker_checkRightHandSideOfForOf(receiver, expr.Parent);
+        }
+        finally {
+            rollbackExtensionCheckedSourceDiscardDecision(receiver, discardDecision);
+        }
         return Checker_checkDestructuringAssignment(receiver, expr, OrElse(iteratedType, receiver.errorType), CheckModeNormal, false);
     }
     // If this is from "for" initializer

@@ -8,7 +8,7 @@ import type { Symbol, SymbolTable } from "../../ast/symbol.js";
 import type { Message } from "../../diagnostics/diagnostics.js";
 import type { TypeMapper } from "../mapper.js";
 import type { Relation } from "../relater.js";
-import type { ContextFlags, IndexInfo, ResolvedCallEvidence, Signature, SignatureFlags, SignatureKind, Type, TypeComparer, TypeFlags, TypePredicate, TypeReference } from "../types.js";
+import type { ContextFlags, IndexInfo, ResolvedCallEvidence, ResolvedCallSelectionEvidence, Signature, SignatureFlags, SignatureKind, Type, TypeComparer, TypeFlags, TypePredicate, TypeReference } from "../types.js";
 import type { CallState, Checker, CheckMode, InferenceContext, IterationTypeKind, IterationTypes, thisAssignmentDeclarationKind } from "./state.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.GetTypeAliasTypeParameters","kind":"method","status":"implemented","sigHash":"0b4f54cda41fb6e460b50792c13ecf63a5a90b07e65ca4c27484c2ebd3b2b5d9","bodyHash":"02fa6e6ef34ba705f2d33b3f81000aaa91ecff0d2cb63d373a5a89e9c30a511d"}
@@ -1493,7 +1493,7 @@ export declare function Checker_resolveSignature(receiver: GoPtr<Checker>, node:
  */
 export declare function Checker_resolveCallExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode): GoPtr<Signature>;
 interface ResolvedSignatureEvidenceOutput {
-    evidence?: ResolvedCallEvidence;
+    evidence?: ResolvedCallSelectionEvidence;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isConstructorAccessible","kind":"method","status":"implemented","sigHash":"08733b3be47d5f962517bd2ff7291f4439a94f22e926cd00859f19e2d83f5601","bodyHash":"f26528f99bb86349d0d19a96d4bd77594aac160b4ec6d8ae42319b0e9b9ac776"}
@@ -1653,7 +1653,7 @@ export declare function Checker_isConstructorAccessible(receiver: GoPtr<Checker>
 export declare function Checker_resolveCall(receiver: GoPtr<Checker>, node: GoPtr<Node>, signatures: GoSlice<GoPtr<Signature>>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode, callChainFlags: SignatureFlags, headMessage: GoPtr<Message>): GoPtr<Signature>;
 export interface ResolvedCallWithEvidenceResult {
     readonly signature: GoPtr<Signature>;
-    readonly evidence?: ResolvedCallEvidence;
+    readonly evidence?: ResolvedCallSelectionEvidence;
 }
 export declare function Checker_resolveCallWithEvidence(receiver: GoPtr<Checker>, node: GoPtr<Node>, signatures: GoSlice<GoPtr<Signature>>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode, callChainFlags: SignatureFlags, headMessage: GoPtr<Message>, sourceCalleeType: GoPtr<Type>): ResolvedCallWithEvidenceResult;
 /**
@@ -1732,7 +1732,7 @@ export declare function Checker_reorderCandidates(receiver: GoPtr<Checker>, sign
 export declare function Checker_getOptionalCallSignature(receiver: GoPtr<Checker>, signature: GoPtr<Signature>, callChainFlags: SignatureFlags): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.chooseOverload","kind":"method","status":"implemented","sigHash":"35dba3b0efe4936419b69fa992defebeee5d256f458d7f9e4380a90f01ebf523","bodyHash":"700e21c92d57c8a4855429b73ba64cf71315dc211322c7e729c564783475cdec"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After the unchanged TS-Go overload winner is established, extension-enabled programs retain the exact contextual argument types computed by that successful applicability pass; failed and preliminary passes publish no evidence."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Each TS-Go overload candidate runs inside a nested extension evidence transaction: rejected and exceptional candidates discard nested checked operations and call evidence, while only the unchanged winning applicability pass commits its exact selected arguments."}
  *
  * Go source:
  * func (c *Checker) chooseOverload(s *CallState, relation *Relation) *Signature {
@@ -6312,6 +6312,7 @@ export declare function Checker_getApplicableIndexInfos(receiver: GoPtr<Checker>
  * }
  */
 export declare function Checker_getApplicableIndexSymbol(receiver: GoPtr<Checker>, t: GoPtr<Type>, keyType: GoPtr<Type>): GoPtr<Symbol>;
+export declare function Checker_getIndexSymbolForSelectedInfo(receiver: GoPtr<Checker>, t: GoPtr<Type>, info: GoPtr<IndexInfo>, selectedKeyType?: GoPtr<Type>): GoPtr<Symbol>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.containsArgumentsReference","kind":"method","status":"implemented","sigHash":"d4ce4269801db06d19db13e54b586d39a519483923f2b47cb713e8f8c7ccd862","bodyHash":"7f8b145dfec356ee7f3ab9d1c6b5673b2c947cb744ead9fd3d2c2a59bd6027e9"}
  *

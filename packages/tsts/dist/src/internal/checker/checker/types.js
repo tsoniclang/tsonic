@@ -1,5 +1,6 @@
 import { NewGoStructMap } from "../../../go/compat.js";
 import { recordExtensionContextualTargetTypeFact } from "../../../extensions/checker-integration.js";
+import { captureExtensionArrayOrStringIteration, captureKnownIterableInstantiation, captureSelectedIteratorMember, combineExtensionProtocolMechanisms, createChildExtensionIterationCapture, createExtensionIterationProtocolSelectionCapture, extensionIterationSelectionLimits, extensionIterationTypesMatch, isForAwaitOfIterationMechanism, isForOfIterationMechanism, setExtensionProtocolMechanismKind, } from "../../../extensions/checker-iteration-selection.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
 import { MaxInt } from "../../../go/math.js";
@@ -48,6 +49,7 @@ import { Checker_checkTruthinessExpression, Checker_checkTestingKnownTruthyCalla
 import { Checker_checkPropertyAssignment, Checker_checkShorthandPropertyAssignment, Checker_isTypeAssignableToKind, Checker_allTypesAssignableToKind, Checker_allTypesAssignableToKindEx, Checker_removeSubtypes, Checker_removeRedundantSupertypes, Checker_getSingleBaseForNonAugmentingSubtype, Checker_getContextualTypeForAssignmentExpression } from "./relations.js";
 import { Checker_getBaseConstraintOrType } from "./inference.js";
 import { instantiateList } from "./state.js";
+import { IterationUseForAwaitOf, IterationUseForOf } from "./state.js";
 import { SkipParentheses, SkipTypeParentheses, IsRightSideOfQualifiedNameOrPropertyAccess, FindAncestor, IsExpressionOfOptionalChainRoot, IsOptionalChain, IsOutermostOptionalChain, IsEntityName, IsStatic, IsInJSFile, IsInJsonFile, IsEntityNameExpression, GetFirstIdentifier, GetReparsedNodeForNode, IsFunctionExpressionOrArrowFunction, IsObjectLiteralMethod, SkipOuterExpressions, OEKAll, HasModifier, HasSyntacticModifier, GetClassLikeDeclarationOfSymbol, GetDeclarationOfKind, GetContainingFunction, FindAncestorOrQuit, FindAncestorTrue, FindAncestorFalse, FindAncestorQuit, IsAssertionExpression, GetSourceFileOfNode, WalkUpParenthesizedTypes, IsRequireCall, IsImportCall, IsLiteralExpression, IsBooleanLiteral, IsConstTypeReference, IsValidTypeOnlyAliasUseSite, NodeIsMissing, IsBindingPattern, IsPartOfParameterDeclaration, WalkUpBindingElementsAndPatterns, IsAutoAccessorPropertyDeclaration, IsComputedNonLiteralName, IsConstAssertion, IndexOfNode, HasDynamicName, GetNameOfDeclaration, IsPartOfTypeNode, ForEachReturnStatement, GetExtendsHeritageClauseElements, IsAssignmentTarget, HasContextSensitiveParameters, IsCheckJSEnabledForFile, IsTypeNodeKind, IsExternalOrCommonJSModule, TryGetClassImplementingOrExtendingExpressionWithTypeArguments, IsExpressionNode, IsTypeDeclaration, IsTypeDeclarationName, IsDeclaration, IsDeclarationNameOrImportPropertyName } from "../../ast/utilities.js";
 import { ScanTokenAtPosition, SkipTrivia, TokenToString } from "../../scanner/scanner.js";
 import { DeclarationNameToString, IdentifierToKeywordKind } from "../../scanner/utilities.js";
@@ -644,8 +646,68 @@ export function Checker_checkIteratedTypeOrElementType(receiver, use, inputType,
     }
     return receiver.anyType;
 }
+export function Checker_checkForOfIterationWithExtensionSelection(receiver, iterationKind, inputType, sentType, errorNode) {
+    const use = iterationKind === "for-await-of" ? IterationUseForAwaitOf : IterationUseForOf;
+    if (IsTypeAny(inputType)) {
+        const sourceType = inputType;
+        const selection = iterationKind === "for-await-of"
+            ? {
+                iterationKind: "for-await-of",
+                sourceIterableType: sourceType,
+                sourceElementType: sourceType,
+                mechanism: {
+                    kind: "untyped-dynamic-iteration",
+                    sourceIterableType: sourceType,
+                },
+            }
+            : {
+                iterationKind: "for-of",
+                sourceIterableType: sourceType,
+                sourceElementType: sourceType,
+                mechanism: {
+                    kind: "untyped-dynamic-iteration",
+                    sourceIterableType: sourceType,
+                },
+            };
+        return { elementType: sourceType, selection };
+    }
+    const capture = createExtensionIterationProtocolSelectionCapture();
+    const selectedElementType = Checker_getIteratedTypeOrElementTypeInternal(receiver, use, inputType, sentType, errorNode, true, capture);
+    const elementType = selectedElementType ?? receiver.anyType;
+    const mechanism = capture.mechanism;
+    if (selectedElementType === undefined || inputType === undefined || mechanism === undefined) {
+        return { elementType, selection: undefined };
+    }
+    if (iterationKind === "for-await-of") {
+        if (!isForAwaitOfIterationMechanism(mechanism)) {
+            return { elementType, selection: undefined };
+        }
+        return {
+            elementType,
+            selection: {
+                iterationKind,
+                sourceIterableType: inputType,
+                sourceElementType: selectedElementType,
+                mechanism,
+            },
+        };
+    }
+    if (!isForOfIterationMechanism(mechanism)) {
+        return { elementType, selection: undefined };
+    }
+    return {
+        elementType,
+        selection: {
+            iterationKind,
+            sourceIterableType: inputType,
+            sourceElementType: selectedElementType,
+            mechanism,
+        },
+    };
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIteratedTypeOrElementType","kind":"method","status":"implemented","sigHash":"0f0d4a167758d8fc19cee150bca9739b72c2d7ce0eb1f448d803a9ba7191902b","bodyHash":"9ea356abc30dfdf30fe198592eeea25fb8a6c72251efdf4b40b4a104ba6dc9a1"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go body with an absent extension capture; the extension-only wrapper supplies a capture without changing this public signature or allocating evidence on this path."}
  *
  * Go source:
  * func (c *Checker) getIteratedTypeOrElementType(use IterationUse, inputType *Type, sentType *Type, errorNode *ast.Node, checkAssignability bool) *Type {
@@ -756,6 +818,9 @@ export function Checker_checkIteratedTypeOrElementType(receiver, use, inputType,
  * }
  */
 export function Checker_getIteratedTypeOrElementType(receiver, use, inputType, sentType, errorNode, checkAssignability) {
+    return Checker_getIteratedTypeOrElementTypeInternal(receiver, use, inputType, sentType, errorNode, checkAssignability, undefined);
+}
+function Checker_getIteratedTypeOrElementTypeInternal(receiver, use, inputType, sentType, errorNode, checkAssignability, capture) {
     const allowAsyncIterables = (use & IterationUseAllowsAsyncIterablesFlag) !== 0;
     if (inputType === receiver.neverType) {
         if (errorNode !== undefined) {
@@ -766,7 +831,9 @@ export function Checker_getIteratedTypeOrElementType(receiver, use, inputType, s
     const iterableExists = receiver.getGlobalIterableType() !== receiver.emptyGenericType;
     const possibleOutOfBounds = receiver.compilerOptions.NoUncheckedIndexedAccess === TSTrue && (use & IterationUsePossiblyOutOfBounds) !== 0;
     if (iterableExists || allowAsyncIterables) {
-        const iterationTypes = Checker_getIterationTypesOfIterable(receiver, inputType, use, core.IfElse(iterableExists, errorNode, undefined));
+        const iterationTypes = capture === undefined
+            ? Checker_getIterationTypesOfIterable(receiver, inputType, use, core.IfElse(iterableExists, errorNode, undefined))
+            : Checker_getIterationTypesOfIterableWithExtensionSelection(receiver, inputType, use, core.IfElse(iterableExists, errorNode, undefined), capture);
         if (checkAssignability) {
             if (iterationTypes.nextType !== undefined) {
                 let diagnostic;
@@ -799,20 +866,33 @@ export function Checker_getIteratedTypeOrElementType(receiver, use, inputType, s
     }
     let arrayType = inputType;
     let hasStringConstituent = false;
+    let stringIterationType;
     if ((use & IterationUseAllowsStringInputFlag) !== 0) {
         if ((arrayType.flags & TypeFlagsUnion) !== 0) {
             const arrayTypes = Type_Types(inputType);
             const filteredTypes = core.Filter(arrayTypes, (ty) => (ty.flags & TypeFlagsStringLike) === 0);
             if (!core.Same(filteredTypes, arrayTypes)) {
+                if (capture !== undefined) {
+                    const stringTypes = core.Filter(arrayTypes, (ty) => (ty.flags & TypeFlagsStringLike) !== 0);
+                    stringIterationType = stringTypes.length === 1
+                        ? stringTypes[0]
+                        : Checker_getUnionTypeEx(receiver, stringTypes, UnionReductionSubtype, undefined, undefined);
+                }
                 arrayType = Checker_getUnionTypeEx(receiver, filteredTypes, UnionReductionSubtype, undefined, undefined);
             }
         }
         else if ((arrayType.flags & TypeFlagsStringLike) !== 0) {
+            if (capture !== undefined) {
+                stringIterationType = arrayType;
+            }
             arrayType = receiver.neverType;
         }
         hasStringConstituent = arrayType !== inputType;
         if (hasStringConstituent) {
             if ((arrayType.flags & TypeFlagsNever) !== 0) {
+                if (capture !== undefined) {
+                    captureExtensionArrayOrStringIteration(capture, allowAsyncIterables, undefined, undefined, stringIterationType);
+                }
                 if (possibleOutOfBounds) {
                     return Checker_includeUndefinedInIndexSignature(receiver, receiver.stringType);
                 }
@@ -836,6 +916,9 @@ export function Checker_getIteratedTypeOrElementType(receiver, use, inputType, s
     }
     const arrayElementType = Checker_getIndexTypeOfType(receiver, arrayType, receiver.numberType);
     if (hasStringConstituent && arrayElementType !== undefined) {
+        if (capture !== undefined) {
+            captureExtensionArrayOrStringIteration(capture, allowAsyncIterables, arrayType, arrayElementType, stringIterationType);
+        }
         if ((arrayElementType.flags & TypeFlagsStringLike) !== 0 && receiver.compilerOptions.NoUncheckedIndexedAccess !== TSTrue) {
             return receiver.stringType;
         }
@@ -843,6 +926,9 @@ export function Checker_getIteratedTypeOrElementType(receiver, use, inputType, s
             return Checker_getUnionTypeEx(receiver, [arrayElementType, receiver.stringType, receiver.undefinedType], UnionReductionSubtype, undefined, undefined);
         }
         return Checker_getUnionTypeEx(receiver, [arrayElementType, receiver.stringType], UnionReductionSubtype, undefined, undefined);
+    }
+    if (capture !== undefined) {
+        captureExtensionArrayOrStringIteration(capture, allowAsyncIterables, arrayType, arrayElementType, undefined);
     }
     if ((use & IterationUsePossiblyOutOfBounds) !== 0) {
         return Checker_includeUndefinedInIndexSignature(receiver, arrayElementType);
@@ -914,8 +1000,34 @@ export function Checker_getIterationTypesOfIterable(receiver, t, use, errorNode)
     }
     return result;
 }
+function Checker_getIterationTypesOfIterableWithExtensionSelection(receiver, t, use, errorNode, capture) {
+    capture.mechanism = undefined;
+    t = Checker_getReducedType(receiver, t);
+    if (IsTypeAny(t)) {
+        return { yieldType: receiver.anyType, returnType: receiver.anyType, nextType: receiver.anyType };
+    }
+    const key = { typeId: t.id, use: (use & IterationUseCacheFlags) };
+    let noCache = false;
+    const cached = receiver.iterationTypesCache.get(key);
+    if (cached !== undefined) {
+        if (errorNode === undefined || IterationTypes_hasTypes(cached)) {
+            const recomputed = Checker_getIterationTypesOfIterableWorkerInternal(receiver, t, use, undefined, true, capture, 0);
+            if (!extensionIterationTypesMatch(cached, recomputed)) {
+                capture.mechanism = undefined;
+            }
+            return cached;
+        }
+        noCache = true;
+    }
+    const result = Checker_getIterationTypesOfIterableWorkerInternal(receiver, t, use, errorNode, noCache, capture, 0);
+    if (!noCache) {
+        receiver.iterationTypesCache.set(key, result);
+    }
+    return result;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableWorker","kind":"method","status":"implemented","sigHash":"7e6888037f0fadc56c447ebf9c3dcf431eda566dc62a77972e7c82220ddf19bf","bodyHash":"3acd01b9d5a7b3780e694922641c398f0a5547d5e10789df7c01b4a58837148b"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go branch worker with no capture; the extension-only path passes a bounded companion capture so selected iterable protocol evidence is retained without a side table."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableWorker(t *Type, use IterationUse, errorNode *ast.Node, noCache bool) IterationTypes {
@@ -989,11 +1101,33 @@ export function Checker_getIterationTypesOfIterable(receiver, t, use, errorNode)
  * }
  */
 export function Checker_getIterationTypesOfIterableWorker(receiver, t, use, errorNode, noCache) {
+    return Checker_getIterationTypesOfIterableWorkerInternal(receiver, t, use, errorNode, noCache, undefined, 0);
+}
+function Checker_getIterationTypesOfIterableWorkerInternal(receiver, t, use, errorNode, noCache, capture, unionDepth) {
     if ((t.flags & TypeFlagsUnion) !== 0) {
         const allIterationTypes = [];
-        for (const constituent of Type_Types(t)) {
-            const iterationTypes = Checker_getIterationTypesOfIterableWorker(receiver, constituent, use, undefined, noCache);
+        const constituents = Type_Types(t);
+        let childCaptures;
+        if (capture !== undefined) {
+            if (unionDepth >= extensionIterationSelectionLimits.maxUnionDepth
+                || constituents.length > capture.budget.remainingUnionAlternatives) {
+                capture.budget.exhausted = true;
+                capture.mechanism = undefined;
+            }
+            else {
+                capture.budget.remainingUnionAlternatives -= constituents.length;
+                childCaptures = [];
+            }
+        }
+        for (const constituent of constituents) {
+            const childCapture = childCaptures === undefined || capture === undefined
+                ? undefined
+                : createChildExtensionIterationCapture(capture);
+            const iterationTypes = Checker_getIterationTypesOfIterableWorkerInternal(receiver, constituent, use, undefined, noCache, childCapture, unionDepth + 1);
             if (!IterationTypes_hasTypes(iterationTypes)) {
+                if (capture !== undefined) {
+                    capture.mechanism = undefined;
+                }
                 if (errorNode !== undefined) {
                     Checker_addDeferredDiagnostic(receiver, () => {
                         Checker_reportTypeNotIterableError(receiver, errorNode, t, (use & IterationUseAllowsAsyncIterablesFlag) !== 0);
@@ -1002,44 +1136,71 @@ export function Checker_getIterationTypesOfIterableWorker(receiver, t, use, erro
                 return { yieldType: undefined, returnType: undefined, nextType: undefined };
             }
             allIterationTypes.push(iterationTypes);
+            if (childCapture !== undefined && childCaptures !== undefined) {
+                childCaptures.push(childCapture);
+            }
+        }
+        if (capture !== undefined && childCaptures !== undefined) {
+            combineExtensionProtocolMechanisms(capture, childCaptures, (use & IterationUseAllowsAsyncIterablesFlag) !== 0);
         }
         return Checker_combineIterationTypes(receiver, allIterationTypes);
     }
     let diags = [];
     if ((use & IterationUseAllowsAsyncIterablesFlag) !== 0) {
-        let iterationTypes = Checker_getIterationTypesOfIterableFast(receiver, t, receiver.asyncIterationTypesResolver);
+        let iterationTypes = Checker_getIterationTypesOfIterableFastInternal(receiver, t, receiver.asyncIterationTypesResolver, capture);
         if (IterationTypes_hasTypes(iterationTypes)) {
             if ((use & IterationUseForOfFlag) !== 0) {
-                return Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes, errorNode);
+                iterationTypes = Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes, errorNode);
+            }
+            if (capture !== undefined) {
+                setExtensionProtocolMechanismKind(capture, "asynchronous-iterator-protocol", iterationTypes);
             }
             return iterationTypes;
         }
-        iterationTypes = Checker_getIterationTypesOfIterableSlow(receiver, t, receiver.asyncIterationTypesResolver, errorNode, diags);
+        iterationTypes = Checker_getIterationTypesOfIterableSlowInternal(receiver, t, receiver.asyncIterationTypesResolver, errorNode, diags, capture);
         if (IterationTypes_hasTypes(iterationTypes)) {
             for (const d of diags) {
                 Checker_addDiagnostic(receiver, d);
+            }
+            if (capture !== undefined) {
+                setExtensionProtocolMechanismKind(capture, "asynchronous-iterator-protocol", iterationTypes);
             }
             return iterationTypes;
         }
     }
     if ((use & IterationUseAllowsSyncIterablesFlag) !== 0) {
-        let iterationTypes = Checker_getIterationTypesOfIterableFast(receiver, t, receiver.syncIterationTypesResolver);
+        let iterationTypes = Checker_getIterationTypesOfIterableFastInternal(receiver, t, receiver.syncIterationTypesResolver, capture);
         if (IterationTypes_hasTypes(iterationTypes)) {
             if ((use & IterationUseAllowsAsyncIterablesFlag) !== 0) {
-                return Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes, errorNode);
+                iterationTypes = Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes, errorNode);
+                if (capture !== undefined) {
+                    setExtensionProtocolMechanismKind(capture, "synchronous-iterator-adapted-to-async", iterationTypes);
+                }
+            }
+            else if (capture !== undefined) {
+                setExtensionProtocolMechanismKind(capture, "synchronous-iterator-protocol", iterationTypes);
             }
             return iterationTypes;
         }
-        iterationTypes = Checker_getIterationTypesOfIterableSlow(receiver, t, receiver.syncIterationTypesResolver, errorNode, diags);
+        iterationTypes = Checker_getIterationTypesOfIterableSlowInternal(receiver, t, receiver.syncIterationTypesResolver, errorNode, diags, capture);
         if (IterationTypes_hasTypes(iterationTypes)) {
             for (const d of diags) {
                 Checker_addDiagnostic(receiver, d);
             }
             if ((use & IterationUseAllowsAsyncIterablesFlag) !== 0) {
-                return Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes, errorNode);
+                iterationTypes = Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes, errorNode);
+                if (capture !== undefined) {
+                    setExtensionProtocolMechanismKind(capture, "synchronous-iterator-adapted-to-async", iterationTypes);
+                }
+            }
+            else if (capture !== undefined) {
+                setExtensionProtocolMechanismKind(capture, "synchronous-iterator-protocol", iterationTypes);
             }
             return iterationTypes;
         }
+    }
+    if (capture !== undefined) {
+        capture.mechanism = undefined;
     }
     if (errorNode !== undefined) {
         Checker_addDeferredDiagnostic(receiver, () => {
@@ -1053,6 +1214,7 @@ export function Checker_getIterationTypesOfIterableWorker(receiver, t, use, erro
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableFast","kind":"method","status":"implemented","sigHash":"ccbc8b0181c43f64f9fceaeea05b63de09efe319e9fa46a06a017e8842932dd9","bodyHash":"4328022ecde0ab72e0e4bad56b0a9879f7fe61d757396f39495ec537bbd32d2b"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go fast-path body with no capture; extension checking additionally retains the exact matched iterable target identity."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableFast(t *Type, r *IterationTypesResolver) IterationTypes {
@@ -1083,15 +1245,26 @@ export function Checker_getIterationTypesOfIterableWorker(receiver, t, use, erro
  * }
  */
 export function Checker_getIterationTypesOfIterableFast(receiver, t, r) {
+    return Checker_getIterationTypesOfIterableFastInternal(receiver, t, r, undefined);
+}
+function Checker_getIterationTypesOfIterableFastInternal(receiver, t, r, capture) {
     if (Checker_isReferenceToType(receiver, t, r.getGlobalIterableType()) ||
         Checker_isReferenceToType(receiver, t, r.getGlobalIteratorObjectType()) ||
         Checker_isReferenceToType(receiver, t, r.getGlobalIterableIteratorType()) ||
         Checker_isReferenceToType(receiver, t, r.getGlobalGeneratorType())) {
         const typeArguments = Checker_getTypeArguments(receiver, t);
-        return IterationTypesResolver_getResolvedIterationTypes(r, typeArguments[0], typeArguments[1], typeArguments[2]);
+        const iterationTypes = IterationTypesResolver_getResolvedIterationTypes(r, typeArguments[0], typeArguments[1], typeArguments[2]);
+        if (capture !== undefined) {
+            captureKnownIterableInstantiation(capture, t, iterationTypes);
+        }
+        return iterationTypes;
     }
     if (Checker_isReferenceToSomeType(receiver, t, r.getGlobalBuiltinIteratorTypes())) {
-        return IterationTypesResolver_getResolvedIterationTypes(r, Checker_getTypeArguments(receiver, t)[0], Checker_getBuiltinIteratorReturnType(receiver), receiver.unknownType);
+        const iterationTypes = IterationTypesResolver_getResolvedIterationTypes(r, Checker_getTypeArguments(receiver, t)[0], Checker_getBuiltinIteratorReturnType(receiver), receiver.unknownType);
+        if (capture !== undefined) {
+            captureKnownIterableInstantiation(capture, t, iterationTypes);
+        }
+        return iterationTypes;
     }
     return { yieldType: undefined, returnType: undefined, nextType: undefined };
 }
@@ -1251,6 +1424,7 @@ export function Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableSlow","kind":"method","status":"implemented","sigHash":"03c7c891dae3933a6d87327bb2a7af6987c4dc815ac724e9fca7568ca4a93dda","bodyHash":"63f8dfc4652e9318811bb3b88bbdd4f9d906915ec88791798202ffbcaaa677ab"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go slow-path body with no capture; extension checking additionally retains the exact selected iterator member and iterator type."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableSlow(t *Type, r *IterationTypesResolver, errorNode *ast.Node, diagnosticOutput *[]*ast.Diagnostic) IterationTypes {
@@ -1275,17 +1449,28 @@ export function Checker_getAsyncFromSyncIterationTypes(receiver, iterationTypes,
  * }
  */
 export function Checker_getIterationTypesOfIterableSlow(receiver, t, r, errorNode, diagnosticOutput) {
+    return Checker_getIterationTypesOfIterableSlowInternal(receiver, t, r, errorNode, diagnosticOutput, undefined);
+}
+function Checker_getIterationTypesOfIterableSlowInternal(receiver, t, r, errorNode, diagnosticOutput, capture) {
     const method = Checker_getPropertyOfType(receiver, t, Checker_getPropertyNameForKnownSymbolName(receiver, r.iteratorSymbolName));
     if (method !== undefined && (method.Flags & SymbolFlagsOptional) === 0) {
         const methodType = Checker_getTypeOfSymbol(receiver, method);
         if (IsTypeAny(methodType)) {
-            return { yieldType: receiver.anyType, returnType: receiver.anyType, nextType: receiver.anyType };
+            const iterationTypes = { yieldType: receiver.anyType, returnType: receiver.anyType, nextType: receiver.anyType };
+            if (capture !== undefined) {
+                captureSelectedIteratorMember(capture, t, method, methodType, receiver.anyType, iterationTypes);
+            }
+            return iterationTypes;
         }
         const allSignatures = Checker_getSignaturesOfType(receiver, methodType, SignatureKindCall);
         const validSignatures = core.Filter(allSignatures, (sig) => Checker_getMinArgumentCount(receiver, sig) === 0);
         if (validSignatures.length !== 0) {
             const iteratorType = Checker_getIntersectionType(receiver, core.Map(validSignatures, (sig) => Checker_getReturnTypeOfSignature(receiver, sig)));
-            return Checker_getIterationTypesOfIteratorWorker(receiver, iteratorType, r, errorNode, diagnosticOutput);
+            const iterationTypes = Checker_getIterationTypesOfIteratorWorker(receiver, iteratorType, r, errorNode, diagnosticOutput);
+            if (capture !== undefined) {
+                captureSelectedIteratorMember(capture, t, method, methodType, iteratorType, iterationTypes);
+            }
+            return iterationTypes;
         }
         if (errorNode !== undefined && allSignatures.length !== 0) {
             Checker_checkTypeAssignableToEx(receiver, t, r.getGlobalIterableTypeChecked(), errorNode, undefined, diagnosticOutput);

@@ -1339,6 +1339,7 @@ export declare function Checker_GetPropertySymbolsFromContextualType(receiver: G
 export declare function Checker_GetPropertySymbolOfDestructuringAssignment(receiver: GoPtr<Checker>, location: GoPtr<Node>): GoPtr<Symbol>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.getTypeOfAssignmentPattern","kind":"method","status":"implemented","sigHash":"2529d6a29263410934acc184582d341c589621207b599f48715e02e8489f006d","bodyHash":"5ef48e94a19a1ad96fbf829854c373f64741f7ea677009fe8da927c12a262198"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Assignment-pattern services may query a for-of source element during implementation checking; the exact TS-Go query runs inside a discard frame so only the owning statement publishes the runtime iteration decision."}
  *
  * Go source:
  * func (c *Checker) getTypeOfAssignmentPattern(expr *ast.Node) *Type {

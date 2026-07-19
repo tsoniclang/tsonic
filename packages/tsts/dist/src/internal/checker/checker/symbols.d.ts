@@ -3345,7 +3345,7 @@ export declare function Checker_checkImportMetaProperty(receiver: GoPtr<Checker>
 export declare function Checker_checkMetaPropertyKeyword(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIdentifier","kind":"method","status":"implemented","sigHash":"e9a0175eaea65200220166cc3e50540931a8a88829684e8eeacf1be5a4eaeba7","bodyHash":"6ba6f3033cf51bb621524af70f6dc4d76f82fc1d415f1b812cdea626e961305f"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go identifier symbol and alias resolution, extension-enabled programs may validate provider-owned flow facts and direct call/new callees retain the already-selected symbol provenance without checker re-entry; no-extension programs and unmarked symbols remain on the exact TS-Go path."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go symbol/alias selection and assignment-validity checks accept an identifier use, extension-enabled programs may validate provider-owned flow facts; direct invocation callees retain the already-selected symbol provenance without checker re-entry. Invalid writes, query-only checks, no-extension programs, and unmarked symbols remain observation-free on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkIdentifier(node *ast.Node, checkMode CheckMode) *Type {

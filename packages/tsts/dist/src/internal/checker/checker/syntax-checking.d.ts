@@ -10,10 +10,11 @@ import type { SourceFile } from "../../ast/ast.js";
 import type { Symbol } from "../../ast/symbol.js";
 import type { Message } from "../../diagnostics/diagnostics.js";
 import type { Relation } from "../relater.js";
-import type { ResolvedCallEvidence, Signature, Type } from "../types.js";
+import type { ResolvedCallSelectionEvidence, Signature, Type } from "../types.js";
 import type { Checker, CheckMode, keyBuilder } from "./state.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkSourceFile","kind":"method","status":"implemented","sigHash":"73742795303ebe59bb331756ff6743713f7b9c4fbd309e3a8507a615e2dbf18f","bodyHash":"65678dd5c6e1f4ffa700bb65eee57bc088bcc84456cf8a0948d39f486e967a22"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Extension-enabled source checking retains checked-operation evidence in one source-file transaction; successful source checking commits the retained evidence, while exceptional checking discards it. The no-extension source-checking decisions remain unchanged."}
  *
  * Go source:
  * func (c *Checker) checkSourceFile(ctx context.Context, sourceFile *ast.SourceFile, checkUnused bool) {
@@ -219,6 +220,7 @@ export declare function Checker_checkWhileStatement(receiver: GoPtr<Checker>, no
 export declare function Checker_checkForStatement(receiver: GoPtr<Checker>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForInStatement","kind":"method","status":"implemented","sigHash":"1036d4dbf8b354145c0c0f92c80d29e05c2b482399bc67dce4e9ceaa19178e59","bodyHash":"519095d2acdf211f9d06a09c73c2cb2a7432e446dc023031d85188a83b4ce9a8"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go checks remain unchanged; extension-enabled checking additionally retains the already-selected for-in iterable and assignment element types for target-neutral deferred operation mapping."}
  *
  * Go source:
  * func (c *Checker) checkForInStatement(node *ast.Node) {
@@ -266,8 +268,6 @@ export declare function Checker_checkForStatement(receiver: GoPtr<Checker>, node
 export declare function Checker_checkForInStatement(receiver: GoPtr<Checker>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForOfStatement","kind":"method","status":"implemented","sigHash":"e566e597fa7d439638d7e79f7f6a58beadd26a29858a11cc0387de04ffb22181","bodyHash":"f6328f542ab5a70b49442a84232412dc6cab6f7c4c95af06a08d922482124273"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go for-of checking, extension-enabled programs record the selected source element type for both declaration and assignment initializers; no-extension programs remain on the exact TS-Go path."}
- *
  * Go source:
  * func (c *Checker) checkForOfStatement(node *ast.Node) {
  * 	data := node.AsForInOrOfStatement()
@@ -1004,7 +1004,7 @@ export declare function Checker_checkSuperExpression(receiver: GoPtr<Checker>, n
  */
 export declare function Checker_resolveNewExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode): GoPtr<Signature>;
 export declare function Checker_resolveNewExpressionWithEvidence(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode, output: {
-    evidence?: ResolvedCallEvidence;
+    evidence?: ResolvedCallSelectionEvidence;
 } | undefined): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveInstanceofExpression","kind":"method","status":"implemented","sigHash":"2d8f498ac5bffc3bf268aafddf73dca51418ef3592e08a635521fde73a6011a6","bodyHash":"b9fc552852c48b36d318f94bc4427992fe15a5a0abdfe2c866ee0a2fc7201f99"}
@@ -1860,6 +1860,7 @@ export declare function keyBuilder_writeNodeId(receiver: GoPtr<keyBuilder>, id: 
 export declare function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkRightHandSideOfForOf","kind":"method","status":"implemented","sigHash":"8f637629abb9bf55eaefc556e625a4b954704968fe8ecb31d25cd20e0826efea","bodyHash":"11f693ac4c38b91e7e3354961c906131c2d080dc4c2794be4908a41c6ef3c94f"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Records exact iterable and element evidence at the single normal TS-Go right-hand-side check; it neither re-enters checking nor changes the no-extension semantic result."}
  *
  * Go source:
  * func (c *Checker) checkRightHandSideOfForOf(statement *ast.Node) *Type {

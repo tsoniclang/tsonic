@@ -2,9 +2,92 @@ import { isArgumentPassingMode } from "./argument-passing.js";
 import { snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { providerDeclarationModelLimits } from "./provider-resource-limits.js";
 const providerModelReadFailure = Symbol("provider-model-read-failure");
+const providerModelFieldNameRecord = {
+    moduleSpecifier: true,
+    providerModuleId: true,
+    imports: true,
+    exports: true,
+    evidence: true,
+    defaultImport: true,
+    namespaceImport: true,
+    typeOnly: true,
+    namedImports: true,
+    exportedName: true,
+    localName: true,
+    kind: true,
+    id: true,
+    name: true,
+    exportName: true,
+    exportKind: true,
+    sourceTypeFamily: true,
+    targetIdentity: true,
+    documentation: true,
+    type: true,
+    typeParameters: true,
+    heritage: true,
+    members: true,
+    signatures: true,
+    target: true,
+    displayName: true,
+    packageName: true,
+    packageVersion: true,
+    typeArgumentCount: true,
+    static: true,
+    readonly: true,
+    optional: true,
+    parameters: true,
+    returnType: true,
+    passingMode: true,
+    rest: true,
+    defaultType: true,
+    variance: true,
+    constraints: true,
+    value: true,
+    typeArguments: true,
+    sourceShape: true,
+    elementType: true,
+    elementTypes: true,
+    types: true,
+    text: true,
+};
+const providerModelFieldNames = new Set(Object.keys(providerModelFieldNameRecord));
+function providerModelFields(...fields) {
+    return new Set(fields);
+}
+const providerModelShapeFields = {
+    model: providerModelFields("moduleSpecifier", "providerModuleId", "imports", "exports", "evidence"),
+    import: providerModelFields("moduleSpecifier", "defaultImport", "namespaceImport", "typeOnly", "namedImports"),
+    requestedExport: providerModelFields("exportedName", "localName", "kind"),
+    export: providerModelFields("id", "name", "kind", "exportName", "exportKind", "sourceTypeFamily", "targetIdentity", "documentation", "type", "typeParameters", "heritage", "members", "signatures"),
+    heritage: providerModelFields("kind", "type"),
+    member: providerModelFields("id", "kind", "name", "static", "readonly", "optional", "documentation", "type", "signatures"),
+    signature: providerModelFields("id", "name", "documentation", "parameters", "returnType", "typeParameters"),
+    parameter: providerModelFields("name", "passingMode", "optional", "rest", "type", "defaultType"),
+    typeParameter: providerModelFields("name", "variance", "constraints", "defaultType"),
+    typeFamily: providerModelFields("exportName", "typeArgumentCount"),
+    targetIdentity: providerModelFields("target", "id", "displayName", "packageName", "packageVersion"),
+    propertyIdentifier: providerModelFields("kind", "text"),
+    propertyNumber: providerModelFields("kind", "value"),
+    propertySymbol: providerModelFields("kind", "name"),
+    anyProperty: providerModelFields("kind", "text", "value", "name"),
+    scalarType: providerModelFields("kind"),
+    literalType: providerModelFields("kind", "value"),
+    namedType: providerModelFields("kind", "name"),
+    sourceGlobalType: providerModelFields("kind", "name", "typeArguments"),
+    targetNamedType: providerModelFields("kind", "target", "id", "displayName", "typeArguments", "sourceShape"),
+    arrayType: providerModelFields("kind", "elementType"),
+    tupleType: providerModelFields("kind", "elementTypes"),
+    compositeType: providerModelFields("kind", "types"),
+    functionType: providerModelFields("kind", "parameters", "returnType", "typeParameters"),
+    providerRefType: providerModelFields("kind", "moduleSpecifier", "exportName", "localName", "namespaceImport", "typeArguments"),
+    opaqueType: providerModelFields("kind", "id", "displayName", "sourceShape"),
+    anyType: providerModelFields("kind", "value", "name", "typeArguments", "target", "id", "displayName", "sourceShape", "elementType", "elementTypes", "types", "parameters", "returnType", "typeParameters", "moduleSpecifier", "exportName", "localName", "namespaceImport"),
+};
 export function validateProviderDeclarationModelGraph(value) {
     const reads = {
         fields: new WeakMap(),
+        fieldNames: new WeakMap(),
+        chargedScalarFields: new WeakMap(),
         arrays: new WeakMap(),
         arrayTraversal: new WeakMap(),
         physicalNodes: new WeakSet(),
@@ -162,6 +245,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
     switch (frame.kind) {
         case "model": {
             const model = frame.value;
+            if (!captureExactProviderModelRecord(reads, model, providerModelShapeFields.model, frame.path, frame.depth)) {
+                return false;
+            }
             const moduleSpecifier = readProviderModelField(reads, model, "moduleSpecifier");
             const providerModuleId = readProviderModelField(reads, model, "providerModuleId");
             const imports = readProviderModelField(reads, model, "imports");
@@ -175,6 +261,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "import": {
             const declaration = frame.value;
+            if (!captureExactProviderModelRecord(reads, declaration, providerModelShapeFields.import, frame.path, frame.depth)) {
+                return false;
+            }
             const moduleSpecifier = readProviderModelField(reads, declaration, "moduleSpecifier");
             const defaultImport = readProviderModelField(reads, declaration, "defaultImport");
             const namespaceImport = readProviderModelField(reads, declaration, "namespaceImport");
@@ -188,6 +277,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "requested-export": {
             const request = frame.value;
+            if (!captureExactProviderModelRecord(reads, request, providerModelShapeFields.requestedExport, frame.path, frame.depth)) {
+                return false;
+            }
             const exportedName = readProviderModelField(reads, request, "exportedName");
             const localName = readProviderModelField(reads, request, "localName");
             const requestKind = readProviderModelField(reads, request, "kind");
@@ -197,6 +289,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "export": {
             const declaration = frame.value;
+            if (!captureExactProviderModelRecord(reads, declaration, providerModelShapeFields.export, frame.path, frame.depth)) {
+                return false;
+            }
             const id = readProviderModelField(reads, declaration, "id");
             const name = readProviderModelField(reads, declaration, "name");
             const declarationKind = readProviderModelField(reads, declaration, "kind");
@@ -226,6 +321,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "heritage": {
             const heritage = frame.value;
+            if (!captureExactProviderModelRecord(reads, heritage, providerModelShapeFields.heritage, frame.path, frame.depth)) {
+                return false;
+            }
             const heritageKind = readProviderModelField(reads, heritage, "kind");
             const type = readProviderModelField(reads, heritage, "type");
             return (heritageKind === "extends" || heritageKind === "implements")
@@ -233,6 +331,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "member": {
             const member = frame.value;
+            if (!captureExactProviderModelRecord(reads, member, providerModelShapeFields.member, frame.path, frame.depth)) {
+                return false;
+            }
             const id = readProviderModelField(reads, member, "id");
             const memberKind = readProviderModelField(reads, member, "kind");
             const name = readProviderModelField(reads, member, "name");
@@ -254,6 +355,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "signature": {
             const signature = frame.value;
+            if (!captureExactProviderModelRecord(reads, signature, providerModelShapeFields.signature, frame.path, frame.depth)) {
+                return false;
+            }
             const id = readProviderModelField(reads, signature, "id");
             const name = readProviderModelField(reads, signature, "name");
             const documentation = readProviderModelField(reads, signature, "documentation");
@@ -269,6 +373,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "parameter": {
             const parameter = frame.value;
+            if (!captureExactProviderModelRecord(reads, parameter, providerModelShapeFields.parameter, frame.path, frame.depth)) {
+                return false;
+            }
             const name = readProviderModelField(reads, parameter, "name");
             const passingMode = readProviderModelField(reads, parameter, "passingMode");
             const optionalParameter = readProviderModelField(reads, parameter, "optional");
@@ -284,6 +391,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
         }
         case "type-parameter": {
             const parameter = frame.value;
+            if (!captureExactProviderModelRecord(reads, parameter, providerModelShapeFields.typeParameter, frame.path, frame.depth)) {
+                return false;
+            }
             const name = readProviderModelField(reads, parameter, "name");
             const variance = readProviderModelField(reads, parameter, "variance");
             const constraints = readProviderModelField(reads, parameter, "constraints");
@@ -302,6 +412,9 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
     }
 }
 function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
+    if (!captureExactProviderModelRecord(reads, type, providerModelShapeFields.anyType, path, depth)) {
+        return false;
+    }
     const typeKind = readProviderModelField(reads, type, "kind");
     if (typeof typeKind !== "string") {
         return false;
@@ -317,19 +430,28 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
         case "number":
         case "bigint":
         case "object":
-            return true;
+            return captureExactProviderModelRecord(reads, type, providerModelShapeFields.scalarType, path, depth);
         case "literal": {
             const literal = type;
+            if (!captureExactProviderModelRecord(reads, literal, providerModelShapeFields.literalType, path, depth)) {
+                return false;
+            }
             const value = readProviderModelField(reads, literal, "value");
             return value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number";
         }
         case "source-primitive":
         case "type-parameter": {
             const named = type;
+            if (!captureExactProviderModelRecord(reads, named, providerModelShapeFields.namedType, path, depth)) {
+                return false;
+            }
             return typeof readProviderModelField(reads, named, "name") === "string";
         }
         case "source-global": {
             const reference = type;
+            if (!captureExactProviderModelRecord(reads, reference, providerModelShapeFields.sourceGlobalType, path, depth)) {
+                return false;
+            }
             const name = readProviderModelField(reads, reference, "name");
             const typeArguments = readProviderModelField(reads, reference, "typeArguments");
             return typeof name === "string"
@@ -337,6 +459,9 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
         }
         case "target-named": {
             const named = type;
+            if (!captureExactProviderModelRecord(reads, named, providerModelShapeFields.targetNamedType, path, depth)) {
+                return false;
+            }
             const target = readProviderModelField(reads, named, "target");
             const id = readProviderModelField(reads, named, "id");
             const displayName = readProviderModelField(reads, named, "displayName");
@@ -350,19 +475,31 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
         }
         case "array": {
             const arrayType = type;
+            if (!captureExactProviderModelRecord(reads, arrayType, providerModelShapeFields.arrayType, path, depth)) {
+                return false;
+            }
             return pushOptionalProviderModelNode(stack, readProviderModelField(reads, arrayType, "elementType"), "type", depth, false, path + ".elementType");
         }
         case "tuple": {
             const tuple = type;
+            if (!captureExactProviderModelRecord(reads, tuple, providerModelShapeFields.tupleType, path, depth)) {
+                return false;
+            }
             return pushProviderModelArray(reads, stack, readProviderModelField(reads, tuple, "elementTypes"), "type", depth, false, path + ".elementTypes");
         }
         case "union":
         case "intersection": {
             const composite = type;
+            if (!captureExactProviderModelRecord(reads, composite, providerModelShapeFields.compositeType, path, depth)) {
+                return false;
+            }
             return pushProviderModelArray(reads, stack, readProviderModelField(reads, composite, "types"), "type", depth, false, path + ".types");
         }
         case "function": {
             const functionType = type;
+            if (!captureExactProviderModelRecord(reads, functionType, providerModelShapeFields.functionType, path, depth)) {
+                return false;
+            }
             const parameters = readProviderModelField(reads, functionType, "parameters");
             const returnType = readProviderModelField(reads, functionType, "returnType");
             const typeParameters = readProviderModelField(reads, functionType, "typeParameters");
@@ -372,6 +509,9 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
         }
         case "provider-ref": {
             const reference = type;
+            if (!captureExactProviderModelRecord(reads, reference, providerModelShapeFields.providerRefType, path, depth)) {
+                return false;
+            }
             const moduleSpecifier = readProviderModelField(reads, reference, "moduleSpecifier");
             const exportName = readProviderModelField(reads, reference, "exportName");
             const localName = readProviderModelField(reads, reference, "localName");
@@ -385,6 +525,9 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
         }
         case "opaque": {
             const opaque = type;
+            if (!captureExactProviderModelRecord(reads, opaque, providerModelShapeFields.opaqueType, path, depth)) {
+                return false;
+            }
             const id = readProviderModelField(reads, opaque, "id");
             const displayName = readProviderModelField(reads, opaque, "displayName");
             const sourceShape = readProviderModelField(reads, opaque, "sourceShape");
@@ -470,14 +613,26 @@ function captureProviderModelArrayValues(reads, values, path, depth) {
     if (cached !== undefined) {
         return cached;
     }
-    let length;
+    let prototype;
+    let lengthDescriptor;
     try {
-        length = values.length;
+        prototype = Object.getPrototypeOf(values);
+        lengthDescriptor = Object.getOwnPropertyDescriptor(values, "length");
     }
     catch {
         setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
         return undefined;
     }
+    if (prototype !== Array.prototype
+        || lengthDescriptor === undefined
+        || !("value" in lengthDescriptor)
+        || lengthDescriptor.writable !== true
+        || lengthDescriptor.enumerable !== false
+        || lengthDescriptor.configurable !== false) {
+        setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+        return undefined;
+    }
+    const length = lengthDescriptor.value;
     if (typeof length !== "number" || Number.isNaN(length) || length < 0 || !Number.isInteger(length)) {
         setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
         return undefined;
@@ -495,11 +650,30 @@ function captureProviderModelArrayValues(reads, values, path, depth) {
         });
         return undefined;
     }
+    let ownKeys;
+    try {
+        ownKeys = Reflect.ownKeys(values);
+    }
+    catch {
+        setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+        return undefined;
+    }
+    if (ownKeys.length !== length + 1
+        || ownKeys.some((key) => typeof key !== "string"
+            || key !== "length" && !isExactProviderModelArrayIndex(key, length))) {
+        setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+        return undefined;
+    }
     reads.physicalNodeAndArrayEntryCount += length;
     const captured = new Array(length);
     try {
         for (let index = 0; index < length; index++) {
-            captured[index] = values[index];
+            const descriptor = Object.getOwnPropertyDescriptor(values, String(index));
+            if (descriptor === undefined || !("value" in descriptor) || descriptor.enumerable !== true) {
+                setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path: `${path}[${index}]`, depth });
+                return undefined;
+            }
+            captured[index] = descriptor.value;
         }
     }
     catch {
@@ -508,6 +682,16 @@ function captureProviderModelArrayValues(reads, values, path, depth) {
     }
     reads.arrays.set(values, captured);
     return captured;
+}
+function isExactProviderModelArrayIndex(value, length) {
+    if (value === "0") {
+        return length > 0;
+    }
+    if (value.length === 0 || value.charCodeAt(0) === 48) {
+        return false;
+    }
+    const index = Number(value);
+    return Number.isSafeInteger(index) && index >= 0 && index < length && String(index) === value;
 }
 function pushOptionalProviderModelNode(stack, value, kind, depth, optional, path) {
     if (value === undefined) {
@@ -528,6 +712,73 @@ function isProviderModelRecord(value) {
     return typeof value === "object"
         && value !== null
         && classifyProviderModelArray(value) === "not-array";
+}
+function captureExactProviderModelRecord(reads, value, allowedFields, path, depth) {
+    if (!isProviderModelRecord(value)) {
+        setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+        return false;
+    }
+    let fields = reads.fields.get(value);
+    let fieldNames = reads.fieldNames.get(value);
+    if (fields === undefined || fieldNames === undefined) {
+        let prototype;
+        let ownKeys;
+        try {
+            prototype = Object.getPrototypeOf(value);
+            ownKeys = Reflect.ownKeys(value);
+        }
+        catch {
+            setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+            return false;
+        }
+        if (prototype !== Object.prototype && prototype !== null) {
+            setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+            return false;
+        }
+        fields = new Map();
+        const names = [];
+        try {
+            for (const key of ownKeys) {
+                if (typeof key !== "string" || !providerModelFieldNames.has(key)) {
+                    setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+                    return false;
+                }
+                const fieldName = key;
+                const descriptor = Object.getOwnPropertyDescriptor(value, fieldName);
+                if (descriptor === undefined || descriptor.enumerable !== true) {
+                    setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path: `${path}.${fieldName}`, depth: depth + 1 });
+                    return false;
+                }
+                let fieldValue;
+                if ("value" in descriptor) {
+                    fieldValue = descriptor.value;
+                }
+                else if (typeof descriptor.get === "function") {
+                    fieldValue = Reflect.apply(descriptor.get, value, []);
+                }
+                else {
+                    setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path: `${path}.${fieldName}`, depth: depth + 1 });
+                    return false;
+                }
+                names.push(fieldName);
+                fields.set(fieldName, fieldValue);
+            }
+        }
+        catch {
+            setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path, depth });
+            return false;
+        }
+        fieldNames = names;
+        reads.fields.set(value, fields);
+        reads.fieldNames.set(value, fieldNames);
+    }
+    for (const fieldName of fieldNames) {
+        if (!allowedFields.has(fieldName)) {
+            setProviderModelReadFailure(reads, { kind: "invalid", reason: "shape", path: `${path}.${fieldName}`, depth: depth + 1 });
+            return false;
+        }
+    }
+    return true;
 }
 function reserveProviderModelPhysicalNode(reads, value, path, depth) {
     if (reads.physicalNodes.has(value)) {
@@ -593,15 +844,21 @@ function isValidProviderPropertyNameShape(reads, value, path, depth) {
     if (!isProviderModelRecord(value) || !reserveProviderModelPhysicalNode(reads, value, path, depth)) {
         return false;
     }
+    if (!captureExactProviderModelRecord(reads, value, providerModelShapeFields.anyProperty, path, depth)) {
+        return false;
+    }
     const propertyKind = readProviderModelField(reads, value, "kind");
     switch (propertyKind) {
         case "identifier":
         case "string-literal":
-            return typeof readProviderModelField(reads, value, "text") === "string";
+            return captureExactProviderModelRecord(reads, value, providerModelShapeFields.propertyIdentifier, path, depth)
+                && typeof readProviderModelField(reads, value, "text") === "string";
         case "number-literal":
-            return typeof readProviderModelField(reads, value, "value") === "number";
+            return captureExactProviderModelRecord(reads, value, providerModelShapeFields.propertyNumber, path, depth)
+                && typeof readProviderModelField(reads, value, "value") === "number";
         case "well-known-symbol":
-            return typeof readProviderModelField(reads, value, "name") === "string";
+            return captureExactProviderModelRecord(reads, value, providerModelShapeFields.propertySymbol, path, depth)
+                && typeof readProviderModelField(reads, value, "name") === "string";
         default:
             return false;
     }
@@ -629,6 +886,7 @@ function isValidProviderTypeFamilyShape(reads, value, path, depth) {
     }
     return isProviderModelRecord(value)
         && reserveProviderModelPhysicalNode(reads, value, path, depth)
+        && captureExactProviderModelRecord(reads, value, providerModelShapeFields.typeFamily, path, depth)
         && typeof readProviderModelField(reads, value, "exportName") === "string"
         && typeof readProviderModelField(reads, value, "typeArgumentCount") === "number";
 }
@@ -638,6 +896,7 @@ function isValidProviderTargetIdentityShape(reads, value, path, depth) {
     }
     return isProviderModelRecord(value)
         && reserveProviderModelPhysicalNode(reads, value, path, depth)
+        && captureExactProviderModelRecord(reads, value, providerModelShapeFields.targetIdentity, path, depth)
         && typeof readProviderModelField(reads, value, "target") === "string"
         && typeof readProviderModelField(reads, value, "id") === "string"
         && isOptionalString(readProviderModelField(reads, value, "displayName"))
@@ -645,26 +904,22 @@ function isValidProviderTargetIdentityShape(reads, value, path, depth) {
         && isOptionalString(readProviderModelField(reads, value, "packageVersion"));
 }
 function readProviderModelField(reads, record, fieldName) {
-    let fields = reads.fields.get(record);
+    const fields = reads.fields.get(record);
     if (fields === undefined) {
-        fields = new Map();
-        reads.fields.set(record, fields);
+        throw new Error("Provider model field was read before its exact record shape was captured.");
     }
-    let value;
-    if (fields.has(fieldName)) {
-        value = fields.get(fieldName);
+    let value = fields.get(fieldName);
+    let chargedFields = reads.chargedScalarFields.get(record);
+    if (chargedFields === undefined) {
+        chargedFields = new Set();
+        reads.chargedScalarFields.set(record, chargedFields);
     }
-    else {
-        try {
-            value = record[fieldName];
-        }
-        catch {
-            value = providerModelReadFailure;
-        }
+    if (!chargedFields.has(fieldName)) {
+        chargedFields.add(fieldName);
         if (typeof value === "string" && !reserveProviderModelScalarCodeUnits(reads, value.length, `${reads.currentPath}.${String(fieldName)}`, reads.currentDepth + 1)) {
             value = providerModelReadFailure;
+            fields.set(fieldName, value);
         }
-        fields.set(fieldName, value);
     }
     if (typeof value === "string") {
         recordProviderModelSemanticScalarField(reads, record, fieldName, value.length);
@@ -927,8 +1182,9 @@ function snapshotProviderPropertyName(context, name) {
             break;
         }
     }
-    context.propertyNames.set(name, snapshot);
-    return snapshot;
+    const frozenSnapshot = Object.freeze(snapshot);
+    context.propertyNames.set(name, frozenSnapshot);
+    return frozenSnapshot;
 }
 function snapshotProviderSignatureDeclaration(context, signature) {
     const cached = getProviderModelNodeSnapshot(context, signature, "signature");
@@ -1172,8 +1428,9 @@ function snapshotProviderTypeFamily(context, family) {
         exportName: readProviderModelField(context.reads, family, "exportName"),
         typeArgumentCount: readProviderModelField(context.reads, family, "typeArgumentCount"),
     };
-    context.typeFamilies.set(family, snapshot);
-    return snapshot;
+    const frozenSnapshot = Object.freeze(snapshot);
+    context.typeFamilies.set(family, frozenSnapshot);
+    return frozenSnapshot;
 }
 function snapshotProviderTargetIdentity(context, identity) {
     const cached = context.targetIdentities.get(identity);
@@ -1192,8 +1449,9 @@ function snapshotProviderTargetIdentity(context, identity) {
         ...(packageName === undefined ? {} : { packageName }),
         ...(packageVersion === undefined ? {} : { packageVersion }),
     };
-    context.targetIdentities.set(identity, snapshot);
-    return snapshot;
+    const frozenSnapshot = Object.freeze(snapshot);
+    context.targetIdentities.set(identity, frozenSnapshot);
+    return frozenSnapshot;
 }
 function snapshotProviderModelArray(context, source, nodeKind, snapshotEntry) {
     const cached = context.arrays.get(source)?.get(nodeKind);
@@ -1201,7 +1459,7 @@ function snapshotProviderModelArray(context, source, nodeKind, snapshotEntry) {
         return cached;
     }
     const captured = getCapturedProviderModelArrayValues(context.reads, source);
-    const snapshot = captured.map((entry) => snapshotEntry(entry));
+    const snapshot = Object.freeze(captured.map((entry) => snapshotEntry(entry)));
     let snapshotsByKind = context.arrays.get(source);
     if (snapshotsByKind === undefined) {
         snapshotsByKind = new Map();
@@ -1224,12 +1482,16 @@ function getProviderModelNodeSnapshot(context, source, nodeKind) {
     return context.nodes.get(source)?.get(nodeKind);
 }
 function setProviderModelNodeSnapshot(context, source, nodeKind, snapshot) {
+    if (typeof snapshot !== "object" || snapshot === null) {
+        throw new Error("Provider model node snapshot invariant failed.");
+    }
+    const frozenSnapshot = Object.freeze(snapshot);
     let snapshotsByKind = context.nodes.get(source);
     if (snapshotsByKind === undefined) {
         snapshotsByKind = new Map();
         context.nodes.set(source, snapshotsByKind);
     }
-    snapshotsByKind.set(nodeKind, snapshot);
+    snapshotsByKind.set(nodeKind, frozenSnapshot);
 }
 function validateProviderModelGraphComplexity(reads, root) {
     const context = {

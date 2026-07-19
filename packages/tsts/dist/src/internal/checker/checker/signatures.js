@@ -1,4 +1,4 @@
-import { hasExtensionCheckedOperationHost } from "../../../extensions/checker-integration.js";
+import { beginExtensionCheckedSourceCandidateDecision, beginExtensionCheckedSourceDiscardDecision, beginExtensionCheckedSourceSignatureDecision, commitExtensionCheckedSourceCandidateDecision, commitExtensionCheckedSourceSignatureDecision, extensionCheckedSourceDecisionOwner, hasExtensionCheckedOperationHost, journalExtensionCheckedCallEvidence, rollbackExtensionCheckedSourceDecision, rollbackExtensionCheckedSourceDiscardDecision, } from "../../../extensions/checker-integration.js";
 import { ExtensionObservationPoint } from "../../../extensions/observations.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
@@ -2375,66 +2375,107 @@ export function Checker_isSymbolOrSymbolForCall(receiver, node) {
 export function Checker_getResolvedSignature(receiver, node, candidatesOutArray, checkMode) {
     const links = LinkStore_Get(receiver.signatureLinks, node);
     const cached = links.resolvedSignature;
+    const cachedSeed = links.checkedCallSelectionSeed;
+    const cachedSelectionEvidence = links.resolvedCallSelectionEvidence;
     const cachedEvidence = links.resolvedCallEvidence;
-    if (cached !== undefined && cached !== receiver.resolvingSignature && candidatesOutArray === undefined) {
+    const cachedSourceDecisionOwner = links.extensionSourceDecisionOwner;
+    const sourceDecisionOwner = extensionCheckedSourceDecisionOwner(receiver);
+    const sourceFile = GetSourceFileOfNode(node);
+    const requiresExactSourceSelection = IsCallOrNewExpression(node)
+        && sourceDecisionOwner !== undefined
+        && sourceFile === sourceDecisionOwner
+        && hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedCall, node);
+    const refreshExactSourceSelection = requiresExactSourceSelection
+        && cached !== undefined
+        && cached !== receiver.resolvingSignature
+        && cachedSourceDecisionOwner !== sourceDecisionOwner;
+    if (cached !== undefined
+        && cached !== receiver.resolvingSignature
+        && candidatesOutArray === undefined
+        && !refreshExactSourceSelection) {
         return cached;
     }
-    const saveResolutionStart = receiver.resolutionStart;
-    if (cached === undefined) {
-        receiver.resolutionStart = receiver.typeResolutions.length;
-    }
-    links.resolvedSignature = receiver.resolvingSignature;
-    if (IsCallOrNewExpression(node)) {
-        links.checkedCallSelectionSeed = undefined;
-        links.resolvedCallEvidence = undefined;
-    }
-    const localEvidence = IsCallOrNewExpression(node)
-        && hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedCall)
-        ? {}
-        : undefined;
-    let result = Checker_resolveSignatureWithEvidence(receiver, node, candidatesOutArray, checkMode, localEvidence);
-    let selectedEvidence = localEvidence?.evidence;
-    receiver.resolutionStart = saveResolutionStart;
-    if (result !== receiver.resolvingSignature) {
-        if (links.resolvedSignature !== receiver.resolvingSignature) {
-            result = links.resolvedSignature;
-            selectedEvidence = links.resolvedCallEvidence;
+    const signatureDecision = beginExtensionCheckedSourceSignatureDecision(receiver);
+    let signatureDecisionCompleted = false;
+    try {
+        const saveResolutionStart = receiver.resolutionStart;
+        if (cached === undefined || refreshExactSourceSelection) {
+            receiver.resolutionStart = receiver.typeResolutions.length;
         }
-        if (selectedEvidence !== undefined && selectedEvidence.selectedSignature !== result) {
-            throw new Error("Resolved call evidence does not belong to the source-order selected signature.");
+        if (IsCallOrNewExpression(node)) {
+            journalExtensionCheckedCallEvidence(receiver, links);
         }
-        if (receiver.flowLoopStack.length === 0) {
-            links.resolvedSignature = result;
-            if (IsCallOrNewExpression(node)) {
-                links.resolvedCallEvidence = selectedEvidence;
+        links.resolvedSignature = receiver.resolvingSignature;
+        if (IsCallOrNewExpression(node)) {
+            links.checkedCallSelectionSeed = undefined;
+            links.resolvedCallSelectionEvidence = undefined;
+            links.resolvedCallEvidence = undefined;
+        }
+        const localEvidence = requiresExactSourceSelection
+            ? {}
+            : undefined;
+        let result = Checker_resolveSignatureWithEvidence(receiver, node, candidatesOutArray, checkMode, localEvidence);
+        let selectedEvidence = localEvidence?.evidence;
+        receiver.resolutionStart = saveResolutionStart;
+        if (result !== receiver.resolvingSignature) {
+            if (links.resolvedSignature !== receiver.resolvingSignature) {
+                result = links.resolvedSignature;
+                selectedEvidence = links.resolvedCallSelectionEvidence;
+            }
+            if (selectedEvidence !== undefined && selectedEvidence.selectedSignature !== result) {
+                throw new Error("Resolved call evidence does not belong to the source-order selected signature.");
+            }
+            if (receiver.flowLoopStack.length === 0) {
+                links.resolvedSignature = result;
+                if (IsCallOrNewExpression(node)) {
+                    links.resolvedCallSelectionEvidence = selectedEvidence;
+                    links.resolvedCallEvidence = undefined;
+                    links.extensionSourceDecisionOwner = selectedEvidence === undefined
+                        ? undefined
+                        : sourceDecisionOwner;
+                }
+            }
+            else {
+                links.resolvedSignature = cached;
+                links.checkedCallSelectionSeed = cachedSeed;
+                links.resolvedCallSelectionEvidence = cachedSelectionEvidence;
+                links.resolvedCallEvidence = cachedEvidence;
+                links.extensionSourceDecisionOwner = cachedSourceDecisionOwner;
             }
         }
+        signatureDecisionCompleted = true;
+        return result;
+    }
+    finally {
+        if (signatureDecisionCompleted) {
+            commitExtensionCheckedSourceSignatureDecision(receiver, signatureDecision);
+        }
         else {
-            links.resolvedSignature = cached;
-            links.resolvedCallEvidence = cachedEvidence;
+            rollbackExtensionCheckedSourceDecision(receiver, signatureDecision);
         }
     }
-    return result;
 }
 export function Checker_finalizeResolvedCallEvidence(receiver, node, sourceResultType) {
     if (receiver === undefined || node === undefined || sourceResultType === undefined || !IsCallOrNewExpression(node)) {
         return undefined;
     }
     const links = LinkStore_Get(receiver.signatureLinks, node);
-    const evidence = links?.resolvedCallEvidence;
-    if (evidence === undefined) {
+    const selection = links?.resolvedCallSelectionEvidence;
+    if (selection === undefined) {
         return undefined;
     }
-    if (evidence.call !== node || evidence.selectedSignature !== links?.resolvedSignature) {
+    if (selection.call !== node || selection.selectedSignature !== links?.resolvedSignature) {
         throw new Error("Final resolved-call evidence does not match the cached call and selected signature.");
     }
-    if (evidence.sourceResultType !== undefined && evidence.sourceResultType !== sourceResultType) {
+    const evidence = links.resolvedCallEvidence;
+    if (evidence !== undefined && evidence.sourceResultType !== sourceResultType) {
         throw new Error("A checked call produced conflicting final instantiated source result types.");
     }
-    if (evidence.sourceResultType === sourceResultType) {
+    if (evidence !== undefined) {
         return evidence;
     }
-    const finalized = Object.freeze({ ...evidence, sourceResultType });
+    const finalized = Object.freeze({ ...selection, sourceResultType });
+    journalExtensionCheckedCallEvidence(receiver, links);
     links.resolvedCallEvidence = finalized;
     return finalized;
 }
@@ -2949,10 +2990,16 @@ function buildApplicableResolvedCallEvidence(receiver, node, sourceCalleeType, s
         expression: argument,
         type: selectedSourceArgumentTypes[index],
     }));
+    const selectedSignature = selection.applicability.signature;
+    const sourceSelectedMethodTypeArguments = selection.applicability.sourceSelectedMethodTypeArguments;
+    const sourceSelectedSignatureParameters = selection.applicability.sourceSelectedSignatureParameters;
     return Object.freeze({
         outcome: "applicable",
         call: node,
-        selectedSignature: selection.applicability.signature,
+        selectedSignature,
+        sourceSelectedSignatureKind: "resolved",
+        ...(sourceSelectedMethodTypeArguments === undefined ? {} : { sourceSelectedMethodTypeArguments }),
+        sourceSelectedSignatureParameters,
         sourceCallee: Object.freeze({
             expression: callee,
             type: sourceCalleeType,
@@ -2965,7 +3012,6 @@ function buildApplicableResolvedCallEvidence(receiver, node, sourceCalleeType, s
         sourceArguments: Object.freeze(resolvedSourceArguments),
         sourceArgumentBindings: Object.freeze(sourceArgumentBindings),
         ...(seed?.receiver === undefined ? {} : { sourceReceiver: seed.receiver }),
-        ...(seed?.inputOperationSubjects === undefined ? {} : { inputOperationSubjects: seed.inputOperationSubjects }),
     });
 }
 function buildUntypedResolvedCallEvidence(receiver, node, sourceCalleeType, selectedArgumentTypes) {
@@ -2990,6 +3036,8 @@ function buildUntypedResolvedCallEvidence(receiver, node, sourceCalleeType, sele
         outcome: "untyped",
         call: node,
         selectedSignature,
+        sourceSelectedSignatureKind: "untyped",
+        sourceSelectedSignatureParameters: Object.freeze([]),
         sourceCallee: Object.freeze({
             expression: callee,
             type: sourceCalleeType,
@@ -3005,8 +3053,60 @@ function buildUntypedResolvedCallEvidence(receiver, node, sourceCalleeType, sele
         }))),
         sourceArgumentBindings: Object.freeze([]),
         ...(seed?.receiver === undefined ? {} : { sourceReceiver: seed.receiver }),
-        ...(seed?.inputOperationSubjects === undefined ? {} : { inputOperationSubjects: seed.inputOperationSubjects }),
     });
+}
+function buildResolvedCallSelectedMethodTypeArguments(node, selectedSignature) {
+    const typeParameters = selectedSignature.target?.typeParameters ?? selectedSignature.typeParameters ?? [];
+    if (typeParameters.length === 0) {
+        return undefined;
+    }
+    if (selectedSignature.mapper === undefined) {
+        throw new Error("A selected generic call signature has no exact instantiated type-argument mapper.");
+    }
+    const explicitTypeNodes = Node_TypeArguments(node) ?? [];
+    return Object.freeze(typeParameters.map((typeParameter, index) => {
+        if (typeParameter === undefined || typeParameter.symbol === undefined || typeParameter.symbol.Name === "") {
+            throw new Error("A selected generic call signature has an unnamed source type parameter.");
+        }
+        const selectedType = TypeMapper_Map(selectedSignature.mapper, typeParameter);
+        if (selectedType === undefined) {
+            throw new Error("A selected generic call signature lost an instantiated source type argument.");
+        }
+        const explicitTypeNode = explicitTypeNodes[index];
+        return Object.freeze({
+            typeParameterName: typeParameter.symbol.Name,
+            typeParameter,
+            selectedType,
+            ...(explicitTypeNode === undefined ? {} : { explicitTypeNode }),
+        });
+    }));
+}
+function buildResolvedCallSelectedSignatureParameters(receiver, selectedSignature) {
+    const minimumArgumentCount = Checker_getMinArgumentCount(receiver, selectedSignature);
+    const restParameterIndex = signatureHasRestParameter(selectedSignature)
+        ? selectedSignature.parameters.length - 1
+        : -1;
+    return Object.freeze(selectedSignature.parameters.map((parameterSymbol, parameterIndex) => {
+        if (parameterSymbol === undefined) {
+            throw new Error("A selected call signature contains an absent source parameter symbol.");
+        }
+        const selectedType = Checker_getTypeOfParameter(receiver, parameterSymbol);
+        if (selectedType === undefined) {
+            throw new Error("A selected call signature lost an instantiated source parameter type.");
+        }
+        const parameterDeclaration = parameterSymbol.ValueDeclaration;
+        const authoredTypeNode = parameterDeclaration === undefined ? undefined : Node_Type(parameterDeclaration);
+        return Object.freeze({
+            parameterIndex,
+            parameterName: parameterSymbol.Name,
+            parameterSymbol,
+            ...(parameterDeclaration === undefined ? {} : { parameterDeclaration }),
+            selectedType,
+            ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }),
+            acceptsOmission: parameterIndex >= minimumArgumentCount,
+            rest: parameterIndex === restParameterIndex,
+        });
+    }));
 }
 function Checker_resolveCallWithSelectedArguments(receiver, node, signatures, candidatesOutArray, checkMode, callChainFlags, headMessage, output) {
     const isDecorator = node.Kind === KindDecorator;
@@ -3065,15 +3165,23 @@ function Checker_resolveCallWithSelectedArguments(receiver, node, signatures, ca
         }
         return result;
     }
-    result = Checker_getCandidateForOverloadFailure(receiver, callState.node, callState.candidates, callState.args, candidatesOutArray !== undefined, checkMode);
-    LinkStore_Get(receiver.signatureLinks, node).resolvedSignature = result;
-    if (reportErrors) {
-        const resolvedHeadMessage = headMessage === undefined && isInstanceof
-            ? The_left_hand_side_of_an_instanceof_expression_must_be_assignable_to_the_first_argument_of_the_right_hand_side_s_Symbol_hasInstance_method
-            : headMessage;
-        Checker_reportCallResolutionErrors(receiver, node, callState, signatures, resolvedHeadMessage);
+    const failureDecision = beginExtensionCheckedSourceDiscardDecision(receiver);
+    try {
+        result = Checker_getCandidateForOverloadFailure(receiver, callState.node, callState.candidates, callState.args, candidatesOutArray !== undefined, checkMode);
+        LinkStore_Get(receiver.signatureLinks, node).resolvedSignature = result;
+        if (reportErrors) {
+            const resolvedHeadMessage = headMessage === undefined && isInstanceof
+                ? The_left_hand_side_of_an_instanceof_expression_must_be_assignable_to_the_first_argument_of_the_right_hand_side_s_Symbol_hasInstance_method
+                : headMessage;
+            Checker_reportCallResolutionErrors(receiver, node, callState, signatures, resolvedHeadMessage);
+        }
+        return result;
     }
-    return result;
+    finally {
+        if (failureDecision !== undefined) {
+            rollbackExtensionCheckedSourceDiscardDecision(receiver, failureDecision);
+        }
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reorderCandidates","kind":"method","status":"implemented","sigHash":"35ebf926781ad9829f89337e383e4c3e53de8d5dfae3d53aa2ac291bcd5998f8","bodyHash":"bd76d93811b5b9de65e879ef734438a56c7660697e4024d8f7df96386f86afb4"}
@@ -3208,7 +3316,7 @@ export function Checker_getOptionalCallSignature(receiver, signature, callChainF
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.chooseOverload","kind":"method","status":"implemented","sigHash":"35dba3b0efe4936419b69fa992defebeee5d256f458d7f9e4380a90f01ebf523","bodyHash":"700e21c92d57c8a4855429b73ba64cf71315dc211322c7e729c564783475cdec"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After the unchanged TS-Go overload winner is established, extension-enabled programs retain the exact contextual argument types computed by that successful applicability pass; failed and preliminary passes publish no evidence."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Each TS-Go overload candidate runs inside a nested extension evidence transaction: rejected and exceptional candidates discard nested checked operations and call evidence, while only the unchanged winning applicability pass commits its exact selected arguments."}
  *
  * Go source:
  * func (c *Checker) chooseOverload(s *CallState, relation *Relation) *Signature {
@@ -3301,91 +3409,135 @@ function Checker_chooseOverloadWithSelectedArguments(receiver, s, relation, outp
     s.candidateForArgumentArityError = undefined;
     s.candidateForTypeArgumentError = undefined;
     if (s.isSingleNonGenericCandidate) {
-        const candidate = s.candidates[0];
-        if (s.typeArguments.length !== 0 || !Checker_hasCorrectArity(receiver, s.node, s.args, candidate, s.signatureHelpTrailingComma)) {
-            return undefined;
+        const evidenceDecision = beginExtensionCheckedSourceCandidateDecision(receiver);
+        let evidenceAccepted = false;
+        try {
+            const candidate = s.candidates[0];
+            if (s.typeArguments.length !== 0 || !Checker_hasCorrectArity(receiver, s.node, s.args, candidate, s.signatureHelpTrailingComma)) {
+                return undefined;
+            }
+            const selectedArguments = output === undefined ? undefined : [];
+            if (!Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, candidate, relation, CheckModeNormal, false, undefined, selectedArguments)) {
+                s.candidatesForArgumentError = [candidate];
+                return undefined;
+            }
+            retainApplicableCallSelection(receiver, s.node, output, candidate, selectedArguments);
+            evidenceAccepted = true;
+            return candidate;
         }
-        const selectedArguments = output === undefined ? undefined : [];
-        if (!Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, candidate, relation, CheckModeNormal, false, undefined, selectedArguments)) {
-            s.candidatesForArgumentError = [candidate];
-            return undefined;
-        }
-        retainApplicableCallSelection(output, candidate, selectedArguments);
-        return candidate;
-    }
-    for (let candidateIndex = 0; candidateIndex < s.candidates.length; candidateIndex++) {
-        const candidate = s.candidates[candidateIndex];
-        if (!Checker_hasCorrectTypeArgumentArity(receiver, candidate, s.typeArguments) || !Checker_hasCorrectArity(receiver, s.node, s.args, candidate, s.signatureHelpTrailingComma)) {
-            continue;
-        }
-        let checkCandidate;
-        let inferenceContext;
-        if (candidate.typeParameters.length !== 0) {
-            let typeArgumentTypes;
-            if (s.typeArguments.length !== 0) {
-                typeArgumentTypes = Checker_checkTypeArguments(receiver, candidate, s.typeArguments, false, undefined);
-                if (typeArgumentTypes === undefined) {
-                    s.candidateForTypeArgumentError = candidate;
-                    continue;
-                }
+        finally {
+            if (evidenceAccepted) {
+                commitExtensionCheckedSourceCandidateDecision(receiver, evidenceDecision);
             }
             else {
-                inferenceContext = Checker_newInferenceContext(receiver, candidate.typeParameters, candidate, core.IfElse(IsInJSFile(s.node), InferenceFlagsAnyDefault, InferenceFlagsNone), undefined);
-                typeArgumentTypes = Checker_inferTypeArguments(receiver, s.node, candidate, s.args, (s.argCheckMode | CheckModeSkipGenericFunctions), inferenceContext);
-                if ((inferenceContext.flags & InferenceFlagsSkippedGenericFunction) !== 0) {
-                    s.argCheckMode = (s.argCheckMode | CheckModeSkipGenericFunctions);
-                }
+                rollbackExtensionCheckedSourceDecision(receiver, evidenceDecision);
             }
-            let inferredTypeParameters;
-            if (inferenceContext !== undefined) {
-                inferredTypeParameters = inferenceContext.inferredTypeParameters;
-            }
-            checkCandidate = Checker_getSignatureInstantiation(receiver, candidate, typeArgumentTypes, IsInJSFile(candidate.declaration), inferredTypeParameters);
-            if (Checker_getNonArrayRestType(receiver, candidate) !== undefined && !Checker_hasCorrectArity(receiver, s.node, s.args, checkCandidate, s.signatureHelpTrailingComma)) {
-                s.candidateForArgumentArityError = checkCandidate;
+        }
+    }
+    for (let candidateIndex = 0; candidateIndex < s.candidates.length; candidateIndex++) {
+        const evidenceDecision = beginExtensionCheckedSourceCandidateDecision(receiver);
+        let evidenceAccepted = false;
+        try {
+            const candidate = s.candidates[candidateIndex];
+            if (!Checker_hasCorrectTypeArgumentArity(receiver, candidate, s.typeArguments) || !Checker_hasCorrectArity(receiver, s.node, s.args, candidate, s.signatureHelpTrailingComma)) {
                 continue;
             }
-        }
-        else {
-            checkCandidate = candidate;
-        }
-        let selectedArguments = output === undefined ? undefined : [];
-        if (!Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, checkCandidate, relation, s.argCheckMode, false, undefined, selectedArguments)) {
-            s.candidatesForArgumentError.push(checkCandidate);
-            continue;
-        }
-        if (s.argCheckMode !== 0) {
-            s.argCheckMode = CheckModeNormal;
-            if (inferenceContext !== undefined) {
-                const typeArgumentTypes = Checker_inferTypeArguments(receiver, s.node, candidate, s.args, s.argCheckMode, inferenceContext);
-                checkCandidate = Checker_getSignatureInstantiation(receiver, candidate, typeArgumentTypes, IsInJSFile(candidate.declaration), inferenceContext.inferredTypeParameters);
+            let checkCandidate;
+            let inferenceContext;
+            if (candidate.typeParameters.length !== 0) {
+                let typeArgumentTypes;
+                if (s.typeArguments.length !== 0) {
+                    typeArgumentTypes = Checker_checkTypeArguments(receiver, candidate, s.typeArguments, false, undefined);
+                    if (typeArgumentTypes === undefined) {
+                        s.candidateForTypeArgumentError = candidate;
+                        continue;
+                    }
+                }
+                else {
+                    inferenceContext = Checker_newInferenceContext(receiver, candidate.typeParameters, candidate, core.IfElse(IsInJSFile(s.node), InferenceFlagsAnyDefault, InferenceFlagsNone), undefined);
+                    typeArgumentTypes = Checker_inferTypeArguments(receiver, s.node, candidate, s.args, (s.argCheckMode | CheckModeSkipGenericFunctions), inferenceContext);
+                    if ((inferenceContext.flags & InferenceFlagsSkippedGenericFunction) !== 0) {
+                        s.argCheckMode = (s.argCheckMode | CheckModeSkipGenericFunctions);
+                    }
+                }
+                let inferredTypeParameters;
+                if (inferenceContext !== undefined) {
+                    inferredTypeParameters = inferenceContext.inferredTypeParameters;
+                }
+                checkCandidate = Checker_getSignatureInstantiation(receiver, candidate, typeArgumentTypes, IsInJSFile(candidate.declaration), inferredTypeParameters);
                 if (Checker_getNonArrayRestType(receiver, candidate) !== undefined && !Checker_hasCorrectArity(receiver, s.node, s.args, checkCandidate, s.signatureHelpTrailingComma)) {
                     s.candidateForArgumentArityError = checkCandidate;
                     continue;
                 }
             }
-            selectedArguments = output === undefined ? undefined : [];
-            if (!Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, checkCandidate, relation, s.argCheckMode, false, undefined, selectedArguments)) {
-                s.candidatesForArgumentError.push(checkCandidate);
-                continue;
+            else {
+                checkCandidate = candidate;
+            }
+            let selectedArguments;
+            if (s.argCheckMode !== 0) {
+                const preliminaryDecision = beginExtensionCheckedSourceDiscardDecision(receiver);
+                let preliminaryApplicable = false;
+                try {
+                    preliminaryApplicable = Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, checkCandidate, relation, s.argCheckMode, false, undefined, undefined);
+                }
+                finally {
+                    rollbackExtensionCheckedSourceDiscardDecision(receiver, preliminaryDecision);
+                }
+                if (!preliminaryApplicable) {
+                    s.candidatesForArgumentError.push(checkCandidate);
+                    continue;
+                }
+                s.argCheckMode = CheckModeNormal;
+                if (inferenceContext !== undefined) {
+                    const typeArgumentTypes = Checker_inferTypeArguments(receiver, s.node, candidate, s.args, s.argCheckMode, inferenceContext);
+                    checkCandidate = Checker_getSignatureInstantiation(receiver, candidate, typeArgumentTypes, IsInJSFile(candidate.declaration), inferenceContext.inferredTypeParameters);
+                    if (Checker_getNonArrayRestType(receiver, candidate) !== undefined && !Checker_hasCorrectArity(receiver, s.node, s.args, checkCandidate, s.signatureHelpTrailingComma)) {
+                        s.candidateForArgumentArityError = checkCandidate;
+                        continue;
+                    }
+                }
+                selectedArguments = output === undefined ? undefined : [];
+                if (!Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, checkCandidate, relation, s.argCheckMode, false, undefined, selectedArguments)) {
+                    s.candidatesForArgumentError.push(checkCandidate);
+                    continue;
+                }
+            }
+            else {
+                selectedArguments = output === undefined ? undefined : [];
+                if (!Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, s.node, s.args, checkCandidate, relation, s.argCheckMode, false, undefined, selectedArguments)) {
+                    s.candidatesForArgumentError.push(checkCandidate);
+                    continue;
+                }
+            }
+            s.candidates[candidateIndex] = checkCandidate;
+            retainApplicableCallSelection(receiver, s.node, output, checkCandidate, selectedArguments);
+            evidenceAccepted = true;
+            return checkCandidate;
+        }
+        finally {
+            if (evidenceAccepted) {
+                commitExtensionCheckedSourceCandidateDecision(receiver, evidenceDecision);
+            }
+            else {
+                rollbackExtensionCheckedSourceDecision(receiver, evidenceDecision);
             }
         }
-        s.candidates[candidateIndex] = checkCandidate;
-        retainApplicableCallSelection(output, checkCandidate, selectedArguments);
-        return checkCandidate;
     }
     return undefined;
 }
-function retainApplicableCallSelection(output, signature, selectedArguments) {
+function retainApplicableCallSelection(receiver, node, output, signature, selectedArguments) {
     if (output === undefined) {
         return;
     }
     if (selectedArguments === undefined || selectedArguments.some((argument) => argument === undefined)) {
         throw new Error("An applicable checked call lost an effective argument selection.");
     }
+    const sourceSelectedMethodTypeArguments = buildResolvedCallSelectedMethodTypeArguments(node, signature);
     output.selection = Object.freeze({
         signature,
         selectedArguments: Object.freeze(selectedArguments.slice()),
+        ...(sourceSelectedMethodTypeArguments === undefined ? {} : { sourceSelectedMethodTypeArguments }),
+        sourceSelectedSignatureParameters: buildResolvedCallSelectedSignatureParameters(receiver, signature),
     });
 }
 /**
@@ -11122,38 +11274,41 @@ export function Checker_getApplicableIndexInfos(receiver, t, keyType) {
  */
 export function Checker_getApplicableIndexSymbol(receiver, t, keyType) {
     const info = Checker_getApplicableIndexInfo(receiver, t, keyType);
-    if (info !== undefined && info !== receiver.anyBaseTypeIndexInfo) {
-        if (info.indexSymbol === undefined) {
-            let declarations = [];
-            if (info.declaration !== undefined) {
-                declarations = [info.declaration];
-            }
-            else {
-                for (const inf of (Checker_getIndexInfosOfType(receiver, t) ?? [])) {
-                    if (inf.declaration !== undefined && Checker_isApplicableIndexType(receiver, keyType, inf.keyType)) {
-                        declarations = [...(declarations ?? []), inf.declaration];
-                    }
+    return Checker_getIndexSymbolForSelectedInfo(receiver, t, info, keyType);
+}
+export function Checker_getIndexSymbolForSelectedInfo(receiver, t, info, selectedKeyType = info?.keyType) {
+    if (info === undefined || info === receiver.anyBaseTypeIndexInfo) {
+        return undefined;
+    }
+    if (info.indexSymbol === undefined) {
+        let declarations = [];
+        if (info.declaration !== undefined) {
+            declarations = [info.declaration];
+        }
+        else {
+            for (const candidate of (Checker_getIndexInfosOfType(receiver, t) ?? [])) {
+                if (candidate.declaration !== undefined && Checker_isApplicableIndexType(receiver, selectedKeyType, candidate.keyType)) {
+                    declarations = [...(declarations ?? []), candidate.declaration];
                 }
-            }
-            if ((declarations ?? []).length === 0) {
-                const mappedDeclaration = getMappedIndexEvidenceDeclaration(t);
-                if (mappedDeclaration !== undefined) {
-                    declarations = [mappedDeclaration];
-                }
-            }
-            if ((declarations ?? []).length !== 0) {
-                const symbol_ = Checker_newSymbol(receiver, SymbolFlagsProperty, InternalSymbolNameIndex);
-                symbol_.CheckFlags |= CheckFlagsIndexSymbol;
-                symbol_.Declarations = declarations;
-                symbol_.ValueDeclaration = declarations[0];
-                symbol_.Parent = t["symbol"];
-                LinkStore_Get(receiver.valueSymbolLinks, symbol_).resolvedType = info.valueType;
-                info.indexSymbol = symbol_;
             }
         }
-        return info.indexSymbol;
+        if ((declarations ?? []).length === 0) {
+            const mappedDeclaration = getMappedIndexEvidenceDeclaration(t);
+            if (mappedDeclaration !== undefined) {
+                declarations = [mappedDeclaration];
+            }
+        }
+        if ((declarations ?? []).length !== 0) {
+            const symbol_ = Checker_newSymbol(receiver, SymbolFlagsProperty, InternalSymbolNameIndex);
+            symbol_.CheckFlags |= CheckFlagsIndexSymbol;
+            symbol_.Declarations = declarations;
+            symbol_.ValueDeclaration = declarations[0];
+            symbol_.Parent = t["symbol"];
+            LinkStore_Get(receiver.valueSymbolLinks, symbol_).resolvedType = info.valueType;
+            info.indexSymbol = symbol_;
+        }
     }
-    return undefined;
+    return info.indexSymbol;
 }
 function getMappedIndexEvidenceDeclaration(t) {
     if (t === undefined || (t.flags & TypeFlagsObject) === 0) {

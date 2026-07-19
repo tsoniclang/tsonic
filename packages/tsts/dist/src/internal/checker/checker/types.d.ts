@@ -1,5 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
+import type { ExtensionCheckedIterationResult } from "../../../extensions/checker-iteration-selection.js";
 import type { Node } from "../../ast/spine.js";
 import type { TypeNode } from "../../ast/generated/unions.js";
 import type { Diagnostic } from "../../ast/diagnostic.js";
@@ -318,8 +319,10 @@ export declare function Checker_checkBaseTypeAccessibility(receiver: GoPtr<Check
  * }
  */
 export declare function Checker_checkIteratedTypeOrElementType(receiver: GoPtr<Checker>, use: IterationUse, inputType: GoPtr<Type>, sentType: GoPtr<Type>, errorNode: GoPtr<Node>): GoPtr<Type>;
+export declare function Checker_checkForOfIterationWithExtensionSelection(receiver: GoPtr<Checker>, iterationKind: "for-of" | "for-await-of", inputType: GoPtr<Type>, sentType: GoPtr<Type>, errorNode: GoPtr<Node>): ExtensionCheckedIterationResult;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIteratedTypeOrElementType","kind":"method","status":"implemented","sigHash":"0f0d4a167758d8fc19cee150bca9739b72c2d7ce0eb1f448d803a9ba7191902b","bodyHash":"9ea356abc30dfdf30fe198592eeea25fb8a6c72251efdf4b40b4a104ba6dc9a1"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go body with an absent extension capture; the extension-only wrapper supplies a capture without changing this public signature or allocating evidence on this path."}
  *
  * Go source:
  * func (c *Checker) getIteratedTypeOrElementType(use IterationUse, inputType *Type, sentType *Type, errorNode *ast.Node, checkAssignability bool) *Type {
@@ -472,6 +475,7 @@ export declare function Checker_getIterationTypeOfIterable(receiver: GoPtr<Check
 export declare function Checker_getIterationTypesOfIterable(receiver: GoPtr<Checker>, t: GoPtr<Type>, use: IterationUse, errorNode: GoPtr<Node>): IterationTypes;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableWorker","kind":"method","status":"implemented","sigHash":"7e6888037f0fadc56c447ebf9c3dcf431eda566dc62a77972e7c82220ddf19bf","bodyHash":"3acd01b9d5a7b3780e694922641c398f0a5547d5e10789df7c01b4a58837148b"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go branch worker with no capture; the extension-only path passes a bounded companion capture so selected iterable protocol evidence is retained without a side table."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableWorker(t *Type, use IterationUse, errorNode *ast.Node, noCache bool) IterationTypes {
@@ -547,6 +551,7 @@ export declare function Checker_getIterationTypesOfIterable(receiver: GoPtr<Chec
 export declare function Checker_getIterationTypesOfIterableWorker(receiver: GoPtr<Checker>, t: GoPtr<Type>, use: IterationUse, errorNode: GoPtr<Node>, noCache: bool): IterationTypes;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableFast","kind":"method","status":"implemented","sigHash":"ccbc8b0181c43f64f9fceaeea05b63de09efe319e9fa46a06a017e8842932dd9","bodyHash":"4328022ecde0ab72e0e4bad56b0a9879f7fe61d757396f39495ec537bbd32d2b"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go fast-path body with no capture; extension checking additionally retains the exact matched iterable target identity."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableFast(t *Type, r *IterationTypesResolver) IterationTypes {
@@ -686,6 +691,7 @@ export declare function Checker_getIterationTypeUnion(receiver: GoPtr<Checker>, 
 export declare function Checker_getAsyncFromSyncIterationTypes(receiver: GoPtr<Checker>, iterationTypes: IterationTypes, errorNode: GoPtr<Node>): IterationTypes;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableSlow","kind":"method","status":"implemented","sigHash":"03c7c891dae3933a6d87327bb2a7af6987c4dc815ac724e9fca7568ca4a93dda","bodyHash":"63f8dfc4652e9318811bb3b88bbdd4f9d906915ec88791798202ffbcaaa677ab"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go slow-path body with no capture; extension checking additionally retains the exact selected iterator member and iterator type."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableSlow(t *Type, r *IterationTypesResolver, errorNode *ast.Node, diagnosticOutput *[]*ast.Diagnostic) IterationTypes {
