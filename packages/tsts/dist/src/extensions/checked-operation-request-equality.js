@@ -1,5 +1,5 @@
 import { ExtensionObservationPoint } from "./observations.js";
-import { checkedCallSourceOperationEquals, checkedConversionSourceOperationEquals, checkedElementAccessSourceOperationEquals, checkedIterationSourceOperationEquals, checkedOperatorSourceOperationEquals, checkedPropertyAccessSourceOperationEquals, selectedTargetSignatureEquals, targetParameterEquals, targetTypeRefEquals, } from "./fact-value-equality.js";
+import { checkedCallSourceOperationEquals, checkedConversionSourceOperationEquals, checkedElementAccessSourceOperationEquals, checkedIterationSourceOperationEquals, checkedOperatorSourceOperationEquals, checkedPropertyAccessSourceOperationEquals, optionalCheckedSourceCallCompositionEvidenceEquals, selectedTargetSignatureEquals, targetParameterEquals, targetTypeRefEquals, } from "./fact-value-equality.js";
 export function checkedOperationRequestEquals(observation, left, right) {
     return differingCheckedOperationRequestFields(observation, left, right).length === 0;
 }
@@ -8,6 +8,7 @@ export function differingCheckedOperationRequestFields(observation, left, right)
     switch (observation) {
         case ExtensionObservationPoint.mapCheckedCall:
             compareSourceOperation(differences, checkedCallSourceOperationEquals(left, right));
+            compareValue(differences, "sourceComposition", left.sourceComposition, right.sourceComposition, optionalCheckedSourceCallCompositionEvidenceEquals);
             compareIdentity(differences, "target", left.target, right.target);
             break;
         case ExtensionObservationPoint.mapCheckedPropertyAccess:

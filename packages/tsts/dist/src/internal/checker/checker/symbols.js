@@ -1,4 +1,4 @@
-import { hasExtensionCheckedOperationHost, recordExtensionCheckedElementAccessMapping, recordExtensionCheckedPropertyAccessMapping, recordExtensionFlowUseValidation, recordExtensionRuntimeCarrierFact, recordExtensionTargetConstraintValidation, retainExtensionCheckedIdentifierCalleeSelection } from "../../../extensions/checker-integration.js";
+import { hasExtensionCheckedCallCalleeEvidenceInterest, hasExtensionCheckedOperationHost, recordExtensionCheckedElementAccessMapping, recordExtensionCheckedPropertyAccessMapping, recordExtensionFlowUseValidation, recordExtensionRuntimeCarrierFact, recordExtensionTargetConstraintValidation, retainExtensionCheckedIdentifierCalleeSelection } from "../../../extensions/checker-integration.js";
 import { ExtensionObservationPoint } from "../../../extensions/observations.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { GetNamespaceDeclarationNode, IsImportCall, IsImportOrExportSpecifier } from "../../ast/utilities.js";
@@ -5412,8 +5412,19 @@ function checkElementAccessExpressionWithEvidence(receiver, node, exprType, chec
         selected.resultType = resultType;
         selected.receiverType = objectType;
         selected.argumentType = effectiveIndexType;
-        selected.selectedSymbol = selectedSymbol;
-        selected.selectedDeclaration = selectedSymbol?.ValueDeclaration
+        const targetSelectedSymbol = selectedSymbol !== undefined && (selectedSymbol.Flags & SymbolFlagsAlias) !== 0
+            ? LinkStore_Get(receiver.aliasSymbolLinks, selectedSymbol)?.aliasTarget
+            : selectedSymbol;
+        if (selectedSymbol !== undefined
+            && (selectedSymbol.Flags & SymbolFlagsAlias) !== 0
+            && targetSelectedSymbol === undefined) {
+            throw new Error("Checked element access lost the alias target selected during TS-Go checking.");
+        }
+        selected.sourceSymbol = selectedSymbol;
+        selected.sourceDeclaration = selectedSymbol?.ValueDeclaration
+            ?? selectedIndexAccessDeclaration(selected.indexSelections);
+        selected.selectedSymbol = targetSelectedSymbol;
+        selected.selectedDeclaration = targetSelectedSymbol?.ValueDeclaration
             ?? selectedIndexAccessDeclaration(selected.indexSelections);
         const selectedElementIndex = getSelectedFixedTupleElementIndex(objectType, effectiveIndexType);
         if (selectedElementIndex !== undefined) {
@@ -5432,15 +5443,16 @@ function recordSelectedElementAccessEvidence(receiver, node, selected, sourceRes
         return;
     }
     const accessOwned = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedElementAccess, node);
-    const callCallee = Checker_isMethodAccessForCall(receiver, node);
-    const retainCallReceiverEvidence = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedCall, node)
-        && callCallee;
+    const retainCallReceiverEvidence = hasExtensionCheckedCallCalleeEvidenceInterest(receiver, node);
+    const callCallee = retainCallReceiverEvidence || Checker_isMethodAccessForCall(receiver, node);
     if (!accessOwned && !retainCallReceiverEvidence) {
         return;
     }
     recordExtensionCheckedElementAccessMapping(receiver, node, {
         selectedSymbol: selected.selectedSymbol,
         selectedDeclaration: selected.selectedDeclaration,
+        sourceSymbol: selected.sourceSymbol,
+        sourceDeclaration: selected.sourceDeclaration,
         resultType: sourceResultType,
         ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
         receiverType: selected.receiverType,
@@ -5451,14 +5463,15 @@ function recordSelectedElementAccessEvidence(receiver, node, selected, sourceRes
 }
 function selectedElementAccessCapture(receiver, node) {
     const accessOwned = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedElementAccess, node);
-    const callOwned = Checker_isMethodAccessForCall(receiver, node)
-        && hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedCall, node);
+    const callOwned = hasExtensionCheckedCallCalleeEvidenceInterest(receiver, node);
     return accessOwned || callOwned
         ? {
             selected: false,
             resultType: undefined,
             receiverType: undefined,
             argumentType: undefined,
+            sourceSymbol: undefined,
+            sourceDeclaration: undefined,
             selectedSymbol: undefined,
             selectedDeclaration: undefined,
             indexSelections: [],
@@ -6523,8 +6536,12 @@ function recordSelectedPropertyAccessEvidence(receiver, node, selected, sourceRe
     const record = (selectionMode, resultType) => recordExtensionCheckedPropertyAccessMapping(receiver, node, {
         selectedSymbol: selected.selectedSymbol,
         selectedDeclaration: selected.selectedDeclaration,
+        sourceSymbol: selected.sourceSymbol,
+        sourceDeclaration: selected.sourceDeclaration,
         resultType,
         receiverType: selected.receiverType,
+        receiverSymbol: selected.receiverSymbol,
+        receiverDeclaration: selected.receiverDeclaration,
         accessMode,
         selectionMode,
         callCallee: Checker_isMethodAccessForCall(receiver, node),
@@ -6541,8 +6558,7 @@ function recordSelectedPropertyAccessEvidence(receiver, node, selected, sourceRe
 }
 function selectedPropertyAccessCapture(receiver, node) {
     const accessOwned = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedPropertyAccess, node);
-    const callOwned = Checker_isMethodAccessForCall(receiver, node)
-        && hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedCall, node);
+    const callOwned = hasExtensionCheckedCallCalleeEvidenceInterest(receiver, node);
     return accessOwned || callOwned
         ? {
             selected: false,
@@ -6550,6 +6566,10 @@ function selectedPropertyAccessCapture(receiver, node) {
             readType: undefined,
             writeType: undefined,
             receiverType: undefined,
+            receiverSymbol: undefined,
+            receiverDeclaration: undefined,
+            sourceSymbol: undefined,
+            sourceDeclaration: undefined,
             selectedSymbol: undefined,
             selectedDeclaration: undefined,
         }
@@ -6859,6 +6879,12 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
                 selectedReadType = Checker_getTypeOfSymbol(receiver, prop);
             }
         }
+        if (selected !== undefined) {
+            selected.sourceSymbol = prop;
+            selected.sourceDeclaration = prop?.ValueDeclaration;
+            selected.selectedSymbol = targetPropSymbol;
+            selected.selectedDeclaration = targetPropSymbol?.ValueDeclaration;
+        }
     }
     const resultType = Checker_getFlowTypeOfAccessExpression(receiver, node, prop, propType, right, checkMode);
     if (selected !== undefined && !Checker_isErrorType(receiver, resultType) && resultType !== receiver.silentNeverType) {
@@ -6867,10 +6893,14 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
         selected.readType = selectedReadType;
         selected.writeType = selectedWriteType;
         selected.receiverType = apparentType;
-        selected.selectedSymbol = prop
+        selected.receiverSymbol = parentSymbol;
+        selected.receiverDeclaration = parentSymbol?.ValueDeclaration;
+        const resolvedSymbol = prop
             ?? LinkStore_Get(receiver.symbolNodeLinks, node).resolvedSymbol;
-        selected.selectedDeclaration = selected.selectedSymbol?.ValueDeclaration
-            ?? selectedDeclaration;
+        selected.sourceSymbol ??= resolvedSymbol;
+        selected.sourceDeclaration ??= selected.sourceSymbol?.ValueDeclaration ?? selectedDeclaration;
+        selected.selectedSymbol ??= resolvedSymbol;
+        selected.selectedDeclaration ??= selected.selectedSymbol?.ValueDeclaration ?? selectedDeclaration;
     }
     return resultType;
 }

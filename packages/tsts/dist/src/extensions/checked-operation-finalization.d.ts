@@ -1,5 +1,6 @@
-import type { CheckedOperationObservationPointName, CheckedOperationReference, ExtensionObservationPhase, ExtensionObservationRequest, ExtensionObservationResponse, ExtensionObservationResult } from "./observations.js";
+import type { CheckedOperationObservationPointName, CheckedOperationReference, ExtensionObservationPhase, ExtensionObservationResponse, ExtensionObservationResult } from "./observations.js";
 import type { ExtensionFactSubject } from "./host.js";
+import type { RetainedCheckedOperationRequest } from "./source-operation-producer.js";
 import { type CheckedOperationRequestSnapshotCache } from "./checked-operation-value-snapshot.js";
 type AnyCheckedOperationResult = ExtensionObservationResult<unknown>;
 type AcceptedCheckedOperationResult = Extract<AnyCheckedOperationResult, {
@@ -25,7 +26,9 @@ interface CheckedOperationRecord {
     readonly observation: CheckedOperationObservationPointName;
     readonly subject: ExtensionFactSubject;
     readonly reference: CheckedOperationReference;
-    readonly request: ExtensionObservationRequest<CheckedOperationObservationPointName>;
+    readonly request: RetainedCheckedOperationRequest<CheckedOperationObservationPointName>;
+    readonly retainedSnapshotUnits: number;
+    readonly retainedScalarCodeUnits: number;
     readonly dependencies: readonly CheckedOperationReference[];
     readonly atomicOwner?: CheckedOperationReference;
     allDependencies: readonly CheckedOperationReference[];
@@ -63,6 +66,8 @@ interface CheckedOperationSavepoint {
     readonly snapshots: Map<CheckedOperationRecord, CheckedOperationRecordSnapshot>;
     readonly edgeCount: number;
     readonly checkingRecordCursor: number;
+    readonly retainedSnapshotUnits: number;
+    readonly retainedScalarCodeUnits: number;
     readonly owner?: CheckedOperationRecord;
     commitRequested: boolean;
     active: boolean;
@@ -76,10 +81,10 @@ export interface CheckedOperationInventoryCallbacks {
     readonly discardAttemptPreservingDiagnostics: (attempt: unknown) => void;
     readonly rollbackAttemptPreservingOperations: (attempt: unknown) => readonly CheckedOperationReference[];
     readonly publishRejectedDiagnostic: (result: RejectedCheckedOperationResult) => void;
-    readonly onRequestConflict: (observation: CheckedOperationObservationPointName, subject: ExtensionFactSubject, existing: ExtensionObservationRequest<CheckedOperationObservationPointName>, incoming: ExtensionObservationRequest<CheckedOperationObservationPointName>) => void;
+    readonly onRequestConflict: (observation: CheckedOperationObservationPointName, subject: ExtensionFactSubject, existing: RetainedCheckedOperationRequest<CheckedOperationObservationPointName>, incoming: RetainedCheckedOperationRequest<CheckedOperationObservationPointName>) => void;
     readonly onDependencyConflict: (observation: CheckedOperationObservationPointName, subject: ExtensionFactSubject) => void;
     readonly onAtomicOwnerConflict: (observation: CheckedOperationObservationPointName, subject: ExtensionFactSubject) => void;
-    readonly onUnresolved: (observation: CheckedOperationObservationPointName, subject: ExtensionFactSubject) => void;
+    readonly onUnresolved: (observation: CheckedOperationObservationPointName, subject: ExtensionFactSubject, extensionId: string) => void;
     readonly onFatalFailure: (error: Error) => void;
 }
 export interface CheckedOperationInventoryLimits {
@@ -88,14 +93,16 @@ export interface CheckedOperationInventoryLimits {
     readonly savepointDepth: number;
     readonly activeSnapshots: number;
     readonly snapshotWork: number;
+    readonly retainedSnapshotUnits: number;
+    readonly retainedScalarCodeUnits: number;
     readonly finalizationWork: number;
 }
 export declare class CheckedOperationInventory {
     #private;
     constructor(callbacks: CheckedOperationInventoryCallbacks, limits?: Partial<CheckedOperationInventoryLimits>);
-    run<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, evaluate: (request: ExtensionObservationRequest<TObservation>, phase: ExtensionObservationPhase) => ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, apply: (result: ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, request: ExtensionObservationRequest<TObservation>) => void | CheckedOperationApplyOutcome, phase: ExtensionObservationPhase, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[], atomicOwner?: CheckedOperationReference): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
-    retain<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, evaluate: (request: ExtensionObservationRequest<TObservation>, phase: ExtensionObservationPhase) => ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, apply: (result: ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, request: ExtensionObservationRequest<TObservation>) => void | CheckedOperationApplyOutcome, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[]): CheckedOperationReference<TObservation>;
-    getRequest<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, subject: ExtensionFactSubject | undefined, reference?: CheckedOperationReference<TObservation>): ExtensionObservationRequest<TObservation> | undefined;
+    run<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: RetainedCheckedOperationRequest<TObservation>, evaluate: (request: RetainedCheckedOperationRequest<TObservation>, phase: ExtensionObservationPhase) => ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, apply: (result: ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, request: RetainedCheckedOperationRequest<TObservation>) => void | CheckedOperationApplyOutcome, phase: ExtensionObservationPhase, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[], atomicOwner?: CheckedOperationReference): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
+    retain<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: RetainedCheckedOperationRequest<TObservation>, evaluate: (request: RetainedCheckedOperationRequest<TObservation>, phase: ExtensionObservationPhase) => ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, apply: (result: ExtensionObservationResult<ExtensionObservationResponse<TObservation>>, request: RetainedCheckedOperationRequest<TObservation>) => void | CheckedOperationApplyOutcome, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[]): CheckedOperationReference<TObservation>;
+    getRequest<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, subject: ExtensionFactSubject | undefined, reference?: CheckedOperationReference<TObservation>): RetainedCheckedOperationRequest<TObservation> | undefined;
     getReference(subject: ExtensionFactSubject | undefined): CheckedOperationReference | undefined;
     evaluateRetainedChecking(): void;
     finalize(): void;

@@ -1,0 +1,1 @@
+{"version":3,"file":"diagnostic-ownership.d.ts","sourceRoot":"","sources":["../../../src/extensions/diagnostic-ownership.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,mBAAmB,EAAE,MAAM,WAAW,CAAC;AAIrD,wBAAgB,gCAAgC,CAAC,CAAC,SAAS,mBAAmB,EAAE,UAAU,EAAE,CAAC,GAAG,CAAC,CAGhG;AAED,wBAAgB,8BAA8B,CAAC,UAAU,EAAE,mBAAmB,GAAG,OAAO,CAEvF"}

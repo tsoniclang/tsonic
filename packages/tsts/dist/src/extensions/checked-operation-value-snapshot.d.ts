@@ -1,5 +1,6 @@
-import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationMappingRequest, CheckedOperationMappingResult, CheckedOperationObservationPointName, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ExtensionObservationRequest, ExtensionObservationResponse, ExtensionObservationResult } from "./observations.js";
+import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedIterationMappingRequest, CheckedOperationMappingResult, CheckedOperationObservationPointName, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, ExtensionObservationResponse, ExtensionObservationResult } from "./observations.js";
 import type { ArgumentPassingFact, AssociatedTypeFact, AttributeFact, CheckedBinaryOperatorToken, CheckedCallSourceOperation, CheckedConversionSourceOperation, CheckedElementAccessSourceOperation, CheckedForAwaitOfAtomicIterationMechanism, CheckedForAwaitOfIterationMechanism, CheckedForOfAtomicIterationMechanism, CheckedForOfIterationMechanism, CheckedIterationSourceOperation, CheckedOperatorSourceOperation, CheckedPrefixUnaryOperatorToken, CheckedPropertyAccessSourceOperation, CheckedSourceChainParticipant, CheckedSourceChainRole, CheckedUpdateOperatorToken, ConstGenericFact, ContextualTargetTypeFact, DefaultValueFact, ExtensionCanonicalIdentity, FieldFact, FlowStateFact, FunctionPointerFact, InstantiatedTargetTypeFact, PointerFact, ProviderDeclarationIdentity, ProviderMemberKey, ProviderTypeFamilyFact, ProviderVirtualDeclarationFact, RuntimeCarrierFact, SelectedSourceIterationProtocolEvidence, SelectedSourceIterationProtocolMemberEvidence, SelectedSourceIterationTypes, SelectedSourceTypeEvidence, SelectedSourceValueEvidence, SelectedTargetSignatureFact, SourcePrimitiveFact, SourceSelectedCallEvidence, SourceSelectedCallArgumentBinding, SourceSelectedMethodTypeArgument, SourceSelectedSignatureParameter, StructFact, TargetBindingFact, TargetCallArgumentConversionSlot, TargetCallArgumentConversionFact, TargetCallArgumentPassingFact, TargetConstraint, TargetConversionFact, TargetMember, TargetOperationFact, TargetOperationProposal, TargetOperationProvenance, TargetOperationSourceProvenance, TargetParameter, TargetSignatureSelection, TargetTypeParameter, TargetTypeRef } from "./facts.js";
+import type { CheckedSourceAuthoredLiteralEvidence, CheckedSourceCallArgumentCompositionEvidence, CheckedSourceCallCompositionEvidence, CheckedSourceInlineFunctionEvidence, CheckedSourceInlineFunctionReturnEvidence, CheckedSourceInlinePropertyOperation, RetainedCheckedOperationRequest, RetainedCheckedSourceCallMappingRequest } from "./source-operation-producer.js";
 import type { ExtensionDiagnostic, ExtensionDiagnosticSourceSpan, ExtensionEvidence, ProviderWellKnownSymbolName } from "./host.js";
 type SnapshotSchemaKey<T> = {
     [TKey in keyof T]-?: [Exclude<T[TKey], undefined>] extends [never] ? never : TKey;
@@ -54,6 +55,7 @@ export type CheckedOperationSnapshotFieldCoverage = RequireAllSnapshots<[
     ExactSchemaUnion<ExtensionObservationResult<unknown>["kind"], "core" | "accept" | "reject" | "missing-owner" | "owner-deferred" | "conflict">,
     ExactSchemaUnion<ExtensionDiagnostic["category"], "error" | "warning" | "suggestion">,
     AllFieldsSnapshotted<CheckedCallMappingRequest, "sourceOperationKind" | "call" | "callee" | "arguments" | "callKind" | "sourceSelection" | "sourceCallee" | "sourceArguments" | "sourceResult" | "sourceReceiver" | "chainRole" | "target">,
+    AllFieldsSnapshotted<RetainedCheckedSourceCallMappingRequest, keyof CheckedCallMappingRequest | "sourceComposition">,
     AllFieldsSnapshotted<CheckedCallSourceOperation, "sourceOperationKind" | "call" | "callee" | "arguments" | "callKind" | "sourceSelection" | "sourceCallee" | "sourceArguments" | "sourceResult" | "sourceReceiver" | "chainRole">,
     AllFieldsSnapshotted<CheckedPropertyAccessMappingRequest, "sourceOperationKind" | "expression" | "receiver" | "propertyName" | "sourceReceiver" | "accessMode" | "use" | "sourceReadResult" | "sourceWriteType" | "chainRole" | "target">,
     AllFieldsSnapshotted<CheckedPropertyAccessSourceOperation, "sourceOperationKind" | "expression" | "receiver" | "propertyName" | "sourceReceiver" | "accessMode" | "use" | "sourceReadResult" | "sourceWriteType" | "chainRole">,
@@ -135,6 +137,22 @@ export type CheckedOperationSnapshotFieldCoverage = RequireAllSnapshots<[
     }>, "kind" | "sourceAlternative">,
     AllFieldsSnapshotted<SelectedSourceTypeEvidence, "type" | "symbol" | "declaration" | "selectedSymbol" | "selectedDeclaration" | "authoredTypeNode">,
     AllFieldsSnapshotted<SelectedSourceValueEvidence, "expression" | "type" | "symbol" | "declaration" | "selectedSymbol" | "selectedDeclaration" | "authoredTypeNode">,
+    AllFieldsSnapshotted<CheckedSourceCallCompositionEvidence, "argumentEvidence">,
+    AllFieldsSnapshotted<Extract<CheckedSourceCallArgumentCompositionEvidence, {
+        readonly kind: "authored-literal";
+    }>, "kind" | "literal">,
+    AllFieldsSnapshotted<Extract<CheckedSourceCallArgumentCompositionEvidence, {
+        readonly kind: "inline-function";
+    }>, "kind" | "function">,
+    AllFieldsSnapshotted<Extract<CheckedSourceAuthoredLiteralEvidence, {
+        readonly kind: "string" | "number" | "bigint" | "boolean";
+    }>, "kind" | "value">,
+    AllFieldsSnapshotted<Extract<CheckedSourceAuthoredLiteralEvidence, {
+        readonly kind: "null";
+    }>, "kind">,
+    AllFieldsSnapshotted<CheckedSourceInlineFunctionEvidence, "expression" | "parameters" | "returns" | "operations">,
+    AllFieldsSnapshotted<CheckedSourceInlineFunctionReturnEvidence, "expression">,
+    AllFieldsSnapshotted<CheckedSourceInlinePropertyOperation, "sourceOperationKind" | "expression" | "receiver" | "sourceReceiver" | "accessMode" | "use" | "sourceReadResult" | "sourceWriteType" | "chainRole">,
     AllFieldsSnapshotted<TargetMember, "id" | "sourceName" | "targetName" | "kind" | "static" | "parameters" | "returnType" | "typeParameters" | "overloadGroup" | "providerDeclaration">,
     AllFieldsSnapshotted<TargetParameter, "name" | "type" | "passingMode" | "optional" | "paramsArray">,
     AllFieldsSnapshotted<TargetTypeParameter, "name" | "constraints" | "variance">,
@@ -208,8 +226,21 @@ declare const checkedOperationRequestSnapshotCacheBrand: unique symbol;
 export interface CheckedOperationRequestSnapshotCache {
     readonly [checkedOperationRequestSnapshotCacheBrand]: true;
 }
+export interface CheckedOperationRequestSnapshotMetrics {
+    readonly objectCount: number;
+    readonly targetTypeRefObjectCount: number;
+    readonly arrayElementCount: number;
+    readonly ownFieldCount: number;
+    readonly scalarCodeUnits: number;
+    readonly workUnits: number;
+}
+export interface CheckedOperationRequestSnapshot<TObservation extends CheckedOperationObservationPointName> {
+    readonly request: RetainedCheckedOperationRequest<TObservation>;
+    readonly metrics: CheckedOperationRequestSnapshotMetrics;
+}
 export declare function createCheckedOperationRequestSnapshotCache(): CheckedOperationRequestSnapshotCache;
-export declare function snapshotCheckedOperationRequest<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, cache?: CheckedOperationRequestSnapshotCache): ExtensionObservationRequest<TObservation>;
+export declare function snapshotCheckedOperationRequest<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: RetainedCheckedOperationRequest<TObservation>, cache?: CheckedOperationRequestSnapshotCache): RetainedCheckedOperationRequest<TObservation>;
+export declare function snapshotCheckedOperationRequestWithMetrics<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: RetainedCheckedOperationRequest<TObservation>, cache?: CheckedOperationRequestSnapshotCache): CheckedOperationRequestSnapshot<TObservation>;
 export declare function snapshotCheckedOperationResult<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, result: ExtensionObservationResult<ExtensionObservationResponse<TObservation>>): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
 export declare function snapshotCheckedOperationResponse<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, response: unknown): ExtensionObservationResponse<TObservation>;
 export declare function snapshotTargetOperationFact(operation: TargetOperationFact): TargetOperationFact;

@@ -191,10 +191,10 @@ export function journalSignatureLinks(checker, links) {
     }
     frame.signatureLinksSnapshots.push({
         links,
+        resolvedSignature: links.resolvedSignature,
         checkedCallSelectionSeed: links.checkedCallSelectionSeed,
         resolvedCallSelectionEvidence: links.resolvedCallSelectionEvidence,
         resolvedCallEvidence: links.resolvedCallEvidence,
-        extensionSourceDecisionOwner: links.extensionSourceDecisionOwner,
     });
     state.signatureLinksSnapshotCount++;
 }
@@ -489,10 +489,24 @@ function restoreSignatureLinksSnapshots(snapshots) {
         if (snapshot === undefined) {
             throw new Error("Extension source-decision SignatureLinks journal is sparse.");
         }
+        const currentSelection = snapshot.links.resolvedCallSelectionEvidence;
+        const currentSignature = snapshot.links.resolvedSignature;
+        if (currentSignature !== snapshot.resolvedSignature) {
+            if (currentSelection?.selectedSignature === currentSignature) {
+                if (snapshot.links.resolvedCallEvidence !== undefined
+                    && snapshot.links.resolvedCallEvidence.selectedSignature !== currentSignature) {
+                    throw new Error("Extension source-decision rollback found final call evidence for a different cached signature.");
+                }
+                continue;
+            }
+            snapshot.links.checkedCallSelectionSeed = undefined;
+            snapshot.links.resolvedCallSelectionEvidence = undefined;
+            snapshot.links.resolvedCallEvidence = undefined;
+            continue;
+        }
         snapshot.links.checkedCallSelectionSeed = snapshot.checkedCallSelectionSeed;
         snapshot.links.resolvedCallSelectionEvidence = snapshot.resolvedCallSelectionEvidence;
         snapshot.links.resolvedCallEvidence = snapshot.resolvedCallEvidence;
-        snapshot.links.extensionSourceDecisionOwner = snapshot.extensionSourceDecisionOwner;
     }
 }
 function restoreTypeNodeLinksSnapshots(snapshots) {
@@ -556,7 +570,7 @@ function removeEventInsertions(state, insertions) {
         }
     }
 }
-function sourceDecisionEventsEquivalent(left, right) {
+export function sourceDecisionEventsEquivalent(left, right) {
     if (left === right) {
         return true;
     }
@@ -568,15 +582,21 @@ function sourceDecisionEventsEquivalent(left, right) {
             return right.kind === left.kind && resolvedCallEvidenceEquivalent(left.resolvedCallEvidence, right.resolvedCallEvidence);
         case "checked-property":
             return right.kind === left.kind
+                && left.sourceSymbol === right.sourceSymbol
+                && left.sourceDeclaration === right.sourceDeclaration
                 && left.selectedSymbol === right.selectedSymbol
                 && left.selectedDeclaration === right.selectedDeclaration
                 && checkedSourceTypesShareStableIdentity(left.resultType, right.resultType)
                 && checkedSourceTypesShareStableIdentity(left.receiverType, right.receiverType)
+                && left.receiverSymbol === right.receiverSymbol
+                && left.receiverDeclaration === right.receiverDeclaration
                 && left.selectionMode === right.selectionMode
                 && left.accessMode === right.accessMode
                 && left.callCallee === right.callCallee;
         case "checked-element":
             return right.kind === left.kind
+                && left.sourceSymbol === right.sourceSymbol
+                && left.sourceDeclaration === right.sourceDeclaration
                 && left.selectedSymbol === right.selectedSymbol
                 && left.selectedDeclaration === right.selectedDeclaration
                 && checkedSourceTypesShareStableIdentity(left.resultType, right.resultType)
@@ -748,7 +768,28 @@ function resolvedCallEvidenceEquivalent(left, right) {
         && sourceValueListsEquivalent(left.sourceArguments, right.sourceArguments)
         && argumentBindingsEquivalent(left.sourceArgumentBindings, right.sourceArgumentBindings)
         && optionalSourceValuesEquivalent(left.sourceReceiver, right.sourceReceiver)
+        && optionalCalleeAccessEvidenceEquivalent(left.sourceCalleeAccess, right.sourceCalleeAccess)
         && checkedSourceTypesShareStableIdentity(left.sourceResultType, right.sourceResultType);
+}
+function optionalCalleeAccessEvidenceEquivalent(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    if (left.kind !== right.kind
+        || left.expression !== right.expression
+        || !sourceValuesEquivalent(left.receiver, right.receiver)
+        || !checkedSourceTypesShareStableIdentity(left.resultType, right.resultType)
+        || left.symbol !== right.symbol
+        || left.declaration !== right.declaration
+        || left.selectedSymbol !== right.selectedSymbol
+        || left.selectedDeclaration !== right.selectedDeclaration) {
+        return false;
+    }
+    return left.kind === "property"
+        ? right.kind === "property"
+        : right.kind === "element"
+            && sourceValuesEquivalent(left.argument, right.argument)
+            && left.selectedElementIndex === right.selectedElementIndex;
 }
 function sourceValuesEquivalent(left, right) {
     return left.expression === right.expression

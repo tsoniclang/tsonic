@@ -1,15 +1,18 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
+import type { GoPtr } from "../go/compat.js";
+import { type SourceFile } from "../internal/ast/ast.js";
 import type { CheckedOperationObservationPointName, CheckedOperationReference, ExtensionCompilerQueryContext, ExtensionObservationHook, ExtensionObservationPointName, ImmediateExtensionObservationPointName, ExtensionObservationRequest, ExtensionObservationResponse, ExtensionObservationResult, ExtensionObservationRunOptions } from "./observations.js";
 import { ExtensionObservationPoint } from "./observations.js";
 import { type CheckedOperationApplyOutcome } from "./checked-operation-finalization.js";
 import type { CheckedOperationRequestSnapshotCache } from "./checked-operation-value-snapshot.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
-import type { SourcePrimitiveKind } from "./facts.js";
+import { type SourcePrimitiveKind } from "./facts.js";
+import type { CheckedSourceCallProducer, RetainedCheckedOperationRequest } from "./source-operation-producer.js";
 import { type ExtensionFactKey } from "./fact-key.js";
 export { defineExtensionFactKey, type ExtensionFactKey, type ExtensionFactKeyOptions, } from "./fact-key.js";
-import { providerVirtualCompilerArtifactLookup } from "./provider-virtual-internal.js";
-import { extensionHostAllowsSemanticQueryPreflight } from "./host-attachment.js";
+import { providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, type ProviderVirtualCompilerArtifact, type ProviderVirtualCompilerMetadata } from "./provider-virtual-internal.js";
+import { extensionHostAllowsCompilerQuery, extensionHostAllowsSemanticQueryPreflight } from "./host-attachment.js";
 export interface ExtensionEvidence {
     readonly message: string;
     readonly details?: unknown;
@@ -69,14 +72,21 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly invalidDiagnosticSnapshot: 9000032;
     readonly factOwnershipViolation: 9000033;
     readonly invalidFactSnapshot: 9000034;
+    readonly invalidSourceOperationProducer: 9000035;
+    readonly sourceOperationProducerFailed: 9000036;
+    readonly invalidDependencyDirection: 9000037;
 };
-export declare const TstsProviderContractVersion = "tsts.provider.2";
+export declare const TstsProviderContractVersion = "tsts.provider.3";
 export declare const extensionHostRunCheckedOperation: unique symbol;
 export declare const extensionHostRetainCheckedOperation: unique symbol;
 export declare const extensionHostPublishSourceDecisionBatch: unique symbol;
 export declare const extensionHostGetCheckedOperationRequest: unique symbol;
 export declare const extensionHostGetCheckedOperationReference: unique symbol;
 export declare const extensionHostHasCheckedOperationOwner: unique symbol;
+export declare const extensionHostHasCheckedOperationInterest: unique symbol;
+export declare const extensionHostHasCheckedSourceCallProducers: unique symbol;
+export declare const extensionHostHasMatchingCheckedSourceCallProducer: unique symbol;
+export declare const extensionHostHasCheckedSourceCallProducerCandidate: unique symbol;
 declare const factStoreBeginTransaction: unique symbol;
 declare const factStoreAssertCanCommitTransaction: unique symbol;
 declare const factStoreCommitTransaction: unique symbol;
@@ -92,6 +102,7 @@ declare const factStoreTransactionActive: unique symbol;
 declare const factStoreInvalidate: unique symbol;
 declare const factStoreForOwner: unique symbol;
 declare const factStoreSetForHost: unique symbol;
+declare const factStoreSetSourceProducerAccessGuard: unique symbol;
 declare const diagnosticStoreCreateSavepoint: unique symbol;
 declare const diagnosticStoreAssertCanCommitSavepoint: unique symbol;
 declare const diagnosticStoreCommitSavepoint: unique symbol;
@@ -103,6 +114,7 @@ declare const diagnosticStoreForOwner: unique symbol;
 declare const diagnosticStoreSealRanges: unique symbol;
 declare const diagnosticStoreRegisterRangeForHost: unique symbol;
 declare const diagnosticStoreAppendForOwner: unique symbol;
+declare const diagnosticStoreSetSourceProducerReadGuard: unique symbol;
 declare const factResolverCreateSavepoint: unique symbol;
 declare const factResolverAssertCanCommitSavepoint: unique symbol;
 declare const factResolverCommitSavepoint: unique symbol;
@@ -116,6 +128,7 @@ declare const providerRegistryAssertCanCommitRegistrationSavepoint: unique symbo
 declare const providerRegistryCommitRegistrationSavepoint: unique symbol;
 declare const providerRegistryRollbackRegistrationSavepoint: unique symbol;
 declare const providerRegistryRegistrationSavepointActive: unique symbol;
+declare const providerRegistrySetSourceProducerReadBlocked: unique symbol;
 declare const extensionFactTransactionIdentity: unique symbol;
 declare const extensionFactSavepointIdentity: unique symbol;
 declare const extensionDiagnosticSavepointIdentity: unique symbol;
@@ -158,6 +171,7 @@ interface ExtensionDiagnosticSavepointState {
     readonly diagnosticIndex: number;
     readonly diagnosticRanges: ReadonlyMap<string, ExtensionDiagnosticRange>;
     active: boolean;
+    failed: boolean;
 }
 interface ExtensionFactResolverSavepoint {
     readonly [extensionFactResolverSavepointIdentity]: object;
@@ -208,6 +222,7 @@ export interface ExtensionInitializeContext {
     readonly registerLifecycleHook: <TRequest>(event: string, hook: ExtensionLifecycleHook<TRequest>) => void;
     readonly registerTargetBindingProvider: (provider: TargetBindingProvider) => boolean;
     readonly registerTargetSemanticProvider: (provider: TargetSemanticProvider) => boolean;
+    readonly registerCheckedSourceCallProducer: (producer: CheckedSourceCallProducer) => boolean;
 }
 export interface ExtensionProviderRegistrationWriter {
     readonly registerTargetBindingProvider: (provider: TargetBindingProvider) => boolean;
@@ -353,7 +368,7 @@ export type ProviderTypeExpression = {
     readonly id: string;
     readonly displayName?: string;
     readonly typeArguments?: readonly ProviderTypeExpression[];
-    readonly sourceShape?: ProviderTypeExpression;
+    readonly sourceShape: ProviderTypeExpression;
 } | {
     readonly kind: "array";
     readonly elementType: ProviderTypeExpression;
@@ -368,6 +383,7 @@ export type ProviderTypeExpression = {
     readonly types: readonly ProviderTypeExpression[];
 } | {
     readonly kind: "function";
+    readonly id: string;
     readonly parameters: readonly ProviderParameterDeclaration[];
     readonly returnType: ProviderTypeExpression;
     readonly typeParameters?: readonly ProviderTypeParameterDeclaration[];
@@ -385,7 +401,7 @@ export type ProviderTypeExpression = {
     readonly kind: "opaque";
     readonly id: string;
     readonly displayName?: string;
-    readonly sourceShape?: ProviderTypeExpression;
+    readonly sourceShape: ProviderTypeExpression;
 };
 export interface ProviderParameterDeclaration {
     readonly name: string;
@@ -554,11 +570,12 @@ interface ExtensionDiagnosticRecord {
 }
 interface ExtensionDiagnosticStoreState {
     readonly records: ExtensionDiagnosticRecord[];
-    readonly identities: Set<string>;
+    readonly recordsByIdentity: Map<string, ExtensionDiagnosticRecord>;
     readonly diagnosticRanges: Map<string, ExtensionDiagnosticRange>;
     readonly savepoints: ExtensionDiagnosticSavepoint[];
     readonly savepointStates: WeakMap<ExtensionDiagnosticSavepoint, ExtensionDiagnosticSavepointState>;
     readonly ownerAuthority: ExtensionOwnerAuthority;
+    sourceProducerReadGuard: (() => void) | undefined;
     rangesSealed: boolean;
 }
 interface ExtensionStoreViewOptions<TState> {
@@ -576,6 +593,7 @@ export declare class ExtensionDiagnosticStore {
     [diagnosticStoreAppendForOwner](ownerId: string, diagnostic: ExtensionDiagnostic): boolean;
     all(): readonly ExtensionDiagnostic[];
     hasErrors(): boolean;
+    [diagnosticStoreSetSourceProducerReadGuard](guard: (() => void) | undefined): void;
     [diagnosticStoreCreateSavepoint](): ExtensionDiagnosticSavepoint;
     [diagnosticStoreCommitSavepoint](savepoint: ExtensionDiagnosticSavepoint): void;
     [diagnosticStoreAssertCanCommitSavepoint](savepoint: ExtensionDiagnosticSavepoint): void;
@@ -591,6 +609,8 @@ interface ExtensionFactStoreState {
     readonly transactionStates: WeakMap<ExtensionFactTransaction, ExtensionFactTransactionState>;
     readonly savepointStates: WeakMap<ExtensionFactSavepoint, ExtensionFactSavepointState>;
     readonly ownerAuthority: ExtensionOwnerAuthority;
+    sourceProducerAccessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write") => void) | undefined;
+    sourceProducerEnumerationGuard: (() => void) | undefined;
     activeTransaction: ExtensionFactTransaction | undefined;
     nextObjectSubjectId: number;
     sealed: boolean;
@@ -601,6 +621,7 @@ export declare class ExtensionFactStore {
     #private;
     constructor(diagnostics: ExtensionDiagnosticStore, options?: ExtensionStoreViewOptions<ExtensionFactStoreState>);
     [factStoreForOwner](extensionId: string, diagnostics: ExtensionDiagnosticStore): ExtensionFactStore;
+    [factStoreSetSourceProducerAccessGuard](accessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write") => void) | undefined, enumerationGuard: (() => void) | undefined): void;
     set<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     [factStoreSetForHost]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     get<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
@@ -665,9 +686,11 @@ export declare class ProviderRegistry {
     [providerRegistryRegistrationSavepointActive](savepoint: ProviderRegistrationSavepoint): boolean;
     resolveVirtualModule(specifier: string, context?: ProviderModuleContext): ProviderModuleResolveResult;
     getVirtualArtifactByFileName(fileName: string): ProviderVirtualModuleArtifact | undefined;
-    [providerVirtualCompilerArtifactLookup](fileName: string): ProviderVirtualModuleArtifact | undefined;
+    [providerVirtualCompilerArtifactLookup](fileName: string): ProviderVirtualCompilerArtifact | undefined;
+    [providerVirtualCompilerMetadataLookup](fileName: string): ProviderVirtualCompilerMetadata | undefined;
     getVirtualDeclarationDocument(uriOrFileName: string): ProviderVirtualDeclarationDocument | undefined;
     getVirtualDeclarationDocuments(): readonly ProviderVirtualDeclarationDocument[];
+    [providerRegistrySetSourceProducerReadBlocked](blocked: boolean): void;
 }
 export declare class ExtensionHost {
     #private;
@@ -675,13 +698,14 @@ export declare class ExtensionHost {
     readonly facts: ExtensionFactStore;
     readonly factResolver: ExtensionFactResolver;
     readonly providers: ProviderRegistry;
-    readonly activeTarget: string | undefined;
-    readonly activeSurface: string | undefined;
     [extensionHostAllowsSemanticQueryPreflight](): boolean;
+    [extensionHostAllowsCompilerQuery](): boolean;
     [extensionHostSetFact]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     [extensionHostRegisterFactResolver]<T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>): void;
     constructor(program: object, options?: ExtensionHostOptions);
     get extensions(): readonly CompilerExtension[];
+    get activeTarget(): string | undefined;
+    get activeSurface(): string | undefined;
     get program(): object;
     bindCompilerProgram(program: object): void;
     registerObservationOwner(observation: ExtensionObservationPointName, extensionId: string): void;
@@ -689,18 +713,23 @@ export declare class ExtensionHost {
     requireObservationOwner(observation: ExtensionObservationPointName): CompilerExtension | undefined;
     registerObservation<TObservation extends ExtensionObservationPointName>(observation: TObservation, extensionId: string, hook: ExtensionObservationHook<TObservation>): void;
     registerLifecycleHook<TRequest>(event: string, extensionId: string, hook: ExtensionLifecycleHook<TRequest>): void;
+    registerCheckedSourceCallProducer(extensionId: string, producer: CheckedSourceCallProducer): boolean;
     registerTargetSemanticProvider(extensionId: string, provider: TargetSemanticProvider): boolean;
     runObservation<TObservation extends ImmediateExtensionObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, options?: ExtensionObservationRunOptions, onAccept?: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: ExtensionObservationRequest<TObservation>) => void): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
-    [extensionHostRunCheckedOperation]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, onAccept: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: ExtensionObservationRequest<TObservation>) => void | CheckedOperationApplyOutcome, options?: ExtensionObservationRunOptions, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[], atomicOwner?: CheckedOperationReference): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
-    [extensionHostRetainCheckedOperation]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: ExtensionObservationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, onAccept: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: ExtensionObservationRequest<TObservation>) => void | CheckedOperationApplyOutcome, options?: ExtensionObservationRunOptions, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[]): CheckedOperationReference<TObservation>;
+    [extensionHostRunCheckedOperation]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: RetainedCheckedOperationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, onAccept: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: RetainedCheckedOperationRequest<TObservation>) => void | CheckedOperationApplyOutcome, options?: ExtensionObservationRunOptions, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[], atomicOwner?: CheckedOperationReference): ExtensionObservationResult<ExtensionObservationResponse<TObservation>>;
+    [extensionHostRetainCheckedOperation]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, request: RetainedCheckedOperationRequest<TObservation>, core: () => ExtensionObservationResponse<TObservation>, onAccept: (value: ExtensionObservationResponse<TObservation>, evidence: readonly ExtensionEvidence[], request: RetainedCheckedOperationRequest<TObservation>) => void | CheckedOperationApplyOutcome, options?: ExtensionObservationRunOptions, requestSnapshotCache?: CheckedOperationRequestSnapshotCache, dependencies?: readonly CheckedOperationReference[]): CheckedOperationReference<TObservation>;
     [extensionHostPublishSourceDecisionBatch](publish: () => void): void;
-    [extensionHostGetCheckedOperationRequest]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, subject: ExtensionFactSubject | undefined, reference?: CheckedOperationReference<TObservation>): ExtensionObservationRequest<TObservation> | undefined;
+    [extensionHostGetCheckedOperationRequest]<TObservation extends CheckedOperationObservationPointName>(observation: TObservation, subject: ExtensionFactSubject | undefined, reference?: CheckedOperationReference<TObservation>): RetainedCheckedOperationRequest<TObservation> | undefined;
     [extensionHostGetCheckedOperationReference](subject: ExtensionFactSubject | undefined): CheckedOperationReference | undefined;
     [extensionHostHasCheckedOperationOwner](observation: CheckedOperationObservationPointName): boolean;
-    runLifecycle<TRequest extends object>(event: string, request: TRequest): void;
+    [extensionHostHasCheckedOperationInterest](observation: CheckedOperationObservationPointName): boolean;
+    [extensionHostHasCheckedSourceCallProducers](): boolean;
+    [extensionHostHasMatchingCheckedSourceCallProducer](selectedDeclaration: ExtensionFactSubject | undefined): boolean;
+    [extensionHostHasCheckedSourceCallProducerCandidate](selectedDeclaration: ExtensionFactSubject | undefined): boolean;
+    runLifecycle<TRequest extends object>(event: string, request: TRequest, compilerSourceFile?: GoPtr<SourceFile>): void;
     finalizeSemantics(): void;
     get finalized(): boolean;
-    getCompilerQueryContext(): ExtensionCompilerQueryContext;
+    getCompilerQueryContext(sourceFile?: GoPtr<SourceFile>): ExtensionCompilerQueryContext;
     assertFinalizedForConsumer(consumer: string): boolean;
     getFactForConsumer<T>(consumer: string, subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
     requireFactForConsumer<T>(consumer: string, subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T | undefined;

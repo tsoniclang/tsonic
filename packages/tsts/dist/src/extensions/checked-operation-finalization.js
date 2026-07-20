@@ -2,7 +2,7 @@ import { ExtensionObservationPoint } from "./observations.js";
 import { targetCallArgumentConversionSlotEquals } from "./fact-value-equality.js";
 import { checkedOperationRequestEquals } from "./checked-operation-request-equality.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
-import { snapshotCheckedOperationRequest, snapshotCheckedOperationResult, snapshotTargetCallArgumentConversionSlot, } from "./checked-operation-value-snapshot.js";
+import { snapshotCheckedOperationRequestWithMetrics, snapshotCheckedOperationResult, snapshotTargetCallArgumentConversionSlot, } from "./checked-operation-value-snapshot.js";
 const checkedOperationApplied = Object.freeze({ kind: "applied" });
 const checkedOperationUnavailableResult = Object.freeze({ kind: "checked-operation-apply-unavailable" });
 const checkedPrimaryOperationObservationOrder = Object.freeze([
@@ -17,7 +17,9 @@ const defaultCheckedOperationInventoryLimits = Object.freeze({
     edges: 4_194_304,
     savepointDepth: 4_096,
     activeSnapshots: 4_194_304,
-    snapshotWork: 16_777_216,
+    snapshotWork: 268_435_456,
+    retainedSnapshotUnits: 67_108_864,
+    retainedScalarCodeUnits: 67_108_864,
     finalizationWork: 67_108_864,
 });
 export class CheckedOperationInventory {
@@ -33,6 +35,8 @@ export class CheckedOperationInventory {
     #checkingRecordCursor = 0;
     #activeSnapshotCount = 0;
     #snapshotWork = 0;
+    #retainedSnapshotUnits = 0;
+    #retainedScalarCodeUnits = 0;
     #finalizationWork = 0;
     #openingAttemptFor;
     #preparedSavepoint;
@@ -131,9 +135,14 @@ export class CheckedOperationInventory {
             throw new Error("Checked-operation dependencies must be an array.");
         }
         this.#assertReferenceInputWithinBudget(dependencies.length + (atomicOwner === undefined ? 0 : 1));
-        this.#reserveSnapshotWork(1 + dependencies.length + (atomicOwner === undefined ? 0 : 1));
-        const incomingRequest = snapshotCheckedOperationRequest(observation, request, requestSnapshotCache);
+        const incomingSnapshot = snapshotCheckedOperationRequestWithMetrics(observation, request, requestSnapshotCache);
+        this.#reserveSnapshotWork(incomingSnapshot.metrics.workUnits);
+        const incomingRequest = incomingSnapshot.request;
+        const referenceInputCount = dependencies.length + (atomicOwner === undefined ? 0 : 1);
+        this.#assertReferenceInputWithinBudget(referenceInputCount);
+        this.#reserveSnapshotWork(referenceInputCount);
         const incomingDependencies = snapshotCheckedOperationReferences(dependencies);
+        this.#assertReferenceInputWithinBudget(incomingDependencies.length + (atomicOwner === undefined ? 0 : 1));
         const incomingAtomicOwner = atomicOwner === undefined ? undefined : snapshotCheckedOperationReference(atomicOwner);
         const incomingSubject = checkedOperationSubject(observation, incomingRequest);
         const existing = this.#findRecordForRequest(observation, incomingSubject, incomingRequest);
@@ -182,6 +191,8 @@ export class CheckedOperationInventory {
             subject,
             reference: checkedOperationReference(observation, immutableRequest, subject),
             request: immutableRequest,
+            retainedSnapshotUnits: checkedOperationRetainedSnapshotUnits(incomingSnapshot.metrics),
+            retainedScalarCodeUnits: incomingSnapshot.metrics.scalarCodeUnits,
             dependencies: incomingDependencies,
             ...(incomingAtomicOwner === undefined ? {} : { atomicOwner: incomingAtomicOwner }),
             allDependencies: incomingDependencies,
@@ -567,7 +578,10 @@ export class CheckedOperationInventory {
             throw error;
         }
         this.#assertRecordDependenciesAcyclic(record);
+        this.#assertRetainedSnapshotCapacity(record.retainedSnapshotUnits, record.retainedScalarCodeUnits);
         this.#reserveEdges(record.allDependencies.length + (record.atomicOwner === undefined ? 0 : 1));
+        this.#retainedSnapshotUnits += record.retainedSnapshotUnits;
+        this.#retainedScalarCodeUnits += record.retainedScalarCodeUnits;
         this.#recordPositions.set(record, this.#records.length);
         this.#records.push(record);
         let recordsForSubject = this.#recordsBySubject.get(record.subject);
@@ -607,6 +621,8 @@ export class CheckedOperationInventory {
             snapshots: new Map(),
             edgeCount: this.#edgeCount,
             checkingRecordCursor: this.#checkingRecordCursor,
+            retainedSnapshotUnits: this.#retainedSnapshotUnits,
+            retainedScalarCodeUnits: this.#retainedScalarCodeUnits,
             ...(this.#openingAttemptFor === undefined ? {} : { owner: this.#openingAttemptFor }),
             commitRequested: false,
             active: true,
@@ -667,6 +683,8 @@ export class CheckedOperationInventory {
         this.#restoreSavepointSnapshots(savepoint);
         this.#edgeCount = savepoint.edgeCount;
         this.#checkingRecordCursor = savepoint.checkingRecordCursor;
+        this.#retainedSnapshotUnits = savepoint.retainedSnapshotUnits;
+        this.#retainedScalarCodeUnits = savepoint.retainedScalarCodeUnits;
         this.#savepoints.pop();
         this.#releaseSavepointSnapshots(savepoint);
         savepoint.active = false;
@@ -719,6 +737,7 @@ export class CheckedOperationInventory {
                 deferred.push(record.reference);
             }
         }
+        this.#reserveSnapshotWork(this.#records.length);
         const retainedEdgeCount = this.#countCurrentEdges();
         this.#savepoints.pop();
         this.#releaseSavepointSnapshots(savepoint);
@@ -856,6 +875,22 @@ export class CheckedOperationInventory {
             throw error;
         }
         this.#activeSnapshotCount += count;
+    }
+    #assertRetainedSnapshotCapacity(units, scalarCodeUnits) {
+        if (!Number.isSafeInteger(units)
+            || units < 0
+            || this.#retainedSnapshotUnits > this.#limits.retainedSnapshotUnits - units) {
+            const error = new Error(`Checked-operation inventory exceeds its ${this.#limits.retainedSnapshotUnits}-unit retained-snapshot session limit.`);
+            this.#fail(error);
+            throw error;
+        }
+        if (!Number.isSafeInteger(scalarCodeUnits)
+            || scalarCodeUnits < 0
+            || this.#retainedScalarCodeUnits > this.#limits.retainedScalarCodeUnits - scalarCodeUnits) {
+            const error = new Error(`Checked-operation inventory exceeds its ${this.#limits.retainedScalarCodeUnits}-code-unit retained-scalar session limit.`);
+            this.#fail(error);
+            throw error;
+        }
     }
     #releaseSavepointSnapshots(savepoint) {
         this.#assertCanReleaseSavepointSnapshots(savepoint);
@@ -1091,7 +1126,7 @@ export class CheckedOperationInventory {
         this.#journalRecord(record);
         if (!record.unresolvedReported) {
             record.unresolvedReported = true;
-            this.#callbacks.onUnresolved(record.observation, record.subject);
+            this.#callbacks.onUnresolved(record.observation, record.subject, result.extensionId);
         }
         this.#markUnavailable(record);
     }
@@ -1243,6 +1278,22 @@ function snapshotCheckedOperationRecord(record) {
         allDependencies: record.allDependencies,
     });
 }
+function checkedOperationRetainedSnapshotUnits(metrics) {
+    const counts = [
+        metrics.objectCount,
+        metrics.targetTypeRefObjectCount,
+        metrics.arrayElementCount,
+        metrics.ownFieldCount,
+    ];
+    let total = 0;
+    for (const count of counts) {
+        if (!Number.isSafeInteger(count) || count < 0 || total > Number.MAX_SAFE_INTEGER - count) {
+            throw new Error("Checked-operation request snapshot reported invalid retained-resource metrics.");
+        }
+        total += count;
+    }
+    return total;
+}
 function snapshotCheckedOperationInventoryLimits(limits) {
     const snapshot = {
         records: checkedOperationLimit(limits.records, defaultCheckedOperationInventoryLimits.records, "records"),
@@ -1250,6 +1301,8 @@ function snapshotCheckedOperationInventoryLimits(limits) {
         savepointDepth: checkedOperationLimit(limits.savepointDepth, defaultCheckedOperationInventoryLimits.savepointDepth, "savepointDepth"),
         activeSnapshots: checkedOperationLimit(limits.activeSnapshots, defaultCheckedOperationInventoryLimits.activeSnapshots, "activeSnapshots"),
         snapshotWork: checkedOperationLimit(limits.snapshotWork, defaultCheckedOperationInventoryLimits.snapshotWork, "snapshotWork"),
+        retainedSnapshotUnits: checkedOperationLimit(limits.retainedSnapshotUnits, defaultCheckedOperationInventoryLimits.retainedSnapshotUnits, "retainedSnapshotUnits"),
+        retainedScalarCodeUnits: checkedOperationLimit(limits.retainedScalarCodeUnits, defaultCheckedOperationInventoryLimits.retainedScalarCodeUnits, "retainedScalarCodeUnits"),
         finalizationWork: checkedOperationLimit(limits.finalizationWork, defaultCheckedOperationInventoryLimits.finalizationWork, "finalizationWork"),
     };
     return Object.freeze(snapshot);

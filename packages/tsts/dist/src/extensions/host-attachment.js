@@ -1,4 +1,5 @@
 export const extensionHostAllowsSemanticQueryPreflight = Symbol("tsts.extensionHost.allowsSemanticQueryPreflight");
+export const extensionHostAllowsCompilerQuery = Symbol("tsts.extensionHost.allowsCompilerQuery");
 const attachedExtensionHosts = new WeakMap();
 export function registerAttachedExtensionHost(owner, host) {
     attachedExtensionHosts.set(owner, host);

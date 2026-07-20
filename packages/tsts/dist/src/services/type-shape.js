@@ -1,9 +1,10 @@
-import { Program_GetSourceFiles, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, } from "../internal/checker/exports.js";
 import { Checker_GetConstantValue } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
+import { extensionHostAllowsCompilerQuery, lookupAttachedExtensionHost } from "../extensions/host-attachment.js";
 import { ObjectFlagsReference, ObjectFlagsTuple, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBooleanLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsStringLike, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_Types, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions = {}) {
     return {
@@ -75,7 +76,13 @@ function withChecker(program, subject, defaultOptions, options, callback) {
     if (program === undefined || subject === undefined) {
         return undefined;
     }
-    const sourceFile = options.sourceFile ?? defaultOptions.sourceFile ?? (isNode(subject) ? GetSourceFileOfNode(subject) : undefined) ?? Program_GetSourceFiles(program)?.[0];
+    const extensionHost = lookupAttachedExtensionHost(program);
+    if (extensionHost !== undefined && !extensionHost[extensionHostAllowsCompilerQuery]()) {
+        throw new Error("Compiler type-shape queries are unavailable inside checked source-call producers.");
+    }
+    const sourceFile = options.sourceFile
+        ?? defaultOptions.sourceFile
+        ?? (isNode(subject) ? GetSourceFileOfNode(subject) : undefined);
     if (sourceFile === undefined) {
         return undefined;
     }

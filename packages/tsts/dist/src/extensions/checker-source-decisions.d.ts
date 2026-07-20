@@ -13,16 +13,22 @@ export type ExtensionSourceDecisionEvent = {
 } | {
     readonly kind: "checked-property";
     readonly origin: Node;
+    readonly sourceSymbol: Symbol | undefined;
+    readonly sourceDeclaration: Node | undefined;
     readonly selectedSymbol: Symbol | undefined;
     readonly selectedDeclaration: Node | undefined;
     readonly resultType: Type;
     readonly receiverType: Type;
+    readonly receiverSymbol: Symbol | undefined;
+    readonly receiverDeclaration: Node | undefined;
     readonly selectionMode: "read" | "write";
     readonly accessMode: "read" | "write" | "read-write" | "delete";
     readonly callCallee: boolean;
 } | {
     readonly kind: "checked-element";
     readonly origin: Node;
+    readonly sourceSymbol: Symbol | undefined;
+    readonly sourceDeclaration: Node | undefined;
     readonly selectedSymbol: Symbol | undefined;
     readonly selectedDeclaration: Node | undefined;
     readonly resultType: Type;
@@ -98,10 +104,10 @@ export interface PreparedExtensionSourceDecision {
 }
 interface SignatureLinksSnapshot {
     readonly links: SignatureLinks;
+    readonly resolvedSignature: SignatureLinks["resolvedSignature"];
     readonly checkedCallSelectionSeed: SignatureLinks["checkedCallSelectionSeed"];
     readonly resolvedCallSelectionEvidence: SignatureLinks["resolvedCallSelectionEvidence"];
     readonly resolvedCallEvidence: SignatureLinks["resolvedCallEvidence"];
-    readonly extensionSourceDecisionOwner: SignatureLinks["extensionSourceDecisionOwner"];
 }
 interface TypeNodeLinksSnapshot {
     readonly links: TypeNodeLinks;
@@ -135,5 +141,6 @@ export declare function sourceDecisionRecordingActive(checker: Checker): boolean
 export declare function sourceDecisionOwner(checker: Checker): SourceFile | undefined;
 export declare function sourceDecisionDiscardActive(checker: Checker): boolean;
 export declare function disableSourceDecisionRecording(checker: Checker): void;
+export declare function sourceDecisionEventsEquivalent(left: ExtensionSourceDecisionEvent, right: ExtensionSourceDecisionEvent): boolean;
 export {};
 //# sourceMappingURL=checker-source-decisions.d.ts.map

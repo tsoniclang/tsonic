@@ -1,6 +1,6 @@
 import { Background } from "../go/context.js";
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
-import { Program_GetSemanticDiagnostics, Program_GetSourceFiles, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { Program_GetSemanticDiagnostics, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Checker_GetPropertyOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_getResolvedSignature } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
@@ -9,7 +9,7 @@ import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../interna
 import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
-import { extensionHostAllowsSemanticQueryPreflight, lookupAttachedExtensionHost, } from "../extensions/host-attachment.js";
+import { extensionHostAllowsCompilerQuery, extensionHostAllowsSemanticQueryPreflight, lookupAttachedExtensionHost, } from "../extensions/host-attachment.js";
 export function createTypeCheckerQueries(program, defaultOptions = {}) {
     return {
         getTypeAtLocation: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetTypeAtLocation(checker, node)),
@@ -66,7 +66,9 @@ function withCheckerForSubject(program, subject, defaultOptions, options, callba
     if (subject === undefined) {
         return undefined;
     }
-    const sourceFile = options.sourceFile ?? defaultOptions.sourceFile ?? (isNode(subject) ? GetSourceFileOfNode(subject) : undefined) ?? Program_GetSourceFiles(program)?.[0];
+    const sourceFile = options.sourceFile
+        ?? defaultOptions.sourceFile
+        ?? (isNode(subject) ? GetSourceFileOfNode(subject) : undefined);
     return withChecker(program, sourceFile, defaultOptions, options, callback);
 }
 function withChecker(program, sourceFile, defaultOptions, options, callback) {
@@ -75,6 +77,9 @@ function withChecker(program, sourceFile, defaultOptions, options, callback) {
     }
     const context = options.context ?? defaultOptions.context ?? Background();
     const extensionHost = lookupAttachedExtensionHost(program);
+    if (extensionHost !== undefined && !extensionHost[extensionHostAllowsCompilerQuery]()) {
+        throw new Error("Compiler queries are unavailable inside checked source-call producers.");
+    }
     if (extensionHost === undefined || extensionHost[extensionHostAllowsSemanticQueryPreflight]()) {
         Program_GetSemanticDiagnostics(program, context, sourceFile);
     }

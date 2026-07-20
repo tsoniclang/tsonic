@@ -816,13 +816,11 @@ export function runWithoutResolvedSignatureCaching(c, node, fn) {
                     checkedCallSelectionSeed: signatureLinks.checkedCallSelectionSeed,
                     resolvedCallSelectionEvidence: signatureLinks.resolvedCallSelectionEvidence,
                     resolvedCallEvidence: signatureLinks.resolvedCallEvidence,
-                    extensionSourceDecisionOwner: signatureLinks.extensionSourceDecisionOwner,
                 });
                 signatureLinks.resolvedSignature = undefined;
                 signatureLinks.checkedCallSelectionSeed = undefined;
                 signatureLinks.resolvedCallSelectionEvidence = undefined;
                 signatureLinks.resolvedCallEvidence = undefined;
-                signatureLinks.extensionSourceDecisionOwner = undefined;
                 if (IsFunctionExpressionOrArrowFunction(current)) {
                     const symbolLinks = LinkStore_Get(c.valueSymbolLinks, Checker_getSymbolOfDeclaration(c, current));
                     const resolvedType = symbolLinks.resolvedType;
@@ -840,7 +838,6 @@ export function runWithoutResolvedSignatureCaching(c, node, fn) {
             signatureLinks.checkedCallSelectionSeed = snapshot.checkedCallSelectionSeed;
             signatureLinks.resolvedCallSelectionEvidence = snapshot.resolvedCallSelectionEvidence;
             signatureLinks.resolvedCallEvidence = snapshot.resolvedCallEvidence;
-            signatureLinks.extensionSourceDecisionOwner = snapshot.extensionSourceDecisionOwner;
         }
         for (const [symbolLinks, resolvedType] of cachedTypes) {
             symbolLinks.resolvedType = resolvedType;

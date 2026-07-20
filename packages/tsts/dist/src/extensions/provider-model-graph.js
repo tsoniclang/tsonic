@@ -78,7 +78,7 @@ const providerModelShapeFields = {
     arrayType: providerModelFields("kind", "elementType"),
     tupleType: providerModelFields("kind", "elementTypes"),
     compositeType: providerModelFields("kind", "types"),
-    functionType: providerModelFields("kind", "parameters", "returnType", "typeParameters"),
+    functionType: providerModelFields("kind", "id", "parameters", "returnType", "typeParameters"),
     providerRefType: providerModelFields("kind", "moduleSpecifier", "exportName", "localName", "namespaceImport", "typeArguments"),
     opaqueType: providerModelFields("kind", "id", "displayName", "sourceShape"),
     anyType: providerModelFields("kind", "value", "name", "typeArguments", "target", "id", "displayName", "sourceShape", "elementType", "elementTypes", "types", "parameters", "returnType", "typeParameters", "moduleSpecifier", "exportName", "localName", "namespaceImport"),
@@ -471,7 +471,7 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
                 && typeof id === "string"
                 && isOptionalString(displayName)
                 && pushProviderModelArray(reads, stack, typeArguments, "type", depth, true, path + ".typeArguments")
-                && pushOptionalProviderModelNode(stack, sourceShape, "type", depth, true, path + ".sourceShape");
+                && pushOptionalProviderModelNode(stack, sourceShape, "type", depth, false, path + ".sourceShape");
         }
         case "array": {
             const arrayType = type;
@@ -500,10 +500,12 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
             if (!captureExactProviderModelRecord(reads, functionType, providerModelShapeFields.functionType, path, depth)) {
                 return false;
             }
+            const id = readProviderModelField(reads, functionType, "id");
             const parameters = readProviderModelField(reads, functionType, "parameters");
             const returnType = readProviderModelField(reads, functionType, "returnType");
             const typeParameters = readProviderModelField(reads, functionType, "typeParameters");
-            return pushProviderModelArray(reads, stack, parameters, "parameter", depth, false, path + ".parameters")
+            return typeof id === "string"
+                && pushProviderModelArray(reads, stack, parameters, "parameter", depth, false, path + ".parameters")
                 && pushOptionalProviderModelNode(stack, returnType, "type", depth, false, path + ".returnType")
                 && pushProviderModelArray(reads, stack, typeParameters, "type-parameter", depth, true, path + ".typeParameters");
         }
@@ -533,7 +535,7 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
             const sourceShape = readProviderModelField(reads, opaque, "sourceShape");
             return typeof id === "string"
                 && isOptionalString(displayName)
-                && pushOptionalProviderModelNode(stack, sourceShape, "type", depth, true, path + ".sourceShape");
+                && pushOptionalProviderModelNode(stack, sourceShape, "type", depth, false, path + ".sourceShape");
         }
         default:
             return false;
@@ -1323,9 +1325,7 @@ function snapshotProviderTypeExpression(context, type) {
                     : {
                         typeArguments: snapshotProviderModelArray(context, typeArguments, "type", (argument) => snapshotProviderTypeExpression(context, argument)),
                     }),
-                ...(sourceShape === undefined
-                    ? {}
-                    : { sourceShape: snapshotProviderTypeExpression(context, sourceShape) }),
+                sourceShape: snapshotProviderTypeExpression(context, sourceShape),
             };
             break;
         }
@@ -1356,11 +1356,13 @@ function snapshotProviderTypeExpression(context, type) {
         }
         case "function": {
             const functionType = type;
+            const id = readProviderModelField(context.reads, functionType, "id");
             const parameters = readProviderModelField(context.reads, functionType, "parameters");
             const returnType = readProviderModelField(context.reads, functionType, "returnType");
             const typeParameters = readProviderModelField(context.reads, functionType, "typeParameters");
             snapshot = {
                 kind: typeKind,
+                id,
                 parameters: snapshotProviderModelArray(context, parameters, "parameter", (parameter) => snapshotProviderParameterDeclaration(context, parameter)),
                 returnType: snapshotProviderTypeExpression(context, returnType),
                 ...(typeParameters === undefined
@@ -1409,9 +1411,7 @@ function snapshotProviderTypeExpression(context, type) {
                 kind: typeKind,
                 id,
                 ...(displayName === undefined ? {} : { displayName }),
-                ...(sourceShape === undefined
-                    ? {}
-                    : { sourceShape: snapshotProviderTypeExpression(context, sourceShape) }),
+                sourceShape: snapshotProviderTypeExpression(context, sourceShape),
             };
             break;
         }
@@ -1837,9 +1837,7 @@ function canonicalizeProviderExportOwnerType(context, type) {
                     : {
                         typeArguments: type.typeArguments.map((argument) => canonicalizeProviderExportOwnerType(context, argument)),
                     }),
-                ...(type.sourceShape === undefined
-                    ? {}
-                    : { sourceShape: canonicalizeProviderExportOwnerType(context, type.sourceShape) }),
+                sourceShape: canonicalizeProviderExportOwnerType(context, type.sourceShape),
             };
             break;
         case "array":
@@ -1864,6 +1862,7 @@ function canonicalizeProviderExportOwnerType(context, type) {
         case "function":
             canonical = {
                 kind: type.kind,
+                id: type.id,
                 parameters: type.parameters.map((parameter) => canonicalizeProviderExportOwnerParameter(context, parameter)),
                 returnType: canonicalizeProviderExportOwnerType(context, type.returnType),
                 ...(type.typeParameters === undefined || type.typeParameters.length === 0
@@ -1902,9 +1901,7 @@ function canonicalizeProviderExportOwnerType(context, type) {
                 kind: type.kind,
                 id: type.id,
                 ...(type.displayName === undefined ? {} : { displayName: type.displayName }),
-                ...(type.sourceShape === undefined
-                    ? {}
-                    : { sourceShape: canonicalizeProviderExportOwnerType(context, type.sourceShape) }),
+                sourceShape: canonicalizeProviderExportOwnerType(context, type.sourceShape),
             };
             break;
     }

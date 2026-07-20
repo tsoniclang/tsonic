@@ -1,9 +1,9 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
-import type { Kind } from "../internal/ast/generated/kinds.js";
+import { type Kind } from "../internal/ast/generated/kinds.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import type { ResolvedCallEvidence, SignatureLinks, Type, TypeNodeLinks } from "../internal/checker/types.js";
+import type { ResolvedCallEvidence, ResolvedCallSelectionEvidence, SignatureLinks, Type, TypeNodeLinks } from "../internal/checker/types.js";
 import type { ExtensionCheckedIterationSelection } from "./checker-iteration-selection.js";
 import type { CheckedCallMappingRequest, CheckedCallMappingResult, CheckedConversionMappingRequest, CheckedConversionMappingResult, CheckedElementAccessMappingRequest, CheckedFlowSourceUse, CheckedIterationMappingRequest, CheckedOperationObservationPointName, CheckedOperatorMappingRequest, CheckedPropertyAccessMappingRequest, PostCheckAssignabilityObservationRequest } from "./observations.js";
 import type { CheckedConversionSourceOperation, CheckedElementAccessSourceOperation, CheckedIterationSourceOperation, CheckedOperatorSourceOperation, CheckedPropertyAccessSourceOperation, ProviderDeclarationIdentity, SelectedTargetSignatureFact, TargetOperationFact, TargetOperationProposal, TargetOperationProvenance, TargetTypeRef } from "./facts.js";
@@ -13,6 +13,9 @@ import type { CheckedOperationRequestSnapshotCache } from "./checked-operation-v
 export { preserveEquivalentCheckedSourceType } from "./checked-source-type-identity.js";
 type CheckedAccessMode = CheckedPropertyAccessSourceOperation["accessMode"];
 export declare function hasExtensionCheckedOperationHost(checker: GoPtr<Checker>, observation: CheckedOperationObservationPointName, executionSite: GoPtr<Node>): boolean;
+export declare function hasExtensionCheckedCallEvidenceInterest(checker: GoPtr<Checker>, callExpression: GoPtr<Node>): boolean;
+export declare function hasExtensionCheckedCallCalleeEvidenceInterest(checker: GoPtr<Checker>, callee: GoPtr<Node>): boolean;
+export declare function shouldRetainExtensionCheckedCallEvidence(checker: GoPtr<Checker>, evidence: ResolvedCallSelectionEvidence | undefined): boolean;
 export declare function beginExtensionCheckedSourceFileDecision(checker: GoPtr<Checker>, sourceFile: GoPtr<SourceFile>): ExtensionSourceDecisionFrame | undefined;
 export declare function beginExtensionCheckedSourceCandidateDecision(checker: GoPtr<Checker>): ExtensionSourceDecisionFrame | undefined;
 export declare function beginExtensionCheckedSourceSignatureDecision(checker: GoPtr<Checker>): ExtensionSourceDecisionFrame | undefined;
@@ -29,16 +32,22 @@ export declare function journalExtensionCheckedExpressionCache(checker: GoPtr<Ch
 export declare function retainExtensionCheckedIdentifierCalleeSelection(checker: GoPtr<Checker>, identifier: GoPtr<Node>, sourceSymbol: GoPtr<Symbol>, sourceSelectedSymbol: GoPtr<Symbol>): void;
 export declare function recordExtensionCheckedCallMapping(checker: GoPtr<Checker>, callExpression: GoPtr<Node>, resolvedCallEvidence: ResolvedCallEvidence): void;
 export interface CheckedPropertyAccessSourceEvidence {
+    readonly sourceSymbol: GoPtr<Symbol>;
+    readonly sourceDeclaration?: GoPtr<Node>;
     readonly selectedSymbol: GoPtr<Symbol>;
     readonly selectedDeclaration?: GoPtr<Node>;
     readonly resultType: GoPtr<Type>;
     readonly receiverType: GoPtr<Type>;
+    readonly receiverSymbol?: GoPtr<Symbol>;
+    readonly receiverDeclaration?: GoPtr<Node>;
     readonly selectionMode: "read" | "write";
     readonly accessMode: CheckedAccessMode;
     readonly callCallee: boolean;
 }
 export declare function recordExtensionCheckedPropertyAccessMapping(checker: GoPtr<Checker>, propertyAccessExpression: GoPtr<Node>, selected: CheckedPropertyAccessSourceEvidence): void;
 export interface CheckedElementAccessSourceEvidence {
+    readonly sourceSymbol: GoPtr<Symbol>;
+    readonly sourceDeclaration?: GoPtr<Node>;
     readonly selectedSymbol: GoPtr<Symbol>;
     readonly selectedDeclaration?: GoPtr<Node>;
     readonly resultType: GoPtr<Type>;

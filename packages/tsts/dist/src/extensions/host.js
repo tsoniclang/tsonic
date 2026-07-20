@@ -1,4 +1,5 @@
 import { SourceFile_FileName } from "../internal/ast/ast.js";
+import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Program_GetSourceFile, Program_GetSourceFiles } from "../internal/compiler/program.js";
 import { createAstReader } from "../services/ast-reader.js";
 import { createTypeCheckerQueries } from "../services/type-checker.js";
@@ -8,16 +9,21 @@ import { CheckedOperationInventory } from "./checked-operation-finalization.js";
 import { differingCheckedOperationRequestFields } from "./checked-operation-request-equality.js";
 import { snapshotCheckedOperationResponse } from "./checked-operation-value-snapshot.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
-import { defineExtensionFactKey, formatExtensionFactKeyForDisplay, getExtensionFactKeyIdentity, } from "./fact-key.js";
+import { providerVirtualDeclarationFactKey, providerTypeFamilyFactKey, runtimeCarrierFactKey, } from "./facts.js";
+import { checkedSourceCallReadableSubjects } from "./source-operation-producer.js";
+import { checkedOperationRuntimeCarrierDemands, } from "./runtime-carrier-demand.js";
+import { defineExtensionFactKey, formatExtensionFactKeyForDisplay, getExtensionFactKeyIdentity, isHostSourceReadableFactKey, } from "./fact-key.js";
 export { defineExtensionFactKey, } from "./fact-key.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
+import { isHostOwnedExtensionDiagnostic, markHostOwnedExtensionDiagnostic } from "./diagnostic-ownership.js";
 import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } from "./provider-export-contract.js";
-import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualInternalRoot, providerVirtualPublicRoot } from "./provider-virtual-internal.js";
+import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualInternalRoot, providerVirtualPublicRoot, } from "./provider-virtual-internal.js";
 import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } from "./provider-model-graph.js";
+import { createProviderRenderedFunctionSignature, hasUniqueProviderCallableIdentities, renderProviderFunctionSignatureMarker, } from "./provider-callable-signatures.js";
 import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
-import { providerAncillaryDataLimits, providerDeclarationClosureLimits } from "./provider-resource-limits.js";
-import { extensionHostAllowsSemanticQueryPreflight, hasAttachedExtensionHost, lookupAttachedExtensionHost, registerAttachedExtensionHost, } from "./host-attachment.js";
+import { providerAncillaryDataLimits, providerDeclarationClosureLimits, providerDeclarationModelLimits } from "./provider-resource-limits.js";
+import { extensionHostAllowsCompilerQuery, extensionHostAllowsSemanticQueryPreflight, hasAttachedExtensionHost, lookupAttachedExtensionHost, registerAttachedExtensionHost, } from "./host-attachment.js";
 export const ExtensionHostDiagnosticCode = {
     factConflict: 9000001,
     duplicateExtension: 9000002,
@@ -53,14 +59,21 @@ export const ExtensionHostDiagnosticCode = {
     invalidDiagnosticSnapshot: 9000032,
     factOwnershipViolation: 9000033,
     invalidFactSnapshot: 9000034,
+    invalidSourceOperationProducer: 9000035,
+    sourceOperationProducerFailed: 9000036,
+    invalidDependencyDirection: 9000037,
 };
-export const TstsProviderContractVersion = "tsts.provider.2";
+export const TstsProviderContractVersion = "tsts.provider.3";
 export const extensionHostRunCheckedOperation = Symbol("tsts.extensionHost.runCheckedOperation");
 export const extensionHostRetainCheckedOperation = Symbol("tsts.extensionHost.retainCheckedOperation");
 export const extensionHostPublishSourceDecisionBatch = Symbol("tsts.extensionHost.publishSourceDecisionBatch");
 export const extensionHostGetCheckedOperationRequest = Symbol("tsts.extensionHost.getCheckedOperationRequest");
 export const extensionHostGetCheckedOperationReference = Symbol("tsts.extensionHost.getCheckedOperationReference");
 export const extensionHostHasCheckedOperationOwner = Symbol("tsts.extensionHost.hasCheckedOperationOwner");
+export const extensionHostHasCheckedOperationInterest = Symbol("tsts.extensionHost.hasCheckedOperationInterest");
+export const extensionHostHasCheckedSourceCallProducers = Symbol("tsts.extensionHost.hasCheckedSourceCallProducers");
+export const extensionHostHasMatchingCheckedSourceCallProducer = Symbol("tsts.extensionHost.hasMatchingCheckedSourceCallProducer");
+export const extensionHostHasCheckedSourceCallProducerCandidate = Symbol("tsts.extensionHost.hasCheckedSourceCallProducerCandidate");
 const factStoreBeginTransaction = Symbol("tsts.extensionFactStore.beginTransaction");
 const factStoreAssertCanCommitTransaction = Symbol("tsts.extensionFactStore.assertCanCommitTransaction");
 const factStoreCommitTransaction = Symbol("tsts.extensionFactStore.commitTransaction");
@@ -76,6 +89,7 @@ const factStoreTransactionActive = Symbol("tsts.extensionFactStore.transactionAc
 const factStoreInvalidate = Symbol("tsts.extensionFactStore.invalidate");
 const factStoreForOwner = Symbol("tsts.extensionFactStore.forOwner");
 const factStoreSetForHost = Symbol("tsts.extensionFactStore.setForHost");
+const factStoreSetSourceProducerAccessGuard = Symbol("tsts.extensionFactStore.setSourceProducerAccessGuard");
 const diagnosticStoreCreateSavepoint = Symbol("tsts.extensionDiagnosticStore.createSavepoint");
 const diagnosticStoreAssertCanCommitSavepoint = Symbol("tsts.extensionDiagnosticStore.assertCanCommitSavepoint");
 const diagnosticStoreCommitSavepoint = Symbol("tsts.extensionDiagnosticStore.commitSavepoint");
@@ -87,6 +101,7 @@ const diagnosticStoreForOwner = Symbol("tsts.extensionDiagnosticStore.forOwner")
 const diagnosticStoreSealRanges = Symbol("tsts.extensionDiagnosticStore.sealRanges");
 const diagnosticStoreRegisterRangeForHost = Symbol("tsts.extensionDiagnosticStore.registerRangeForHost");
 const diagnosticStoreAppendForOwner = Symbol("tsts.extensionDiagnosticStore.appendForOwner");
+const diagnosticStoreSetSourceProducerReadGuard = Symbol("tsts.extensionDiagnosticStore.setSourceProducerReadGuard");
 const factResolverCreateSavepoint = Symbol("tsts.extensionFactResolver.createSavepoint");
 const factResolverAssertCanCommitSavepoint = Symbol("tsts.extensionFactResolver.assertCanCommitSavepoint");
 const factResolverCommitSavepoint = Symbol("tsts.extensionFactResolver.commitSavepoint");
@@ -100,7 +115,7 @@ const providerRegistryAssertCanCommitRegistrationSavepoint = Symbol("tsts.provid
 const providerRegistryCommitRegistrationSavepoint = Symbol("tsts.provider.commitRegistrationSavepoint");
 const providerRegistryRollbackRegistrationSavepoint = Symbol("tsts.provider.rollbackRegistrationSavepoint");
 const providerRegistryRegistrationSavepointActive = Symbol("tsts.provider.registrationSavepointActive");
-const hostOwnedDiagnostics = new WeakSet();
+const providerRegistrySetSourceProducerReadBlocked = Symbol("tsts.provider.setSourceProducerReadBlocked");
 const extensionFactTransactionIdentity = Symbol("tsts.extensionFactTransaction.identity");
 const extensionFactSavepointIdentity = Symbol("tsts.extensionFactSavepoint.identity");
 const extensionDiagnosticSavepointIdentity = Symbol("tsts.extensionDiagnosticSavepoint.identity");
@@ -109,12 +124,21 @@ const providerRegistrationSavepointIdentity = Symbol("tsts.providerRegistrationS
 const hostMutationAttemptIdentity = Symbol("tsts.hostMutationAttempt.identity");
 const hostRegistrySavepointIdentity = Symbol("tsts.hostRegistrySavepoint.identity");
 const diagnosticStoreOwnerAuthorities = new WeakMap();
+class HostTransactionSettlementError extends AggregateError {
+    constructor(errors, message) {
+        super(errors, message);
+        this.name = "HostTransactionSettlementError";
+    }
+}
 export const ExtensionLifecycleEvent = {
     afterSourceFileBound: "binder.afterSourceFileBound",
     beforeSemanticsFinalized: "semantics.beforeFinalized",
 };
+const sourceCallProducerStageUnmatched = Object.freeze({ kind: "unmatched" });
 const sealProviderRegistrations = Symbol("tsts.provider.sealRegistrations");
 const providerMaxRegisteredProviders = 4_096;
+const maxCheckedSourceCallProducers = 4_096;
+const maxCheckedSourceCallProducerRetainedScalarCodeUnits = providerDeclarationModelLimits.maxPhysicalScalarCodeUnits;
 export const extensionHostSetFact = Symbol("tsts.extensionHost.setFact");
 export const extensionHostRegisterFactResolver = Symbol("tsts.extensionHost.registerFactResolver");
 const extensionStoreViewToken = Object.freeze({});
@@ -125,11 +149,12 @@ export class ExtensionDiagnosticStore {
         if (options === undefined) {
             this.#state = {
                 records: [],
-                identities: new Set(),
+                recordsByIdentity: new Map(),
                 diagnosticRanges: new Map(),
                 savepoints: [],
                 savepointStates: new WeakMap(),
                 ownerAuthority: { stack: [] },
+                sourceProducerReadGuard: undefined,
                 rangesSealed: false,
             };
             this.#ownerId = undefined;
@@ -253,6 +278,7 @@ export class ExtensionDiagnosticStore {
         const hostOwned = isHostOwnedExtensionDiagnostic(diagnostic);
         const ownerId = this.#effectiveOwnerId();
         if (!hostOwned && (!this.#boundWriterIsActive() || ownerId === undefined)) {
+            this.#recordAttemptFailure();
             this.#appendHostDiagnostic(createHostDiagnostic({
                 extensionCode: "DIAGNOSTIC_WRITER_OWNERSHIP_VIOLATION",
                 numericCode: ExtensionHostDiagnosticCode.diagnosticOwnershipViolation,
@@ -265,6 +291,7 @@ export class ExtensionDiagnosticStore {
         }
         const snapshot = snapshotExtensionDiagnostic(diagnostic);
         if (snapshot.kind === "invalid") {
+            this.#recordAttemptFailure();
             this.#appendHostDiagnostic(createHostDiagnostic({
                 extensionCode: "INVALID_EXTENSION_DIAGNOSTIC",
                 numericCode: ExtensionHostDiagnosticCode.invalidDiagnosticSnapshot,
@@ -276,6 +303,7 @@ export class ExtensionDiagnosticStore {
         }
         const immutableDiagnostic = snapshot.diagnostic;
         if (!hostOwned && immutableDiagnostic.extensionId !== ownerId) {
+            this.#recordAttemptFailure();
             this.#appendHostDiagnostic(createHostDiagnostic({
                 extensionCode: "DIAGNOSTIC_WRITER_OWNERSHIP_VIOLATION",
                 numericCode: ExtensionHostDiagnosticCode.diagnosticOwnershipViolation,
@@ -320,7 +348,8 @@ export class ExtensionDiagnosticStore {
     #appendValidatedSnapshot(immutableDiagnostic, hostOwned) {
         const range = this.#state.diagnosticRanges.get(immutableDiagnostic.extensionId);
         if (range !== undefined && !isDiagnosticCodeInRange(immutableDiagnostic.numericCode, range)) {
-            return this.#appendUnchecked(createHostDiagnostic({
+            this.#recordAttemptFailure();
+            this.#appendUnchecked(createHostDiagnostic({
                 extensionCode: "DIAGNOSTIC_CODE_OUT_OF_RANGE",
                 numericCode: ExtensionHostDiagnosticCode.diagnosticCodeOutOfRange,
                 message: `Extension '${immutableDiagnostic.extensionId}' emitted diagnostic code ${immutableDiagnostic.numericCode}, outside its registered range ${range.start}-${range.end}.`,
@@ -330,6 +359,7 @@ export class ExtensionDiagnosticStore {
                 ],
                 identity: encodeIdentityTuple(["diagnostic-code-out-of-range", immutableDiagnostic.extensionId, immutableDiagnostic.numericCode, range.start, range.end]),
             }));
+            return false;
         }
         return this.#appendSnapshot(immutableDiagnostic, hostOwned);
     }
@@ -345,18 +375,30 @@ export class ExtensionDiagnosticStore {
     }
     #appendSnapshot(diagnostic, hostOwned) {
         const identity = getDiagnosticIdentity(diagnostic);
-        if (this.#state.identities.has(identity)) {
+        const existing = this.#state.recordsByIdentity.get(identity);
+        if (existing !== undefined) {
+            if (!extensionDiagnosticSnapshotsEqual(existing.diagnostic, diagnostic)
+                || existing.hostOwned !== hostOwned) {
+                this.#recordAttemptFailure();
+                throw new Error(`Extension diagnostic identity '${identity}' resolved to conflicting immutable diagnostics.`);
+            }
             return false;
         }
-        this.#state.identities.add(identity);
-        this.#state.records.push(Object.freeze({ diagnostic, identity, hostOwned }));
+        const record = Object.freeze({ diagnostic, identity, hostOwned });
+        this.#state.recordsByIdentity.set(identity, record);
+        this.#state.records.push(record);
         return true;
     }
     all() {
+        this.#state.sourceProducerReadGuard?.();
         return Object.freeze(this.#state.records.map((record) => record.diagnostic));
     }
     hasErrors() {
+        this.#state.sourceProducerReadGuard?.();
         return this.#state.records.some((record) => record.diagnostic.category === "error");
+    }
+    [diagnosticStoreSetSourceProducerReadGuard](guard) {
+        this.#state.sourceProducerReadGuard = guard;
     }
     [diagnosticStoreCreateSavepoint]() {
         const savepoint = Object.freeze({
@@ -366,6 +408,7 @@ export class ExtensionDiagnosticStore {
             diagnosticIndex: this.#state.records.length,
             diagnosticRanges: new Map(this.#state.diagnosticRanges),
             active: true,
+            failed: false,
         });
         this.#state.savepoints.push(savepoint);
         return savepoint;
@@ -377,6 +420,9 @@ export class ExtensionDiagnosticStore {
     }
     [diagnosticStoreAssertCanCommitSavepoint](savepoint) {
         this.#assertActiveSavepoint(savepoint);
+        if (this.#requireSavepointState(savepoint).failed) {
+            throw new Error("Cannot commit an extension diagnostic savepoint after a diagnostic write failed.");
+        }
     }
     [diagnosticStoreRollbackToSavepoint](savepoint) {
         this.#assertActiveSavepoint(savepoint);
@@ -385,7 +431,7 @@ export class ExtensionDiagnosticStore {
             .slice(state.diagnosticIndex)
             .filter((record) => record.hostOwned);
         for (let index = this.#state.records.length - 1; index >= state.diagnosticIndex; index -= 1) {
-            this.#state.identities.delete(this.#state.records[index].identity);
+            this.#state.recordsByIdentity.delete(this.#state.records[index].identity);
         }
         this.#state.records.length = state.diagnosticIndex;
         this.#state.diagnosticRanges.clear();
@@ -433,6 +479,12 @@ export class ExtensionDiagnosticStore {
         }
         return state;
     }
+    #recordAttemptFailure() {
+        const savepoint = this.#state.savepoints[this.#state.savepoints.length - 1];
+        if (savepoint !== undefined) {
+            this.#requireSavepointState(savepoint).failed = true;
+        }
+    }
     #effectiveOwnerId() {
         return this.#ownerId ?? this.#state.ownerAuthority.stack[this.#state.ownerAuthority.stack.length - 1];
     }
@@ -454,6 +506,8 @@ export class ExtensionFactStore {
                 transactionStates: new WeakMap(),
                 savepointStates: new WeakMap(),
                 ownerAuthority: getDiagnosticStoreOwnerAuthority(diagnostics),
+                sourceProducerAccessGuard: undefined,
+                sourceProducerEnumerationGuard: undefined,
                 activeTransaction: undefined,
                 nextObjectSubjectId: 1,
                 sealed: false,
@@ -476,7 +530,12 @@ export class ExtensionFactStore {
             token: extensionStoreViewToken,
         });
     }
+    [factStoreSetSourceProducerAccessGuard](accessGuard, enumerationGuard) {
+        this.#state.sourceProducerAccessGuard = accessGuard;
+        this.#state.sourceProducerEnumerationGuard = enumerationGuard;
+    }
     set(subject, key, value, evidence = []) {
+        this.#state.sourceProducerAccessGuard?.(subject, key, "write");
         getExtensionFactKeyIdentity(key);
         const ownerId = this.#effectiveOwnerId();
         if (this.#state.hostWriteDepth === 0 && (!this.#boundWriterIsActive() || ownerId === undefined)) {
@@ -570,6 +629,7 @@ export class ExtensionFactStore {
         return this.getEntry(subject, key)?.value;
     }
     getEntry(subject, key) {
+        this.#state.sourceProducerAccessGuard?.(subject, key, "read");
         if (subject === undefined) {
             return undefined;
         }
@@ -580,6 +640,7 @@ export class ExtensionFactStore {
         return this.getEntry(subject, key) !== undefined;
     }
     entries(subject) {
+        this.#state.sourceProducerEnumerationGuard?.();
         if (subject === undefined) {
             return Object.freeze([]);
         }
@@ -1068,6 +1129,7 @@ export class ProviderRegistry {
     #declarationLoadOutcomesByRequestKey = new Map();
     #declarationCandidatesByCacheKey = new Map();
     #virtualArtifactsByFileName = new Map();
+    #virtualCompilerMetadataByArtifact = new WeakMap();
     #virtualDocumentsByUri = new Map();
     #publicVirtualDocumentsByUri = new Map();
     #virtualSourceVariantsByModuleIdentity = new Map();
@@ -1081,11 +1143,13 @@ export class ProviderRegistry {
     #registrationSavepointStates = new WeakMap();
     #providerRegistrationsSealed = false;
     #activeResolutionTransaction;
+    #sourceProducerReadBlocked = false;
     constructor(diagnostics, requiredProviderModules = []) {
         this.#diagnostics = diagnostics;
         this.#requiredProviderModules = requiredProviderModules;
     }
     registerTargetBindingProvider(provider) {
+        this.#assertSourceProducerReadAllowed();
         this.#assertHostOwnedRegistration("target binding provider");
         if (this.#bindingProviderRegistrations.has(provider)) {
             return true;
@@ -1141,6 +1205,7 @@ export class ProviderRegistry {
         return true;
     }
     registerTargetSemanticProvider(provider) {
+        this.#assertSourceProducerReadAllowed();
         this.#assertHostOwnedRegistration("target semantic provider");
         if (this.#semanticProviderRegistrations.has(provider)) {
             return true;
@@ -1198,9 +1263,11 @@ export class ProviderRegistry {
         return true;
     }
     get hasBindingProviders() {
+        this.#assertSourceProducerReadAllowed();
         return this.#bindingProviders.size !== 0;
     }
     requiresProviderForModule(specifier, context = {}) {
+        this.#assertSourceProducerReadAllowed();
         return this.#requiredProviderModules.find((required) => specifier.startsWith(required.specifierPrefix)
             && (required.target === undefined || context.activeTarget === undefined || required.target === context.activeTarget));
     }
@@ -1263,6 +1330,7 @@ export class ProviderRegistry {
         return this.#registrationSavepointStates.get(savepoint)?.active === true;
     }
     resolveVirtualModule(specifier, context = {}) {
+        this.#assertSourceProducerReadAllowed();
         if (this.#registrationSavepoints.length !== 0) {
             throw new Error("Provider module resolution cannot run from an extension registration transaction.");
         }
@@ -1388,7 +1456,8 @@ export class ProviderRegistry {
             this.#diagnostics.append(diagnostic);
             return { kind: "rejected", diagnostic };
         }
-        const virtualSourceText = renderProviderDeclarationModel(artifactDeclarationModel, { canonicalExports });
+        const virtualRendering = renderProviderDeclarationModel(artifactDeclarationModel, { canonicalExports });
+        const virtualSourceText = virtualRendering.sourceText;
         const publicSourceReservation = this.#reserveProviderDeclarationSource(loaded.candidate, canonicalExportsPreparation.state, virtualSourceText);
         if (publicSourceReservation.kind === "rejected") {
             return publicSourceReservation;
@@ -1397,7 +1466,7 @@ export class ProviderRegistry {
         if (effectiveVirtualFileNamePlan.kind === "rejected") {
             return effectiveVirtualFileNamePlan;
         }
-        const artifactPreparation = this.#preparePublicVirtualArtifact(loaded.candidate, artifactDeclarationModel, virtualSourceText, effectiveVirtualFileNamePlan.fileName);
+        const artifactPreparation = this.#preparePublicVirtualArtifact(loaded.candidate, artifactDeclarationModel, virtualSourceText, virtualRendering.compilerMetadata, effectiveVirtualFileNamePlan.fileName);
         if (artifactPreparation.kind === "rejected") {
             return artifactPreparation;
         }
@@ -2156,12 +2225,17 @@ export class ProviderRegistry {
                 this.#diagnostics.append(diagnostic);
                 return { kind: "rejected", diagnostic };
             }
-            const sourceText = plan.existingOwner?.artifact.sourceText
-                ?? renderProviderDeclarationModel(plan.declarationModel, {
+            const rendering = plan.existingOwner === undefined
+                ? renderProviderDeclarationModel(plan.declarationModel, {
                     exactImports: plan.exactImports,
                     exactImportsInTypePositions: true,
                     mode: "canonical-export",
-                });
+                })
+                : {
+                    sourceText: plan.existingOwner.artifact.sourceText,
+                    compilerMetadata: this.#requireVirtualCompilerMetadata(plan.existingOwner.artifact),
+                };
+            const sourceText = rendering.sourceText;
             const sourceReservation = this.#reserveProviderDeclarationSource(plan.candidate, state, sourceText);
             if (sourceReservation.kind === "rejected") {
                 return sourceReservation;
@@ -2196,6 +2270,7 @@ export class ProviderRegistry {
                 sourceText,
                 document,
             });
+            this.#virtualCompilerMetadataByArtifact.set(artifact, rendering.compilerMetadata);
             const typeOnly = getProviderExportTypeOnlyMap(plan.declarationModel.exports).get(plan.sourceExportName);
             if (typeOnly === undefined) {
                 const diagnostic = createInvalidProviderDeclarationDiagnostic(plan.candidate.providerIdentity, plan.candidate.declarationModel, `Canonical provider export '${plan.candidate.declarationModel.moduleSpecifier}#${plan.sourceExportName}' has no export-kind contract.`, encodeIdentityTuple(["provider-export-owner-kind-missing", plan.candidate.providerIdentity.id, plan.exportIdentity]));
@@ -2269,7 +2344,7 @@ export class ProviderRegistry {
         }
         return { kind: "planned", fileName };
     }
-    #preparePublicVirtualArtifact(candidate, declarationModel, sourceText, fileName) {
+    #preparePublicVirtualArtifact(candidate, declarationModel, sourceText, compilerMetadata, fileName) {
         const id = getProviderPublicVirtualArtifactId(candidate.moduleIdentity, sourceText);
         const existing = this.#virtualArtifactsByFileName.get(fileName);
         if (existing !== undefined) {
@@ -2281,7 +2356,8 @@ export class ProviderRegistry {
                 && existing.packageName === candidate.resolution.packageName
                 && existing.packageVersion === candidate.resolution.packageVersion
                 && existing.sourceText === sourceText
-                && JSON.stringify(existing.declarationModel) === JSON.stringify(declarationModel)) {
+                && JSON.stringify(existing.declarationModel) === JSON.stringify(declarationModel)
+                && providerVirtualCompilerMetadataEqual(this.#requireVirtualCompilerMetadata(existing), compilerMetadata)) {
                 return { kind: "prepared", artifact: existing };
             }
             const diagnostic = createInvalidProviderDeclarationDiagnostic(candidate.providerIdentity, candidate.declarationModel, `Host-owned provider artifact '${fileName}' conflicts with an existing immutable artifact.`, encodeIdentityTuple(["provider-virtual-artifact-conflict", candidate.providerIdentity.id, fileName]));
@@ -2300,21 +2376,23 @@ export class ProviderRegistry {
             sourceText,
             readOnly: true,
         });
+        const artifact = Object.freeze({
+            kind: "public",
+            id,
+            provider: document.provider,
+            moduleSpecifier: candidate.resolution.moduleSpecifier,
+            providerModuleId: candidate.resolution.providerModuleId,
+            ...(candidate.resolution.packageName === undefined ? {} : { packageName: candidate.resolution.packageName }),
+            ...(candidate.resolution.packageVersion === undefined ? {} : { packageVersion: candidate.resolution.packageVersion }),
+            fileName,
+            declarationModel,
+            sourceText,
+            document,
+        });
+        this.#virtualCompilerMetadataByArtifact.set(artifact, compilerMetadata);
         return {
             kind: "prepared",
-            artifact: Object.freeze({
-                kind: "public",
-                id,
-                provider: document.provider,
-                moduleSpecifier: candidate.resolution.moduleSpecifier,
-                providerModuleId: candidate.resolution.providerModuleId,
-                ...(candidate.resolution.packageName === undefined ? {} : { packageName: candidate.resolution.packageName }),
-                ...(candidate.resolution.packageVersion === undefined ? {} : { packageVersion: candidate.resolution.packageVersion }),
-                fileName,
-                declarationModel,
-                sourceText,
-                document,
-            }),
+            artifact,
         };
     }
     #commitVirtualArtifact(artifact, publiclyVisible) {
@@ -2416,18 +2494,40 @@ export class ProviderRegistry {
         }
     }
     getVirtualArtifactByFileName(fileName) {
+        this.#assertSourceProducerReadAllowed();
         const artifact = this.#virtualArtifactsByFileName.get(fileName);
         return artifact?.kind === "public" ? artifact : undefined;
     }
     [providerVirtualCompilerArtifactLookup](fileName) {
         return this.#virtualArtifactsByFileName.get(fileName);
     }
+    [providerVirtualCompilerMetadataLookup](fileName) {
+        const artifact = this.#virtualArtifactsByFileName.get(fileName);
+        return artifact === undefined ? undefined : this.#virtualCompilerMetadataByArtifact.get(artifact);
+    }
+    #requireVirtualCompilerMetadata(artifact) {
+        const metadata = this.#virtualCompilerMetadataByArtifact.get(artifact);
+        if (metadata === undefined) {
+            throw new Error(`Provider virtual artifact '${artifact.fileName}' lost its compiler-owned metadata.`);
+        }
+        return metadata;
+    }
     getVirtualDeclarationDocument(uriOrFileName) {
+        this.#assertSourceProducerReadAllowed();
         return this.#publicVirtualDocumentsByUri.get(uriOrFileName);
     }
     getVirtualDeclarationDocuments() {
+        this.#assertSourceProducerReadAllowed();
         return [...this.#publicVirtualDocumentsByUri.values()]
             .sort((left, right) => left.fileName < right.fileName ? -1 : left.fileName > right.fileName ? 1 : 0);
+    }
+    [providerRegistrySetSourceProducerReadBlocked](blocked) {
+        this.#sourceProducerReadBlocked = blocked;
+    }
+    #assertSourceProducerReadAllowed() {
+        if (this.#sourceProducerReadBlocked) {
+            throw new Error("Checked source-call producers cannot inspect or mutate the provider registry.");
+        }
     }
     #collectModuleOwners(specifier, context) {
         const owners = [];
@@ -2482,13 +2582,17 @@ export class ExtensionHost {
     facts;
     factResolver;
     providers;
-    activeTarget;
-    activeSurface;
+    #activeTarget;
+    #activeSurface;
     #extensions = [];
     #extensionsById = new Map();
     #observationOwners = new Map();
     #observationHooks = new Map();
     #lifecycleHooks = new Map();
+    #checkedSourceCallProducers = [];
+    #checkedSourceCallProducersBySelector = new Map();
+    #checkedSourceCallProducerDeclarationCounts = new Map();
+    #checkedSourceCallViews = new WeakMap();
     #checkedOperations;
     #consumerSubjectIds = new WeakMap();
     #mutationAttemptStates = new WeakMap();
@@ -2497,15 +2601,23 @@ export class ExtensionHost {
     #hostRegistrySavepoints = [];
     #hostRegistrySavepointStates = new WeakMap();
     #ownerAuthority;
+    #runtimeCarrierDemandScopes = [];
     #program;
     #compilerContext;
+    #compilerContextsBySourceFile = new WeakMap();
     #observationPhase = "checking";
     #semanticFinalizationState = "open";
     #nextConsumerSubjectId = 1;
+    #checkedSourceCallProducerRetainedScalarCodeUnits = 0;
     #hookRegistrationsSealed = false;
     #observationHookDepth = 0;
+    #checkedSourceCallProducerDepth = 0;
+    #checkedSourceCallProducerInvocation;
     [extensionHostAllowsSemanticQueryPreflight]() {
         return this.#semanticFinalizationState === "open";
+    }
+    [extensionHostAllowsCompilerQuery]() {
+        return this.#checkedSourceCallProducerDepth === 0;
     }
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
@@ -2519,6 +2631,7 @@ export class ExtensionHost {
         this.#ownerAuthority = getDiagnosticStoreOwnerAuthority(this.diagnostics);
         this.facts = new ExtensionFactStore(this.diagnostics);
         this.factResolver = new ExtensionFactResolver(this.facts, this.diagnostics);
+        this.factResolver[factResolverRegisterForHost](runtimeCarrierFactKey, (subject, context) => this.#resolveDemandedRuntimeCarrier(subject, context));
         this.providers = new ProviderRegistry(this.diagnostics, options.requiredProviderModules ?? []);
         this.#checkedOperations = new CheckedOperationInventory({
             beginAttempt: () => this.#beginFactAttempt(),
@@ -2579,19 +2692,16 @@ export class ExtensionHost {
                     ]),
                 }));
             },
-            onUnresolved: (observation, subject) => {
-                const owner = this.getObservationOwner(observation);
+            onUnresolved: (observation, subject, extensionId) => {
                 this.diagnostics.append(createHostDiagnostic({
                     extensionCode: "OBSERVATION_OWNER_DEFERRED",
                     numericCode: ExtensionHostDiagnosticCode.observationOwnerDeferred,
-                    message: owner === undefined
-                        ? `Checked semantic operation '${observation}' remained unresolved after semantic finalization.`
-                        : `Extension '${owner.identity.id}' still deferred checked semantic operation '${observation}' after semantic finalization.`,
+                    message: `Extension '${extensionId}' still deferred checked semantic operation '${observation}' after semantic finalization.`,
                     nodeOrSpan: subject,
                     identity: encodeIdentityTuple([
                         "checked-operation-finalization-deferred",
                         observation,
-                        owner?.identity.id,
+                        extensionId,
                         this.#getConsumerSubjectIdentity(subject),
                     ]),
                 }));
@@ -2600,8 +2710,8 @@ export class ExtensionHost {
                 this.#failSemanticFinalization();
             },
         });
-        this.activeTarget = options.activeTarget;
-        this.activeSurface = options.activeSurface;
+        this.#activeTarget = options.activeTarget;
+        this.#activeSurface = options.activeSurface;
         const orderedExtensions = orderExtensions(options.extensions ?? [], this.diagnostics);
         for (const extension of orderedExtensions) {
             const attempt = this.#beginFactAttempt();
@@ -2636,6 +2746,7 @@ export class ExtensionHost {
                         registerLifecycleHook: (event, hook) => this.registerLifecycleHook(event, extension.identity.id, hook),
                         registerTargetBindingProvider: (provider) => this.#registerTargetBindingProviderForExtension(extension.identity.id, provider),
                         registerTargetSemanticProvider: (provider) => this.registerTargetSemanticProvider(extension.identity.id, provider),
+                        registerCheckedSourceCallProducer: (producer) => this.registerCheckedSourceCallProducer(extension.identity.id, producer),
                     });
                 });
                 if (!rangeRegistered) {
@@ -2646,12 +2757,12 @@ export class ExtensionHost {
                 this.#extensions.push(extension);
             }
             catch (error) {
-                this.#rollbackFactAttempt(attempt);
+                const settledError = this.#rollbackFactAttemptsAfterFailure(error, attempt);
                 this.diagnostics.append(createHostDiagnostic({
                     extensionCode: "EXTENSION_INITIALIZE_FAILED",
                     numericCode: ExtensionHostDiagnosticCode.initializationFailed,
                     message: `Extension '${extension.identity.id}' failed during initialization.`,
-                    evidence: [{ message: "Thrown value", details: error }],
+                    evidence: [{ message: "Thrown value", details: settledError }],
                     identity: encodeIdentityTuple(["extension-initialize-failed", extension.identity.id]),
                 }));
             }
@@ -2661,9 +2772,19 @@ export class ExtensionHost {
         this.#hookRegistrationsSealed = true;
     }
     get extensions() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("inspect loaded extensions");
         return Object.freeze([...this.#extensions]);
     }
+    get activeTarget() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("inspect the active target");
+        return this.#activeTarget;
+    }
+    get activeSurface() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("inspect the active source surface");
+        return this.#activeSurface;
+    }
     get program() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("read the compiler program");
         return this.#program;
     }
     bindCompilerProgram(program) {
@@ -2679,8 +2800,10 @@ export class ExtensionHost {
         }
         this.#program = program;
         this.#compilerContext = undefined;
+        this.#compilerContextsBySourceFile = new WeakMap();
     }
     registerObservationOwner(observation, extensionId) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("register observation ownership");
         this.#assertRegistrationOwner(extensionId, "observation owner");
         if (this.#hookRegistrationsSealed) {
             this.diagnostics.append(createRegistrationClosedDiagnostic("observation owner"));
@@ -2716,10 +2839,12 @@ export class ExtensionHost {
         }));
     }
     getObservationOwner(observation) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("inspect observation ownership");
         const ownerId = this.#observationOwners.get(observation);
         return ownerId === undefined ? undefined : this.#extensionsById.get(ownerId);
     }
     requireObservationOwner(observation) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("require observation ownership");
         const owner = this.getObservationOwner(observation);
         if (owner !== undefined) {
             return owner;
@@ -2733,6 +2858,7 @@ export class ExtensionHost {
         return undefined;
     }
     registerObservation(observation, extensionId, hook) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("register an observation hook");
         this.#assertRegistrationOwner(extensionId, "observation hook");
         if (this.#hookRegistrationsSealed) {
             this.diagnostics.append(createRegistrationClosedDiagnostic("observation hook"));
@@ -2762,6 +2888,7 @@ export class ExtensionHost {
         hooks.push(registered);
     }
     registerLifecycleHook(event, extensionId, hook) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("register a lifecycle hook");
         this.#assertRegistrationOwner(extensionId, "lifecycle hook");
         if (this.#hookRegistrationsSealed) {
             this.diagnostics.append(createRegistrationClosedDiagnostic("lifecycle hook"));
@@ -2790,7 +2917,97 @@ export class ExtensionHost {
         });
         hooks.push(registered);
     }
+    registerCheckedSourceCallProducer(extensionId, producer) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("register a checked source-call producer");
+        this.#assertRegistrationOwner(extensionId, "checked source-call producer");
+        if (this.#hookRegistrationsSealed) {
+            this.diagnostics.append(createRegistrationClosedDiagnostic("checked source-call producer"));
+            return false;
+        }
+        const extension = this.#extensionsById.get(extensionId);
+        if (extension?.composition?.kind !== "source") {
+            this.diagnostics.append(createHostDiagnostic({
+                extensionCode: "INVALID_CHECKED_SOURCE_CALL_PRODUCER",
+                numericCode: ExtensionHostDiagnosticCode.invalidSourceOperationProducer,
+                message: `Only a source-composition extension can register a checked source-call producer; '${extensionId}' is '${extension?.composition?.kind ?? "unclassified"}'.`,
+                identity: encodeIdentityTuple(["invalid-checked-source-call-producer-composition", extensionId, extension?.composition?.kind]),
+            }));
+            return false;
+        }
+        const snapshot = snapshotCheckedSourceCallProducerRegistration(producer);
+        if (snapshot.kind === "invalid") {
+            this.diagnostics.append(createHostDiagnostic({
+                extensionCode: "INVALID_CHECKED_SOURCE_CALL_PRODUCER",
+                numericCode: ExtensionHostDiagnosticCode.invalidSourceOperationProducer,
+                message: `Invalid checked source-call producer registration for extension '${extensionId}'.`,
+                evidence: [{ message: "Registration rejection", details: snapshot.reason }],
+                identity: encodeIdentityTuple(["invalid-checked-source-call-producer", extensionId, snapshot.reason]),
+            }));
+            return false;
+        }
+        const selectorScalarCodeUnits = checkedSourceCallProviderSelectorScalarCodeUnits(snapshot.producer.selector);
+        const selectorKey = checkedSourceCallProviderSelectorKey(snapshot.producer.selector);
+        const declarationKeys = checkedSourceCallProviderSelectorDeclarationKeys(snapshot.producer.selector);
+        const retainedScalarCodeUnits = selectorScalarCodeUnits
+            + selectorKey.length
+            + declarationKeys.reduce((total, key) => total + key.length, 0);
+        const selected = this.#checkedSourceCallProducersBySelector.get(selectorKey);
+        if (selected !== undefined) {
+            this.diagnostics.append(createHostDiagnostic({
+                extensionCode: "INVALID_CHECKED_SOURCE_CALL_PRODUCER",
+                numericCode: ExtensionHostDiagnosticCode.invalidSourceOperationProducer,
+                message: `Checked source-call selector is already owned by source extension '${selected.extensionId}'; '${extensionId}' cannot register a second producer.`,
+                identity: encodeIdentityTuple([
+                    "duplicate-checked-source-call-producer",
+                    selected.extensionId,
+                    selected.registrationOrdinal,
+                    extensionId,
+                ]),
+            }));
+            return false;
+        }
+        if (this.#checkedSourceCallProducers.length >= maxCheckedSourceCallProducers) {
+            this.diagnostics.append(createHostDiagnostic({
+                extensionCode: "INVALID_CHECKED_SOURCE_CALL_PRODUCER",
+                numericCode: ExtensionHostDiagnosticCode.invalidSourceOperationProducer,
+                message: `Checked source-call producer registration exceeds the finite limit of ${maxCheckedSourceCallProducers}.`,
+                identity: encodeIdentityTuple(["checked-source-call-producer-limit", extensionId, maxCheckedSourceCallProducers]),
+            }));
+            return false;
+        }
+        if (this.#checkedSourceCallProducerRetainedScalarCodeUnits
+            > maxCheckedSourceCallProducerRetainedScalarCodeUnits - retainedScalarCodeUnits) {
+            this.diagnostics.append(createHostDiagnostic({
+                extensionCode: "INVALID_CHECKED_SOURCE_CALL_PRODUCER",
+                numericCode: ExtensionHostDiagnosticCode.invalidSourceOperationProducer,
+                message: `Checked source-call producer identities exceed the finite retained aggregate limit of ${maxCheckedSourceCallProducerRetainedScalarCodeUnits} UTF-16 code units.`,
+                identity: encodeIdentityTuple(["checked-source-call-producer-retained-scalar-limit", extensionId, maxCheckedSourceCallProducerRetainedScalarCodeUnits]),
+            }));
+            return false;
+        }
+        const registrationOrdinal = this.#checkedSourceCallProducers.length;
+        this.#recordHostRegistryMutation({
+            kind: "checked-source-call-producer",
+            previousLength: this.#checkedSourceCallProducers.length,
+            selectorKey,
+            previousSelector: selected,
+            previousDeclarationCounts: Object.freeze(declarationKeys.map((key) => Object.freeze({
+                key,
+                count: this.#checkedSourceCallProducerDeclarationCounts.get(key) ?? 0,
+            }))),
+            previousRetainedScalarCodeUnits: this.#checkedSourceCallProducerRetainedScalarCodeUnits,
+        });
+        const registered = Object.freeze({ extensionId, registrationOrdinal, selectorKey, ...snapshot.producer });
+        this.#checkedSourceCallProducers.push(registered);
+        this.#checkedSourceCallProducersBySelector.set(selectorKey, registered);
+        for (const declarationKey of declarationKeys) {
+            this.#checkedSourceCallProducerDeclarationCounts.set(declarationKey, (this.#checkedSourceCallProducerDeclarationCounts.get(declarationKey) ?? 0) + 1);
+        }
+        this.#checkedSourceCallProducerRetainedScalarCodeUnits += retainedScalarCodeUnits;
+        return true;
+    }
     registerTargetSemanticProvider(extensionId, provider) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("register a target semantic provider");
         this.#assertRegistrationOwner(extensionId, "target semantic provider");
         if (this.#hookRegistrationsSealed) {
             this.diagnostics.append(createRegistrationClosedDiagnostic("target semantic provider"));
@@ -2815,35 +3032,30 @@ export class ExtensionHost {
         return true;
     }
     #registerTargetBindingProviderForExtension(extensionId, provider) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("register a target binding provider");
         this.#assertRegistrationOwner(extensionId, "target binding provider");
         return runWithoutExtensionOwnerAuthority(this.#ownerAuthority, () => this.providers.registerTargetBindingProvider(provider));
     }
     runObservation(observation, request, core, options = {}, onAccept) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("run an immediate observation");
         if (isCheckedOperationObservationPoint(observation)) {
             throw new Error(`Checked semantic operation '${observation}' must use the host-owned finalization inventory.`);
         }
         this.providers[sealProviderRegistrations]();
         const factAttempt = this.#beginFactAttempt();
-        let attemptOpen = true;
         try {
             const result = this.#runObservation(observation, request, core, options, this.#observationPhase, true);
             if (result.kind === "accept") {
                 onAccept?.(result.value, result.evidence ?? [], request);
                 this.#commitFactAttempt(factAttempt);
-                attemptOpen = false;
             }
             else {
-                attemptOpen = false;
                 this.#discardFactAttemptPreservingDiagnostics(factAttempt);
             }
             return result;
         }
         catch (error) {
-            if (attemptOpen) {
-                attemptOpen = false;
-                this.#rollbackFactAttempt(factAttempt);
-            }
-            throw error;
+            throw this.#rollbackFactAttemptsAfterFailure(error, factAttempt);
         }
     }
     [extensionHostRunCheckedOperation](observation, request, core, onAccept, options = {}, requestSnapshotCache, dependencies = [], atomicOwner) {
@@ -2854,7 +3066,7 @@ export class ExtensionHost {
         }
         this.providers[sealProviderRegistrations]();
         try {
-            return this.#checkedOperations.run(observation, request, (immutableRequest, phase) => this.#runObservation(observation, immutableRequest, core, options, phase, false), (accepted, immutableRequest) => {
+            return this.#checkedOperations.run(observation, request, (immutableRequest, phase) => this.#runCheckedOperationObservation(observation, immutableRequest, core, options, phase), (accepted, immutableRequest) => {
                 if (accepted.kind === "accept") {
                     return onAccept(accepted.value, accepted.evidence ?? [], immutableRequest);
                 }
@@ -2873,7 +3085,7 @@ export class ExtensionHost {
         }
         this.providers[sealProviderRegistrations]();
         try {
-            return this.#checkedOperations.retain(observation, request, (immutableRequest, phase) => this.#runObservation(observation, immutableRequest, core, options, phase, false), (accepted, immutableRequest) => {
+            return this.#checkedOperations.retain(observation, request, (immutableRequest, phase) => this.#runCheckedOperationObservation(observation, immutableRequest, core, options, phase), (accepted, immutableRequest) => {
                 if (accepted.kind === "accept") {
                     return onAccept(accepted.value, accepted.evidence ?? [], immutableRequest);
                 }
@@ -2888,19 +3100,15 @@ export class ExtensionHost {
         this.#assertCheckedOperationRecordingAvailable();
         this.providers[sealProviderRegistrations]();
         const attempt = this.#beginFactAttempt();
-        let attemptOpen = true;
         try {
             publish();
             this.#checkedOperations.evaluateRetainedChecking();
             this.#commitFactAttempt(attempt);
-            attemptOpen = false;
         }
         catch (error) {
-            if (attemptOpen) {
-                this.#rollbackFactAttempt(attempt);
-            }
+            const settledError = this.#rollbackFactAttemptsAfterFailure(error, attempt);
             this.#failSemanticFinalization();
-            throw error;
+            throw settledError;
         }
     }
     [extensionHostGetCheckedOperationRequest](observation, subject, reference) {
@@ -2913,6 +3121,191 @@ export class ExtensionHost {
         return this.#semanticFinalizationState !== "failed"
             && this.#semanticFinalizationState !== "finalized"
             && this.#observationOwners.has(observation);
+    }
+    [extensionHostHasCheckedOperationInterest](observation) {
+        if (this[extensionHostHasCheckedOperationOwner](observation)) {
+            return true;
+        }
+        return this[extensionHostHasCheckedSourceCallProducers]()
+            && observation === ExtensionObservationPoint.mapCheckedCall;
+    }
+    [extensionHostHasCheckedSourceCallProducers]() {
+        return this.#semanticFinalizationState !== "failed"
+            && this.#semanticFinalizationState !== "finalized"
+            && this.#checkedSourceCallProducers.length !== 0;
+    }
+    [extensionHostHasMatchingCheckedSourceCallProducer](selectedDeclaration) {
+        return this.#matchingCheckedSourceCallProducer(selectedDeclaration) !== undefined;
+    }
+    [extensionHostHasCheckedSourceCallProducerCandidate](selectedDeclaration) {
+        if (!this[extensionHostHasCheckedSourceCallProducers]() || selectedDeclaration === undefined) {
+            return false;
+        }
+        const declaration = this.facts.get(selectedDeclaration, providerVirtualDeclarationFactKey);
+        if (declaration !== undefined) {
+            assertCoherentCheckedSourceProviderDeclaration(declaration);
+            return declaration.exportId !== undefined && this.#checkedSourceCallProducerDeclarationCounts.has(checkedSourceCallProviderDeclarationOwnerKey(declaration));
+        }
+        const family = this.facts.get(selectedDeclaration, providerTypeFamilyFactKey);
+        if (family !== undefined) {
+            return family.variants.some((variant) => variant.declaration.exportId !== undefined
+                && this.#checkedSourceCallProducerDeclarationCounts.has(checkedSourceCallProviderDeclarationOwnerKey(variant.declaration)));
+        }
+        return false;
+    }
+    #runCheckedOperationObservation(observation, request, core, options, phase) {
+        if (observation !== ExtensionObservationPoint.mapCheckedCall) {
+            return this.#runObservation(observation, request, core, options, phase, false);
+        }
+        const callRequest = request;
+        const selectedDeclaration = callRequest.sourceSelection.kind === "applicable"
+            ? callRequest.sourceSelection.declaration
+            : undefined;
+        const producer = this.#matchingCheckedSourceCallProducer(selectedDeclaration);
+        const views = this.#getCheckedSourceCallViews(callRequest, producer?.selector);
+        const sourceResult = this.#runCheckedSourceCallProducer(callRequest, views.operation, phase, producer);
+        if (sourceResult.kind === "reject") {
+            return sourceResult;
+        }
+        if (sourceResult.kind === "defer") {
+            return {
+                kind: "owner-deferred",
+                observation,
+                extensionId: sourceResult.extensionId,
+            };
+        }
+        if (sourceResult.kind === "complete") {
+            this.facts[factStoreApplyDelta](sourceResult.effects.facts);
+        }
+        if (this[extensionHostHasCheckedOperationOwner](observation)) {
+            const targetResult = this.#runObservation(observation, views.targetRequest, core, options, phase, false);
+            if (sourceResult.kind === "complete" && targetResult.kind === "accept") {
+                this.diagnostics[diagnosticStoreApplyDelta](sourceResult.effects.diagnostics);
+            }
+            return targetResult;
+        }
+        if (sourceResult.kind === "complete") {
+            this.diagnostics[diagnosticStoreApplyDelta](sourceResult.effects.diagnostics);
+            return {
+                kind: "accept",
+                value: Object.freeze({ kind: "source" }),
+                extensionId: sourceResult.extensionId,
+            };
+        }
+        return { kind: "core", value: core() };
+    }
+    #runCheckedSourceCallProducer(request, operation, phase, registered) {
+        if (registered === undefined) {
+            return sourceCallProducerStageUnmatched;
+        }
+        if (operation === undefined) {
+            throw new Error("A matched checked source-call producer requires an immutable retained source-operation view.");
+        }
+        let production;
+        const producerAttempt = this.#beginFactAttempt();
+        try {
+            if (this.#checkedSourceCallProducerInvocation !== undefined) {
+                throw new Error("Checked source-call producer execution cannot re-enter itself.");
+            }
+            const invocation = Object.freeze({});
+            this.#observationHookDepth += 1;
+            this.#checkedSourceCallProducerDepth += 1;
+            this.#checkedSourceCallProducerInvocation = invocation;
+            const operationSubjects = checkedSourceCallReadableSubjects(operation);
+            this.facts[factStoreSetSourceProducerAccessGuard]((subject, key, access) => {
+                this.#assertCheckedSourceCallProducerOperationSubject(registered.extensionId, operationSubjects, subject);
+                if (access === "read") {
+                    this.#assertCheckedSourceCallProducerFactReadable(this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1] ?? registered.extensionId, key);
+                }
+            }, () => {
+                throw new Error("Checked source-call producers cannot enumerate the global extension fact store.");
+            });
+            this.diagnostics[diagnosticStoreSetSourceProducerReadGuard](() => {
+                throw new Error("Checked source-call producers cannot inspect the global extension diagnostic store.");
+            });
+            this.providers[providerRegistrySetSourceProducerReadBlocked](true);
+            try {
+                const capabilities = this.#getCheckedSourceCallProducerCapabilities(registered.extensionId, invocation, operation);
+                const context = Object.freeze({
+                    phase,
+                    extensionId: registered.extensionId,
+                    facts: capabilities.facts,
+                    factResolver: capabilities.factResolver,
+                    diagnostics: capabilities.diagnostics,
+                });
+                production = runWithExtensionOwnerAuthority(this.#ownerAuthority, registered.extensionId, () => registered.produce(operation, context));
+            }
+            finally {
+                this.providers[providerRegistrySetSourceProducerReadBlocked](false);
+                this.diagnostics[diagnosticStoreSetSourceProducerReadGuard](undefined);
+                this.facts[factStoreSetSourceProducerAccessGuard](undefined, undefined);
+                this.#checkedSourceCallProducerInvocation = undefined;
+                this.#checkedSourceCallProducerDepth -= 1;
+                this.#observationHookDepth -= 1;
+            }
+            production = snapshotCheckedSourceCallProduction(production, registered.extensionId);
+            this.#assertFactAttemptCanCommit(producerAttempt);
+            if (production.kind === "complete") {
+                return {
+                    kind: "complete",
+                    extensionId: registered.extensionId,
+                    effects: this.#captureAndRollbackFactAttempt(producerAttempt),
+                };
+            }
+            this.#rollbackFactAttempt(producerAttempt);
+            return production.kind === "defer"
+                ? { kind: "defer", extensionId: registered.extensionId }
+                : {
+                    kind: "reject",
+                    diagnostic: production.diagnostic,
+                    extensionId: registered.extensionId,
+                };
+        }
+        catch (error) {
+            const settledError = this.#rollbackFactAttemptsAfterFailure(error, producerAttempt);
+            const diagnostic = createHostDiagnostic({
+                extensionCode: "CHECKED_SOURCE_CALL_PRODUCER_FAILED",
+                numericCode: ExtensionHostDiagnosticCode.sourceOperationProducerFailed,
+                message: `Extension '${registered.extensionId}' failed while producing checked source-call semantics.`,
+                nodeOrSpan: request.call,
+                evidence: [{ message: "Thrown value", details: settledError }],
+                identity: encodeIdentityTuple([
+                    "checked-source-call-producer-failed",
+                    registered.extensionId,
+                    this.#getConsumerSubjectIdentity(request.call),
+                ]),
+            });
+            return { kind: "reject", diagnostic, extensionId: diagnostic.extensionId };
+        }
+    }
+    #getCheckedSourceCallViews(request, sourceProviderSelection) {
+        const existing = this.#checkedSourceCallViews.get(request);
+        if (existing !== undefined) {
+            if (sourceProviderSelection === undefined
+                ? existing.operation !== undefined
+                : existing.operation?.sourceProviderSelection !== sourceProviderSelection) {
+                throw new Error("A retained checked source-call view changed its exact provider selection.");
+            }
+            return existing;
+        }
+        const created = Object.freeze({
+            ...(request.sourceComposition === undefined || sourceProviderSelection === undefined
+                ? {}
+                : { operation: checkedCallSourceOperationForProducer(request, sourceProviderSelection) }),
+            targetRequest: checkedCallRequestForTargetMapper(request),
+        });
+        this.#checkedSourceCallViews.set(request, created);
+        return created;
+    }
+    #matchingCheckedSourceCallProducer(selectedDeclaration) {
+        if (!this[extensionHostHasCheckedSourceCallProducers]() || selectedDeclaration === undefined) {
+            return undefined;
+        }
+        const declaration = selectedCheckedSourceProviderDeclaration(this.facts, selectedDeclaration);
+        if (declaration === undefined) {
+            return undefined;
+        }
+        return this.#checkedSourceCallProducersBySelector.get(checkedSourceCallProviderDeclarationKey(declaration));
     }
     #assertCheckedOperationRecordingAvailable() {
         if (this.#semanticFinalizationState === "failed") {
@@ -2986,13 +3379,33 @@ export class ExtensionHost {
                 }
             }
             if (rollbackErrors.length !== 0) {
-                throw new AggregateError([error, ...rollbackErrors], "Host transaction acquisition failed and could not be fully unwound.");
+                const fatal = new HostTransactionSettlementError([error, ...rollbackErrors], "Host transaction acquisition failed and could not be fully unwound.");
+                this.#failSemanticFinalization();
+                throw fatal;
             }
             throw error;
         }
     }
     #commitFactAttempt(attempt) {
         const state = this.#assertActiveFactAttempt(attempt);
+        this.#assertFactAttemptCanCommitState(state);
+        this.#checkedOperations.commitSavepoint(state.checkedOperationSavepoint);
+        this.#commitHostRegistrySavepoint(state.hostRegistrySavepoint);
+        this.providers[providerRegistryCommitRegistrationSavepoint](state.providerSavepoint);
+        this.factResolver[factResolverCommitSavepoint](state.resolverSavepoint);
+        if (state.ownsFactTransaction) {
+            this.facts[factStoreCommitTransaction](state.factTransaction);
+        }
+        else {
+            this.facts[factStoreCommitSavepoint](state.factSavepoint);
+        }
+        this.diagnostics[diagnosticStoreCommitSavepoint](state.diagnosticSavepoint);
+        this.#completeFactAttempt(attempt, state);
+    }
+    #assertFactAttemptCanCommit(attempt) {
+        this.#assertFactAttemptCanCommitState(this.#assertActiveFactAttempt(attempt));
+    }
+    #assertFactAttemptCanCommitState(state) {
         if (state.ownsFactTransaction) {
             this.facts[factStoreAssertCanCommitTransaction](state.factTransaction);
         }
@@ -3006,18 +3419,6 @@ export class ExtensionHost {
         if (!state.checkedOperationSavepoint.active) {
             throw new Error("Checked-operation savepoint is no longer active.");
         }
-        this.#checkedOperations.commitSavepoint(state.checkedOperationSavepoint);
-        this.#commitHostRegistrySavepoint(state.hostRegistrySavepoint);
-        this.providers[providerRegistryCommitRegistrationSavepoint](state.providerSavepoint);
-        this.factResolver[factResolverCommitSavepoint](state.resolverSavepoint);
-        if (state.ownsFactTransaction) {
-            this.facts[factStoreCommitTransaction](state.factTransaction);
-        }
-        else {
-            this.facts[factStoreCommitSavepoint](state.factSavepoint);
-        }
-        this.diagnostics[diagnosticStoreCommitSavepoint](state.diagnosticSavepoint);
-        this.#completeFactAttempt(attempt, state);
     }
     #rollbackFactAttempt(attempt) {
         this.#completeRolledBackFactAttempt(attempt, false);
@@ -3086,11 +3487,8 @@ export class ExtensionHost {
             }
         });
         settle(() => this.#completeFactAttempt(attempt, state));
-        if (rollbackErrors.length === 1) {
-            throw rollbackErrors[0];
-        }
-        if (rollbackErrors.length > 1) {
-            throw new AggregateError(rollbackErrors, "Host transaction rollback could not settle every component cleanly.");
+        if (rollbackErrors.length !== 0) {
+            throw new HostTransactionSettlementError(rollbackErrors, "Host transaction rollback could not settle every component cleanly.");
         }
         return deferredOperations;
     }
@@ -3107,10 +3505,41 @@ export class ExtensionHost {
         }
         catch (error) {
             if (this.#mutationAttemptStates.get(attempt)?.active === true) {
-                this.#completeRolledBackFactAttempt(attempt, false);
+                try {
+                    this.#completeRolledBackFactAttempt(attempt, false);
+                }
+                catch (rollbackError) {
+                    const fatal = new HostTransactionSettlementError([error, rollbackError], "Observation candidate capture failed and its host transaction could not be fully unwound.");
+                    this.#failSemanticFinalization();
+                    throw fatal;
+                }
+            }
+            if (error instanceof HostTransactionSettlementError) {
+                this.#failSemanticFinalization();
             }
             throw error;
         }
+    }
+    #rollbackFactAttemptsAfterFailure(error, ...attempts) {
+        const failures = [error];
+        for (const attempt of attempts) {
+            if (this.#mutationAttemptStates.get(attempt)?.active !== true) {
+                continue;
+            }
+            try {
+                this.#rollbackFactAttempt(attempt);
+            }
+            catch (rollbackError) {
+                failures.push(rollbackError);
+            }
+        }
+        const settlementFailed = failures.some((failure) => failure instanceof HostTransactionSettlementError);
+        if (settlementFailed) {
+            const fatal = new HostTransactionSettlementError(failures, "Host transaction failure could not be fully unwound.");
+            this.#failSemanticFinalization();
+            throw fatal;
+        }
+        return error;
     }
     #captureFactAttemptEffects(attempt) {
         const state = this.#assertActiveFactAttempt(attempt);
@@ -3211,6 +3640,27 @@ export class ExtensionHost {
                     }
                     break;
                 }
+                case "checked-source-call-producer":
+                    if (this.#checkedSourceCallProducers.length < mutation.previousLength) {
+                        throw new Error("Checked source-call producer registration journal is inconsistent.");
+                    }
+                    this.#checkedSourceCallProducers.length = mutation.previousLength;
+                    if (mutation.previousSelector === undefined) {
+                        this.#checkedSourceCallProducersBySelector.delete(mutation.selectorKey);
+                    }
+                    else {
+                        this.#checkedSourceCallProducersBySelector.set(mutation.selectorKey, mutation.previousSelector);
+                    }
+                    for (const previous of mutation.previousDeclarationCounts) {
+                        if (previous.count === 0) {
+                            this.#checkedSourceCallProducerDeclarationCounts.delete(previous.key);
+                        }
+                        else {
+                            this.#checkedSourceCallProducerDeclarationCounts.set(previous.key, previous.count);
+                        }
+                    }
+                    this.#checkedSourceCallProducerRetainedScalarCodeUnits = mutation.previousRetainedScalarCodeUnits;
+                    break;
             }
         }
         this.#hostRegistryJournal.length = state.mutationIndex;
@@ -3225,7 +3675,7 @@ export class ExtensionHost {
             this.#hostRegistryJournal.push(Object.freeze(mutation));
         }
     }
-    #runObservation(observation, request, core, options, phase, reportDeferred) {
+    #runObservation(observation, request, core, options, phase, reportDeferred, compilerSourceFile) {
         this.#hookRegistrationsSealed = true;
         const owner = this.getObservationOwner(observation);
         if (owner === undefined && options.requireOwner === true) {
@@ -3253,7 +3703,6 @@ export class ExtensionHost {
         for (const registered of selectedHooks) {
             let observationResult;
             const factAttempt = this.#beginFactAttempt();
-            let attemptOpen = true;
             try {
                 this.#observationHookDepth += 1;
                 let returned;
@@ -3271,10 +3720,14 @@ export class ExtensionHost {
                         ? Object.freeze(contextBase)
                         : Object.freeze({
                             ...contextBase,
-                            compiler: this.getCompilerQueryContext(),
+                            compiler: this.getCompilerQueryContext(compilerSourceFile ?? observationCompilerSourceFile(observation, request)),
                             host: this,
                         });
-                    returned = runWithExtensionOwnerAuthority(this.#ownerAuthority, registered.extensionId, () => registered.hook(request, context));
+                    const invoke = () => runWithExtensionOwnerAuthority(this.#ownerAuthority, registered.extensionId, () => registered.hook(request, context));
+                    returned = isCheckedOperationObservationPoint(observation)
+                        && this.getObservationOwner(ExtensionObservationPoint.resolveRuntimeCarrier) !== undefined
+                        ? this.#withRuntimeCarrierDemandScope(observation, request, phase, invoke)
+                        : invoke();
                 }
                 finally {
                     this.#observationHookDepth -= 1;
@@ -3287,6 +3740,7 @@ export class ExtensionHost {
                     && snapshot.observation.diagnostic.extensionId !== registered.extensionId) {
                     throw new Error(`Extension '${registered.extensionId}' returned a rejection diagnostic owned by '${snapshot.observation.diagnostic.extensionId}'.`);
                 }
+                this.#assertFactAttemptCanCommit(factAttempt);
                 if (snapshot.observation.kind === "accept" && isCheckedOperationObservationPoint(observation)) {
                     observationResult = Object.freeze({
                         kind: "accept",
@@ -3298,19 +3752,16 @@ export class ExtensionHost {
                     observationResult = snapshot.observation;
                 }
                 if (observationResult.kind === "defer") {
-                    attemptOpen = false;
                     this.#rollbackFactAttempt(factAttempt);
                     continue;
                 }
                 if (observationResult.kind === "reject") {
-                    attemptOpen = false;
                     this.#rollbackFactAttempt(factAttempt);
                     nonDeferred.push({
                         result: { kind: "reject", diagnostic: observationResult.diagnostic, extensionId: registered.extensionId },
                     });
                     continue;
                 }
-                attemptOpen = false;
                 const effects = this.#captureAndRollbackFactAttempt(factAttempt);
                 nonDeferred.push({
                     result: {
@@ -3323,15 +3774,12 @@ export class ExtensionHost {
                 });
             }
             catch (error) {
-                if (attemptOpen) {
-                    attemptOpen = false;
-                    this.#rollbackFactAttempt(factAttempt);
-                }
+                const settledError = this.#rollbackFactAttemptsAfterFailure(error, factAttempt);
                 const diagnostic = createHostDiagnostic({
                     extensionCode: "OBSERVATION_HOOK_FAILED",
                     numericCode: ExtensionHostDiagnosticCode.observationHookFailed,
                     message: `Extension '${registered.extensionId}' failed while observing semantic point '${observation}'.`,
-                    evidence: [{ message: "Thrown value", details: error }],
+                    evidence: [{ message: "Thrown value", details: settledError }],
                     identity: encodeIdentityTuple(["observation-hook-failed", observation, registered.extensionId]),
                 });
                 nonDeferred.push({ result: { kind: "reject", diagnostic, extensionId: diagnostic.extensionId } });
@@ -3385,7 +3833,84 @@ export class ExtensionHost {
         }
         return selected.result;
     }
-    runLifecycle(event, request) {
+    #withRuntimeCarrierDemandScope(observation, request, phase, callback) {
+        const scope = {
+            phase,
+            observation,
+            request,
+            attempted: new Set(),
+        };
+        this.#runtimeCarrierDemandScopes.push(scope);
+        try {
+            return callback();
+        }
+        finally {
+            if (this.#runtimeCarrierDemandScopes.pop() !== scope) {
+                throw new Error("Runtime-carrier demand scopes must complete in strict LIFO order.");
+            }
+        }
+    }
+    #resolveDemandedRuntimeCarrier(subject, context) {
+        const scope = this.#runtimeCarrierDemandScopes[this.#runtimeCarrierDemandScopes.length - 1];
+        if (scope === undefined
+            || scope.attempted.has(subject)
+            || this.getObservationOwner(ExtensionObservationPoint.resolveRuntimeCarrier) === undefined) {
+            return undefined;
+        }
+        scope.demands ??= new Map(checkedOperationRuntimeCarrierDemands(scope.observation, scope.request)
+            .map((demand) => [demand.type, demand]));
+        const demand = scope.demands.get(subject);
+        if (demand === undefined) {
+            return undefined;
+        }
+        scope.attempted.add(subject);
+        const request = {
+            type: demand.type,
+            ...(demand.sourceTypeReference === undefined ? {} : { sourceTypeReference: demand.sourceTypeReference }),
+            ...(demand.sourceSymbol === undefined ? {} : { sourceSymbol: demand.sourceSymbol }),
+            ...(this.activeTarget === undefined ? {} : { target: this.activeTarget }),
+        };
+        const compilerSourceFile = GetSourceFileOfNode(demand.sourceOrigin);
+        const result = runWithoutAllExtensionOwnerAuthority(this.#ownerAuthority, () => this.#runObservation(ExtensionObservationPoint.resolveRuntimeCarrier, request, () => {
+            throw new Error("Target-owned runtime-carrier resolution unexpectedly reached core fallback.");
+        }, { requireOwner: true }, scope.phase, false, compilerSourceFile));
+        if (result.kind !== "accept") {
+            return undefined;
+        }
+        const common = {
+            carrier: result.value.carrier,
+            ...(result.value.requiresAllocation === undefined ? {} : { requiresAllocation: result.value.requiresAllocation }),
+        };
+        const providerProvenance = result.value.provenance?.providerDeclaration === undefined
+            ? {}
+            : { providerDeclaration: result.value.provenance.providerDeclaration };
+        if (demand.sourceTypeReference !== undefined) {
+            const referenceWrite = context.facts.set(demand.sourceTypeReference, runtimeCarrierFactKey, {
+                ...common,
+                provenance: {
+                    ...providerProvenance,
+                    sourceType: demand.type,
+                    sourceTypeReference: demand.sourceTypeReference,
+                    ...(demand.sourceSymbol === undefined ? {} : { sourceSymbol: demand.sourceSymbol }),
+                },
+            }, result.evidence ?? []);
+            if (referenceWrite !== "inserted" && referenceWrite !== "idempotent") {
+                return undefined;
+            }
+        }
+        return {
+            value: {
+                ...common,
+                provenance: {
+                    ...providerProvenance,
+                    sourceType: demand.type,
+                },
+            },
+            ...(result.evidence === undefined ? {} : { evidence: result.evidence }),
+        };
+    }
+    runLifecycle(event, request, compilerSourceFile) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("run a lifecycle event");
         this.#hookRegistrationsSealed = true;
         this.providers[sealProviderRegistrations]();
         const registeredHooks = this.#lifecycleHooks.get(event);
@@ -3401,25 +3926,26 @@ export class ExtensionHost {
                     registered.hook(immutableRequest, {
                         event,
                         extensionId: registered.extensionId,
-                        compiler: this.getCompilerQueryContext(),
+                        compiler: this.getCompilerQueryContext(compilerSourceFile),
                         host: this,
                     });
                 });
                 this.#commitFactAttempt(factAttempt);
             }
             catch (error) {
-                this.#rollbackFactAttempt(factAttempt);
+                const settledError = this.#rollbackFactAttemptsAfterFailure(error, factAttempt);
                 this.diagnostics.append(createHostDiagnostic({
                     extensionCode: "LIFECYCLE_HOOK_FAILED",
                     numericCode: ExtensionHostDiagnosticCode.lifecycleHookFailed,
                     message: `Extension '${registered.extensionId}' failed during lifecycle event '${event}'.`,
-                    evidence: [{ message: "Thrown value", details: error }],
+                    evidence: [{ message: "Thrown value", details: settledError }],
                     identity: encodeIdentityTuple(["lifecycle-hook-failed", event, registered.extensionId]),
                 }));
             }
         }
     }
     finalizeSemantics() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("finalize host semantics");
         if (this.#semanticFinalizationState === "finalized") {
             return;
         }
@@ -3450,38 +3976,51 @@ export class ExtensionHost {
             this.#semanticFinalizationState = "finalized";
         }
         catch (error) {
-            if (attempt !== undefined && this.#mutationAttemptStates.get(attempt)?.active === true) {
-                this.#rollbackFactAttempt(attempt);
-            }
+            const settledError = attempt === undefined
+                ? error
+                : this.#rollbackFactAttemptsAfterFailure(error, attempt);
             this.#failSemanticFinalization();
-            throw error;
+            throw settledError;
         }
     }
     get finalized() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("inspect semantic finalization state");
         return this.#semanticFinalizationState === "finalized";
     }
-    getCompilerQueryContext() {
-        if (this.#compilerContext === undefined) {
-            const program = this.program;
-            this.#compilerContext = {
-                program: this.program,
-                ast: createAstReader(),
-                checker: createTypeCheckerQueries(program),
-                typeShape: createTypeShapeQueries(program),
-                getSourceFiles: () => (Program_GetSourceFiles(program) ?? [])
-                    .filter((file) => getProviderVirtualArtifactForCompiler(this.providers, SourceFile_FileName(file))?.kind !== "canonical-export-owner"),
-                getSourceFile: (fileName) => {
-                    const file = Program_GetSourceFile(program, fileName);
-                    return file !== undefined
-                        && getProviderVirtualArtifactForCompiler(this.providers, SourceFile_FileName(file))?.kind === "canonical-export-owner"
-                        ? undefined
-                        : file;
-                },
-            };
+    getCompilerQueryContext(sourceFile) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("obtain compiler query capabilities");
+        const retained = sourceFile === undefined
+            ? this.#compilerContext
+            : this.#compilerContextsBySourceFile.get(sourceFile);
+        if (retained !== undefined) {
+            return retained;
         }
-        return this.#compilerContext;
+        const program = this.#program;
+        const created = {
+            program: this.#program,
+            ast: createAstReader(),
+            checker: createTypeCheckerQueries(program, sourceFile === undefined ? {} : { sourceFile }),
+            typeShape: createTypeShapeQueries(program, sourceFile === undefined ? {} : { sourceFile }),
+            getSourceFiles: () => (Program_GetSourceFiles(program) ?? [])
+                .filter((file) => getProviderVirtualArtifactForCompiler(this.providers, SourceFile_FileName(file))?.kind !== "canonical-export-owner"),
+            getSourceFile: (fileName) => {
+                const file = Program_GetSourceFile(program, fileName);
+                return file !== undefined
+                    && getProviderVirtualArtifactForCompiler(this.providers, SourceFile_FileName(file))?.kind === "canonical-export-owner"
+                    ? undefined
+                    : file;
+            },
+        };
+        if (sourceFile === undefined) {
+            this.#compilerContext = created;
+        }
+        else {
+            this.#compilerContextsBySourceFile.set(sourceFile, created);
+        }
+        return created;
     }
     assertFinalizedForConsumer(consumer) {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("run a finalized consumer query");
         if (this.#semanticFinalizationState === "finalized") {
             return true;
         }
@@ -3492,6 +4031,11 @@ export class ExtensionHost {
             identity: encodeIdentityTuple(["consumer-before-finalization", consumer]),
         }));
         return false;
+    }
+    #assertCheckedSourceCallProducerCapabilityBoundary(action) {
+        if (this.#checkedSourceCallProducerDepth !== 0) {
+            throw new Error(`Checked source-call producers cannot ${action}.`);
+        }
     }
     getFactForConsumer(consumer, subject, key) {
         if (!this.assertFinalizedForConsumer(consumer)) {
@@ -3570,6 +4114,78 @@ export class ExtensionHost {
         const facts = this.facts[factStoreForOwner](extensionId, diagnostics);
         const factResolver = this.factResolver[factResolverForOwner](extensionId, facts, diagnostics);
         return Object.freeze({ facts, factResolver, diagnostics });
+    }
+    #getCheckedSourceCallProducerCapabilities(extensionId, invocation, operation) {
+        const owner = this.#getOwnerCapabilities(extensionId);
+        const operationSubjects = checkedSourceCallReadableSubjects(operation);
+        const assertActive = () => {
+            if (this.#checkedSourceCallProducerInvocation !== invocation
+                || this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1] !== extensionId) {
+                throw new Error(`Checked source-call producer capabilities for '${extensionId}' are valid only during their exact host-owned callback.`);
+            }
+        };
+        const assertReadable = (key) => {
+            assertActive();
+            this.#assertCheckedSourceCallProducerFactReadable(extensionId, key);
+        };
+        const assertOperationSubject = (subject) => {
+            this.#assertCheckedSourceCallProducerOperationSubject(extensionId, operationSubjects, subject);
+        };
+        const facts = Object.freeze({
+            set: (key, value, evidence = []) => {
+                assertActive();
+                return owner.facts.set(operation.call, key, value, evidence);
+            },
+            get: (subject, key) => {
+                assertOperationSubject(subject);
+                assertReadable(key);
+                return owner.facts.get(subject, key);
+            },
+            getEntry: (subject, key) => {
+                assertOperationSubject(subject);
+                assertReadable(key);
+                return owner.facts.getEntry(subject, key);
+            },
+            has: (subject, key) => {
+                assertOperationSubject(subject);
+                assertReadable(key);
+                return owner.facts.has(subject, key);
+            },
+        });
+        const factResolver = Object.freeze({
+            resolve: (subject, key) => {
+                assertOperationSubject(subject);
+                assertReadable(key);
+                return owner.factResolver.resolve(subject, key);
+            },
+        });
+        const diagnostics = Object.freeze({
+            append: (diagnostic) => {
+                assertActive();
+                return owner.diagnostics.append(diagnostic);
+            },
+        });
+        return Object.freeze({ facts, factResolver, diagnostics });
+    }
+    #assertCheckedSourceCallProducerFactReadable(extensionId, key) {
+        getExtensionFactKeyIdentity(key);
+        if (isHostSourceReadableFactKey(key)) {
+            return;
+        }
+        const producer = this.#extensionsById.get(extensionId);
+        const factOwner = this.#extensionsById.get(key.extensionId);
+        const ownsKey = key.extensionId === extensionId;
+        const declaresSourceDependency = producer?.dependencies?.dependsOn?.includes(key.extensionId) === true
+            && factOwner?.composition?.kind === "source";
+        if (ownsKey || declaresSourceDependency) {
+            return;
+        }
+        throw new Error(`Source extension '${extensionId}' cannot read or resolve fact key '${formatExtensionFactKeyForDisplay(key)}'; source producers may read only host source facts, their own facts, and facts from explicitly declared source dependencies.`);
+    }
+    #assertCheckedSourceCallProducerOperationSubject(extensionId, operationSubjects, subject) {
+        if (subject !== undefined && !operationSubjects.has(subject)) {
+            throw new Error(`Checked source-call producer '${extensionId}' can access facts only on subjects retained by its exact checked operation.`);
+        }
     }
     #assertRegistrationOwner(extensionId, registrationKind) {
         const activeOwner = this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1];
@@ -3665,12 +4281,28 @@ function orderExtensions(extensions, diagnostics) {
     for (const extension of extensionsById.values()) {
         const extensionId = extension.identity.id;
         for (const dependencyId of extension.dependencies?.dependsOn ?? []) {
-            if (!extensionsById.has(dependencyId)) {
+            const dependency = extensionsById.get(dependencyId);
+            if (dependency === undefined) {
                 diagnostics.append(createHostDiagnostic({
                     extensionCode: "MISSING_EXTENSION_DEPENDENCY",
                     numericCode: ExtensionHostDiagnosticCode.missingDependency,
                     message: `Extension '${extensionId}' requires missing dependency '${dependencyId}'.`,
                     identity: encodeIdentityTuple(["missing-dependency", extensionId, dependencyId]),
+                }));
+                invalidExtensionIds.add(extensionId);
+                continue;
+            }
+            if (extension.composition?.kind === "source" && dependency.composition?.kind !== "source") {
+                diagnostics.append(createHostDiagnostic({
+                    extensionCode: "INVALID_EXTENSION_DEPENDENCY_DIRECTION",
+                    numericCode: ExtensionHostDiagnosticCode.invalidDependencyDirection,
+                    message: `Source extension '${extensionId}' can depend only on another source extension; '${dependencyId}' is '${dependency.composition?.kind ?? "unclassified"}'.`,
+                    identity: encodeIdentityTuple([
+                        "invalid-extension-dependency-direction",
+                        extensionId,
+                        dependencyId,
+                        dependency.composition?.kind,
+                    ]),
                 }));
                 invalidExtensionIds.add(extensionId);
                 continue;
@@ -3784,6 +4416,31 @@ function isCheckedOperationObservationPoint(observation) {
             return false;
     }
 }
+function observationCompilerSourceFile(observation, request) {
+    let origin;
+    switch (observation) {
+        case ExtensionObservationPoint.validateTargetConstraint:
+            origin = request.source;
+            break;
+        case ExtensionObservationPoint.observePostCheckAssignability: {
+            const assignability = request;
+            origin = assignability.expression ?? assignability.errorNode;
+            break;
+        }
+        case ExtensionObservationPoint.recordContextualTargetType:
+            origin = request.expression;
+            break;
+        case ExtensionObservationPoint.resolveRuntimeCarrier:
+            origin = request.sourceTypeReference;
+            break;
+        case ExtensionObservationPoint.validateExtensionFlowUse:
+            origin = request.useSite;
+            break;
+        default:
+            return undefined;
+    }
+    return origin === undefined ? undefined : GetSourceFileOfNode(origin);
+}
 function getDiagnosticStoreOwnerAuthority(diagnostics) {
     const authority = diagnosticStoreOwnerAuthorities.get(diagnostics);
     if (authority === undefined) {
@@ -3844,6 +4501,12 @@ function runWithoutExtensionOwnerAuthority(authority, callback) {
         authority.stack.push(owner);
     }
 }
+function runWithoutAllExtensionOwnerAuthority(authority, callback) {
+    if (authority.stack.length === 0) {
+        return callback();
+    }
+    return runWithoutExtensionOwnerAuthority(authority, () => runWithoutAllExtensionOwnerAuthority(authority, callback));
+}
 function createHostDiagnostic(input) {
     const evidenceSnapshot = snapshotProviderEvidenceArray(input.evidence ?? [], "hostDiagnostic.evidence");
     const evidence = evidenceSnapshot.kind === "valid" && evidenceSnapshot.value !== undefined
@@ -3862,8 +4525,7 @@ function createHostDiagnostic(input) {
         evidence,
         ...(input.identity !== undefined ? { identity: input.identity } : {}),
     });
-    hostOwnedDiagnostics.add(diagnostic);
-    return diagnostic;
+    return markHostOwnedExtensionDiagnostic(diagnostic);
 }
 function snapshotHostDiagnosticEvidence(evidence, rejectionReason) {
     const snapshot = evidence.map((entry) => {
@@ -3894,9 +4556,6 @@ function snapshotHostDiagnosticOpaqueDetail(value) {
         return Object.freeze({ name: value.name, message: value.message });
     }
     return Object.freeze({ kind: typeof value === "function" ? "function" : "opaque-object" });
-}
-function isHostOwnedExtensionDiagnostic(diagnostic) {
-    return hostOwnedDiagnostics.has(diagnostic);
 }
 function createRegistrationClosedDiagnostic(registrationKind) {
     return createHostDiagnostic({
@@ -3933,6 +4592,91 @@ function getDiagnosticIdentity(diagnostic) {
             diagnostic.numericCode,
             diagnostic.identity,
         ]);
+}
+function extensionDiagnosticSnapshotsEqual(left, right) {
+    return left.extensionId === right.extensionId
+        && left.extensionCode === right.extensionCode
+        && left.numericCode === right.numericCode
+        && sameOptionalOwnField(left, right, "publicCode", Object.is)
+        && left.category === right.category
+        && left.message === right.message
+        && sameOptionalOwnField(left, right, "identity", Object.is)
+        && sameOptionalOwnField(left, right, "nodeOrSpan", diagnosticNodeOrSpanEquals)
+        && sameOptionalOwnField(left, right, "evidence", extensionEvidenceArrayEquals);
+}
+function sameOptionalOwnField(left, right, key, equals) {
+    const leftHas = Object.prototype.hasOwnProperty.call(left, key);
+    const rightHas = Object.prototype.hasOwnProperty.call(right, key);
+    return leftHas === rightHas && (!leftHas || equals(left[key], right[key]));
+}
+function diagnosticNodeOrSpanEquals(left, right) {
+    if (left === right) {
+        return true;
+    }
+    return isDiagnosticSourceSpanValue(left)
+        && isDiagnosticSourceSpanValue(right)
+        && left.sourceFile === right.sourceFile
+        && left.pos === right.pos
+        && left.end === right.end;
+}
+function isDiagnosticSourceSpanValue(value) {
+    return typeof value === "object"
+        && value !== null
+        && Reflect.ownKeys(value).length === 3
+        && Object.prototype.hasOwnProperty.call(value, "sourceFile")
+        && Object.prototype.hasOwnProperty.call(value, "pos")
+        && Object.prototype.hasOwnProperty.call(value, "end")
+        && isExtensionFactSubject(value.sourceFile)
+        && Number.isSafeInteger(value.pos)
+        && Number.isSafeInteger(value.end);
+}
+function extensionEvidenceArrayEquals(left, right) {
+    return left === undefined || right === undefined
+        ? left === right
+        : left.length === right.length
+            && left.every((entry, index) => {
+                const candidate = right[index];
+                return candidate !== undefined
+                    && entry.message === candidate.message
+                    && sameOptionalOwnField(entry, candidate, "details", providerBoundaryDataEquals);
+            });
+}
+function providerBoundaryDataEquals(left, right) {
+    const pending = [[left, right]];
+    const compared = new WeakMap();
+    while (pending.length !== 0) {
+        const [currentLeft, currentRight] = pending.pop();
+        if (Object.is(currentLeft, currentRight)) {
+            continue;
+        }
+        if (typeof currentLeft !== "object" || currentLeft === null
+            || typeof currentRight !== "object" || currentRight === null
+            || Array.isArray(currentLeft) !== Array.isArray(currentRight)) {
+            return false;
+        }
+        let rightValues = compared.get(currentLeft);
+        if (rightValues?.has(currentRight) === true) {
+            continue;
+        }
+        if (rightValues === undefined) {
+            rightValues = new WeakSet();
+            compared.set(currentLeft, rightValues);
+        }
+        rightValues.add(currentRight);
+        const leftKeys = Object.keys(currentLeft).sort();
+        const rightKeys = Object.keys(currentRight).sort();
+        if (leftKeys.length !== rightKeys.length
+            || leftKeys.some((key, index) => key !== rightKeys[index])) {
+            return false;
+        }
+        for (const key of leftKeys) {
+            pending.push([
+                currentLeft[key],
+                currentRight[key],
+            ]);
+        }
+    }
+    return true;
 }
 function isValidDiagnosticRange(range) {
     return Number.isSafeInteger(range.start)
@@ -4311,9 +5055,7 @@ function freezeProviderTypeExpression(type, frozen) {
             for (const argument of type.typeArguments ?? []) {
                 freezeProviderTypeExpression(argument, frozen);
             }
-            if (type.sourceShape !== undefined) {
-                freezeProviderTypeExpression(type.sourceShape, frozen);
-            }
+            freezeProviderTypeExpression(type.sourceShape, frozen);
             freezeProviderArray(type.typeArguments);
             break;
         case "source-global":
@@ -4356,9 +5098,7 @@ function freezeProviderTypeExpression(type, frozen) {
             freezeProviderArray(type.typeArguments);
             break;
         case "opaque":
-            if (type.sourceShape !== undefined) {
-                freezeProviderTypeExpression(type.sourceShape, frozen);
-            }
+            freezeProviderTypeExpression(type.sourceShape, frozen);
             break;
         default:
             break;
@@ -4429,6 +5169,225 @@ function snapshotProviderIdentity(identity) {
         ...(configHash === undefined ? {} : { configHash }),
         ...(displayName === undefined ? {} : { displayName }),
     });
+}
+function snapshotCheckedSourceCallProducerRegistration(producer) {
+    try {
+        const captured = captureExactRegistrationDataFields(producer, ["selector", "produce"], "checked source-call producer");
+        const selector = snapshotCheckedSourceCallProviderSelector(captured.selector);
+        const produce = captured.produce;
+        if (typeof produce !== "function") {
+            return { kind: "invalid", reason: "produce must be a function" };
+        }
+        return {
+            kind: "valid",
+            producer: Object.freeze({
+                selector,
+                produce: (operation, context) => produce(operation, context),
+            }),
+        };
+    }
+    catch (error) {
+        return { kind: "invalid", reason: error instanceof Error ? error.message : String(error) };
+    }
+}
+function snapshotCheckedSourceCallProviderSelector(selector) {
+    if (typeof selector !== "object" || selector === null) {
+        throw new Error("selector must be an object");
+    }
+    const preliminary = Object.getOwnPropertyDescriptor(selector, "kind");
+    if (preliminary === undefined) {
+        throw new Error("checked source-call provider selector.kind is required");
+    }
+    if (!("value" in preliminary)) {
+        throw new Error("checked source-call provider selector.kind must be an own data property");
+    }
+    const kind = preliminary.value;
+    if (kind !== "export-signature" && kind !== "member-signature") {
+        throw new Error("selector.kind must be 'export-signature' or 'member-signature'");
+    }
+    const captured = captureExactRegistrationDataFields(selector, kind === "member-signature"
+        ? ["kind", "providerId", "providerVersion", "providerModuleId", "exportId", "memberId", "memberStatic", "signatureId"]
+        : ["kind", "providerId", "providerVersion", "providerModuleId", "exportId", "signatureId"], "checked source-call provider selector", { kind });
+    for (const field of ["providerId", "providerVersion", "providerModuleId", "exportId", "signatureId"]) {
+        assertProviderBoundaryString(captured[field], `selector.${field}`, false);
+    }
+    if (kind === "export-signature") {
+        return Object.freeze({
+            kind,
+            providerId: captured.providerId,
+            providerVersion: captured.providerVersion,
+            providerModuleId: captured.providerModuleId,
+            exportId: captured.exportId,
+            signatureId: captured.signatureId,
+        });
+    }
+    assertProviderBoundaryString(captured.memberId, "selector.memberId", false);
+    if (typeof captured.memberStatic !== "boolean") {
+        throw new Error("selector.memberStatic must be a boolean");
+    }
+    return Object.freeze({
+        kind,
+        providerId: captured.providerId,
+        providerVersion: captured.providerVersion,
+        providerModuleId: captured.providerModuleId,
+        exportId: captured.exportId,
+        memberId: captured.memberId,
+        memberStatic: captured.memberStatic,
+        signatureId: captured.signatureId,
+    });
+}
+function captureExactRegistrationDataFields(value, fields, valueName, preliminary = {}) {
+    const allowed = new Set(fields);
+    const captured = {};
+    const keys = Reflect.ownKeys(value);
+    for (const key of keys) {
+        if (typeof key !== "string" || !allowed.has(key)) {
+            throw new Error(`${valueName} contains unsupported field '${String(key)}'`);
+        }
+    }
+    for (const field of fields) {
+        if (Object.hasOwn(preliminary, field)) {
+            captured[field] = preliminary[field];
+            continue;
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(value, field);
+        if (descriptor === undefined) {
+            throw new Error(`${valueName}.${field} is required`);
+        }
+        if (!("value" in descriptor)) {
+            throw new Error(`${valueName}.${field} must be an own data property`);
+        }
+        captured[field] = descriptor.value;
+    }
+    return Object.freeze(captured);
+}
+function snapshotCheckedSourceCallProduction(production, extensionId) {
+    if (typeof production !== "object" || production === null) {
+        throw new Error("Checked source-call producer must return an explicit production envelope.");
+    }
+    const preliminary = Object.getOwnPropertyDescriptor(production, "kind");
+    if (preliminary === undefined) {
+        throw new Error("checked source-call production.kind is required");
+    }
+    if (!("value" in preliminary)) {
+        throw new Error("checked source-call production.kind must be an own data property");
+    }
+    const kind = preliminary.value;
+    switch (kind) {
+        case "complete":
+        case "defer": {
+            captureExactRegistrationDataFields(production, ["kind"], `checked source-call '${kind}' production`, { kind });
+            return Object.freeze({ kind });
+        }
+        case "reject": {
+            const captured = captureExactRegistrationDataFields(production, ["kind", "diagnostic"], "checked source-call reject production", { kind });
+            const diagnosticSnapshot = snapshotExtensionDiagnostic(captured.diagnostic);
+            if (diagnosticSnapshot.kind !== "valid") {
+                throw new Error(`Source extension '${extensionId}' returned an invalid rejection diagnostic: ${diagnosticSnapshot.reason}.`);
+            }
+            if (diagnosticSnapshot.diagnostic.extensionId !== extensionId) {
+                throw new Error(`Source extension '${extensionId}' returned a rejection diagnostic owned by '${diagnosticSnapshot.diagnostic.extensionId}'.`);
+            }
+            return Object.freeze({ kind: "reject", diagnostic: diagnosticSnapshot.diagnostic });
+        }
+        default:
+            throw new Error(`Unknown checked source-call production kind '${String(kind)}'.`);
+    }
+}
+function selectedCheckedSourceProviderDeclaration(facts, selectedDeclaration) {
+    const declaration = facts.get(selectedDeclaration, providerVirtualDeclarationFactKey);
+    if (declaration === undefined) {
+        return undefined;
+    }
+    assertCoherentCheckedSourceProviderDeclaration(declaration);
+    return declaration.exportId === undefined || declaration.signatureId === undefined ? undefined : declaration;
+}
+function assertCoherentCheckedSourceProviderDeclaration(declaration) {
+    const memberFields = [declaration.memberId, declaration.memberName, declaration.memberKey, declaration.memberStatic];
+    const memberFieldCount = memberFields.filter((value) => value !== undefined).length;
+    if (memberFieldCount !== 0 && memberFieldCount !== memberFields.length) {
+        throw new Error("A selected checked source-call declaration has an incomplete provider member identity.");
+    }
+}
+function checkedSourceCallProviderSelectorKey(selector) {
+    return encodeIdentityTuple(selector.kind === "export-signature"
+        ? [selector.kind, selector.providerId, selector.providerVersion, selector.providerModuleId, selector.exportId, selector.signatureId]
+        : [selector.kind, selector.providerId, selector.providerVersion, selector.providerModuleId, selector.exportId, selector.memberId, selector.memberStatic, selector.signatureId]);
+}
+function checkedSourceCallProviderSelectorDeclarationKeys(selector) {
+    const exportKey = encodeIdentityTuple([
+        "export",
+        selector.providerId,
+        selector.providerVersion,
+        selector.providerModuleId,
+        selector.exportId,
+    ]);
+    if (selector.kind === "export-signature") {
+        return Object.freeze([exportKey]);
+    }
+    return Object.freeze([
+        encodeIdentityTuple([
+            "member",
+            selector.providerId,
+            selector.providerVersion,
+            selector.providerModuleId,
+            selector.exportId,
+            selector.memberId,
+            selector.memberStatic,
+        ]),
+        exportKey,
+    ]);
+}
+function checkedSourceCallProviderSelectorScalarCodeUnits(selector) {
+    const strings = selector.kind === "export-signature"
+        ? [selector.kind, selector.providerId, selector.providerVersion, selector.providerModuleId, selector.exportId, selector.signatureId]
+        : [selector.kind, selector.providerId, selector.providerVersion, selector.providerModuleId, selector.exportId, selector.memberId, selector.signatureId];
+    return strings.reduce((total, value) => total + value.length, 0);
+}
+function checkedSourceCallProviderDeclarationKey(declaration) {
+    assertCoherentCheckedSourceProviderDeclaration(declaration);
+    if (declaration.exportId === undefined || declaration.signatureId === undefined) {
+        throw new Error("A selected checked source-call declaration has no exact export/signature identity.");
+    }
+    return declaration.memberId === undefined
+        ? encodeIdentityTuple(["export-signature", declaration.providerId, declaration.providerVersion, declaration.providerModuleId, declaration.exportId, declaration.signatureId])
+        : encodeIdentityTuple(["member-signature", declaration.providerId, declaration.providerVersion, declaration.providerModuleId, declaration.exportId, declaration.memberId, declaration.memberStatic, declaration.signatureId]);
+}
+function checkedSourceCallProviderDeclarationOwnerKey(declaration) {
+    assertCoherentCheckedSourceProviderDeclaration(declaration);
+    if (declaration.exportId === undefined) {
+        throw new Error("A selected checked source-call declaration has no exact export identity.");
+    }
+    return declaration.memberId === undefined
+        ? encodeIdentityTuple(["export", declaration.providerId, declaration.providerVersion, declaration.providerModuleId, declaration.exportId])
+        : encodeIdentityTuple(["member", declaration.providerId, declaration.providerVersion, declaration.providerModuleId, declaration.exportId, declaration.memberId, declaration.memberStatic]);
+}
+function checkedCallSourceOperationForProducer(request, sourceProviderSelection) {
+    const composition = request.sourceComposition;
+    if (composition === undefined || composition.argumentEvidence.length !== request.sourceArguments.length) {
+        throw new Error("A matched checked source-call producer requires exact retained source-composition evidence.");
+    }
+    return Object.freeze({
+        sourceOperationKind: "call",
+        sourceProviderSelection,
+        call: request.call,
+        callee: request.callee,
+        arguments: request.arguments,
+        callKind: request.callKind,
+        sourceSelection: request.sourceSelection,
+        sourceCallee: request.sourceCallee,
+        sourceArguments: Object.freeze(request.sourceArguments.map((argument, index) => {
+            const evidence = composition.argumentEvidence[index];
+            return Object.freeze({ ...argument, ...(evidence === undefined ? {} : { composition: evidence }) });
+        })),
+        sourceResult: request.sourceResult,
+        ...(request.sourceReceiver === undefined ? {} : { sourceReceiver: request.sourceReceiver }),
+        chainRole: request.chainRole,
+    });
+}
+function checkedCallRequestForTargetMapper(request) {
+    const { sourceComposition, ...targetRequest } = request;
+    return sourceComposition === undefined ? request : Object.freeze(targetRequest);
 }
 function snapshotTargetBindingProviderRegistration(provider) {
     try {
@@ -4690,14 +5649,10 @@ function collectProviderDeclarationReferenceUses(declarations) {
                     for (const typeArgument of type.typeArguments ?? []) {
                         visitType(typeArgument, false);
                     }
-                    if (type.sourceShape !== undefined) {
-                        visitType(type.sourceShape, valueHeritage);
-                    }
+                    visitType(type.sourceShape, valueHeritage);
                     return;
                 case "opaque":
-                    if (type.sourceShape !== undefined) {
-                        visitType(type.sourceShape, valueHeritage);
-                    }
+                    visitType(type.sourceShape, valueHeritage);
                     return;
                 case "array":
                     visitType(type.elementType, false);
@@ -4878,7 +5833,7 @@ function findProviderClassHeritageCycle(graph) {
 }
 function getProviderValueHeritageReference(type) {
     if (type.kind === "target-named" || type.kind === "opaque") {
-        return type.sourceShape === undefined ? undefined : getProviderValueHeritageReference(type.sourceShape);
+        return getProviderValueHeritageReference(type.sourceShape);
     }
     return type.kind === "provider-ref" ? type : undefined;
 }
@@ -4964,9 +5919,25 @@ function createInvalidProviderDeclarationDiagnostic(provider, model, message, id
         identity,
     });
 }
+function providerRenderedFunctionSignaturesEqual(left, right) {
+    return left.length === right.length
+        && left.every((signature, index) => {
+            const candidate = right[index];
+            return candidate !== undefined
+                && signature.exportId === candidate.exportId
+                && signature.memberId === candidate.memberId
+                && signature.signatureId === candidate.signatureId
+                && signature.marker === candidate.marker;
+        });
+}
+function providerVirtualCompilerMetadataEqual(left, right) {
+    return left.directDeclarationIds.length === right.directDeclarationIds.length
+        && left.directDeclarationIds.every((id, index) => id === right.directDeclarationIds[index])
+        && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures);
+}
 function renderProviderDeclarationModel(model, options = {}) {
     const lines = [
-        `// @tsts-provider-module ${model.providerModuleId}`,
+        `// @tsts-provider-module ${JSON.stringify(model.providerModuleId)}`,
         `// @tsts-provider-specifier ${JSON.stringify(model.moduleSpecifier)}`,
     ];
     const typeFamilyGroups = collectProviderTypeFamilyRenderGroups(model.exports);
@@ -4980,6 +5951,8 @@ function renderProviderDeclarationModel(model, options = {}) {
         typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, typeFamilyGroups),
         exactImportLocalNameByProviderRefKey: new Map([...(options.exactImports ?? new Map())].map(([key, binding]) => [key, binding.localName])),
         exactImportsInTypePositions: options.exactImportsInTypePositions === true,
+        directDeclarationIds: new Set(),
+        renderedFunctionSignatures: [],
     };
     const hasDirectDeclarations = model.exports.some((declaration) => !canonicalLocalNameByExportName.has(getProviderSourceExportName(declaration)));
     if (options.mode === "canonical-export" || hasDirectDeclarations) {
@@ -5009,7 +5982,10 @@ function renderProviderDeclarationModel(model, options = {}) {
             const canonicalExport = options.canonicalExports.get(exportName);
             lines.push(`export ${canonicalExport.typeOnly ? "type " : ""}{ ${localName} as ${exportName} };`);
         }
-        return `${lines.join("\n")}\n`;
+        return Object.freeze({
+            sourceText: `${lines.join("\n")}\n`,
+            compilerMetadata: snapshotProviderVirtualCompilerMetadata(renderContext),
+        });
     }
     const renderedFamilies = new Set();
     const renderedCanonicalExports = new Set();
@@ -5062,7 +6038,16 @@ function renderProviderDeclarationModel(model, options = {}) {
     if (options.mode === "canonical-export") {
         lines.push(renderProviderTypeFamilyVariantExports(typeFamilyGroups));
     }
-    return `${lines.join("\n")}\n`;
+    return Object.freeze({
+        sourceText: `${lines.join("\n")}\n`,
+        compilerMetadata: snapshotProviderVirtualCompilerMetadata(renderContext),
+    });
+}
+function snapshotProviderVirtualCompilerMetadata(context) {
+    return Object.freeze({
+        directDeclarationIds: Object.freeze([...context.directDeclarationIds]),
+        renderedFunctionSignatures: Object.freeze([...context.renderedFunctionSignatures]),
+    });
 }
 function renderProviderImportDeclaration(declaration) {
     const typePrefix = declaration.typeOnly === true ? "type " : "";
@@ -5110,8 +6095,12 @@ function getProviderCanonicalExportLocalName(exportName) {
     return `__TstsProviderCanonical_${identifier === "" || /^[0-9]/.test(identifier) ? `_${identifier}` : identifier}`;
 }
 function renderProviderExportDeclaration(declaration, context, options = {}) {
+    if (context.directDeclarationIds.has(declaration.id)) {
+        throw new Error(`Provider declaration identity '${declaration.id}' was rendered more than once in one virtual artifact.`);
+    }
+    context.directDeclarationIds.add(declaration.id);
+    const declarationContext = withProviderRenderOwner(context, declaration);
     const declarationName = options.localName ?? declaration.name;
-    const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], context);
     const exportName = getProviderExportName(declaration);
     const isDefault = exportName === "default" || declaration.exportKind === "default";
     const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind);
@@ -5127,25 +6116,31 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
     const localTypePrefix = directNamedExport ? "export " : options.localOnly === true ? "" : "";
     let rendered;
     switch (declaration.kind) {
-        case "class":
-            rendered = `${declarationPrefix}class ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "class", context)} {\n${renderProviderMembers(declaration.members ?? [], context)}\n}`;
+        case "class": {
+            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
+            rendered = `${declarationPrefix}class ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "class", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
-        case "interface":
-            rendered = `${canInlineDefault && options.localOnly !== true ? "export default " : localTypePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", context)} {\n${renderProviderMembers(declaration.members ?? [], context)}\n}`;
+        }
+        case "interface": {
+            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
+            rendered = `${canInlineDefault && options.localOnly !== true ? "export default " : localTypePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
+        }
         case "function":
-            rendered = renderProviderSignatures(declarationName, declaration.signatures ?? [], context)
+            rendered = renderProviderSignatures(declarationName, declaration.signatures ?? [], declarationContext)
                 .map((signature) => `${canInlineDefault ? "export default " : declarationPrefix}function ${signature}`)
                 .join("\n");
             break;
-        case "type":
-            rendered = `${typePrefix}type ${declarationName}${typeParameters} = ${renderProviderTypeExpression(declaration.type, context)};`;
+        case "type": {
+            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
+            rendered = `${typePrefix}type ${declarationName}${typeParameters} = ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
             break;
+        }
         case "value":
-            rendered = `${declarationPrefix}const ${declarationName}: ${renderProviderTypeExpression(declaration.type, context)};`;
+            rendered = `${declarationPrefix}const ${declarationName}: ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
             break;
         case "namespace":
-            rendered = `${declarationPrefix}namespace ${declarationName} {\n${renderProviderNamespaceMembers(declaration.members ?? [], context)}\n}`;
+            rendered = `${declarationPrefix}namespace ${declarationName} {\n${renderProviderNamespaceMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
         case "enum":
             rendered = `${declarationPrefix}enum ${declarationName} {\n${(declaration.members ?? []).map((member) => `  ${renderProviderPropertyName(member.name)},`).join("\n")}\n}`;
@@ -5161,6 +6156,14 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         ? `${rendered}\nexport default ${declarationName};`
         : `${rendered}\nexport { ${declarationName} as ${exportName} };`;
 }
+function withProviderRenderOwner(context, declaration, member) {
+    const { declaration: _previousDeclaration, member: _previousMember, ...shared } = context;
+    return {
+        ...shared,
+        declaration,
+        ...(member === undefined ? {} : { member }),
+    };
+}
 function renderProviderTypeFamilyDeclaration(group, context, publicExport = true) {
     const variants = [...group.variants].sort((left, right) => left.sourceTypeFamily.typeArgumentCount - right.sourceTypeFamily.typeArgumentCount);
     const maxVariant = variants[variants.length - 1];
@@ -5168,11 +6171,12 @@ function renderProviderTypeFamilyDeclaration(group, context, publicExport = true
     const maxArity = maxVariant.sourceTypeFamily.typeArgumentCount;
     const maxTypeParameters = maxVariant.typeParameters ?? [];
     const variantDeclarations = renderProviderTypeFamilyLocalVariants({ ...group, variants }, context);
+    const maxVariantContext = withProviderRenderOwner(context, maxVariant);
     const familyTypeParameters = maxArity === 0
         ? ""
         : `<${maxTypeParameters.map((parameter, index) => {
             const constraints = parameter.constraints ?? [];
-            const constraintText = constraints.length === 0 ? "" : ` extends ${constraints.map((constraint) => renderProviderTypeExpression(constraint, context)).join(" & ")}`;
+            const constraintText = constraints.length === 0 ? "" : ` extends ${constraints.map((constraint) => renderProviderTypeExpression(constraint, maxVariantContext)).join(" & ")}`;
             const defaultText = index >= minArity ? ` = ${providerTypeFamilyDefaultTypeName}` : "";
             return `${parameter.name}${constraintText}${defaultText}`;
         }).join(", ")}>`;
@@ -5241,33 +6245,36 @@ function renderProviderNamespaceMembers(members, context) {
     return members.map((member) => `  ${renderProviderNamespaceMember(member, context)}`).join("\n");
 }
 function renderProviderMember(member, context) {
+    const memberContext = withProviderRenderOwner(context, context.declaration, member);
     const staticPrefix = member.static === true ? "static " : "";
     const readonlyPrefix = member.readonly === true ? "readonly " : "";
     const optionalSuffix = member.optional === true ? "?" : "";
     const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
         case "constructor":
-            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], context).join("\n  ");
+            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext).join("\n  ");
         case "method":
-            return renderProviderSignatures(name, member.signatures ?? [], context).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
+            return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
         case "property":
         case "field":
-            return `${staticPrefix}${readonlyPrefix}${name}${optionalSuffix}: ${renderProviderTypeExpression(member.type, context)};`;
+            return `${staticPrefix}${readonlyPrefix}${name}${optionalSuffix}: ${renderProviderTypeExpression(member.type, memberContext)};`;
         case "indexer": {
-            const signature = member.signatures[0];
-            const parameter = signature.parameters[0];
-            return `[${renderProviderParameter(parameter, context)}]: ${renderProviderTypeExpression(signature.returnType, context)};`;
+            return member.signatures.map((signature) => {
+                const parameter = signature.parameters[0];
+                return `[${renderProviderParameter(parameter, memberContext)}]: ${renderProviderTypeExpression(signature.returnType, memberContext)};`;
+            }).join("\n  ");
         }
     }
 }
 function renderProviderNamespaceMember(member, context) {
+    const memberContext = withProviderRenderOwner(context, context.declaration, member);
     const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
         case "method":
-            return renderProviderSignatures(name, member.signatures ?? [], context).map((signature) => `export function ${signature}`).join("\n  ");
+            return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `export function ${signature}`).join("\n  ");
         case "property":
         case "field":
-            return `export const ${name}: ${renderProviderTypeExpression(member.type, context)};`;
+            return `export const ${name}: ${renderProviderTypeExpression(member.type, memberContext)};`;
         case "constructor":
         case "indexer":
             return failUnsupportedProviderNamespaceMember(member);
@@ -5384,8 +6391,14 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
             return parentPrecedence > providerTypePrecedenceIntersection ? `(${text})` : text;
         }
         case "function": {
+            if (context.declaration === undefined) {
+                throw new Error(`Provider function type '${type.id}' was rendered without an owning declaration.`);
+            }
+            const marker = context.renderedFunctionSignatures.length;
+            context.renderedFunctionSignatures.push(createProviderRenderedFunctionSignature(context.declaration, context.member, type, marker));
             const text = `${renderProviderTypeParameters(type.typeParameters ?? [], context)}(${type.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ")}) => ${renderProviderTypeExpression(type.returnType, context)}`;
-            return parentPrecedence > providerTypePrecedenceNone ? `(${text})` : text;
+            const marked = `(${renderProviderFunctionSignatureMarker(marker)}${text})`;
+            return parentPrecedence > providerTypePrecedenceNone ? `(${marked})` : marked;
         }
         case "literal":
             return type.value === null ? "null" : JSON.stringify(type.value);
@@ -5666,7 +6679,7 @@ function snapshotExtensionDiagnostic(value) {
         if (typeof value !== "object" || value === null) {
             return { kind: "invalid", reason: "diagnostic must be an object" };
         }
-        const hostOwned = hostOwnedDiagnostics.has(value);
+        const hostOwned = isHostOwnedExtensionDiagnostic(value);
         const descriptors = Object.getOwnPropertyDescriptors(value);
         const allowedStringKeys = new Set([
             "extensionId",
@@ -5763,7 +6776,7 @@ function snapshotExtensionDiagnostic(value) {
             ...(identity !== undefined ? { identity } : {}),
         });
         if (hostOwned) {
-            hostOwnedDiagnostics.add(diagnostic);
+            markHostOwnedExtensionDiagnostic(diagnostic);
         }
         return { kind: "valid", diagnostic };
     }
@@ -5890,7 +6903,8 @@ function isValidProviderDeclarationModel(value, resolution) {
         && value.exports.every(hasValidProviderExportTypeParameterScope)
         && value.exports.every((declaration) => hasValidProviderReferenceBindingsForExport(declaration, context))
         && value.exports.every((declaration) => hasValidProviderValueHeritageReferences(declaration, context))
-        && isValidProviderTypeFamilyDeclarations(value.exports, value.imports ?? []);
+        && isValidProviderTypeFamilyDeclarations(value.exports, value.imports ?? [])
+        && hasUniqueProviderCallableIdentities(value);
 }
 function createProviderDeclarationValidationContext(model) {
     const sameModuleProviderRefNames = new Set();
@@ -5954,6 +6968,7 @@ function isValidProviderExportDeclaration(value) {
         && isValidProviderTypeFamilyDeclaration(value)
         && isValidProviderTargetIdentity(value.targetIdentity)
         && hasRequiredProviderExportShape(value)
+        && hasNoUnrenderedProviderExportShape(value)
         && hasValidProviderHeritageShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration)
@@ -5964,6 +6979,29 @@ function isValidProviderExportDeclaration(value) {
             : value.kind === "namespace"
                 ? (value.members ?? []).every(isValidProviderNamespaceMemberDeclaration)
                 : (value.members ?? []).every(isValidProviderMemberDeclaration));
+}
+function hasNoUnrenderedProviderExportShape(value) {
+    const noType = value.type === undefined;
+    const noTypeParameters = (value.typeParameters?.length ?? 0) === 0;
+    const noHeritage = (value.heritage?.length ?? 0) === 0;
+    const noMembers = (value.members?.length ?? 0) === 0;
+    const noSignatures = (value.signatures?.length ?? 0) === 0;
+    switch (value.kind) {
+        case "class":
+        case "interface":
+            return noType && noSignatures;
+        case "function":
+            return noType && noTypeParameters && noHeritage && noMembers;
+        case "type":
+            return noHeritage && noMembers && noSignatures;
+        case "value":
+            return noTypeParameters && noHeritage && noMembers && noSignatures;
+        case "namespace":
+        case "enum":
+            return noType && noTypeParameters && noHeritage && noSignatures;
+        case "opaque":
+            return noType && noTypeParameters && noHeritage && noMembers && noSignatures;
+    }
 }
 function isValidProviderTargetIdentity(value) {
     return value === undefined
@@ -6136,19 +7174,54 @@ function isValidProviderMemberDeclaration(value) {
     return value.id.length > 0
         && (value.kind === "constructor" || isValidProviderPropertyName(value.name))
         && hasRequiredProviderMemberShape(value)
+        && hasNoUnrenderedProviderMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
 }
 function isValidProviderEnumMemberDeclaration(value) {
-    return value.id.length > 0 && isValidProviderPropertyName(value.name);
+    return value.id.length > 0
+        && isValidProviderPropertyName(value.name)
+        && value.static !== true
+        && value.readonly !== true
+        && value.optional !== true
+        && value.type === undefined
+        && (value.signatures?.length ?? 0) === 0;
 }
 function isValidProviderNamespaceMemberDeclaration(value) {
     return value.id.length > 0
         && isValidProviderNamespaceMemberName(value.name)
         && (value.kind === "method" || value.kind === "property" || value.kind === "field")
         && hasRequiredProviderMemberShape(value)
+        && hasNoUnrenderedProviderNamespaceMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
+}
+function hasNoUnrenderedProviderMemberShape(value) {
+    switch (value.kind) {
+        case "constructor":
+            return value.static !== true
+                && value.readonly !== true
+                && value.optional !== true
+                && value.type === undefined;
+        case "method":
+            return value.readonly !== true
+                && value.optional !== true
+                && value.type === undefined;
+        case "property":
+        case "field":
+            return (value.signatures?.length ?? 0) === 0;
+        case "indexer":
+            return value.static !== true
+                && value.readonly !== true
+                && value.optional !== true
+                && value.type === undefined;
+    }
+}
+function hasNoUnrenderedProviderNamespaceMemberShape(value) {
+    return value.static !== true
+        && value.readonly !== true
+        && value.optional !== true
+        && (value.kind === "method" ? value.type === undefined : (value.signatures?.length ?? 0) === 0);
 }
 function hasRequiredProviderMemberShape(value) {
     switch (value.kind) {
@@ -6219,7 +7292,8 @@ function isValidProviderTypeExpression(value) {
         case "intersection":
             return value.types.length > 0 && value.types.every(isValidProviderTypeExpression);
         case "function":
-            return value.parameters.every(isValidProviderParameterDeclaration)
+            return value.id.length > 0
+                && value.parameters.every(isValidProviderParameterDeclaration)
                 && isValidProviderTypeExpression(value.returnType)
                 && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration);
         case "literal":

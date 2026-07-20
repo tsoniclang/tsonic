@@ -1,6 +1,7 @@
 import { encodeIdentityTuple } from "./identity-tuple.js";
 const extensionFactKeyIdentities = new WeakMap();
 const extensionFactKeysByOwner = new Map();
+const hostSourceReadableFactKeyIdentities = new WeakSet();
 export function defineExtensionFactKey(options) {
     if (typeof options.extensionId !== "string" || options.extensionId.length === 0) {
         throw new Error("Extension fact key requires a non-empty extension id.");
@@ -47,5 +48,13 @@ export function getExtensionFactKeyIdentity(key) {
         throw new Error("Extension fact keys must be created by defineExtensionFactKey.");
     }
     return identity;
+}
+/** Marks a host-owned invariant/source fact as readable by checked source-operation producers. */
+export function markHostSourceReadableFactKey(key) {
+    hostSourceReadableFactKeyIdentities.add(getExtensionFactKeyIdentity(key));
+    return key;
+}
+export function isHostSourceReadableFactKey(key) {
+    return hostSourceReadableFactKeyIdentities.has(getExtensionFactKeyIdentity(key));
 }
 //# sourceMappingURL=fact-key.js.map

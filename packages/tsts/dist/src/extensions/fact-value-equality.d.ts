@@ -1,4 +1,5 @@
 import type { CheckedCallSourceOperation, CheckedConversionSourceOperation, CheckedElementAccessSourceOperation, CheckedIterationSourceOperation, CheckedOperatorSourceOperation, CheckedPropertyAccessSourceOperation, CheckedSourceChainRole, ProviderDeclarationIdentity, ProviderMemberKey, SelectedSourceTypeEvidence, SelectedSourceValueEvidence, SelectedTargetSignatureFact, SourceSelectedCallArgumentBinding, SourceSelectedCallEvidence, SourceSelectedMethodTypeArgument, SourceSelectedSignatureParameter, TargetCallArgumentConversionSlot, TargetConstraint, TargetMember, TargetParameter, TargetTypeParameter, TargetTypeRef } from "./facts.js";
+import type { CheckedSourceCallArgumentCompositionEvidence, CheckedSourceCallCompositionEvidence, CheckedSourceInlineOperation } from "./source-operation-producer.js";
 export declare function selectedTargetSignatureEquals(left: SelectedTargetSignatureFact, right: SelectedTargetSignatureFact): boolean;
 export declare function sourceSelectedCallEvidenceEquals(left: SourceSelectedCallEvidence, right: SourceSelectedCallEvidence): boolean;
 export declare function checkedSourceChainRoleEquals(left: CheckedSourceChainRole, right: CheckedSourceChainRole): boolean;
@@ -6,6 +7,9 @@ export declare function sourceSelectedCallArgumentBindingEquals(left: SourceSele
 export declare function selectedSourceTypeEvidenceEquals(left: SelectedSourceTypeEvidence, right: SelectedSourceTypeEvidence): boolean;
 export declare function optionalSelectedSourceTypeEvidenceEquals(left: SelectedSourceTypeEvidence | undefined, right: SelectedSourceTypeEvidence | undefined): boolean;
 export declare function selectedSourceValueEvidenceEquals(left: SelectedSourceValueEvidence, right: SelectedSourceValueEvidence): boolean;
+export declare function optionalCheckedSourceCallCompositionEvidenceEquals(left: CheckedSourceCallCompositionEvidence | undefined, right: CheckedSourceCallCompositionEvidence | undefined): boolean;
+export declare function checkedSourceCallArgumentCompositionEvidenceEquals(left: CheckedSourceCallArgumentCompositionEvidence, right: CheckedSourceCallArgumentCompositionEvidence): boolean;
+export declare function checkedSourceInlineOperationEquals(left: CheckedSourceInlineOperation, right: CheckedSourceInlineOperation): boolean;
 export declare function optionalSelectedSourceValueEvidenceEquals(left: SelectedSourceValueEvidence | undefined, right: SelectedSourceValueEvidence | undefined): boolean;
 export declare function selectedSourceValueEvidenceArrayEquals(left: readonly SelectedSourceValueEvidence[], right: readonly SelectedSourceValueEvidence[]): boolean;
 export declare function targetCallArgumentConversionSlotEquals(left: TargetCallArgumentConversionSlot, right: TargetCallArgumentConversionSlot): boolean;

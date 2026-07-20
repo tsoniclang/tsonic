@@ -4,6 +4,10 @@ export const providerCanonicalExportOwnerMarker = ".tsts-export-owner-";
 export const providerCanonicalModuleDependencyContextMarker = ".tsts-module-context";
 export const providerPublicVirtualSliceMarker = ".tsts-slice-";
 export const providerVirtualCompilerArtifactLookup = Symbol("tsts.provider.virtualCompilerArtifactLookup");
+export const providerVirtualCompilerMetadataLookup = Symbol("tsts.provider.virtualCompilerMetadataLookup");
+export function getProviderVirtualCompilerMetadata(registry, fileName) {
+    return registry[providerVirtualCompilerMetadataLookup](fileName);
+}
 export function getProviderVirtualArtifactForCompiler(registry, fileName) {
     return registry[providerVirtualCompilerArtifactLookup](fileName);
 }

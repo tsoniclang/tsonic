@@ -1,5 +1,6 @@
 import { ExtensionObservationPoint } from "./observations.js";
 import { selectedTargetSignatureEquals, targetParameterEquals } from "./fact-value-equality.js";
+import { isHostOwnedExtensionDiagnostic, markHostOwnedExtensionDiagnostic } from "./diagnostic-ownership.js";
 const checkedOperationRequestSnapshotCacheBrand = Symbol("tsts.checked-operation-request-snapshot-cache");
 const checkedOperationResponseSnapshots = new WeakMap();
 const checkedOperationRequestSnapshotCacheStates = new WeakMap();
@@ -43,6 +44,9 @@ function createCheckedOperationRequestSnapshotCacheTransaction(cache, path) {
             if (committed) {
                 throw new Error("Checked-operation snapshot cache transaction was committed more than once.");
             }
+            selectedTargetSignatures.assertCanCommit();
+            targetParameters.assertCanCommit();
+            targetCallArgumentConversionSlots.assertCanCommit();
             selectedTargetSignatures.commit();
             targetParameters.commit();
             targetCallArgumentConversionSlots.commit();
@@ -76,14 +80,29 @@ function createTransactionalSnapshotCacheMap(base) {
                 entries.push([key, value]);
             },
         },
+        assertCanCommit() {
+            for (const [key, value] of entries) {
+                const existing = base.get(key);
+                if (existing !== undefined && existing !== value) {
+                    throw new Error("Checked-operation snapshot cache transaction conflicted with a nested committed snapshot.");
+                }
+            }
+        },
         commit() {
             for (const [key, value] of entries) {
+                const existing = base.get(key);
+                if (existing !== undefined && existing !== value) {
+                    throw new Error("Checked-operation snapshot cache transaction conflicted with a nested committed snapshot.");
+                }
                 base.set(key, value);
             }
         },
     };
 }
 export function snapshotCheckedOperationRequest(observation, request, cache = createCheckedOperationRequestSnapshotCache()) {
+    return snapshotCheckedOperationRequestWithMetrics(observation, request, cache).request;
+}
+export function snapshotCheckedOperationRequestWithMetrics(observation, request, cache = createCheckedOperationRequestSnapshotCache()) {
     const path = createSnapshotPath(`checked-operation request[${observation}]`);
     const cacheTransaction = createCheckedOperationRequestSnapshotCacheTransaction(cache, path);
     let snapshot;
@@ -110,7 +129,20 @@ export function snapshotCheckedOperationRequest(observation, request, cache = cr
             throw new Error(`Unsupported checked-operation observation '${String(observation)}'.`);
     }
     cacheTransaction.commit();
-    return snapshot;
+    return Object.freeze({
+        request: snapshot,
+        metrics: snapshotRequestMetrics(path.budget),
+    });
+}
+function snapshotRequestMetrics(budget) {
+    return Object.freeze({
+        objectCount: budget.objectCount,
+        targetTypeRefObjectCount: budget.targetTypeRefObjectCount,
+        arrayElementCount: budget.arrayElementCount,
+        ownFieldCount: budget.ownFieldCount,
+        scalarCodeUnits: budget.scalarCodeUnits,
+        workUnits: budget.workUnits,
+    });
 }
 export function snapshotCheckedOperationResult(observation, result) {
     const path = createSnapshotPath(`checked-operation result[${observation}]`);
@@ -188,6 +220,7 @@ function snapshotCallRequest(request, path, includeTarget = true) {
         "sourceArguments",
         "sourceResult",
         "sourceReceiver",
+        "sourceComposition",
         "chainRole",
         ...(includeTarget ? ["target"] : []),
     ], "CheckedCallMappingRequest", path);
@@ -218,6 +251,9 @@ function snapshotCallRequest(request, path, includeTarget = true) {
         sourceResult: snapshotSelectedSourceValueEvidence(request.sourceResult, childSnapshotPath(path, "sourceResult")),
         ...(request.sourceReceiver === undefined ? {} : {
             sourceReceiver: snapshotSelectedSourceValueEvidence(request.sourceReceiver, childSnapshotPath(path, "sourceReceiver")),
+        }),
+        ...(request.sourceComposition === undefined ? {} : {
+            sourceComposition: snapshotCheckedSourceCallCompositionEvidence(request.sourceComposition, arguments_.length, childSnapshotPath(path, "sourceComposition")),
         }),
         chainRole: snapshotSourceChainRole(request.chainRole, "call", childSnapshotPath(path, "chainRole")),
         ...(includeTarget && request.target !== undefined ? { target: request.target } : {}),
@@ -2197,7 +2233,214 @@ function snapshotSelectedSourceValueEvidence(evidence, path) {
     const expression = evidence.expression;
     assertOpaqueIdentitySubject(expression, "SelectedSourceValueEvidence expression", childSnapshotPath(path, "expression"));
     const typeEvidence = snapshotSelectedSourceTypeEvidenceFields(evidence, path);
-    return Object.freeze({ expression, ...typeEvidence });
+    return Object.freeze({
+        expression,
+        ...typeEvidence,
+    });
+}
+function snapshotCheckedSourceCallCompositionEvidence(evidence, argumentCount, path) {
+    assertRecord(evidence, "CheckedSourceCallCompositionEvidence", path);
+    const captured = captureExactOwnFields(evidence, ["argumentEvidence"], "CheckedSourceCallCompositionEvidence", path);
+    const argumentEvidence = captureArray(captured.argumentEvidence, "CheckedSourceCallArgumentCompositionEvidence array", childSnapshotPath(path, "argumentEvidence"));
+    if (argumentEvidence.length !== argumentCount) {
+        throw new Error(`Invalid CheckedSourceCallCompositionEvidence at '${formatSnapshotPath(path)}': argumentEvidence length ${argumentEvidence.length} does not match call argument length ${argumentCount}.`);
+    }
+    return Object.freeze({
+        argumentEvidence: Object.freeze(argumentEvidence.map((argument, index) => snapshotCheckedSourceCallArgumentCompositionEvidence(argument, indexedSnapshotPath(childSnapshotPath(path, "argumentEvidence"), index)))),
+    });
+}
+function snapshotCheckedSourceCallArgumentCompositionEvidence(evidence, path) {
+    if (evidence === undefined) {
+        return undefined;
+    }
+    assertRecord(evidence, "CheckedSourceCallArgumentCompositionEvidence", path);
+    const kindDescriptor = Object.getOwnPropertyDescriptor(evidence, "kind");
+    if (kindDescriptor === undefined || !("value" in kindDescriptor)) {
+        throw new Error(`Invalid CheckedSourceCallArgumentCompositionEvidence at '${formatSnapshotPath(path)}': kind must be an own data property.`);
+    }
+    if (kindDescriptor.value === "authored-literal") {
+        const captured = captureExactOwnFields(evidence, ["kind", "literal"], "CheckedSourceCallArgumentCompositionEvidence", path);
+        return Object.freeze({
+            kind: "authored-literal",
+            literal: snapshotCheckedSourceAuthoredLiteralEvidence(captured.literal, childSnapshotPath(path, "literal")),
+        });
+    }
+    if (kindDescriptor.value === "inline-function") {
+        const captured = captureExactOwnFields(evidence, ["kind", "function"], "CheckedSourceCallArgumentCompositionEvidence", path);
+        return Object.freeze({
+            kind: "inline-function",
+            function: snapshotCheckedSourceInlineFunctionEvidence(captured.function, childSnapshotPath(path, "function")),
+        });
+    }
+    throw new Error(`Invalid CheckedSourceCallArgumentCompositionEvidence at '${formatSnapshotPath(path)}': unknown kind '${String(kindDescriptor.value)}'.`);
+}
+function snapshotCheckedSourceAuthoredLiteralEvidence(literal, path) {
+    assertRecord(literal, "CheckedSourceAuthoredLiteralEvidence", path);
+    const kindDescriptor = Object.getOwnPropertyDescriptor(literal, "kind");
+    if (kindDescriptor === undefined || !("value" in kindDescriptor)) {
+        throw new Error(`Invalid CheckedSourceAuthoredLiteralEvidence at '${formatSnapshotPath(path)}': kind must be an own data property.`);
+    }
+    const kind = kindDescriptor.value;
+    if (kind === "null") {
+        captureExactOwnFields(literal, ["kind"], "CheckedSourceAuthoredLiteralEvidence", path);
+        return Object.freeze({ kind });
+    }
+    if (kind !== "string" && kind !== "number" && kind !== "bigint" && kind !== "boolean") {
+        throw new Error(`Invalid CheckedSourceAuthoredLiteralEvidence at '${formatSnapshotPath(path)}': unknown kind '${String(kind)}'.`);
+    }
+    const captured = captureExactOwnFields(literal, ["kind", "value"], "CheckedSourceAuthoredLiteralEvidence", path);
+    if (kind === "boolean") {
+        if (typeof captured.value !== "boolean") {
+            throw new Error(`Invalid CheckedSourceAuthoredLiteralEvidence at '${formatSnapshotPath(path)}': boolean value is required.`);
+        }
+        return Object.freeze({ kind, value: captured.value });
+    }
+    assertString(captured.value, `CheckedSourceAuthoredLiteralEvidence ${kind} value`, childSnapshotPath(path, "value"));
+    return Object.freeze({ kind, value: captured.value });
+}
+function snapshotCheckedSourceInlineFunctionEvidence(evidence, path) {
+    assertRecord(evidence, "CheckedSourceInlineFunctionEvidence", path);
+    const captured = captureExactOwnFields(evidence, ["expression", "parameters", "returns", "operations"], "CheckedSourceInlineFunctionEvidence", path);
+    assertOpaqueIdentitySubject(captured.expression, "CheckedSourceInlineFunctionEvidence expression", childSnapshotPath(path, "expression"));
+    const parameters = captureArray(captured.parameters, "CheckedSourceInlineFunctionParameterEvidence array", childSnapshotPath(path, "parameters"));
+    const returns = captureArray(captured.returns, "CheckedSourceInlineFunctionReturnEvidence array", childSnapshotPath(path, "returns"));
+    const operations = captureArray(captured.operations, "CheckedSourceInlineOperation array", childSnapshotPath(path, "operations"));
+    return Object.freeze({
+        expression: captured.expression,
+        parameters: Object.freeze(parameters.map((parameter, index) => {
+            const parameterPath = indexedSnapshotPath(childSnapshotPath(path, "parameters"), index);
+            assertRecord(parameter, "CheckedSourceInlineFunctionParameterEvidence", parameterPath);
+            const fields = captureExactOwnFields(parameter, ["declaration", "symbol"], "CheckedSourceInlineFunctionParameterEvidence", parameterPath);
+            assertOpaqueIdentitySubject(fields.declaration, "CheckedSourceInlineFunctionParameterEvidence declaration", childSnapshotPath(parameterPath, "declaration"));
+            assertOpaqueIdentitySubject(fields.symbol, "CheckedSourceInlineFunctionParameterEvidence symbol", childSnapshotPath(parameterPath, "symbol"));
+            return Object.freeze({ declaration: fields.declaration, symbol: fields.symbol });
+        })),
+        returns: Object.freeze(returns.map((returned, index) => snapshotCheckedSourceInlineFunctionReturnEvidence(returned, indexedSnapshotPath(childSnapshotPath(path, "returns"), index)))),
+        operations: Object.freeze(operations.map((operation, index) => snapshotCheckedSourceInlineOperation(operation, indexedSnapshotPath(childSnapshotPath(path, "operations"), index)))),
+    });
+}
+function snapshotCheckedSourceInlineFunctionReturnEvidence(returned, path) {
+    assertRecord(returned, "CheckedSourceInlineFunctionReturnEvidence", path);
+    const captured = captureExactOwnFields(returned, ["expression"], "CheckedSourceInlineFunctionReturnEvidence", path);
+    assertOpaqueIdentitySubject(captured.expression, "CheckedSourceInlineFunctionReturnEvidence expression", childSnapshotPath(path, "expression"));
+    return Object.freeze({ expression: captured.expression });
+}
+function snapshotCheckedSourceInlineOperation(operation, path) {
+    assertRecord(operation, "CheckedSourceInlineOperation", path);
+    const kind = readOwnStringField(operation, "sourceOperationKind", "CheckedSourceInlineOperation", path);
+    switch (kind) {
+        case "call":
+            return snapshotCallRequest(operation, path, false);
+        case "property-access":
+            return snapshotCheckedSourceInlinePropertyOperation(operation, path);
+        case "element-access":
+            return snapshotElementRequest(operation, path, false);
+        case "operator":
+            return snapshotOperatorRequest(operation, path, false);
+        case "iteration":
+            return snapshotIterationRequest(operation, path, false);
+        case "conversion":
+            return snapshotCheckedSourceInlineAssertionOperation(operation, path);
+        default:
+            throw invalidEnumValueError("CheckedSourceInlineOperation sourceOperationKind", kind, childSnapshotPath(path, "sourceOperationKind"));
+    }
+}
+function snapshotCheckedSourceInlinePropertyOperation(operation, path) {
+    const accessMode = readOwnStringField(operation, "accessMode", "CheckedSourceInlinePropertyOperation", path);
+    assertCheckedAccessMode(accessMode, childSnapshotPath(path, "accessMode"));
+    const commonFields = ["sourceOperationKind", "expression", "receiver", "accessMode", "use", "sourceReceiver", "chainRole"];
+    const captured = captureExactOwnFields(operation, accessMode === "write"
+        ? [...commonFields, "sourceWriteType"]
+        : accessMode === "read-write"
+            ? [...commonFields, "sourceReadResult", "sourceWriteType"]
+            : [...commonFields, "sourceReadResult"], "CheckedSourceInlinePropertyOperation", path);
+    if (captured.sourceOperationKind !== "property-access") {
+        throw invalidEnumValueError("CheckedSourceInlinePropertyOperation sourceOperationKind", captured.sourceOperationKind, childSnapshotPath(path, "sourceOperationKind"));
+    }
+    assertOpaqueIdentitySubject(captured.expression, "CheckedSourceInlinePropertyOperation expression", childSnapshotPath(path, "expression"));
+    assertOpaqueIdentitySubject(captured.receiver, "CheckedSourceInlinePropertyOperation receiver", childSnapshotPath(path, "receiver"));
+    assertCheckedAccessUse(captured.use, "CheckedSourceInlinePropertyOperation", childSnapshotPath(path, "use"));
+    const sourceReceiver = snapshotSelectedSourceValueEvidence(captured.sourceReceiver, childSnapshotPath(path, "sourceReceiver"));
+    const chainRole = snapshotSourceChainRole(captured.chainRole, "property-access", childSnapshotPath(path, "chainRole"));
+    const base = {
+        sourceOperationKind: "property-access",
+        expression: captured.expression,
+        receiver: captured.receiver,
+        sourceReceiver,
+    };
+    if (accessMode === "read") {
+        const read = captured;
+        return Object.freeze({
+            ...base,
+            accessMode: "read",
+            use: read.use,
+            sourceReadResult: snapshotSelectedSourceValueEvidence(read.sourceReadResult, childSnapshotPath(path, "sourceReadResult")),
+            chainRole,
+        });
+    }
+    if (captured.use !== "value") {
+        throw invalidEnumValueError(`CheckedSourceInlinePropertyOperation ${accessMode} use`, captured.use, childSnapshotPath(path, "use"));
+    }
+    if (accessMode === "delete") {
+        const deleteAccess = captured;
+        return Object.freeze({
+            ...base,
+            accessMode: "delete",
+            use: "value",
+            sourceReadResult: snapshotSelectedSourceValueEvidence(deleteAccess.sourceReadResult, childSnapshotPath(path, "sourceReadResult")),
+            chainRole,
+        });
+    }
+    if (chainRole.kind !== "ordinary") {
+        throw new Error(`Invalid CheckedSourceInlinePropertyOperation at '${formatSnapshotPath(childSnapshotPath(path, "chainRole"))}': ${accessMode} access cannot be an optional-chain participant.`);
+    }
+    if (accessMode === "write") {
+        const write = captured;
+        return Object.freeze({
+            ...base,
+            accessMode: "write",
+            use: "value",
+            sourceWriteType: snapshotSelectedSourceTypeEvidence(write.sourceWriteType, childSnapshotPath(path, "sourceWriteType")),
+            chainRole,
+        });
+    }
+    const readWrite = captured;
+    return Object.freeze({
+        ...base,
+        accessMode: "read-write",
+        use: "value",
+        sourceReadResult: snapshotSelectedSourceValueEvidence(readWrite.sourceReadResult, childSnapshotPath(path, "sourceReadResult")),
+        sourceWriteType: snapshotSelectedSourceTypeEvidence(readWrite.sourceWriteType, childSnapshotPath(path, "sourceWriteType")),
+        chainRole,
+    });
+}
+function snapshotCheckedSourceInlineAssertionOperation(operation, path) {
+    const captured = captureExactOwnFields(operation, [
+        "sourceOperationKind",
+        "conversionKind",
+        "expression",
+        "source",
+        "target",
+        "assertionKind",
+        "explicitTargetTypeNode",
+    ], "CheckedSourceInlineAssertionOperation", path);
+    if (captured.conversionKind !== "assertion") {
+        throw invalidEnumValueError("CheckedSourceInlineAssertionOperation conversionKind", captured.conversionKind, childSnapshotPath(path, "conversionKind"));
+    }
+    assertOpaqueIdentitySubject(captured.expression, "CheckedSourceInlineAssertionOperation expression", childSnapshotPath(path, "expression"));
+    assertOpaqueIdentitySubject(captured.explicitTargetTypeNode, "CheckedSourceInlineAssertionOperation explicitTargetTypeNode", childSnapshotPath(path, "explicitTargetTypeNode"));
+    if (captured.assertionKind !== "as" && captured.assertionKind !== "angle-bracket" && captured.assertionKind !== "jsdoc") {
+        throw invalidEnumValueError("CheckedSourceInlineAssertionOperation assertionKind", captured.assertionKind, childSnapshotPath(path, "assertionKind"));
+    }
+    return Object.freeze({
+        sourceOperationKind: "conversion",
+        conversionKind: "assertion",
+        expression: captured.expression,
+        source: snapshotSelectedSourceValueEvidence(captured.source, childSnapshotPath(path, "source")),
+        target: snapshotSelectedSourceTypeEvidence(captured.target, childSnapshotPath(path, "target")),
+        assertionKind: captured.assertionKind,
+        explicitTargetTypeNode: captured.explicitTargetTypeNode,
+    });
 }
 function snapshotMethodTypeArguments(arguments_, path) {
     const captured = captureArray(arguments_, "SourceSelectedMethodTypeArgument array", path);
@@ -2512,6 +2755,7 @@ function snapshotImmutableData(value, path, state) {
     }
 }
 function snapshotDiagnostic(diagnostic, path) {
+    const hostOwned = isHostOwnedExtensionDiagnostic(diagnostic);
     assertRecord(diagnostic, "ExtensionDiagnostic", path);
     diagnostic = captureExactOwnFields(diagnostic, ["extensionId", "extensionCode", "numericCode", "publicCode", "category", "message", "nodeOrSpan", "evidence", "identity"], "ExtensionDiagnostic", path);
     const extensionId = diagnostic.extensionId;
@@ -2539,7 +2783,7 @@ function snapshotDiagnostic(diagnostic, path) {
     if (identity !== undefined) {
         assertString(identity, "ExtensionDiagnostic identity", childSnapshotPath(path, "identity"));
     }
-    return Object.freeze({
+    const snapshot = Object.freeze({
         extensionId,
         extensionCode,
         numericCode,
@@ -2552,6 +2796,7 @@ function snapshotDiagnostic(diagnostic, path) {
         }),
         ...(identity === undefined ? {} : { identity }),
     });
+    return hostOwned ? markHostOwnedExtensionDiagnostic(snapshot) : snapshot;
 }
 function snapshotDiagnosticNodeOrSpan(value, path) {
     assertOpaqueIdentitySubject(value, "ExtensionDiagnostic nodeOrSpan", path);

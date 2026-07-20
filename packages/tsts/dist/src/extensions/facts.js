@@ -1,8 +1,8 @@
-import { defineExtensionFactKey } from "./fact-key.js";
+import { defineExtensionFactKey, markHostSourceReadableFactKey } from "./fact-key.js";
 import { snapshotArgumentPassingFact, snapshotAssociatedTypeFact, snapshotAttributeFact, snapshotCanonicalIdentityFact, snapshotConstGenericFact, snapshotContextualTargetTypeFact, snapshotDefaultValueFact, snapshotFieldFactValue, snapshotFlowStateFact, snapshotFunctionPointerFact, snapshotInstantiatedTargetTypeFact, snapshotPointerFact, snapshotProviderTypeFamilyFact, snapshotProviderVirtualDeclarationFact, snapshotRuntimeCarrierFact, snapshotSelectedTargetSignatureFact, snapshotSourcePrimitiveFact, snapshotStructFact, snapshotTargetBindingFact, snapshotTargetCallArgumentConversionFact, snapshotTargetCallArgumentPassingFact, snapshotTargetConversionFact, snapshotTargetOperationFact, } from "./checked-operation-value-snapshot.js";
 import { checkedCallSourceOperationEquals, checkedConversionSourceOperationEquals, checkedElementAccessSourceOperationEquals, checkedIterationSourceOperationEquals, checkedOperatorSourceOperationEquals, checkedPropertyAccessSourceOperationEquals, checkedSourceChainRoleEquals, optionalProviderDeclarationIdentityEquals, optionalProviderMemberKeyEquals, optionalSelectedSourceTypeEvidenceEquals, optionalSelectedSourceValueEvidenceEquals, optionalTargetTypeRefEquals, providerDeclarationIdentityEquals, selectedSourceTypeEvidenceEquals, selectedSourceValueEvidenceArrayEquals, selectedSourceValueEvidenceEquals, selectedTargetSignatureEquals, sourceSelectedCallArgumentBindingEquals, sourceSelectedCallEvidenceEquals, sourceSelectedMethodTypeArgumentArrayEquals, sourceSelectedSignatureParameterArrayEquals, targetCallArgumentConversionSlotEquals, targetConstraintArrayEquals, targetMemberEquals, targetParameterEquals, targetTypeParameterArrayEquals, targetTypeRefArrayEquals, targetTypeRefEquals, } from "./fact-value-equality.js";
 export { checkedCallSourceOperationEquals, checkedConversionSourceOperationEquals, checkedElementAccessSourceOperationEquals, checkedIterationSourceOperationEquals, checkedOperatorSourceOperationEquals, checkedPropertyAccessSourceOperationEquals, selectedTargetSignatureEquals, targetParameterEquals, targetTypeRefEquals, } from "./fact-value-equality.js";
-export const canonicalIdentityFactKey = defineExtensionFactKey({
+export const canonicalIdentityFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.identity",
     name: "canonicalIdentity",
     snapshot: snapshotCanonicalIdentityFact,
@@ -14,21 +14,21 @@ export const canonicalIdentityFactKey = defineExtensionFactKey({
         && left.exportName === right.exportName
         && left.importKind === right.importKind
         && left.canonicalSymbolId === right.canonicalSymbolId,
-});
-export const sourcePrimitiveFactKey = defineExtensionFactKey({
+}));
+export const sourcePrimitiveFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "sourcePrimitive",
     snapshot: snapshotSourcePrimitiveFact,
     equals: (left, right) => left.kind === right.kind && left.width === right.width && left.signed === right.signed && left.runtimeBase === right.runtimeBase,
-});
-export const argumentPassingFactKey = defineExtensionFactKey({
+}));
+export const argumentPassingFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "argumentPassing",
     snapshot: snapshotArgumentPassingFact,
     equals: (left, right) => left.mode === right.mode
         && left.targetExpression === right.targetExpression,
-});
-export const functionPointerFactKey = defineExtensionFactKey({
+}));
+export const functionPointerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "functionPointer",
     snapshot: snapshotFunctionPointerFact,
@@ -37,40 +37,40 @@ export const functionPointerFactKey = defineExtensionFactKey({
         && left.parameters.every((parameter, index) => parameter === right.parameters[index])
         && left.abi.length === right.abi.length
         && left.abi.every((abi, index) => abi === right.abi[index]),
-});
-export const pointerFactKey = defineExtensionFactKey({
+}));
+export const pointerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "pointer",
     snapshot: snapshotPointerFact,
     equals: (left, right) => left.pointee === right.pointee && left.mutability === right.mutability && left.unsafeRequired === right.unsafeRequired,
-});
-export const structFactKey = defineExtensionFactKey({
+}));
+export const structFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "struct",
     snapshot: snapshotStructFact,
     equals: (left, right) => left.valueType === right.valueType
         && fieldFactArrayEquals(left.fields, right.fields),
-});
-export const fieldFactKey = defineExtensionFactKey({
+}));
+export const fieldFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "field",
     snapshot: snapshotFieldFactValue,
     equals: (left, right) => left.name === right.name && left.type === right.type && left.readonly === right.readonly,
-});
-export const attributeFactKey = defineExtensionFactKey({
+}));
+export const attributeFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "attribute",
     snapshot: snapshotAttributeFact,
     equals: (left, right) => left.target === right.target
         && left.attributeName === right.attributeName
         && factSubjectArrayEquals(left.arguments, right.arguments),
-});
-export const defaultValueFactKey = defineExtensionFactKey({
+}));
+export const defaultValueFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "defaultValue",
     snapshot: snapshotDefaultValueFact,
     equals: (left, right) => left.type === right.type,
-});
+}));
 export const targetBindingFactKey = defineExtensionFactKey({
     extensionId: "tsts.target-bindings",
     name: "targetBinding",

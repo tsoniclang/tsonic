@@ -63,7 +63,85 @@ export function optionalSelectedSourceTypeEvidenceEquals(left, right) {
         : selectedSourceTypeEvidenceEquals(left, right);
 }
 export function selectedSourceValueEvidenceEquals(left, right) {
-    return left.expression === right.expression && selectedSourceTypeEvidenceEquals(left, right);
+    return left.expression === right.expression
+        && selectedSourceTypeEvidenceEquals(left, right);
+}
+export function optionalCheckedSourceCallCompositionEvidenceEquals(left, right) {
+    if (left === undefined || right === undefined) {
+        return left === right;
+    }
+    return left.argumentEvidence.length === right.argumentEvidence.length
+        && left.argumentEvidence.every((evidence, index) => optionalCheckedSourceCallArgumentCompositionEvidenceEquals(evidence, right.argumentEvidence[index]));
+}
+function optionalCheckedSourceCallArgumentCompositionEvidenceEquals(left, right) {
+    return left === undefined || right === undefined
+        ? left === right
+        : checkedSourceCallArgumentCompositionEvidenceEquals(left, right);
+}
+export function checkedSourceCallArgumentCompositionEvidenceEquals(left, right) {
+    if (left.kind !== right.kind) {
+        return false;
+    }
+    if (left.kind === "authored-literal") {
+        return right.kind === "authored-literal"
+            && checkedSourceAuthoredLiteralEvidenceEquals(left.literal, right.literal);
+    }
+    return right.kind === "inline-function"
+        && left.function.expression === right.function.expression
+        && left.function.parameters.length === right.function.parameters.length
+        && left.function.parameters.every((parameter, index) => parameter.declaration === right.function.parameters[index]?.declaration
+            && parameter.symbol === right.function.parameters[index]?.symbol)
+        && left.function.returns.length === right.function.returns.length
+        && left.function.returns.every((returned, index) => returned.expression === right.function.returns[index]?.expression)
+        && left.function.operations.length === right.function.operations.length
+        && left.function.operations.every((operation, index) => checkedSourceInlineOperationEquals(operation, right.function.operations[index]));
+}
+export function checkedSourceInlineOperationEquals(left, right) {
+    if (left.sourceOperationKind !== right.sourceOperationKind) {
+        return false;
+    }
+    switch (left.sourceOperationKind) {
+        case "call":
+            return right.sourceOperationKind === "call" && checkedCallSourceOperationEquals(left, right);
+        case "property-access":
+            return right.sourceOperationKind === "property-access"
+                && checkedSourceInlinePropertyOperationEquals(left, right);
+        case "element-access":
+            return right.sourceOperationKind === "element-access"
+                && checkedElementAccessSourceOperationEquals(left, right);
+        case "operator":
+            return right.sourceOperationKind === "operator"
+                && checkedOperatorSourceOperationEquals(left, right);
+        case "iteration":
+            return right.sourceOperationKind === "iteration"
+                && checkedIterationSourceOperationEquals(left, right);
+        case "conversion":
+            return right.sourceOperationKind === "conversion"
+                && checkedConversionSourceOperationEquals(left, right);
+    }
+}
+function checkedSourceInlinePropertyOperationEquals(left, right) {
+    return left.expression === right.expression
+        && left.receiver === right.receiver
+        && left.use === right.use
+        && selectedSourceValueEvidenceEquals(left.sourceReceiver, right.sourceReceiver)
+        && checkedAccessSourceEvidenceEquals(left, right)
+        && checkedSourceChainRoleEquals(left.chainRole, right.chainRole);
+}
+function checkedSourceAuthoredLiteralEvidenceEquals(left, right) {
+    if (left.kind !== right.kind) {
+        return false;
+    }
+    switch (left.kind) {
+        case "string":
+        case "number":
+        case "bigint":
+            return right.kind === left.kind && left.value === right.value;
+        case "boolean":
+            return right.kind === "boolean" && left.value === right.value;
+        case "null":
+            return right.kind === "null";
+    }
 }
 export function optionalSelectedSourceValueEvidenceEquals(left, right) {
     return left === undefined || right === undefined
