@@ -21,7 +21,7 @@ if [[ "$CONFIG_PATH" != /* ]]; then
 fi
 
 TSGO_BIN="$REPO_ROOT/node_modules/.bin/tsgo"
-CONFIG_DIR="$(dirname "$CONFIG_PATH")"
+OUTPUT_CLEANER="$REPO_ROOT/scripts/build/clean-tsgo-output.mjs"
 
 if [[ ! -x "$TSGO_BIN" ]]; then
   echo "FAIL: TS-Go v7 compiler is missing: $TSGO_BIN" >&2
@@ -29,8 +29,7 @@ if [[ ! -x "$TSGO_BIN" ]]; then
   exit 1
 fi
 
-rm -rf "$CONFIG_DIR/dist"
-find "$CONFIG_DIR" -maxdepth 1 -name '*.tsbuildinfo' -type f -delete
+"$TSGO_BIN" -p "$CONFIG_PATH" --showConfig | node "$OUTPUT_CLEANER" "$CONFIG_PATH"
 
 cd "$REPO_ROOT"
 exec "$TSGO_BIN" -p "$CONFIG_PATH" "$@"
