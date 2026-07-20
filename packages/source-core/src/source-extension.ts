@@ -1,5 +1,4 @@
 import {
-  attributeFactKey,
   createSourceSemanticsExtension,
   ExtensionLifecycleEvent,
   fieldFactKey,
@@ -7,15 +6,19 @@ import {
 } from "@tsonic/tsts";
 import type {
   AstReader,
-  AttributeFact,
   CompilerExtension,
   ExtensionEvidence,
-  ExtensionFactSubject,
   ExtensionFactStore,
   FieldFact,
   Node,
   SourceFileBoundLifecycleRequest,
 } from "@tsonic/tsts";
+import {
+  registerTsonicAttributeBuilderProducers,
+} from "./attribute-builder-producers.js";
+import {
+  registerTsonicSourceMarkerEvidenceProducers,
+} from "./marker-evidence-producers.js";
 import {
   tsonicCoreLangModule,
   tsonicCoreProviderVersion,
@@ -42,29 +45,18 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
     initialize(context): void {
       context.registerTargetBindingProvider(createTsonicCoreVirtualModulesProvider());
       sourceSemantics.initialize?.(context);
+      registerTsonicAttributeBuilderProducers(context);
+      registerTsonicSourceMarkerEvidenceProducers(context);
       context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext): void => {
         if (request.providerVirtualArtifact !== undefined) {
           return;
         }
         recordUnsupportedTsonicCoreLangReExportDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.host.diagnostics);
-        recordTsonicAttributeBuilderFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts);
         validateTsonicStructFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
       });
     },
   };
 }
-
-const attributeBuilderChainMethods = new Set([
-  "constructor",
-  "method",
-  "parameter",
-  "property",
-  "target",
-]);
-
-const attributeBuilderEvidence = [{
-  message: "Tsonic source-core attribute builder chain",
-}] satisfies readonly ExtensionEvidence[];
 
 const structFieldDiagnostics = {
   duplicateField: {
@@ -171,44 +163,6 @@ function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader)
   return exportedNames;
 }
 
-function recordTsonicAttributeBuilderFacts(
-  request: SourceFileBoundLifecycleRequest,
-  ast: AstReader,
-  facts: ExtensionFactStore,
-): void {
-  const sourceFile = request.sourceFile as Node | undefined;
-  visitSourceFile(sourceFile, ast, (node): void => {
-    if (!ast.is.IsCallExpression(node)) {
-      return;
-    }
-    const call = ast.as.AsCallExpression(node);
-    const callee = call?.Expression;
-    if (!ast.is.IsPropertyAccessExpression(callee) || ast.text(ast.name(callee)) !== "add") {
-      return;
-    }
-    const attributeArguments = ast.arguments(node);
-    const attributeExpression = attributeArguments[0];
-    if (attributeExpression === undefined) {
-      return;
-    }
-    const applicationTarget = resolveAttributeBuilderTarget(ast.as.AsPropertyAccessExpression(callee)?.Expression, ast, facts);
-    if (applicationTarget === undefined) {
-      return;
-    }
-    const attributeFactArguments: ExtensionFactSubject[] = [];
-    for (const argument of attributeArguments.slice(1)) {
-      if (argument !== undefined) {
-        attributeFactArguments.push(argument);
-      }
-    }
-    facts.set(node, attributeFactKey, {
-      target: attributeExpression,
-      attributeName: staticExpressionName(attributeExpression, ast),
-      arguments: attributeFactArguments,
-    } satisfies AttributeFact, attributeBuilderEvidence);
-  });
-}
-
 function validateTsonicStructFacts(
   request: SourceFileBoundLifecycleRequest,
   ast: AstReader,
@@ -237,7 +191,7 @@ function validateSourceCoreStructShape(
   const seenFields = new Map<string, Node>();
   for (const property of ast.properties(shape)) {
     if (property === undefined || !ast.is.IsPropertyAssignment(property)) {
-      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property ?? shape, [
+      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property ?? shape, ast, [
         { message: "Struct shape member is not a property assignment with a field<T>() initializer." },
       ]);
       continue;
@@ -249,14 +203,14 @@ function validateSourceCoreStructShape(
       facts.get<FieldFact>(initializer, fieldFactKey) ??
       facts.get<FieldFact>(nameNode, fieldFactKey);
     if (name === undefined || field === undefined) {
-      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property, [
+      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property, ast, [
         { message: "Struct shape property lacks finalized field name/type evidence.", details: { hasStaticName: name !== undefined, hasFieldFact: field !== undefined } },
       ]);
       continue;
     }
     const previous = seenFields.get(name);
     if (previous !== undefined) {
-      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.duplicateField, property, [
+      appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.duplicateField, property, ast, [
         { message: "Duplicate static struct field name.", details: { name } },
       ]);
       continue;
@@ -269,6 +223,7 @@ function appendStructFieldDiagnostic(
   diagnostics: DiagnosticSink,
   diagnostic: typeof structFieldDiagnostics[keyof typeof structFieldDiagnostics],
   node: Node,
+  ast: AstReader,
   evidence: readonly ExtensionEvidence[],
 ): void {
   diagnostics.append({
@@ -280,41 +235,8 @@ function appendStructFieldDiagnostic(
     message: diagnostic.message,
     nodeOrSpan: node,
     evidence,
-    identity: `source-core-struct-field:${diagnostic.extensionCode}:${String((node as { readonly id?: unknown }).id ?? "unknown")}`,
+    identity: `source-core-struct-field:${diagnostic.extensionCode}:${ast.getPath(ast.getSourceFile(node))}:${ast.pos(node)}:${ast.end(node)}`,
   });
-}
-
-function resolveAttributeBuilderTarget(
-  expression: Node | undefined,
-  ast: AstReader,
-  facts: ExtensionFactStore,
-): ExtensionFactSubject | undefined {
-  if (expression === undefined || !ast.is.IsCallExpression(expression)) {
-    return undefined;
-  }
-  const rootFact = facts.get<AttributeFact>(expression, attributeFactKey);
-  if (rootFact !== undefined) {
-    return rootFact.target;
-  }
-  const callee = ast.as.AsCallExpression(expression)?.Expression;
-  if (!ast.is.IsPropertyAccessExpression(callee)) {
-    return undefined;
-  }
-  const methodName = ast.text(ast.name(callee));
-  if (!attributeBuilderChainMethods.has(methodName)) {
-    return undefined;
-  }
-  return resolveAttributeBuilderTarget(ast.as.AsPropertyAccessExpression(callee)?.Expression, ast, facts);
-}
-
-function staticExpressionName(node: Node, ast: AstReader): string {
-  if (ast.is.IsPropertyAccessExpression(node)) {
-    const access = ast.as.AsPropertyAccessExpression(node);
-    const receiver = access?.Expression === undefined ? "" : staticExpressionName(access.Expression, ast);
-    const name = ast.text(ast.name(node));
-    return receiver === "" ? name : `${receiver}.${name}`;
-  }
-  return ast.text(ast.name(node) ?? node);
 }
 
 function staticSourcePropertyName(node: Node | undefined, ast: AstReader): string | undefined {

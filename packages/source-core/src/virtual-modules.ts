@@ -12,6 +12,7 @@ import type {
 } from "@tsonic/tsts";
 import {
   tsonicCoreProviderVersion,
+  tsonicCoreVirtualModulesProviderId,
 } from "./identity.js";
 import {
   providerExportDeclarationsForSourceModule,
@@ -23,7 +24,7 @@ import {
 export function createTsonicCoreVirtualModulesProvider(): TargetBindingProvider {
   const modules = new Map(tsonicCoreSourceSemanticsModules().map((module) => [module.moduleSpecifier, module]));
   const identity: ProviderIdentity = {
-    id: "tsonic.source-core.virtual-modules",
+    id: tsonicCoreVirtualModulesProviderId,
     version: tsonicCoreProviderVersion,
     target: "source",
     extensionContractVersion: TstsProviderContractVersion,
