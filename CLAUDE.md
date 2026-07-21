@@ -78,6 +78,8 @@ This repo is “airplane-grade”: correctness > speed, but we still want fast i
 - Reports must explain the causal chain from source code to compiler decision to emitted output; do not give only summaries, labels, or TODO lists when the maintainer is asking for analysis.
 - When classifying issues, group repeated symptoms by root cause and identify which failures are fallout rather than separate bugs.
 - Do not use hedging language such as “mostly”, “probably”, “seems”, or “likely” when the answer can be determined by inspection. State the exact verified fact, the remaining unknown, or the command/source needed to determine it.
+- Review an in-progress checkpoint against the scope explicitly claimed complete at that checkpoint, not against the eventual end state. Verify completed items fully; list known unstarted or explicitly deferred items as remaining status rather than presenting them as newly discovered failures of the completed scope.
+- Keep checkpoint quality and overall completion separate. If known work remains, say the branch/task is incomplete, while stating precisely whether the completed checkpoint itself satisfies its claimed acceptance criteria.
 
 Fast iteration (OK while developing / on external testbed projects):
 
