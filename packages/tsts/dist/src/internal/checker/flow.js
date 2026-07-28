@@ -1,4 +1,3 @@
-import { beginExtensionCheckedSourceDiscardDecision, rollbackExtensionCheckedSourceDiscardDecision } from "../../extensions/checker-integration.js";
 import { AppendIfUnique, Every, FindIndex, IfElse, Map as core_Map, Coalesce, OrElse, SameMap, Some } from "../core/core.js";
 import { NewGoStructMap } from "../../go/compat.js";
 import { Node_FlowNodeData, Node_ForEachChild, Node_Name, Node_Pos, Node_End, NodeList_Pos } from "../ast/spine.js";
@@ -4766,14 +4765,7 @@ export function Checker_getInitialTypeOfVariableDeclaration(receiver, node) {
         return receiver.stringType;
     }
     if (IsForOfStatement(node.Parent.Parent)) {
-        const discardDecision = beginExtensionCheckedSourceDiscardDecision(receiver);
-        let t;
-        try {
-            t = Checker_checkRightHandSideOfForOf(receiver, node.Parent.Parent);
-        }
-        finally {
-            rollbackExtensionCheckedSourceDiscardDecision(receiver, discardDecision);
-        }
+        const t = Checker_checkRightHandSideOfForOf(receiver, node.Parent.Parent);
         if (t !== undefined) {
             return t;
         }
@@ -4877,14 +4869,7 @@ export function Checker_getAssignedType(receiver, node) {
         case KindForInStatement:
             return receiver.stringType;
         case KindForOfStatement: {
-            const discardDecision = beginExtensionCheckedSourceDiscardDecision(receiver);
-            let t;
-            try {
-                t = Checker_checkRightHandSideOfForOf(receiver, parent);
-            }
-            finally {
-                rollbackExtensionCheckedSourceDiscardDecision(receiver, discardDecision);
-            }
+            const t = Checker_checkRightHandSideOfForOf(receiver, parent);
             if (t !== undefined) {
                 return t;
             }

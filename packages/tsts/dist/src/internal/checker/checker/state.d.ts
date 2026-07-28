@@ -1,5 +1,6 @@
 import type { bool, int, uint } from "../../../go/scalars.js";
 import type { ExtensionSourceDecisionState } from "../../../extensions/checker-source-decisions.js";
+import type { SelectedCallEvidenceTransactionState } from "./selected-call-evidence-transaction.js";
 import type { GoComparable, GoConstraint, GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import type { Hasher, Uint128 } from "../../../go/github.com/zeebo/xxh3.js";
@@ -1507,6 +1508,7 @@ export declare let nextCheckerID: Uint32;
  */
 export interface Checker {
     extensionSourceDecisionState: undefined | false | ExtensionSourceDecisionState;
+    selectedCallEvidenceTransactionState: SelectedCallEvidenceTransactionState | undefined;
     id: uint;
     program: Program;
     compilerOptions: GoPtr<CompilerOptions>;

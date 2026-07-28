@@ -27,14 +27,9 @@ export function hasExtensionCheckedOperationHost(checker, observation, execution
     return getCheckedOperationExtensionHost(checker, observation, executionSite) !== undefined;
 }
 export function hasExtensionCheckedCallEvidenceInterest(checker, callExpression) {
-    if (checker === undefined
-        || callExpression === undefined
-        || !isRuntimeCheckedOperationExecutionSite(callExpression)) {
-        return false;
-    }
-    const extensionHost = getExtensionHost(checker.program);
-    return extensionHost?.[extensionHostHasCheckedSourceCallProducers]() === true
-        || extensionHost?.[extensionHostHasCheckedOperationOwner](ExtensionObservationPoint.mapCheckedCall) === true;
+    return checker !== undefined
+        && callExpression !== undefined
+        && isRuntimeCheckedOperationExecutionSite(callExpression);
 }
 export function hasExtensionCheckedCallCalleeEvidenceInterest(checker, callee) {
     if (callee === undefined) {
@@ -43,15 +38,6 @@ export function hasExtensionCheckedCallCalleeEvidenceInterest(checker, callee) {
     const callExpression = checkedCallForCallee(callee);
     return callExpression !== undefined
         && hasExtensionCheckedCallEvidenceInterest(checker, callExpression);
-}
-export function shouldRetainExtensionCheckedCallEvidence(checker, evidence) {
-    if (checker === undefined || evidence === undefined) {
-        return false;
-    }
-    const extensionHost = getExtensionHost(checker.program);
-    return extensionHost?.[extensionHostHasCheckedOperationOwner](ExtensionObservationPoint.mapCheckedCall) === true
-        || extensionHost?.[extensionHostHasMatchingCheckedSourceCallProducer](checkedSourceProducerSelectedSignatureDeclaration(evidence)) === true
-        || checkedSourceInlineFunctionHasProducerCandidate(checker, evidence.call);
 }
 export function beginExtensionCheckedSourceFileDecision(checker, sourceFile) {
     if (checker === undefined || sourceFile === undefined) {
@@ -519,10 +505,6 @@ export function retainExtensionCheckedIdentifierCalleeSelection(checker, identif
         || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](sourceDeclaration)
         || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](canonicalSelectedSymbol)
         || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](canonicalSourceSymbol);
-    if (!extensionHost[extensionHostHasCheckedOperationOwner](ExtensionObservationPoint.mapCheckedCall)
-        && !sourceProducerCandidate) {
-        return;
-    }
     const authoredTypeNode = sourceSelectedDeclaration === undefined
         ? sourceDeclaration === undefined ? undefined : Node_Type(sourceDeclaration)
         : Node_Type(sourceSelectedDeclaration);
@@ -696,18 +678,15 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
             || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](selected.sourceDeclaration)
             || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](selected.selectedSymbol)
             || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](selected.sourceSymbol));
-    const callOwned = selected.callCallee
-        && (extensionHost?.[extensionHostHasCheckedOperationOwner](ExtensionObservationPoint.mapCheckedCall) === true
-            || sourceProducerCandidate);
-    if (!isRuntimeCheckedOperationExecutionSite(propertyAccessExpression)
-        || extensionHost === undefined
-        || (!accessOwned && !callOwned && !sourceEvidenceWanted)) {
+    if (!isRuntimeCheckedOperationExecutionSite(propertyAccessExpression)) {
         return;
     }
     if (selected.resultType === undefined || selected.receiverType === undefined) {
         throw new Error("Checked property source decision requires exact selected receiver and result types.");
     }
-    if (sourceDecisionRecordingActive(checker) && (accessOwned || sourceEvidenceWanted)) {
+    if (extensionHost !== undefined
+        && sourceDecisionRecordingActive(checker)
+        && (accessOwned || sourceEvidenceWanted)) {
         appendEvent(checker, Object.freeze({
             kind: "checked-property",
             origin: propertyAccessExpression,
@@ -724,7 +703,7 @@ export function recordExtensionCheckedPropertyAccessMapping(checker, propertyAcc
             callCallee: selected.callCallee,
         }));
     }
-    if (!callOwned) {
+    if (!selected.callCallee) {
         return;
     }
     const receiver = Node_Expression(propertyAccessExpression);
@@ -895,18 +874,15 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
             || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](selected.sourceDeclaration)
             || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](selected.selectedSymbol)
             || extensionHost[extensionHostHasCheckedSourceCallProducerCandidate](selected.sourceSymbol));
-    const callOwned = selected.callCallee
-        && (extensionHost?.[extensionHostHasCheckedOperationOwner](ExtensionObservationPoint.mapCheckedCall) === true
-            || sourceProducerCandidate);
-    if (!isRuntimeCheckedOperationExecutionSite(elementAccessExpression)
-        || extensionHost === undefined
-        || (!accessOwned && !callOwned && !sourceEvidenceWanted)) {
+    if (!isRuntimeCheckedOperationExecutionSite(elementAccessExpression)) {
         return;
     }
     if (selected.resultType === undefined || selected.receiverType === undefined || selected.argumentType === undefined) {
         throw new Error("Checked element source decision requires exact selected receiver, argument, and result types.");
     }
-    if (sourceDecisionRecordingActive(checker) && (accessOwned || sourceEvidenceWanted)) {
+    if (extensionHost !== undefined
+        && sourceDecisionRecordingActive(checker)
+        && (accessOwned || sourceEvidenceWanted)) {
         appendEvent(checker, Object.freeze({
             kind: "checked-element",
             origin: elementAccessExpression,
@@ -922,7 +898,7 @@ export function recordExtensionCheckedElementAccessMapping(checker, elementAcces
             callCallee: selected.callCallee,
         }));
     }
-    if (!callOwned) {
+    if (!selected.callCallee) {
         return;
     }
     const receiver = Node_Expression(elementAccessExpression);

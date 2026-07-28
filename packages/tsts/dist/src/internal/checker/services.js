@@ -1,4 +1,3 @@
-import { beginExtensionCheckedSourceDiscardDecision, rollbackExtensionCheckedSourceDiscardDecision } from "../../extensions/checker-integration.js";
 import { Index } from "../../go/strings.js";
 import { SourceFile_Path, SourceFile_Text } from "../ast/ast.js";
 import { byteAt, byteLen, byteSlice } from "../parser/utilities.js";
@@ -802,7 +801,6 @@ export function GetResolvedSignatureForSignatureHelp(node, argumentCount, c) {
  * }
  */
 export function runWithoutResolvedSignatureCaching(c, node, fn) {
-    const discardDecision = beginExtensionCheckedSourceDiscardDecision(c);
     let ancestorNode = FindAncestor(node, IsCallLikeOrFunctionLikeExpression);
     const cachedResolvedSignatures = new globalThis.Map();
     const cachedTypes = new globalThis.Map();
@@ -841,9 +839,6 @@ export function runWithoutResolvedSignatureCaching(c, node, fn) {
         }
         for (const [symbolLinks, resolvedType] of cachedTypes) {
             symbolLinks.resolvedType = resolvedType;
-        }
-        if (discardDecision !== undefined) {
-            rollbackExtensionCheckedSourceDiscardDecision(c, discardDecision);
         }
     }
 }
@@ -2263,14 +2258,7 @@ export function Checker_getTypeOfAssignmentPattern(receiver, expr) {
     //     for ( { a } of elems) {
     //     }
     if (IsForOfStatement(expr.Parent)) {
-        const discardDecision = beginExtensionCheckedSourceDiscardDecision(receiver);
-        let iteratedType;
-        try {
-            iteratedType = Checker_checkRightHandSideOfForOf(receiver, expr.Parent);
-        }
-        finally {
-            rollbackExtensionCheckedSourceDiscardDecision(receiver, discardDecision);
-        }
+        const iteratedType = Checker_checkRightHandSideOfForOf(receiver, expr.Parent);
         return Checker_checkDestructuringAssignment(receiver, expr, OrElse(iteratedType, receiver.errorType), CheckModeNormal, false);
     }
     // If this is from "for" initializer

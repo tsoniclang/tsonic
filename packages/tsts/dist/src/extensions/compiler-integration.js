@@ -7,7 +7,7 @@ import { GetSymbolId } from "../internal/ast/utilities.js";
 import * as utf8 from "../go/unicode/utf8.js";
 import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindFunctionDeclaration, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindTypeAliasDeclaration, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { canonicalIdentityFactKey, instantiatedTargetTypeFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
-import { ExtensionLifecycleEvent, extensionHostSetFact, getExtensionHost } from "./host.js";
+import { ExtensionLifecycleEvent, extensionHostRunSourceAnalysis, extensionHostSetFact, getExtensionHost, } from "./host.js";
 import { getProviderVirtualArtifactForCompiler, getProviderVirtualCompilerMetadata, } from "./provider-virtual-internal.js";
 import { parseProviderFunctionSignatureMarker, providerFunctionSignatureMarkerMaximumLength } from "./provider-callable-signatures.js";
 import { extensionHostAllowsSemanticQueryPreflight } from "./host-attachment.js";
@@ -39,6 +39,7 @@ export function finalizeExtensionSemantics(program) {
         return undefined;
     }
     Program_GetSemanticDiagnostics(extensionHost.program, Background(), undefined);
+    extensionHost[extensionHostRunSourceAnalysis]();
     extensionHost.finalizeSemantics();
     return extensionHost;
 }

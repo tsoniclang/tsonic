@@ -1,9 +1,9 @@
-import type { GoPtr } from "../go/compat.js";
-import type { Node } from "../internal/ast/spine.js";
-import type { Symbol } from "../internal/ast/symbol.js";
-import type { Type } from "../internal/checker/types.js";
-import type { IterationTypes } from "../internal/checker/checker/state.js";
-export declare const extensionIterationSelectionLimits: Readonly<{
+import type { GoPtr } from "../../../go/compat.js";
+import type { Node } from "../../ast/spine.js";
+import type { Symbol } from "../../ast/symbol.js";
+import type { Type } from "../types.js";
+import type { IterationTypes } from "./state.js";
+export declare const sourceIterationEvidenceLimits: Readonly<{
     maxUnionAlternatives: 4096;
     maxUnionDepth: 64;
 }>;
@@ -103,6 +103,7 @@ export interface ExtensionCheckedIterationResult {
     readonly elementType: Type;
     readonly selection: ExtensionCheckedIterationSelection | undefined;
 }
+export declare function freezeExtensionCheckedIterationSelection(selection: ExtensionCheckedIterationSelection): ExtensionCheckedIterationSelection;
 export interface ExtensionIterationSelectionBudget {
     remainingUnionAlternatives: number;
     exhausted: boolean;
@@ -123,4 +124,4 @@ export declare function captureExtensionArrayOrStringIteration(capture: Extensio
 export declare function createExtensionIterationProtocolSelectionCapture(): ExtensionIterationProtocolSelectionCapture;
 export declare function createExtensionForInIterationSelection(sourceIterableType: Type, sourceElementType: Type): ExtensionCheckedIterationSelection;
 export {};
-//# sourceMappingURL=checker-iteration-selection.d.ts.map
+//# sourceMappingURL=iteration-evidence.d.ts.map

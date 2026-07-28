@@ -1,6 +1,5 @@
 import { NewGoStructMap } from "../../../go/compat.js";
-import { recordExtensionContextualTargetTypeFact } from "../../../extensions/checker-integration.js";
-import { captureExtensionArrayOrStringIteration, captureKnownIterableInstantiation, captureSelectedIteratorMember, combineExtensionProtocolMechanisms, createChildExtensionIterationCapture, createExtensionIterationProtocolSelectionCapture, extensionIterationSelectionLimits, extensionIterationTypesMatch, isForAwaitOfIterationMechanism, isForOfIterationMechanism, setExtensionProtocolMechanismKind, } from "../../../extensions/checker-iteration-selection.js";
+import { captureExtensionArrayOrStringIteration, captureKnownIterableInstantiation, captureSelectedIteratorMember, combineExtensionProtocolMechanisms, createChildExtensionIterationCapture, createExtensionIterationProtocolSelectionCapture, sourceIterationEvidenceLimits, extensionIterationTypesMatch, isForAwaitOfIterationMechanism, isForOfIterationMechanism, setExtensionProtocolMechanismKind, } from "./iteration-evidence.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
 import { MaxInt } from "../../../go/math.js";
@@ -1109,7 +1108,7 @@ function Checker_getIterationTypesOfIterableWorkerInternal(receiver, t, use, err
         const constituents = Type_Types(t);
         let childCaptures;
         if (capture !== undefined) {
-            if (unionDepth >= extensionIterationSelectionLimits.maxUnionDepth
+            if (unionDepth >= sourceIterationEvidenceLimits.maxUnionDepth
                 || constituents.length > capture.budget.remainingUnionAlternatives) {
                 capture.budget.exhausted = true;
                 capture.mechanism = undefined;
@@ -13766,13 +13765,9 @@ export function Checker_getContextualType(receiver, node, contextFlags) {
     if ((node.Flags & NodeFlagsInWithStatement) !== 0) {
         return undefined;
     }
-    const record = (contextualType) => {
-        recordExtensionContextualTargetTypeFact(receiver, node, contextualType);
-        return contextualType;
-    };
     const index = Checker_findContextualNode(receiver, node, contextFlags === ContextFlagsNone);
     if (index >= 0) {
-        return record(receiver.contextualInfos[index].t);
+        return receiver.contextualInfos[index].t;
     }
     const parent = node.Parent;
     switch (parent.Kind) {
@@ -13781,32 +13776,32 @@ export function Checker_getContextualType(receiver, node, contextFlags) {
         case KindPropertyDeclaration:
         case KindPropertySignature:
         case KindBindingElement:
-            return record(Checker_getContextualTypeForInitializerExpression(receiver, node, contextFlags));
+            return Checker_getContextualTypeForInitializerExpression(receiver, node, contextFlags);
         case KindArrowFunction:
         case KindReturnStatement:
-            return record(Checker_getContextualTypeForReturnExpression(receiver, node, contextFlags));
+            return Checker_getContextualTypeForReturnExpression(receiver, node, contextFlags);
         case KindYieldExpression:
-            return record(Checker_getContextualTypeForYieldOperand(receiver, parent, contextFlags));
+            return Checker_getContextualTypeForYieldOperand(receiver, parent, contextFlags);
         case KindAwaitExpression:
-            return record(Checker_getContextualTypeForAwaitOperand(receiver, parent, contextFlags));
+            return Checker_getContextualTypeForAwaitOperand(receiver, parent, contextFlags);
         case KindCallExpression:
         case KindNewExpression:
-            return record(Checker_getContextualTypeForArgument(receiver, parent, node));
+            return Checker_getContextualTypeForArgument(receiver, parent, node);
         case KindDecorator:
-            return record(Checker_getContextualTypeForDecorator(receiver, parent));
+            return Checker_getContextualTypeForDecorator(receiver, parent);
         case KindTypeAssertionExpression:
         case KindAsExpression:
             if (IsConstAssertion(parent)) {
-                return record(Checker_getContextualType(receiver, parent, contextFlags));
+                return Checker_getContextualType(receiver, parent, contextFlags);
             }
-            return record(Checker_getTypeFromTypeNode(receiver, Node_Type(parent)));
+            return Checker_getTypeFromTypeNode(receiver, Node_Type(parent));
         case KindBinaryExpression:
-            return record(Checker_getContextualTypeForBinaryOperand(receiver, node, contextFlags));
+            return Checker_getContextualTypeForBinaryOperand(receiver, node, contextFlags);
         case KindPropertyAssignment:
         case KindShorthandPropertyAssignment:
-            return record(Checker_getContextualTypeForObjectLiteralElement(receiver, parent, contextFlags));
+            return Checker_getContextualTypeForObjectLiteralElement(receiver, parent, contextFlags);
         case KindSpreadAssignment:
-            return record(Checker_getContextualType(receiver, parent.Parent, contextFlags));
+            return Checker_getContextualType(receiver, parent.Parent, contextFlags);
         case KindArrayLiteralExpression: {
             const contextualType = Checker_getApparentTypeOfContextualType(receiver, parent, contextFlags);
             const elements = Node_Elements(parent) ?? [];
@@ -13815,29 +13810,29 @@ export function Checker_getContextualType(receiver, node, contextFlags) {
                 return undefined;
             }
             const [firstSpreadIndex, lastSpreadIndex] = Checker_getSpreadIndices(receiver, parent);
-            return record(Checker_getContextualTypeForElementExpression(receiver, contextualType, elementIndex, elements.length, firstSpreadIndex, lastSpreadIndex));
+            return Checker_getContextualTypeForElementExpression(receiver, contextualType, elementIndex, elements.length, firstSpreadIndex, lastSpreadIndex);
         }
         case KindConditionalExpression:
-            return record(Checker_getContextualTypeForConditionalOperand(receiver, node, contextFlags));
+            return Checker_getContextualTypeForConditionalOperand(receiver, node, contextFlags);
         case KindTemplateSpan:
-            return record(Checker_getContextualTypeForSubstitutionExpression(receiver, parent.Parent, node));
+            return Checker_getContextualTypeForSubstitutionExpression(receiver, parent.Parent, node);
         case KindParenthesizedExpression:
         case KindNonNullExpression:
-            return record(Checker_getContextualType(receiver, parent, contextFlags));
+            return Checker_getContextualType(receiver, parent, contextFlags);
         case KindSatisfiesExpression:
-            return record(Checker_getTypeFromTypeNode(receiver, Node_Type(parent)));
+            return Checker_getTypeFromTypeNode(receiver, Node_Type(parent));
         case KindExportAssignment:
-            return record(Checker_tryGetTypeFromTypeNode(receiver, parent));
+            return Checker_tryGetTypeFromTypeNode(receiver, parent);
         case KindJsxExpression:
-            return record(Checker_getContextualTypeForJsxExpression(receiver, parent, contextFlags));
+            return Checker_getContextualTypeForJsxExpression(receiver, parent, contextFlags);
         case KindJsxAttribute:
         case KindJsxSpreadAttribute:
-            return record(Checker_getContextualTypeForJsxAttribute(receiver, parent, contextFlags));
+            return Checker_getContextualTypeForJsxAttribute(receiver, parent, contextFlags);
         case KindJsxOpeningElement:
         case KindJsxSelfClosingElement:
-            return record(Checker_getContextualJsxElementAttributesType(receiver, parent, contextFlags));
+            return Checker_getContextualJsxElementAttributesType(receiver, parent, contextFlags);
         case KindImportAttribute:
-            return record(Checker_getContextualImportAttributeType(receiver, parent));
+            return Checker_getContextualImportAttributeType(receiver, parent);
     }
     return undefined;
 }

@@ -3021,6 +3021,27 @@ export declare function Checker_checkElementAccessChain(receiver: GoPtr<Checker>
  * }
  */
 export declare function Checker_checkElementAccessExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, exprType: GoPtr<Type>, checkMode: CheckMode): GoPtr<Type>;
+export interface ResolvedSourceElementAccessInfo {
+    readonly expression: Node;
+    readonly receiver: {
+        readonly expression: Node;
+        readonly type: Type;
+    };
+    readonly argument: {
+        readonly expression: Node;
+        readonly type: Type;
+    };
+    readonly sourceSymbol?: Symbol;
+    readonly sourceDeclaration?: Node;
+    readonly selectedSymbol?: Symbol;
+    readonly selectedDeclaration?: Node;
+    readonly sourceResultType: Type;
+    readonly selectedElementIndex?: number;
+    readonly accessMode: "read" | "write" | "read-write" | "delete";
+    readonly optionalChain: boolean;
+    readonly callCallee: boolean;
+}
+export declare function Checker_getResolvedSourceElementAccessInfo(receiver: GoPtr<Checker>, node: GoPtr<Node>): ResolvedSourceElementAccessInfo | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isForInVariableForNumericPropertyNames","kind":"method","status":"implemented","sigHash":"82601ddae714cee228e98f32cf1c7a1dcce43471aea4e3478c9359c3c4816f2b","bodyHash":"070ed4e5c450a954fbbde2e6c60a694dd5c1766d496995219eed7571ac56ec18"}
  *
@@ -3546,6 +3567,25 @@ export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Ch
  * }
  */
 export declare function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
+export interface ResolvedSourcePropertyAccessInfo {
+    readonly expression: Node;
+    readonly receiver: {
+        readonly expression: Node;
+        readonly type: Type;
+        readonly symbol?: Symbol;
+        readonly declaration?: Node;
+    };
+    readonly sourceSymbol?: Symbol;
+    readonly sourceDeclaration?: Node;
+    readonly selectedSymbol?: Symbol;
+    readonly selectedDeclaration?: Node;
+    readonly sourceReadType?: Type;
+    readonly sourceWriteType?: Type;
+    readonly accessMode: "read" | "write" | "read-write" | "delete";
+    readonly optionalChain: boolean;
+    readonly callCallee: boolean;
+}
+export declare function Checker_getResolvedSourcePropertyAccessInfo(receiver: GoPtr<Checker>, node: GoPtr<Node>): ResolvedSourcePropertyAccessInfo | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpressionOrQualifiedName","kind":"method","status":"implemented","sigHash":"9215f415f7607d418e5a3a390b0bf838e9a2f44b6cd177065016f5a85a4714b1","bodyHash":"c9ee642c0561d3b1c6f6fcf3a43fb2def31c2e6dcf98504b1f6a3169813218e3"}
  * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact checker path additionally retains the selected index declaration for extension evidence without synthesizing a checker-visible symbol or mutating TS-Go core symbol caches."}

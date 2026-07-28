@@ -4,7 +4,7 @@ import type { Kind } from "../internal/ast/generated/kinds.js";
 import type { CheckedFlowSourceUse } from "./observations.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Checker } from "../internal/checker/checker/state.js";
-import type { ExtensionCheckedIterationSelection } from "./checker-iteration-selection.js";
+import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
 import type { ResolvedCallEvidence, SignatureLinks, Type, TypeNodeLinks } from "../internal/checker/types.js";
 export type ExtensionSourceDecisionEvent = {
     readonly kind: "checked-call";

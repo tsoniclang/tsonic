@@ -1,4 +1,3 @@
-import { recordExtensionCheckedAssertionConversion } from "../../../extensions/checker-integration.js";
 import { Node_End, Node_FlowNodeData, Node_ForEachChild, Node_Name, Node_Pos } from "../../ast/spine.js";
 import { Diagnostic_AddRelatedInfo, Diagnostic_SetCategory, NewDiagnostic } from "../../ast/diagnostic.js";
 import { KindEqualsEqualsEqualsToken, KindEqualsEqualsToken, KindExclamationEqualsEqualsToken, KindExclamationEqualsToken, KindExclamationToken, KindFalseKeyword, KindIdentifier, KindPropertyAccessExpression, KindElementAccessExpression, KindTrueKeyword } from "../../ast/generated/kinds.js";
@@ -8,7 +7,7 @@ import { IsClassExpression, IsFunctionExpression, IsIdentifier, IsVariableDeclar
 import { AsBindingElement, AsElementAccessExpression, AsJSDoc } from "../../ast/generated/casts.js";
 import { ModifierFlagsNone, ModifierFlagsNonPublicAccessibilityModifier } from "../../ast/modifierflags.js";
 import { AsSourceFile, Node_EagerJSDoc, Node_Elements, Node_Expression, Node_Initializer, Node_Locals, Node_Members, Node_Symbol, Node_Text, Node_PropertyName, Node_Type, SourceFile_FileName, SourceFile_Path, SourceFile_Text } from "../../ast/ast.js";
-import { GetEnclosingBlockScopeContainer, GetExtendsHeritageClauseElement, GetSourceFileOfNode, IsAmbientModuleSymbolName, IsEntityNameExpression, IsExternalOrCommonJSModule, IsGlobalScopeAugmentation, IsInfinityOrNaNString, IsInJSFile, IsJSDocTypeAssertion, IsPartOfParameterDeclaration, IsStringLiteralLike, NewHasFileName, SkipParentheses, WalkUpBindingElementsAndPatterns } from "../../ast/utilities.js";
+import { GetEnclosingBlockScopeContainer, GetExtendsHeritageClauseElement, GetSourceFileOfNode, IsAmbientModuleSymbolName, IsEntityNameExpression, IsExternalOrCommonJSModule, IsGlobalScopeAugmentation, IsInfinityOrNaNString, IsInJSFile, IsPartOfParameterDeclaration, IsStringLiteralLike, NewHasFileName, SkipParentheses, WalkUpBindingElementsAndPatterns } from "../../ast/utilities.js";
 import { Every, Some } from "../../core/core.js";
 import { ModuleKindCommonJS, ModuleKindES2015, ModuleKindESNext, ModuleKindNode16, ModuleKindNodeNext, ModuleKindNone } from "../../core/compileroptions.js";
 import { NewTextRange } from "../../core/text.js";
@@ -1061,10 +1060,9 @@ export function Checker_checkAssertion(receiver, node, checkMode) {
  */
 export function Checker_checkAssertionDeferred(receiver, node) {
     const typeNode = Node_Type(node);
-    const sourceType = LinkStore_Get(receiver.assertionLinks, node).exprType;
-    const exprType = Checker_getRegularTypeOfObjectLiteral(receiver, Checker_getBaseTypeOfLiteralType(receiver, sourceType));
+    const exprType = Checker_getRegularTypeOfObjectLiteral(receiver, Checker_getBaseTypeOfLiteralType(receiver, LinkStore_Get(receiver.assertionLinks, node).exprType));
     const targetType = Checker_getTypeFromTypeNode(receiver, typeNode);
-    if (!Checker_isErrorType(receiver, sourceType) && !Checker_isErrorType(receiver, targetType)) {
+    if (!Checker_isErrorType(receiver, targetType)) {
         const widenedType = Checker_getWidenedType(receiver, exprType);
         if (!Checker_isTypeComparableTo(receiver, targetType, widenedType)) {
             let errNode = node;
@@ -1072,13 +1070,6 @@ export function Checker_checkAssertionDeferred(receiver, node) {
                 errNode = typeNode;
             }
             Checker_checkTypeComparableTo(receiver, exprType, targetType, errNode, Conversion_of_type_0_to_type_1_may_be_a_mistake_because_neither_type_sufficiently_overlaps_with_the_other_If_this_was_intentional_convert_the_expression_to_unknown_first);
-        }
-        else {
-            recordExtensionCheckedAssertionConversion(receiver, node, sourceType, targetType, node.Kind === KindTypeAssertionExpression
-                ? "angle-bracket"
-                : IsJSDocTypeAssertion(node.Parent)
-                    ? "jsdoc"
-                    : "as");
         }
     }
 }

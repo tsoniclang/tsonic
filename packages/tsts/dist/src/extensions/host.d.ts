@@ -75,6 +75,7 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly invalidSourceOperationProducer: 9000035;
     readonly sourceOperationProducerFailed: 9000036;
     readonly invalidDependencyDirection: 9000037;
+    readonly sourceAnalysisFailed: 9000038;
 };
 export declare const TstsProviderContractVersion = "tsts.provider.3";
 export declare const extensionHostRunCheckedOperation: unique symbol;
@@ -210,6 +211,16 @@ export interface CompilerExtension {
     readonly composition?: ExtensionCompositionSpec;
     readonly observationOwners?: readonly ExtensionObservationPointName[];
     readonly initialize?: (context: ExtensionInitializeContext) => void;
+    readonly analyzeSource?: (context: SourceAnalysisContext) => void;
+}
+export interface SourceAnalysisContext {
+    readonly ast: ExtensionCompilerQueryContext["ast"];
+    readonly checker: ExtensionCompilerQueryContext["checker"];
+    readonly sourceFiles: readonly GoPtr<SourceFile>[];
+    readonly getSourceFile: ExtensionCompilerQueryContext["getSourceFile"];
+    readonly facts: ExtensionFactStore;
+    readonly factResolver: ExtensionFactResolver;
+    readonly diagnostics: ExtensionDiagnosticStore;
 }
 export interface ExtensionInitializeContext {
     readonly host: ExtensionHost;
@@ -560,6 +571,7 @@ export interface ExtendedProgram<TProgram extends object = object> {
 }
 export declare const extensionHostSetFact: unique symbol;
 export declare const extensionHostRegisterFactResolver: unique symbol;
+export declare const extensionHostRunSourceAnalysis: unique symbol;
 export interface AttachExtensionHostToProgramOptions {
     readonly bindCompilerProgram?: boolean;
 }
@@ -727,6 +739,7 @@ export declare class ExtensionHost {
     [extensionHostHasMatchingCheckedSourceCallProducer](selectedDeclaration: ExtensionFactSubject | undefined): boolean;
     [extensionHostHasCheckedSourceCallProducerCandidate](selectedDeclaration: ExtensionFactSubject | undefined): boolean;
     runLifecycle<TRequest extends object>(event: string, request: TRequest, compilerSourceFile?: GoPtr<SourceFile>): void;
+    [extensionHostRunSourceAnalysis](): void;
     finalizeSemantics(): void;
     get finalized(): boolean;
     getCompilerQueryContext(sourceFile?: GoPtr<SourceFile>): ExtensionCompilerQueryContext;

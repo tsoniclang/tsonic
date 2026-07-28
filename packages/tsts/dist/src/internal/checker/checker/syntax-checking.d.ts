@@ -11,6 +11,7 @@ import type { Symbol } from "../../ast/symbol.js";
 import type { Message } from "../../diagnostics/diagnostics.js";
 import type { Relation } from "../relater.js";
 import type { ResolvedCallSelectionEvidence, Signature, Type } from "../types.js";
+import type { ExtensionCheckedIterationSelection } from "./iteration-evidence.js";
 import type { Checker, CheckMode, keyBuilder } from "./state.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkSourceFile","kind":"method","status":"implemented","sigHash":"73742795303ebe59bb331756ff6743713f7b9c4fbd309e3a8507a615e2dbf18f","bodyHash":"65678dd5c6e1f4ffa700bb65eee57bc088bcc84456cf8a0948d39f486e967a22"}
@@ -1869,6 +1870,7 @@ export declare function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: 
  * }
  */
 export declare function Checker_checkRightHandSideOfForOf(receiver: GoPtr<Checker>, statement: GoPtr<Node>): GoPtr<Type>;
+export declare function Checker_getResolvedSourceIterationInfo(receiver: GoPtr<Checker>, statement: GoPtr<Node>): ExtensionCheckedIterationSelection | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getCombinedNodeFlagsCached","kind":"method","status":"implemented","sigHash":"6e0f8babf8a548b470b3aeccea0de8d5192f0c7988d0e886f7d1e939f6091dd5","bodyHash":"196fd65918de5902e70a802ba9d2f4e9b0885daf3e1ad7a3d86b58174bfa42c2"}
  *

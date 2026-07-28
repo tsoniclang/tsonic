@@ -1,5 +1,4 @@
-import { hasExtensionCheckedCallCalleeEvidenceInterest, hasExtensionCheckedOperationHost, recordExtensionCheckedElementAccessMapping, recordExtensionCheckedPropertyAccessMapping, recordExtensionFlowUseValidation, recordExtensionRuntimeCarrierFact, recordExtensionTargetConstraintValidation, retainExtensionCheckedIdentifierCalleeSelection } from "../../../extensions/checker-integration.js";
-import { ExtensionObservationPoint } from "../../../extensions/observations.js";
+import { callEvidenceWantedForCallee, retainElementCallCalleeEvidence, retainIdentifierCallCalleeEvidence, retainPropertyCallCalleeEvidence, } from "./call-evidence.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { GetNamespaceDeclarationNode, IsImportCall, IsImportOrExportSpecifier } from "../../ast/utilities.js";
 import { Named_imports_from_a_JSON_file_into_an_ECMAScript_module_are_not_allowed_when_module_is_set_to_0 } from "../../diagnostics/generated/messages.js";
@@ -1465,8 +1464,6 @@ export function Checker_checkTypeReferenceOrImport(receiver, node) {
         }
         const symbol_ = Checker_getResolvedSymbolOrNil(receiver, node);
         if (symbol_ !== undefined) {
-            recordExtensionTargetConstraintValidation(receiver, node, symbol_);
-            recordExtensionRuntimeCarrierFact(receiver, node, t, symbol_);
             if (Some(symbol_.Declarations, (d) => (IsTypeDeclaration(d) && Checker_IsDeprecatedDeclaration(receiver, d)))) {
                 Checker_addDeprecatedSuggestion(receiver, Checker_getDeprecatedSuggestionNode(receiver, node), symbol_.Declarations, symbol_.Name);
             }
@@ -5337,16 +5334,19 @@ export function Checker_checkIndexedAccess(receiver, node, checkMode) {
  * }
  */
 export function Checker_checkElementAccessChain(receiver, node, checkMode) {
-    const exprType = Checker_checkExpression(receiver, Node_Expression(node));
-    const nonOptionalType = Checker_getOptionalExpressionType(receiver, exprType, Node_Expression(node));
-    const sourceReceiverType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
     const selected = selectedElementAccessCapture(receiver, node);
-    const selectedResult = checkElementAccessExpressionWithEvidence(receiver, node, sourceReceiverType, checkMode, selected);
-    const result = Checker_propagateOptionalTypeMarker(receiver, selectedResult, node, nonOptionalType !== exprType);
+    const result = checkElementAccessChainWithEvidence(receiver, node, checkMode, selected);
     if (selected !== undefined) {
         recordSelectedElementAccessEvidence(receiver, node, selected, result);
     }
     return result;
+}
+function checkElementAccessChainWithEvidence(receiver, node, checkMode, selected) {
+    const exprType = Checker_checkExpression(receiver, Node_Expression(node));
+    const nonOptionalType = Checker_getOptionalExpressionType(receiver, exprType, Node_Expression(node));
+    const sourceReceiverType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
+    const selectedResult = checkElementAccessExpressionWithEvidence(receiver, node, sourceReceiverType, checkMode, selected);
+    return Checker_propagateOptionalTypeMarker(receiver, selectedResult, node, nonOptionalType !== exprType);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessExpression","kind":"method","status":"implemented","sigHash":"2f39be35c54aa297aa6da29e087ef31836844e9c96d08ac4a5d6679bc793bbda","bodyHash":"11932af46c7b11e3fd365479ad08c039f5afd3b81ae23f567ec842c2f141ef7e"}
@@ -5385,6 +5385,52 @@ export function Checker_checkElementAccessChain(receiver, node, checkMode) {
  */
 export function Checker_checkElementAccessExpression(receiver, node, exprType, checkMode) {
     return checkElementAccessExpressionWithEvidence(receiver, node, exprType, checkMode);
+}
+export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
+    if (receiver === undefined || node === undefined || node.Kind !== KindElementAccessExpression) {
+        return undefined;
+    }
+    const selected = createSelectedElementAccessCheck();
+    let sourceResultType;
+    if ((node.Flags & NodeFlagsOptionalChain) !== 0) {
+        sourceResultType = checkElementAccessChainWithEvidence(receiver, node, CheckModeNormal, selected);
+    }
+    else {
+        const sourceReceiverType = Checker_checkNonNullExpression(receiver, Node_Expression(node));
+        sourceResultType = checkElementAccessExpressionWithEvidence(receiver, node, sourceReceiverType, CheckModeNormal, selected);
+    }
+    const receiverExpression = Node_Expression(node);
+    const argumentExpression = AsElementAccessExpression(node)?.ArgumentExpression;
+    if (!selected.selected
+        || receiverExpression === undefined
+        || argumentExpression === undefined
+        || selected.receiverType === undefined
+        || selected.argumentType === undefined
+        || sourceResultType === undefined
+        || Checker_isErrorType(receiver, sourceResultType)
+        || sourceResultType === receiver.silentNeverType) {
+        return undefined;
+    }
+    return Object.freeze({
+        expression: node,
+        receiver: Object.freeze({
+            expression: receiverExpression,
+            type: selected.receiverType,
+        }),
+        argument: Object.freeze({
+            expression: argumentExpression,
+            type: selected.argumentType,
+        }),
+        ...(selected.sourceSymbol === undefined ? {} : { sourceSymbol: selected.sourceSymbol }),
+        ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
+        ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
+        ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
+        sourceResultType,
+        ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
+        accessMode: checkedAccessMode(node),
+        optionalChain: IsOptionalChain(node),
+        callCallee: Checker_isMethodAccessForCall(receiver, node),
+    });
 }
 function checkElementAccessExpressionWithEvidence(receiver, node, exprType, checkMode, selected) {
     const objectType = selectedElementAccessReceiverType(receiver, node, exprType);
@@ -5442,13 +5488,12 @@ function recordSelectedElementAccessEvidence(receiver, node, selected, sourceRes
     if (!selected.selected) {
         return;
     }
-    const accessOwned = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedElementAccess, node);
-    const retainCallReceiverEvidence = hasExtensionCheckedCallCalleeEvidenceInterest(receiver, node);
+    const retainCallReceiverEvidence = callEvidenceWantedForCallee(node);
     const callCallee = retainCallReceiverEvidence || Checker_isMethodAccessForCall(receiver, node);
-    if (!accessOwned && !retainCallReceiverEvidence) {
+    if (!retainCallReceiverEvidence) {
         return;
     }
-    recordExtensionCheckedElementAccessMapping(receiver, node, {
+    const evidence = {
         selectedSymbol: selected.selectedSymbol,
         selectedDeclaration: selected.selectedDeclaration,
         sourceSymbol: selected.sourceSymbol,
@@ -5459,24 +5504,27 @@ function recordSelectedElementAccessEvidence(receiver, node, selected, sourceRes
         argumentType: selected.argumentType,
         accessMode: checkedAccessMode(node),
         callCallee,
-    });
+    };
+    if (retainCallReceiverEvidence) {
+        retainElementCallCalleeEvidence(receiver, node, evidence);
+    }
 }
 function selectedElementAccessCapture(receiver, node) {
-    const accessOwned = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedElementAccess, node);
-    const callOwned = hasExtensionCheckedCallCalleeEvidenceInterest(receiver, node);
-    return accessOwned || callOwned
-        ? {
-            selected: false,
-            resultType: undefined,
-            receiverType: undefined,
-            argumentType: undefined,
-            sourceSymbol: undefined,
-            sourceDeclaration: undefined,
-            selectedSymbol: undefined,
-            selectedDeclaration: undefined,
-            indexSelections: [],
-        }
-        : undefined;
+    const callOwned = callEvidenceWantedForCallee(node);
+    return callOwned ? createSelectedElementAccessCheck() : undefined;
+}
+function createSelectedElementAccessCheck() {
+    return {
+        selected: false,
+        resultType: undefined,
+        receiverType: undefined,
+        argumentType: undefined,
+        sourceSymbol: undefined,
+        sourceDeclaration: undefined,
+        selectedSymbol: undefined,
+        selectedDeclaration: undefined,
+        indexSelections: [],
+    };
 }
 function retainSelectedIndexAccess(selected, objectType, indexInfo) {
     if (selected === undefined || objectType === undefined || indexInfo === undefined) {
@@ -6319,8 +6367,7 @@ export function Checker_checkIdentifier(receiver, node, checkMode) {
         }
     }
     if (targetSymbol !== receiver.unknownSymbol) {
-        retainExtensionCheckedIdentifierCalleeSelection(receiver, node, localOrExportSymbol, targetSymbol);
-        recordExtensionFlowUseValidation(receiver, node, localOrExportSymbol, checkedIdentifierFlowSourceUse(node));
+        retainIdentifierCallCalleeEvidence(receiver, node, localOrExportSymbol, targetSymbol);
     }
     const isAlias = (localOrExportSymbol.Flags & SymbolFlagsAlias) !== 0;
     if ((localOrExportSymbol.Flags & SymbolFlagsVariable) !== 0) {
@@ -6424,33 +6471,6 @@ export function Checker_checkIdentifier(receiver, node, checkMode) {
     }
     return flowType;
 }
-function checkedIdentifierFlowSourceUse(node) {
-    const assignmentKind = getAssignmentTargetKind(node);
-    if (assignmentKind === AssignmentKindDefinite) {
-        return Object.freeze({ kind: "ordinary", access: "write" });
-    }
-    if (assignmentKind === AssignmentKindCompound) {
-        return Object.freeze({ kind: "ordinary", access: "read-write" });
-    }
-    if (IsJsxTagName(node)) {
-        return Object.freeze({ kind: "jsx-element" });
-    }
-    let callee = node;
-    while (callee?.Parent !== undefined && IsParenthesizedExpression(callee.Parent)) {
-        callee = callee.Parent;
-    }
-    const parent = callee?.Parent;
-    if (IsCallOrNewExpression(parent) && Node_Expression(parent) === callee) {
-        return Object.freeze({ kind: IsNewExpression(parent) ? "construct" : "call" });
-    }
-    if (IsTaggedTemplateExpression(parent) && AsTaggedTemplateExpression(parent).Tag === callee) {
-        return Object.freeze({ kind: "tagged-template" });
-    }
-    if (IsDecorator(parent) && Node_Expression(parent) === callee) {
-        return Object.freeze({ kind: "decorator" });
-    }
-    return Object.freeze({ kind: "ordinary", access: "read" });
-}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isSameScopedBindingElement","kind":"method","status":"implemented","sigHash":"0c94d25b3a3360fa77b93505dce16379ea6647e22b5efd6d710a09560c57addb","bodyHash":"fae5dc54923815f24012047ccc2b4655e0439900daf2ebde54e34357f95cd4b5"}
  *
@@ -6526,6 +6546,80 @@ function selectedPropertyAccessTypes(receiver, node, sourceReceiverType) {
         apparentType: Checker_getApparentType(receiver, widenedType),
     };
 }
+export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
+    if (receiver === undefined || node === undefined || node.Kind !== KindPropertyAccessExpression) {
+        return undefined;
+    }
+    const selected = {
+        selected: false,
+        selectionMode: "read",
+        readType: undefined,
+        writeType: undefined,
+        receiverType: undefined,
+        receiverSymbol: undefined,
+        receiverDeclaration: undefined,
+        sourceSymbol: undefined,
+        sourceDeclaration: undefined,
+        selectedSymbol: undefined,
+        selectedDeclaration: undefined,
+    };
+    let sourceResultType;
+    if ((node.Flags & NodeFlagsOptionalChain) !== 0) {
+        const leftType = Checker_checkExpression(receiver, Node_Expression(node));
+        const nonOptionalType = Checker_getOptionalExpressionType(receiver, leftType, Node_Expression(node));
+        const sourceReceiverType = Checker_checkNonNullType(receiver, nonOptionalType, Node_Expression(node));
+        const selectedResult = checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node, Node_Expression(node), sourceReceiverType, Node_Name(node), CheckModeNormal, false, selected);
+        sourceResultType = Checker_propagateOptionalTypeMarker(receiver, selectedResult, node, nonOptionalType !== leftType);
+    }
+    else {
+        const sourceReceiverType = Checker_checkNonNullExpression(receiver, Node_Expression(node));
+        sourceResultType = checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node, Node_Expression(node), sourceReceiverType, Node_Name(node), CheckModeNormal, false, selected);
+    }
+    const receiverExpression = Node_Expression(node);
+    if (!selected.selected
+        || receiverExpression === undefined
+        || selected.receiverType === undefined
+        || sourceResultType === undefined
+        || Checker_isErrorType(receiver, sourceResultType)
+        || sourceResultType === receiver.silentNeverType) {
+        return undefined;
+    }
+    const accessMode = checkedAccessMode(node);
+    const sourceReadType = selected.selectionMode === "read"
+        ? sourceResultType
+        : accessMode === "read-write"
+            ? selected.readType
+            : undefined;
+    const sourceWriteType = selected.selectionMode === "write"
+        ? sourceResultType
+        : accessMode === "read-write"
+            ? selected.writeType
+            : undefined;
+    if ((accessMode === "read" || accessMode === "delete" || accessMode === "read-write")
+        !== (sourceReadType !== undefined)
+        || (accessMode === "write" || accessMode === "read-write")
+            !== (sourceWriteType !== undefined)) {
+        throw new Error("Resolved property access lost exact read or write type evidence.");
+    }
+    return Object.freeze({
+        expression: node,
+        receiver: Object.freeze({
+            expression: receiverExpression,
+            type: selected.receiverType,
+            ...(selected.receiverSymbol === undefined ? {} : { symbol: selected.receiverSymbol }),
+            ...(selected.receiverDeclaration === undefined ? {} : { declaration: selected.receiverDeclaration }),
+        }),
+        ...(selected.sourceSymbol === undefined ? {} : { sourceSymbol: selected.sourceSymbol }),
+        ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
+        ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
+        ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
+        ...(sourceReadType === undefined ? {} : { sourceReadType }),
+        ...(sourceWriteType === undefined ? {} : { sourceWriteType }),
+        accessMode,
+        optionalChain: IsOptionalChain(node),
+        callCallee: Checker_isMethodAccessForCall(receiver, node),
+    });
+}
 function recordSelectedPropertyAccessEvidence(receiver, node, selected, sourceResultType) {
     if (!selected.selected
         || Checker_isErrorType(receiver, sourceResultType)
@@ -6533,19 +6627,24 @@ function recordSelectedPropertyAccessEvidence(receiver, node, selected, sourceRe
         return;
     }
     const accessMode = checkedAccessMode(node);
-    const record = (selectionMode, resultType) => recordExtensionCheckedPropertyAccessMapping(receiver, node, {
-        selectedSymbol: selected.selectedSymbol,
-        selectedDeclaration: selected.selectedDeclaration,
-        sourceSymbol: selected.sourceSymbol,
-        sourceDeclaration: selected.sourceDeclaration,
-        resultType,
-        receiverType: selected.receiverType,
-        receiverSymbol: selected.receiverSymbol,
-        receiverDeclaration: selected.receiverDeclaration,
-        accessMode,
-        selectionMode,
-        callCallee: Checker_isMethodAccessForCall(receiver, node),
-    });
+    const record = (selectionMode, resultType) => {
+        const evidence = {
+            selectedSymbol: selected.selectedSymbol,
+            selectedDeclaration: selected.selectedDeclaration,
+            sourceSymbol: selected.sourceSymbol,
+            sourceDeclaration: selected.sourceDeclaration,
+            resultType,
+            receiverType: selected.receiverType,
+            receiverSymbol: selected.receiverSymbol,
+            receiverDeclaration: selected.receiverDeclaration,
+            accessMode,
+            selectionMode,
+            callCallee: Checker_isMethodAccessForCall(receiver, node),
+        };
+        if (evidence.callCallee) {
+            retainPropertyCallCalleeEvidence(receiver, node, evidence);
+        }
+    };
     record(selected.selectionMode, sourceResultType);
     if (accessMode === "read-write") {
         const complementaryMode = selected.selectionMode === "read" ? "write" : "read";
@@ -6557,9 +6656,8 @@ function recordSelectedPropertyAccessEvidence(receiver, node, selected, sourceRe
     }
 }
 function selectedPropertyAccessCapture(receiver, node) {
-    const accessOwned = hasExtensionCheckedOperationHost(receiver, ExtensionObservationPoint.mapCheckedPropertyAccess, node);
-    const callOwned = hasExtensionCheckedCallCalleeEvidenceInterest(receiver, node);
-    return accessOwned || callOwned
+    const callOwned = callEvidenceWantedForCallee(node);
+    return callOwned
         ? {
             selected: false,
             selectionMode: "read",

@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
-import type { ExtensionCheckedIterationResult } from "../../../extensions/checker-iteration-selection.js";
+import type { ExtensionCheckedIterationResult } from "./iteration-evidence.js";
 import type { Node } from "../../ast/spine.js";
 import type { TypeNode } from "../../ast/generated/unions.js";
 import type { Diagnostic } from "../../ast/diagnostic.js";

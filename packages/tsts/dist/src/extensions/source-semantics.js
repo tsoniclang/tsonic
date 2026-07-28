@@ -4,7 +4,7 @@ import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImpo
 import { KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
-import { ExtensionLifecycleEvent, extensionHostRegisterFactResolver, extensionHostSetFact, } from "./host.js";
+import { extensionHostRegisterFactResolver, extensionHostSetFact, } from "./host.js";
 function createSourceSemanticsFactAccess(host) {
     return {
         get: (subject, key) => host.facts.get(subject, key),
@@ -43,6 +43,7 @@ function createSourceSemanticsModules(modules) {
 }
 export function createSourceSemanticsExtension(options) {
     const modules = createSourceSemanticsModules(options.modules);
+    let facts;
     return {
         identity: options.identity,
         composition: {
@@ -60,16 +61,20 @@ export function createSourceSemanticsExtension(options) {
             ],
         },
         initialize(context) {
-            const facts = createSourceSemanticsFactAccess(context.host);
+            facts = createSourceSemanticsFactAccess(context.host);
             context.host[extensionHostRegisterFactResolver](sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
-            context.registerLifecycleHook(ExtensionLifecycleEvent.afterSourceFileBound, (request) => {
-                recordSourceSemanticsFacts(request, facts, context.diagnostics, options.identity.id, modules);
-            });
+        },
+        analyzeSource(context) {
+            if (facts === undefined) {
+                throw new Error("Source-semantics analysis cannot run before extension initialization.");
+            }
+            for (const sourceFile of context.sourceFiles) {
+                recordSourceSemanticsFacts(sourceFile, facts, context.diagnostics, options.identity.id, modules);
+            }
         },
     };
 }
-function recordSourceSemanticsFacts(request, facts, diagnostics, extensionId, modules) {
-    const sourceFile = getLifecycleSourceFile(request);
+function recordSourceSemanticsFacts(sourceFile, facts, diagnostics, extensionId, modules) {
     if (sourceFile === undefined) {
         return;
     }
@@ -894,11 +899,5 @@ export function sourcePrimitive(exportName, primitiveKind, runtimeBase, signed, 
 }
 function getSymbolFactId(symbol) {
     return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
-}
-function getLifecycleSourceFile(request) {
-    if (typeof request.sourceFile !== "object" || request.sourceFile === null) {
-        return undefined;
-    }
-    return request.sourceFile;
 }
 //# sourceMappingURL=source-semantics.js.map

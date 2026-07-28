@@ -62,6 +62,7 @@ export const ExtensionHostDiagnosticCode = {
     invalidSourceOperationProducer: 9000035,
     sourceOperationProducerFailed: 9000036,
     invalidDependencyDirection: 9000037,
+    sourceAnalysisFailed: 9000038,
 };
 export const TstsProviderContractVersion = "tsts.provider.3";
 export const extensionHostRunCheckedOperation = Symbol("tsts.extensionHost.runCheckedOperation");
@@ -141,6 +142,7 @@ const maxCheckedSourceCallProducers = 4_096;
 const maxCheckedSourceCallProducerRetainedScalarCodeUnits = providerDeclarationModelLimits.maxPhysicalScalarCodeUnits;
 export const extensionHostSetFact = Symbol("tsts.extensionHost.setFact");
 export const extensionHostRegisterFactResolver = Symbol("tsts.extensionHost.registerFactResolver");
+export const extensionHostRunSourceAnalysis = Symbol("tsts.extensionHost.runSourceAnalysis");
 const extensionStoreViewToken = Object.freeze({});
 export class ExtensionDiagnosticStore {
     #state;
@@ -2605,6 +2607,7 @@ export class ExtensionHost {
     #program;
     #compilerContext;
     #compilerContextsBySourceFile = new WeakMap();
+    #sourceAnalysisState = "pending";
     #observationPhase = "checking";
     #semanticFinalizationState = "open";
     #nextConsumerSubjectId = 1;
@@ -3944,6 +3947,73 @@ export class ExtensionHost {
             }
         }
     }
+    [extensionHostRunSourceAnalysis]() {
+        this.#assertCheckedSourceCallProducerCapabilityBoundary("analyze checked source");
+        if (this.#sourceAnalysisState === "completed") {
+            return;
+        }
+        if (this.#sourceAnalysisState === "running") {
+            throw new Error("Extension source analysis cannot re-enter itself.");
+        }
+        if (this.#sourceAnalysisState === "failed") {
+            throw new Error("Extension source analysis previously failed and cannot be retried.");
+        }
+        if (this.#semanticFinalizationState !== "open") {
+            throw new Error("Extension source analysis must complete before semantic finalization begins.");
+        }
+        const activeOwner = this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1];
+        if (activeOwner !== undefined) {
+            throw new Error(`Extension '${activeOwner}' cannot start source analysis from inside an extension callback.`);
+        }
+        if (this.#mutationAttemptStack.length !== 0) {
+            throw new Error("Extension source analysis cannot begin during an active host mutation transaction.");
+        }
+        this.providers[sealProviderRegistrations]();
+        this.#sourceAnalysisState = "running";
+        const compiler = this.getCompilerQueryContext();
+        const sourceFiles = Object.freeze([...compiler.getSourceFiles()]);
+        try {
+            for (const extension of this.#extensions) {
+                const analyzeSource = extension.analyzeSource;
+                if (analyzeSource === undefined) {
+                    continue;
+                }
+                const attempt = this.#beginFactAttempt();
+                try {
+                    const capabilities = this.#getOwnerCapabilities(extension.identity.id);
+                    runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
+                        analyzeSource(Object.freeze({
+                            ast: compiler.ast,
+                            checker: compiler.checker,
+                            sourceFiles,
+                            getSourceFile: compiler.getSourceFile,
+                            facts: capabilities.facts,
+                            factResolver: capabilities.factResolver,
+                            diagnostics: capabilities.diagnostics,
+                        }));
+                    });
+                    this.#commitFactAttempt(attempt);
+                }
+                catch (error) {
+                    const settledError = this.#rollbackFactAttemptsAfterFailure(error, attempt);
+                    this.diagnostics.append(createHostDiagnostic({
+                        extensionCode: "SOURCE_ANALYSIS_FAILED",
+                        numericCode: ExtensionHostDiagnosticCode.sourceAnalysisFailed,
+                        message: `Extension '${extension.identity.id}' failed while analyzing checked source.`,
+                        evidence: [{ message: "Thrown value", details: settledError }],
+                        identity: encodeIdentityTuple(["source-analysis-failed", extension.identity.id]),
+                    }));
+                    throw settledError;
+                }
+            }
+            this.#sourceAnalysisState = "completed";
+        }
+        catch (error) {
+            this.#sourceAnalysisState = "failed";
+            this.#failSemanticFinalization();
+            throw error;
+        }
+    }
     finalizeSemantics() {
         this.#assertCheckedSourceCallProducerCapabilityBoundary("finalize host semantics");
         if (this.#semanticFinalizationState === "finalized") {
@@ -3961,6 +4031,13 @@ export class ExtensionHost {
         }
         if (this.#mutationAttemptStack.length !== 0) {
             throw new Error("Extension semantic finalization cannot begin during an active host mutation transaction.");
+        }
+        if (this.#sourceAnalysisState === "pending"
+            && this.#extensions.some((extension) => extension.analyzeSource !== undefined)) {
+            throw new Error("Extension source analysis must complete before semantic finalization.");
+        }
+        if (this.#sourceAnalysisState === "failed") {
+            throw new Error("Extension source analysis failed and semantic finalization cannot continue.");
         }
         let attempt;
         try {

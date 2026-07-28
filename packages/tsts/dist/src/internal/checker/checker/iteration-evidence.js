@@ -1,8 +1,33 @@
-import { Type_Target, TypeFlagsNever } from "../internal/checker/types.js";
-export const extensionIterationSelectionLimits = Object.freeze({
+import { Type_Target, TypeFlagsNever } from "../types.js";
+export const sourceIterationEvidenceLimits = Object.freeze({
     maxUnionAlternatives: 4_096,
     maxUnionDepth: 64,
 });
+export function freezeExtensionCheckedIterationSelection(selection) {
+    switch (selection.iterationKind) {
+        case "for-in":
+            return Object.freeze({
+                iterationKind: selection.iterationKind,
+                sourceIterableType: selection.sourceIterableType,
+                sourceElementType: selection.sourceElementType,
+                mechanism: Object.freeze({ kind: "property-key-enumeration" }),
+            });
+        case "for-of":
+            return Object.freeze({
+                iterationKind: selection.iterationKind,
+                sourceIterableType: selection.sourceIterableType,
+                sourceElementType: selection.sourceElementType,
+                mechanism: freezeForOfIterationMechanism(selection.mechanism),
+            });
+        case "for-await-of":
+            return Object.freeze({
+                iterationKind: selection.iterationKind,
+                sourceIterableType: selection.sourceIterableType,
+                sourceElementType: selection.sourceElementType,
+                mechanism: freezeForAwaitOfIterationMechanism(selection.mechanism),
+            });
+    }
+}
 function hasIterationTypes(iterationTypes) {
     return iterationTypes.yieldType !== undefined
         || iterationTypes.returnType !== undefined
@@ -238,18 +263,101 @@ export function captureExtensionArrayOrStringIteration(capture, forAwaitOf, arra
 export function createExtensionIterationProtocolSelectionCapture() {
     return {
         budget: {
-            remainingUnionAlternatives: extensionIterationSelectionLimits.maxUnionAlternatives,
+            remainingUnionAlternatives: sourceIterationEvidenceLimits.maxUnionAlternatives,
             exhausted: false,
         },
         mechanism: undefined,
     };
 }
 export function createExtensionForInIterationSelection(sourceIterableType, sourceElementType) {
-    return {
+    return Object.freeze({
         iterationKind: "for-in",
         sourceIterableType,
         sourceElementType,
-        mechanism: { kind: "property-key-enumeration" },
-    };
+        mechanism: Object.freeze({ kind: "property-key-enumeration" }),
+    });
 }
-//# sourceMappingURL=checker-iteration-selection.js.map
+function freezeForOfIterationMechanism(mechanism) {
+    if (mechanism.kind === "union") {
+        const alternatives = [
+            freezeForOfAtomicIterationMechanism(mechanism.alternatives[0]),
+            ...mechanism.alternatives.slice(1).map(freezeForOfAtomicIterationMechanism),
+        ];
+        return Object.freeze({
+            kind: "union",
+            alternatives: Object.freeze(alternatives),
+        });
+    }
+    return freezeForOfAtomicIterationMechanism(mechanism);
+}
+function freezeForAwaitOfIterationMechanism(mechanism) {
+    if (mechanism.kind === "union") {
+        const alternatives = [
+            freezeForAwaitOfAtomicIterationMechanism(mechanism.alternatives[0]),
+            ...mechanism.alternatives.slice(1).map(freezeForAwaitOfAtomicIterationMechanism),
+        ];
+        return Object.freeze({
+            kind: "union",
+            alternatives: Object.freeze(alternatives),
+        });
+    }
+    return freezeForAwaitOfAtomicIterationMechanism(mechanism);
+}
+function freezeForOfAtomicIterationMechanism(mechanism) {
+    switch (mechanism.kind) {
+        case "synchronous-iterator-protocol":
+            return Object.freeze({
+                kind: mechanism.kind,
+                sourceIterableType: mechanism.sourceIterableType,
+                protocol: freezeSelectedIterationProtocol(mechanism.protocol),
+            });
+        case "array-like-index":
+            return Object.freeze({ ...mechanism });
+        case "string-code-unit-index":
+            return Object.freeze({ ...mechanism });
+        case "untyped-dynamic-iteration":
+            return Object.freeze({ ...mechanism });
+    }
+}
+function freezeForAwaitOfAtomicIterationMechanism(mechanism) {
+    switch (mechanism.kind) {
+        case "asynchronous-iterator-protocol":
+        case "synchronous-iterator-adapted-to-async":
+            return Object.freeze({
+                kind: mechanism.kind,
+                sourceIterableType: mechanism.sourceIterableType,
+                protocol: freezeSelectedIterationProtocol(mechanism.protocol),
+            });
+        case "array-like-index-adapted-to-async":
+            return Object.freeze({ ...mechanism });
+        case "string-code-unit-index-adapted-to-async":
+            return Object.freeze({ ...mechanism });
+        case "untyped-dynamic-iteration":
+            return Object.freeze({ ...mechanism });
+    }
+}
+function freezeSelectedIterationProtocol(protocol) {
+    const iterationTypes = Object.freeze({ ...protocol.iterationTypes });
+    if (protocol.resolutionKind === "known-iterable-instantiation") {
+        return Object.freeze({
+            resolutionKind: protocol.resolutionKind,
+            sourceIterableType: protocol.sourceIterableType,
+            iterationTypes,
+            iterableTargetType: protocol.iterableTargetType,
+            iterableSymbol: protocol.iterableSymbol,
+            iterableValueDeclaration: protocol.iterableValueDeclaration,
+            iterableDeclarations: Object.freeze([...protocol.iterableDeclarations]),
+        });
+    }
+    return Object.freeze({
+        resolutionKind: protocol.resolutionKind,
+        sourceIterableType: protocol.sourceIterableType,
+        iterationTypes,
+        iteratorMethodSymbol: protocol.iteratorMethodSymbol,
+        iteratorMethodValueDeclaration: protocol.iteratorMethodValueDeclaration,
+        iteratorMethodDeclarations: Object.freeze([...protocol.iteratorMethodDeclarations]),
+        iteratorMethodType: protocol.iteratorMethodType,
+        iteratorType: protocol.iteratorType,
+    });
+}
+//# sourceMappingURL=iteration-evidence.js.map
