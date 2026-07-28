@@ -407,6 +407,7 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
     inref(value + 1);
   `);
 
+  session.finalizeExtensions();
   const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
   assert.deepEqual(diagnostics.map(diagnosticCode).sort(numberSort), [9901101, 9901101, 9901101]);
   assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
@@ -415,7 +416,6 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
     "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
   ]);
 
-  session.ensureBound();
   for (const calleeText of ["out", "ref", "inref"]) {
     const call = callExpression(session, sourceFile, calleeText);
     assert.notEqual(session.extensionHost?.facts.get(call, argumentPassingFactKey), undefined);
@@ -602,7 +602,7 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
     ].join("\n"),
   });
 
-  session.ensureBound();
+  session.finalizeExtensions();
   const reexportDiagnostics = session.extensionHost?.diagnostics.all() ?? [];
   assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
@@ -647,7 +647,7 @@ test("source-core rejects renamed and namespace local barrels without preserving
     ].join("\n"),
   });
 
-  session.ensureBound();
+  session.finalizeExtensions();
   assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
@@ -667,9 +667,9 @@ test("source-core rejects unsupported export-star barrels for portable lang intr
     export * from "@tsonic/core/lang.js";
   `);
 
+  session.finalizeExtensions();
   const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
   assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
-  session.ensureBound();
   assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
   ]);
@@ -680,9 +680,9 @@ test("source-core rejects unsupported type-only barrels for portable type marker
     export type { ptr, fnptr } from "@tsonic/core/lang.js";
   `);
 
+  session.finalizeExtensions();
   const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
   assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
-  session.ensureBound();
   assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
   ]);
@@ -1158,6 +1158,9 @@ function createCleanSourceCoreSession(sourceText: string, extraFiles: Readonly<R
   const diagnostics = definedDiagnostics(session.getDiagnostics("all", sourceFile));
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
   session.ensureBound();
+  session.finalizeExtensions();
+  const finalizedDiagnostics = definedDiagnostics(session.getDiagnostics("all", sourceFile));
+  assert.equal(finalizedDiagnostics.length, 0, formatDiagnostics(finalizedDiagnostics, "/src"));
   return { session, sourceFile };
 }
 

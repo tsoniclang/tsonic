@@ -1,6 +1,5 @@
 import {
   createSourceSemanticsExtension,
-  ExtensionLifecycleEvent,
   fieldFactKey,
   structFactKey,
 } from "@tsonic/tsts";
@@ -11,14 +10,13 @@ import type {
   ExtensionFactStore,
   FieldFact,
   Node,
-  SourceFileBoundLifecycleRequest,
 } from "@tsonic/tsts";
 import {
-  registerTsonicAttributeBuilderProducers,
-} from "./attribute-builder-producers.js";
+  analyzeTsonicAttributeBuilders,
+} from "./attribute-builder-analysis.js";
 import {
-  registerTsonicSourceMarkerEvidenceProducers,
-} from "./marker-evidence-producers.js";
+  analyzeTsonicSourceMarkerEvidence,
+} from "./marker-evidence-analysis.js";
 import {
   tsonicCoreLangModule,
   tsonicCoreProviderVersion,
@@ -45,15 +43,27 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
     initialize(context): void {
       context.registerTargetBindingProvider(createTsonicCoreVirtualModulesProvider());
       sourceSemantics.initialize?.(context);
-      registerTsonicAttributeBuilderProducers(context);
-      registerTsonicSourceMarkerEvidenceProducers(context);
-      context.registerLifecycleHook<SourceFileBoundLifecycleRequest>(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext): void => {
-        if (request.providerVirtualArtifact !== undefined) {
-          return;
+    },
+    analyzeSource(context): void {
+      sourceSemantics.analyzeSource?.(context);
+      analyzeTsonicSourceMarkerEvidence(context);
+      analyzeTsonicAttributeBuilders(context);
+      for (const sourceFile of context.sourceFiles) {
+        if (sourceFile === undefined || context.ast.getFileName(sourceFile).endsWith(".d.ts")) {
+          continue;
         }
-        recordUnsupportedTsonicCoreLangReExportDiagnostics(request, lifecycleContext.compiler.ast, lifecycleContext.host.diagnostics);
-        validateTsonicStructFacts(request, lifecycleContext.compiler.ast, lifecycleContext.host.facts, lifecycleContext.host.diagnostics);
-      });
+        recordUnsupportedTsonicCoreLangReExportDiagnostics(
+          sourceFile,
+          context.ast,
+          context.diagnostics,
+        );
+        validateTsonicStructFacts(
+          sourceFile,
+          context.ast,
+          context.facts,
+          context.diagnostics,
+        );
+      }
     },
   };
 }
@@ -98,14 +108,10 @@ type DiagnosticSink = {
 };
 
 function recordUnsupportedTsonicCoreLangReExportDiagnostics(
-  request: SourceFileBoundLifecycleRequest,
+  sourceFile: Node,
   ast: AstReader,
   diagnostics: DiagnosticSink,
 ): void {
-  const sourceFile = request.sourceFile as Node | undefined;
-  if (sourceFile === undefined) {
-    return;
-  }
   let exportDeclarationIndex = 0;
   for (const statement of ast.statements(sourceFile)) {
     if (statement === undefined || !ast.is.IsExportDeclaration(statement)) {
@@ -151,10 +157,11 @@ function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader)
   }
   const exportedNames: string[] = [];
   for (const specifier of ast.elements(exportClause)) {
-    if (specifier === undefined) {
+    if (specifier === undefined || !ast.is.IsExportSpecifier(specifier)) {
       continue;
     }
-    const exportNameNode = (specifier as { readonly PropertyName?: Node }).PropertyName ?? ast.name(specifier);
+    const exportNameNode = ast.as.AsExportSpecifier(specifier)?.PropertyName ??
+      ast.name(specifier);
     const exportName = exportNameNode === undefined ? undefined : ast.text(exportNameNode);
     if (exportName !== undefined && sourceCoreLangExportNames.has(exportName)) {
       exportedNames.push(exportName);
@@ -164,12 +171,11 @@ function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader)
 }
 
 function validateTsonicStructFacts(
-  request: SourceFileBoundLifecycleRequest,
+  sourceFile: Node,
   ast: AstReader,
   facts: ExtensionFactStore,
   diagnostics: DiagnosticSink,
 ): void {
-  const sourceFile = request.sourceFile as Node | undefined;
   visitSourceFile(sourceFile, ast, (node): void => {
     if (!ast.is.IsCallExpression(node) || facts.get(node, structFactKey) === undefined) {
       return;

@@ -1,7 +1,7 @@
 import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_Parameters, Node_PropertyName, Node_Properties, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, Node_TypeParameters, } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindArrayBindingPattern, KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindObjectBindingPattern, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { extensionHostRegisterFactResolver, extensionHostSetFact, } from "./host.js";
@@ -298,11 +298,14 @@ function recordFieldMarker(facts, callExpression, evidence) {
     if (fieldType === undefined) {
         return;
     }
-    const propertyAssignment = callExpression?.Parent?.Kind === KindPropertyAssignment ? callExpression.Parent : undefined;
-    if (propertyAssignment === undefined) {
+    const fieldOwner = callExpression?.Parent;
+    if (fieldOwner === undefined ||
+        (fieldOwner.Kind !== KindPropertyAssignment &&
+            fieldOwner.Kind !== KindPropertyDeclaration) ||
+        Node_Initializer(fieldOwner) !== callExpression) {
         return;
     }
-    const nameNode = Node_Name(propertyAssignment) ?? Node_PropertyName(propertyAssignment);
+    const nameNode = Node_Name(fieldOwner) ?? Node_PropertyName(fieldOwner);
     const name = getStaticSourceSemanticsNameText(nameNode);
     if (name === undefined) {
         return;
@@ -312,7 +315,7 @@ function recordFieldMarker(facts, callExpression, evidence) {
         type: fieldType,
     };
     facts.set(callExpression, fieldFactKey, fact, evidence);
-    facts.set(propertyAssignment, fieldFactKey, fact, evidence);
+    facts.set(fieldOwner, fieldFactKey, fact, evidence);
     if (nameNode !== undefined) {
         facts.set(nameNode, fieldFactKey, fact, evidence);
     }
@@ -711,7 +714,19 @@ function isImportBindingShadowed(node, localName) {
     return false;
 }
 function declarationListContainsName(declarations, localName) {
-    return declarations.some((declaration) => Node_Text(Node_Name(declaration)) === localName);
+    return declarations.some((declaration) => bindingNameContainsName(Node_Name(declaration), localName));
+}
+function bindingNameContainsName(name, localName) {
+    if (name === undefined) {
+        return false;
+    }
+    if (name.Kind === KindIdentifier) {
+        return Node_Text(name) === localName;
+    }
+    if (name.Kind !== KindArrayBindingPattern && name.Kind !== KindObjectBindingPattern) {
+        return false;
+    }
+    return (Node_Elements(name) ?? []).some((element) => bindingNameContainsName(Node_Name(element), localName));
 }
 function getIdentifierText(node) {
     return node?.Kind === KindIdentifier ? Node_Text(node) : undefined;
