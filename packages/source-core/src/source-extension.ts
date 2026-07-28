@@ -1,6 +1,6 @@
 import {
-  createSourceSemanticsExtension,
   fieldFactKey,
+  sourceSemanticsExtensionId,
   structFactKey,
 } from "@tsonic/tsts";
 import type {
@@ -22,48 +22,45 @@ import {
   tsonicCoreProviderVersion,
   tsonicCoreSourceExtensionId,
 } from "./identity.js";
-import {
-  tsonicCoreSourceSemanticsModules,
-} from "./source-modules.js";
+import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
+import { forEachTsonicSourceFile } from "./source-analysis-context.js";
 import {
   createTsonicCoreVirtualModulesProvider,
 } from "./virtual-modules.js";
 
 export function createTsonicCoreSourceExtension(): CompilerExtension {
-  const sourceSemantics = createSourceSemanticsExtension({
+  return {
     identity: {
       id: tsonicCoreSourceExtensionId,
       version: tsonicCoreProviderVersion,
       capabilityNamespace: "tsonic.source-core",
     },
-    modules: tsonicCoreSourceSemanticsModules(),
-  });
-  return {
-    ...sourceSemantics,
+    composition: {
+      kind: "source",
+    },
+    dependencies: {
+      dependsOn: [sourceSemanticsExtensionId],
+      runsAfter: [sourceSemanticsExtensionId],
+    },
     initialize(context): void {
-      context.registerTargetBindingProvider(createTsonicCoreVirtualModulesProvider());
-      sourceSemantics.initialize?.(context);
+      context.registerSourceDeclarationProvider(createTsonicCoreVirtualModulesProvider());
     },
     analyzeSource(context): void {
-      sourceSemantics.analyzeSource?.(context);
       analyzeTsonicSourceMarkerEvidence(context);
       analyzeTsonicAttributeBuilders(context);
-      for (const sourceFile of context.sourceFiles) {
-        if (sourceFile === undefined || context.ast.getFileName(sourceFile).endsWith(".d.ts")) {
-          continue;
-        }
+      forEachTsonicSourceFile(context, (sourceContext): void => {
         recordUnsupportedTsonicCoreLangReExportDiagnostics(
-          sourceFile,
-          context.ast,
-          context.diagnostics,
+          sourceContext.sourceFile,
+          sourceContext.ast,
+          sourceContext.diagnostics,
         );
         validateTsonicStructFacts(
-          sourceFile,
-          context.ast,
-          context.facts,
-          context.diagnostics,
+          sourceContext.sourceFile,
+          sourceContext.ast,
+          sourceContext.facts,
+          sourceContext.diagnostics,
         );
-      }
+      });
     },
   };
 }

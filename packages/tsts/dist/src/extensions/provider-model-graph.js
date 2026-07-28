@@ -20,17 +20,12 @@ const providerModelFieldNameRecord = {
     exportName: true,
     exportKind: true,
     sourceTypeFamily: true,
-    targetIdentity: true,
     documentation: true,
     type: true,
     typeParameters: true,
     heritage: true,
     members: true,
     signatures: true,
-    target: true,
-    displayName: true,
-    packageName: true,
-    packageVersion: true,
     typeArgumentCount: true,
     static: true,
     readonly: true,
@@ -44,7 +39,6 @@ const providerModelFieldNameRecord = {
     constraints: true,
     value: true,
     typeArguments: true,
-    sourceShape: true,
     elementType: true,
     elementTypes: true,
     types: true,
@@ -58,14 +52,13 @@ const providerModelShapeFields = {
     model: providerModelFields("moduleSpecifier", "providerModuleId", "imports", "exports", "evidence"),
     import: providerModelFields("moduleSpecifier", "defaultImport", "namespaceImport", "typeOnly", "namedImports"),
     requestedExport: providerModelFields("exportedName", "localName", "kind"),
-    export: providerModelFields("id", "name", "kind", "exportName", "exportKind", "sourceTypeFamily", "targetIdentity", "documentation", "type", "typeParameters", "heritage", "members", "signatures"),
+    export: providerModelFields("id", "name", "kind", "exportName", "exportKind", "sourceTypeFamily", "documentation", "type", "typeParameters", "heritage", "members", "signatures"),
     heritage: providerModelFields("kind", "type"),
     member: providerModelFields("id", "kind", "name", "static", "readonly", "optional", "documentation", "type", "signatures"),
     signature: providerModelFields("id", "name", "documentation", "parameters", "returnType", "typeParameters"),
     parameter: providerModelFields("name", "passingMode", "optional", "rest", "type", "defaultType"),
     typeParameter: providerModelFields("name", "variance", "constraints", "defaultType"),
     typeFamily: providerModelFields("exportName", "typeArgumentCount"),
-    targetIdentity: providerModelFields("target", "id", "displayName", "packageName", "packageVersion"),
     propertyIdentifier: providerModelFields("kind", "text"),
     propertyNumber: providerModelFields("kind", "value"),
     propertySymbol: providerModelFields("kind", "name"),
@@ -74,14 +67,12 @@ const providerModelShapeFields = {
     literalType: providerModelFields("kind", "value"),
     namedType: providerModelFields("kind", "name"),
     sourceGlobalType: providerModelFields("kind", "name", "typeArguments"),
-    targetNamedType: providerModelFields("kind", "target", "id", "displayName", "typeArguments", "sourceShape"),
     arrayType: providerModelFields("kind", "elementType"),
     tupleType: providerModelFields("kind", "elementTypes"),
     compositeType: providerModelFields("kind", "types"),
     functionType: providerModelFields("kind", "id", "parameters", "returnType", "typeParameters"),
     providerRefType: providerModelFields("kind", "moduleSpecifier", "exportName", "localName", "namespaceImport", "typeArguments"),
-    opaqueType: providerModelFields("kind", "id", "displayName", "sourceShape"),
-    anyType: providerModelFields("kind", "value", "name", "typeArguments", "target", "id", "displayName", "sourceShape", "elementType", "elementTypes", "types", "parameters", "returnType", "typeParameters", "moduleSpecifier", "exportName", "localName", "namespaceImport"),
+    anyType: providerModelFields("kind", "value", "name", "typeArguments", "id", "elementType", "elementTypes", "types", "parameters", "returnType", "typeParameters", "moduleSpecifier", "exportName", "localName", "namespaceImport"),
 };
 export function validateProviderDeclarationModelGraph(value) {
     const reads = {
@@ -165,7 +156,6 @@ export function validateProviderDeclarationModelGraph(value) {
         arrays: new WeakMap(),
         propertyNames: new WeakMap(),
         typeFamilies: new WeakMap(),
-        targetIdentities: new WeakMap(),
     };
     const model = snapshotProviderDeclarationModel(snapshotContext, value);
     const metrics = Object.freeze({
@@ -298,7 +288,6 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
             const exportName = readProviderModelField(reads, declaration, "exportName");
             const exportKind = readProviderModelField(reads, declaration, "exportKind");
             const sourceTypeFamily = readProviderModelField(reads, declaration, "sourceTypeFamily");
-            const targetIdentity = readProviderModelField(reads, declaration, "targetIdentity");
             const documentation = readProviderModelField(reads, declaration, "documentation");
             const type = readProviderModelField(reads, declaration, "type");
             const typeParameters = readProviderModelField(reads, declaration, "typeParameters");
@@ -311,7 +300,6 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
                 && isOptionalString(exportName)
                 && (exportKind === undefined || exportKind === "named" || exportKind === "default")
                 && isValidProviderTypeFamilyShape(reads, sourceTypeFamily, frame.path + ".sourceTypeFamily", nextDepth)
-                && isValidProviderTargetIdentityShape(reads, targetIdentity, frame.path + ".targetIdentity", nextDepth)
                 && isOptionalString(documentation)
                 && pushOptionalProviderModelNode(stack, type, "type", nextDepth, true, frame.path + ".type")
                 && pushProviderModelArray(reads, stack, typeParameters, "type-parameter", nextDepth, true, frame.path + ".typeParameters")
@@ -457,22 +445,6 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
             return typeof name === "string"
                 && pushProviderModelArray(reads, stack, typeArguments, "type", depth, true, path + ".typeArguments");
         }
-        case "target-named": {
-            const named = type;
-            if (!captureExactProviderModelRecord(reads, named, providerModelShapeFields.targetNamedType, path, depth)) {
-                return false;
-            }
-            const target = readProviderModelField(reads, named, "target");
-            const id = readProviderModelField(reads, named, "id");
-            const displayName = readProviderModelField(reads, named, "displayName");
-            const typeArguments = readProviderModelField(reads, named, "typeArguments");
-            const sourceShape = readProviderModelField(reads, named, "sourceShape");
-            return typeof target === "string"
-                && typeof id === "string"
-                && isOptionalString(displayName)
-                && pushProviderModelArray(reads, stack, typeArguments, "type", depth, true, path + ".typeArguments")
-                && pushOptionalProviderModelNode(stack, sourceShape, "type", depth, false, path + ".sourceShape");
-        }
         case "array": {
             const arrayType = type;
             if (!captureExactProviderModelRecord(reads, arrayType, providerModelShapeFields.arrayType, path, depth)) {
@@ -524,18 +496,6 @@ function pushProviderTypeExpressionChildren(reads, stack, type, depth, path) {
                 && isOptionalString(localName)
                 && isOptionalString(namespaceImport)
                 && pushProviderModelArray(reads, stack, typeArguments, "type", depth, true, path + ".typeArguments");
-        }
-        case "opaque": {
-            const opaque = type;
-            if (!captureExactProviderModelRecord(reads, opaque, providerModelShapeFields.opaqueType, path, depth)) {
-                return false;
-            }
-            const id = readProviderModelField(reads, opaque, "id");
-            const displayName = readProviderModelField(reads, opaque, "displayName");
-            const sourceShape = readProviderModelField(reads, opaque, "sourceShape");
-            return typeof id === "string"
-                && isOptionalString(displayName)
-                && pushOptionalProviderModelNode(stack, sourceShape, "type", depth, false, path + ".sourceShape");
         }
         default:
             return false;
@@ -872,8 +832,7 @@ function isProviderDeclarationKind(value) {
         || value === "function"
         || value === "class"
         || value === "interface"
-        || value === "enum"
-        || value === "opaque";
+        || value === "enum";
 }
 function isProviderMemberKind(value) {
     return value === "method"
@@ -891,19 +850,6 @@ function isValidProviderTypeFamilyShape(reads, value, path, depth) {
         && captureExactProviderModelRecord(reads, value, providerModelShapeFields.typeFamily, path, depth)
         && typeof readProviderModelField(reads, value, "exportName") === "string"
         && typeof readProviderModelField(reads, value, "typeArgumentCount") === "number";
-}
-function isValidProviderTargetIdentityShape(reads, value, path, depth) {
-    if (value === undefined) {
-        return true;
-    }
-    return isProviderModelRecord(value)
-        && reserveProviderModelPhysicalNode(reads, value, path, depth)
-        && captureExactProviderModelRecord(reads, value, providerModelShapeFields.targetIdentity, path, depth)
-        && typeof readProviderModelField(reads, value, "target") === "string"
-        && typeof readProviderModelField(reads, value, "id") === "string"
-        && isOptionalString(readProviderModelField(reads, value, "displayName"))
-        && isOptionalString(readProviderModelField(reads, value, "packageName"))
-        && isOptionalString(readProviderModelField(reads, value, "packageVersion"));
 }
 function readProviderModelField(reads, record, fieldName) {
     const fields = reads.fields.get(record);
@@ -1056,7 +1002,6 @@ function snapshotProviderExportDeclaration(context, declaration) {
     const exportKind = readProviderModelField(context.reads, declaration, "exportKind");
     const sourceTypeFamily = readProviderModelField(context.reads, declaration, "sourceTypeFamily");
     const declarationKind = readProviderModelField(context.reads, declaration, "kind");
-    const targetIdentity = readProviderModelField(context.reads, declaration, "targetIdentity");
     const type = readProviderModelField(context.reads, declaration, "type");
     const typeParameters = readProviderModelField(context.reads, declaration, "typeParameters");
     const heritage = readProviderModelField(context.reads, declaration, "heritage");
@@ -1072,9 +1017,6 @@ function snapshotProviderExportDeclaration(context, declaration) {
             ? {}
             : { sourceTypeFamily: snapshotProviderTypeFamily(context, sourceTypeFamily) }),
         kind: declarationKind,
-        ...(targetIdentity === undefined
-            ? {}
-            : { targetIdentity: snapshotProviderTargetIdentity(context, targetIdentity) }),
         ...(type === undefined ? {} : { type: snapshotProviderTypeExpression(context, type) }),
         ...(typeParameters === undefined || isCapturedProviderModelArrayEmpty(context.reads, typeParameters)
             ? {}
@@ -1308,27 +1250,6 @@ function snapshotProviderTypeExpression(context, type) {
             };
             break;
         }
-        case "target-named": {
-            const named = type;
-            const target = readProviderModelField(context.reads, named, "target");
-            const id = readProviderModelField(context.reads, named, "id");
-            const displayName = readProviderModelField(context.reads, named, "displayName");
-            const typeArguments = readProviderModelField(context.reads, named, "typeArguments");
-            const sourceShape = readProviderModelField(context.reads, named, "sourceShape");
-            snapshot = {
-                kind: typeKind,
-                target,
-                id,
-                ...(displayName === undefined ? {} : { displayName }),
-                ...(typeArguments === undefined
-                    ? {}
-                    : {
-                        typeArguments: snapshotProviderModelArray(context, typeArguments, "type", (argument) => snapshotProviderTypeExpression(context, argument)),
-                    }),
-                sourceShape: snapshotProviderTypeExpression(context, sourceShape),
-            };
-            break;
-        }
         case "array": {
             const arrayType = type;
             snapshot = {
@@ -1402,19 +1323,6 @@ function snapshotProviderTypeExpression(context, type) {
             };
             break;
         }
-        case "opaque": {
-            const opaque = type;
-            const id = readProviderModelField(context.reads, opaque, "id");
-            const displayName = readProviderModelField(context.reads, opaque, "displayName");
-            const sourceShape = readProviderModelField(context.reads, opaque, "sourceShape");
-            snapshot = {
-                kind: typeKind,
-                id,
-                ...(displayName === undefined ? {} : { displayName }),
-                sourceShape: snapshotProviderTypeExpression(context, sourceShape),
-            };
-            break;
-        }
     }
     setProviderModelNodeSnapshot(context, type, "type", snapshot);
     return snapshot;
@@ -1430,27 +1338,6 @@ function snapshotProviderTypeFamily(context, family) {
     };
     const frozenSnapshot = Object.freeze(snapshot);
     context.typeFamilies.set(family, frozenSnapshot);
-    return frozenSnapshot;
-}
-function snapshotProviderTargetIdentity(context, identity) {
-    const cached = context.targetIdentities.get(identity);
-    if (cached !== undefined) {
-        return cached;
-    }
-    const target = readProviderModelField(context.reads, identity, "target");
-    const id = readProviderModelField(context.reads, identity, "id");
-    const displayName = readProviderModelField(context.reads, identity, "displayName");
-    const packageName = readProviderModelField(context.reads, identity, "packageName");
-    const packageVersion = readProviderModelField(context.reads, identity, "packageVersion");
-    const snapshot = {
-        target,
-        id,
-        ...(displayName === undefined ? {} : { displayName }),
-        ...(packageName === undefined ? {} : { packageName }),
-        ...(packageVersion === undefined ? {} : { packageVersion }),
-    };
-    const frozenSnapshot = Object.freeze(snapshot);
-    context.targetIdentities.set(identity, frozenSnapshot);
     return frozenSnapshot;
 }
 function snapshotProviderModelArray(context, source, nodeKind, snapshotEntry) {
@@ -1674,17 +1561,6 @@ function canonicalizeProviderAbiExportDeclarationWithContext(context, declaratio
                 },
             }),
         kind: declaration.kind,
-        ...(declaration.targetIdentity === undefined
-            ? {}
-            : {
-                targetIdentity: {
-                    target: declaration.targetIdentity.target,
-                    id: declaration.targetIdentity.id,
-                    ...(declaration.targetIdentity.displayName === undefined ? {} : { displayName: declaration.targetIdentity.displayName }),
-                    ...(declaration.targetIdentity.packageName === undefined ? {} : { packageName: declaration.targetIdentity.packageName }),
-                    ...(declaration.targetIdentity.packageVersion === undefined ? {} : { packageVersion: declaration.targetIdentity.packageVersion }),
-                },
-            }),
         ...(declaration.type === undefined
             ? {}
             : { type: canonicalizeProviderExportOwnerType(context, declaration.type) }),
@@ -1826,20 +1702,6 @@ function canonicalizeProviderExportOwnerType(context, type) {
         case "type-parameter":
             canonical = { kind: type.kind, name: type.name };
             break;
-        case "target-named":
-            canonical = {
-                kind: type.kind,
-                target: type.target,
-                id: type.id,
-                ...(type.displayName === undefined ? {} : { displayName: type.displayName }),
-                ...(type.typeArguments === undefined || type.typeArguments.length === 0
-                    ? {}
-                    : {
-                        typeArguments: type.typeArguments.map((argument) => canonicalizeProviderExportOwnerType(context, argument)),
-                    }),
-                sourceShape: canonicalizeProviderExportOwnerType(context, type.sourceShape),
-            };
-            break;
         case "array":
             canonical = {
                 kind: type.kind,
@@ -1896,14 +1758,6 @@ function canonicalizeProviderExportOwnerType(context, type) {
                 };
                 break;
             }
-        case "opaque":
-            canonical = {
-                kind: type.kind,
-                id: type.id,
-                ...(type.displayName === undefined ? {} : { displayName: type.displayName }),
-                sourceShape: canonicalizeProviderExportOwnerType(context, type.sourceShape),
-            };
-            break;
     }
     context.types.set(type, canonical);
     return canonical;

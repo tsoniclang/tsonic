@@ -1,6 +1,6 @@
 import { Background } from "../go/context.js";
 import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
-import { Program_GetSemanticDiagnostics, Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
+import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Checker_GetPropertyOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
@@ -10,11 +10,6 @@ import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/chec
 import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
-import { extensionHostAllowsCompilerQuery, extensionHostAllowsSemanticQueryPreflight, lookupAttachedExtensionHost, } from "../extensions/host-attachment.js";
-const semanticPreflightedSourceFilesByProgram = new WeakMap();
-const resolvedPropertyAccessInfoByProgram = new WeakMap();
-const resolvedElementAccessInfoByProgram = new WeakMap();
-const resolvedIterationInfoByProgram = new WeakMap();
 export function createTypeCheckerQueries(program, defaultOptions = {}) {
     return {
         getTypeAtLocation: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_GetTypeAtLocation(checker, node)),
@@ -32,9 +27,9 @@ export function createTypeCheckerQueries(program, defaultOptions = {}) {
             const sourceResultType = Checker_GetTypeAtLocation(checker, node);
             return Checker_finalizeResolvedCallEvidence(checker, node, sourceResultType);
         }),
-        getResolvedPropertyAccessInfo: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => getMemoizedResolvedPropertyAccessInfo(program, checker, node)),
-        getResolvedElementAccessInfo: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => getMemoizedResolvedElementAccessInfo(program, checker, node)),
-        getResolvedIterationInfo: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => getMemoizedResolvedIterationInfo(program, checker, node)),
+        getResolvedPropertyAccessInfo: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSourcePropertyAccessInfo(checker, node)),
+        getResolvedElementAccessInfo: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSourceElementAccessInfo(checker, node)),
+        getResolvedIterationInfo: (node, options = {}) => withCheckerForNode(program, node, defaultOptions, options, (checker) => Checker_getResolvedSourceIterationInfo(checker, node)),
         getReturnTypeOfSignature: (signature, options = {}) => withCheckerForSubject(program, signature, defaultOptions, options, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
         getCallSignaturesOfType: (type, options = {}) => withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignaturesOfType: (type, options = {}) => withCheckerForSubject(program, type, defaultOptions, options, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
@@ -89,16 +84,6 @@ function withChecker(program, sourceFile, defaultOptions, options, callback) {
         return undefined;
     }
     const context = options.context ?? defaultOptions.context ?? Background();
-    const extensionHost = lookupAttachedExtensionHost(program);
-    if (extensionHost !== undefined && !extensionHost[extensionHostAllowsCompilerQuery]()) {
-        throw new Error("Compiler queries are unavailable inside checked source-call producers.");
-    }
-    const preflightedSourceFiles = semanticPreflightedSourceFiles(program);
-    if (!preflightedSourceFiles.has(sourceFile)
-        && (extensionHost === undefined || extensionHost[extensionHostAllowsSemanticQueryPreflight]())) {
-        Program_GetSemanticDiagnostics(program, context, sourceFile);
-        preflightedSourceFiles.add(sourceFile);
-    }
     const [checker, done] = Program_GetTypeCheckerForFile(program, context, sourceFile);
     try {
         return callback(checker);
@@ -106,71 +91,6 @@ function withChecker(program, sourceFile, defaultOptions, options, callback) {
     finally {
         done();
     }
-}
-function semanticPreflightedSourceFiles(program) {
-    let sourceFiles = semanticPreflightedSourceFilesByProgram.get(program);
-    if (sourceFiles === undefined) {
-        sourceFiles = new WeakSet();
-        semanticPreflightedSourceFilesByProgram.set(program, sourceFiles);
-    }
-    return sourceFiles;
-}
-function getMemoizedResolvedElementAccessInfo(program, checker, node) {
-    if (program === undefined || checker === undefined || node === undefined) {
-        return undefined;
-    }
-    let entries = resolvedElementAccessInfoByProgram.get(program);
-    if (entries === undefined) {
-        entries = new WeakMap();
-        resolvedElementAccessInfoByProgram.set(program, entries);
-    }
-    const existing = entries.get(node);
-    if (existing !== undefined) {
-        return existing;
-    }
-    const resolved = Checker_getResolvedSourceElementAccessInfo(checker, node);
-    if (resolved !== undefined) {
-        entries.set(node, resolved);
-    }
-    return resolved;
-}
-function getMemoizedResolvedPropertyAccessInfo(program, checker, node) {
-    if (program === undefined || checker === undefined || node === undefined) {
-        return undefined;
-    }
-    let entries = resolvedPropertyAccessInfoByProgram.get(program);
-    if (entries === undefined) {
-        entries = new WeakMap();
-        resolvedPropertyAccessInfoByProgram.set(program, entries);
-    }
-    const existing = entries.get(node);
-    if (existing !== undefined) {
-        return existing;
-    }
-    const resolved = Checker_getResolvedSourcePropertyAccessInfo(checker, node);
-    if (resolved !== undefined) {
-        entries.set(node, resolved);
-    }
-    return resolved;
-}
-function getMemoizedResolvedIterationInfo(program, checker, node) {
-    if (program === undefined || checker === undefined || node === undefined) {
-        return undefined;
-    }
-    let entries = resolvedIterationInfoByProgram.get(program);
-    if (entries === undefined) {
-        entries = new WeakMap();
-        resolvedIterationInfoByProgram.set(program, entries);
-    }
-    const existing = entries.get(node);
-    if (existing !== undefined) {
-        return existing;
-    }
-    const resolved = Checker_getResolvedSourceIterationInfo(checker, node);
-    if (resolved !== undefined) {
-        entries.set(node, resolved);
-    }
-    return resolved;
 }
 function getSymbolSourceFile(symbol) {
     const declaration = getPrimarySymbolDeclaration(symbol);

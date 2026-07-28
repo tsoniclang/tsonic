@@ -1039,7 +1039,6 @@ export function Checker_checkAssertion(receiver, node, checkMode) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkAssertionDeferred","kind":"method","status":"implemented","sigHash":"973986c5f4c38a69995010d50136da4ea65daa63e67317dca64da6668fe1478e","bodyHash":"c115a1f302f9fed0371ebbe0074d0264037323087907d6494f44ee0cbaa89d46"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After deferred TS-Go assertion validation accepts the selected source and asserted types, extension-enabled programs may record one canonical target conversion; invalid, const-only, and no-extension paths retain TS-Go behavior without target evidence."}
  *
  * Go source:
  * func (c *Checker) checkAssertionDeferred(node *ast.Node) {

@@ -551,7 +551,7 @@ export declare function Checker_getIterationTypesOfIterable(receiver: GoPtr<Chec
 export declare function Checker_getIterationTypesOfIterableWorker(receiver: GoPtr<Checker>, t: GoPtr<Type>, use: IterationUse, errorNode: GoPtr<Node>, noCache: bool): IterationTypes;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIterationTypesOfIterableFast","kind":"method","status":"implemented","sigHash":"ccbc8b0181c43f64f9fceaeea05b63de09efe319e9fa46a06a017e8842932dd9","bodyHash":"4328022ecde0ab72e0e4bad56b0a9879f7fe61d757396f39495ec537bbd32d2b"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go fast-path body with no capture; extension checking additionally retains the exact matched iterable target identity."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go fast-path body with no capture; source-evidence queries additionally retain the exact matched iterable protocol type."}
  *
  * Go source:
  * func (c *Checker) getIterationTypesOfIterableFast(t *Type, r *IterationTypesResolver) IterationTypes {
@@ -7915,7 +7915,6 @@ export declare function Checker_getTemplateLiteralType(receiver: GoPtr<Checker>,
 export declare function Checker_getTemplateStringForType(receiver: GoPtr<Checker>, t: GoPtr<Type>): string;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getContextualType","kind":"method","status":"implemented","sigHash":"17a991b5a2e659d0add81ab93bf361c392c9a7ec1cd3b40b327dbcb0c90eaca1","bodyHash":"9acd3a76f83406a95ab145eef850b0ec161cbd09014e0283ce74f1a2c8991ab2"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go computes contextual types, extension-enabled programs may attach provider-owned contextual target facts for consumers. The returned TS-Go contextual type is unchanged, and no-extension programs remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) getContextualType(node *ast.Node, contextFlags ContextFlags) *Type {

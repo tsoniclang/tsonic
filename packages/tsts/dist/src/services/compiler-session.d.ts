@@ -6,6 +6,7 @@ import type { CompilerHost } from "../internal/compiler/host.js";
 import type { Program, ProgramOptions } from "../internal/compiler/program.js";
 import type { ParsedCommandLine } from "../internal/tsoptions/parsedcommandline.js";
 import type { ExtensionHost, ExtensionHostOptions } from "../extensions/host.js";
+import { type CheckedSourceProgram } from "../extensions/source-program.js";
 import type { TypeCheckerQueries } from "./type-checker.js";
 import type { TypeShapeQueries } from "./type-shape.js";
 import type { AstReader } from "./ast-reader.js";
@@ -39,8 +40,7 @@ export interface CompilerSession {
     readonly ensureBound: () => void;
     readonly ensureChecked: (sourceFile?: GoPtr<SourceFile>) => readonly GoPtr<Diagnostic>[];
     readonly getDiagnostics: (kind?: CompilerDiagnosticKind, sourceFile?: GoPtr<SourceFile>) => readonly GoPtr<Diagnostic>[];
-    readonly finalizeExtensions: () => ExtensionHost | undefined;
-    readonly isFinalized: () => boolean;
+    readonly checkSource: () => CheckedSourceProgram;
 }
 export declare function createCompilerSession(options: CompilerSessionOptions): CompilerSession;
 export declare function createCompilerSessionFromProgram(program: GoPtr<Program>, host: CompilerHost, config: GoPtr<ParsedCommandLine>, extensionHost?: ExtensionHost | undefined, context?: Context): CompilerSession;

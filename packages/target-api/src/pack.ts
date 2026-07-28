@@ -1,21 +1,9 @@
 import type {
-  AstReader,
+  CheckedSourceProgram,
   CompilerExtension,
-  ExtensionConsumerQueries,
-  ExtensionFactSubject,
-  Node,
-  Program,
-  SourceFile,
-  Symbol,
-  TargetBindingFact,
-  TargetTypeRef,
-  Type,
-  TypeShapeQueries,
+  SourceSemanticsModule,
 } from "@tsonic/tsts";
 import type { TargetCompileResult, TargetRuntimeContributions, TargetRuntimeReference } from "./artifacts.js";
-import type {
-  TargetLazySourceAnalysis,
-} from "./analysis/types.js";
 import type {
   TargetSelection,
   TargetSurfaceId,
@@ -38,13 +26,18 @@ export interface TargetProviderContext {
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
 
+export interface TargetSourceCompilerContributions {
+  readonly semanticsModules?: readonly SourceSemanticsModule[];
+  readonly extensions?: readonly CompilerExtension[];
+}
+
 export interface TargetProviderModuleOwnership {
   readonly specifierPrefix: string;
   readonly providerId?: string;
   readonly message?: string;
 }
 
-export interface TargetSurfaceExtensionContext {
+export interface TargetSurfaceSourceCompilerContext {
   readonly project: TsonicProjectConfig;
   readonly projectDirectory: string;
   readonly target: TargetSelection;
@@ -54,10 +47,7 @@ export interface TargetSurfaceExtensionContext {
   readonly surface: TargetSurfaceImplementation;
 }
 
-export interface TargetBackendContext {
-  readonly project: TsonicProjectConfig;
-  readonly target: TargetSelection;
-}
+export interface TargetBackendContext extends TargetProviderContext {}
 
 export interface TargetToolchainContext {
   readonly project: TsonicProjectConfig;
@@ -91,94 +81,8 @@ export interface TargetSurfaceSourceProfileContext extends TargetProviderSourceP
   readonly surface: TargetSurfaceImplementation;
 }
 
-export interface TargetAnalysisNodeOptions {
-  readonly sourceFile: SourceFile;
-}
-
-export interface TargetCarrierResolutionEvidence {
-  readonly message: string;
-  readonly subject?: ExtensionFactSubject;
-}
-
-export interface TargetCarrierResolved {
-  readonly kind: "resolved";
-  readonly carrier: TargetTypeRef;
-  readonly evidence: readonly TargetCarrierResolutionEvidence[];
-}
-
-export interface TargetCarrierMissing {
-  readonly kind: "missing";
-  readonly reason: string;
-  readonly evidence: readonly TargetCarrierResolutionEvidence[];
-}
-
-export type TargetCarrierResolution = TargetCarrierResolved | TargetCarrierMissing;
-
-export interface TargetCallParameterCarriersResolved {
-  readonly kind: "resolved-parameters";
-  readonly parameters: readonly TargetCarrierResolution[];
-  readonly evidence: readonly TargetCarrierResolutionEvidence[];
-}
-
-export type TargetCallParameterCarrierResolution = TargetCallParameterCarriersResolved | TargetCarrierMissing;
-
-export interface TargetProjectSourceReference {
-  readonly symbol: Symbol;
-  readonly declaration: Node;
-  readonly sourceFile: SourceFile;
-}
-
-export interface TargetProjectSourceModuleDependency {
-  readonly sourceFile: SourceFile;
-  readonly declaration: Node;
-  readonly moduleSpecifier: Node;
-  readonly kind: "import" | "export";
-}
-
-export interface TargetProjectSourceMemberDispatch {
-  readonly overridesBase: boolean;
-  readonly hasDerivedOverride: boolean;
-}
-
-export interface TargetSourceAnalysisQueries {
-  readonly lazy: TargetLazySourceAnalysis;
-  getSymbolName(symbol: ExtensionFactSubject | undefined): string | undefined;
-  getSymbolDeclarations(symbol: ExtensionFactSubject | undefined): readonly Node[];
-  getSymbolAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
-  getResolvedSymbol(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Symbol | undefined;
-  getTypeSymbol(type: Type | undefined): Symbol | undefined;
-  getTypeAliasSymbol(type: Type | undefined): Symbol | undefined;
-  getTypeOfSymbol(symbol: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
-  getTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
-  getTypeFromTypeNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Type | undefined;
-  getEnumMemberConstant(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): { readonly value: string | number | undefined } | undefined;
-  isProjectSourceShapeForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): boolean;
-  isProjectSourceConstructibleObjectForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): boolean;
-  getProjectSourceDeclarationForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): Node | undefined;
-  getProjectSourceReferenceForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceReference | undefined;
-  getProjectSourceModuleDependencies(sourceFile: SourceFile): readonly TargetProjectSourceModuleDependency[];
-  getProjectSourceMemberDispatch(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetProjectSourceMemberDispatch | undefined;
-  describeTypeAtLocation(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): string | undefined;
-}
-
-export interface TargetFactQueries {
-  resolveRuntimeCarrier(subject: ExtensionFactSubject | undefined): TargetCarrierResolution;
-  resolveRuntimeCarrierForNode(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCarrierResolution;
-  getTargetBinding(subject: ExtensionFactSubject | undefined): TargetBindingFact | undefined;
-  getTargetBindingForReference(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetBindingFact | undefined;
-  resolveCallReturnRuntimeCarrier(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCarrierResolution;
-  resolveCallParameterRuntimeCarriers(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCallParameterCarrierResolution;
-  resolveDeclarationReturnCarrier(node: ExtensionFactSubject | undefined, options: TargetAnalysisNodeOptions): TargetCarrierResolution;
-}
-
 export interface TargetCompileInput {
-  readonly program: Program;
-  readonly ast: AstReader;
-  readonly types: TypeShapeQueries;
-  readonly sourceFiles: readonly SourceFile[];
-  readonly facts: ExtensionConsumerQueries;
-  readonly analysis: TargetSourceAnalysisQueries;
-  readonly targetFacts: TargetFactQueries;
+  readonly source: CheckedSourceProgram;
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly runtimeReferences: readonly TargetRuntimeReference[];
@@ -210,7 +114,7 @@ export interface TargetProvider {
   readonly displayName: string;
   readonly moduleOwnership?: readonly TargetProviderModuleOwnership[];
   sourceProfileContributions?(context: TargetProviderSourceProfileContext): TargetSourceProfileContributions;
-  createExtensions(context: TargetProviderContext): readonly CompilerExtension[];
+  sourceCompilerContributions(context: TargetProviderContext): TargetSourceCompilerContributions;
   runtimeContributions?(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
 
@@ -222,7 +126,7 @@ export interface TargetSurfaceImplementation {
   readonly displayName: string;
   readonly requiredSurfaces?: readonly TargetSurfaceId[];
   sourceProfileContributions?(context: TargetSurfaceSourceProfileContext): TargetSourceProfileContributions;
-  createExtensions?(context: TargetSurfaceExtensionContext): readonly CompilerExtension[];
+  sourceCompilerContributions?(context: TargetSurfaceSourceCompilerContext): TargetSourceCompilerContributions;
   runtimeContributions(context: TargetRuntimeContributionContext): TargetRuntimeContributions;
 }
 

@@ -1,8 +1,11 @@
 import { Background } from "../go/context.js";
 import { SourceFile_FileName } from "../internal/ast/ast.js";
-import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSourceFiles, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
+import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
-import { attachExtensionHost, finalizeExtensionSemantics, getExtensionHost } from "../extensions/index.js";
+import { attachExtensionHost, getExtensionHost } from "../extensions/index.js";
+import { finalizeExtensionSemantics } from "../extensions/compiler-integration.js";
+import { createSourceFactQueries } from "../extensions/consumer.js";
+import { createSourceProgramQueries, } from "../extensions/source-program.js";
 import { getProviderVirtualArtifactForCompiler } from "../extensions/provider-virtual-internal.js";
 import { createCompilerHost, createInMemoryFileSystem } from "./embedding-host.js";
 import { createTypeCheckerQueries } from "./type-checker.js";
@@ -21,6 +24,13 @@ export function createCompilerSessionFromProgram(program, host, config, extensio
     const ast = createAstReader();
     const checker = createTypeCheckerQueries(program, { context });
     const types = createTypeShapeQueries(program, { context });
+    let checkedSourceProgram;
+    const source = createSourceProgramQueries(program, {
+        context,
+        includeSourceFile: (sourceFile) => extensionHost === undefined
+            || getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(sourceFile))?.kind
+                !== "canonical-export-owner",
+    });
     return {
         program,
         host,
@@ -29,25 +39,31 @@ export function createCompilerSessionFromProgram(program, host, config, extensio
         ast,
         checker,
         types,
-        getSourceFiles: () => (Program_GetSourceFiles(program) ?? [])
-            .filter((file) => extensionHost === undefined
-            || getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind !== "canonical-export-owner"),
-        getSourceFile: (fileName) => {
-            const file = Program_GetSourceFile(program, fileName);
-            return file !== undefined
-                && extensionHost !== undefined
-                && getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind === "canonical-export-owner"
-                ? undefined
-                : file;
-        },
+        getSourceFiles: source.getSourceFiles,
+        getSourceFile: source.getSourceFile,
         getSourceFilesToEmit: (targetSourceFile, forceDtsEmit = false) => (Program_getSourceFilesToEmit(program, targetSourceFile, forceDtsEmit) ?? [])
             .filter((file) => extensionHost === undefined
             || getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind !== "canonical-export-owner"),
         ensureBound: () => Program_BindSourceFiles(program),
         ensureChecked: (sourceFile) => Program_GetSemanticDiagnostics(program, context, sourceFile),
         getDiagnostics: (kind = "all", sourceFile) => getDiagnostics(program, context, kind, sourceFile),
-        finalizeExtensions: () => finalizeExtensionSemantics(program),
-        isFinalized: () => getExtensionHost(program)?.finalized === true,
+        checkSource: () => {
+            if (checkedSourceProgram !== undefined) {
+                return checkedSourceProgram;
+            }
+            const diagnostics = Object.freeze([...getDiagnostics(program, context, "all", undefined)]);
+            const finalizedHost = finalizeExtensionSemantics(program);
+            checkedSourceProgram = Object.freeze({
+                ...source,
+                sourceFiles: Object.freeze([...source.getSourceFiles()]),
+                ...(finalizedHost === undefined
+                    ? {}
+                    : { sourceFacts: createSourceFactQueries(finalizedHost, "checked-source-program") }),
+                diagnostics,
+                extensionDiagnostics: finalizedHost?.diagnostics.all() ?? Object.freeze([]),
+            });
+            return checkedSourceProgram;
+        },
     };
 }
 export function createCompilerSessionFromFiles(options) {

@@ -69,11 +69,10 @@ function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, module
             : mode === ResolutionModeCommonJS
                 ? "require"
                 : "none",
-        ...(extensionHost.activeTarget !== undefined ? { activeTarget: extensionHost.activeTarget } : {}),
-        ...(extensionHost.activeSurface !== undefined ? { activeSurface: extensionHost.activeSurface } : {}),
         importSlice: fileLoader_getProviderImportSlice(moduleName, importSite),
     };
-    if (!extensionHost.providers.hasBindingProviders && extensionHost.providers.requiresProviderForModule(moduleName, context) === undefined) {
+    if (!extensionHost.providers.hasSourceDeclarationProviders
+        && extensionHost.providers.requiresProviderForModule(moduleName) === undefined) {
         return undefined;
     }
     const result = extensionHost.providers.resolveVirtualModule(moduleName, context);
@@ -109,7 +108,6 @@ function fileLoader_createProviderVirtualResolvedArtifact(artifact) {
         AlternateResult: "",
         ProviderVirtual: {
             ProviderId: artifact.provider.id,
-            ProviderTarget: artifact.provider.target,
             ProviderModuleId: artifact.providerModuleId,
             ModuleSpecifier: artifact.moduleSpecifier,
         },
@@ -1355,7 +1353,7 @@ export function fileLoader_resolveTypeReferenceDirectives(receiver, t) {
 export const externalHelpersModuleNameText = "tslib";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::method::fileLoader.resolveImportsAndModuleAugmentations","kind":"method","status":"implemented","sigHash":"30cd1cfb29885870bb53f7e50b9173e5bd146206f9dd8a020faf33710e3f44dc","bodyHash":"4171ca82fab8e6403e0310bc745bd8eb0680c1c25558125fe9ff409afeaecafd"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Provider-owned module specifiers resolve through TargetBindingProvider before physical module resolution; unowned modules and no-extension programs remain on the exact TS-Go path, and owned rejection does not fall back to files."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Provider-owned module specifiers resolve through SourceDeclarationProvider before physical module resolution; unowned modules and no-extension programs remain on the exact TS-Go path, and owned rejection does not fall back to files."}
  *
  * Go source:
  * func (p *fileLoader) resolveImportsAndModuleAugmentations(t *parseTask) {

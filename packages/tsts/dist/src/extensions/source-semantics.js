@@ -4,13 +4,7 @@ import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImpo
 import { KindArrayBindingPattern, KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindObjectBindingPattern, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
-import { extensionHostRegisterFactResolver, extensionHostSetFact, } from "./host.js";
-function createSourceSemanticsFactAccess(host) {
-    return {
-        get: (subject, key) => host.facts.get(subject, key),
-        set: (subject, key, value, evidence = []) => host[extensionHostSetFact](subject, key, value, evidence),
-    };
-}
+export const sourceSemanticsExtensionId = "tsts.source-semantics";
 function createSourceSemanticsModules(modules) {
     return modules.map((module) => {
         const primitivesByExportName = new Map();
@@ -43,9 +37,12 @@ function createSourceSemanticsModules(modules) {
 }
 export function createSourceSemanticsExtension(options) {
     const modules = createSourceSemanticsModules(options.modules);
-    let facts;
     return {
-        identity: options.identity,
+        identity: {
+            id: sourceSemanticsExtensionId,
+            version: "1.0.0",
+            capabilityNamespace: sourceSemanticsExtensionId,
+        },
         composition: {
             kind: "source",
         },
@@ -61,15 +58,11 @@ export function createSourceSemanticsExtension(options) {
             ],
         },
         initialize(context) {
-            facts = createSourceSemanticsFactAccess(context.host);
-            context.host[extensionHostRegisterFactResolver](sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
+            context.registerFactResolver(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
         },
         analyzeSource(context) {
-            if (facts === undefined) {
-                throw new Error("Source-semantics analysis cannot run before extension initialization.");
-            }
-            for (const sourceFile of context.sourceFiles) {
-                recordSourceSemanticsFacts(sourceFile, facts, context.diagnostics, options.identity.id, modules);
+            for (const sourceFile of context.source.getSourceFiles()) {
+                recordSourceSemanticsFacts(sourceFile, context.facts, context.diagnostics, sourceSemanticsExtensionId, modules);
             }
         },
     };

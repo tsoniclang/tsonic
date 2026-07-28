@@ -1432,7 +1432,6 @@ export function Checker_checkAccessorDeclaration(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkTypeReferenceOrImport","kind":"method","status":"implemented","sigHash":"04b368dc482ffe366538f2c25eef6b3d9e8871a15205960541f052fc94c89c38","bodyHash":"c8ef9a8ebce1492de9507cb93fd09697981c0215a4c611277a70ed7c1fd8fa57"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go type-reference checking, extension-enabled programs may ask the registered provider to validate target-only generic constraints and record runtime carrier facts carried by provider virtual modules; no-extension programs and unowned types remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkTypeReferenceOrImport(node *ast.Node) {
@@ -5302,7 +5301,7 @@ export function Checker_checkQualifiedName(receiver, node, checkMode) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIndexedAccess","kind":"method","status":"implemented","sigHash":"32fa0a002cb05468dc7def68493137d7aedba03aeb689f7a70ba4ca9a71ad6b7","bodyHash":"889b5dc89357c094a4d04e010b1e12026e834b898e2ef917803c8abceca31716"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go indexed-access checking, extension-enabled programs retain the already-selected receiver and final result evidence; no target semantics participate in source checking."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go indexed-access checking, source-evidence queries retain the already-selected receiver, index declaration, and final result without changing source checking."}
  * Go source:
  * func (c *Checker) checkIndexedAccess(node *ast.Node, checkMode CheckMode) *Type {
  * 	if node.Flags&ast.NodeFlagsOptionalChain != 0 {
@@ -5411,6 +5410,7 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         || sourceResultType === receiver.silentNeverType) {
         return undefined;
     }
+    const accessMode = checkedAccessMode(node);
     return Object.freeze({
         expression: node,
         receiver: Object.freeze({
@@ -5425,9 +5425,12 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
         ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
-        sourceResultType,
         ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
-        accessMode: checkedAccessMode(node),
+        ...resolvedSourceAccessTypes(accessMode, accessMode === "read" || accessMode === "delete" || accessMode === "read-write"
+            ? sourceResultType
+            : undefined, accessMode === "write" || accessMode === "read-write"
+            ? sourceResultType
+            : undefined),
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),
     });
@@ -6135,7 +6138,7 @@ export function Checker_checkMetaPropertyKeyword(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIdentifier","kind":"method","status":"implemented","sigHash":"e9a0175eaea65200220166cc3e50540931a8a88829684e8eeacf1be5a4eaeba7","bodyHash":"6ba6f3033cf51bb621524af70f6dc4d76f82fc1d415f1b812cdea626e961305f"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go symbol/alias selection and assignment-validity checks accept an identifier use, extension-enabled programs may validate provider-owned flow facts; direct invocation callees retain the already-selected symbol provenance without checker re-entry. Invalid writes, query-only checks, no-extension programs, and unmarked symbols remain observation-free on the exact TS-Go path."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go symbol and alias selection accepts an identifier use, direct-call evidence retains the already-selected callee provenance without re-querying the checker; source diagnostics and no-extension behavior are unchanged."}
  *
  * Go source:
  * func (c *Checker) checkIdentifier(node *ast.Node, checkMode CheckMode) *Type {
@@ -6492,7 +6495,7 @@ export function Checker_isSameScopedBindingElement(receiver, node, declaration) 
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpression","kind":"method","status":"implemented","sigHash":"febcba979df4bee97ff9b0d6a44f3b1d8f0f4d8f43952819b5bcda4e8c2e880e","bodyHash":"82b3a1ac1890b83ce90db47cb21a1598249772e581ef1fe94cf9180ba2495e26"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go property checking, extension-enabled programs retain the selected receiver/member/final-result evidence for deterministic target finalization."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go property checking, source-evidence queries retain the selected receiver, member declaration, and final result without changing source semantics."}
  * Go source:
  * func (c *Checker) checkPropertyAccessExpression(node *ast.Node, checkMode CheckMode, writeOnly bool) *Type {
  * 	if node.Flags&ast.NodeFlagsOptionalChain != 0 {
@@ -6595,12 +6598,6 @@ export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
         : accessMode === "read-write"
             ? selected.writeType
             : undefined;
-    if ((accessMode === "read" || accessMode === "delete" || accessMode === "read-write")
-        !== (sourceReadType !== undefined)
-        || (accessMode === "write" || accessMode === "read-write")
-            !== (sourceWriteType !== undefined)) {
-        throw new Error("Resolved property access lost exact read or write type evidence.");
-    }
     return Object.freeze({
         expression: node,
         receiver: Object.freeze({
@@ -6613,12 +6610,30 @@ export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
         ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
         ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
-        ...(sourceReadType === undefined ? {} : { sourceReadType }),
-        ...(sourceWriteType === undefined ? {} : { sourceWriteType }),
-        accessMode,
+        ...resolvedSourceAccessTypes(accessMode, sourceReadType, sourceWriteType),
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),
     });
+}
+function resolvedSourceAccessTypes(accessMode, sourceReadType, sourceWriteType) {
+    switch (accessMode) {
+        case "read":
+        case "delete":
+            if (sourceReadType === undefined || sourceWriteType !== undefined) {
+                throw new Error(`Resolved '${accessMode}' access lost its exact read-only type evidence.`);
+            }
+            return { accessMode, sourceReadType };
+        case "write":
+            if (sourceReadType !== undefined || sourceWriteType === undefined) {
+                throw new Error("Resolved 'write' access lost its exact write-only type evidence.");
+            }
+            return { accessMode, sourceWriteType };
+        case "read-write":
+            if (sourceReadType === undefined || sourceWriteType === undefined) {
+                throw new Error("Resolved 'read-write' access lost its exact read and write type evidence.");
+            }
+            return { accessMode, sourceReadType, sourceWriteType };
+    }
 }
 function recordSelectedPropertyAccessEvidence(receiver, node, selected, sourceResultType) {
     if (!selected.selected

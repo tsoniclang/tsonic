@@ -1,5 +1,4 @@
 import type { bool, int, uint } from "../../../go/scalars.js";
-import type { ExtensionSourceDecisionState } from "../../../extensions/checker-source-decisions.js";
 import type { SelectedCallEvidenceTransactionState } from "./selected-call-evidence-transaction.js";
 import type { GoComparable, GoConstraint, GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
@@ -1184,6 +1183,7 @@ export interface Host extends ModuleSpecifierGenerationHost {
 export declare let nextCheckerID: Uint32;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::type::Checker","kind":"type","status":"implemented","sigHash":"e4967269fbe71279dee2e723a062b8b622327a2bcc4a9a6ef1d5a2445b4d0a13","bodyHash":"8aab79756b2cdc4b710a0bc8e9882716aa7b86edf09b3586aab083c9e6c9a6d5"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Retain one target-neutral transactional journal on the owning checker so overload selection publishes exact source evidence atomically with the canonical TS-Go signature cache.","goSignatureHash":"sha256:f666d9aff0841e40ecb7aa8984e27a1e1836e4505fc625965ee7566e3fbc0ca2","tsSignatureHash":"sha256:eaf5a138bd46171eaeec6a85b59558a2813c00f1a2c1f6f17dcafaf7852f55ec"}
  *
  * Go source:
  * Checker struct {
@@ -1504,10 +1504,8 @@ export declare let nextCheckerID: Uint32;
  * 	mu     sync.Mutex
  * 	tracer *Tracer // Optional tracer for trace events and type recording (for --generateTrace)
  * }
- * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Keep extension source-decision transactions on Checker so speculative checker state and SignatureLinks settle atomically.","goSignatureHash":"sha256:f666d9aff0841e40ecb7aa8984e27a1e1836e4505fc625965ee7566e3fbc0ca2","tsSignatureHash":"sha256:78ce33c7502a12c05926de573b839d4efaf43e19236fe5ef25b66bb75cbbf98d"}
  */
 export interface Checker {
-    extensionSourceDecisionState: undefined | false | ExtensionSourceDecisionState;
     selectedCallEvidenceTransactionState: SelectedCallEvidenceTransactionState | undefined;
     id: uint;
     program: Program;

@@ -1,5 +1,5 @@
-import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, contextualTargetTypeFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, functionPointerFactKey, instantiatedTargetTypeFactKey, providerVirtualDeclarationFactKey, pointerFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, structFactKey, targetCallArgumentConversionFactKey, targetCallArgumentPassingFactKey, targetConversionFactKey, targetBindingFactKey, targetOperationFactKey, } from "./facts.js";
-export class ExtensionConsumerQueries {
+import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
+export class SourceFactQueries {
     #host;
     #consumer;
     constructor(host, consumer) {
@@ -21,231 +21,50 @@ export class ExtensionConsumerQueries {
     getVirtualDeclarationDocument(uriOrFileName) {
         return this.#host.getVirtualDeclarationDocumentForConsumer(this.#consumer, uriOrFileName);
     }
-    getSourcePrimitiveFact(subject) {
+    getCanonicalIdentity(subject) {
+        return this.getFact(subject, canonicalIdentityFactKey);
+    }
+    getSourcePrimitive(subject) {
         return this.getFact(subject, sourcePrimitiveFactKey);
     }
-    requireSourcePrimitiveFact(subject, purpose) {
-        return this.requireFact(subject, sourcePrimitiveFactKey, purpose);
-    }
-    mustSourcePrimitiveFact(subject, purpose) {
-        return this.mustFact(subject, sourcePrimitiveFactKey, purpose);
-    }
-    getTargetBindingFact(subject) {
-        return this.getFact(subject, targetBindingFactKey);
-    }
-    requireTargetBindingFact(subject, purpose) {
-        return this.requireFact(subject, targetBindingFactKey, purpose);
-    }
-    mustTargetBindingFact(subject, purpose) {
-        return this.mustFact(subject, targetBindingFactKey, purpose);
-    }
-    getSelectedTargetCall(subject) {
-        return this.getFact(subject, selectedTargetSignatureFactKey);
-    }
-    requireSelectedTargetCall(subject, purpose) {
-        return this.requireFact(subject, selectedTargetSignatureFactKey, purpose);
-    }
-    mustSelectedTargetCall(subject, purpose) {
-        return this.mustFact(subject, selectedTargetSignatureFactKey, purpose);
-    }
-    getContextualTargetTypeFact(subject) {
-        return this.getFact(subject, contextualTargetTypeFactKey);
-    }
-    requireContextualTargetTypeFact(subject, purpose) {
-        return this.requireFact(subject, contextualTargetTypeFactKey, purpose);
-    }
-    mustContextualTargetTypeFact(subject, purpose) {
-        return this.mustFact(subject, contextualTargetTypeFactKey, purpose);
-    }
-    getSelectedTargetProperty(subject) {
-        return this.getFact(subject, targetOperationFactKey);
-    }
-    requireSelectedTargetProperty(subject, purpose) {
-        return this.requireFact(subject, targetOperationFactKey, purpose);
-    }
-    mustSelectedTargetProperty(subject, purpose) {
-        return this.mustFact(subject, targetOperationFactKey, purpose);
-    }
-    getSelectedTargetElementAccess(subject) {
-        return this.getFact(subject, targetOperationFactKey);
-    }
-    requireSelectedTargetElementAccess(subject, purpose) {
-        return this.requireFact(subject, targetOperationFactKey, purpose);
-    }
-    mustSelectedTargetElementAccess(subject, purpose) {
-        return this.mustFact(subject, targetOperationFactKey, purpose);
-    }
-    getSelectedTargetOperator(subject) {
-        return this.getFact(subject, targetOperationFactKey);
-    }
-    requireSelectedTargetOperator(subject, purpose) {
-        return this.requireFact(subject, targetOperationFactKey, purpose);
-    }
-    mustSelectedTargetOperator(subject, purpose) {
-        return this.mustFact(subject, targetOperationFactKey, purpose);
-    }
-    getSelectedTargetIteration(subject) {
-        return this.getFact(subject, targetOperationFactKey);
-    }
-    requireSelectedTargetIteration(subject, purpose) {
-        return this.requireFact(subject, targetOperationFactKey, purpose);
-    }
-    mustSelectedTargetIteration(subject, purpose) {
-        return this.mustFact(subject, targetOperationFactKey, purpose);
-    }
-    getRuntimeCarrierFact(subject) {
-        return this.getFact(subject, runtimeCarrierFactKey);
-    }
-    requireRuntimeCarrierFact(subject, purpose) {
-        return this.requireFact(subject, runtimeCarrierFactKey, purpose);
-    }
-    mustRuntimeCarrierFact(subject, purpose) {
-        return this.mustFact(subject, runtimeCarrierFactKey, purpose);
-    }
-    getTargetConversionFact(subject) {
-        return this.getFact(subject, targetConversionFactKey);
-    }
-    requireTargetConversionFact(subject, purpose) {
-        return this.requireFact(subject, targetConversionFactKey, purpose);
-    }
-    mustTargetConversionFact(subject, purpose) {
-        return this.mustFact(subject, targetConversionFactKey, purpose);
-    }
-    getTargetCallArgumentConversionFact(slot) {
-        const fact = this.getFact(slot, targetCallArgumentConversionFactKey);
-        return fact === undefined || slot === undefined ? undefined : assertTargetCallArgumentConversionSlot(fact, slot);
-    }
-    requireTargetCallArgumentConversionFact(slot, purpose) {
-        const fact = this.requireFact(slot, targetCallArgumentConversionFactKey, purpose);
-        return fact === undefined ? undefined : assertTargetCallArgumentConversionSlot(fact, slot);
-    }
-    mustTargetCallArgumentConversionFact(slot, purpose) {
-        return assertTargetCallArgumentConversionSlot(this.mustFact(slot, targetCallArgumentConversionFactKey, purpose), slot);
-    }
-    getTargetCallArgumentPassingFact(slot) {
-        const fact = this.getFact(slot, targetCallArgumentPassingFactKey);
-        return fact === undefined || slot === undefined ? undefined : assertTargetCallArgumentPassingSlot(fact, slot);
-    }
-    requireTargetCallArgumentPassingFact(slot, purpose) {
-        const fact = this.requireFact(slot, targetCallArgumentPassingFactKey, purpose);
-        return fact === undefined ? undefined : assertTargetCallArgumentPassingSlot(fact, slot);
-    }
-    mustTargetCallArgumentPassingFact(slot, purpose) {
-        return assertTargetCallArgumentPassingSlot(this.mustFact(slot, targetCallArgumentPassingFactKey, purpose), slot);
-    }
-    getArgumentPassingFact(subject) {
+    getArgumentPassing(subject) {
         return this.getFact(subject, argumentPassingFactKey);
     }
-    requireArgumentPassingFact(subject, purpose) {
-        return this.requireFact(subject, argumentPassingFactKey, purpose);
-    }
-    mustArgumentPassingFact(subject, purpose) {
-        return this.mustFact(subject, argumentPassingFactKey, purpose);
-    }
-    getFunctionPointerFact(subject) {
+    getFunctionPointer(subject) {
         return this.getFact(subject, functionPointerFactKey);
     }
-    requireFunctionPointerFact(subject, purpose) {
-        return this.requireFact(subject, functionPointerFactKey, purpose);
-    }
-    mustFunctionPointerFact(subject, purpose) {
-        return this.mustFact(subject, functionPointerFactKey, purpose);
-    }
-    getPointerFact(subject) {
+    getPointer(subject) {
         return this.getFact(subject, pointerFactKey);
     }
-    requirePointerFact(subject, purpose) {
-        return this.requireFact(subject, pointerFactKey, purpose);
-    }
-    mustPointerFact(subject, purpose) {
-        return this.mustFact(subject, pointerFactKey, purpose);
-    }
-    getStructFact(subject) {
+    getStruct(subject) {
         return this.getFact(subject, structFactKey);
     }
-    requireStructFact(subject, purpose) {
-        return this.requireFact(subject, structFactKey, purpose);
-    }
-    mustStructFact(subject, purpose) {
-        return this.mustFact(subject, structFactKey, purpose);
-    }
-    getFieldFact(subject) {
+    getField(subject) {
         return this.getFact(subject, fieldFactKey);
     }
-    requireFieldFact(subject, purpose) {
-        return this.requireFact(subject, fieldFactKey, purpose);
+    getFlowState(subject) {
+        return this.getFact(subject, flowStateFactKey);
     }
-    mustFieldFact(subject, purpose) {
-        return this.mustFact(subject, fieldFactKey, purpose);
-    }
-    getAttributeFact(subject) {
+    getAttribute(subject) {
         return this.getFact(subject, attributeFactKey);
     }
-    requireAttributeFact(subject, purpose) {
-        return this.requireFact(subject, attributeFactKey, purpose);
-    }
-    mustAttributeFact(subject, purpose) {
-        return this.mustFact(subject, attributeFactKey, purpose);
-    }
-    getDefaultValueFact(subject) {
+    getDefaultValue(subject) {
         return this.getFact(subject, defaultValueFactKey);
     }
-    requireDefaultValueFact(subject, purpose) {
-        return this.requireFact(subject, defaultValueFactKey, purpose);
-    }
-    mustDefaultValueFact(subject, purpose) {
-        return this.mustFact(subject, defaultValueFactKey, purpose);
-    }
-    getInstantiatedTargetTypeFact(subject) {
-        return this.getFact(subject, instantiatedTargetTypeFactKey);
-    }
-    requireInstantiatedTargetTypeFact(subject, purpose) {
-        return this.requireFact(subject, instantiatedTargetTypeFactKey, purpose);
-    }
-    mustInstantiatedTargetTypeFact(subject, purpose) {
-        return this.mustFact(subject, instantiatedTargetTypeFactKey, purpose);
-    }
-    getAssociatedTypeFact(subject) {
+    getAssociatedType(subject) {
         return this.getFact(subject, associatedTypeFactKey);
     }
-    requireAssociatedTypeFact(subject, purpose) {
-        return this.requireFact(subject, associatedTypeFactKey, purpose);
-    }
-    mustAssociatedTypeFact(subject, purpose) {
-        return this.mustFact(subject, associatedTypeFactKey, purpose);
-    }
-    getConstGenericFact(subject) {
+    getConstGeneric(subject) {
         return this.getFact(subject, constGenericFactKey);
     }
-    requireConstGenericFact(subject, purpose) {
-        return this.requireFact(subject, constGenericFactKey, purpose);
-    }
-    mustConstGenericFact(subject, purpose) {
-        return this.mustFact(subject, constGenericFactKey, purpose);
-    }
-    getVirtualDeclaration(subject) {
+    getProviderDeclaration(subject) {
         return this.getFact(subject, providerVirtualDeclarationFactKey);
     }
-    requireVirtualDeclaration(subject, purpose) {
-        return this.requireFact(subject, providerVirtualDeclarationFactKey, purpose);
-    }
-    mustVirtualDeclaration(subject, purpose) {
-        return this.mustFact(subject, providerVirtualDeclarationFactKey, purpose);
+    getProviderTypeFamily(subject) {
+        return this.getFact(subject, providerTypeFamilyFactKey);
     }
 }
-function assertTargetCallArgumentConversionSlot(fact, slot) {
-    if (fact.slot !== slot) {
-        throw new Error("Target call-argument conversion fact does not match the selected call conversion slot.");
-    }
-    return fact;
-}
-function assertTargetCallArgumentPassingSlot(fact, slot) {
-    if (fact.slot !== slot) {
-        throw new Error("Target call-argument passing fact does not match the selected call conversion slot.");
-    }
-    return fact;
-}
-export function createExtensionConsumerQueries(host, consumer) {
-    return new ExtensionConsumerQueries(host, consumer);
+export function createSourceFactQueries(host, consumer) {
+    return new SourceFactQueries(host, consumer);
 }
 //# sourceMappingURL=consumer.js.map

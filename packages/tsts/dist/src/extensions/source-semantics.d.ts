@@ -1,9 +1,9 @@
 import type { SourcePrimitiveFact, SourcePrimitiveKind } from "./facts.js";
-import type { CompilerExtension, CompilerExtensionIdentity } from "./host.js";
+import type { CompilerExtension } from "./host.js";
 export interface SourceSemanticsExtensionOptions {
-    readonly identity: CompilerExtensionIdentity;
     readonly modules: readonly SourceSemanticsModule[];
 }
+export declare const sourceSemanticsExtensionId = "tsts.source-semantics";
 export type SourceSemanticsModuleCapability = "primitive" | "call-marker" | "type-marker";
 export interface SourceSemanticsModuleIdentity {
     readonly moduleSpecifier: string;

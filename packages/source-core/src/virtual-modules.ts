@@ -1,5 +1,5 @@
 import {
-  TstsProviderContractVersion,
+  TstsSourceProviderContractVersion,
 } from "@tsonic/tsts";
 import type {
   ExtensionDiagnostic,
@@ -8,7 +8,7 @@ import type {
   ProviderModuleContext,
   ProviderModuleResolution,
   ProviderOwnership,
-  TargetBindingProvider,
+  SourceDeclarationProvider,
 } from "@tsonic/tsts";
 import {
   tsonicCoreProviderVersion,
@@ -21,14 +21,12 @@ import {
   tsonicCoreSourceSemanticsModules,
 } from "./source-modules.js";
 
-export function createTsonicCoreVirtualModulesProvider(): TargetBindingProvider {
+export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvider {
   const modules = new Map(tsonicCoreSourceSemanticsModules().map((module) => [module.moduleSpecifier, module]));
   const identity: ProviderIdentity = {
     id: tsonicCoreVirtualModulesProviderId,
     version: tsonicCoreProviderVersion,
-    target: "source",
-    extensionContractVersion: TstsProviderContractVersion,
-    providerKind: "binding",
+    extensionContractVersion: TstsSourceProviderContractVersion,
     displayName: "Tsonic source-core virtual modules",
   };
   return {

@@ -1,7 +1,6 @@
 import type { bool, byte, int, sbyte, uint } from "../../go/scalars.js";
 import type { GoArray, GoMap, GoPtr, GoSlice } from "../../go/compat.js";
 import type { GoInterfaceValue, Node } from "../ast/spine.js";
-import type { SourceFile } from "../ast/ast.js";
 import type { EntityName } from "../ast/generated/unions.js";
 import type { ConditionalTypeNode, MappedTypeNode } from "../ast/generated/data.js";
 import type { SymbolFlags } from "../ast/generated/flags.js";
@@ -737,8 +736,6 @@ export interface SymbolNodeLinks {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::TypeNodeLinks","kind":"type","status":"implemented","sigHash":"d179da5ea97af8b4e01f810926a7545f82b426592ab5165ddf4d80ecc0cd4e3d","bodyHash":"63f2e3ade12086f877faba2842deb70032ef48351c0a8a14043706ec94966b6a"}
- * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Record the exact source file whose authoritative semantic check captured the operation decisions associated with a cached expression type; query-created caches remain explicitly non-authoritative and are recomputed by source checking.","goSignature":"interface{outerTypeParameters:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>;resolvedType:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>}","tsSignature":"interface{extensionSourceDecisionOwner:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/generated/unions.ts::SourceFileNode>;outerTypeParameters:packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>>;resolvedType:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>}"}
- *
  * Go source:
  * TypeNodeLinks struct {
  * 	resolvedType        *Type   // Resolved type associated with node
@@ -748,7 +745,6 @@ export interface SymbolNodeLinks {
 export interface TypeNodeLinks {
     resolvedType: GoPtr<Type>;
     outerTypeParameters: GoSlice<GoPtr<Type>>;
-    extensionSourceDecisionOwner: GoPtr<SourceFile>;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::EnumMemberLinks","kind":"type","status":"implemented","sigHash":"36404442f2fc2ca29651dc60685cdfa474dd7436f67a79886b11574ead3c754f","bodyHash":"300bf7a1da89d657d940c8095bddf33f21118e8b3fea24006d4bd8e40c4fb3f9"}

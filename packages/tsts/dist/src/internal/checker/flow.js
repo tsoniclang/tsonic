@@ -4737,7 +4737,6 @@ export function Checker_getInitialType(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getInitialTypeOfVariableDeclaration","kind":"method","status":"implemented","sigHash":"58522122623ee1628f836e8444e32f3520fb7177e95199d416e438c42a0576c8","bodyHash":"fd1ffe956d0b057dc0941c4863ed80ff08ef0fa065a7a8ac06ec9a09ff787a67"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Flow analysis may query a for-of source element while an implementation-source decision is active; the exact TS-Go query runs inside a discard frame so it cannot publish a duplicate runtime operation."}
  *
  * Go source:
  * func (c *Checker) getInitialTypeOfVariableDeclaration(node *ast.Node) *Type {
@@ -4834,7 +4833,6 @@ export function Checker_getInitialTypeOfBindingElement(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/flow.go::method::Checker.getAssignedType","kind":"method","status":"implemented","sigHash":"6b5c4c672db1e5da27c6cf34f7a909efafd11dcf4608ccbe825fa86c406db920","bodyHash":"a462e9d28e093c0023dbbb714f5610cbe279b2b52dfaa3eb27c58ce27d1b9010"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Flow assignment analysis may query a for-of source element while an implementation-source decision is active; the exact TS-Go query runs inside a discard frame so it cannot publish a duplicate runtime operation."}
  *
  * Go source:
  * func (c *Checker) getAssignedType(node *ast.Node) *Type {

@@ -105,8 +105,11 @@ function validatePlugin(packageName: string, plugin: TsonicPlugin): TargetDiagno
     if (!Array.isArray(plugin.moduleOwnership) || plugin.moduleOwnership.length === 0) {
       return pluginDiagnostic(packageName, "Tsonic target capability plugin must provide non-empty moduleOwnership.");
     }
-    if (typeof plugin.createExtensions !== "function") {
-      return pluginDiagnostic(packageName, "Tsonic target capability plugin must provide createExtensions().");
+    if (
+      plugin.sourceCompilerContributions !== undefined &&
+      typeof plugin.sourceCompilerContributions !== "function"
+    ) {
+      return pluginDiagnostic(packageName, "Tsonic target capability plugin sourceCompilerContributions must be a function when provided.");
     }
     if (plugin.createTargetContributions !== undefined && typeof plugin.createTargetContributions !== "function") {
       return pluginDiagnostic(packageName, "Tsonic target capability plugin createTargetContributions must be a function when provided.");
@@ -131,7 +134,7 @@ const targetCapabilityPluginProperties = new Set([
   "requiredCapabilities",
   "moduleOwnership",
   "sourceProfileContributions",
-  "createExtensions",
+  "sourceCompilerContributions",
   "createTargetContributions",
   "runtimeContributions",
 ]);

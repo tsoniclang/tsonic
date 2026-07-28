@@ -7,6 +7,7 @@ export function createProviderRenderedFunctionSignature(declaration, member, sig
         exportId: declaration.id,
         ...(member === undefined ? {} : { memberId: member.id }),
         signatureId: signature.id,
+        parameters: signature.parameters,
     });
 }
 export function renderProviderFunctionSignatureMarker(marker) {
@@ -119,11 +120,6 @@ function collectProviderTypeCallableIdentities(type, identities) {
                 && collectProviderTypeParameterCallableIdentities(type.typeParameters ?? [], identities)
                 && collectProviderParameterCallableIdentities(type.parameters, identities)
                 && collectProviderTypeCallableIdentities(type.returnType, identities);
-        case "target-named":
-            return (type.typeArguments ?? []).every((argument) => collectProviderTypeCallableIdentities(argument, identities))
-                && collectProviderTypeCallableIdentities(type.sourceShape, identities);
-        case "opaque":
-            return collectProviderTypeCallableIdentities(type.sourceShape, identities);
         case "source-global":
         case "provider-ref":
             return (type.typeArguments ?? []).every((argument) => collectProviderTypeCallableIdentities(argument, identities));

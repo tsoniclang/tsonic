@@ -1,22 +1,18 @@
 import { Background } from "../go/context.js";
-import { Node_Body, Node_Expression, Node_Locals, Node_Members, Node_ModifierFlags, Node_Symbol, Node_Text, Node_TypeArguments, SourceFile_FileName, SourceFile_Text } from "../internal/ast/ast.js";
+import { Node_Body, Node_Expression, Node_Locals, Node_Members, Node_ModifierFlags, Node_Parameters, Node_Symbol, Node_Text, SourceFile_FileName, SourceFile_Text } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { Program_GetSemanticDiagnostics } from "../internal/compiler/program.js";
 import { ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
 import { GetSymbolId } from "../internal/ast/utilities.js";
 import * as utf8 from "../go/unicode/utf8.js";
 import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindFunctionDeclaration, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindTypeAliasDeclaration, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
-import { canonicalIdentityFactKey, instantiatedTargetTypeFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, targetBindingFactKey, } from "./facts.js";
-import { ExtensionLifecycleEvent, extensionHostRunSourceAnalysis, extensionHostSetFact, getExtensionHost, } from "./host.js";
+import { argumentPassingFactKey, canonicalIdentityFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, } from "./facts.js";
+import { extensionHostRunSourceAnalysis, extensionHostSetFact, getExtensionHost, } from "./host.js";
 import { getProviderVirtualArtifactForCompiler, getProviderVirtualCompilerMetadata, } from "./provider-virtual-internal.js";
 import { parseProviderFunctionSignatureMarker, providerFunctionSignatureMarkerMaximumLength } from "./provider-callable-signatures.js";
-import { extensionHostAllowsSemanticQueryPreflight } from "./host-attachment.js";
 export function recordBoundSourceFileExtensionFacts(program, file) {
     const extensionHost = getExtensionHost(program);
     if (extensionHost === undefined || file === undefined) {
-        return;
-    }
-    if (!extensionHost[extensionHostAllowsSemanticQueryPreflight]()) {
         return;
     }
     const fileName = SourceFile_FileName(file);
@@ -24,14 +20,6 @@ export function recordBoundSourceFileExtensionFacts(program, file) {
     if (virtualArtifact !== undefined) {
         recordProviderVirtualModuleFacts(extensionHost, file, virtualArtifact);
     }
-    if (virtualArtifact?.kind === "canonical-export-owner") {
-        return;
-    }
-    extensionHost.runLifecycle(ExtensionLifecycleEvent.afterSourceFileBound, {
-        sourceFile: file,
-        fileName,
-        ...(virtualArtifact !== undefined ? { providerVirtualArtifact: virtualArtifact } : {}),
-    }, file);
 }
 export function finalizeExtensionSemantics(program) {
     const extensionHost = getExtensionHost(program);
@@ -42,39 +30,6 @@ export function finalizeExtensionSemantics(program) {
     extensionHost[extensionHostRunSourceAnalysis]();
     extensionHost.finalizeSemantics();
     return extensionHost;
-}
-export function recordProviderTypeFamilyReferenceFacts(extensionHost, typeReference, type, symbol) {
-    if (typeReference === undefined || symbol === undefined) {
-        return;
-    }
-    const family = extensionHost.facts.get(symbol, providerTypeFamilyFactKey);
-    if (family === undefined) {
-        return;
-    }
-    const sourceTypeArgumentCount = (Node_TypeArguments(typeReference) ?? []).length;
-    const variant = family.variants.find((candidate) => candidate.sourceTypeArgumentCount === sourceTypeArgumentCount);
-    if (variant === undefined) {
-        return;
-    }
-    const evidence = [{
-            message: "provider type-family variant selected by source type-argument count",
-            details: {
-                exportName: family.exportName,
-                sourceTypeArgumentCount,
-                exportId: variant.declaration.exportId,
-            },
-        }];
-    extensionHost[extensionHostSetFact](typeReference, providerVirtualDeclarationFactKey, variant.declaration, evidence);
-    if (variant.targetBinding !== undefined) {
-        extensionHost[extensionHostSetFact](typeReference, targetBindingFactKey, variant.targetBinding, evidence);
-        if (type !== undefined) {
-            extensionHost[extensionHostSetFact](type, targetBindingFactKey, variant.targetBinding, evidence);
-        }
-        extensionHost[extensionHostSetFact](typeReference, instantiatedTargetTypeFactKey, {
-            targetType: variant.targetBinding,
-            typeArguments: (Node_TypeArguments(typeReference) ?? []).filter((argument) => argument !== undefined),
-        }, evidence);
-    }
 }
 function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
     const evidence = getProviderVirtualModuleEvidence(virtualModule);
@@ -143,10 +98,6 @@ function recordProviderVirtualModuleFacts(extensionHost, file, virtualModule) {
             canonicalSymbolId: getSymbolFactId(symbol),
         }, evidence);
         extensionHost[extensionHostSetFact](symbol, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration), evidence);
-        const targetBinding = getTargetBindingFact(virtualModule, declaration);
-        if (targetBinding !== undefined) {
-            extensionHost[extensionHostSetFact](symbol, targetBindingFactKey, targetBinding, evidence);
-        }
         if (!isDirectDeclaration) {
             continue;
         }
@@ -214,6 +165,7 @@ function recordProviderVirtualFunctionSignatureFacts(extensionHost, file, virtua
             throw new Error(`Provider virtual artifact '${virtualModule.fileName}' has no member for rendered function member identity '${rendered.memberId}'.`);
         }
         extensionHost[extensionHostSetFact](node, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, member, rendered.signatureId), evidence);
+        recordProviderVirtualParameterFacts(extensionHost, node, rendered.parameters, evidence);
     }
     if (usedMarkers.size !== renderedFunctionSignatures.length) {
         throw new Error(`Provider virtual artifact '${virtualModule.fileName}' did not bind every rendered function-signature marker.`);
@@ -269,6 +221,9 @@ function recordProviderVirtualMemberFacts(extensionHost, exportSymbol, virtualMo
             usedMemberNodes.add(memberNode);
             const signature = member.signatures?.[index];
             extensionHost[extensionHostSetFact](memberNode, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, member, signature), evidence);
+            if (signature !== undefined) {
+                recordProviderVirtualParameterFacts(extensionHost, memberNode, signature.parameters, evidence);
+            }
             const nodeSymbol = Node_Symbol(memberNode);
             if (nodeSymbol !== undefined && nodeSymbol !== memberSymbol) {
                 setProviderVirtualDeclarationSymbolFact(extensionHost, nodeSymbol, memberFact, evidence);
@@ -290,7 +245,6 @@ function providerExportDeclarationMatchesNode(declaration, node) {
         case "type":
             return node.Kind === KindTypeAliasDeclaration;
         case "value":
-        case "opaque":
             return node.Kind === KindVariableDeclaration;
         case "namespace":
             return node.Kind === KindModuleDeclaration;
@@ -417,141 +371,33 @@ function recordProviderVirtualSignatureFacts(extensionHost, symbol, virtualModul
             throw new Error(`Provider virtual artifact '${virtualModule.fileName}' lost function signature ${index} for export identity '${declaration.id}'.`);
         }
         extensionHost[extensionHostSetFact](signatureDeclaration, providerVirtualDeclarationFactKey, getProviderVirtualDeclarationFact(virtualModule, declaration, member, signatures[index]), evidence);
+        recordProviderVirtualParameterFacts(extensionHost, signatureDeclaration, signatures[index].parameters, evidence);
+    }
+}
+function recordProviderVirtualParameterFacts(extensionHost, signatureDeclaration, parameters, evidence) {
+    const parameterDeclarations = Node_Parameters(signatureDeclaration) ?? [];
+    if (parameterDeclarations.length !== parameters.length) {
+        throw new Error(`Provider virtual signature bound ${parameterDeclarations.length} parameter declarations, expected ${parameters.length}.`);
+    }
+    for (let index = 0; index < parameters.length; index++) {
+        const mode = parameters[index]?.passingMode;
+        if (mode === undefined) {
+            continue;
+        }
+        const parameterDeclaration = parameterDeclarations[index];
+        if (parameterDeclaration === undefined) {
+            throw new Error(`Provider virtual signature lost parameter declaration ${index}.`);
+        }
+        const fact = { mode };
+        extensionHost[extensionHostSetFact](parameterDeclaration, argumentPassingFactKey, fact, evidence);
+        const parameterSymbol = Node_Symbol(parameterDeclaration);
+        if (parameterSymbol !== undefined) {
+            extensionHost[extensionHostSetFact](parameterSymbol, argumentPassingFactKey, fact, evidence);
+        }
     }
 }
 function getSymbolFactId(symbol) {
     return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
-}
-function getTargetBindingFact(virtualModule, declaration) {
-    if (declaration.targetIdentity === undefined) {
-        return undefined;
-    }
-    return {
-        id: declaration.targetIdentity.id,
-        sourceName: getProviderSourceExportName(declaration),
-        targetName: declaration.targetIdentity.displayName ?? declaration.targetIdentity.id,
-        target: declaration.targetIdentity.target,
-        kind: getTargetBindingKind(declaration.kind),
-        ...(declaration.typeParameters !== undefined
-            ? {
-                typeParameters: declaration.typeParameters.map(getTargetTypeParameter),
-            }
-            : {}),
-        ...(declaration.members !== undefined ? { members: declaration.members.flatMap((member) => getTargetMembers(virtualModule, declaration, member)) } : {}),
-    };
-}
-function getTargetTypeParameter(parameter) {
-    const constraints = (parameter.constraints ?? []).flatMap(getTargetConstraint);
-    return {
-        name: parameter.name,
-        ...(constraints.length > 0 ? { constraints } : {}),
-        ...(parameter.variance !== undefined ? { variance: parameter.variance } : {}),
-    };
-}
-function getTargetMembers(virtualModule, declaration, member) {
-    const sourceName = getProviderPropertyNameText(member.name);
-    if (member.signatures !== undefined && member.signatures.length > 0) {
-        return member.signatures.map((signature) => getTargetMemberFromSignature(sourceName, member.kind, signature, virtualModule, declaration, member));
-    }
-    return [{
-            id: member.id,
-            sourceName,
-            targetName: sourceName,
-            kind: member.kind,
-            parameters: [],
-            ...(member.static !== undefined ? { static: member.static } : {}),
-            ...(member.type !== undefined ? { returnType: getTargetTypeRef(member.type) } : {}),
-            providerDeclaration: getProviderDeclarationIdentity(virtualModule, declaration, member),
-        }];
-}
-function getTargetMemberFromSignature(sourceName, kind, signature, virtualModule, declaration, member) {
-    const typeParameters = (signature.typeParameters ?? []).map(getTargetTypeParameter);
-    return {
-        id: signature.id,
-        sourceName,
-        targetName: signature.name ?? (member === undefined ? sourceName : getProviderPropertyNameText(member.name)),
-        kind,
-        parameters: signature.parameters.map(getTargetParameter),
-        ...(member?.static !== undefined ? { static: member.static } : {}),
-        ...(signature.returnType !== undefined ? { returnType: getTargetTypeRef(signature.returnType) } : {}),
-        ...(typeParameters.length > 0 ? { typeParameters } : {}),
-        overloadGroup: member?.id ?? sourceName,
-        providerDeclaration: getProviderDeclarationIdentity(virtualModule, declaration, member, signature),
-    };
-}
-function getTargetParameter(parameter) {
-    return {
-        name: parameter.name,
-        type: getTargetTypeRef(parameter.type),
-        passingMode: getArgumentPassingMode(parameter),
-        ...(parameter.optional === true ? { optional: true } : {}),
-        ...(parameter.rest === true ? { paramsArray: true } : {}),
-    };
-}
-function getArgumentPassingMode(parameter) {
-    return parameter.passingMode ?? "by-value";
-}
-function getTargetConstraint(type) {
-    switch (type.kind) {
-        case "target-named":
-            return [{
-                    kind: "implements",
-                    contract: type.id,
-                    ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
-                }];
-        default:
-            return [];
-    }
-}
-function getTargetTypeRef(type) {
-    switch (type.kind) {
-        case "boolean":
-            return { kind: "source-primitive", name: "bool" };
-        case "bigint":
-            return { kind: "source-primitive", name: "int64" };
-        case "source-primitive":
-            return { kind: "source-primitive", name: type.name };
-        case "type-parameter":
-            return { kind: "type-parameter", name: type.name };
-        case "target-named":
-            return {
-                kind: "target-named",
-                id: type.id,
-                ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
-            };
-        case "array":
-            return { kind: "array", element: getTargetTypeRef(type.elementType) };
-        case "tuple":
-            return { kind: "tuple", elements: type.elementTypes.map(getTargetTypeRef) };
-        case "function":
-            return {
-                kind: "function-pointer",
-                args: type.parameters.map((parameter) => getTargetTypeRef(parameter.type)),
-                result: getTargetTypeRef(type.returnType),
-            };
-        case "opaque":
-            return { kind: "opaque", id: type.id };
-        case "provider-ref":
-            return { kind: "opaque", id: `${type.moduleSpecifier}::${type.exportName}` };
-        case "source-global":
-            return {
-                kind: "source-global",
-                name: type.name,
-                ...(type.typeArguments !== undefined ? { typeArguments: type.typeArguments.map(getTargetTypeRef) } : {}),
-            };
-        case "string":
-        case "number":
-        case "any":
-        case "unknown":
-        case "void":
-        case "never":
-        case "undefined":
-        case "object":
-        case "union":
-        case "intersection":
-        case "literal":
-            return { kind: "opaque", id: type.kind };
-    }
 }
 function getProviderVirtualDeclarationFact(virtualModule, declaration, member, signature) {
     return {
@@ -567,28 +413,16 @@ function getProviderVirtualDeclarationFact(virtualModule, declaration, member, s
         ...(member !== undefined ? { memberId: member.id } : {}),
         ...(member !== undefined ? { memberStatic: member.static === true } : {}),
         ...(signature !== undefined ? { signatureId: typeof signature === "string" ? signature : signature.id } : {}),
-        ...(declaration?.targetIdentity !== undefined
-            ? {
-                targetIdentity: {
-                    kind: "target-named",
-                    id: declaration.targetIdentity.id,
-                },
-            }
-            : {}),
     };
 }
 function getProviderTypeFamilyFact(virtualModule, family) {
     return {
         exportName: family.exportName,
         variants: family.variants
-            .map((declaration) => {
-            const targetBinding = getTargetBindingFact(virtualModule, declaration);
-            return {
-                sourceTypeArgumentCount: declaration.sourceTypeFamily.typeArgumentCount,
-                declaration: getProviderVirtualDeclarationFact(virtualModule, declaration),
-                ...(targetBinding !== undefined ? { targetBinding } : {}),
-            };
-        })
+            .map((declaration) => ({
+            sourceTypeArgumentCount: declaration.sourceTypeFamily.typeArgumentCount,
+            declaration: getProviderVirtualDeclarationFact(virtualModule, declaration),
+        }))
             .sort((left, right) => left.sourceTypeArgumentCount - right.sourceTypeArgumentCount),
     };
 }
@@ -641,26 +475,5 @@ function getProviderMemberKey(name) {
     return typeof name !== "string" && name.kind === "well-known-symbol"
         ? { kind: "well-known-symbol", name: name.name }
         : { kind: "property-key", name: getProviderPropertyNameText(name) };
-}
-function getProviderDeclarationIdentity(virtualModule, declaration, member, signature) {
-    return getProviderVirtualDeclarationFact(virtualModule, declaration, member, signature);
-}
-function getTargetBindingKind(kind) {
-    switch (kind) {
-        case "class":
-            return "class";
-        case "interface":
-            return "interface";
-        case "enum":
-            return "enum";
-        case "function":
-            return "function";
-        case "opaque":
-            return "opaque";
-        case "type":
-        case "value":
-        case "namespace":
-            return "opaque";
-    }
 }
 //# sourceMappingURL=compiler-integration.js.map

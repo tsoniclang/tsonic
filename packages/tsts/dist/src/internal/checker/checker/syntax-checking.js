@@ -57,7 +57,6 @@ import { NewPseudoBigInt, ParsePseudoBigInt } from "../../jsnum/pseudobigint.js"
 import { Checker_isSkipDirectInferenceNode } from "../inference.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkSourceFile","kind":"method","status":"implemented","sigHash":"73742795303ebe59bb331756ff6743713f7b9c4fbd309e3a8507a615e2dbf18f","bodyHash":"65678dd5c6e1f4ffa700bb65eee57bc088bcc84456cf8a0948d39f486e967a22"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Extension-enabled source checking retains checked-operation evidence in one source-file transaction; successful source checking commits the retained evidence, while exceptional checking discards it. The no-extension source-checking decisions remain unchanged."}
  *
  * Go source:
  * func (c *Checker) checkSourceFile(ctx context.Context, sourceFile *ast.SourceFile, checkUnused bool) {
@@ -417,7 +416,7 @@ export function Checker_checkForStatement(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForInStatement","kind":"method","status":"implemented","sigHash":"1036d4dbf8b354145c0c0f92c80d29e05c2b482399bc67dce4e9ceaa19178e59","bodyHash":"519095d2acdf211f9d06a09c73c2cb2a7432e446dc023031d85188a83b4ce9a8"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go checks remain unchanged; extension-enabled checking additionally retains the already-selected for-in iterable and assignment element types for target-neutral deferred operation mapping."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go checks remain unchanged; source-evidence queries additionally retain the already-selected for-in iterable and assignment element types."}
  *
  * Go source:
  * func (c *Checker) checkForInStatement(node *ast.Node) {
@@ -2066,7 +2065,6 @@ export function Checker_checkAwaitExpression(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPrefixUnaryExpression","kind":"method","status":"implemented","sigHash":"c610d53b7cece49af9ecbed7367a4ec98979f304bdc5698b85a78a39c58ffbc8","bodyHash":"3d8c2bbc4244b7670327f86361bb2d4913b1fde76eeee15d327eaad7d468dca7"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go prefix unary checking, extension-enabled programs may record provider-selected target operator facts for consumers; no-extension programs and unowned operators remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkPrefixUnaryExpression(node *ast.Node) *Type {
@@ -2184,7 +2182,6 @@ export function Checker_checkPrefixUnaryExpression(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPostfixUnaryExpression","kind":"method","status":"implemented","sigHash":"dba67508ee9c8a5bcaa20ee59c4a3f3c5130a2ecd6afbf976d8dd27550468ce4","bodyHash":"7e953c640d76eb0ce4baddcaf974503dba2fed9cf9cde297c24a3ac9abf02029"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go postfix unary checking, extension-enabled programs may record provider-selected target operator facts for consumers; no-extension programs and unowned operators remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkPostfixUnaryExpression(node *ast.Node) *Type {
@@ -2529,7 +2526,7 @@ export function Checker_checkThisExpression(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryExpression","kind":"method","status":"implemented","sigHash":"7789a2bf27bb77f18361e12bbc4e9dd02304e6f162df1c874f94945d2d4b1bcf","bodyHash":"9faf599e69844635f35db6e35e11439ef3ffa75966c09b3c8e952309b3251d42"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After each exact TS-Go binary-expression decision, including every link handled by the iterative stack-safe path, extension-enabled programs retain that link's selected result evidence; state restoration and no-extension behavior remain unchanged."}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Evaluate deep non-logical binary chains iteratively to avoid JavaScript call-stack exhaustion while preserving TS-Go's left-to-right checks and result types."}
  *
  * Go source:
  * func (c *Checker) checkBinaryExpression(node *ast.Node, checkMode CheckMode) *Type {

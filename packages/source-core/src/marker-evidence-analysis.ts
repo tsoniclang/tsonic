@@ -6,6 +6,9 @@ import type {
   ExtensionFactKey,
   SourceAnalysisContext,
 } from "@tsonic/tsts";
+import type {
+  TsonicSourceFileAnalysisContext,
+} from "./source-analysis-context.js";
 import {
   tsonicCoreLangModule,
   tsonicCoreProviderVersion,
@@ -46,10 +49,10 @@ const sourceMarkerRules = Object.freeze([
 ] satisfies readonly SourceMarkerRule[]);
 
 export function analyzeTsonicSourceMarkerEvidence(context: SourceAnalysisContext): void {
-  forEachSelectedProviderSourceCall(context, (selected): void => {
+  forEachSelectedProviderSourceCall(context, (selected, sourceContext): void => {
     for (const rule of sourceMarkerRules) {
-      if (selectedProviderCallMatches(selected, rule.selector, context)) {
-        rule.validate(selected, context);
+      if (selectedProviderCallMatches(selected, rule.selector, sourceContext)) {
+        rule.validate(selected, sourceContext);
         return;
       }
     }
@@ -60,7 +63,7 @@ interface SourceMarkerRule {
   readonly selector: ProviderSourceCallSelector;
   readonly validate: (
     selected: SelectedProviderSourceCall,
-    context: SourceAnalysisContext,
+    context: TsonicSourceFileAnalysisContext,
   ) => void;
 }
 
@@ -111,7 +114,7 @@ interface SourceMarkerValidation<TFact> {
 
 function validateSourceMarker<TFact>(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   rule: SourceMarkerValidation<TFact>,
 ): void {
   if (readSourceFact(context, selected.call, rule.factKey) !== undefined) {

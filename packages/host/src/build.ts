@@ -10,7 +10,7 @@ import type {
 } from "@tsonic/target-api";
 import { createCompilerSession } from "@tsonic/tsts";
 import {
-  collectResolvedSourceFilesForBackend,
+  collectProjectSourceFiles,
   collectTargetRuntimeContributions,
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
@@ -139,8 +139,8 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     }
     const targetPaths = getTargetCompilationPaths(paths, target);
     const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
-      session.ast,
-      session.sourceFiles,
+      session.source.ast,
+      collectProjectSourceFiles(session.source),
       selectedCapabilities,
     );
     const runtimeContributions = collectTargetRuntimeContributions({
@@ -158,9 +158,6 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     }
     const backendCompileResult = compileTargetFromSemanticSession(
       session,
-      input.project,
-      target,
-      targetPack,
       targetPaths,
       runtimeContributions.references,
     );
@@ -209,7 +206,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
 
 function createCapabilityActivationContext(input: CompileProjectInput): {
   readonly ast: ReturnType<typeof createCompilerSession>["ast"];
-  readonly sourceFiles: ReturnType<typeof collectResolvedSourceFilesForBackend>;
+  readonly sourceFiles: ReturnType<typeof collectProjectSourceFiles>;
 } {
   const activationSession = createCompilerSession({
     programOptions: createProgramOptionsForProject(input).programOptions,
@@ -217,7 +214,7 @@ function createCapabilityActivationContext(input: CompileProjectInput): {
   activationSession.ensureBound();
   return {
     ast: activationSession.ast,
-    sourceFiles: collectResolvedSourceFilesForBackend(activationSession),
+    sourceFiles: collectProjectSourceFiles(activationSession),
   };
 }
 

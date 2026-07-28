@@ -6,6 +6,9 @@ import type {
   Node,
   SourceAnalysisContext,
 } from "@tsonic/tsts";
+import type {
+  TsonicSourceFileAnalysisContext,
+} from "./source-analysis-context.js";
 import {
   tsonicAttributeBuilderFactKey,
 } from "./attribute-builder-facts.js";
@@ -40,7 +43,7 @@ interface AttributeBuilderRule {
   readonly selector: ProviderSourceCallSelector;
   readonly analyze: (
     selected: SelectedProviderSourceCall,
-    context: SourceAnalysisContext,
+    context: TsonicSourceFileAnalysisContext,
   ) => void;
 }
 
@@ -108,10 +111,10 @@ const attributeBuilderRules = Object.freeze([
 ] satisfies readonly AttributeBuilderRule[]);
 
 export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): void {
-  forEachSelectedProviderSourceCall(context, (selected): void => {
+  forEachSelectedProviderSourceCall(context, (selected, sourceContext): void => {
     for (const candidate of attributeBuilderRules) {
-      if (selectedProviderCallMatches(selected, candidate.selector, context)) {
-        candidate.analyze(selected, context);
+      if (selectedProviderCallMatches(selected, candidate.selector, sourceContext)) {
+        candidate.analyze(selected, sourceContext);
         return;
       }
     }
@@ -158,7 +161,7 @@ function memberSelector(
 
 function analyzeAttributeRoot(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): void {
   const attribute = readSourceFact(context, selected.call, attributeFactKey);
   if (attribute === undefined) {
@@ -179,7 +182,7 @@ function analyzeAttributeRoot(
 
 function analyzeAttributeSelector(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   memberKind: TsonicAttributeApplicationMemberKind,
 ): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
@@ -201,7 +204,7 @@ function analyzeAttributeSelector(
 
 function analyzeAttributeConstructor(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor !== undefined) {
@@ -214,7 +217,7 @@ function analyzeAttributeConstructor(
 
 function analyzeAttributeParameter(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
@@ -239,7 +242,7 @@ function analyzeAttributeParameter(
 
 function analyzeAttributeTargetSpecifier(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
@@ -264,7 +267,7 @@ function analyzeAttributeTargetSpecifier(
 
 function analyzeAttributeApplication(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
@@ -308,7 +311,7 @@ function analyzeAttributeApplication(
 
 function getAttributeBuilderPredecessor(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): TsonicAttributeBuilderStateFact | undefined {
   const receiver = selected.selection.sourceReceiver?.expression;
   if (receiver === undefined) {
@@ -328,7 +331,7 @@ interface SelectedInlineMember {
 
 function selectedInlineMember(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): SelectedInlineMember | undefined {
   const inlineFunction = selected.selection.sourceArguments[0]?.expression;
   if (
@@ -412,7 +415,7 @@ function selectedReceiverMatchesParameter(
 
 function singleReturnedExpression(
   inlineFunction: Node,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): Node | undefined {
   const body = context.ast.body(inlineFunction);
   if (body === undefined) {
@@ -430,7 +433,7 @@ function singleReturnedExpression(
 
 function collectReturnExpressions(
   node: Node,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   returned: Node[],
   root: boolean,
 ): void {
@@ -451,7 +454,7 @@ function collectReturnExpressions(
   }
 }
 
-function isFunctionBoundary(node: Node, context: SourceAnalysisContext): boolean {
+function isFunctionBoundary(node: Node, context: TsonicSourceFileAnalysisContext): boolean {
   return context.ast.is.IsArrowFunction(node) ||
     context.ast.is.IsFunctionExpression(node) ||
     context.ast.is.IsFunctionDeclaration(node) ||
@@ -462,7 +465,7 @@ function isFunctionBoundary(node: Node, context: SourceAnalysisContext): boolean
 
 function unwrapParentheses(
   node: Node | undefined,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
 ): Node | undefined {
   let current = node;
   while (current !== undefined && context.ast.is.IsParenthesizedExpression(current)) {
@@ -473,7 +476,7 @@ function unwrapParentheses(
 
 function authoredStringArgument(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   index: number,
 ): string | undefined {
   const argument = selected.selection.sourceArguments[index]?.expression;
@@ -489,7 +492,7 @@ function authoredStringArgument(
 
 function writeAttributeBuilderFact(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   fact: TsonicAttributeBuilderFact,
 ): void {
   const result = context.facts.set(
@@ -513,7 +516,7 @@ function writeAttributeBuilderFact(
 
 function appendSelectorDiagnostic(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   extensionCode: string,
   numericCode: number,
   message: string,
@@ -523,7 +526,7 @@ function appendSelectorDiagnostic(
 
 function appendDiagnostic(
   selected: SelectedProviderSourceCall,
-  context: SourceAnalysisContext,
+  context: TsonicSourceFileAnalysisContext,
   extensionCode: string,
   numericCode: number,
   message: string,
