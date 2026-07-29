@@ -116,8 +116,10 @@ test("CLI pure C# profile rejects non-integral inferred CLR array indexes", asyn
 
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout + result.stderr, /TS9100109: C# native array element access requires an integral TSTS\/provider-backed index type\./u);
-  assert.match(result.stdout + result.stderr, /Artifacts: 0/u);
+  const output = result.stdout + result.stderr;
+  assert.match(output, /ERROR tsonic-csharp:TS9100109 .*\/src\/App\.ts:3:9:/u);
+  assert.match(output, /C# native array element access requires an integral TSTS\/provider-backed index type\./u);
+  assert.match(output, /Artifacts: 0/u);
 });
 
 test("CLI exact provider calls reject conditional arguments with incompatible target carriers", async () => {
@@ -143,8 +145,11 @@ test("CLI exact provider calls reject conditional arguments with incompatible ta
   });
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout + result.stderr, /TS9100100: C# provider could not map checked call 'Slice'/u);
-  assert.match(result.stdout + result.stderr, /Artifacts: 0/u);
+  const output = result.stdout + result.stderr;
+  assert.match(output, /ERROR tsonic-csharp:CSHARP_TARGET_CALL_NOT_CLOSED .*\/src\/App\.ts:7:9:/u);
+  assert.match(output, /Source argument 1 with C# representation 'source:float64' cannot satisfy exact target parameter 'length' with representation 'source:int32' through an implicit conversion\./u);
+  assert.match(output, /No exact C# implicit conversion relates 'source:float64' to 'source:int32'\./u);
+  assert.match(output, /Artifacts: 0/u);
 });
 
 test("CLI pure C# source profile rejects JS names without JS surface", async () => {
