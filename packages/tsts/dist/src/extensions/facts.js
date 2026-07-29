@@ -159,7 +159,7 @@ function snapshotArgumentPassingFact(value) {
     if (!isArgumentPassingMode(mode)) {
         throw new Error(`ArgumentPassingFact.mode '${mode}' is invalid.`);
     }
-    const targetExpression = optionalSubject(record, "targetExpression", "ArgumentPassingFact");
+    const targetExpression = optionalNode(record, "targetExpression", "ArgumentPassingFact");
     return Object.freeze({
         mode,
         ...(targetExpression === undefined ? {} : { targetExpression }),
@@ -168,8 +168,8 @@ function snapshotArgumentPassingFact(value) {
 function snapshotFunctionPointerFact(value) {
     const record = exactRecord(value, "FunctionPointerFact", ["parameters", "result", "abi"]);
     return Object.freeze({
-        parameters: subjectArray(record.parameters, "FunctionPointerFact.parameters"),
-        result: requiredSubject(record, "result", "FunctionPointerFact"),
+        parameters: nodeArray(record.parameters, "FunctionPointerFact.parameters"),
+        result: requiredNode(record, "result", "FunctionPointerFact"),
         abi: stringArray(record.abi, "FunctionPointerFact.abi"),
     });
 }
@@ -180,7 +180,7 @@ function snapshotPointerFact(value) {
         throw new Error(`PointerFact.mutability '${mutability}' is invalid.`);
     }
     return Object.freeze({
-        pointee: requiredSubject(record, "pointee", "PointerFact"),
+        pointee: requiredNode(record, "pointee", "PointerFact"),
         mutability,
         unsafeRequired: requiredBoolean(record, "unsafeRequired", "PointerFact"),
     });
@@ -198,15 +198,15 @@ function snapshotFieldFact(value) {
     const readonly = optionalBoolean(record, "readonly", "FieldFact");
     return Object.freeze({
         name: requiredString(record, "name", "FieldFact"),
-        type: requiredSubject(record, "type", "FieldFact"),
+        type: requiredNode(record, "type", "FieldFact"),
         ...(readonly === undefined ? {} : { readonly }),
     });
 }
 function snapshotAttributeFact(value) {
     const record = exactRecord(value, "AttributeFact", ["target", "attributeName", "arguments"]);
-    const args = optionalSubjectArray(record.arguments, "AttributeFact.arguments");
+    const args = optionalNodeArray(record.arguments, "AttributeFact.arguments");
     return Object.freeze({
-        target: requiredSubject(record, "target", "AttributeFact"),
+        target: requiredNode(record, "target", "AttributeFact"),
         attributeName: requiredString(record, "attributeName", "AttributeFact"),
         ...(args === undefined ? {} : { arguments: args }),
     });
@@ -214,7 +214,7 @@ function snapshotAttributeFact(value) {
 function snapshotDefaultValueFact(value) {
     const record = exactRecord(value, "DefaultValueFact", ["type"]);
     return Object.freeze({
-        type: requiredSubject(record, "type", "DefaultValueFact"),
+        type: requiredNode(record, "type", "DefaultValueFact"),
     });
 }
 function snapshotFlowStateFact(value) {
@@ -473,6 +473,16 @@ function optionalSubject(record, field, name) {
     }
     return value;
 }
+function requiredNode(record, field, name) {
+    const value = requiredSubject(record, field, name);
+    if (!("Kind" in value) || typeof value.Kind !== "number") {
+        throw new Error(`${name}.${field} must be a compiler source node.`);
+    }
+    return value;
+}
+function optionalNode(record, field, name) {
+    return record[field] === undefined ? undefined : requiredNode(record, field, name);
+}
 function requiredArray(value, name, snapshot) {
     if (!Array.isArray(value)) {
         throw new Error(`${name} must be an array.`);
@@ -493,8 +503,25 @@ function subjectArray(value, name) {
         return subject;
     }));
 }
+function nodeArray(value, name) {
+    if (!Array.isArray(value)) {
+        throw new Error(`${name} must be an array.`);
+    }
+    return Object.freeze(value.map((node, index) => {
+        if (typeof node !== "object" ||
+            node === null ||
+            !("Kind" in node) ||
+            typeof node.Kind !== "number") {
+            throw new Error(`${name}[${index}] must be a compiler source node.`);
+        }
+        return node;
+    }));
+}
 function optionalSubjectArray(value, name) {
     return value === undefined ? undefined : subjectArray(value, name);
+}
+function optionalNodeArray(value, name) {
+    return value === undefined ? undefined : nodeArray(value, name);
 }
 function stringArray(value, name) {
     if (!Array.isArray(value)) {

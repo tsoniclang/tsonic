@@ -1,4 +1,5 @@
 import type { ExtensionFactSubject, ProviderWellKnownSymbolName } from "./host.js";
+import type { Node } from "../internal/ast/ast.js";
 import { type ArgumentPassingMode } from "./argument-passing.js";
 export type { ArgumentPassingMode } from "./argument-passing.js";
 export type ExtensionCanonicalIdentityKind = "module" | "package" | "export" | "local-alias" | "symbol" | "type" | "signature" | "instantiated-type";
@@ -23,15 +24,15 @@ export interface SourcePrimitiveFact {
 }
 export interface ArgumentPassingFact {
     readonly mode: ArgumentPassingMode;
-    readonly targetExpression?: ExtensionFactSubject;
+    readonly targetExpression?: Node;
 }
 export interface FunctionPointerFact {
-    readonly parameters: readonly ExtensionFactSubject[];
-    readonly result: ExtensionFactSubject;
+    readonly parameters: readonly Node[];
+    readonly result: Node;
     readonly abi: readonly string[];
 }
 export interface PointerFact {
-    readonly pointee: ExtensionFactSubject;
+    readonly pointee: Node;
     readonly mutability: SourcePointerMutability;
     readonly unsafeRequired: boolean;
 }
@@ -41,16 +42,16 @@ export interface StructFact {
 }
 export interface FieldFact {
     readonly name: string;
-    readonly type: ExtensionFactSubject;
+    readonly type: Node;
     readonly readonly?: boolean;
 }
 export interface AttributeFact {
-    readonly target: ExtensionFactSubject;
+    readonly target: Node;
     readonly attributeName: string;
-    readonly arguments?: readonly ExtensionFactSubject[];
+    readonly arguments?: readonly Node[];
 }
 export interface DefaultValueFact {
-    readonly type: ExtensionFactSubject;
+    readonly type: Node;
 }
 export interface FlowStateFact {
     readonly state: "moved" | "borrowed-shared" | "borrowed-mut";

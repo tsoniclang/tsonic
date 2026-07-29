@@ -29,28 +29,31 @@ export type {
   TsonicTargetCapabilityPlugin,
   TsonicTargetPlugin,
 } from "./plugins.js";
-export type {
-  TargetLazySourceAnalysis,
-  TargetSourceAccessKind,
-  TargetSourceCallsiteKind,
-  TargetSourceCallsite,
-  TargetSourceReferenceRecord,
-  TargetSourceUseOperation,
-  TargetSourceUseRecord,
-} from "./analysis/types.js";
-export {
-  createLazyTargetSourceAnalysis,
-} from "./analysis/lazy.js";
 export {
   isTsonicSourceProfileDeclarationPath,
   normalizeTargetSourceProfileSegment,
   targetSourceProfileDeclaration,
   tsonicSourceProfileVirtualDirectory,
 } from "./source-profile.js";
+export {
+  getStaticModuleReference,
+} from "./module-reference.js";
+export type {
+  StaticModuleReference,
+} from "./module-reference.js";
 export type {
   TargetSourceProfileContributions,
   TargetSourceProfileDeclaration,
 } from "./source-profile.js";
+export {
+  createSourceProgramNavigation,
+} from "./source-navigation/index.js";
+export type {
+  SourceProgramNavigation,
+  SourceProjectMemberDispatch,
+  SourceProjectModuleDependency,
+  SourceProjectReference,
+} from "./source-navigation/index.js";
 export type {
   TargetBackend,
   TargetBackendContext,

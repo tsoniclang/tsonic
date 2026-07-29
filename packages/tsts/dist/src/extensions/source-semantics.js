@@ -343,7 +343,7 @@ function recordAttributeMarker(facts, callExpression, evidence) {
     const fact = {
         target,
         attributeName: getTypeReferenceNameText(target),
-        arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
+        arguments: definedNodes(Node_Arguments(callExpression) ?? []),
     };
     facts.set(callExpression, attributeFactKey, fact, evidence);
     recordInitializerOwnerFact(facts, callExpression, attributeFactKey, fact, evidence);
@@ -470,7 +470,7 @@ function getFunctionPointerParameters(parameterList) {
         return [];
     }
     if (parameterList.Kind === KindTupleType) {
-        return definedFactSubjects(Node_Elements(parameterList) ?? []);
+        return definedNodes(Node_Elements(parameterList) ?? []);
     }
     return [parameterList];
 }
@@ -778,7 +778,7 @@ function visitSourceSemanticsNodePost(node, visit) {
     });
     visit(node);
 }
-function definedFactSubjects(subjects) {
+function definedNodes(subjects) {
     return subjects.filter((subject) => subject !== undefined);
 }
 function recordNamespaceImportIdentity(facts, namespaceImport, moduleIdentity, typedImport) {
