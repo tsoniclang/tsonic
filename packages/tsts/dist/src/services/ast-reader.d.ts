@@ -33,6 +33,8 @@ export interface AstReader {
     readonly hasModifierKind: (node: GoPtr<Node>, kind: AstModifierKind) => boolean;
     /** Classifies a variable statement, declaration list, or direct variable declaration. */
     readonly variableDeclarationKind: (node: GoPtr<Node>) => AstVariableDeclarationKind | undefined;
+    /** Uses TS-Go's canonical grammar predicate for `as const` and `<const>` assertions. */
+    readonly isConstAssertion: (node: GoPtr<Node>) => boolean;
     readonly heritageElements: (node: GoPtr<Node>, kind: "extends" | "implements") => readonly GoPtr<Node>[];
     readonly extendsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly implementsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
