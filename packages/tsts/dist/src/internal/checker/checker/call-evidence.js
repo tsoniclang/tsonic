@@ -21,7 +21,10 @@ export function retainIdentifierCallCalleeEvidence(checker, identifier, sourceSy
     const sourceDeclaration = aliasDeclaration(canonicalSourceSymbol)
         ?? canonicalSourceSymbol?.ValueDeclaration;
     const selectedDeclaration = canonicalSelectedSymbol?.ValueDeclaration;
-    const authoredTypeNode = Node_Type(selectedDeclaration ?? sourceDeclaration);
+    const declaration = selectedDeclaration ?? sourceDeclaration;
+    const authoredTypeNode = declaration === undefined
+        ? undefined
+        : Node_Type(declaration);
     retainCallSelectionSeed(checker, callExpression, {
         calleeProvenance: Object.freeze({
             ...(canonicalSourceSymbol === undefined ? {} : { symbol: canonicalSourceSymbol }),
@@ -219,7 +222,10 @@ function mergeIdentity(existing, incoming, subject, field) {
     return existing ?? incoming;
 }
 function selectionProvenance(sourceSymbol, sourceDeclaration, selectedSymbol, selectedDeclaration) {
-    const authoredTypeNode = Node_Type(selectedDeclaration ?? sourceDeclaration);
+    const declaration = selectedDeclaration ?? sourceDeclaration;
+    const authoredTypeNode = declaration === undefined
+        ? undefined
+        : Node_Type(declaration);
     return Object.freeze({
         ...(sourceSymbol === undefined ? {} : { symbol: sourceSymbol }),
         ...(sourceDeclaration === undefined ? {} : { declaration: sourceDeclaration }),

@@ -6870,6 +6870,7 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
                 if (Checker_isErrorType(receiver, apparentType)) {
                     return receiver.errorType;
                 }
+                retainAnyLikePropertyAccessSelection(selected, node, apparentType, parentSymbol, lexicallyScopedSymbol, writeOnly);
                 return apparentType;
             }
             if (getContainingClassExcludingClassDecorators(right) === undefined) {
@@ -6904,6 +6905,7 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
             if (Checker_isErrorType(receiver, apparentType)) {
                 return receiver.errorType;
             }
+            retainAnyLikePropertyAccessSelection(selected, node, apparentType, parentSymbol, undefined, writeOnly);
             return apparentType;
         }
         prop = Checker_getPropertyOfTypeEx(receiver, apparentType, Node_Text(right), isConstEnumObjectType(apparentType), node.Kind === KindQualifiedName);
@@ -7016,6 +7018,30 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
         selected.selectedDeclaration ??= selected.selectedSymbol?.ValueDeclaration ?? selectedDeclaration;
     }
     return resultType;
+}
+function retainAnyLikePropertyAccessSelection(selected, node, resultType, receiverSymbol, selectedSymbol, writeOnly) {
+    if (selected === undefined || resultType === undefined) {
+        return;
+    }
+    const selectionMode = writeOnly || IsWriteOnlyAccess(node)
+        ? "write"
+        : "read";
+    const accessMode = checkedAccessMode(node);
+    selected.selected = true;
+    selected.selectionMode = selectionMode;
+    selected.readType = accessMode === "read-write"
+        ? resultType
+        : undefined;
+    selected.writeType = accessMode === "read-write"
+        ? resultType
+        : undefined;
+    selected.receiverType = resultType;
+    selected.receiverSymbol = receiverSymbol;
+    selected.receiverDeclaration = receiverSymbol?.ValueDeclaration;
+    selected.sourceSymbol = selectedSymbol;
+    selected.sourceDeclaration = selectedSymbol?.ValueDeclaration;
+    selected.selectedSymbol = selectedSymbol;
+    selected.selectedDeclaration = selectedSymbol?.ValueDeclaration;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeOfPropertyInBaseClass","kind":"method","status":"implemented","sigHash":"f429e3448e243a96790f7e608ac1240f166fa762fbd29c79e0b3abd8d52fa687","bodyHash":"5844e62bf2a33e6d735f57fb4a67188f1a2ba554a76c00b10bdb8f0a1bdc3faa"}
