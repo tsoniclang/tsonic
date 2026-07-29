@@ -47,6 +47,11 @@ export type {
 } from "./source-profile.js";
 export {
   createSourceProgramNavigation,
+  sourceFileIdentity,
+  sourceNodeIdentity,
+  sourceNodesEqual,
+  sourceSymbolIdentity,
+  sourceSymbolsEqual,
 } from "./source-navigation/index.js";
 export type {
   SourceProgramNavigation,

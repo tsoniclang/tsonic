@@ -133,3 +133,10 @@ export type {
   SourceProjectModuleDependency,
   SourceProjectReference,
 } from "./types.js";
+export {
+  sourceFileIdentity,
+  sourceNodeIdentity,
+  sourceNodesEqual,
+  sourceSymbolIdentity,
+  sourceSymbolsEqual,
+} from "./identity.js";
