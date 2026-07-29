@@ -1,4 +1,4 @@
-import { Node_Arguments, Node_Body, Node_Elements, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_Statements, Node_Text, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Body, Node_Elements, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { KindString } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
@@ -33,6 +33,7 @@ export function createAstReader() {
         arguments: (node) => Node_Arguments(node) ?? [],
         elements: (node) => Node_Elements(node) ?? [],
         properties: (node) => Node_Properties(node) ?? [],
+        questionToken: (node) => node === undefined ? undefined : Node_QuestionToken(node),
         modifiers: (node) => Node_ModifierNodes(node) ?? [],
         modifierFlags: (node) => node === undefined ? 0 : Node_ModifierFlags(node),
         hasModifier: (node, flags) => node !== undefined && HasModifier(node, flags) === true,

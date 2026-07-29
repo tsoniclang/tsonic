@@ -22,6 +22,8 @@ export interface AstReader {
     readonly arguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly elements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly properties: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    /** Returns the exact `?` token owned by nodes whose schema permits one. */
+    readonly questionToken: (node: GoPtr<Node>) => GoPtr<Node>;
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifierFlags: (node: GoPtr<Node>) => number;
     readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;

@@ -15,7 +15,7 @@ test("vendored TSTS artifact exposes only the public package root", async () => 
   assert.equal(typeof root.createAstReader, "function");
   assert.equal(typeof root.createTypeCheckerQueries, "function");
   assert.equal(typeof root.createTypeShapeQueries, "function");
-  assert.equal(typeof root.createExtensionConsumerQueries, "function");
+  assert.equal(typeof root.createSourceFactQueries, "function");
   assert.equal(root.createCompilerSessionFromFiles, explicitIndex.createCompilerSessionFromFiles);
 
   await assert.rejects(
