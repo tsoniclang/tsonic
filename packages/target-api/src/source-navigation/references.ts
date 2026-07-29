@@ -123,7 +123,10 @@ export function createSourceReferenceNavigation(
       queries.checker,
       node,
     );
-    const symbols = [directSymbol, resolvedSymbol].flatMap((symbol) =>
+    const selectedSymbols = ast.is.IsShorthandPropertyAssignment(ast.parent(node))
+      ? [resolvedSymbol, directSymbol]
+      : [directSymbol, resolvedSymbol];
+    const symbols = selectedSymbols.flatMap((symbol) =>
       symbol === undefined
         ? []
         : [

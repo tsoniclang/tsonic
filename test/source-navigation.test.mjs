@@ -121,6 +121,31 @@ test("source navigation proves references outside an exact excluded subtree", as
   assert.equal(navigation.hasReferenceOutside(usedSymbol, sourceFile), false);
 });
 
+test("source navigation resolves shorthand values through the checker-selected value symbol", async () => {
+  const source = await checkedSource("shorthand-value-reference", {
+    "src/index.ts": [
+      "export function make(value: number) {",
+      "  return { value };",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const ast = source.ast;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const parameter = requiredNode(ast, sourceFile, (node) =>
+    ast.is.IsParameterDeclaration(node) &&
+    ast.text(ast.name(node)) === "value");
+  const shorthand = requiredNode(ast, sourceFile, (node) =>
+    ast.is.IsShorthandPropertyAssignment(node));
+  const reference = ast.name(shorthand);
+
+  assert.notEqual(reference, undefined);
+  assert.strictEqual(
+    createSourceProgramNavigation(source).referenceFor(reference)?.declaration,
+    parameter,
+  );
+});
+
 test("source navigation classifies runtime import and export dependencies exactly", async () => {
   const cases = [
     moduleCase("side-effect", true, (path) => `import "${path}";`),
