@@ -26,12 +26,7 @@ import type {
 export function createSourceProgramNavigation(
   source: CheckedSourceProgram,
 ): SourceProgramNavigation {
-  const sourceFiles = source.sourceFiles.filter(
-    (sourceFile): sourceFile is SourceFile =>
-      sourceFile !== undefined &&
-      !sourceFile.IsDeclarationFile &&
-      !source.ast.getFileName(sourceFile).startsWith("tsts-provider://"),
-  );
+  const sourceFiles = sourceProjectFiles(source);
   const sourceFileSet = new Set(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
@@ -87,6 +82,7 @@ export function createSourceProgramNavigation(
   };
 
   return Object.freeze({
+    sourceFiles,
     referenceFor: references.referenceFor,
     declarationFor: references.declarationFor,
     moduleDependencies,
@@ -103,6 +99,17 @@ export function createSourceProgramNavigation(
     isProjectConstructibleObject,
     isProjectDeclaration: references.isProjectDeclaration,
   });
+}
+
+export function sourceProjectFiles(
+  source: CheckedSourceProgram,
+): readonly SourceFile[] {
+  return Object.freeze(source.sourceFiles.filter(
+    (sourceFile): sourceFile is SourceFile =>
+      sourceFile !== undefined &&
+      !sourceFile.IsDeclarationFile &&
+      !source.ast.getFileName(sourceFile).startsWith("tsts-provider://"),
+  ));
 }
 
 function acceptsNoConstructorArguments(

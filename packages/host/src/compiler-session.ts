@@ -1,9 +1,7 @@
 import { createCompilerSession } from "@tsonic/tsts";
 import type {
-  AstReader,
   CheckedSourceProgram,
   ProgramOptions,
-  SourceFile,
 } from "@tsonic/tsts";
 import type {
   TargetCompileInput,
@@ -82,17 +80,6 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
     source: compiler.checkSource(),
     targetContext,
   };
-}
-
-export function collectProjectSourceFiles(source: {
-  readonly ast: AstReader;
-  readonly getSourceFiles: () => readonly (SourceFile | undefined)[];
-}): readonly SourceFile[] {
-  return source.getSourceFiles()
-    .filter((sourceFile): sourceFile is SourceFile =>
-      sourceFile !== undefined &&
-      !sourceFile.IsDeclarationFile &&
-      !source.ast.getFileName(sourceFile).startsWith("tsts-provider://"));
 }
 
 export function compileTargetFromSemanticSession(

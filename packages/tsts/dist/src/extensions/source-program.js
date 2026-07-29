@@ -6,7 +6,13 @@ export function createSourceProgramQueries(program, options = {}) {
     if (program === undefined) {
         throw new Error("Source program queries require a compiler program.");
     }
-    const ast = createAstReader();
+    const ast = options.ast ?? createAstReader();
+    const checker = options.checker ?? createTypeCheckerQueries(program, {
+        ...(options.context === undefined ? {} : { context: options.context }),
+    });
+    const typeShape = options.typeShape ?? createTypeShapeQueries(program, {
+        ...(options.context === undefined ? {} : { context: options.context }),
+    });
     const sourceFileQueries = new WeakMap();
     const included = (sourceFile) => options.includeSourceFile?.(sourceFile) !== false;
     const getSourceFiles = () => (Program_GetSourceFiles(program) ?? []).filter((sourceFile) => sourceFile !== undefined && included(sourceFile));
@@ -27,20 +33,16 @@ export function createSourceProgramQueries(program, options = {}) {
         const created = Object.freeze({
             sourceFile,
             ast,
-            checker: createTypeCheckerQueries(program, {
-                sourceFile,
-                ...(options.context === undefined ? {} : { context: options.context }),
-            }),
-            typeShape: createTypeShapeQueries(program, {
-                sourceFile,
-                ...(options.context === undefined ? {} : { context: options.context }),
-            }),
+            checker,
+            typeShape,
         });
         sourceFileQueries.set(sourceFile, created);
         return created;
     };
     return Object.freeze({
         ast,
+        checker,
+        typeShape,
         getSourceFiles,
         getSourceFile,
         getSourceFileQueries,

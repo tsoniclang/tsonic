@@ -35,14 +35,13 @@ export function sourceSymbolHasReferenceOutside(
         source.ast,
         checker,
         node,
-        sourceFile,
       );
       if (
         sourceSymbolsEqual(source.ast, checker, direct, symbol) ||
         sourceSymbolsEqual(
           source.ast,
           checker,
-          aliasedSymbol(source.ast, checker, direct, sourceFile),
+          aliasedSymbol(source.ast, checker, direct),
           symbol,
         )
       ) {

@@ -41,21 +41,6 @@ export function createSourceSemanticsExtension(options) {
         identity: {
             id: sourceSemanticsExtensionId,
             version: "1.0.0",
-            capabilityNamespace: sourceSemanticsExtensionId,
-        },
-        composition: {
-            kind: "source",
-        },
-        capabilities: {
-            provides: [
-                "source-semantics.primitives",
-                "source-semantics.argument-passing",
-                "source-semantics.pointer-types",
-                "source-semantics.flow-markers",
-                "source-semantics.structs",
-                "source-semantics.attributes",
-                "source-semantics.defaults",
-            ],
         },
         initialize(context) {
             context.registerFactResolver(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
@@ -257,7 +242,7 @@ function hasMarkerTypeArgumentCount(callExpression, count) {
 function recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, target, marker, evidence) {
     const fact = {
         mode: getArgumentPassingMode(marker.marker),
-        targetExpression: target,
+        storageExpression: target,
     };
     facts.set(callExpression, argumentPassingFactKey, fact, evidence);
     if (IsLeftHandSideExpression(target)) {
@@ -442,7 +427,7 @@ function recordSourceSemanticsTypeMarker(facts, typeReference, typeName, marker)
         }
         const fact = {
             pointee,
-            mutability: "target-defined",
+            mutability: "unspecified",
             unsafeRequired: true,
         };
         facts.set(typeReference, pointerFactKey, fact, evidence);

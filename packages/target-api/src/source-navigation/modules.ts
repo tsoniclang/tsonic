@@ -41,7 +41,6 @@ export function sourceProjectModuleDependencies(
       reference.declaration,
       reference.moduleSpecifier,
       reference.kind,
-      sourceFile,
       sourceFiles,
     );
     const dependencyKey = sourceFileIdentity(ast, dependency?.sourceFile);
@@ -64,17 +63,12 @@ function resolveRuntimeDependency(
   declaration: Node,
   moduleSpecifier: Node,
   kind: "import" | "export",
-  sourceFile: SourceFile,
   sourceFiles: ReadonlySet<string>,
 ): SourceProjectModuleDependency | undefined {
-  const moduleSymbol = checker.getModuleSymbolFromSpecifier(
-    moduleSpecifier,
-    { sourceFile },
-  );
+  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(
     moduleSymbol,
     false,
-    { sourceFile },
   ) ?? moduleSymbol;
   const resolvedSourceFile = ast.getSourceFile(
     primaryDeclaration(checker, resolvedModuleSymbol) ??

@@ -7,9 +7,9 @@ import type {
   AstReader,
   CompilerExtension,
   ExtensionEvidence,
-  ExtensionFactStore,
   FieldFact,
   Node,
+  SourceAnalysisFactAccess,
 } from "@tsonic/tsts";
 import {
   analyzeTsonicAttributeBuilders,
@@ -33,10 +33,6 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
     identity: {
       id: tsonicCoreSourceExtensionId,
       version: tsonicCoreProviderVersion,
-      capabilityNamespace: "tsonic.source-core",
-    },
-    composition: {
-      kind: "source",
     },
     dependencies: {
       dependsOn: [sourceSemanticsExtensionId],
@@ -170,7 +166,7 @@ function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader)
 function validateTsonicStructFacts(
   sourceFile: Node,
   ast: AstReader,
-  facts: ExtensionFactStore,
+  facts: SourceAnalysisFactAccess,
   diagnostics: DiagnosticSink,
 ): void {
   visitSourceFile(sourceFile, ast, (node): void => {
@@ -184,7 +180,7 @@ function validateTsonicStructFacts(
 function validateSourceCoreStructShape(
   callExpression: Node,
   ast: AstReader,
-  facts: ExtensionFactStore,
+  facts: SourceAnalysisFactAccess,
   diagnostics: DiagnosticSink,
 ): void {
   const shape = ast.arguments(callExpression)[0];

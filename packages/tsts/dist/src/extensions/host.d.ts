@@ -1,5 +1,6 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
+import type { Context } from "../go/context.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
 import type { SourcePrimitiveKind } from "./facts.js";
@@ -37,13 +38,11 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly dependencyCycle: 9000004;
     readonly initializationFailed: 9000007;
     readonly factStoreSealed: 9000008;
-    readonly consumerBeforeFinalization: 9000009;
     readonly invalidProvider: 9000010;
     readonly duplicateProvider: 9000015;
     readonly providerOwnershipConflict: 9000016;
     readonly providerResolutionFailed: 9000017;
     readonly invalidProviderDeclaration: 9000018;
-    readonly requiredFactMissing: 9000020;
     readonly providerContractMismatch: 9000021;
     readonly providerMissing: 9000022;
     readonly providerOwnershipFailed: 9000023;
@@ -57,7 +56,6 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly invalidDiagnosticSnapshot: 9000032;
     readonly factOwnershipViolation: 9000033;
     readonly invalidFactSnapshot: 9000034;
-    readonly invalidDependencyDirection: 9000037;
     readonly sourceAnalysisFailed: 9000038;
 };
 export declare const TstsSourceProviderContractVersion = "tsts.source-provider.1";
@@ -157,37 +155,40 @@ interface ProviderRegistrationSavepoint {
 export interface CompilerExtensionIdentity {
     readonly id: string;
     readonly version: string;
-    readonly capabilityNamespace: string;
     readonly diagnosticRange?: ExtensionDiagnosticRange;
 }
 export interface ExtensionDependencySpec {
     readonly dependsOn?: readonly string[];
     readonly runsAfter?: readonly string[];
 }
-export interface ExtensionCapabilitySpec {
-    readonly provides?: readonly string[];
-    readonly requires?: readonly string[];
-}
-export type CompilerExtensionKind = "source" | "tooling";
-export interface ExtensionCompositionSpec {
-    readonly kind: CompilerExtensionKind;
-}
 export interface CompilerExtension {
     readonly identity: CompilerExtensionIdentity;
     readonly dependencies?: ExtensionDependencySpec;
-    readonly capabilities?: ExtensionCapabilitySpec;
-    readonly composition?: ExtensionCompositionSpec;
     readonly initialize?: (context: ExtensionInitializeContext) => void;
     readonly analyzeSource?: (context: SourceAnalysisContext) => void;
 }
+export interface ExtensionDiagnosticWriter {
+    readonly append: (diagnostic: ExtensionDiagnostic) => boolean;
+}
+export interface ExtensionFactReader {
+    readonly get: <T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>) => T | undefined;
+    readonly getEntry: <T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>) => ExtensionFactEntry<T> | undefined;
+    readonly has: <T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>) => boolean;
+}
+export interface SourceAnalysisFactAccess extends ExtensionFactReader {
+    readonly set: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]) => ExtensionFactWriteResult;
+}
+export interface SourceAnalysisFactResolver {
+    readonly resolve: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>) => T | undefined;
+}
 export interface SourceAnalysisContext {
     readonly source: SourceProgramQueries;
-    readonly facts: ExtensionFactStore;
-    readonly factResolver: ExtensionFactResolver;
-    readonly diagnostics: ExtensionDiagnosticStore;
+    readonly facts: SourceAnalysisFactAccess;
+    readonly factResolver: SourceAnalysisFactResolver;
+    readonly diagnostics: ExtensionDiagnosticWriter;
 }
 export interface ExtensionInitializeContext {
-    readonly diagnostics: ExtensionDiagnosticStore;
+    readonly diagnostics: ExtensionDiagnosticWriter;
     readonly registerFactResolver: <T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>) => void;
     readonly registerSourceDeclarationProvider: (provider: SourceDeclarationProvider) => boolean;
 }
@@ -206,8 +207,8 @@ export interface ExtensionFactResolution<T> {
 }
 export type ExtensionFactResolverCallback<T> = (subject: ExtensionFactSubject, context: ExtensionFactResolverContext) => ExtensionFactResolution<T> | undefined;
 export interface ExtensionFactResolverContext {
-    readonly facts: ExtensionFactStore;
-    readonly diagnostics: ExtensionDiagnosticStore;
+    readonly facts: ExtensionFactReader;
+    readonly diagnostics: ExtensionDiagnosticWriter;
 }
 export interface ProviderIdentity {
     readonly id: string;
@@ -288,7 +289,7 @@ export interface ProviderTypeParameterDeclaration {
     readonly name: string;
     readonly constraints?: readonly ProviderTypeExpression[];
     readonly defaultType?: ProviderTypeExpression;
-    readonly variance?: "in" | "out" | "invariant" | "target-defined";
+    readonly variance?: "in" | "out" | "invariant";
 }
 export type ProviderTypeExpression = {
     readonly kind: "any";
@@ -606,13 +607,7 @@ export declare class ExtensionHost {
     [extensionHostRunSourceAnalysis](): void;
     finalizeSemantics(): void;
     get finalized(): boolean;
-    getCompilerQueryContext(): SourceProgramQueries;
-    assertFinalizedForConsumer(consumer: string): boolean;
-    getFactForConsumer<T>(consumer: string, subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
-    requireFactForConsumer<T>(consumer: string, subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T | undefined;
-    mustFactForConsumer<T>(consumer: string, subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T;
-    getFactsForConsumer(consumer: string, subject: ExtensionFactSubject | undefined): readonly ExtensionFactEntry<unknown>[];
-    getVirtualDeclarationDocumentForConsumer(consumer: string, uriOrFileName: string): ProviderVirtualDeclarationDocument | undefined;
+    getCompilerQueryContext(context?: Context): SourceProgramQueries;
 }
 export declare function attachExtensionHost<TProgram extends object>(program: TProgram, options?: ExtensionHostOptions): ExtendedProgram<TProgram>;
 export declare function attachExtensionHostToProgram<TProgram extends object>(hostOwner: object, program: TProgram, options?: AttachExtensionHostToProgramOptions): ExtendedProgram<TProgram> | undefined;

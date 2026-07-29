@@ -1,25 +1,20 @@
 import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 export class SourceFactQueries {
     #host;
-    #consumer;
-    constructor(host, consumer) {
+    constructor(host) {
+        if (!host.finalized) {
+            throw new Error("Source fact queries require finalized source-extension semantics.");
+        }
         this.#host = host;
-        this.#consumer = consumer;
     }
     getFact(subject, key) {
-        return this.#host.getFactForConsumer(this.#consumer, subject, key);
-    }
-    requireFact(subject, key, purpose) {
-        return this.#host.requireFactForConsumer(this.#consumer, subject, key, purpose);
-    }
-    mustFact(subject, key, purpose) {
-        return this.#host.mustFactForConsumer(this.#consumer, subject, key, purpose);
+        return this.#host.facts.get(subject, key);
     }
     getFacts(subject) {
-        return this.#host.getFactsForConsumer(this.#consumer, subject);
+        return this.#host.facts.entries(subject);
     }
     getVirtualDeclarationDocument(uriOrFileName) {
-        return this.#host.getVirtualDeclarationDocumentForConsumer(this.#consumer, uriOrFileName);
+        return this.#host.providers.getVirtualDeclarationDocument(uriOrFileName);
     }
     getCanonicalIdentity(subject) {
         return this.getFact(subject, canonicalIdentityFactKey);
@@ -64,7 +59,9 @@ export class SourceFactQueries {
         return this.getFact(subject, providerTypeFamilyFactKey);
     }
 }
-export function createSourceFactQueries(host, consumer) {
-    return new SourceFactQueries(host, consumer);
+export function createSourceFactQueries(host) {
+    const queries = new SourceFactQueries(host);
+    Object.freeze(queries);
+    return queries;
 }
 //# sourceMappingURL=consumer.js.map

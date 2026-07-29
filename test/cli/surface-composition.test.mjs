@@ -1,4 +1,4 @@
-import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetCompilerExtensions, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, ExtensionLifecycleEvent, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, targetOperationFactKey, TstsProviderContractVersion, repoRoot, tempRoot, createPortableOperationFactsExtension, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, fakePaths, createRegistry, extensionIds, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference } from "./surface-composition.helpers.mjs";
+import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetSourceCompilerComposition, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, fakePaths, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference } from "./surface-composition.helpers.mjs";
 
 test("vendored TSTS is a package artifact, not a checked-in source project", async () => {
   await assert.rejects(
@@ -15,7 +15,7 @@ test("vendored TSTS is a package artifact, not a checked-in source project", asy
 });
 test("host passes no selected surfaces to target provider when target requests none", () => {
   const events = [];
-  const targetExtension = { name: "target" };
+  const targetExtension = createFakeCompilerExtension("target");
   const targetPack = createFakeTargetPack(events, {
     targetExtension,
     surfaces: [
@@ -28,16 +28,16 @@ test("host passes no selected surfaces to target provider when target requests n
   });
   const target = project.targets[0];
 
-  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(events, ["provider:demo:surfaces="]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), []);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
-  assert.equal(composition.extensions[1], targetExtension);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsts.source-semantics", "tsonic.source-core", "target"]);
+  assert.equal(composition.extensions[2], targetExtension);
 });
 test("host passes selected surfaces to the single target provider", () => {
   const events = [];
-  const targetExtension = { name: "target" };
+  const targetExtension = createFakeCompilerExtension("target");
   const targetPack = createFakeTargetPack(events, {
     targetExtension,
     surfaces: [
@@ -50,20 +50,20 @@ test("host passes selected surfaces to the single target provider", () => {
   });
   const target = project.targets[0];
 
-  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(target.surfaces, ["js"]);
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
-  assert.equal(composition.extensions[1], targetExtension);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsts.source-semantics", "tsonic.source-core", "target"]);
+  assert.equal(composition.extensions[2], targetExtension);
 });
 test("host composes installed target capabilities between target provider and surfaces", () => {
   const events = [];
-  const targetExtension = { name: "target" };
-  const acmeExtension = { name: "capability-acme" };
-  const helpersExtension = { name: "capability-helpers" };
-  const jsExtension = { name: "surface-js" };
+  const targetExtension = createFakeCompilerExtension("target");
+  const acmeExtension = createFakeCompilerExtension("capability-acme");
+  const helpersExtension = createFakeCompilerExtension("capability-helpers");
+  const jsExtension = createFakeCompilerExtension("surface-js");
   const acme = createFakeTargetCapability("acme", { events, extension: acmeExtension });
   const helpers = createFakeTargetCapability("helpers", { events, extension: helpersExtension });
   const targetPack = createFakeTargetPack(events, {
@@ -78,8 +78,9 @@ test("host composes installed target capabilities between target provider and su
   });
   const target = project.targets[0];
 
-  const composition = createTargetCompilerExtensions({
+  const composition = createTargetSourceCompilerComposition({
     project,
+    projectDirectory: process.cwd(),
     target,
     targetPack,
     selectedCapabilities: [acme, helpers],
@@ -93,7 +94,7 @@ test("host composes installed target capabilities between target provider and su
     "capability-extension:helpers:target=demo:capabilities=acme,helpers",
     "surface-extension:js:target=demo:surfaces=js",
   ]);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "capability-acme", "capability-helpers", "surface-js"]);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsts.source-semantics", "tsonic.source-core", "target", "capability-acme", "capability-helpers", "surface-js"]);
 });
 test("host composes installed target capabilities as provider-owned virtual modules", async () => {
   const events = [];
@@ -127,9 +128,9 @@ test("host composes installed target capabilities as provider-owned virtual modu
 
   const session = createSemanticSession(projectDirectory, projectConfig, targetPack, [acme]);
   const diagnostics = collectTstsDiagnostics(session, projectDirectory);
-  const virtualFacts = session.compiler.getSourceFiles()
-    .filter((sourceFile) => sourceFile !== undefined && session.ast.getFileName(sourceFile).startsWith("tsts-provider://"))
-    .map((sourceFile) => session.facts.getFact(sourceFile, providerVirtualDeclarationFactKey))
+  const virtualFacts = session.source.getSourceFiles()
+    .filter((sourceFile) => sourceFile !== undefined && session.source.ast.getFileName(sourceFile).startsWith("tsts-provider://"))
+    .map((sourceFile) => session.source.sourceFacts.getFact(sourceFile, providerVirtualDeclarationFactKey))
     .filter((fact) => fact !== undefined)
     .map((fact) => ({
       providerId: fact.providerId,
@@ -168,31 +169,18 @@ test("host composes installed target capabilities as provider-owned virtual modu
     "provider-resolve:acme:@acme/alias/aliased.js:named:named as aliasNamed",
   ]);
 });
-test("non-C# target backend consumes portable operation and carrier facts without target helper facts", async () => {
+test("non-C# target backend consumes portable source-analysis facts directly", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     targetExtension: createPortableOperationFactsExtension(),
     onBackend(input) {
-      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("src/index.ts"));
+      const sourceFile = input.source.sourceFiles.find((candidate) => input.source.ast.getFileName(candidate).endsWith("src/index.ts"));
       assert.notEqual(sourceFile, undefined);
-      const expression = findBinaryExpression(input.ast, sourceFile);
-      const operation = input.facts.mustFact(expression, targetOperationFactKey, "neutral backend expression emission");
-      const carrier = input.targetFacts.resolveRuntimeCarrier(expression);
+      const expression = findBinaryExpression(input.source.ast, sourceFile);
+      const operation = input.source.sourceFacts.getFact(expression, portableOperationFactKey);
       assert.deepEqual(operation, {
-        operationId: "acme.neutral.operator.add",
-        operationKind: "operator",
-        targetOperation: "add",
-        resultType: { kind: "source-primitive", name: "float64" },
-      });
-      assert.deepEqual(carrier, {
-        kind: "resolved",
-        carrier: { kind: "source-primitive", name: "float64" },
-        evidence: [
-          {
-            message: "Runtime carrier resolved from an explicit provider/source-core fact.",
-            subject: expression,
-          },
-        ],
+        operator: "KindPlusToken",
+        resultType: "number",
       });
       events.push("backend-consumed-portable-operation-facts");
     },
@@ -213,8 +201,7 @@ test("non-C# target backend consumes portable operation and carrier facts withou
   });
 
   const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const project = parseTsonicProjectConfig(projectConfig);
-  const result = compileTargetFromSemanticSession(session, project, project.targets[0], targetPack, fakePaths(projectDirectory));
+  const result = compileTargetFromSemanticSession(session, fakePaths(projectDirectory));
 
   assert.deepEqual(collectTstsDiagnostics(session, projectDirectory), []);
   assert.deepEqual(result.diagnostics, []);
@@ -224,19 +211,19 @@ test("non-C# target backend fails closed when portable operation facts are missi
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     onBackend(input) {
-      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("src/index.ts"));
+      const sourceFile = input.source.sourceFiles.find((candidate) => input.source.ast.getFileName(candidate).endsWith("src/index.ts"));
       assert.notEqual(sourceFile, undefined);
-      const expression = findBinaryExpression(input.ast, sourceFile);
-      const operation = input.facts.requireFact(expression, targetOperationFactKey, "neutral backend expression emission");
-      const carrier = input.targetFacts.resolveRuntimeCarrier(expression);
+      const expression = findBinaryExpression(input.source.ast, sourceFile);
+      const operation = input.source.sourceFacts.getFact(expression, portableOperationFactKey);
       assert.equal(operation, undefined);
-      assert.equal(carrier.kind, "missing");
       return {
         artifacts: [],
         diagnostics: [
           {
             code: "DEMO_MISSING_PORTABLE_OPERATION_FACT",
-            message: `neutral backend expression emission requires portable targetOperation facts; ${carrier.reason}`,
+            category: "error",
+            message: "neutral backend expression emission requires the portable source-analysis fact",
+            source: "demo-backend",
           },
         ],
       };
@@ -258,30 +245,25 @@ test("non-C# target backend fails closed when portable operation facts are missi
   });
 
   const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const project = parseTsonicProjectConfig(projectConfig);
-  const result = compileTargetFromSemanticSession(session, project, project.targets[0], targetPack, fakePaths(projectDirectory));
+  const result = compileTargetFromSemanticSession(session, fakePaths(projectDirectory));
 
-  assert.match(
-    collectTstsDiagnostics(session, projectDirectory).map((diagnostic) => diagnostic.message).join("\n"),
-    /requires extension fact 'tsts\.target-bindings:targetOperation'/,
-  );
+  assert.deepEqual(collectTstsDiagnostics(session, projectDirectory), []);
   assert.equal(result.artifacts.length, 0);
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "DEMO_MISSING_PORTABLE_OPERATION_FACT");
   assert.match(result.diagnostics[0].message, /neutral backend expression emission/);
-  assert.match(result.diagnostics[0].message, /Runtime carrier fact is missing/);
 });
 test("host composes target provider extensions before selected surface extensions", () => {
   const events = [];
-  const targetExtension = { name: "target" };
-  const jsExtension = { name: "surface-js" };
-  const webExtension = { name: "surface-web" };
+  const targetExtension = createFakeCompilerExtension("target");
+  const jsExtension = createFakeCompilerExtension("surface-js");
+  const webExtension = createFakeCompilerExtension("surface-web");
   const targetPack = createFakeTargetPack(events, {
     targetExtension,
     surfaces: [
       createFakeSurface("js", { events, extension: jsExtension }),
       createFakeSurface("web", { events, requiredSurfaces: ["js"], extension: webExtension }),
-      createFakeSurface("webworker", { events, extension: { name: "unselected" } }),
+      createFakeSurface("webworker", { events, extension: createFakeCompilerExtension("unselected") }),
     ],
   });
   const project = parseTsonicProjectConfig({
@@ -290,7 +272,7 @@ test("host composes target provider extensions before selected surface extension
   });
   const target = project.targets[0];
 
-  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(events, [
     "provider:demo:surfaces=js,web",
@@ -298,15 +280,15 @@ test("host composes target provider extensions before selected surface extension
     "surface-extension:web:target=demo:surfaces=js,web",
   ]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js", "web"]);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target", "surface-js", "surface-web"]);
-  assert.equal(composition.extensions[1], targetExtension);
-  assert.equal(composition.extensions[2], jsExtension);
-  assert.equal(composition.extensions[3], webExtension);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsts.source-semantics", "tsonic.source-core", "target", "surface-js", "surface-web"]);
+  assert.equal(composition.extensions[2], targetExtension);
+  assert.equal(composition.extensions[3], jsExtension);
+  assert.equal(composition.extensions[4], webExtension);
 });
 test("host rejects stale or unowned supplied surface composition", () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
-    targetExtension: { name: "target" },
+    targetExtension: createFakeCompilerExtension("target"),
     surfaces: [
       createFakeSurface("js"),
     ],
@@ -319,7 +301,7 @@ test("host rejects stale or unowned supplied surface composition", () => {
   const copiedSurface = createFakeSurface("js");
 
   assert.throws(
-    () => createTargetCompilerExtensions({ project, target, targetPack, selectedSurfaces: [copiedSurface] }),
+    () => createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack, selectedSurfaces: [copiedSurface] }),
     /selected surface composition is stale or unowned/,
   );
   assert.deepEqual(events, []);
@@ -518,7 +500,7 @@ test("target registry rejects unsafe pack and required surface identifiers", () 
 });
 test("host does not pass unselected surfaces to the target provider", () => {
   const events = [];
-  const targetExtension = { name: "target" };
+  const targetExtension = createFakeCompilerExtension("target");
   const targetPack = createFakeTargetPack(events, {
     targetExtension,
     surfaces: [
@@ -532,12 +514,12 @@ test("host does not pass unselected surfaces to the target provider", () => {
   });
   const target = project.targets[0];
 
-  const composition = createTargetCompilerExtensions({ project, target, targetPack });
+  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
-  assert.deepEqual(extensionIds(composition.extensions), ["tsonic.source-core", "target"]);
-  assert.equal(composition.extensions[1], targetExtension);
+  assert.deepEqual(extensionIds(composition.extensions), ["tsts.source-semantics", "tsonic.source-core", "target"]);
+  assert.equal(composition.extensions[2], targetExtension);
 });
 test("host composes provider, selected surface, and backend artifacts for toolchain handoff", async () => {
   const events = [];

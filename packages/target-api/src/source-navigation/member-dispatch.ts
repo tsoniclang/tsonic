@@ -127,7 +127,7 @@ function memberOverridesBase(
   }
   const checker = source.getSourceFileQueries(sourceFile).checker;
   const declaration = checker.getPrimarySymbolDeclaration(
-    checker.getPropertyOfType(baseType, memberName, { sourceFile }),
+    checker.getPropertyOfType(baseType, memberName),
   );
   if (isDispatchMember(ast, declaration, isProjectDeclaration)) {
     return true;
@@ -206,9 +206,7 @@ function projectBaseClassType(
     return undefined;
   }
   return source.getSourceFileQueries(reference.sourceFile)
-    .checker.getDeclaredTypeOfSymbol(reference.symbol, {
-      sourceFile: reference.sourceFile,
-    });
+    .checker.getDeclaredTypeOfSymbol(reference.symbol);
 }
 
 function projectBaseClassDeclaration(

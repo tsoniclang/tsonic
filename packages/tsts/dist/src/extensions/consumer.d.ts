@@ -2,17 +2,13 @@ import type { ArgumentPassingFact, AssociatedTypeFact, AttributeFact, ConstGener
 import type { ExtensionFactEntry, ExtensionFactKey, ExtensionFactSubject, ExtensionHost, ProviderVirtualDeclarationDocument } from "./host.js";
 export interface ReadonlySourceFactResolver {
     getFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
-    requireFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T | undefined;
-    mustFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T;
     getFacts(subject: ExtensionFactSubject | undefined): readonly ExtensionFactEntry<unknown>[];
     getVirtualDeclarationDocument(uriOrFileName: string): ProviderVirtualDeclarationDocument | undefined;
 }
 export declare class SourceFactQueries implements ReadonlySourceFactResolver {
     #private;
-    constructor(host: ExtensionHost, consumer: string);
+    constructor(host: ExtensionHost);
     getFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
-    requireFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T | undefined;
-    mustFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>, purpose?: string): T;
     getFacts(subject: ExtensionFactSubject | undefined): readonly ExtensionFactEntry<unknown>[];
     getVirtualDeclarationDocument(uriOrFileName: string): ProviderVirtualDeclarationDocument | undefined;
     getCanonicalIdentity(subject: ExtensionFactSubject | undefined): ExtensionCanonicalIdentity | undefined;
@@ -30,5 +26,5 @@ export declare class SourceFactQueries implements ReadonlySourceFactResolver {
     getProviderDeclaration(subject: ExtensionFactSubject | undefined): ProviderVirtualDeclarationFact | undefined;
     getProviderTypeFamily(subject: ExtensionFactSubject | undefined): ProviderTypeFamilyFact | undefined;
 }
-export declare function createSourceFactQueries(host: ExtensionHost, consumer: string): SourceFactQueries;
+export declare function createSourceFactQueries(host: ExtensionHost): SourceFactQueries;
 //# sourceMappingURL=consumer.d.ts.map

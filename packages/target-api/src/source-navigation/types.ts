@@ -23,6 +23,7 @@ export interface SourceProjectMemberDispatch {
 }
 
 export interface SourceProgramNavigation {
+  readonly sourceFiles: readonly SourceFile[];
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
   moduleDependencies(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];

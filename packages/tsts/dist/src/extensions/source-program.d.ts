@@ -16,19 +16,25 @@ export interface SourceFileQueries {
 }
 export interface SourceProgramQueries {
     readonly ast: AstReader;
+    readonly checker: TypeCheckerQueries;
+    readonly typeShape: TypeShapeQueries;
     readonly getSourceFiles: () => readonly GoPtr<SourceFile>[];
     readonly getSourceFile: (fileName: string) => GoPtr<SourceFile>;
     readonly getSourceFileQueries: (sourceFile: GoPtr<SourceFile>) => SourceFileQueries;
 }
 export interface CheckedSourceProgram extends SourceProgramQueries {
+    readonly program: Program;
     readonly sourceFiles: readonly GoPtr<SourceFile>[];
-    readonly sourceFacts?: ReadonlySourceFactResolver;
+    readonly sourceFacts: ReadonlySourceFactResolver;
     readonly diagnostics: readonly GoPtr<Diagnostic>[];
     readonly extensionDiagnostics: readonly ExtensionDiagnostic[];
 }
 export interface CreateSourceProgramQueriesOptions {
     readonly context?: Context;
     readonly includeSourceFile?: (sourceFile: SourceFile) => boolean;
+    readonly ast?: AstReader;
+    readonly checker?: TypeCheckerQueries;
+    readonly typeShape?: TypeShapeQueries;
 }
 export declare function createSourceProgramQueries(program: GoPtr<Program>, options?: CreateSourceProgramQueriesOptions): SourceProgramQueries;
 //# sourceMappingURL=source-program.d.ts.map

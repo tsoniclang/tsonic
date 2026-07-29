@@ -8,9 +8,10 @@ import type {
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import { sourceProjectFiles } from "@tsonic/target-api";
 import { createCompilerSession } from "@tsonic/tsts";
+import type { CheckedSourceProgram } from "@tsonic/tsts";
 import {
-  collectProjectSourceFiles,
   collectTargetRuntimeContributions,
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
@@ -140,7 +141,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     const targetPaths = getTargetCompilationPaths(paths, target);
     const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
       session.source.ast,
-      collectProjectSourceFiles(session.source),
+      sourceProjectFiles(session.source),
       selectedCapabilities,
     );
     const runtimeContributions = collectTargetRuntimeContributions({
@@ -205,16 +206,16 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
 }
 
 function createCapabilityActivationContext(input: CompileProjectInput): {
-  readonly ast: ReturnType<typeof createCompilerSession>["ast"];
-  readonly sourceFiles: ReturnType<typeof collectProjectSourceFiles>;
+  readonly ast: CheckedSourceProgram["ast"];
+  readonly sourceFiles: ReturnType<typeof sourceProjectFiles>;
 } {
   const activationSession = createCompilerSession({
     programOptions: createProgramOptionsForProject(input).programOptions,
   });
-  activationSession.ensureBound();
+  const source = activationSession.checkSource();
   return {
-    ast: activationSession.ast,
-    sourceFiles: collectProjectSourceFiles(activationSession),
+    ast: source.ast,
+    sourceFiles: sourceProjectFiles(source),
   };
 }
 

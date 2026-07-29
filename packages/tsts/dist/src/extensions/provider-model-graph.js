@@ -390,8 +390,7 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
                 && (variance === undefined
                     || variance === "in"
                     || variance === "out"
-                    || variance === "invariant"
-                    || variance === "target-defined")
+                    || variance === "invariant")
                 && pushProviderModelArray(reads, stack, constraints, "type", nextDepth, true, frame.path + ".constraints")
                 && pushOptionalProviderModelNode(stack, defaultType, "type", nextDepth, true, frame.path + ".defaultType");
         }

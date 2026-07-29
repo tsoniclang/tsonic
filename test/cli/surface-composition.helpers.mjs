@@ -10,7 +10,7 @@ import {
   compileProject,
   createProgramOptionsForProject,
   createTsonicSemanticSession,
-  createTargetCompilerExtensions,
+  createTargetSourceCompilerComposition,
   parseTsonicProjectConfig,
 } from "../../packages/host/dist/index.js";
 import {
@@ -18,13 +18,11 @@ import {
   targetSourceProfileDeclaration,
 } from "../../packages/target-api/dist/index.js";
 import {
-  ExtensionLifecycleEvent,
+  defineExtensionFactKey,
   providerVirtualDeclarationFactKey,
-  runtimeCarrierFactKey,
-  targetOperationFactKey,
-  TstsProviderContractVersion,
+  TstsSourceProviderContractVersion,
 } from "@tsonic/tsts";
-export { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetCompilerExtensions, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, ExtensionLifecycleEvent, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, targetOperationFactKey, TstsProviderContractVersion };
+export { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetSourceCompilerComposition, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, TstsSourceProviderContractVersion };
 
 export const repoRoot = process.cwd();
 export const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
@@ -36,37 +34,36 @@ export const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composit
 
 
 
+export const portableOperationFactKey = defineExtensionFactKey({
+  extensionId: "portable-operation-facts-test-extension",
+  name: "binary-operation",
+  snapshot(value) {
+    return Object.freeze({ ...value });
+  },
+  equals(left, right) {
+    return left.operator === right.operator &&
+      left.resultType === right.resultType;
+  },
+});
+
 export function createPortableOperationFactsExtension() {
   return {
-    name: "portable-operation-facts-test-extension",
     identity: {
       id: "portable-operation-facts-test-extension",
       version: "1.0.0",
-      capabilityNamespace: "test.portable-operation-facts",
     },
-    initialize(context) {
-      context.registerLifecycleHook(ExtensionLifecycleEvent.afterSourceFileBound, (request, lifecycleContext) => {
-        const compiler = lifecycleContext.compiler;
-        const sourceFile = request.sourceFile;
-        if (sourceFile === undefined || sourceFile.IsDeclarationFile || !compiler.ast.getFileName(sourceFile).endsWith("src/index.ts")) {
-          return;
-        }
-        const expression = findBinaryExpression(compiler.ast, sourceFile);
-        const carrier = { kind: "source-primitive", name: "float64" };
-        if (lifecycleContext.host.facts.get(expression, targetOperationFactKey) === undefined) {
-          lifecycleContext.host.facts.set(expression, targetOperationFactKey, {
-            operationId: "acme.neutral.operator.add",
-            operationKind: "operator",
-            targetOperation: "add",
-            resultType: carrier,
-          }, [{ message: "Neutral test target operation fact from TSTS-accepted binary expression." }]);
-        }
-        if (lifecycleContext.host.facts.get(expression, runtimeCarrierFactKey) === undefined) {
-          lifecycleContext.host.facts.set(expression, runtimeCarrierFactKey, {
-            carrier,
-          }, [{ message: "Neutral test runtime carrier fact from TSTS-accepted binary expression." }]);
-        }
-      });
+    analyzeSource(context) {
+      const sourceFile = context.source.getSourceFiles().find((candidate) =>
+        candidate !== undefined &&
+        !candidate.IsDeclarationFile &&
+        context.source.ast.getFileName(candidate).endsWith("src/index.ts"));
+      assert.ok(sourceFile !== undefined);
+      const expression = findBinaryExpression(context.source.ast, sourceFile);
+      const queries = context.source.getSourceFileQueries(sourceFile);
+      assert.equal(context.facts.set(expression, portableOperationFactKey, {
+        operator: context.source.ast.operatorKindName(expression),
+        resultType: queries.checker.typeToString(queries.checker.getTypeAtLocation(expression)),
+      }), "inserted");
     },
   };
 }
@@ -140,6 +137,7 @@ export function createSemanticSession(projectDirectory, projectConfig, targetPac
   return createTsonicSemanticSession({
     programOptions,
     project,
+    projectDirectory,
     target,
     targetPack,
     selectedCapabilities,
@@ -209,7 +207,16 @@ export function createRegistry(targetPack) {
 }
 
 export function extensionIds(extensions) {
-  return extensions.map((extension) => extension.identity?.id ?? extension.name);
+  return extensions.map((extension) => extension.identity.id);
+}
+
+export function createFakeCompilerExtension(id) {
+  return {
+    identity: {
+      id,
+      version: "1.0.0",
+    },
+  };
 }
 
 export function createFakeTargetPack(events, options = {}) {
@@ -223,9 +230,11 @@ export function createFakeTargetPack(events, options = {}) {
             id: "demo-provider",
             displayName: "Demo Provider",
             ...((options.providerModuleOwnership ?? []).length > 0 ? { moduleOwnership: options.providerModuleOwnership } : {}),
-            createExtensions(context) {
+            sourceCompilerContributions(context) {
               events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
-              return options.targetExtension === undefined ? [] : [options.targetExtension];
+              return options.targetExtension === undefined
+                ? {}
+                : { extensions: [options.targetExtension] };
             },
             runtimeContributions(context) {
               events.push(`provider-runtime:${context.target.id}`);
@@ -288,16 +297,19 @@ export function createFakeTargetPack(events, options = {}) {
 
 export function createFakeTargetCapability(id, options = {}) {
   return {
+    kind: "target-capability",
     id,
     targetId: "demo",
     displayName: `${id} Target Capability`,
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
     ...((options.requiredCapabilities ?? []).length > 0 ? { requiredCapabilities: options.requiredCapabilities } : {}),
     moduleOwnership: options.moduleOwnership ?? [],
-    createExtensions(context) {
+    sourceCompilerContributions(context) {
       options.events?.push(`capability-extension:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilities.map((capability) => capability.id).join(",")}`);
       assert.equal(context.capability.id, id);
-      return options.extension === undefined ? [] : [options.extension];
+      return options.extension === undefined
+        ? {}
+        : { extensions: [options.extension] };
     },
     runtimeContributions() {
       options.events?.push(`capability-runtime:${id}`);
@@ -328,10 +340,9 @@ export function createFakeVirtualTargetCapability(id, options = {}) {
       identity: {
         id: `${id}-extension`,
         version: "1.0.0",
-        capabilityNamespace: `test.${id}`,
       },
       initialize(context) {
-        context.registerTargetBindingProvider(createFakeVirtualBindingProvider(id, moduleOwnership, options.events));
+        context.registerSourceDeclarationProvider(createFakeVirtualBindingProvider(id, moduleOwnership, options.events));
       },
     },
   });
@@ -342,9 +353,7 @@ export function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
     identity: {
       id: `${id}-provider`,
       version: "1.0.0",
-      target: "demo",
-      extensionContractVersion: TstsProviderContractVersion,
-      providerKind: "binding",
+      extensionContractVersion: TstsSourceProviderContractVersion,
       displayName: `${id} fake provider`,
     },
     ownsModule(specifier) {
@@ -391,14 +400,12 @@ export function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
             exportKind: "default",
             kind: "value",
             type: { kind: "string" },
-            targetIdentity: { target: "demo", id: `${id}.DefaultValue`, displayName: `${id}.DefaultValue` },
           },
           {
             id: "named",
             name: "named",
             kind: "value",
             type: { kind: "number" },
-            targetIdentity: { target: "demo", id: `${id}.Named`, displayName: `${id}.Named` },
           },
         ],
         evidence: [{ message: `${id} target capability declaration model` }],
@@ -435,10 +442,10 @@ export function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
     ...(options.extension === undefined
       ? {}
       : {
-          createExtensions(context) {
+          sourceCompilerContributions(context) {
             options.events?.push(`surface-extension:${id}:target=${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
             assert.equal(context.surface.id, id);
-            return [options.extension];
+            return { extensions: [options.extension] };
           },
         }),
     runtimeContributions() {

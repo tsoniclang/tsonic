@@ -56,9 +56,7 @@ export function sourceProviderExtension(models, options = {}) {
         identity: {
             id: extensionId,
             version: "1.0.0",
-            capabilityNamespace: extensionId,
         },
-        composition: { kind: "source" },
         initialize(context) {
             context.registerSourceDeclarationProvider(provider);
         },
@@ -69,9 +67,7 @@ export function sourceProviderCompilerExtension(provider, extensionId = `${provi
         identity: {
             id: extensionId,
             version: "1.0.0",
-            capabilityNamespace: extensionId,
         },
-        composition: { kind: "source" },
         initialize(context) {
             context.registerSourceDeclarationProvider(provider);
         },

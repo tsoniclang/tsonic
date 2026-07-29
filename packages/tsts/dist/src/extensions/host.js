@@ -20,13 +20,11 @@ export const ExtensionHostDiagnosticCode = {
     dependencyCycle: 9000004,
     initializationFailed: 9000007,
     factStoreSealed: 9000008,
-    consumerBeforeFinalization: 9000009,
     invalidProvider: 9000010,
     duplicateProvider: 9000015,
     providerOwnershipConflict: 9000016,
     providerResolutionFailed: 9000017,
     invalidProviderDeclaration: 9000018,
-    requiredFactMissing: 9000020,
     providerContractMismatch: 9000021,
     providerMissing: 9000022,
     providerOwnershipFailed: 9000023,
@@ -40,7 +38,6 @@ export const ExtensionHostDiagnosticCode = {
     invalidDiagnosticSnapshot: 9000032,
     factOwnershipViolation: 9000033,
     invalidFactSnapshot: 9000034,
-    invalidDependencyDirection: 9000037,
     sourceAnalysisFailed: 9000038,
 };
 export const TstsSourceProviderContractVersion = "tsts.source-provider.1";
@@ -982,7 +979,17 @@ export class ExtensionFactResolver {
             const facts = this.#facts[factStoreForOwner](registration.ownerId, diagnostics);
             let writeResult;
             const resolved = runWithFactResolverOwnerAuthority(this.#state.ownerAuthority, registration.ownerId, () => {
-                const resolution = registration.callback(subject, { facts, diagnostics });
+                const scope = createExtensionCapabilityScope();
+                let resolution;
+                try {
+                    resolution = registration.callback(subject, Object.freeze({
+                        facts: createExtensionFactReader(facts, scope),
+                        diagnostics: createExtensionDiagnosticWriter(diagnostics, scope),
+                    }));
+                }
+                finally {
+                    revokeExtensionCapabilityScope(scope);
+                }
                 if (resolution !== undefined) {
                     writeResult = facts.set(subject, registration.key, resolution.value, resolution.evidence ?? []);
                 }
@@ -1086,7 +1093,7 @@ export class ProviderRegistry {
     #activeResolutionTransaction;
     constructor(diagnostics, requiredProviderModules = []) {
         this.#diagnostics = diagnostics;
-        this.#requiredProviderModules = requiredProviderModules;
+        this.#requiredProviderModules = snapshotRequiredProviderModules(requiredProviderModules);
     }
     registerSourceDeclarationProvider(provider) {
         this.#assertHostOwnedRegistration("source declaration provider");
@@ -2438,7 +2445,6 @@ export class ExtensionHost {
     providers;
     #extensions = [];
     #extensionsById = new Map();
-    #consumerSubjectIds = new WeakMap();
     #mutationAttemptStates = new WeakMap();
     #mutationAttemptStack = [];
     #ownerAuthority;
@@ -2446,7 +2452,6 @@ export class ExtensionHost {
     #compilerContext;
     #sourceAnalysisState = "pending";
     #semanticFinalizationState = "open";
-    #nextConsumerSubjectId = 1;
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
     }
@@ -2457,7 +2462,7 @@ export class ExtensionHost {
         this.facts = new ExtensionFactStore(this.diagnostics);
         this.factResolver = new ExtensionFactResolver(this.facts, this.diagnostics);
         this.providers = new ProviderRegistry(this.diagnostics, options.requiredProviderModules ?? []);
-        const orderedExtensions = orderExtensions(options.extensions ?? [], this.diagnostics);
+        const orderedExtensions = orderExtensions((options.extensions ?? []).map(snapshotCompilerExtension), this.diagnostics);
         for (const extension of orderedExtensions) {
             const unavailableDependency = extension.dependencies?.dependsOn?.find((dependencyId) => !this.#extensionsById.has(dependencyId));
             if (unavailableDependency !== undefined) {
@@ -2482,11 +2487,23 @@ export class ExtensionHost {
                     if (!rangeRegistered) {
                         return;
                     }
-                    extension.initialize?.({
-                        diagnostics: capabilities.diagnostics,
-                        registerFactResolver: (key, resolver) => capabilities.factResolver.register(key, resolver),
-                        registerSourceDeclarationProvider: (provider) => this.#registerSourceDeclarationProviderForExtension(extension.identity.id, provider),
-                    });
+                    const scope = createExtensionCapabilityScope();
+                    try {
+                        extension.initialize?.(Object.freeze({
+                            diagnostics: createExtensionDiagnosticWriter(capabilities.diagnostics, scope),
+                            registerFactResolver: (key, resolver) => {
+                                assertExtensionCapabilityActive(scope);
+                                capabilities.factResolver.register(key, resolver);
+                            },
+                            registerSourceDeclarationProvider: (provider) => {
+                                assertExtensionCapabilityActive(scope);
+                                return this.#registerSourceDeclarationProviderForExtension(extension.identity.id, provider);
+                            },
+                        }));
+                    }
+                    finally {
+                        revokeExtensionCapabilityScope(scope);
+                    }
                 });
                 if (!rangeRegistered) {
                     this.#discardFactAttemptPreservingDiagnostics(attempt);
@@ -2753,12 +2770,18 @@ export class ExtensionHost {
                     });
                     try {
                         runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
-                            analyzeSource(Object.freeze({
-                                source: compiler,
-                                facts: capabilities.facts,
-                                factResolver: capabilities.factResolver,
-                                diagnostics: capabilities.diagnostics,
-                            }));
+                            const scope = createExtensionCapabilityScope();
+                            try {
+                                analyzeSource(Object.freeze({
+                                    source: compiler,
+                                    facts: createSourceAnalysisFactAccess(capabilities.facts, scope),
+                                    factResolver: createSourceAnalysisFactResolver(capabilities.factResolver, scope),
+                                    diagnostics: createExtensionDiagnosticWriter(capabilities.diagnostics, scope),
+                                }));
+                            }
+                            finally {
+                                revokeExtensionCapabilityScope(scope);
+                            }
                         });
                     }
                     finally {
@@ -2820,100 +2843,17 @@ export class ExtensionHost {
     get finalized() {
         return this.#semanticFinalizationState === "finalized";
     }
-    getCompilerQueryContext() {
+    getCompilerQueryContext(context) {
         if (this.#compilerContext !== undefined) {
             return this.#compilerContext;
         }
         const program = this.#program;
         this.#compilerContext = createSourceProgramQueries(program, {
+            ...(context === undefined ? {} : { context }),
             includeSourceFile: (sourceFile) => getProviderVirtualArtifactForCompiler(this.providers, SourceFile_FileName(sourceFile))?.kind
                 !== "canonical-export-owner",
         });
         return this.#compilerContext;
-    }
-    assertFinalizedForConsumer(consumer) {
-        if (this.#semanticFinalizationState === "finalized") {
-            return true;
-        }
-        this.diagnostics.append(createHostDiagnostic({
-            extensionCode: "CONSUMER_BEFORE_FINALIZATION",
-            numericCode: ExtensionHostDiagnosticCode.consumerBeforeFinalization,
-            message: `Consumer '${consumer}' attempted to read extension facts before semantic finalization.`,
-            identity: encodeIdentityTuple(["consumer-before-finalization", consumer]),
-        }));
-        return false;
-    }
-    getFactForConsumer(consumer, subject, key) {
-        if (!this.assertFinalizedForConsumer(consumer)) {
-            return undefined;
-        }
-        if (subject === undefined) {
-            return undefined;
-        }
-        return this.facts.get(subject, key);
-    }
-    requireFactForConsumer(consumer, subject, key, purpose) {
-        if (!this.assertFinalizedForConsumer(consumer)) {
-            return undefined;
-        }
-        const value = subject === undefined ? undefined : this.facts.get(subject, key);
-        if (value !== undefined) {
-            return value;
-        }
-        this.diagnostics.append(createHostDiagnostic({
-            extensionCode: "REQUIRED_FACT_MISSING",
-            numericCode: ExtensionHostDiagnosticCode.requiredFactMissing,
-            message: purpose === undefined
-                ? `Consumer '${consumer}' requires extension fact '${formatExtensionFactKeyForDisplay(key)}', but no finalized fact exists for the subject.`
-                : `Consumer '${consumer}' requires extension fact '${formatExtensionFactKeyForDisplay(key)}' for ${purpose}, but no finalized fact exists for the subject.`,
-            evidence: [
-                { message: "Consumer", details: consumer },
-                { message: "Fact key", details: formatExtensionFactKeyForDisplay(key) },
-                { message: "Subject", details: this.#getConsumerSubjectIdentity(subject) },
-            ],
-            identity: encodeIdentityTuple([
-                "required-fact-missing",
-                consumer,
-                key.id,
-                this.#getConsumerSubjectIdentity(subject),
-                purpose,
-            ]),
-        }));
-        return undefined;
-    }
-    mustFactForConsumer(consumer, subject, key, purpose) {
-        const value = this.requireFactForConsumer(consumer, subject, key, purpose);
-        if (value !== undefined) {
-            return value;
-        }
-        throw new Error(purpose === undefined
-            ? `Consumer '${consumer}' requires extension fact '${formatExtensionFactKeyForDisplay(key)}'.`
-            : `Consumer '${consumer}' requires extension fact '${formatExtensionFactKeyForDisplay(key)}' for ${purpose}.`);
-    }
-    getFactsForConsumer(consumer, subject) {
-        if (!this.assertFinalizedForConsumer(consumer)) {
-            return Object.freeze([]);
-        }
-        return this.facts.entries(subject);
-    }
-    getVirtualDeclarationDocumentForConsumer(consumer, uriOrFileName) {
-        if (!this.assertFinalizedForConsumer(consumer)) {
-            return undefined;
-        }
-        return this.providers.getVirtualDeclarationDocument(uriOrFileName);
-    }
-    #getConsumerSubjectIdentity(subject) {
-        if (subject === undefined) {
-            return encodeIdentityTuple(["consumer-subject", undefined]);
-        }
-        const existing = this.#consumerSubjectIds.get(subject);
-        if (existing !== undefined) {
-            return encodeIdentityTuple(["consumer-subject", existing]);
-        }
-        const created = this.#nextConsumerSubjectId;
-        this.#nextConsumerSubjectId += 1;
-        this.#consumerSubjectIds.set(subject, created);
-        return encodeIdentityTuple(["consumer-subject", created]);
     }
     #getOwnerCapabilities(extensionId) {
         const diagnostics = this.diagnostics[diagnosticStoreForOwner](extensionId);
@@ -2927,10 +2867,9 @@ export class ExtensionHost {
             return;
         }
         const producer = this.#extensionsById.get(extensionId);
-        const factOwner = this.#extensionsById.get(key.extensionId);
         const ownsKey = key.extensionId === extensionId;
         const declaresSourceDependency = producer?.dependencies?.dependsOn?.includes(key.extensionId) === true
-            && factOwner?.composition?.kind === "source";
+            && this.#extensionsById.has(key.extensionId);
         if (ownsKey || declaresSourceDependency) {
             return;
         }
@@ -2944,6 +2883,73 @@ export class ExtensionHost {
                 : `Extension '${activeOwner}' cannot register ${registrationKind} state for '${extensionId}'.`);
         }
     }
+}
+function createExtensionCapabilityScope() {
+    return { active: true };
+}
+function revokeExtensionCapabilityScope(scope) {
+    scope.active = false;
+}
+function assertExtensionCapabilityActive(scope) {
+    if (!scope.active) {
+        throw new Error("Extension callback capabilities cannot be used outside their host-owned callback.");
+    }
+}
+function createExtensionDiagnosticWriter(diagnostics, scope) {
+    const writer = {
+        append: (diagnostic) => {
+            assertExtensionCapabilityActive(scope);
+            return diagnostics.append(diagnostic);
+        },
+    };
+    return Object.freeze(writer);
+}
+function createExtensionFactReader(facts, scope) {
+    const reader = {
+        get(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return facts.get(subject, key);
+        },
+        getEntry(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return facts.getEntry(subject, key);
+        },
+        has(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return facts.has(subject, key);
+        },
+    };
+    return Object.freeze(reader);
+}
+function createSourceAnalysisFactAccess(facts, scope) {
+    const access = {
+        get(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return facts.get(subject, key);
+        },
+        getEntry(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return facts.getEntry(subject, key);
+        },
+        has(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return facts.has(subject, key);
+        },
+        set(subject, key, value, evidence = []) {
+            assertExtensionCapabilityActive(scope);
+            return facts.set(subject, key, value, evidence);
+        },
+    };
+    return Object.freeze(access);
+}
+function createSourceAnalysisFactResolver(factResolver, scope) {
+    const resolver = {
+        resolve(subject, key) {
+            assertExtensionCapabilityActive(scope);
+            return factResolver.resolve(subject, key);
+        },
+    };
+    return Object.freeze(resolver);
 }
 export function attachExtensionHost(program, options = {}) {
     const host = new ExtensionHost(program, options);
@@ -3007,21 +3013,6 @@ function orderExtensions(extensions, diagnostics) {
                 invalidExtensionIds.add(extensionId);
                 continue;
             }
-            if (extension.composition?.kind === "source" && dependency.composition?.kind !== "source") {
-                diagnostics.append(createHostDiagnostic({
-                    extensionCode: "INVALID_EXTENSION_DEPENDENCY_DIRECTION",
-                    numericCode: ExtensionHostDiagnosticCode.invalidDependencyDirection,
-                    message: `Source extension '${extensionId}' can depend only on another source extension; '${dependencyId}' is '${dependency.composition?.kind ?? "unclassified"}'.`,
-                    identity: encodeIdentityTuple([
-                        "invalid-extension-dependency-direction",
-                        extensionId,
-                        dependencyId,
-                        dependency.composition?.kind,
-                    ]),
-                }));
-                invalidExtensionIds.add(extensionId);
-                continue;
-            }
             addOrderingEdge(outgoingEdges, incomingCounts, dependencyId, extensionId);
         }
         for (const predecessorId of extension.dependencies?.runsAfter ?? []) {
@@ -3066,6 +3057,66 @@ function orderExtensions(extensions, diagnostics) {
     }
     propagateInvalidDependencies(extensionsById, invalidExtensionIds);
     return ordered.filter((extension) => !invalidExtensionIds.has(extension.identity.id));
+}
+function snapshotCompilerExtension(extension) {
+    const identity = Object.freeze({
+        id: extension.identity.id,
+        version: extension.identity.version,
+        ...(extension.identity.diagnosticRange === undefined
+            ? {}
+            : {
+                diagnosticRange: Object.freeze({
+                    start: extension.identity.diagnosticRange.start,
+                    end: extension.identity.diagnosticRange.end,
+                }),
+            }),
+    });
+    const dependencies = extension.dependencies === undefined
+        ? undefined
+        : Object.freeze({
+            ...(extension.dependencies.dependsOn === undefined
+                ? {}
+                : { dependsOn: Object.freeze([...extension.dependencies.dependsOn]) }),
+            ...(extension.dependencies.runsAfter === undefined
+                ? {}
+                : { runsAfter: Object.freeze([...extension.dependencies.runsAfter]) }),
+        });
+    return Object.freeze({
+        identity,
+        ...(dependencies === undefined ? {} : { dependencies }),
+        ...(extension.initialize === undefined ? {} : { initialize: extension.initialize }),
+        ...(extension.analyzeSource === undefined ? {} : { analyzeSource: extension.analyzeSource }),
+    });
+}
+function snapshotRequiredProviderModules(requiredProviderModules) {
+    const byPrefix = new Map();
+    for (const required of requiredProviderModules) {
+        if (typeof required.specifierPrefix !== "string" || required.specifierPrefix.length === 0) {
+            throw new Error("Required provider module prefixes must be non-empty strings.");
+        }
+        if (required.providerId !== undefined
+            && (typeof required.providerId !== "string" || required.providerId.length === 0)) {
+            throw new Error(`Required provider module '${required.specifierPrefix}' has an invalid provider id.`);
+        }
+        if (required.message !== undefined && typeof required.message !== "string") {
+            throw new Error(`Required provider module '${required.specifierPrefix}' has an invalid message.`);
+        }
+        const snapshot = Object.freeze({
+            specifierPrefix: required.specifierPrefix,
+            ...(required.providerId === undefined ? {} : { providerId: required.providerId }),
+            ...(required.message === undefined ? {} : { message: required.message }),
+        });
+        const previous = byPrefix.get(snapshot.specifierPrefix);
+        if (previous !== undefined) {
+            if (previous.providerId !== snapshot.providerId || previous.message !== snapshot.message) {
+                throw new Error(`Required provider module prefix '${snapshot.specifierPrefix}' has contradictory contracts.`);
+            }
+            continue;
+        }
+        byPrefix.set(snapshot.specifierPrefix, snapshot);
+    }
+    return Object.freeze([...byPrefix.values()].sort((left, right) => right.specifierPrefix.length - left.specifierPrefix.length
+        || left.specifierPrefix.localeCompare(right.specifierPrefix)));
 }
 function addOrderingEdge(outgoingEdges, incomingCounts, from, to) {
     const dependents = outgoingEdges.get(from);
@@ -4601,7 +4652,7 @@ function renderProviderMember(member, context) {
         case "indexer": {
             return member.signatures.map((signature) => {
                 const parameter = signature.parameters[0];
-                return `[${renderProviderParameter(parameter, memberContext)}]: ${renderProviderTypeExpression(signature.returnType, memberContext)};`;
+                return `${readonlyPrefix}[${renderProviderParameter(parameter, memberContext)}]: ${renderProviderTypeExpression(signature.returnType, memberContext)};`;
             }).join("\n  ");
         }
     }
@@ -5487,7 +5538,6 @@ function hasNoUnrenderedProviderMemberShape(value) {
             return (value.signatures?.length ?? 0) === 0;
         case "indexer":
             return value.static !== true
-                && value.readonly !== true
                 && value.optional !== true
                 && value.type === undefined;
     }

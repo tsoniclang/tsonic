@@ -38,8 +38,9 @@ test("product program options use noLib and target-owned source-profile files", 
     }],
   });
   const compiler = createCompilerSession({ programOptions: created.programOptions });
-  const fileNames = compiler.getSourceFiles()
-    .map((sourceFile) => compiler.ast.getFileName(sourceFile))
+  const source = compiler.checkSource();
+  const fileNames = source.getSourceFiles()
+    .map((sourceFile) => source.ast.getFileName(sourceFile))
     .filter((fileName) => fileName !== "");
   assert.ok(fileNames.includes(sourceProfilePath), "source-profile declaration must be a real compiler input");
   assert.equal(fileNames.some((fileName) => /\/lib\..*\.d\.ts$/u.test(fileName)), false, `bundled TypeScript lib leaked into product program: ${fileNames.join("\n")}`);
@@ -81,8 +82,9 @@ test("product program options accept relative .ts imports without loading TS def
   const compiler = createCompilerSession({ programOptions: created.programOptions });
   const diagnostics = compiler.getDiagnostics("all");
   assert.deepEqual(diagnostics.filter((diagnostic) => diagnostic !== undefined).map((diagnostic) => diagnostic.code), []);
-  const fileNames = compiler.getSourceFiles()
-    .map((sourceFile) => compiler.ast.getFileName(sourceFile))
+  const source = compiler.checkSource();
+  const fileNames = source.getSourceFiles()
+    .map((sourceFile) => source.ast.getFileName(sourceFile))
     .filter((fileName) => fileName !== "");
   assert.equal(fileNames.some((fileName) => /\/lib\..*\.d\.ts$/u.test(fileName)), false, `bundled TypeScript lib leaked into product program: ${fileNames.join("\n")}`);
 });
@@ -163,8 +165,9 @@ test("product program options resolve hoisted source packages and their source d
   const compiler = createCompilerSession({ programOptions: created.programOptions });
   const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
   assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.code), [], formatDiagnostics(diagnostics, projectDirectory));
-  const fileNames = compiler.getSourceFiles()
-    .map((sourceFile) => compiler.ast.getFileName(sourceFile))
+  const source = compiler.checkSource();
+  const fileNames = source.getSourceFiles()
+    .map((sourceFile) => source.ast.getFileName(sourceFile))
     .filter((fileName) => fileName !== "");
   assert.ok(fileNames.includes(resolve(workspaceDirectory, "node_modules/@demo/domain/src/index.ts").split("\\").join("/")));
   assert.ok(fileNames.includes(resolve(workspaceDirectory, "node_modules/@demo/math/src/index.ts").split("\\").join("/")));

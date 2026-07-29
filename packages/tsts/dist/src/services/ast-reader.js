@@ -1,4 +1,4 @@
-import { Node_Arguments, Node_Body, Node_Elements, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Body, Node_Elements, Node_ImportClause, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { KindString } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
@@ -8,7 +8,7 @@ import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsAsync, Modifi
 import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing } from "../internal/ast/utilities.js";
 import { KindExtendsKeyword, KindImplementsKeyword } from "../internal/ast/generated/kinds.js";
 export function createAstReader() {
-    return {
+    const reader = {
         kind: (node) => node?.Kind,
         kindName: (node) => node === undefined ? "Undefined" : KindString(node.Kind),
         text: (node) => node === undefined ? "" : Node_Text(node),
@@ -47,15 +47,23 @@ export function createAstReader() {
             if (node === undefined) {
                 return false;
             }
-            const importClause = casts.AsImportDeclaration(node)?.ImportClause;
-            return IsTypeOnlyImportDeclaration(importClause ?? node) === true;
+            if (predicates.IsImportDeclaration(node)) {
+                const importClause = Node_ImportClause(node);
+                return importClause !== undefined
+                    && IsTypeOnlyImportDeclaration(importClause) === true;
+            }
+            return IsTypeOnlyImportDeclaration(node) === true;
         },
         isTypeOnlyImportOrExportDeclaration: (node) => {
             if (node === undefined) {
                 return false;
             }
-            const importClause = casts.AsImportDeclaration(node)?.ImportClause;
-            return IsTypeOnlyImportOrExportDeclaration(importClause ?? node) === true;
+            if (predicates.IsImportDeclaration(node)) {
+                const importClause = Node_ImportClause(node);
+                return importClause !== undefined
+                    && IsTypeOnlyImportOrExportDeclaration(importClause) === true;
+            }
+            return IsTypeOnlyImportOrExportDeclaration(node) === true;
         },
         pos: (node) => node === undefined ? -1 : Node_Pos(node),
         end: (node) => node === undefined ? -1 : Node_End(node),
@@ -67,6 +75,7 @@ export function createAstReader() {
         is: predicates,
         as: casts,
     };
+    return Object.freeze(reader);
 }
 function operatorKindName(node) {
     if (node === undefined) {

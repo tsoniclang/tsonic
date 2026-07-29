@@ -20,7 +20,7 @@ export const argumentPassingFactKey = markHostSourceReadableFactKey(defineExtens
     name: "argumentPassing",
     snapshot: snapshotArgumentPassingFact,
     equals: (left, right) => left.mode === right.mode
-        && left.targetExpression === right.targetExpression,
+        && left.storageExpression === right.storageExpression,
 }));
 export const functionPointerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
@@ -154,15 +154,15 @@ function snapshotSourcePrimitiveFact(value) {
     });
 }
 function snapshotArgumentPassingFact(value) {
-    const record = exactRecord(value, "ArgumentPassingFact", ["mode", "targetExpression"]);
+    const record = exactRecord(value, "ArgumentPassingFact", ["mode", "storageExpression"]);
     const mode = requiredString(record, "mode", "ArgumentPassingFact");
     if (!isArgumentPassingMode(mode)) {
         throw new Error(`ArgumentPassingFact.mode '${mode}' is invalid.`);
     }
-    const targetExpression = optionalNode(record, "targetExpression", "ArgumentPassingFact");
+    const storageExpression = optionalNode(record, "storageExpression", "ArgumentPassingFact");
     return Object.freeze({
         mode,
-        ...(targetExpression === undefined ? {} : { targetExpression }),
+        ...(storageExpression === undefined ? {} : { storageExpression }),
     });
 }
 function snapshotFunctionPointerFact(value) {
@@ -572,7 +572,7 @@ const sourceRuntimeBases = new Set([
     "string",
     "object",
 ]);
-const pointerMutabilities = new Set(["readonly", "readwrite", "target-defined"]);
+const pointerMutabilities = new Set(["readonly", "readwrite", "unspecified"]);
 const flowStates = new Set(["moved", "borrowed-shared", "borrowed-mut"]);
 const providerWellKnownSymbolNames = new Set([
     "asyncIterator",

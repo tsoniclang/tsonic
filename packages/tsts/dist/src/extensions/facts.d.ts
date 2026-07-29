@@ -15,7 +15,7 @@ export interface ExtensionCanonicalIdentity {
     readonly importKind?: ExtensionImportKind;
     readonly canonicalSymbolId?: string;
 }
-export type SourcePointerMutability = "readonly" | "readwrite" | "target-defined";
+export type SourcePointerMutability = "readonly" | "readwrite" | "unspecified";
 export interface SourcePrimitiveFact {
     readonly kind: SourcePrimitiveKind;
     readonly signed?: boolean;
@@ -24,7 +24,7 @@ export interface SourcePrimitiveFact {
 }
 export interface ArgumentPassingFact {
     readonly mode: ArgumentPassingMode;
-    readonly targetExpression?: Node;
+    readonly storageExpression?: Node;
 }
 export interface FunctionPointerFact {
     readonly parameters: readonly Node[];

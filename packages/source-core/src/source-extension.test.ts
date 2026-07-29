@@ -215,7 +215,7 @@ test("source-core records direct provider-owned facts for every core lang intrin
   assertAttributeApplication(session, propertyCallExpression(session, sourceFile, "add"), "User", "RouteAttribute", 0);
 
   const pointerFact = getSourceFact(session, typeAliasType(session, sourceFile, "DirectPointer"), pointerFactKey);
-  assert.equal(pointerFact?.mutability, "target-defined");
+  assert.equal(pointerFact?.mutability, "unspecified");
   assert.equal(pointerFact?.unsafeRequired, true);
   assert.equal(typeReferenceName(session, nodeFactSubject(pointerFact?.pointee)), "int32");
 
@@ -396,7 +396,7 @@ test("source-core handles source primitive array destructured parameters", () =>
     const nestedResult = nested([[7], [0, 8]]);
   `);
 
-  assert.ok(session.getSourceFile("/src/index.ts") !== undefined);
+  assert.ok(checkSource(session).getSourceFile("/src/index.ts") !== undefined);
 });
 
 test("source-core reports non-storage diagnostics for byref markers", () => {
@@ -954,7 +954,7 @@ test("source-core preserves member ordering and nested struct type evidence", ()
   const facts = sourceCoreFacts(session);
   assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct", 0))?.fields?.map((field) => field.name), ["value"]);
   assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct", 1))?.fields?.map((field) => field.name), ["first", "inner", "enabled"]);
-  assert.equal(session.ast.kindName(facts.getFieldFact(callExpression(session, sourceFile, "field", 2))?.type as Node | undefined), "KindTypeQuery");
+  assert.equal(sourceAst(session).kindName(facts.getFieldFact(callExpression(session, sourceFile, "field", 2))?.type as Node | undefined), "KindTypeQuery");
 });
 
 test("source-core records ptr and fnptr facts from aliases and namespaces without local marker guessing", () => {
@@ -982,12 +982,12 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
   });
 
   const aliasPointer = typeReference(session, sourceFile, "pointer");
-  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.mutability, "target-defined");
+  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.mutability, "unspecified");
   assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.unsafeRequired, true);
   assert.equal(typeReferenceName(session, nodeFactSubject(getSourceFact(session, aliasPointer, pointerFactKey)?.pointee)), "int32");
 
   const namespacePointer = typeReference(session, sourceFile, "lang.ptr", 0);
-  assert.equal(getSourceFact(session, namespacePointer, pointerFactKey)?.mutability, "target-defined");
+  assert.equal(getSourceFact(session, namespacePointer, pointerFactKey)?.mutability, "unspecified");
 
   const aliasFunctionPointer = typeReference(session, sourceFile, "functionPointer");
   const aliasFunctionPointerFact = getSourceFact(session, aliasFunctionPointer, functionPointerFactKey);
@@ -1136,7 +1136,7 @@ function createSourceCoreSession(sourceText: string, extraFiles: Readonly<Record
       ],
     },
   });
-  const sourceFile = session.getSourceFile("/src/index.ts");
+  const sourceFile = checkSource(session).getSourceFile("/src/index.ts");
   assert.ok(sourceFile !== undefined);
   return { session, sourceFile };
 }
@@ -1185,13 +1185,13 @@ function assertAttributeApplication(
     return;
   }
   assert.equal(typeReferenceName(session, fact.applicationTarget as Node), expectedTarget);
-  assert.equal(session.ast.text(fact.attributeType as Node), expectedAttributeType);
+  assert.equal(sourceAst(session).text(fact.attributeType as Node), expectedAttributeType);
   assert.equal(fact.arguments.length, expectedArgumentCount);
 }
 
 function callExpression(session: CompilerSession, sourceFile: SourceFile, calleeText: string, occurrence = 0): Node {
   let seen = 0;
-  const found = findNode(sourceFile, session.ast, (node, ast) => {
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) => {
     if (!ast.is.IsCallExpression(node)) {
       return false;
     }
@@ -1211,7 +1211,7 @@ function callExpression(session: CompilerSession, sourceFile: SourceFile, callee
 
 function propertyCallExpression(session: CompilerSession, sourceFile: SourceFile, propertyName: string, occurrence = 0): Node {
   let seen = 0;
-  const found = findNode(sourceFile, session.ast, (node, ast) => {
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) => {
     if (!ast.is.IsCallExpression(node)) {
       return false;
     }
@@ -1234,14 +1234,14 @@ function propertyCallExpression(session: CompilerSession, sourceFile: SourceFile
 }
 
 function firstCallArgument(session: CompilerSession, call: Node): Node {
-  const argument = session.ast.arguments(call)[0];
+  const argument = sourceAst(session).arguments(call)[0];
   assert.ok(argument !== undefined);
   return argument;
 }
 
 function typeReference(session: CompilerSession, sourceFile: SourceFile, nameText: string, occurrence = 0): Node {
   let seen = 0;
-  const found = findNode(sourceFile, session.ast, (node, ast) => {
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) => {
     if (!ast.is.IsTypeReferenceNode(node)) {
       return false;
     }
@@ -1259,22 +1259,22 @@ function typeReference(session: CompilerSession, sourceFile: SourceFile, nameTex
 }
 
 function typeAliasType(session: CompilerSession, sourceFile: SourceFile, aliasName: string): Node {
-  const found = findNode(sourceFile, session.ast, (node, ast) =>
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) =>
     ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === aliasName);
-  const type = session.ast.as.AsTypeAliasDeclaration(found)?.Type;
+  const type = sourceAst(session).as.AsTypeAliasDeclaration(found)?.Type;
   assert.ok(type !== undefined, `Missing type alias '${aliasName}'.`);
   return type;
 }
 
 function variableDeclaration(session: CompilerSession, sourceFile: SourceFile, variableName: string): Node {
-  const found = findNode(sourceFile, session.ast, (node, ast) =>
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) =>
     ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === variableName);
   assert.ok(found !== undefined, `Missing variable declaration '${variableName}'.`);
   return found;
 }
 
 function variableInitializer(session: CompilerSession, sourceFile: SourceFile, variableName: string): Node {
-  const initializer = session.ast.as.AsVariableDeclaration(variableDeclaration(session, sourceFile, variableName))?.Initializer;
+  const initializer = sourceAst(session).as.AsVariableDeclaration(variableDeclaration(session, sourceFile, variableName))?.Initializer;
   assert.ok(initializer !== undefined, `Missing variable initializer '${variableName}'.`);
   return initializer;
 }
@@ -1283,16 +1283,17 @@ function typeReferenceName(session: CompilerSession, node: Node | undefined): st
   if (node === undefined) {
     return "";
   }
-  if (session.ast.is.IsTypeReferenceNode(node)) {
-    return typeReferenceName(session, session.ast.as.AsTypeReferenceNode(node)?.TypeName);
+  const ast = sourceAst(session);
+  if (ast.is.IsTypeReferenceNode(node)) {
+    return typeReferenceName(session, ast.as.AsTypeReferenceNode(node)?.TypeName);
   }
-  if (session.ast.is.IsQualifiedName(node)) {
-    const qualifiedName = session.ast.as.AsQualifiedName(node);
+  if (ast.is.IsQualifiedName(node)) {
+    const qualifiedName = ast.as.AsQualifiedName(node);
     const left = typeReferenceName(session, qualifiedName?.Left);
     const right = typeReferenceName(session, qualifiedName?.Right);
     return left === "" ? right : `${left}.${right}`;
   }
-  return session.ast.text(node);
+  return ast.text(node);
 }
 
 function nodeFactSubject(subject: object | undefined): Node | undefined {
@@ -1325,6 +1326,10 @@ function checkSource(session: CompilerSession): CheckedSourceProgram {
   const checked = session.checkSource();
   checkedSources.set(session, checked);
   return checked;
+}
+
+function sourceAst(session: CompilerSession): AstReader {
+  return checkSource(session).ast;
 }
 
 function sourceFacts(session: CompilerSession): ReadonlySourceFactResolver {

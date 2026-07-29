@@ -68,7 +68,7 @@ export function createSourceReferenceNavigation(
       return undefined;
     }
     const queries = source.getSourceFileQueries(sourceFile);
-    const type = semanticTypeForNode(ast, queries.checker, node, sourceFile);
+    const type = semanticTypeForNode(ast, queries.checker, node);
     const declaration = projectDeclarationForType(
       ast,
       queries.checker,
@@ -105,13 +105,11 @@ export function createSourceReferenceNavigation(
       ast,
       queries.checker,
       node,
-      sourceFile,
     );
     const imported = importedProjectReference(
       ast,
       queries.checker,
       directSymbol,
-      sourceFile,
       isProjectDeclaration,
     );
     if (imported !== undefined) {
@@ -124,13 +122,12 @@ export function createSourceReferenceNavigation(
       ast,
       queries.checker,
       node,
-      sourceFile,
     );
     const symbols = [directSymbol, resolvedSymbol].flatMap((symbol) =>
       symbol === undefined
         ? []
         : [
-            aliasedSymbol(ast, queries.checker, symbol, sourceFile),
+            aliasedSymbol(ast, queries.checker, symbol),
             symbol,
           ]);
     for (const symbol of symbols) {
@@ -152,9 +149,7 @@ export function createSourceReferenceNavigation(
     const symbol = declaration === undefined
       ? undefined
       : source.getSourceFileQueries(declarationFile ?? sourceFile).checker
-        .getSymbolAtLocation(declaration, {
-          sourceFile: declarationFile ?? sourceFile,
-        });
+        .getSymbolAtLocation(declaration);
     const reference = declaration !== undefined &&
       declarationFile !== undefined &&
       symbol !== undefined
@@ -220,7 +215,6 @@ function importedProjectReference(
   ast: AstReader,
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
-  sourceFile: SourceFile,
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
 ): SourceProjectReference | undefined {
   if (symbol === undefined) {
@@ -231,7 +225,6 @@ function importedProjectReference(
       ast,
       checker,
       declaration,
-      sourceFile,
     );
     if (imported === undefined) {
       continue;
@@ -240,7 +233,6 @@ function importedProjectReference(
       ast,
       checker,
       imported.symbol,
-      imported.sourceFile,
     );
     const candidates = ast.is.IsExportAssignment(
       primaryDeclaration(checker, imported.symbol),
@@ -266,7 +258,6 @@ function importedModuleExport(
   ast: AstReader,
   checker: TypeCheckerQueries,
   declaration: Node | undefined,
-  sourceFile: SourceFile,
 ): { readonly symbol: Symbol; readonly sourceFile: SourceFile } | undefined {
   const binding = normalizeImportBinding(ast, declaration);
   if (binding === undefined) {
@@ -283,18 +274,13 @@ function importedModuleExport(
   }
   const moduleSpecifier = ast.as.AsImportDeclaration(importDeclaration)
     ?.ModuleSpecifier;
-  const moduleSymbol = checker.getModuleSymbolFromSpecifier(
-    moduleSpecifier,
-    { sourceFile },
-  );
+  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier);
   const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(
     moduleSymbol,
     false,
-    { sourceFile },
   );
   const exported = checker.getExportsOfModule(
     resolvedModuleSymbol ?? moduleSymbol,
-    { sourceFile },
   ).find((candidate) =>
     candidate !== undefined && checker.getSymbolName(candidate) === exportName);
   const exportedSourceFile = ast.getSourceFile(

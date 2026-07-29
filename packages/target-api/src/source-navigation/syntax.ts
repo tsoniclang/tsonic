@@ -1,7 +1,6 @@
 import type {
   AstReader,
   Node,
-  SourceFile,
   Symbol,
   Type,
   TypeCheckerQueries,
@@ -14,30 +13,27 @@ export function semanticTypeForNode(
   ast: AstReader,
   checker: TypeCheckerQueries,
   node: Node,
-  sourceFile: SourceFile,
 ): Type | undefined {
   return isTypeSyntaxNode(ast, node)
-    ? checker.getTypeFromTypeNode(node, { sourceFile })
-    : checker.getTypeAtLocation(node, { sourceFile });
+    ? checker.getTypeFromTypeNode(node)
+    : checker.getTypeAtLocation(node);
 }
 
 export function symbolAtReferenceNode(
   ast: AstReader,
   checker: TypeCheckerQueries,
   node: Node,
-  sourceFile: SourceFile,
 ): Symbol | undefined {
   const reference = referenceQueryNode(ast, node);
   return reference === undefined
     ? undefined
-    : checker.getSymbolAtLocation(reference, { sourceFile });
+    : checker.getSymbolAtLocation(reference);
 }
 
 export function resolvedSymbolAtReferenceNode(
   ast: AstReader,
   checker: TypeCheckerQueries,
   node: Node,
-  sourceFile: SourceFile,
 ): Symbol | undefined {
   const reference = referenceQueryNode(ast, node);
   const selected = reference !== undefined && ast.is.IsPropertyAccessExpression(reference)
@@ -45,19 +41,18 @@ export function resolvedSymbolAtReferenceNode(
     : reference;
   return selected === undefined
     ? undefined
-    : checker.getResolvedSymbol(selected, { sourceFile });
+    : checker.getResolvedSymbol(selected);
 }
 
 export function aliasedSymbol(
   ast: AstReader,
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
-  sourceFile: SourceFile,
 ): Symbol | undefined {
   return symbol !== undefined &&
     checker.getSymbolDeclarations(symbol).some((declaration) =>
       isAliasDeclaration(ast, declaration))
-    ? checker.getAliasedSymbol(symbol, { sourceFile })
+    ? checker.getAliasedSymbol(symbol)
     : undefined;
 }
 
