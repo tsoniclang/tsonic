@@ -63,6 +63,7 @@ export function createAstReader() {
         getFileName: (sourceFile) => sourceFile === undefined ? "" : SourceFile_FileName(sourceFile),
         getPath: (sourceFile) => sourceFile === undefined ? "" : SourceFile_Path(sourceFile),
         getSourceText: (sourceFile) => sourceFile === undefined ? "" : SourceFile_Text(sourceFile),
+        isDeclarationFile: (sourceFile) => sourceFile?.IsDeclarationFile === true,
         is: predicates,
         as: casts,
     };

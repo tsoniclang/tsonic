@@ -44,6 +44,7 @@ export interface AstReader {
     readonly getFileName: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getPath: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getSourceText: (sourceFile: GoPtr<SourceFile>) => string;
+    readonly isDeclarationFile: (sourceFile: GoPtr<SourceFile>) => boolean;
     readonly is: typeof predicates;
     readonly as: typeof casts;
 }
