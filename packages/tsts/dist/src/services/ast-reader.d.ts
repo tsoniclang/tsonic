@@ -24,6 +24,8 @@ export interface AstReader {
     readonly properties: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     /** Returns the exact `?` token owned by nodes whose schema permits one. */
     readonly questionToken: (node: GoPtr<Node>) => GoPtr<Node>;
+    /** Returns the exact operator kind name for binary and update expressions. */
+    readonly operatorKindName: (node: GoPtr<Node>) => string | undefined;
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifierFlags: (node: GoPtr<Node>) => number;
     readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;
