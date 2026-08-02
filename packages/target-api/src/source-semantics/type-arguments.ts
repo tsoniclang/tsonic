@@ -30,12 +30,8 @@ export function getEffectiveSourceTypeArguments(
     )
   );
   const arities = new Set(
-    declarations.map((declaration) => {
-      const parameters = ast.typeParameters(declaration);
-      return parameters.every((parameter) => parameter !== undefined)
-        ? parameters.length
-        : undefined;
-    }),
+    declarations.map((declaration) =>
+      sourceTypeParameterArity(ast, declaration)),
   );
   arities.delete(undefined);
   if (arities.size === 0) {
@@ -48,4 +44,22 @@ export function getEffectiveSourceTypeArguments(
   return arity === undefined || arguments_.length < arity
     ? undefined
     : Object.freeze(arguments_.slice(0, arity));
+}
+
+function sourceTypeParameterArity(
+  ast: AstReader,
+  declaration: Node,
+): number | undefined {
+  if (
+    !ast.is.IsClassDeclaration(declaration) &&
+    !ast.is.IsClassExpression(declaration) &&
+    !ast.is.IsInterfaceDeclaration(declaration) &&
+    !ast.is.IsTypeAliasDeclaration(declaration)
+  ) {
+    return undefined;
+  }
+  const parameters = ast.typeParameters(declaration);
+  return parameters.every((parameter) => parameter !== undefined)
+    ? parameters.length
+    : undefined;
 }

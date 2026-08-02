@@ -9,6 +9,9 @@ import {
   parseTsonicProjectConfig,
 } from "../packages/host/dist/index.js";
 import {
+  finalizeTargetDiagnostics,
+} from "../packages/host/dist/diagnostics.js";
+import {
   createSourceProgramNavigation,
   createTargetSourceProgram,
 } from "../packages/target-api/dist/index.js";
@@ -110,6 +113,52 @@ test("target source semantics answer checked-source questions without exposing r
     "resolved",
   );
   assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
+});
+
+test("effective type arguments ignore non-type declarations on shared symbols", async () => {
+  const checked = await checkedSource("effective-type-arguments", {
+    "src/index.ts": [
+      "interface Box<T> { readonly value: T; }",
+      "declare const Box: { new <T>(): Box<T> };",
+      "export function read(value: Box<string>): string { return value.value; }",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const boxTypeNode = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsTypeReferenceNode(node) &&
+    semantics.typeToString(semantics.getTypeFromTypeNode(node)) ===
+      "Box<string>");
+  const boxType = semantics.getTypeFromTypeNode(boxTypeNode);
+  const arguments_ = semantics.getEffectiveTypeArguments(boxType);
+
+  assert.equal(arguments_?.length, 1);
+  assert.equal(semantics.isStringLike(arguments_?.[0]), true);
+});
+
+test("host finalizes target source-node diagnostics through the shared AST", async () => {
+  const checked = await checkedSource("target-diagnostic-location", {
+    "src/index.ts": "export const value = 1;\n",
+  });
+  const sourceFile = projectSourceFile(checked, "src/index.ts");
+  const declaration = namedVariable(checked.ast, sourceFile, "value");
+  const diagnostics = finalizeTargetDiagnostics(
+    { source: checked },
+    [{
+      code: "TARGET_EXAMPLE",
+      category: "error",
+      message: "Example target diagnostic.",
+      sourceNode: declaration,
+    }],
+    process.cwd(),
+  );
+
+  assert.equal("sourceNode" in diagnostics[0], false);
+  assert.equal(diagnostics[0].sourceSpan?.line, 1);
+  assert.equal(diagnostics[0].sourceSpan?.column > 0, true);
+  assert.equal(diagnostics[0].sourceSpan?.fileName.endsWith("src/index.ts"), true);
 });
 
 test("shared source navigation resolves exact generic and transitive declared heritage", async () => {

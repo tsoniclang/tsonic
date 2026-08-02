@@ -17,6 +17,7 @@ import {
   createTsonicSemanticSession,
   collectTstsDiagnostics,
 } from "./compiler-session.js";
+import { finalizeTargetDiagnostics } from "./diagnostics.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
 import { collectImportActivatedTargetCapabilities, collectRuntimeActivatedTargetCapabilities } from "./target/capability-activation.js";
@@ -157,11 +158,19 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, runtimeContributions.diagnostics);
       continue;
     }
-    const backendCompileResult = compileTargetFromSemanticSession(
+    const rawBackendCompileResult = compileTargetFromSemanticSession(
       session,
       targetPaths,
       runtimeContributions.references,
     );
+    const backendCompileResult = {
+      ...rawBackendCompileResult,
+      diagnostics: finalizeTargetDiagnostics(
+        session,
+        rawBackendCompileResult.diagnostics,
+        paths.projectRoot,
+      ),
+    };
     diagnostics.push(...backendCompileResult.diagnostics);
     if (hasBlockingDiagnostics(backendCompileResult.diagnostics)) {
       targets.push({

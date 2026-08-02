@@ -1,3 +1,5 @@
+import type { Node } from "@tsonic/tsts";
+
 export type TargetArtifactKind =
   | "source"
   | "project"
@@ -20,6 +22,7 @@ export interface TargetDiagnostic {
   readonly category: "error" | "warning" | "suggestion";
   readonly message: string;
   readonly source?: string;
+  readonly sourceNode?: Node;
   readonly sourceSpan?: TargetDiagnosticSourceSpan;
   readonly evidence?: readonly string[];
 }

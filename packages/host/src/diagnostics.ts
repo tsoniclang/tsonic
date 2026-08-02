@@ -29,6 +29,26 @@ export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDi
   ];
 }
 
+export function finalizeTargetDiagnostics(
+  session: TsonicSemanticSession,
+  diagnostics: readonly TargetDiagnostic[],
+  currentDirectory: string,
+): readonly TargetDiagnostic[] {
+  return diagnostics.map((diagnostic) => {
+    const sourceSpan = diagnostic.sourceSpan ??
+      getExtensionDiagnosticSourceSpan(
+        session,
+        diagnostic.sourceNode,
+        currentDirectory,
+      );
+    const { sourceNode: _sourceNode, ...result } = diagnostic;
+    return {
+      ...result,
+      ...(sourceSpan === undefined ? {} : { sourceSpan }),
+    };
+  });
+}
+
 function tstsDiagnosticCategory(diagnostic: unknown): TargetDiagnostic["category"] {
   const category = isObjectRecord(diagnostic) ? diagnostic.category : undefined;
   if (category === 0 || category === "warning") {
