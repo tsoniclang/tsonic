@@ -24,6 +24,12 @@ export interface SourceProjectMemberDispatch {
   readonly hasDerivedOverride: boolean;
 }
 
+export interface SourceBindingWrite {
+  readonly reference: Node;
+  readonly operation: Node;
+  readonly kind: "assignment" | "update" | "iteration";
+}
+
 export interface SourceDeclarationReference {
   readonly symbol: Symbol;
   readonly declaration: Node;
@@ -107,6 +113,7 @@ export interface SourceProgramNavigation {
     sourceDeclaration: Node,
     targetDeclaration: Node,
   ): SourceHeritagePathResult;
+  bindingWritesWithin(symbol: Symbol, root: Node): readonly SourceBindingWrite[];
   hasReferenceOutside(symbol: Symbol, excludedNode: Node): boolean;
   isProjectShape(node: Node | undefined): boolean;
   isProjectConstructibleObject(node: Node | undefined): boolean;

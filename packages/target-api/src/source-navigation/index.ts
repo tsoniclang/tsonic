@@ -24,6 +24,7 @@ import {
   createSourceReferenceNavigation,
 } from "./references.js";
 import {
+  sourceBindingWritesWithin,
   sourceSymbolHasReferenceOutside,
 } from "./references-usage.js";
 import type {
@@ -121,6 +122,9 @@ export function createSourceProgramNavigation(
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
+    bindingWritesWithin(symbol: Symbol, root: Node) {
+      return sourceBindingWritesWithin(source, symbol, root);
+    },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
         source,
@@ -169,6 +173,7 @@ function acceptsNoConstructorArguments(
 }
 
 export type {
+  SourceBindingWrite,
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,

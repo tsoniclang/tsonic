@@ -55,6 +55,7 @@ export {
   sourceSymbolsEqual,
 } from "./source-navigation/index.js";
 export type {
+  SourceBindingWrite,
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,

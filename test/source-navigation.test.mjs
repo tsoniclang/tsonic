@@ -438,6 +438,50 @@ test("source navigation proves references outside an exact excluded subtree", as
   assert.equal(navigation.hasReferenceOutside(usedSymbol, sourceFile), false);
 });
 
+test("shared source navigation classifies exact binding writes without treating object mutation as rebinding", async () => {
+  const source = await checkedSource("binding-writes", {
+    "src/index.ts": [
+      "export function update(values: number[]): void {",
+      "  let direct = 0;",
+      "  direct = 1;",
+      "  let compound = 0;",
+      "  compound += 1;",
+      "  let incremented = 0;",
+      "  incremented++;",
+      "  let destructured = 0;",
+      "  [destructured] = values;",
+      "  let propertyTarget = { value: 0 };",
+      "  propertyTarget.value = 1;",
+      "  let iterated = 0;",
+      "  for (iterated of values) void iterated;",
+      "  let untouched = 0;",
+      "  void untouched;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const ast = source.ast;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  const checker = source.getSourceFileQueries(sourceFile).checker;
+  const writesFor = (name) => {
+    const declaration = namedVariable(ast, sourceFile, name);
+    const symbol = checker.getSymbolAtLocation(ast.name(declaration), {
+      sourceFile,
+    });
+    assert.notEqual(symbol, undefined);
+    return navigation.bindingWritesWithin(symbol, sourceFile);
+  };
+
+  assert.deepEqual(writesFor("direct").map((write) => write.kind), ["assignment"]);
+  assert.deepEqual(writesFor("compound").map((write) => write.kind), ["assignment"]);
+  assert.deepEqual(writesFor("incremented").map((write) => write.kind), ["update"]);
+  assert.deepEqual(writesFor("destructured").map((write) => write.kind), ["assignment"]);
+  assert.deepEqual(writesFor("iterated").map((write) => write.kind), ["iteration"]);
+  assert.deepEqual(writesFor("propertyTarget"), []);
+  assert.deepEqual(writesFor("untouched"), []);
+});
+
 test("source navigation resolves shorthand values through the checker-selected value symbol", async () => {
   const source = await checkedSource("shorthand-value-reference", {
     "src/index.ts": [
