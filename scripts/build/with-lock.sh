@@ -13,7 +13,5 @@ if [[ "${TSONIC_BUILD_LOCK_HELD:-0}" == "1" ]]; then
 fi
 
 mkdir -p "$REPO_ROOT/.temp/locks"
-exec 9>"$REPO_ROOT/.temp/locks/build.lock"
-flock 9
 export TSONIC_BUILD_LOCK_HELD=1
-exec "$@"
+exec flock --close "$REPO_ROOT/.temp/locks/build.lock" "$@"
