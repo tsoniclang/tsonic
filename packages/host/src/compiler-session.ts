@@ -16,6 +16,9 @@ import type {
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import {
+  createTargetSourceProgram,
+} from "@tsonic/target-api";
+import {
   createTargetSourceCompilerComposition,
   getTargetRequiredProviderModules,
 } from "./target/extensions.js";
@@ -93,7 +96,7 @@ export function compileTargetFromSemanticSession(
     targetPack,
   } = session.targetContext;
   const input: TargetCompileInput = {
-    source: session.source,
+    source: createTargetSourceProgram(session.source),
     project,
     target,
     runtimeReferences,

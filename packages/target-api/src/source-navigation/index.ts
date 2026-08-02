@@ -11,6 +11,9 @@ import {
   sourceFileIdentity,
 } from "./identity.js";
 import {
+  createSourceHeritageNavigation,
+} from "./heritage.js";
+import {
   sourceProjectModuleDependencies,
 } from "./modules.js";
 import {
@@ -35,6 +38,10 @@ export function createSourceProgramNavigation(
     source,
     sourceFiles,
     references.referenceFor,
+    references.isProjectDeclaration,
+  );
+  const heritage = createSourceHeritageNavigation(
+    source,
     references.isProjectDeclaration,
   );
   const moduleDependencyCache = new Map<
@@ -87,6 +94,8 @@ export function createSourceProgramNavigation(
     declarationFor: references.declarationFor,
     moduleDependencies,
     memberDispatch: dispatch.memberDispatch,
+    declaredHeritage: heritage.declaredHeritage,
+    declaredHeritagePath: heritage.declaredHeritagePath,
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
         source,
@@ -135,6 +144,10 @@ function acceptsNoConstructorArguments(
 }
 
 export type {
+  SourceDeclarationReference,
+  SourceDeclaredHeritageEdge,
+  SourceDeclaredHeritageResult,
+  SourceHeritagePathResult,
   SourceProgramNavigation,
   SourceProjectMemberDispatch,
   SourceProjectModuleDependency,

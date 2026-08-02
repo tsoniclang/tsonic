@@ -55,11 +55,23 @@ export {
   sourceSymbolsEqual,
 } from "./source-navigation/index.js";
 export type {
+  SourceDeclarationReference,
+  SourceDeclaredHeritageEdge,
+  SourceDeclaredHeritageResult,
+  SourceHeritagePathResult,
   SourceProgramNavigation,
   SourceProjectMemberDispatch,
   SourceProjectModuleDependency,
   SourceProjectReference,
 } from "./source-navigation/index.js";
+export {
+  createTargetSourceProgram,
+} from "./source-semantics/index.js";
+export type {
+  SourceFileSemantics,
+  SourceProgramSemantics,
+  TargetSourceProgram,
+} from "./source-semantics/index.js";
 export type {
   TargetBackend,
   TargetBackendContext,

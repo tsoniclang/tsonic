@@ -1,8 +1,10 @@
 import type {
-  CheckedSourceProgram,
   CompilerExtension,
   SourceSemanticsModule,
 } from "@tsonic/tsts";
+import type {
+  TargetSourceProgram,
+} from "./source-semantics/index.js";
 import type { TargetCompileResult, TargetRuntimeContributions, TargetRuntimeReference } from "./artifacts.js";
 import type {
   TargetSelection,
@@ -82,7 +84,7 @@ export interface TargetSurfaceSourceProfileContext extends TargetProviderSourceP
 }
 
 export interface TargetCompileInput {
-  readonly source: CheckedSourceProgram;
+  readonly source: TargetSourceProgram;
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly runtimeReferences: readonly TargetRuntimeReference[];

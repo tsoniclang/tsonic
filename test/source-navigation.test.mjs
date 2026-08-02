@@ -10,6 +10,7 @@ import {
 } from "../packages/host/dist/index.js";
 import {
   createSourceProgramNavigation,
+  createTargetSourceProgram,
 } from "../packages/target-api/dist/index.js";
 
 const tempRoot = resolve(
@@ -81,6 +82,87 @@ test("source navigation resolves project references, shapes, constructors, and d
     overridesBase: true,
     hasDerivedOverride: false,
   });
+});
+
+test("target source semantics answer checked-source questions without exposing raw checker access", async () => {
+  const checked = await checkedSource("target-source-semantics", {
+    "src/index.ts": [
+      "function identity<T>(value: T): T { return value; }",
+      "export const value = identity<string>(\"ready\");",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const call = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsCallExpression(node));
+  const first = source.semantics.forFile(sourceFile);
+  const second = source.semantics.forNode(call);
+
+  assert.strictEqual(first, second);
+  assert.equal("checker" in first, false);
+  assert.equal("typeShape" in first, false);
+  assert.equal("getSourceFileQueries" in source, false);
+  assert.equal(
+    first.getResolvedCallInfo(call)?.sourceSelectedSignatureKind,
+    "resolved",
+  );
+  assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
+});
+
+test("shared source navigation resolves exact generic and transitive declared heritage", async () => {
+  const checked = await checkedSource("declared-heritage", {
+    "src/index.ts": [
+      "export interface Named<T> { value: T; }",
+      "export class Base<T> { value!: T; }",
+      "export class Middle<T> extends Base<T> implements Named<T> {}",
+      "export class Derived extends Middle<string> {}",
+      "export class SameShape { value!: string; }",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const base = namedDeclaration(source.ast, sourceFile, "Base");
+  const named = namedDeclaration(source.ast, sourceFile, "Named");
+  const middle = namedDeclaration(source.ast, sourceFile, "Middle");
+  const derived = namedDeclaration(source.ast, sourceFile, "Derived");
+  const sameShape = namedDeclaration(source.ast, sourceFile, "SameShape");
+  const middleHeritage = source.navigation.declaredHeritage(middle);
+
+  assert.equal(middleHeritage.kind, "resolved");
+  assert.deepEqual(
+    middleHeritage.edges.map((edge) => ({
+      kind: edge.kind,
+      target: source.ast.text(source.ast.name(edge.target.declaration)),
+      typeArguments: edge.typeArguments.map((argument) =>
+        source.ast.kindName(argument)),
+    })),
+    [
+      {
+        kind: "extends",
+        target: "Base",
+        typeArguments: ["KindTypeReference"],
+      },
+      {
+        kind: "implements",
+        target: "Named",
+        typeArguments: ["KindTypeReference"],
+      },
+    ],
+  );
+  assert.deepEqual(
+    source.navigation.declaredHeritagePath(derived, base).kind,
+    "related",
+  );
+  assert.deepEqual(
+    source.navigation.declaredHeritagePath(derived, named).kind,
+    "related",
+  );
+  assert.deepEqual(
+    source.navigation.declaredHeritagePath(sameShape, named),
+    { kind: "unrelated" },
+  );
 });
 
 test("source navigation proves references outside an exact excluded subtree", async () => {
