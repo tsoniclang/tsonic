@@ -10,7 +10,10 @@ import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/chec
 import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
-export function createTypeCheckerQueries(program, defaultOptions = {}) {
+export function createTypeCheckerQueries(program, defaultOptions) {
+    if (program === undefined || defaultOptions.sourceFile === undefined) {
+        throw new Error("Type-checker queries require one source file from the compiler program.");
+    }
     const callInfos = new WeakMap();
     const propertyAccessInfos = new WeakMap();
     const elementAccessInfos = new WeakMap();
@@ -85,13 +88,13 @@ function withCheckerForNode(program, node, defaultOptions, callback) {
     if (node === undefined) {
         return undefined;
     }
-    return withChecker(program, GetSourceFileOfNode(node), defaultOptions, callback);
+    return withChecker(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSymbol(program, symbol, defaultOptions, callback) {
     if (symbol === undefined) {
         return undefined;
     }
-    return withChecker(program, getSymbolSourceFile(symbol), defaultOptions, callback);
+    return withChecker(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForType(program, type, defaultOptions, callback) {
     if (type === undefined) {
@@ -100,18 +103,13 @@ function withCheckerForType(program, type, defaultOptions, callback) {
     if (type.checker !== undefined) {
         return callback(type.checker);
     }
-    return withChecker(program, getSymbolSourceFile(type.symbol ?? type.alias?.symbol), defaultOptions, callback);
+    return withChecker(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSignature(program, signature, defaultOptions, callback) {
     if (signature === undefined) {
         return undefined;
     }
-    const ownedChecker = signature.resolvedReturnType?.checker
-        ?? signature.typeParameters.find((type) => type?.checker !== undefined)?.checker;
-    if (ownedChecker !== undefined) {
-        return callback(ownedChecker);
-    }
-    return withChecker(program, GetSourceFileOfNode(signature.declaration), defaultOptions, callback);
+    return withChecker(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withChecker(program, sourceFile, defaultOptions, callback) {
     if (program === undefined || sourceFile === undefined) {

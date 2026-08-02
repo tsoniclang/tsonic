@@ -1,5 +1,5 @@
 import type { GoPtr } from "../go/compat.js";
-import type { Node } from "../internal/ast/ast.js";
+import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { Context } from "../go/context.js";
@@ -13,6 +13,7 @@ export interface TypeIndexInfo {
     readonly components: readonly GoPtr<Node>[];
 }
 export interface CreateTypeShapeQueriesOptions {
+    readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
 }
 export interface TypeShapeQueries {
@@ -48,5 +49,5 @@ export interface TypeShapeQueries {
     readonly getWidenedType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly removeMissingOrUndefined: (type: GoPtr<Type>) => GoPtr<Type>;
 }
-export declare function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions?: CreateTypeShapeQueriesOptions): TypeShapeQueries;
+export declare function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: CreateTypeShapeQueriesOptions): TypeShapeQueries;
 //# sourceMappingURL=type-shape.d.ts.map

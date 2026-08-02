@@ -7,6 +7,7 @@ import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAcc
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
 import type { ContextFlags, ResolvedCallEvidence, Signature, Type } from "../internal/checker/types.js";
 export interface CreateTypeCheckerQueriesOptions {
+    readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
 }
 export type ResolvedSourceCallInfo = ResolvedCallEvidence;
@@ -50,5 +51,5 @@ export interface TypeCheckerQueries {
     readonly getSignatureParameters: (signature: GoPtr<Signature>) => readonly GoPtr<Symbol>[];
     readonly getSignatureThisParameter: (signature: GoPtr<Signature>) => GoPtr<Symbol>;
 }
-export declare function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions?: CreateTypeCheckerQueriesOptions): TypeCheckerQueries;
+export declare function createTypeCheckerQueries(program: GoPtr<Program>, defaultOptions: CreateTypeCheckerQueriesOptions): TypeCheckerQueries;
 //# sourceMappingURL=type-checker.d.ts.map

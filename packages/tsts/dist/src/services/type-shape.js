@@ -1,11 +1,13 @@
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
-import { GetSourceFileOfNode } from "../internal/ast/utilities.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
 import { Checker_GetConstantValue } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBooleanLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsStringLike, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_Types, } from "../internal/checker/types.js";
-export function createTypeShapeQueries(program, defaultOptions = {}) {
+export function createTypeShapeQueries(program, defaultOptions) {
+    if (program === undefined || defaultOptions.sourceFile === undefined) {
+        throw new Error("Type-shape queries require one source file from the compiler program.");
+    }
     const queries = {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
@@ -63,7 +65,7 @@ function withCheckerForNode(program, node, defaultOptions, callback) {
     if (node === undefined) {
         return undefined;
     }
-    return withCheckerForSourceFile(program, GetSourceFileOfNode(node), defaultOptions, callback);
+    return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForType(program, type, defaultOptions, callback) {
     if (program === undefined || type === undefined) {
@@ -72,18 +74,13 @@ function withCheckerForType(program, type, defaultOptions, callback) {
     if (type.checker !== undefined) {
         return callback(type.checker);
     }
-    return withCheckerForSourceFile(program, getTypeSourceFile(type), defaultOptions, callback);
+    return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSignature(program, signature, defaultOptions, callback) {
     if (program === undefined || signature === undefined) {
         return undefined;
     }
-    const ownedChecker = signature.resolvedReturnType?.checker
-        ?? signature.typeParameters.find((type) => type?.checker !== undefined)?.checker;
-    if (ownedChecker !== undefined) {
-        return callback(ownedChecker);
-    }
-    return withCheckerForSourceFile(program, GetSourceFileOfNode(signature.declaration), defaultOptions, callback);
+    return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSourceFile(program, sourceFile, defaultOptions, callback) {
     if (sourceFile === undefined) {
@@ -96,12 +93,5 @@ function withCheckerForSourceFile(program, sourceFile, defaultOptions, callback)
     finally {
         done();
     }
-}
-function getTypeSourceFile(type) {
-    const declaration = type.symbol?.ValueDeclaration
-        ?? type.symbol?.Declarations?.find((candidate) => candidate !== undefined)
-        ?? type.alias?.symbol?.ValueDeclaration
-        ?? type.alias?.symbol?.Declarations?.find((candidate) => candidate !== undefined);
-    return GetSourceFileOfNode(declaration);
 }
 //# sourceMappingURL=type-shape.js.map
