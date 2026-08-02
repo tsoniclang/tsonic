@@ -99,6 +99,7 @@ export interface SourceProgramNavigation {
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
   moduleDependencies(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
+  moduleHasTopLevelAwait(sourceFile: SourceFile): boolean;
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
   classConstructors(declaration: Node): SourceClassConstructorResult;
   declaredHeritage(declaration: Node): SourceDeclaredHeritageResult;

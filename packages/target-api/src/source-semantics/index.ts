@@ -15,6 +15,12 @@ import type {
 import {
   getEffectiveSourceTypeArguments,
 } from "./type-arguments.js";
+import {
+  sourceTypeFactSubjects,
+} from "./fact-subjects.js";
+import {
+  sourceTypeRelationship,
+} from "./type-relationship.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
@@ -44,6 +50,18 @@ export function createTargetSourceProgram(
       ...queries.typeShape,
       getEffectiveTypeArguments(type: Type) {
         return getEffectiveSourceTypeArguments(source.ast, queries, type);
+      },
+      getTypeFactSubjects(type: Type) {
+        return sourceTypeFactSubjects(queries.checker, type);
+      },
+      getTypeRelationship(left: Type, right: Type) {
+        return sourceTypeRelationship(
+          queries.typeShape,
+          queries.checker,
+          source.sourceFacts,
+          left,
+          right,
+        );
       },
     }) satisfies SourceFileSemantics;
     cache.set(sourceFile, semantics);
@@ -80,5 +98,6 @@ export function createTargetSourceProgram(
 export type {
   SourceFileSemantics,
   SourceProgramSemantics,
+  SourceTypeRelationship,
   TargetSourceProgram,
 } from "./types.js";

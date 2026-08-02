@@ -8,11 +8,60 @@ import {
   readFile,
   resolve,
   runGeneratedCsharpRunner,
+  runGeneratedProject,
   runNode,
   tempRoot,
   test,
   writeProject,
 } from "./harness.mjs";
+
+test("CLI awaits top-level Promise evaluation through runtime module dependencies", async () => {
+  const projectDirectory = resolve(
+    tempRoot,
+    "js-top-level-await-module-dependency",
+  );
+  const assemblyName = "SmokeGeneratedTopLevelAwait";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        surfaces: ["js"],
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName,
+          outputType: "Exe",
+        },
+      }],
+    }, null, 2),
+    "src/worker.ts": [
+      "function immediate(value: string): Promise<string> {",
+      "  return new Promise<string>((resolve) => { resolve(value); });",
+      "}",
+      "console.log(await immediate(\"dependency\"));",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import \"./worker.js\";",
+      "console.log(\"entry\");",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([
+    cliPath,
+    "build",
+    "--project",
+    resolve(projectDirectory, "tsonic.json"),
+  ]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  assert.equal(
+    runGeneratedProject(projectDirectory, assemblyName),
+    "dependency\nentry\n",
+  );
+});
 
 test("CLI maps selected JS Promise construction and all to Task-backed runtime operations", async () => {
   const projectDirectory = resolve(tempRoot, "js-promise-task-runtime");
@@ -116,7 +165,9 @@ test("CLI rejects selected JS Promise operations without closed runtime metadata
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /Promise\.resolve/u);
-  assert.match(build.stdout + build.stderr, /scheduler|continuation|operation metadata/u);
+  assert.match(
+    build.stdout + build.stderr,
+    /ERROR tsonic-csharp:TS9101002 index\.ts:2:10: Promise\.resolve requires a closed Promise\/Task carrier relation that has not yet been declared by the JS source profile\.\n  evidence: Selected source identity: js\.PromiseConstructor\.resolve\.member\.\n  evidence: No target fallback, name recovery, or dynamic invocation is permitted\./u,
+  );
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });

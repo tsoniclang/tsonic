@@ -105,6 +105,7 @@ test("target source semantics answer checked-source questions without exposing r
   assert.strictEqual(first, second);
   assert.equal(source.semantics.includes(sourceFile), true);
   assert.equal(source.semantics.includes({}), false);
+  assert.doesNotThrow(() => source.navigation.referenceFor(sourceFile));
   assert.equal("checker" in first, false);
   assert.equal("typeShape" in first, false);
   assert.equal("getSourceFileQueries" in source, false);
@@ -121,6 +122,7 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
       "interface Box<T> { readonly value: T; }",
       "declare const Box: { new <T>(): Box<T> };",
       "export function read(value: Box<string>): string { return value.value; }",
+      "export function count(value: Box<number>): number { return value.value; }",
       "",
     ].join("\n"),
   });
@@ -133,9 +135,37 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
       "Box<string>");
   const boxType = semantics.getTypeFromTypeNode(boxTypeNode);
   const arguments_ = semantics.getEffectiveTypeArguments(boxType);
+  const numberBoxTypeNode = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsTypeReferenceNode(node) &&
+    semantics.typeToString(semantics.getTypeFromTypeNode(node)) ===
+      "Box<number>");
+  const numberBoxType = semantics.getTypeFromTypeNode(numberBoxTypeNode);
+  const boxFactSubjects = semantics.getTypeFactSubjects(boxType);
 
   assert.equal(arguments_?.length, 1);
+  assert.equal(boxFactSubjects.includes(boxType), true);
+  assert.equal(
+    boxFactSubjects.includes(semantics.getTypeSymbol(boxType)),
+    true,
+  );
+  assert.equal(
+    boxFactSubjects.some((subject) => subject === namedDeclaration(
+      source.ast,
+      sourceFile,
+      "Box",
+    )),
+    true,
+  );
   assert.equal(semantics.isStringLike(arguments_?.[0]), true);
+  assert.equal(semantics.getTypeRelationship(boxType, boxType), "identical");
+  assert.equal(
+    semantics.getTypeRelationship(boxType, numberBoxType),
+    "same-declaration",
+  );
+  assert.equal(
+    semantics.getTypeRelationship(boxType, arguments_[0]),
+    "unrelated",
+  );
 });
 
 test("host finalizes target source-node diagnostics through the shared AST", async () => {
@@ -402,6 +432,31 @@ test("source navigation classifies runtime import and export dependencies exactl
     dependencies,
     cases.filter((entry) => entry.runtime).map((entry) => `${entry.id}.ts`),
   );
+});
+
+test("source navigation classifies top-level await without entering function bodies", async () => {
+  const source = await checkedSource("module-top-level-await", {
+    "src/entry.ts": [
+      "interface Promise<T> {}",
+      "declare function ready(): Promise<void>;",
+      "export async function nested(): Promise<void> {",
+      "  await ready();",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { nested } from \"./entry.js\";",
+      "await nested();",
+      "",
+    ].join("\n"),
+  });
+  const navigation = createSourceProgramNavigation(source);
+  const entry = projectSourceFile(source, "src/entry.ts");
+  const index = projectSourceFile(source, "src/index.ts");
+
+  assert.equal(navigation.moduleHasTopLevelAwait(entry), false);
+  assert.equal(navigation.moduleHasTopLevelAwait(index), true);
+  assert.equal(navigation.moduleHasTopLevelAwait(index), true);
 });
 
 test("source navigation never queries declaration-provider files as project source", () => {

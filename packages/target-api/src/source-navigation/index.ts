@@ -17,6 +17,7 @@ import {
   createSourceClassConstructorNavigation,
 } from "./constructors.js";
 import {
+  sourceFileHasTopLevelAwait,
   sourceProjectModuleDependencies,
 } from "./modules.js";
 import {
@@ -55,6 +56,7 @@ export function createSourceProgramNavigation(
     string,
     readonly ReturnType<typeof sourceProjectModuleDependencies>[number][]
   >();
+  const topLevelAwaitCache = new Map<string, boolean>();
 
   const moduleDependencies = (
     sourceFile: SourceFile,
@@ -74,6 +76,20 @@ export function createSourceProgramNavigation(
     );
     moduleDependencyCache.set(sourceFileKey, dependencies);
     return dependencies;
+  };
+
+  const moduleHasTopLevelAwait = (sourceFile: SourceFile): boolean => {
+    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
+    if (sourceFileKey === undefined) {
+      return false;
+    }
+    const cached = topLevelAwaitCache.get(sourceFileKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const result = sourceFileHasTopLevelAwait(source.ast, sourceFile);
+    topLevelAwaitCache.set(sourceFileKey, result);
+    return result;
   };
 
   const isProjectShape = (node: Node | undefined): boolean => {
@@ -100,6 +116,7 @@ export function createSourceProgramNavigation(
     referenceFor: references.referenceFor,
     declarationFor: references.declarationFor,
     moduleDependencies,
+    moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,

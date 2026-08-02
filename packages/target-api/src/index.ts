@@ -73,6 +73,7 @@ export {
 export type {
   SourceFileSemantics,
   SourceProgramSemantics,
+  SourceTypeRelationship,
   TargetSourceProgram,
 } from "./source-semantics/index.js";
 export type {

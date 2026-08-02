@@ -57,6 +57,53 @@ export function sourceProjectModuleDependencies(
   return Object.freeze(dependencies);
 }
 
+export function sourceFileHasTopLevelAwait(
+  ast: AstReader,
+  sourceFile: SourceFile,
+): boolean {
+  let found = false;
+  const visit = (node: Node): void => {
+    if (found) {
+      return;
+    }
+    if (ast.is.IsAwaitExpression(node)) {
+      found = true;
+      return;
+    }
+    if (
+      ast.is.IsForOfStatement(node) &&
+      ast.as.AsForInOrOfStatement(node)?.AwaitModifier !== undefined
+    ) {
+      found = true;
+      return;
+    }
+    if (isFunctionBoundary(ast, node)) {
+      return;
+    }
+    ast.forEachChild(node, (child) => {
+      if (child !== undefined) {
+        visit(child);
+      }
+    });
+  };
+  for (const statement of ast.statements(sourceFile)) {
+    if (statement !== undefined) {
+      visit(statement);
+    }
+  }
+  return found;
+}
+
+function isFunctionBoundary(ast: AstReader, node: Node): boolean {
+  return ast.is.IsFunctionDeclaration(node) ||
+    ast.is.IsFunctionExpression(node) ||
+    ast.is.IsArrowFunction(node) ||
+    ast.is.IsMethodDeclaration(node) ||
+    ast.is.IsConstructorDeclaration(node) ||
+    ast.is.IsGetAccessorDeclaration(node) ||
+    ast.is.IsSetAccessorDeclaration(node);
+}
+
 function resolveRuntimeDependency(
   ast: AstReader,
   checker: TypeCheckerQueries,

@@ -128,7 +128,9 @@ export function createSourceReferenceNavigation(
       queries.checker,
       node,
     );
-    const selectedSymbols = ast.is.IsShorthandPropertyAssignment(ast.parent(node))
+    const parent = ast.parent(node);
+    const selectedSymbols = parent !== undefined &&
+        ast.is.IsShorthandPropertyAssignment(parent)
       ? [resolvedSymbol, directSymbol]
       : [directSymbol, resolvedSymbol];
     const symbols = selectedSymbols.flatMap((symbol) =>
