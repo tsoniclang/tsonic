@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   capabilityCompatRuntimeCarriers,
   capabilitySurfaceEvidenceGateNames,
@@ -38,6 +39,41 @@ import {
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("capability ledger proof paths resolve to current executable evidence", () => {
+  const missing = [];
+  for (const entry of capabilityLedger) {
+    for (const field of ["positiveTests", "negativeTests"]) {
+      for (const proof of entry[field]) {
+        if (!existsSync(resolve(repositoryRoot, proof))) {
+          missing.push(`${entry.capabilityId}:${field}:${proof}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("capability ledger does not describe the retired target-operation fact lifecycle", () => {
+  const source = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "capabilities/ledger.mjs"),
+    "utf8",
+  );
+  const retiredTerms = [
+    "checkedOperatorObservation",
+    "csharpTargetOperationFact",
+    "runtimeCarrierFact",
+    "selectedTargetSignatureFact",
+    "surfaceTargetOperationFact",
+    "targetOperationFact",
+    "unsupportedTargetOperationFact",
+  ];
+  assert.deepEqual(
+    retiredTerms.filter((term) => source.includes(term)),
+    [],
+  );
+});
 const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
 
 
