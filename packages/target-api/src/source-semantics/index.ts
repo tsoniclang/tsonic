@@ -2,6 +2,7 @@ import type {
   CheckedSourceProgram,
   Node,
   SourceFile,
+  Type,
 } from "@tsonic/tsts";
 import {
   createSourceProgramNavigation,
@@ -11,6 +12,9 @@ import type {
   SourceProgramSemantics,
   TargetSourceProgram,
 } from "./types.js";
+import {
+  getEffectiveSourceTypeArguments,
+} from "./type-arguments.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
@@ -38,6 +42,9 @@ export function createTargetSourceProgram(
       sourceFile,
       ...queries.checker,
       ...queries.typeShape,
+      getEffectiveTypeArguments(type: Type) {
+        return getEffectiveSourceTypeArguments(source.ast, queries, type);
+      },
     }) satisfies SourceFileSemantics;
     cache.set(sourceFile, semantics);
     return semantics;
@@ -54,6 +61,9 @@ export function createTargetSourceProgram(
   };
 
   const semantics: SourceProgramSemantics = Object.freeze({
+    includes(sourceFile: SourceFile) {
+      return sourceFileSet.has(sourceFile);
+    },
     forFile,
     forNode,
   });

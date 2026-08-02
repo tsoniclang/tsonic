@@ -7,6 +7,9 @@ import {
   sourceNodeIdentity,
 } from "./identity.js";
 import {
+  getEffectiveSourceTypeArguments,
+} from "../source-semantics/type-arguments.js";
+import {
   aliasedSymbol,
   primaryDeclaration,
   symbolAtReferenceNode,
@@ -70,6 +73,37 @@ export function createSourceHeritageNavigation(
         }
         return unresolved;
       }
+      const sourceFile = source.ast.getSourceFile(clause.heritage);
+      const queries = sourceFile === undefined
+        ? undefined
+        : source.getSourceFileQueries(sourceFile);
+      const selectedType = queries?.checker.getTypeAtLocation(
+        clause.heritage,
+      );
+      const selectedTypeArguments = selectedType === undefined
+        ? undefined
+        : queries === undefined
+          ? undefined
+          : getEffectiveSourceTypeArguments(
+              source.ast,
+              queries,
+              selectedType,
+            );
+      if (
+        selectedType === undefined ||
+        selectedTypeArguments === undefined
+      ) {
+        const unresolved = Object.freeze({
+          kind: "unresolved" as const,
+          heritage: clause.heritage,
+          reason:
+            "The checked source program did not provide one exact selected type for a declared heritage edge.",
+        });
+        if (identity !== undefined) {
+          cache.set(identity, unresolved);
+        }
+        return unresolved;
+      }
       edges.push(Object.freeze({
         kind: clause.kind,
         sourceDeclaration: declaration,
@@ -80,6 +114,8 @@ export function createSourceHeritageNavigation(
             (argument): argument is Node => argument !== undefined,
           ),
         ),
+        selectedType,
+        selectedTypeArguments,
       }));
     }
     const resolved = Object.freeze({

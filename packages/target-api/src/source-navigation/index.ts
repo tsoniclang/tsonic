@@ -14,6 +14,9 @@ import {
   createSourceHeritageNavigation,
 } from "./heritage.js";
 import {
+  createSourceClassConstructorNavigation,
+} from "./constructors.js";
+import {
   sourceProjectModuleDependencies,
 } from "./modules.js";
 import {
@@ -41,6 +44,10 @@ export function createSourceProgramNavigation(
     references.isProjectDeclaration,
   );
   const heritage = createSourceHeritageNavigation(
+    source,
+    references.isProjectDeclaration,
+  );
+  const classConstructors = createSourceClassConstructorNavigation(
     source,
     references.isProjectDeclaration,
   );
@@ -94,6 +101,7 @@ export function createSourceProgramNavigation(
     declarationFor: references.declarationFor,
     moduleDependencies,
     memberDispatch: dispatch.memberDispatch,
+    classConstructors,
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
@@ -144,6 +152,9 @@ function acceptsNoConstructorArguments(
 }
 
 export type {
+  SourceClassConstructorParameter,
+  SourceClassConstructorResult,
+  SourceClassConstructorSignature,
   SourceDeclarationReference,
   SourceDeclaredHeritageEdge,
   SourceDeclaredHeritageResult,

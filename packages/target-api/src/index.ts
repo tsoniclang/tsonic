@@ -55,6 +55,9 @@ export {
   sourceSymbolsEqual,
 } from "./source-navigation/index.js";
 export type {
+  SourceClassConstructorParameter,
+  SourceClassConstructorResult,
+  SourceClassConstructorSignature,
   SourceDeclarationReference,
   SourceDeclaredHeritageEdge,
   SourceDeclaredHeritageResult,

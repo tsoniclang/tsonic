@@ -5,6 +5,7 @@ import type {
   SourceFile,
   TypeCheckerQueries,
   TypeShapeQueries,
+  Type,
 } from "@tsonic/tsts";
 import type {
   SourceProgramNavigation,
@@ -12,11 +13,15 @@ import type {
 
 export type SourceFileSemantics = Readonly<
   & { readonly sourceFile: SourceFile }
+  & {
+    getEffectiveTypeArguments(type: Type): readonly Type[] | undefined;
+  }
   & TypeCheckerQueries
   & TypeShapeQueries
 >;
 
 export interface SourceProgramSemantics {
+  includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;
 }

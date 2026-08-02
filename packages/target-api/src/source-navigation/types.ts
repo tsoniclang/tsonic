@@ -1,7 +1,9 @@
 import type {
   Node,
+  Signature,
   SourceFile,
   Symbol,
+  Type,
 } from "@tsonic/tsts";
 
 export interface SourceProjectReference {
@@ -35,7 +37,39 @@ export interface SourceDeclaredHeritageEdge {
   readonly heritage: Node;
   readonly target: SourceDeclarationReference;
   readonly typeArguments: readonly Node[];
+  readonly selectedType: Type;
+  readonly selectedTypeArguments: readonly Type[];
 }
+
+export interface SourceClassConstructorParameter {
+  readonly parameterIndex: number;
+  readonly parameterName: string;
+  readonly parameterSymbol: Symbol;
+  readonly parameterDeclaration: Node;
+  readonly authoredTypeNode?: Node;
+  readonly selectedType: Type;
+  readonly acceptsOmission: boolean;
+  readonly rest: boolean;
+}
+
+export interface SourceClassConstructorSignature {
+  readonly signature: Signature;
+  readonly declaration?: Node;
+  readonly parameters: readonly SourceClassConstructorParameter[];
+}
+
+export type SourceClassConstructorResult =
+  | {
+      readonly kind: "resolved";
+      readonly declaration: Node;
+      readonly implicit: boolean;
+      readonly signatures: readonly SourceClassConstructorSignature[];
+    }
+  | {
+      readonly kind: "unresolved";
+      readonly declaration: Node;
+      readonly reason: string;
+    };
 
 export type SourceDeclaredHeritageResult =
   | {
@@ -66,6 +100,7 @@ export interface SourceProgramNavigation {
   declarationFor(node: Node | undefined): Node | undefined;
   moduleDependencies(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
+  classConstructors(declaration: Node): SourceClassConstructorResult;
   declaredHeritage(declaration: Node): SourceDeclaredHeritageResult;
   declaredHeritagePath(
     sourceDeclaration: Node,

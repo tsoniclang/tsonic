@@ -100,6 +100,8 @@ test("target source semantics answer checked-source questions without exposing r
   const second = source.semantics.forNode(call);
 
   assert.strictEqual(first, second);
+  assert.equal(source.semantics.includes(sourceFile), true);
+  assert.equal(source.semantics.includes({}), false);
   assert.equal("checker" in first, false);
   assert.equal("typeShape" in first, false);
   assert.equal("getSourceFileQueries" in source, false);
@@ -117,6 +119,8 @@ test("shared source navigation resolves exact generic and transitive declared he
       "export class Base<T> { value!: T; }",
       "export class Middle<T> extends Base<T> implements Named<T> {}",
       "export class Derived extends Middle<string> {}",
+      "export class DefaultBase<T = string> {}",
+      "export class DefaultDerived extends DefaultBase {}",
       "export class SameShape { value!: string; }",
       "",
     ].join("\n"),
@@ -127,8 +131,14 @@ test("shared source navigation resolves exact generic and transitive declared he
   const named = namedDeclaration(source.ast, sourceFile, "Named");
   const middle = namedDeclaration(source.ast, sourceFile, "Middle");
   const derived = namedDeclaration(source.ast, sourceFile, "Derived");
+  const defaultDerived = namedDeclaration(
+    source.ast,
+    sourceFile,
+    "DefaultDerived",
+  );
   const sameShape = namedDeclaration(source.ast, sourceFile, "SameShape");
   const middleHeritage = source.navigation.declaredHeritage(middle);
+  const semantics = source.semantics.forFile(sourceFile);
 
   assert.equal(middleHeritage.kind, "resolved");
   assert.deepEqual(
@@ -137,19 +147,37 @@ test("shared source navigation resolves exact generic and transitive declared he
       target: source.ast.text(source.ast.name(edge.target.declaration)),
       typeArguments: edge.typeArguments.map((argument) =>
         source.ast.kindName(argument)),
+      selectedTypeArgumentCount: edge.selectedTypeArguments.length,
+      selectedTypeArguments: edge.selectedTypeArguments.map((argument) =>
+        semantics.typeToString(argument)),
     })),
     [
       {
         kind: "extends",
         target: "Base",
         typeArguments: ["KindTypeReference"],
+        selectedTypeArgumentCount: 1,
+        selectedTypeArguments: ["T"],
       },
       {
         kind: "implements",
         target: "Named",
         typeArguments: ["KindTypeReference"],
+        selectedTypeArgumentCount: 1,
+        selectedTypeArguments: ["T"],
       },
     ],
+  );
+  const defaultHeritage = source.navigation.declaredHeritage(defaultDerived);
+  assert.equal(defaultHeritage.kind, "resolved");
+  assert.equal(defaultHeritage.edges.length, 1);
+  assert.deepEqual(defaultHeritage.edges[0].typeArguments, []);
+  assert.equal(defaultHeritage.edges[0].selectedTypeArguments.length, 1);
+  assert.equal(
+    semantics.isStringLike(
+      defaultHeritage.edges[0].selectedTypeArguments[0],
+    ),
+    true,
   );
   assert.deepEqual(
     source.navigation.declaredHeritagePath(derived, base).kind,
@@ -163,6 +191,61 @@ test("shared source navigation resolves exact generic and transitive declared he
     source.navigation.declaredHeritagePath(sameShape, named),
     { kind: "unrelated" },
   );
+});
+
+test("shared source navigation exposes exact effective class constructors", async () => {
+  const checked = await checkedSource("effective-constructors", {
+    "src/index.ts": [
+      "export class Base<T> { constructor(value: T, count?: number) { void value; void count; } }",
+      "export class Derived extends Base<string> {}",
+      "export class Explicit extends Base<string> { constructor(value: string) { super(value); } }",
+      "export class Empty {}",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const constructors = (name) => {
+    const declaration = namedDeclaration(source.ast, sourceFile, name);
+    const result = source.navigation.classConstructors(declaration);
+    assert.equal(result.kind, "resolved");
+    return result;
+  };
+
+  const derived = constructors("Derived");
+  assert.equal(derived.implicit, true);
+  assert.deepEqual(
+    derived.signatures.map((signature) => ({
+      declarationOwner: source.ast.text(
+        source.ast.name(source.ast.parent(signature.declaration)),
+      ),
+      parameters: signature.parameters.map((parameter) => ({
+        name: parameter.parameterName,
+        type: semantics.typeToString(parameter.selectedType),
+        omission: parameter.acceptsOmission,
+        rest: parameter.rest,
+      })),
+    })),
+    [{
+      declarationOwner: "Base",
+      parameters: [
+        { name: "value", type: "string", omission: false, rest: false },
+        {
+          name: "count",
+          type: "number | undefined",
+          omission: true,
+          rest: false,
+        },
+      ],
+    }],
+  );
+  assert.equal(constructors("Explicit").implicit, false);
+  const empty = constructors("Empty");
+  assert.equal(empty.implicit, true);
+  assert.equal(empty.signatures.length, 1);
+  assert.equal(empty.signatures[0].declaration, undefined);
+  assert.deepEqual(empty.signatures[0].parameters, []);
 });
 
 test("source navigation proves references outside an exact excluded subtree", async () => {
