@@ -60,6 +60,11 @@ export function createTargetSourceProgram(
       getEffectiveTypeArguments(type: Type) {
         return getEffectiveSourceTypeArguments(source.ast, queries, type);
       },
+      getDeclaredValueType(declaration: Node) {
+        const name = source.ast.name(declaration);
+        const symbol = queries.checker.getSymbolAtLocation(name ?? declaration);
+        return queries.checker.getTypeOfSymbol(symbol);
+      },
       selectAuthoredType(authoredTypeNode: Node, selectedType: Type) {
         return selectAuthoredSourceType(
           source.ast,

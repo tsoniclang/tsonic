@@ -116,6 +116,30 @@ test("target source semantics answer checked-source questions without exposing r
   assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
 });
 
+test("target source semantics expose checker-owned declared value types", async () => {
+  const checked = await checkedSource("declared-value-types", {
+    "src/index.ts": [
+      "export let mutable = 0;",
+      "export const immutable = 0;",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const mutable = namedVariable(source.ast, sourceFile, "mutable");
+  const immutable = namedVariable(source.ast, sourceFile, "immutable");
+
+  assert.equal(
+    semantics.typeToString(semantics.getDeclaredValueType(mutable)),
+    "number",
+  );
+  assert.equal(
+    semantics.typeToString(semantics.getDeclaredValueType(immutable)),
+    "0",
+  );
+});
+
 test("target source semantics retain authored, contextual, and flow-selected union evidence", async () => {
   const checked = await checkedSource("authored-union-flow-selection", {
     "src/index.ts": [
