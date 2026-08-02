@@ -263,9 +263,9 @@ test("host exposes TSTS flow-narrowed source types through the checked source pr
       assert.ok(sourceFile !== undefined);
       const narrowedText = findVariableInitializer(input.source.ast, sourceFile, "narrowedText");
       const narrowedNumber = findVariableInitializer(input.source.ast, sourceFile, "narrowedNumber");
-      const checker = input.source.getSourceFileQueries(sourceFile).checker;
-      narrowedTypes.text = checker.typeToString(checker.getTypeAtLocation(narrowedText));
-      narrowedTypes.number = checker.typeToString(checker.getTypeAtLocation(narrowedNumber));
+      const semantics = input.source.semantics.forFile(sourceFile);
+      narrowedTypes.text = semantics.typeToString(semantics.getTypeAtLocation(narrowedText));
+      narrowedTypes.number = semantics.typeToString(semantics.getTypeAtLocation(narrowedNumber));
     },
   });
   await writeProject(projectDirectory, {
@@ -369,10 +369,10 @@ test("host exposes broad TSTS flow-narrowed source types without target policy c
     onBackend(input) {
       const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
-      const checker = input.source.getSourceFileQueries(sourceFile).checker;
+      const semantics = input.source.semantics.forFile(sourceFile);
       for (const name of ["foundShape", "missingShape", "truthyValue", "derivedValue", "nullishValue"]) {
         const initializer = findVariableInitializer(input.source.ast, sourceFile, name);
-        observedTypes[name] = checker.typeToString(checker.getTypeAtLocation(initializer));
+        observedTypes[name] = semantics.typeToString(semantics.getTypeAtLocation(initializer));
       }
     },
   });

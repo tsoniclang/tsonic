@@ -11,10 +11,6 @@ import {
   test,
   writeProject,
 } from "./surface-composition.helpers.mjs";
-import {
-  createSourceProgramNavigation,
-} from "../../packages/target-api/dist/index.js";
-
 const moduleReferenceCases = [
   row("side-effect-import", true, (specifier) => `import "${specifier}";`),
   row("type-only-named-import", false, (specifier, index) => `import type { named as Type${index} } from "${specifier}";`),
@@ -51,8 +47,7 @@ test("project dependency analysis uses the shared import and export runtime-clas
         sourceFile !== undefined &&
         input.source.ast.getFileName(sourceFile) === resolve(projectDirectory, "src/index.ts"));
       assert.notEqual(entry, undefined);
-      runtimeDependencies = createSourceProgramNavigation(input.source)
-        .moduleDependencies(entry)
+      runtimeDependencies = input.source.navigation.moduleDependencies(entry)
         .map((dependency) => input.source.ast.getFileName(dependency.sourceFile))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"));
     },

@@ -10,12 +10,15 @@ test("vendored TSTS artifact exposes only the public package root", async () => 
   const explicitIndex = await import("@tsonic/tsts/index.js");
 
   assert.equal(typeof root.createCompilerSessionFromFiles, "function");
+  assert.equal(typeof root.createCompilerSessionFromProgram, "function");
+  assert.equal(typeof root.createCompilerSession, "function");
   assert.equal(typeof root.createCompilerHost, "function");
   assert.equal(typeof root.createInMemoryFileSystem, "function");
-  assert.equal(typeof root.createAstReader, "function");
-  assert.equal(typeof root.createTypeCheckerQueries, "function");
-  assert.equal(typeof root.createTypeShapeQueries, "function");
-  assert.equal(typeof root.createSourceFactQueries, "function");
+  assert.equal(typeof root.createSourceSemanticsExtension, "function");
+  assert.equal(root.createAstReader, undefined);
+  assert.equal(root.createTypeCheckerQueries, undefined);
+  assert.equal(root.createTypeShapeQueries, undefined);
+  assert.equal(root.createSourceFactQueries, undefined);
   assert.equal(root.createCompilerSessionFromFiles, explicitIndex.createCompilerSessionFromFiles);
 
   await assert.rejects(

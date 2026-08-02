@@ -28,15 +28,10 @@ const riskRules = Object.freeze([
 ]);
 
 const auditRows = Object.freeze([
-  row("packages/host/src/analysis/guards.ts", "opaque fact-subject guards", "tsts-contract-gap", "Replace raw node/symbol shape checks with public TSTS subject-kind queries.", "Tracked by .analysis/tsts-issues/20260710-013000-public-fact-subject-kind-and-alias-queries.md and this exhaustive scanner."),
-  row("packages/host/src/analysis/project-source.ts", "project source analysis", "post-check-type-only-query", "Allowed host analysis query over the already-checked project graph; it does not prove a selected target operation.", "Focused namespace/re-export/module graph tests plus this occurrence-level inventory."),
-  row("packages/host/src/analysis/queries.ts", "read-only compiler query adapter", "selected-evidence-compliant", "Allowed public read-only compiler query facade after removal of selected-call reconstruction APIs.", "Architecture scanner forbids getResolvedCall* APIs and inventories every remaining checker query."),
-  row("packages/host/src/analysis/symbols.ts", "read-only compiler query helpers", "selected-evidence-compliant", "Allowed helper boundary behind public host analysis; not a target-side selected-operation fallback.", "Focused alias/module-reference tests plus this occurrence-level inventory."),
   row("packages/host/src/diagnostics.ts", "bounded diagnostic serialization", "provider-declaration-production", "Allowed validation and bounded display of diagnostic payloads; raw shape reads are not semantic compiler input.", "Diagnostic contract tests plus this occurrence-level inventory."),
   row("packages/host/src/plugins/discovery.ts", "plugin manifest validation", "provider-declaration-production", "Allowed object-shape validation of installed plugin metadata.", "Plugin discovery contract tests plus this occurrence-level inventory."),
   row("packages/host/src/project-config.ts", "project config validation", "provider-declaration-production", "Allowed object-shape validation of user project config.", "Project-config negative tests plus this occurrence-level inventory."),
   row("packages/host/src/source-package-inputs.ts", "source package manifest validation", "provider-declaration-production", "Allowed object-shape validation of source-package manifest fields; it does not inspect compiler nodes or select semantic identity.", "Source-package input validation tests plus this occurrence-level inventory."),
-  row("packages/host/src/target-facts/queries.ts", "target fact query materialization", "selected-evidence-compliant", "Consumes finalized selected-target facts and performs declaration/type-only queries without reselecting source calls.", "Target-fact/backend fail-closed tests plus the ban on getResolvedCall* query APIs."),
 ]);
 
 test("host selected-evidence audit inventory covers every current host risk-pattern file", () => {

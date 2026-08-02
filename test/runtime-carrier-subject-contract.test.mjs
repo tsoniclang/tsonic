@@ -1,58 +1,50 @@
 import assert from "node:assert/strict";
+import { access, readFile, readdir } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
 
-import {
-  getRuntimeCarrier,
-} from "../packages/host/dist/target-facts/runtime-carriers.js";
+const repoRoot = process.cwd();
+const hostSourceRoot = resolve(repoRoot, "packages/host/src");
+const targetApiSourceRoot = resolve(repoRoot, "packages/target-api/src");
 
-const concreteTask = Object.freeze({
-  kind: "target-named",
-  id: "System.Threading.Tasks.Task",
+test("shared Tsonic exposes source semantics and never owns target runtime carriers", async () => {
+  const sourceProgramTypes = await readFile(
+    resolve(targetApiSourceRoot, "source-semantics/types.ts"),
+    "utf8",
+  );
+  const productSource = (await Promise.all([
+    ...await collectTypeScriptFiles(hostSourceRoot),
+    ...await collectTypeScriptFiles(targetApiSourceRoot),
+  ].map((file) => readFile(file, "utf8")))).join("\n");
+
+  assert.match(
+    sourceProgramTypes,
+    /export interface TargetSourceProgram \{[\s\S]*readonly sourceFacts: ReadonlySourceFactResolver;[\s\S]*readonly navigation: SourceProgramNavigation;[\s\S]*readonly semantics: SourceProgramSemantics;/u,
+  );
+  assert.doesNotMatch(productSource, /\b(?:TargetTypeRef|RuntimeCarrierFact|getRuntimeCarrierFact|getSelectedTargetCall)\b/u);
+  assert.doesNotMatch(productSource, /kind:\s*["']target-named["']/u);
 });
 
-test("host runtime-carrier lookup rejects concrete facts attached to declaration symbols", () => {
-  const symbol = fakeSymbol("Task");
-  const facts = fakeFacts({
-    runtimeCarriers: new Map([[symbol, { carrier: concreteTask }]]),
-    selectedCalls: new Map([[symbol, { member: { returnType: concreteTask } }]]),
-  });
-
-  assert.equal(getRuntimeCarrier(facts, symbol), undefined);
+test("retired host target-fact modules cannot re-enter the product boundary", async () => {
+  await assert.rejects(
+    () => access(resolve(hostSourceRoot, "target-facts/runtime-carriers.ts")),
+    { code: "ENOENT" },
+  );
+  await assert.rejects(
+    () => access(resolve(hostSourceRoot, "target-facts/queries.ts")),
+    { code: "ENOENT" },
+  );
 });
 
-test("host runtime-carrier lookup preserves declaration-invariant source primitives on symbols", () => {
-  const symbol = fakeSymbol("int32");
-  const facts = fakeFacts({
-    sourcePrimitives: new Map([[symbol, { kind: "int32" }]]),
-  });
-
-  assert.deepEqual(getRuntimeCarrier(facts, symbol), {
-    kind: "source-primitive",
-    name: "int32",
-  });
-});
-
-test("host runtime-carrier lookup consumes concrete facts from exact semantic types", () => {
-  const type = { flags: 1, id: 1 };
-  const facts = fakeFacts({
-    runtimeCarriers: new Map([[type, { carrier: concreteTask }]]),
-  });
-
-  assert.deepEqual(getRuntimeCarrier(facts, type), concreteTask);
-});
-
-function fakeSymbol(name) {
-  return {
-    Flags: 1,
-    CheckFlags: 0,
-    Name: name,
-  };
-}
-
-function fakeFacts(options = {}) {
-  return {
-    getRuntimeCarrierFact: (subject) => options.runtimeCarriers?.get(subject),
-    getSelectedTargetCall: (subject) => options.selectedCalls?.get(subject),
-    getSourcePrimitiveFact: (subject) => options.sourcePrimitives?.get(subject),
-  };
+async function collectTypeScriptFiles(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await collectTypeScriptFiles(path));
+    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      files.push(path);
+    }
+  }
+  return files.sort();
 }
