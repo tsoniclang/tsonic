@@ -307,10 +307,12 @@ test("architecture validator rejects catch-all semantic directories and APIs", (
   );
 });
 
-test("target fact API exposes structured carrier resolution instead of optional raw carriers", async () => {
+test("target compile API supplies checked source without a target-carrier facade", async () => {
   const text = await readFile(join(repoRoot, "packages/target-api/src/pack.ts"), "utf8");
 
-  assert.match(text, /\bexport type TargetCarrierResolution = TargetCarrierResolved \| TargetCarrierMissing;/u);
+  assert.match(text, /export interface TargetCompileInput \{[\s\S]*readonly source: TargetSourceProgram;/u);
+  assert.doesNotMatch(text, /\bTargetCarrier(?:Resolution|Resolved|Missing)\b/u);
+  assert.doesNotMatch(text, /\bRuntimeCarrierFact\b/u);
   assert.doesNotMatch(text, /\bgetRuntimeCarrierForNode\b/u);
   assert.doesNotMatch(text, /\bgetResolvedCallReturnRuntimeCarrier\b/u);
   assert.doesNotMatch(text, /\bgetResolvedCallParameterRuntimeCarriers\b/u);

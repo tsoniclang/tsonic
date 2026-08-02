@@ -116,6 +116,74 @@ test("target source semantics answer checked-source questions without exposing r
   assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
 });
 
+test("target source semantics retain authored, contextual, and flow-selected union evidence", async () => {
+  const checked = await checkedSource("authored-union-flow-selection", {
+    "src/index.ts": [
+      "function maybeValue(): string | undefined { return undefined; }",
+      "interface Payload { value: string; }",
+      "interface Left { left: string; }",
+      "interface Right { right: string; }",
+      "function payload(): Payload | undefined { return { value: \"ready\" }; }",
+      "function either(): Left | Right { return { left: \"ready\" }; }",
+      "const value = maybeValue();",
+      "export function read(): string {",
+      "  if (value === undefined) return \"missing\";",
+      "  return value;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const declaration = namedDeclaration(source.ast, sourceFile, "maybeValue");
+  const authoredType = source.ast.as.AsFunctionDeclaration(declaration)?.Type;
+  const call = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsCallExpression(node));
+  const sourceResult = semantics.getResolvedCallInfo(call)?.sourceResultType;
+  const authoredSemanticType = semantics.getTypeFromTypeNode(authoredType);
+  const narrowedValue = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsIdentifier(node) &&
+    source.ast.text(node) === "value" &&
+    semantics.typeToString(semantics.getTypeAtLocation(node)) === "string");
+  const narrowedType = semantics.getTypeAtLocation(narrowedValue);
+  const payloadObject = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsObjectLiteralExpression(node) &&
+    semantics.selectContextualValueType(node).kind === "selected");
+  const eitherObject = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsObjectLiteralExpression(node) &&
+    semantics.selectContextualValueType(node).kind === "ambiguous");
+
+  assert.notEqual(authoredType, undefined);
+  assert.notEqual(sourceResult, undefined);
+  assert.notEqual(authoredSemanticType, undefined);
+  assert.notEqual(narrowedType, undefined);
+  assert.deepEqual(
+    semantics.selectAuthoredType(authoredType, sourceResult),
+    { kind: "authored-type", node: authoredType },
+  );
+  const narrowed = semantics.selectAuthoredType(authoredType, narrowedType);
+  assert.equal(narrowed.kind, "authored-union-members");
+  assert.equal(narrowed.nodes.length, 1);
+  assert.equal(source.ast.kindName(narrowed.nodes[0]), "KindStringKeyword");
+  const semanticRefinement = semantics.selectTypeRefinement(
+    authoredSemanticType,
+    narrowedType,
+  );
+  assert.equal(semanticRefinement.kind, "members");
+  assert.equal(semanticRefinement.types.length, 1);
+  assert.equal(semantics.isStringLike(semanticRefinement.types[0]), true);
+  const contextualPayload = semantics.selectContextualValueType(payloadObject);
+  assert.equal(contextualPayload.kind, "selected");
+  assert.equal(semantics.typeToString(contextualPayload.type), "Payload");
+  const contextualEither = semantics.selectContextualValueType(eitherObject);
+  assert.equal(contextualEither.kind, "ambiguous");
+  assert.deepEqual(
+    contextualEither.types.map((type) => semantics.typeToString(type)),
+    ["Left", "Right"],
+  );
+});
+
 test("effective type arguments ignore non-type declarations on shared symbols", async () => {
   const checked = await checkedSource("effective-type-arguments", {
     "src/index.ts": [
@@ -549,8 +617,8 @@ function projectSourceFile(source, suffix) {
 function namedDeclaration(ast, sourceFile, name) {
   return requiredNode(ast, sourceFile, (node) =>
     (
-      ast.is.IsClassDeclaration(node) ||
-      ast.is.IsInterfaceDeclaration(node)
+      ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node) ||
+      ast.is.IsFunctionDeclaration(node)
     ) &&
     ast.text(ast.name(node)) === name);
 }

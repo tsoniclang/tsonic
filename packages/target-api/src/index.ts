@@ -71,9 +71,12 @@ export {
   createTargetSourceProgram,
 } from "./source-semantics/index.js";
 export type {
+  SourceAuthoredTypeSelection,
+  SourceContextualValueTypeSelection,
   SourceFileSemantics,
   SourceProgramSemantics,
   SourceTypeRelationship,
+  SourceTypeRefinement,
   TargetSourceProgram,
 } from "./source-semantics/index.js";
 export type {

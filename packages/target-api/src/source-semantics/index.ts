@@ -13,6 +13,12 @@ import type {
   TargetSourceProgram,
 } from "./types.js";
 import {
+  selectAuthoredSourceType,
+} from "./authored-type-selection.js";
+import {
+  selectSourceContextualValueType,
+} from "./contextual-type-selection.js";
+import {
   getEffectiveSourceTypeArguments,
 } from "./type-arguments.js";
 import {
@@ -21,6 +27,9 @@ import {
 import {
   sourceTypeRelationship,
 } from "./type-relationship.js";
+import {
+  selectSourceTypeRefinement,
+} from "./type-refinement.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
@@ -51,8 +60,34 @@ export function createTargetSourceProgram(
       getEffectiveTypeArguments(type: Type) {
         return getEffectiveSourceTypeArguments(source.ast, queries, type);
       },
+      selectAuthoredType(authoredTypeNode: Node, selectedType: Type) {
+        return selectAuthoredSourceType(
+          source.ast,
+          queries.typeShape,
+          queries.checker,
+          source.sourceFacts,
+          authoredTypeNode,
+          selectedType,
+        );
+      },
+      selectContextualValueType(node: Node) {
+        return selectSourceContextualValueType(
+          queries.typeShape,
+          queries.checker,
+          node,
+        );
+      },
       getTypeFactSubjects(type: Type) {
         return sourceTypeFactSubjects(queries.checker, type);
+      },
+      selectTypeRefinement(declaredType: Type, selectedType: Type) {
+        return selectSourceTypeRefinement(
+          queries.typeShape,
+          queries.checker,
+          source.sourceFacts,
+          declaredType,
+          selectedType,
+        );
       },
       getTypeRelationship(left: Type, right: Type) {
         return sourceTypeRelationship(
@@ -96,8 +131,11 @@ export function createTargetSourceProgram(
 }
 
 export type {
+  SourceAuthoredTypeSelection,
+  SourceContextualValueTypeSelection,
   SourceFileSemantics,
   SourceProgramSemantics,
   SourceTypeRelationship,
+  SourceTypeRefinement,
   TargetSourceProgram,
 } from "./types.js";
