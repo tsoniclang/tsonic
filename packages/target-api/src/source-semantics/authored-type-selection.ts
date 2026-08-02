@@ -12,12 +12,9 @@ import {
 
 export type SourceAuthoredTypeSelection =
   | {
-      readonly kind: "authored-type";
-      readonly node: Node;
-    }
-  | {
-      readonly kind: "authored-union-members";
+      readonly kind: "authored-members";
       readonly nodes: readonly Node[];
+      readonly selectedNullishTypes: readonly Type[];
     }
   | { readonly kind: "ambiguous" }
   | { readonly kind: "unrelated" };
@@ -42,12 +39,14 @@ export function selectAuthoredSourceType(
     selectedType,
   );
   if (directRelationship !== "unrelated") {
-    return { kind: "authored-type", node: authoredTypeNode };
+    return {
+      kind: "authored-members",
+      nodes: Object.freeze([authoredTypeNode]),
+      selectedNullishTypes: Object.freeze([]),
+    };
   }
-  const authoredMembers = authoredUnionMemberNodes(ast, authoredTypeNode);
-  if (authoredMembers === undefined) {
-    return { kind: "unrelated" };
-  }
+  const authoredMembers = authoredUnionMemberNodes(ast, authoredTypeNode) ??
+    [authoredTypeNode];
   const rawSelectedMembers = types.isUnion(selectedType)
     ? types.getUnionOrIntersectionTypes(selectedType)
     : [selectedType];
@@ -58,6 +57,7 @@ export function selectAuthoredSourceType(
     (member): member is Type => member !== undefined,
   );
   const selectedNodes: Node[] = [];
+  const selectedNullishTypes: Type[] = [];
   for (const selectedMember of selectedMembers) {
     const candidates = authoredMembers.filter((authoredMember) => {
       const authoredMemberType = checker.getTypeFromTypeNode(authoredMember);
@@ -71,6 +71,12 @@ export function selectAuthoredSourceType(
           ) !== "unrelated";
     });
     if (candidates.length === 0) {
+      if (types.isNullish(selectedMember)) {
+        if (!selectedNullishTypes.includes(selectedMember)) {
+          selectedNullishTypes.push(selectedMember);
+        }
+        continue;
+      }
       return { kind: "unrelated" };
     }
     if (candidates.length !== 1) {
@@ -81,8 +87,9 @@ export function selectAuthoredSourceType(
     }
   }
   return {
-    kind: "authored-union-members",
+    kind: "authored-members",
     nodes: Object.freeze(selectedNodes),
+    selectedNullishTypes: Object.freeze(selectedNullishTypes),
   };
 }
 

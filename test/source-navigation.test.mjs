@@ -160,11 +160,16 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   assert.notEqual(narrowedType, undefined);
   assert.deepEqual(
     semantics.selectAuthoredType(authoredType, sourceResult),
-    { kind: "authored-type", node: authoredType },
+    {
+      kind: "authored-members",
+      nodes: [authoredType],
+      selectedNullishTypes: [],
+    },
   );
   const narrowed = semantics.selectAuthoredType(authoredType, narrowedType);
-  assert.equal(narrowed.kind, "authored-union-members");
+  assert.equal(narrowed.kind, "authored-members");
   assert.equal(narrowed.nodes.length, 1);
+  assert.deepEqual(narrowed.selectedNullishTypes, []);
   assert.equal(source.ast.kindName(narrowed.nodes[0]), "KindStringKeyword");
   const semanticRefinement = semantics.selectTypeRefinement(
     authoredSemanticType,
