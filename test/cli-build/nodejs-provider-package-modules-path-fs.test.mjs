@@ -339,7 +339,8 @@ test("CLI emits fs promises operations from selected Node provider-package facts
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, true\);/);
   assert.match(generatedSource, /string\[\] entries = await Tsonic\.CSharp\.Node\.fs_promises\.readdir\(directory\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.copyFile\(renamed, copiedDirect\);/);
-  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.truncate\(copiedDirect, System\.Convert\.ToInt64\(2\)\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.truncate\(copiedDirect, 2\);/);
+  assert.doesNotMatch(generatedSource, /System\.Convert\.ToInt64\(2\)/);
   assert.match(generatedSource, /entries\.Length/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.symlink\(sourcePath, linkPath\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.chmod\(linkPath, 420\);/);
