@@ -190,6 +190,50 @@ test("source navigation classifies runtime import and export dependencies exactl
   );
 });
 
+test("source navigation never queries declaration-provider files as project source", () => {
+  const projectFile = {
+    FileName: "/project/index.ts",
+    Path: "/project/index.ts",
+    IsDeclarationFile: false,
+  };
+  const providerFile = {
+    FileName: "tsts-provider://canonical/System.js.d.ts",
+    Path: "tsts-provider://canonical/System.js.d.ts",
+    IsDeclarationFile: true,
+  };
+  const providerDeclaration = {
+    Kind: 264,
+    Pos: 0,
+    End: 20,
+    SourceFile: providerFile,
+  };
+  let queryCount = 0;
+  const source = {
+    sourceFiles: [projectFile, providerFile],
+    ast: {
+      getFileName: (sourceFile) => sourceFile.FileName,
+      getPath: (sourceFile) => sourceFile.Path,
+      getSourceFile: (node) => node?.SourceFile,
+      kind: (node) => node?.Kind,
+      pos: (node) => node?.Pos,
+      end: (node) => node?.End,
+      statements: () => [],
+      forEachChild: () => undefined,
+      is: new Proxy({}, { get: () => () => false }),
+    },
+    getSourceFileQueries() {
+      queryCount += 1;
+      throw new Error("Provider declaration files are not project query roots.");
+    },
+  };
+  const navigation = createSourceProgramNavigation(source);
+
+  assert.equal(navigation.referenceFor(providerDeclaration), undefined);
+  assert.equal(navigation.declarationFor(providerDeclaration), undefined);
+  assert.equal(navigation.isProjectDeclaration(providerDeclaration), false);
+  assert.equal(queryCount, 0);
+});
+
 async function checkedSource(name, files) {
   const projectDirectory = resolve(tempRoot, name);
   const projectConfig = {

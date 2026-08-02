@@ -40,13 +40,18 @@ export function createSourceReferenceNavigation(
   const referenceCache = new Map<string, SourceProjectReference | null>();
   const declarationCache = new Map<string, Node | null>();
 
+  const isProjectSourceFile = (
+    sourceFile: SourceFile | undefined,
+  ): sourceFile is SourceFile =>
+    sourceFile !== undefined &&
+    !sourceFile.IsDeclarationFile &&
+    sourceFileSet.has(sourceFileIdentity(ast, sourceFile) ?? "");
+
   const isProjectDeclaration = (declaration: Node | undefined): boolean => {
     const declarationFile = declaration === undefined
       ? undefined
       : ast.getSourceFile(declaration);
-    return declarationFile !== undefined &&
-      !declarationFile.IsDeclarationFile &&
-      sourceFileSet.has(sourceFileIdentity(ast, declarationFile) ?? "");
+    return isProjectSourceFile(declarationFile);
   };
 
   const declarationFor = (node: Node | undefined): Node | undefined => {
@@ -61,7 +66,7 @@ export function createSourceReferenceNavigation(
       return cached ?? undefined;
     }
     const sourceFile = ast.getSourceFile(node);
-    if (sourceFile === undefined) {
+    if (!isProjectSourceFile(sourceFile)) {
       if (nodeKey !== undefined) {
         declarationCache.set(nodeKey, null);
       }
@@ -94,7 +99,7 @@ export function createSourceReferenceNavigation(
       return cached ?? undefined;
     }
     const sourceFile = ast.getSourceFile(node);
-    if (sourceFile === undefined) {
+    if (!isProjectSourceFile(sourceFile)) {
       if (nodeKey !== undefined) {
         referenceCache.set(nodeKey, null);
       }
