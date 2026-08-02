@@ -341,6 +341,8 @@ function preRunsForTask(scope, group) {
         : ["tsonic.build", "tsonic-csharp.build"];
     case "csharp-js":
       return ["csharp-runtime.build", "csharp-js.build"];
+    case "csharp-runtime":
+      return ["csharp-runtime.build"];
     case "csharp-nodejs":
       return [
         "tsonic.build",
@@ -421,8 +423,12 @@ function scopeToRepoKey(scope) {
       return "tsonic";
     case "tsonic-csharp":
       return "tsonicCsharp";
+    case "csharp-js":
+      return "csharpJs";
     case "csharp-nodejs":
       return "csharpNodejs";
+    case "csharp-runtime":
+      return "csharpRuntime";
     default:
       throw new Error(`Unknown scope: ${scope}`);
   }
