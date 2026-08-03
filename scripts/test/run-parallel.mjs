@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
 import { relative, resolve, sep } from "node:path";
+import { defaultParallelWorkerCount } from "./parallel-worker-budget.mjs";
 import { createParallelSuiteDefinition } from "./suite-definition.mjs";
 
 const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
@@ -984,7 +985,9 @@ function parseArgs(args) {
   let list = false;
   let inventory = false;
   let withPreruns = false;
-  let concurrency = Math.max(1, Math.ceil((typeof availableParallelism === "function" ? availableParallelism() : cpus().length) * 0.75));
+  let concurrency = defaultParallelWorkerCount(
+    typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
+  );
   let progressIntervalMs = Number(process.env.TSONIC_TEST_PROGRESS_INTERVAL_MS ?? 180_000);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
