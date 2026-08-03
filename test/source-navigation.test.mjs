@@ -31,6 +31,10 @@ test("source navigation resolves project references, shapes, constructors, and d
       "export class Derived extends Base {",
       "  read(): number { return 2; }",
       "}",
+      "declare const computedKey: unique symbol;",
+      "export class Computed {",
+      "  [computedKey](): number { return 3; }",
+      "}",
       "export class OptionalConstructor {",
       "  constructor(value: number = 1) { void value; }",
       "}",
@@ -51,6 +55,8 @@ test("source navigation resolves project references, shapes, constructors, and d
   const derivedClass = namedDeclaration(ast, sourceFile, "Derived");
   const baseRead = namedMember(ast, baseClass, "read");
   const derivedRead = namedMember(ast, derivedClass, "read");
+  const computedClass = namedDeclaration(ast, sourceFile, "Computed");
+  const computedMember = ast.members(computedClass)[0];
   const derivedBase = heritageBaseReference(ast, derivedClass);
   const derivedReference = constructorReference(ast, sourceFile, "Derived");
   const optionalReference = constructorReference(
@@ -85,6 +91,7 @@ test("source navigation resolves project references, shapes, constructors, and d
     overridesBase: true,
     hasDerivedOverride: false,
   });
+  assert.equal(navigation.memberDispatch(computedMember), undefined);
 });
 
 test("target source semantics answer checked-source questions without exposing raw checker access", async () => {

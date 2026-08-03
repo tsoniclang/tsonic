@@ -57,29 +57,33 @@ export function createSourceMemberDispatchNavigation(
       }
       return undefined;
     }
-    const memberName = ast.text(ast.name(node));
-    const result = memberName.length === 0
-      ? { overridesBase: false, hasDerivedOverride: false }
-      : {
-          overridesBase: memberOverridesBase(
-            source,
-            ast,
-            classDeclaration,
-            memberName,
-            sourceFile,
-            referenceFor,
-            isProjectDeclaration,
-          ),
-          hasDerivedOverride: hasDerivedOverride(
-            source,
-            ast,
-            classDeclarations,
-            classDeclaration,
-            memberName,
-            referenceFor,
-            isProjectDeclaration,
-          ),
-        };
+    const memberName = dispatchMemberName(ast, node);
+    if (memberName === undefined) {
+      if (nodeKey !== undefined) {
+        cache.set(nodeKey, null);
+      }
+      return undefined;
+    }
+    const result = {
+      overridesBase: memberOverridesBase(
+        source,
+        ast,
+        classDeclaration,
+        memberName,
+        sourceFile,
+        referenceFor,
+        isProjectDeclaration,
+      ),
+      hasDerivedOverride: hasDerivedOverride(
+        source,
+        ast,
+        classDeclarations,
+        classDeclaration,
+        memberName,
+        referenceFor,
+        isProjectDeclaration,
+      ),
+    };
     if (nodeKey !== undefined) {
       cache.set(nodeKey, result);
     }
@@ -104,7 +108,22 @@ function isDispatchMember(
     ) &&
     !ast.hasModifierKind(node, "private") &&
     !ast.hasModifierKind(node, "static") &&
-    !ast.is.IsPrivateIdentifier(ast.name(node));
+    dispatchMemberName(ast, node) !== undefined;
+}
+
+function dispatchMemberName(
+  ast: AstReader,
+  member: Node,
+): string | undefined {
+  const name = ast.name(member);
+  return name !== undefined &&
+      (
+        ast.is.IsIdentifier(name) ||
+        ast.is.IsStringLiteral(name) ||
+        ast.is.IsNumericLiteral(name)
+      )
+    ? ast.text(name)
+    : undefined;
 }
 
 function memberOverridesBase(
@@ -153,8 +172,8 @@ function hasDerivedOverride(
     }
     const candidateMember = ast.members(candidate).find((member) =>
       member !== undefined &&
-      ast.text(ast.name(member)) === memberName &&
-      isDispatchMember(ast, member, isProjectDeclaration));
+      isDispatchMember(ast, member, isProjectDeclaration) &&
+      dispatchMemberName(ast, member) === memberName);
     const candidateFile = ast.getSourceFile(candidate);
     if (
       candidateMember !== undefined &&
