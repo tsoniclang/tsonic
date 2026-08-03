@@ -355,7 +355,7 @@ test("CLI emits and executes async functions using selected JS Map carrier facts
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<int> total\(\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map<string, int> values = new Tsonic\.CSharp\.Js\.Map<string, int>\(\);/);
   assert.match(generatedSource, /values\.set\("a", 1\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map\.getValue\(values, "a"\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map\.getValue<string, int>\(values, "a"\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
