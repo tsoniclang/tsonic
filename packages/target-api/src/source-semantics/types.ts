@@ -29,6 +29,9 @@ export type SourceFileSemantics = Readonly<
   & { readonly sourceFile: SourceFile }
   & {
     getEffectiveTypeArguments(type: Type): readonly Type[] | undefined;
+    getAuthoredTypeFactSubjects(
+      node: Node,
+    ): readonly ExtensionFactSubject[];
     getDeclaredValueType(declaration: Node): Type | undefined;
     selectAuthoredType(
       authoredTypeNode: Node,

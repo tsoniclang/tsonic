@@ -12,6 +12,13 @@ export interface TypeIndexInfo {
     readonly symbol: GoPtr<Symbol>;
     readonly components: readonly GoPtr<Node>[];
 }
+export interface TypePropertyInfo {
+    readonly symbol: Symbol;
+    readonly name: string;
+    readonly type: Type;
+    readonly optional: boolean;
+    readonly readonly: boolean;
+}
 export interface CreateTypeShapeQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
@@ -34,13 +41,12 @@ export interface TypeShapeQueries {
     readonly isTypeReference: (type: GoPtr<Type>) => boolean;
     readonly isTuple: (type: GoPtr<Type>) => boolean;
     readonly isArrayLike: (type: GoPtr<Type>) => boolean;
+    readonly couldContainTypeVariables: (type: GoPtr<Type>) => boolean;
     readonly getUnionOrIntersectionTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTupleElementTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
-    readonly getProperties: (type: GoPtr<Type>) => readonly GoPtr<Symbol>[];
-    readonly getProperty: (type: GoPtr<Type>, name: string) => GoPtr<Symbol>;
-    readonly getPropertyType: (type: GoPtr<Type>, name: string) => GoPtr<Type>;
+    readonly getPropertyInfos: (type: GoPtr<Type>) => readonly TypePropertyInfo[];
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;

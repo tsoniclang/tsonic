@@ -47,6 +47,6 @@ test("CLI rejects structural binary operators without selected target facts", as
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# operator '==' requires finalized provider operator facts for type-parameter operands/);
+  assert.match(build.stderr, /Source operator '==' over a type parameter requires an exact target constraint policy/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });

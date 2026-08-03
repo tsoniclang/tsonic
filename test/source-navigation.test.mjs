@@ -14,6 +14,7 @@ import {
 import {
   createSourceProgramNavigation,
   createTargetSourceProgram,
+  sourceTypeSyntaxIsCompositional,
 } from "../packages/target-api/dist/index.js";
 
 const tempRoot = resolve(
@@ -310,6 +311,65 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
     semantics.getTypeRelationship(boxType, arguments_[0]),
     "unrelated",
   );
+});
+
+test("effective type arguments follow the instantiated generic target through a local alias", async () => {
+  const checked = await checkedSource("effective-type-arguments-alias", {
+    "src/index.ts": [
+      "interface Box<T> { readonly value: T; }",
+      "type TextBox = Box<string>;",
+      "export function read(value: TextBox): string { return value.value; }",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const aliasReference = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsTypeReferenceNode(node) &&
+    source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) ===
+      "TextBox");
+  const aliasType = semantics.getTypeFromTypeNode(aliasReference);
+  const arguments_ = semantics.getEffectiveTypeArguments(aliasType);
+
+  assert.equal(semantics.typeToString(aliasType), "TextBox");
+  assert.equal(semantics.getSymbolName(semantics.getTypeAliasSymbol(aliasType)), "TextBox");
+  assert.equal(semantics.getSymbolName(semantics.getTypeSymbol(aliasType)), "Box");
+  assert.equal(arguments_?.length, 1);
+  assert.equal(semantics.isStringLike(arguments_?.[0]), true);
+});
+
+test("source type syntax distinguishes compositional forms from checker transforms", async () => {
+  const checked = await checkedSource("source-type-syntax-composition", {
+    "src/index.ts": [
+      "interface Box<T> { readonly value: T; }",
+      "type Direct = Box<readonly [string, number?]> | null;",
+      "type Conditional<T> = T extends Box<infer Value> ? Value : never;",
+      "type Indexed<T extends { value: unknown }> = T[\"value\"];",
+      "type Mapped<T> = { [Key in keyof T]: T[Key] };",
+      "type Key<T> = keyof T;",
+      "",
+    ].join("\n"),
+  });
+  const sourceFile = projectSourceFile(checked, "src/index.ts");
+  const typeTarget = (name) => {
+    const declaration = requiredNode(checked.ast, sourceFile, (node) =>
+      checked.ast.is.IsTypeAliasDeclaration(node) &&
+      checked.ast.text(checked.ast.name(node)) === name);
+    return checked.ast.as.AsTypeAliasDeclaration(declaration)?.Type;
+  };
+
+  assert.equal(
+    sourceTypeSyntaxIsCompositional(checked.ast, typeTarget("Direct")),
+    true,
+  );
+  for (const name of ["Conditional", "Indexed", "Mapped", "Key"]) {
+    assert.equal(
+      sourceTypeSyntaxIsCompositional(checked.ast, typeTarget(name)),
+      false,
+      name,
+    );
+  }
 });
 
 test("host finalizes target source-node diagnostics through the shared AST", async () => {

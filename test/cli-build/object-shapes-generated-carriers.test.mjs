@@ -26,7 +26,7 @@ test("CLI emits non-nullish unions through finalized runtime-carrier facts", asy
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.Union<string, double> choose\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? "x" : 1;/);
+  assert.match(generatedSource, /return flag \? Tsonic\.CSharp\.Runtime\.Union<string, double>\.From1\("x"\) : Tsonic\.CSharp\.Runtime\.Union<string, double>\.From2\(1\);/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -70,9 +70,13 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public class __TsonicShape_/);
-  assert.match(generatedSource, /public double value;/);
-  assert.match(generatedSource, /public string label;/);
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public required double value;/);
+  assert.match(generatedShapes, /public required string label;/);
   assert.match(generatedSource, /public static double fromParameter\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param0\)/);
   assert.match(generatedSource, /double value = __tsonic_param0\.value;/);
   assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ create\(double value\)/);

@@ -17,6 +17,9 @@ import {
   selectAuthoredSourceType,
 } from "./authored-type-selection.js";
 import {
+  authoredSourceTypeFactDependencies,
+} from "./authored-type-facts.js";
+import {
   selectSourceContextualValueType,
 } from "./contextual-type-selection.js";
 import {
@@ -33,6 +36,10 @@ import {
   selectSourceTypeRefinement,
 } from "./type-refinement.js";
 
+export {
+  sourceTypeSyntaxIsCompositional,
+} from "./type-syntax.js";
+
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
 ): TargetSourceProgram {
@@ -42,6 +49,7 @@ export function createTargetSourceProgram(
     ),
   );
   const sourceFileSet = new Set(sourceFiles);
+  const navigation = createSourceProgramNavigation(source);
   const cache = new WeakMap<SourceFile, SourceFileSemantics>();
 
   const forFile = (sourceFile: SourceFile): SourceFileSemantics => {
@@ -61,6 +69,14 @@ export function createTargetSourceProgram(
       ...queries.typeShape,
       getEffectiveTypeArguments(type: Type) {
         return getEffectiveSourceTypeArguments(source.ast, queries, type);
+      },
+      getAuthoredTypeFactSubjects(node: Node) {
+        return authoredSourceTypeFactDependencies(
+          source.ast,
+          navigation,
+          source.sourceFacts,
+          node,
+        );
       },
       getDeclaredValueType(declaration: Node) {
         const name = source.ast.name(declaration);
@@ -142,7 +158,7 @@ export function createTargetSourceProgram(
     ast: source.ast,
     sourceFiles,
     sourceFacts: source.sourceFacts,
-    navigation: createSourceProgramNavigation(source),
+    navigation,
     semantics,
   });
 }

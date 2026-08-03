@@ -89,6 +89,7 @@ export type {
 } from "./source-navigation/index.js";
 export {
   createTargetSourceProgram,
+  sourceTypeSyntaxIsCompositional,
 } from "./source-semantics/index.js";
 export type {
   SourceAuthoredTypeSelection,

@@ -1,6 +1,9 @@
+import { SymbolName } from "../internal/ast/symbol.js";
+import { SymbolFlagsOptional } from "../internal/ast/symbolflags.js";
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Background } from "../go/context.js";
-import { Checker_GetApparentType, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetPropertyOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
+import { Checker_GetApparentType, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
+import { Checker_isReadonlySymbol } from "../internal/checker/checker/symbols.js";
 import { Checker_GetConstantValue } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBooleanLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsStringLike, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_Types, } from "../internal/checker/types.js";
@@ -26,6 +29,12 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isTypeReference: (type) => type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0,
         isTuple: isTupleType,
         isArrayLike: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_IsArrayLikeType(checker, type)) === true,
+        couldContainTypeVariables: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
+            if (checker === undefined) {
+                throw new Error("The source type has no owning checker for genericity analysis.");
+            }
+            return checker.couldContainTypeVariables(type);
+        }) === true,
         getUnionOrIntersectionTypes: (type) => Type_Types(type) ?? [],
         getTypeReferenceTarget: (type) => Type_Target(type),
         getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetTypeArguments(checker, type)) ?? [],
@@ -35,9 +44,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
             }
             return Checker_GetTypeArguments(checker, type);
         }) ?? [],
-        getProperties: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetPropertiesOfType(checker, type)) ?? [],
-        getProperty: (type, name) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetPropertyOfType(checker, type, name)),
-        getPropertyType: (type, name) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetTypeOfPropertyOfType(checker, type, name)),
+        getPropertyInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypePropertyInfos(checker, type)) ?? [],
         getCallSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
         getReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
@@ -57,6 +64,29 @@ export function createTypeShapeQueries(program, defaultOptions) {
 }
 function hasFlags(type, flags) {
     return type !== undefined && (type.flags & flags) !== 0;
+}
+function getTypePropertyInfos(checker, type) {
+    if (checker === undefined) {
+        throw new Error("The source type has no owning checker for property analysis.");
+    }
+    const properties = Checker_GetPropertiesOfType(checker, type) ?? [];
+    return properties.map((symbol) => {
+        if (symbol === undefined) {
+            throw new Error("The checker returned an absent property symbol for a source type.");
+        }
+        const name = SymbolName(symbol);
+        const propertyType = Checker_GetTypeOfPropertyOfType(checker, type, name);
+        if (propertyType === undefined) {
+            throw new Error(`The checker returned property '${name}' without its effective source type.`);
+        }
+        return {
+            symbol,
+            name,
+            type: propertyType,
+            optional: (symbol.Flags & SymbolFlagsOptional) !== 0,
+            readonly: Checker_isReadonlySymbol(checker, symbol) === true,
+        };
+    });
 }
 function isTupleType(type) {
     return type !== undefined && IsTupleType(type);

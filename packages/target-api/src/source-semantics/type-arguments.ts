@@ -20,10 +20,9 @@ export function getEffectiveSourceTypeArguments(
   if (arguments_.length !== rawArguments.length) {
     return undefined;
   }
-  const symbols = [
-    queries.checker.getTypeAliasSymbol(type),
-    queries.checker.getTypeSymbol(type),
-  ].filter((symbol) => symbol !== undefined);
+  const target = queries.typeShape.getTypeReferenceTarget(type);
+  const symbol = queries.checker.getTypeSymbol(target ?? type);
+  const symbols = symbol === undefined ? [] : [symbol];
   const declarations = symbols.flatMap((symbol) =>
     queries.checker.getSymbolDeclarations(symbol).filter(
       (declaration): declaration is Node => declaration !== undefined,

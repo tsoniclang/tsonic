@@ -222,7 +222,7 @@ test("CLI emits generic interface object literals through specialized provider a
     "utf8",
   );
   assert.match(generated, /public interface Box<T>[\s\S]*T value \{ get; \}[\s\S]*string label \{ get; \}/);
-  assert.match(generatedShapes, /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>[\s\S]*public required double value[\s\S]*get;[\s\S]*set;[\s\S]*public required string label[\s\S]*get;[\s\S]*set;/);
+  assert.match(generatedShapes, /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>[\s\S]*public required string label[\s\S]*get;[\s\S]*set;[\s\S]*public required double value[\s\S]*get;[\s\S]*set;/);
   const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>/.exec(generatedShapes)?.[1];
   assert.ok(shapeName);
   assert.match(generated, new RegExp(`public static Box<double> create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*value = 1,[\\s\\S]*label = "one",`));
@@ -596,7 +596,7 @@ test("CLI rejects object literals contextualized as unknown before C# carrier em
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# type policy resolved 'opaque', but that target type has no renderable C# syntax/);
+  assert.match(build.stderr, /CSHARP_OPAQUE_TARGET_TYPE_UNSUPPORTED[\s\S]*Opaque target type 'unknown' has no renderable C# source representation/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI emits calls through parameter destructured object-shape callable facts", async () => {

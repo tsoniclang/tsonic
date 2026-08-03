@@ -94,6 +94,10 @@ function operatorKindName(node) {
         const operator = casts.AsPostfixUnaryExpression(node)?.Operator;
         return operator === undefined ? undefined : KindString(operator);
     }
+    if (predicates.IsTypeOperatorNode(node)) {
+        const operator = casts.AsTypeOperatorNode(node)?.Operator;
+        return operator === undefined ? undefined : KindString(operator);
+    }
     return undefined;
 }
 function variableDeclarationKind(node) {
