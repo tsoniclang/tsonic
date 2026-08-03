@@ -205,10 +205,11 @@ test("CLI emits standard JavaScript private identifiers as private C# members", 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /private double _value = 1;/);
+  const privateName = /private double (__tsonic_private_[a-f0-9]{64}) = 1;/.exec(generatedSource)?.[1];
+  assert.ok(privateName);
   assert.match(generatedSource, /public double value/);
-  assert.match(generatedSource, /return this\._value;/);
-  assert.match(generatedSource, /this\._value\+\+;/);
+  assert.match(generatedSource, new RegExp(`return this\\.${privateName};`));
+  assert.match(generatedSource, new RegExp(`this\\.${privateName}\\+\\+;`));
   assert.doesNotMatch(generatedSource, /#value/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -286,7 +287,7 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.match(generatedSource, /public interface Getter<T>/);
   assert.match(generatedSource, /T get\(\);/);
   assert.match(generatedSource, /public interface Named/);
-  assert.match(generatedSource, /string name \{ get; \}/);
+  assert.match(generatedSource, /string name \{ get; set; \}/);
   assert.match(generatedSource, /public class Derived : Base/);
   assert.match(generatedSource, /public Derived\(double start\) : base\(start\)/);
   assert.match(generatedSource, /return base\.value\(\) \+ 1;/);

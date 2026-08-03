@@ -793,7 +793,6 @@ export declare function Checker_checkClassStaticBlockDeclaration(receiver: GoPtr
 export declare function Checker_checkAccessorDeclaration(receiver: GoPtr<Checker>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkTypeReferenceOrImport","kind":"method","status":"implemented","sigHash":"04b368dc482ffe366538f2c25eef6b3d9e8871a15205960541f052fc94c89c38","bodyHash":"c8ef9a8ebce1492de9507cb93fd09697981c0215a4c611277a70ed7c1fd8fa57"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go type-reference checking, extension-enabled programs may ask the registered provider to validate target-only generic constraints and record runtime carrier facts carried by provider virtual modules; no-extension programs and unowned types remain on the exact TS-Go path."}
  *
  * Go source:
  * func (c *Checker) checkTypeReferenceOrImport(node *ast.Node) {
@@ -2964,8 +2963,7 @@ export declare function Checker_getSymbolForPrivateIdentifierExpression(receiver
 export declare function Checker_checkQualifiedName(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIndexedAccess","kind":"method","status":"implemented","sigHash":"32fa0a002cb05468dc7def68493137d7aedba03aeb689f7a70ba4ca9a71ad6b7","bodyHash":"889b5dc89357c094a4d04e010b1e12026e834b898e2ef917803c8abceca31716"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go element access checking, extension-enabled programs may record provider-selected surface/target indexer facts for consumers; no-extension programs and unowned accesses remain on the exact TS-Go path."}
- *
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go indexed-access checking, source-evidence queries retain the already-selected receiver, index declaration, and final result without changing source checking."}
  * Go source:
  * func (c *Checker) checkIndexedAccess(node *ast.Node, checkMode CheckMode) *Type {
  * 	if node.Flags&ast.NodeFlagsOptionalChain != 0 {
@@ -2977,7 +2975,7 @@ export declare function Checker_checkQualifiedName(receiver: GoPtr<Checker>, nod
 export declare function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessChain","kind":"method","status":"implemented","sigHash":"87c91ac1dd6b496bfe2958fdb3dd1e0df6978e08f1f8ab4c9f61519478895348","bodyHash":"16ff9421739abc3918fc26481c0c7b7e280cd0bb97dbb046bbd9febfbfd2f23b"}
- *
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go propagates the optional marker, extension-enabled programs retain the final optional-chain result together with the exact non-null receiver used for selection."}
  * Go source:
  * func (c *Checker) checkElementAccessChain(node *ast.Node, checkMode CheckMode) *Type {
  * 	exprType := c.checkExpression(node.Expression())
@@ -2988,7 +2986,7 @@ export declare function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, nod
 export declare function Checker_checkElementAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessExpression","kind":"method","status":"implemented","sigHash":"2f39be35c54aa297aa6da29e087ef31836844e9c96d08ac4a5d6679bc793bbda","bodyHash":"11932af46c7b11e3fd365479ad08c039f5afd3b81ae23f567ec842c2f141ef7e"}
- *
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exported TS-Go operation delegates to an exact worker that also returns already-computed selected index evidence to the extension boundary; source checking is unchanged and no expression is rechecked."}
  * Go source:
  * func (c *Checker) checkElementAccessExpression(node *ast.Node, exprType *Type, checkMode CheckMode) *Type {
  * 	objectType := exprType
@@ -3022,6 +3020,39 @@ export declare function Checker_checkElementAccessChain(receiver: GoPtr<Checker>
  * }
  */
 export declare function Checker_checkElementAccessExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, exprType: GoPtr<Type>, checkMode: CheckMode): GoPtr<Type>;
+type ResolvedSourceAccessTypes = {
+    readonly accessMode: "read" | "delete";
+    readonly sourceReadType: Type;
+    readonly sourceWriteType?: never;
+} | {
+    readonly accessMode: "write";
+    readonly sourceReadType?: never;
+    readonly sourceWriteType: Type;
+} | {
+    readonly accessMode: "read-write";
+    readonly sourceReadType: Type;
+    readonly sourceWriteType: Type;
+};
+interface ResolvedSourceElementAccessInfoBase {
+    readonly expression: Node;
+    readonly receiver: {
+        readonly expression: Node;
+        readonly type: Type;
+    };
+    readonly argument: {
+        readonly expression: Node;
+        readonly type: Type;
+    };
+    readonly sourceSymbol?: Symbol;
+    readonly sourceDeclaration?: Node;
+    readonly selectedSymbol?: Symbol;
+    readonly selectedDeclaration?: Node;
+    readonly selectedElementIndex?: number;
+    readonly optionalChain: boolean;
+    readonly callCallee: boolean;
+}
+export type ResolvedSourceElementAccessInfo = ResolvedSourceElementAccessInfoBase & ResolvedSourceAccessTypes;
+export declare function Checker_getResolvedSourceElementAccessInfo(receiver: GoPtr<Checker>, node: GoPtr<Node>): ResolvedSourceElementAccessInfo | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isForInVariableForNumericPropertyNames","kind":"method","status":"implemented","sigHash":"82601ddae714cee228e98f32cf1c7a1dcce43471aea4e3478c9359c3c4816f2b","bodyHash":"070ed4e5c450a954fbbde2e6c60a694dd5c1766d496995219eed7571ac56ec18"}
  *
@@ -3346,7 +3377,7 @@ export declare function Checker_checkImportMetaProperty(receiver: GoPtr<Checker>
 export declare function Checker_checkMetaPropertyKeyword(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIdentifier","kind":"method","status":"implemented","sigHash":"e9a0175eaea65200220166cc3e50540931a8a88829684e8eeacf1be5a4eaeba7","bodyHash":"6ba6f3033cf51bb621524af70f6dc4d76f82fc1d415f1b812cdea626e961305f"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go identifier symbol resolution, extension-enabled programs may validate provider-owned flow/ownership facts attached by source-semantics markers; no-extension programs and unmarked symbols remain on the exact TS-Go path."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go symbol and alias selection accepts an identifier use, direct-call evidence retains the already-selected callee provenance without re-querying the checker; source diagnostics and no-extension behavior are unchanged."}
  *
  * Go source:
  * func (c *Checker) checkIdentifier(node *ast.Node, checkMode CheckMode) *Type {
@@ -3525,8 +3556,7 @@ export declare function Checker_checkIdentifier(receiver: GoPtr<Checker>, node: 
 export declare function Checker_isSameScopedBindingElement(receiver: GoPtr<Checker>, node: GoPtr<Node>, declaration: GoPtr<Node>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpression","kind":"method","status":"implemented","sigHash":"febcba979df4bee97ff9b0d6a44f3b1d8f0f4d8f43952819b5bcda4e8c2e880e","bodyHash":"82b3a1ac1890b83ce90db47cb21a1598249772e581ef1fe94cf9180ba2495e26"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go property access checking, extension-enabled programs may record provider-selected surface/target member facts for consumers; no-extension programs and unowned accesses remain on the exact TS-Go path."}
- *
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go property checking, source-evidence queries retain the selected receiver, member declaration, and final result without changing source semantics."}
  * Go source:
  * func (c *Checker) checkPropertyAccessExpression(node *ast.Node, checkMode CheckMode, writeOnly bool) *Type {
  * 	if node.Flags&ast.NodeFlagsOptionalChain != 0 {
@@ -3539,7 +3569,7 @@ export declare function Checker_isSameScopedBindingElement(receiver: GoPtr<Check
 export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, writeOnly: bool): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessChain","kind":"method","status":"implemented","sigHash":"8fddaeae38c55291a27039fd3e34d4f23b91a1185f6450fd8a87c8ef77aeb85e","bodyHash":"8d099873c74d1d2075853d42ef27cf852f70d2462e0b439c46f9177816bb5aa8"}
- *
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go propagates the optional marker, extension-enabled programs retain the final optional-chain result together with the exact non-null receiver used for member selection."}
  * Go source:
  * func (c *Checker) checkPropertyAccessChain(node *ast.Node, checkMode CheckMode) *Type {
  * 	leftType := c.checkExpression(node.Expression())
@@ -3548,9 +3578,26 @@ export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Ch
  * }
  */
 export declare function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
+interface ResolvedSourcePropertyAccessInfoBase {
+    readonly expression: Node;
+    readonly receiver: {
+        readonly expression: Node;
+        readonly type: Type;
+        readonly symbol?: Symbol;
+        readonly declaration?: Node;
+    };
+    readonly sourceSymbol?: Symbol;
+    readonly sourceDeclaration?: Node;
+    readonly selectedSymbol?: Symbol;
+    readonly selectedDeclaration?: Node;
+    readonly optionalChain: boolean;
+    readonly callCallee: boolean;
+}
+export type ResolvedSourcePropertyAccessInfo = ResolvedSourcePropertyAccessInfoBase & ResolvedSourceAccessTypes;
+export declare function Checker_getResolvedSourcePropertyAccessInfo(receiver: GoPtr<Checker>, node: GoPtr<Node>): ResolvedSourcePropertyAccessInfo | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpressionOrQualifiedName","kind":"method","status":"implemented","sigHash":"9215f415f7607d418e5a3a390b0bf838e9a2f44b6cd177065016f5a85a4714b1","bodyHash":"c9ee642c0561d3b1c6f6fcf3a43fb2def31c2e6dcf98504b1f6a3169813218e3"}
- *
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact checker path additionally retains the selected index declaration for extension evidence without synthesizing a checker-visible symbol or mutating TS-Go core symbol caches."}
  * Go source:
  * func (c *Checker) checkPropertyAccessExpressionOrQualifiedName(node *ast.Node, left *ast.Node, leftType *Type, right *ast.Node, checkMode CheckMode, writeOnly bool) *Type {
  * 	parentSymbol := c.getResolvedSymbolOrNil(left)
@@ -9337,6 +9384,7 @@ export declare function Checker_getIndexedAccessType(receiver: GoPtr<Checker>, o
 export declare function Checker_getIndexedAccessTypeEx(receiver: GoPtr<Checker>, objectType: GoPtr<Type>, indexType: GoPtr<Type>, accessFlags: AccessFlags, accessNode: GoPtr<Node>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIndexedAccessTypeOrUndefined","kind":"method","status":"implemented","sigHash":"d3713965735851a9deab87bfb2f9295d6712e67d34c160acab1e88fc8a1a0112","bodyHash":"67cdcb10f24bb41623761bc86627a1638cf3dc86c0448b17d465669ebc7aa244"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The public TS-Go operation delegates to an exact worker that can additionally retain the index infos selected by the same check for extension evidence; the ordinary path supplies no collector and source checking is unchanged."}
  *
  * Go source:
  * func (c *Checker) getIndexedAccessTypeOrUndefined(objectType *Type, indexType *Type, accessFlags AccessFlags, accessNode *ast.Node, alias *TypeAlias) *Type {
@@ -9408,6 +9456,7 @@ export declare function Checker_getIndexedAccessTypeEx(receiver: GoPtr<Checker>,
 export declare function Checker_getIndexedAccessTypeOrUndefined(receiver: GoPtr<Checker>, objectType: GoPtr<Type>, indexType: GoPtr<Type>, accessFlags: AccessFlags, accessNode: GoPtr<Node>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getPropertyTypeForIndexType","kind":"method","status":"implemented","sigHash":"b165e26df1bd4167798c456fec8881582ad4a6c35f9d23dd470b4c9da80f6f58","bodyHash":"78ac5563270df952a0013017c2c289f27c217028281aef86cf17062c9ee47126"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The public TS-Go operation delegates to an exact worker that records the already-selected index info only when an extension evidence collector is supplied; core symbol caches and ordinary checking remain identical to TS-Go."}
  *
  * Go source:
  * func (c *Checker) getPropertyTypeForIndexType(originalObjectType *Type, objectType *Type, indexType *Type, fullIndexType *Type, accessNode *ast.Node, accessFlags AccessFlags) *Type {
@@ -11115,4 +11164,5 @@ export declare function Checker_getSymbolOfNameOrPropertyAccessExpression(receiv
  * }
  */
 export declare function Checker_GetAliasedSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Symbol>;
+export {};
 //# sourceMappingURL=symbols.d.ts.map

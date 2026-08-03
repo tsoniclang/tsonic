@@ -294,7 +294,12 @@ test("CLI emits and executes async structural object returns from finalized Prom
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public class __TsonicShape_/);
+  const generatedObjectShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.doesNotMatch(generatedSource, /public class __TsonicShape_/);
+  assert.match(generatedObjectShapes, /public class __TsonicShape_/);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<__TsonicShape_[A-Za-z0-9_]+> make\(int value\)/);
   assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ box = await make\(7\);/);
@@ -355,7 +360,7 @@ test("CLI emits and executes async functions using selected JS Map carrier facts
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<int> total\(\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map<string, int> values = new Tsonic\.CSharp\.Js\.Map<string, int>\(\);/);
   assert.match(generatedSource, /values\.set\("a", 1\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map\.getValue\(values, "a"\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map\.getValue<string, int>\(values, "a"\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
@@ -435,10 +440,10 @@ test("CLI rejects Promise constructors without finalized Task carrier facts befo
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
-  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call '<anonymous>'/);
-  assert.match(build.stderr, /operation":"construct"/);
-  assert.match(build.stderr, /\.tsonic\/source-profiles\/csharp-provider\/csharp-globals\.d\.ts/);
+  assert.equal(
+    build.stderr,
+    "ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:2:10: The exact selected constructor is external to the project and has no C# target relation.\n",
+  );
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
@@ -471,10 +476,11 @@ test("CLI rejects Promise.resolve without finalized Task carrier facts before ta
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS2554: Expected 1 arguments, but got 0/);
-  assert.match(build.stderr, /tsonic\.csharp\.operations:TS9100161/);
-  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
-  assert.match(build.stderr, /\.tsonic\/source-profiles\/csharp-provider\/csharp-globals\.d\.ts/);
+  assert.equal(build.stderr, [
+    "ERROR tsts:TSTS_DIAGNOSTIC index.ts:2:18: index.ts(2,18): error TS2554: Expected 1 arguments, but got 0.",
+    "  evidence: tsts.code=TS2554",
+    "",
+  ].join("\n"));
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
@@ -507,8 +513,10 @@ test("CLI rejects unsupported Promise chains before target artifacts", async () 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /requires selected target facts for external TypeScript declaration call 'resolve'/);
-  assert.match(build.stderr, /did not prove the selected provider signature identity for checked call 'then'/);
+  assert.equal(
+    build.stderr,
+    "ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST index.ts:2:10: The exact selected source callee is external to the project and has no C# target relation.\n",
+  );
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });

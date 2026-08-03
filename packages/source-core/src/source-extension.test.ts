@@ -2,23 +2,30 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   argumentPassingFactKey,
+  attributeFactKey,
   canonicalIdentityFactKey,
   createCompilerSessionFromFiles,
-  createExtensionConsumerQueries,
+  createSourceSemanticsExtension,
+  defaultValueFactKey,
+  fieldFactKey,
   flowStateFactKey,
   formatDiagnostics,
   functionPointerFactKey,
   pointerFactKey,
   sourcePrimitiveFactKey,
+  structFactKey,
 } from "@tsonic/tsts";
 import type {
   AstReader,
+  CheckedSourceProgram,
   CompilerSession,
   ExtensionDiagnostic,
-  ExtensionHost,
+  ExtensionFactKey,
+  ExtensionFactSubject,
   Node,
   ProviderDeclarationModel,
   ProviderModuleResolution,
+  ReadonlySourceFactResolver,
   SourcePrimitiveFact,
   SourceFile,
 } from "@tsonic/tsts";
@@ -27,6 +34,7 @@ import {
   tsonicCoreTypesModule,
 } from "./identity.js";
 import { createTsonicCoreSourceExtension } from "./source-extension.js";
+import { tsonicAttributeBuilderFactKey } from "./attribute-builder-facts.js";
 import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
 import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
 
@@ -156,10 +164,10 @@ test("source-core does not guess primitive facts from same-spelling local aliase
     signed: true,
     width: 32,
   }, `${tsonicCoreTypesModule}::int32`);
-  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ImportedLocalInt32"), sourcePrimitiveFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ImportedLocalUint64"), sourcePrimitiveFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ShadowedInt32"), sourcePrimitiveFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeAliasType(session, sourceFile, "ShadowedUint64"), sourcePrimitiveFactKey), undefined);
+  assert.equal(getSourceFact(session, typeAliasType(session, sourceFile, "ImportedLocalInt32"), sourcePrimitiveFactKey), undefined);
+  assert.equal(getSourceFact(session, typeAliasType(session, sourceFile, "ImportedLocalUint64"), sourcePrimitiveFactKey), undefined);
+  assert.equal(getSourceFact(session, typeAliasType(session, sourceFile, "ShadowedInt32"), sourcePrimitiveFactKey), undefined);
+  assert.equal(getSourceFact(session, typeAliasType(session, sourceFile, "ShadowedUint64"), sourcePrimitiveFactKey), undefined);
 });
 
 test("source-core records direct provider-owned facts for every core lang intrinsic", () => {
@@ -201,19 +209,17 @@ test("source-core records direct provider-owned facts for every core lang intrin
 
   const fieldFact = sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field"));
   assert.equal(fieldFact?.name, "id");
-  assert.equal(session.extensionHost?.facts.get(fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(getSourceFact(session, fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.map((field) => field.name), ["id"]);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add"))?.attributeName, "RouteAttribute");
+  assert.deepEqual(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.map((field) => field.name), ["id"]);
+  assertAttributeApplication(session, propertyCallExpression(session, sourceFile, "add"), "User", "RouteAttribute", 0);
 
-  const pointerFact = extensionHost.facts.get(typeAliasType(session, sourceFile, "DirectPointer"), pointerFactKey);
-  assert.equal(pointerFact?.mutability, "target-defined");
+  const pointerFact = getSourceFact(session, typeAliasType(session, sourceFile, "DirectPointer"), pointerFactKey);
+  assert.equal(pointerFact?.mutability, "unspecified");
   assert.equal(pointerFact?.unsafeRequired, true);
   assert.equal(typeReferenceName(session, nodeFactSubject(pointerFact?.pointee)), "int32");
 
-  const functionPointerFact = extensionHost.facts.get(typeAliasType(session, sourceFile, "DirectFunctionPointer"), functionPointerFactKey);
+  const functionPointerFact = getSourceFact(session, typeAliasType(session, sourceFile, "DirectFunctionPointer"), functionPointerFactKey);
   assert.equal(functionPointerFact?.parameters.length, 1);
   assert.equal(typeReferenceName(session, nodeFactSubject(functionPointerFact?.result)), "bool");
   assert.deepEqual(functionPointerFact?.abi, ["target-default"]);
@@ -316,31 +322,28 @@ test("source-core records storage and flow marker facts from aliases and namespa
   assert.equal(flowState(session, namespaceMoveCall), "moved");
   assert.equal(flowState(session, firstCallArgument(session, namespaceMoveCall)), "moved");
 
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localOut"), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localRef"), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localInref"), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localBorrow"), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localBorrowMut"), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "localMove"), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out"), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "writeOut", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "readWrite", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "readOnly", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localOut"), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localRef"), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localInref"), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBorrow"), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBorrowMut"), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localMove"), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "out"), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "writeOut", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "readWrite", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "readOnly", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  const consumer = createExtensionConsumerQueries(extensionHost, "source-core-test");
-  assert.equal(consumer.getArgumentPassingFact(callExpression(session, sourceFile, "lang.out", 0))?.mode, "byref-writeonly-must-init");
-  assert.equal(consumer.getFact(callExpression(session, sourceFile, "lang.move"), flowStateFactKey)?.state, "moved");
+  assert.equal(sourceCoreFacts(session).getArgumentPassingFact(callExpression(session, sourceFile, "lang.out", 0))?.mode, "byref-writeonly-must-init");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move"), flowStateFactKey)?.state, "moved");
 });
 
 test("source-core keeps flow marker facts on exact call and argument subjects", () => {
@@ -393,7 +396,7 @@ test("source-core handles source primitive array destructured parameters", () =>
     const nestedResult = nested([[7], [0, 8]]);
   `);
 
-  assert.ok(session.getSourceFile("/src/index.ts") !== undefined);
+  assert.ok(checkSource(session).getSourceFile("/src/index.ts") !== undefined);
 });
 
 test("source-core reports non-storage diagnostics for byref markers", () => {
@@ -406,19 +409,24 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
     inref(value + 1);
   `);
 
-  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
-  assert.deepEqual(diagnostics.map(diagnosticCode).sort(numberSort), [9901101, 9901101, 9901101]);
-  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+  const checked = checkSource(session);
+  const diagnostics = definedDiagnostics(checked.diagnostics);
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode).sort(), [
     "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
     "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
     "SOURCE_SEMANTICS_NON_STORAGE_ARGUMENT",
   ]);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode), [
+    9901101,
+    9901101,
+    9901101,
+  ]);
 
-  session.ensureBound();
   for (const calleeText of ["out", "ref", "inref"]) {
     const call = callExpression(session, sourceFile, calleeText);
-    assert.notEqual(session.extensionHost?.facts.get(call, argumentPassingFactKey), undefined);
-    assert.equal(session.extensionHost?.facts.get(firstCallArgument(session, call), argumentPassingFactKey), undefined);
+    assert.notEqual(getSourceFact(session, call, argumentPassingFactKey), undefined);
+    assert.equal(getSourceFact(session, firstCallArgument(session, call), argumentPassingFactKey), undefined);
   }
 });
 
@@ -450,24 +458,19 @@ test("source-core records abstract struct, field, attribute, and default facts",
     sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field", 1)),
   ];
   assert.deepEqual(fieldFacts.map((fact) => fact?.name), ["x", "ok"]);
-  assert.equal(session.extensionHost?.facts.get(fieldFacts[0]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
-  assert.equal(session.extensionHost?.facts.get(fieldFacts[1]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "bool");
+  assert.equal(getSourceFact(session, fieldFacts[0]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(getSourceFact(session, fieldFacts[1]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "bool");
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "localField")), undefined);
 
-  const attributeFact = sourceCoreFacts(session).getAttributeFact(propertyCallExpression(session, sourceFile, "add"));
-  assert.equal(attributeFact?.attributeName, "RouteAttribute");
-  assert.equal(session.ast.text(attributeFact?.target as Node | undefined), "RouteAttribute");
-  assert.equal(attributeFact?.arguments?.length, 1);
+  const attributeCall = propertyCallExpression(session, sourceFile, "add");
+  assertAttributeApplication(session, attributeCall, "User", "RouteAttribute", 1);
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  const structFact = extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "struct"));
+  const structFact = sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "struct"));
   assert.equal(structFact?.valueType, true);
   assert.deepEqual(structFact?.fields?.map((field) => field.name), ["x", "ok"]);
-  const consumer = createExtensionConsumerQueries(extensionHost, "source-core-test");
-  assert.equal(consumer.getDefaultValueFact(defaultCall)?.type, defaultFact?.type);
-  assert.equal(consumer.getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.length, 2);
-  assert.equal(consumer.getAttributeFact(propertyCallExpression(session, sourceFile, "add"))?.attributeName, "RouteAttribute");
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(defaultCall)?.type, defaultFact?.type);
+  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.length, 2);
+  assert.equal(getSourceFact(session, attributeCall, tsonicAttributeBuilderFactKey)?.kind, "application");
 });
 
 test("source-core records structural, attribute, and default facts from core namespace imports", () => {
@@ -502,16 +505,14 @@ test("source-core records structural, attribute, and default facts from core nam
   const fieldCall = callExpression(session, sourceFile, "lang.field");
   const fieldFact = sourceCoreFacts(session).getFieldFact(fieldCall);
   assert.equal(fieldFact?.name, "id");
-  assert.equal(session.extensionHost?.facts.get(fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(getSourceFact(session, fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "lang.struct"))?.fields?.map((field) => field.name), ["id"]);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 0))?.attributeName, "RouteAttribute");
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "local.field", 0)), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "local.defaultof")), undefined);
-  assert.equal(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "local.struct")), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 1)), undefined);
+  assert.deepEqual(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "lang.struct"))?.fields?.map((field) => field.name), ["id"]);
+  assertAttributeApplication(session, propertyCallExpression(session, sourceFile, "add", 0), "User", "RouteAttribute", 0);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "local.field", 0)), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "local.defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "local.struct")), undefined);
+  assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add", 1), tsonicAttributeBuilderFactKey), undefined);
 });
 
 test("source-core records structural, attribute, and default facts from aliases without guessing names", () => {
@@ -557,20 +558,18 @@ test("source-core records structural, attribute, and default facts from aliases 
 
   const fieldFact = sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "coreField", 0));
   assert.equal(fieldFact?.name, "id");
-  assert.equal(session.extensionHost?.facts.get(fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(getSourceFact(session, fieldFact?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "coreStruct", 0))?.fields?.map((field) => field.name), ["id"]);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 0))?.attributeName, "RouteAttribute");
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "localDefaultof")), undefined);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "localField")), undefined);
-  assert.equal(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "localStruct")), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "coreField", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "coreStruct", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add", 2)), undefined);
+  assert.deepEqual(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "coreStruct", 0))?.fields?.map((field) => field.name), ["id"]);
+  assertAttributeApplication(session, propertyCallExpression(session, sourceFile, "add", 0), "User", "RouteAttribute", 0);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "localDefaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "localField")), undefined);
+  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "localStruct")), undefined);
+  assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add", 1), tsonicAttributeBuilderFactKey), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 1)), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "coreField", 1)), undefined);
+  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "coreStruct", 1)), undefined);
+  assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add", 2), tsonicAttributeBuilderFactKey), undefined);
 });
 
 test("source-core rejects unsupported local barrel re-exports without attaching intrinsic facts", () => {
@@ -603,8 +602,7 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
     ].join("\n"),
   });
 
-  session.ensureBound();
-  const reexportDiagnostics = session.extensionHost?.diagnostics.all() ?? [];
+  const reexportDiagnostics = checkSource(session).extensionDiagnostics;
   assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
@@ -621,12 +619,10 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
   assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultof")), undefined);
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field")), undefined);
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.equal(extensionFacts(extensionHost).getStructFact(callExpression(session, sourceFile, "struct")), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(propertyCallExpression(session, sourceFile, "add")), undefined);
-  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
-  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "struct")), undefined);
+  assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add"), tsonicAttributeBuilderFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
 });
 
 test("source-core rejects renamed and namespace local barrels without preserving source-core identity", () => {
@@ -648,8 +644,7 @@ test("source-core rejects renamed and namespace local barrels without preserving
     ].join("\n"),
   });
 
-  session.ensureBound();
-  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+  assert.deepEqual(checkSource(session).extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
@@ -657,36 +652,36 @@ test("source-core rejects renamed and namespace local barrels without preserving
 
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOut")), undefined);
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "CoreLang.out")), undefined);
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "Pointer"), pointerFactKey), undefined);
-  assert.equal(extensionHost.facts.get(typeReference(session, sourceFile, "Callback"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "Pointer"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "Callback"), functionPointerFactKey), undefined);
 });
 
 test("source-core rejects unsupported export-star barrels for portable lang intrinsics", () => {
-  const { session, sourceFile } = createSourceCoreSession(`
+  const { session } = createSourceCoreSession(`
     export * from "@tsonic/core/lang.js";
   `);
 
-  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
-  assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
-  session.ensureBound();
-  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+  const checked = checkSource(session);
+  const diagnostics = definedDiagnostics(checked.diagnostics);
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
   ]);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110]);
 });
 
 test("source-core rejects unsupported type-only barrels for portable type markers", () => {
-  const { session, sourceFile } = createSourceCoreSession(`
+  const { session } = createSourceCoreSession(`
     export type { ptr, fnptr } from "@tsonic/core/lang.js";
   `);
 
-  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
-  assert.deepEqual(diagnostics.map(diagnosticCode), [9901110]);
-  session.ensureBound();
-  assert.deepEqual(session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+  const checked = checkSource(session);
+  const diagnostics = definedDiagnostics(checked.diagnostics);
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
   ]);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110]);
 });
 
 test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {
@@ -698,16 +693,20 @@ test("source-core reports missing explicit type evidence for target-neutral mark
     const missingDefault = defaultof();
   `);
 
-  const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
-  const extensionCodes = session.extensionHost?.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort();
+  const checked = checkSource(session);
+  const diagnostics = definedDiagnostics(checked.diagnostics);
+  const extensionCodes = checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode).sort();
   assert.deepEqual(extensionCodes, [
     "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
     "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
     "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
   ]);
-  assert.deepEqual(diagnostics.map(diagnosticCode).sort(numberSort), [9901102, 9901105, 9901106]);
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(
+    checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode).sort(numberSort),
+    [9901102, 9901105, 9901106],
+  );
 
-  session.ensureBound();
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field")), undefined);
   assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "attribute")), undefined);
   assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultof")), undefined);
@@ -722,17 +721,15 @@ test("source-core reports missing evidence diagnostics through namespace marker 
     const namespaceDefault = lang.defaultof();
   `);
 
-  session.ensureBound();
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+  const checked = checkSource(session);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode).sort(), [
     "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
     "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
     "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
   ]);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
+  assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
 });
 
 test("source-core reports alias missing-evidence diagnostics without local or shadowed name guesses", () => {
@@ -773,26 +770,24 @@ test("source-core reports alias missing-evidence diagnostics without local or sh
     ].join("\n"),
   });
 
-  session.ensureBound();
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+  const checked = checkSource(session);
+  assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode).sort(), [
     "SOURCE_SEMANTICS_MISSING_ATTRIBUTE_TARGET_EVIDENCE",
     "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
     "SOURCE_SEMANTICS_MISSING_FIELD_TYPE_EVIDENCE",
   ]);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "coreField", 0)), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "coreAttribute", 0)), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 0)), undefined);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "localField")), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "localAttribute")), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "localDefaultof")), undefined);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "coreField", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "coreAttribute", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 1)), undefined);
-  assert.equal(extensionFacts(extensionHost).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
-  assert.equal(extensionFacts(extensionHost).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
-  assert.equal(extensionFacts(extensionHost).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "coreField", 0)), undefined);
+  assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "coreAttribute", 0)), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 0)), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "localField")), undefined);
+  assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "localAttribute")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "localDefaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "coreField", 1)), undefined);
+  assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "coreAttribute", 1)), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 1)), undefined);
+  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
+  assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
 });
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
@@ -840,32 +835,32 @@ test("source-core virtual declarations leave invalid arity to TypeScript checkin
   assert.match(formattedDiagnostics, /Generic type 'fnptr' requires 2 type argument/);
 
   session.ensureBound();
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "out", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "passRef", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "passRef", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "inref", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "inref", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 0), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrow", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrowMut", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.move", 0), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "ptr", 0), pointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "fnptr", 0), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "out", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "out", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "passRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "passRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "inref", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.out", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.ref", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.inref", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "shared", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "mutable", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "moved", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrow", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrowMut", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "ptr", 0), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "fnptr", 0), functionPointerFactKey), undefined);
 });
 
 test("source-core finalizes struct and default owner facts with static field names", () => {
@@ -877,9 +872,7 @@ test("source-core finalizes struct and default owner facts with static field nam
     const Shape = struct({ "display-name": field<int32>(), 2: field<bool>() });
   `);
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  const facts = extensionFacts(extensionHost);
+  const facts = sourceCoreFacts(session);
 
   const defaultCall = callExpression(session, sourceFile, "defaultof");
   assert.equal(facts.getDefaultValueFact(variableDeclaration(session, sourceFile, "zero"))?.type, facts.getDefaultValueFact(defaultCall)?.type);
@@ -890,8 +883,8 @@ test("source-core finalizes struct and default owner facts with static field nam
     facts.getFieldFact(callExpression(session, sourceFile, "field", 1)),
   ];
   assert.deepEqual(fieldFacts.map((fact) => fact?.name), ["display-name", "2"]);
-  assert.equal(session.extensionHost?.facts.get(fieldFacts[0]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
-  assert.equal(session.extensionHost?.facts.get(fieldFacts[1]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "bool");
+  assert.equal(getSourceFact(session, fieldFacts[0]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "int32");
+  assert.equal(getSourceFact(session, fieldFacts[1]?.type as Node | undefined, sourcePrimitiveFactKey)?.kind, "bool");
 
   const structCall = callExpression(session, sourceFile, "struct");
   assert.deepEqual(facts.getStructFact(structCall)?.fields?.map((field) => field.name), ["display-name", "2"]);
@@ -908,13 +901,15 @@ test("source-core validates non-field struct shape members", () => {
   `);
 
   session.ensureBound();
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode).sort(), [
+  const diagnostics = checkSource(session).extensionDiagnostics;
+  assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.extensionCode).sort(), [
+    "SOURCE_SEMANTICS_STRUCT_FIELD_NOT_PROVEN",
     "SOURCE_SEMANTICS_STRUCT_FIELD_NOT_PROVEN",
   ]);
+  assert.equal(new Set(diagnostics.map((diagnostic) => diagnostic.identity)).size, 2);
+  assert.equal(diagnostics.every((diagnostic) => diagnostic.nodeOrSpan !== undefined), true);
 
-  const facts = extensionFacts(extensionHost);
+  const facts = sourceCoreFacts(session);
   assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct"))?.fields?.map((field) => field.name), ["ok"]);
   assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field"))?.name, "ok");
 });
@@ -932,13 +927,11 @@ test("source-core records class and struct field contexts while rejecting orphan
   `);
 
   session.ensureBound();
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  assert.deepEqual(extensionHost.diagnostics.all().map((diagnostic) => diagnostic.extensionCode), [
+  assert.deepEqual(checkSource(session).extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
     "SOURCE_SEMANTICS_FIELD_CONTEXT_NOT_PROVEN",
   ]);
 
-  const facts = extensionFacts(extensionHost);
+  const facts = sourceCoreFacts(session);
   assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", 0))?.name, "value");
   assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", 1))?.name, "enabled");
   assert.equal(facts.getFieldFact(callExpression(session, sourceFile, "field", 2)), undefined);
@@ -958,12 +951,10 @@ test("source-core preserves member ordering and nested struct type evidence", ()
     });
   `);
 
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined);
-  const facts = extensionFacts(extensionHost);
+  const facts = sourceCoreFacts(session);
   assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct", 0))?.fields?.map((field) => field.name), ["value"]);
   assert.deepEqual(facts.getStructFact(callExpression(session, sourceFile, "struct", 1))?.fields?.map((field) => field.name), ["first", "inner", "enabled"]);
-  assert.equal(session.ast.kindName(facts.getFieldFact(callExpression(session, sourceFile, "field", 2))?.type as Node | undefined), "KindTypeQuery");
+  assert.equal(sourceAst(session).kindName(facts.getFieldFact(callExpression(session, sourceFile, "field", 2))?.type as Node | undefined), "KindTypeQuery");
 });
 
 test("source-core records ptr and fnptr facts from aliases and namespaces without local marker guessing", () => {
@@ -991,29 +982,29 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
   });
 
   const aliasPointer = typeReference(session, sourceFile, "pointer");
-  assert.equal(session.extensionHost?.facts.get(aliasPointer, pointerFactKey)?.mutability, "target-defined");
-  assert.equal(session.extensionHost?.facts.get(aliasPointer, pointerFactKey)?.unsafeRequired, true);
-  assert.equal(typeReferenceName(session, nodeFactSubject(session.extensionHost?.facts.get(aliasPointer, pointerFactKey)?.pointee)), "int32");
+  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.mutability, "unspecified");
+  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.unsafeRequired, true);
+  assert.equal(typeReferenceName(session, nodeFactSubject(getSourceFact(session, aliasPointer, pointerFactKey)?.pointee)), "int32");
 
   const namespacePointer = typeReference(session, sourceFile, "lang.ptr", 0);
-  assert.equal(session.extensionHost?.facts.get(namespacePointer, pointerFactKey)?.mutability, "target-defined");
+  assert.equal(getSourceFact(session, namespacePointer, pointerFactKey)?.mutability, "unspecified");
 
   const aliasFunctionPointer = typeReference(session, sourceFile, "functionPointer");
-  const aliasFunctionPointerFact = session.extensionHost?.facts.get(aliasFunctionPointer, functionPointerFactKey);
+  const aliasFunctionPointerFact = getSourceFact(session, aliasFunctionPointer, functionPointerFactKey);
   assert.equal(aliasFunctionPointerFact?.parameters.length, 2);
   assert.equal(typeReferenceName(session, nodeFactSubject(aliasFunctionPointerFact?.result)), "int32");
   assert.deepEqual(aliasFunctionPointerFact?.abi, ["target-default"]);
 
   const namespaceFunctionPointer = typeReference(session, sourceFile, "lang.fnptr");
-  const namespaceFunctionPointerFact = session.extensionHost?.facts.get(namespaceFunctionPointer, functionPointerFactKey);
+  const namespaceFunctionPointerFact = getSourceFact(session, namespaceFunctionPointer, functionPointerFactKey);
   assert.equal(namespaceFunctionPointerFact?.parameters.length, 2);
   assert.equal(typeReferenceName(session, nodeFactSubject(namespaceFunctionPointerFact?.result)), "bool");
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "lang.ptr", 1), pointerFactKey)?.unsafeRequired, true);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "lang.ptr", 1), pointerFactKey)?.unsafeRequired, true);
 
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localPointer"), pointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "localFunctionPointer"), functionPointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "localPointer"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "localFunctionPointer"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
 });
 
 test("source-core records fnptr tuple and scalar parameter facts", () => {
@@ -1026,19 +1017,19 @@ test("source-core records fnptr tuple and scalar parameter facts", () => {
     type PointerArg = callback<[pointer<int32>], pointer<bool>>;
   `);
 
-  const noArgsFact = session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback", 0), functionPointerFactKey);
+  const noArgsFact = getSourceFact(session, typeReference(session, sourceFile, "callback", 0), functionPointerFactKey);
   assert.equal(noArgsFact?.parameters.length, 0);
   assert.equal(typeReferenceName(session, nodeFactSubject(noArgsFact?.result)), "bool");
 
-  const oneArgFact = session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback", 1), functionPointerFactKey);
+  const oneArgFact = getSourceFact(session, typeReference(session, sourceFile, "callback", 1), functionPointerFactKey);
   assert.equal(oneArgFact?.parameters.length, 1);
   assert.equal(typeReferenceName(session, nodeFactSubject(oneArgFact?.parameters[0])), "int32");
   assert.equal(typeReferenceName(session, nodeFactSubject(oneArgFact?.result)), "bool");
 
-  const pointerArgFact = session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback", 2), functionPointerFactKey);
+  const pointerArgFact = getSourceFact(session, typeReference(session, sourceFile, "callback", 2), functionPointerFactKey);
   assert.equal(pointerArgFact?.parameters.length, 1);
-  assert.equal(session.extensionHost?.facts.get(nodeFactSubject(pointerArgFact?.parameters[0]), pointerFactKey)?.unsafeRequired, true);
-  assert.equal(session.extensionHost?.facts.get(nodeFactSubject(pointerArgFact?.result), pointerFactKey)?.unsafeRequired, true);
+  assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.parameters[0]), pointerFactKey)?.unsafeRequired, true);
+  assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.result), pointerFactKey)?.unsafeRequired, true);
 });
 
 test("source-core does not attach type marker facts to shadowed generic type names", () => {
@@ -1056,10 +1047,10 @@ test("source-core does not attach type marker facts to shadowed generic type nam
   const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
   assert.ok(diagnostics.length > 0);
   session.ensureBound();
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "pointer"), pointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "callback"), functionPointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "lang.ptr"), pointerFactKey), undefined);
-  assert.equal(session.extensionHost?.facts.get(typeReference(session, sourceFile, "lang.fnptr"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "pointer"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "callback"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "lang.ptr"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "lang.fnptr"), functionPointerFactKey), undefined);
 });
 
 function assertVirtualModuleResolution(value: ProviderModuleResolution | ExtensionDiagnostic): ProviderModuleResolution {
@@ -1137,10 +1128,15 @@ function createSourceCoreSession(sourceText: string, extraFiles: Readonly<Record
       target: "es2022",
     },
     extensionHostOptions: {
-      extensions: [createTsonicCoreSourceExtension()],
+      extensions: [
+        createSourceSemanticsExtension({
+          modules: tsonicCoreSourceSemanticsModules(),
+        }),
+        createTsonicCoreSourceExtension(),
+      ],
     },
   });
-  const sourceFile = session.getSourceFile("/src/index.ts");
+  const sourceFile = checkSource(session).getSourceFile("/src/index.ts");
   assert.ok(sourceFile !== undefined);
   return { session, sourceFile };
 }
@@ -1150,9 +1146,10 @@ function createCleanSourceCoreSession(sourceText: string, extraFiles: Readonly<R
   readonly sourceFile: SourceFile;
 } {
   const { session, sourceFile } = createSourceCoreSession(sourceText, extraFiles);
-  const diagnostics = definedDiagnostics(session.getDiagnostics("all", sourceFile));
+  const checked = checkSource(session);
+  const diagnostics = definedDiagnostics(checked.diagnostics);
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
-  session.ensureBound();
+  assert.deepEqual(checked.extensionDiagnostics, []);
   return { session, sourceFile };
 }
 
@@ -1162,22 +1159,39 @@ function assertSourcePrimitive(
   expected: SourcePrimitiveFact,
   identity: string,
 ): void {
-  const fact = session.extensionHost?.facts.get(node, sourcePrimitiveFactKey);
+  const fact = sourceFacts(session).getFact(node, sourcePrimitiveFactKey);
   assert.deepEqual(fact, expected);
-  assert.equal(session.extensionHost?.facts.get(node, canonicalIdentityFactKey)?.id, identity);
+  assert.equal(sourceFacts(session).getFact(node, canonicalIdentityFactKey)?.id, identity);
 }
 
 function argumentMode(session: CompilerSession, call: Node) {
-  return session.extensionHost?.facts.get(call, argumentPassingFactKey)?.mode;
+  return sourceFacts(session).getFact(call, argumentPassingFactKey)?.mode;
 }
 
 function flowState(session: CompilerSession, node: Node) {
-  return session.extensionHost?.facts.get(node, flowStateFactKey)?.state;
+  return sourceFacts(session).getFact(node, flowStateFactKey)?.state;
+}
+
+function assertAttributeApplication(
+  session: CompilerSession,
+  call: Node,
+  expectedTarget: string,
+  expectedAttributeType: string,
+  expectedArgumentCount: number,
+): void {
+  const fact = sourceFacts(session).getFact(call, tsonicAttributeBuilderFactKey);
+  assert.equal(fact?.kind, "application");
+  if (fact?.kind !== "application") {
+    return;
+  }
+  assert.equal(typeReferenceName(session, fact.applicationTarget as Node), expectedTarget);
+  assert.equal(sourceAst(session).text(fact.attributeType as Node), expectedAttributeType);
+  assert.equal(fact.arguments.length, expectedArgumentCount);
 }
 
 function callExpression(session: CompilerSession, sourceFile: SourceFile, calleeText: string, occurrence = 0): Node {
   let seen = 0;
-  const found = findNode(sourceFile, session.ast, (node, ast) => {
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) => {
     if (!ast.is.IsCallExpression(node)) {
       return false;
     }
@@ -1197,7 +1211,7 @@ function callExpression(session: CompilerSession, sourceFile: SourceFile, callee
 
 function propertyCallExpression(session: CompilerSession, sourceFile: SourceFile, propertyName: string, occurrence = 0): Node {
   let seen = 0;
-  const found = findNode(sourceFile, session.ast, (node, ast) => {
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) => {
     if (!ast.is.IsCallExpression(node)) {
       return false;
     }
@@ -1220,14 +1234,14 @@ function propertyCallExpression(session: CompilerSession, sourceFile: SourceFile
 }
 
 function firstCallArgument(session: CompilerSession, call: Node): Node {
-  const argument = session.ast.arguments(call)[0];
+  const argument = sourceAst(session).arguments(call)[0];
   assert.ok(argument !== undefined);
   return argument;
 }
 
 function typeReference(session: CompilerSession, sourceFile: SourceFile, nameText: string, occurrence = 0): Node {
   let seen = 0;
-  const found = findNode(sourceFile, session.ast, (node, ast) => {
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) => {
     if (!ast.is.IsTypeReferenceNode(node)) {
       return false;
     }
@@ -1245,22 +1259,22 @@ function typeReference(session: CompilerSession, sourceFile: SourceFile, nameTex
 }
 
 function typeAliasType(session: CompilerSession, sourceFile: SourceFile, aliasName: string): Node {
-  const found = findNode(sourceFile, session.ast, (node, ast) =>
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) =>
     ast.is.IsTypeAliasDeclaration(node) && ast.text(ast.name(node)) === aliasName);
-  const type = session.ast.as.AsTypeAliasDeclaration(found)?.Type;
+  const type = sourceAst(session).as.AsTypeAliasDeclaration(found)?.Type;
   assert.ok(type !== undefined, `Missing type alias '${aliasName}'.`);
   return type;
 }
 
 function variableDeclaration(session: CompilerSession, sourceFile: SourceFile, variableName: string): Node {
-  const found = findNode(sourceFile, session.ast, (node, ast) =>
+  const found = findNode(sourceFile, sourceAst(session), (node, ast) =>
     ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === variableName);
   assert.ok(found !== undefined, `Missing variable declaration '${variableName}'.`);
   return found;
 }
 
 function variableInitializer(session: CompilerSession, sourceFile: SourceFile, variableName: string): Node {
-  const initializer = session.ast.as.AsVariableDeclaration(variableDeclaration(session, sourceFile, variableName))?.Initializer;
+  const initializer = sourceAst(session).as.AsVariableDeclaration(variableDeclaration(session, sourceFile, variableName))?.Initializer;
   assert.ok(initializer !== undefined, `Missing variable initializer '${variableName}'.`);
   return initializer;
 }
@@ -1269,16 +1283,17 @@ function typeReferenceName(session: CompilerSession, node: Node | undefined): st
   if (node === undefined) {
     return "";
   }
-  if (session.ast.is.IsTypeReferenceNode(node)) {
-    return typeReferenceName(session, session.ast.as.AsTypeReferenceNode(node)?.TypeName);
+  const ast = sourceAst(session);
+  if (ast.is.IsTypeReferenceNode(node)) {
+    return typeReferenceName(session, ast.as.AsTypeReferenceNode(node)?.TypeName);
   }
-  if (session.ast.is.IsQualifiedName(node)) {
-    const qualifiedName = session.ast.as.AsQualifiedName(node);
+  if (ast.is.IsQualifiedName(node)) {
+    const qualifiedName = ast.as.AsQualifiedName(node);
     const left = typeReferenceName(session, qualifiedName?.Left);
     const right = typeReferenceName(session, qualifiedName?.Right);
     return left === "" ? right : `${left}.${right}`;
   }
-  return session.ast.text(node);
+  return ast.text(node);
 }
 
 function nodeFactSubject(subject: object | undefined): Node | undefined {
@@ -1286,13 +1301,49 @@ function nodeFactSubject(subject: object | undefined): Node | undefined {
 }
 
 function sourceCoreFacts(session: CompilerSession) {
-  const extensionHost = session.finalizeExtensions();
-  assert.ok(extensionHost !== undefined, "Expected source-core extension host.");
-  return createExtensionConsumerQueries(extensionHost, "source-core-test");
+  const facts = sourceFacts(session);
+  return {
+    getArgumentPassingFact: (subject: ExtensionFactSubject | undefined) =>
+      facts.getFact(subject, argumentPassingFactKey),
+    getAttributeFact: (subject: ExtensionFactSubject | undefined) =>
+      facts.getFact(subject, attributeFactKey),
+    getDefaultValueFact: (subject: ExtensionFactSubject | undefined) =>
+      facts.getFact(subject, defaultValueFactKey),
+    getFieldFact: (subject: ExtensionFactSubject | undefined) =>
+      facts.getFact(subject, fieldFactKey),
+    getStructFact: (subject: ExtensionFactSubject | undefined) =>
+      facts.getFact(subject, structFactKey),
+  };
 }
 
-function extensionFacts(extensionHost: ExtensionHost) {
-  return createExtensionConsumerQueries(extensionHost, "source-core-test");
+const checkedSources = new WeakMap<CompilerSession, CheckedSourceProgram>();
+
+function checkSource(session: CompilerSession): CheckedSourceProgram {
+  const existing = checkedSources.get(session);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const checked = session.checkSource();
+  checkedSources.set(session, checked);
+  return checked;
+}
+
+function sourceAst(session: CompilerSession): AstReader {
+  return checkSource(session).ast;
+}
+
+function sourceFacts(session: CompilerSession): ReadonlySourceFactResolver {
+  const facts = checkSource(session).sourceFacts;
+  assert.ok(facts !== undefined, "Expected finalized source facts.");
+  return facts;
+}
+
+function getSourceFact<T>(
+  session: CompilerSession,
+  subject: ExtensionFactSubject | undefined,
+  key: ExtensionFactKey<T>,
+): T | undefined {
+  return sourceFacts(session).getFact(subject, key);
 }
 
 function expressionText(ast: AstReader, node: Node | undefined): string {
@@ -1335,12 +1386,6 @@ function findNode(
 
 function definedDiagnostics<T>(diagnostics: readonly (T | undefined)[]): readonly T[] {
   return diagnostics.filter((diagnostic): diagnostic is T => diagnostic !== undefined);
-}
-
-function diagnosticCode(diagnostic: unknown): number | undefined {
-  return typeof diagnostic === "object" && diagnostic !== null
-    ? (diagnostic as { readonly code?: number }).code
-    : undefined;
 }
 
 function numberSort(left: number | undefined, right: number | undefined): number {

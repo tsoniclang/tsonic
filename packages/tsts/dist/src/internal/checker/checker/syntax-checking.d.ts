@@ -10,7 +10,8 @@ import type { SourceFile } from "../../ast/ast.js";
 import type { Symbol } from "../../ast/symbol.js";
 import type { Message } from "../../diagnostics/diagnostics.js";
 import type { Relation } from "../relater.js";
-import type { Signature, Type } from "../types.js";
+import type { ResolvedCallSelectionEvidence, Signature, Type } from "../types.js";
+import type { ExtensionCheckedIterationSelection } from "./iteration-evidence.js";
 import type { Checker, CheckMode, keyBuilder } from "./state.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkSourceFile","kind":"method","status":"implemented","sigHash":"73742795303ebe59bb331756ff6743713f7b9c4fbd309e3a8507a615e2dbf18f","bodyHash":"65678dd5c6e1f4ffa700bb65eee57bc088bcc84456cf8a0948d39f486e967a22"}
@@ -219,6 +220,7 @@ export declare function Checker_checkWhileStatement(receiver: GoPtr<Checker>, no
 export declare function Checker_checkForStatement(receiver: GoPtr<Checker>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForInStatement","kind":"method","status":"implemented","sigHash":"1036d4dbf8b354145c0c0f92c80d29e05c2b482399bc67dce4e9ceaa19178e59","bodyHash":"519095d2acdf211f9d06a09c73c2cb2a7432e446dc023031d85188a83b4ce9a8"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go checks remain unchanged; source-evidence queries additionally retain the already-selected for-in iterable and assignment element types."}
  *
  * Go source:
  * func (c *Checker) checkForInStatement(node *ast.Node) {
@@ -266,7 +268,6 @@ export declare function Checker_checkForStatement(receiver: GoPtr<Checker>, node
 export declare function Checker_checkForInStatement(receiver: GoPtr<Checker>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForOfStatement","kind":"method","status":"implemented","sigHash":"e566e597fa7d439638d7e79f7f6a58beadd26a29858a11cc0387de04ffb22181","bodyHash":"f6328f542ab5a70b49442a84232412dc6cab6f7c4c95af06a08d922482124273"}
- *
  * Go source:
  * func (c *Checker) checkForOfStatement(node *ast.Node) {
  * 	data := node.AsForInOrOfStatement()
@@ -677,6 +678,7 @@ export declare function Checker_checkExpressionCachedEx(receiver: GoPtr<Checker>
 export declare function Checker_checkExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkExpressionEx","kind":"method","status":"implemented","sigHash":"31bd9e3fc117abfabc0575cde0857843657e3214d7e55490b82e7e0476269dc5","bodyHash":"6d15ed64bbe48c3b4af70c5311044f49e9dd3fe52bf5c7d9312b1bdca9e97804"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go has produced an instantiated call/new result backed by source-order cached signature evidence in an actual source-checking mode, publish that immutable evidence immediately so contextual inner calls are retained before their enclosing calls without checker re-entry; provisional, query-only, and transient-flow checks remain observation-free."}
  *
  * Go source:
  * func (c *Checker) checkExpressionEx(node *ast.Node, checkMode CheckMode) *Type {
@@ -924,6 +926,7 @@ export declare function Checker_checkExpressionWorker(receiver: GoPtr<Checker>, 
 export declare function Checker_checkSuperExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveNewExpression","kind":"method","status":"implemented","sigHash":"8a47b2162d02435b75fbb4d861b25b846ff133aa869ee2a9e738af5f20205d9a","bodyHash":"0e05b7e72d36969eda35ffbf98747ffe602a0b10f76086fffb618f8aa47850e4"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go new-expression resolver is retained; an internal worker returns immutable evidence from the same successful constructor-selection attempt for atomic resolved-signature caching."}
  *
  * Go source:
  * func (c *Checker) resolveNewExpression(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -1000,6 +1003,9 @@ export declare function Checker_checkSuperExpression(receiver: GoPtr<Checker>, n
  * }
  */
 export declare function Checker_resolveNewExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode): GoPtr<Signature>;
+export declare function Checker_resolveNewExpressionWithEvidence(receiver: GoPtr<Checker>, node: GoPtr<Node>, candidatesOutArray: GoPtr<GoSlice<GoPtr<Signature>>>, checkMode: CheckMode, output: {
+    evidence?: ResolvedCallSelectionEvidence;
+} | undefined): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveInstanceofExpression","kind":"method","status":"implemented","sigHash":"2d8f498ac5bffc3bf268aafddf73dca51418ef3592e08a635521fde73a6011a6","bodyHash":"b9fc552852c48b36d318f94bc4427992fe15a5a0abdfe2c866ee0a2fc7201f99"}
  *
@@ -1451,7 +1457,7 @@ export declare function Checker_isUncalledFunctionReference(receiver: GoPtr<Chec
 export declare function Checker_checkThisExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryExpression","kind":"method","status":"implemented","sigHash":"7789a2bf27bb77f18361e12bbc4e9dd02304e6f162df1c874f94945d2d4b1bcf","bodyHash":"9faf599e69844635f35db6e35e11439ef3ffa75966c09b3c8e952309b3251d42"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go binary expression checking, extension-enabled programs may record provider-selected target operator facts for consumers; no-extension programs and unowned operators remain on the exact TS-Go path."}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Evaluate deep non-logical binary chains iteratively to avoid JavaScript call-stack exhaustion while preserving TS-Go's left-to-right checks and result types."}
  *
  * Go source:
  * func (c *Checker) checkBinaryExpression(node *ast.Node, checkMode CheckMode) *Type {
@@ -1852,6 +1858,7 @@ export declare function keyBuilder_writeNodeId(receiver: GoPtr<keyBuilder>, id: 
 export declare function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkRightHandSideOfForOf","kind":"method","status":"implemented","sigHash":"8f637629abb9bf55eaefc556e625a4b954704968fe8ecb31d25cd20e0826efea","bodyHash":"11f693ac4c38b91e7e3354961c906131c2d080dc4c2794be4908a41c6ef3c94f"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Records exact iterable and element evidence at the single normal TS-Go right-hand-side check; it neither re-enters checking nor changes the no-extension semantic result."}
  *
  * Go source:
  * func (c *Checker) checkRightHandSideOfForOf(statement *ast.Node) *Type {
@@ -1860,6 +1867,7 @@ export declare function keyBuilder_writeNode(receiver: GoPtr<keyBuilder>, node: 
  * }
  */
 export declare function Checker_checkRightHandSideOfForOf(receiver: GoPtr<Checker>, statement: GoPtr<Node>): GoPtr<Type>;
+export declare function Checker_getResolvedSourceIterationInfo(receiver: GoPtr<Checker>, statement: GoPtr<Node>): ExtensionCheckedIterationSelection | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getCombinedNodeFlagsCached","kind":"method","status":"implemented","sigHash":"6e0f8babf8a548b470b3aeccea0de8d5192f0c7988d0e886f7d1e939f6091dd5","bodyHash":"196fd65918de5902e70a802ba9d2f4e9b0885daf3e1ad7a3d86b58174bfa42c2"}
  *

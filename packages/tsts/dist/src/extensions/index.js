@@ -1,7 +1,5 @@
-export { ExtensionLifecycleEvent, ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ProviderRegistry, TstsProviderContractVersion, attachExtensionHost, attachExtensionHostToProgram, defineExtensionFactKey, getExtensionHost, hasExtensionHost, } from "./host.js";
-export { ExtensionConsumerQueries, createExtensionConsumerQueries, } from "./consumer.js";
-export { createSourceSemanticsExtension, sourcePrimitive, } from "./source-semantics.js";
-export { finalizeExtensionSemantics, } from "./compiler-integration.js";
-export { ExtensionObservationPoint, acceptObservation, deferObservation, rejectObservation, } from "./observations.js";
-export { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, contextualTargetTypeFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, instantiatedTargetTypeFactKey, pointerFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, selectedTargetSignatureFactKey, sourcePrimitiveFactKey, structFactKey, targetConversionFactKey, targetBindingFactKey, targetOperationFactKey, } from "./facts.js";
+export { ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ProviderRegistry, TstsSourceProviderContractVersion, attachExtensionHost, attachExtensionHostToProgram, defineExtensionFactKey, getExtensionHost, hasExtensionHost, } from "./host.js";
+export { createSourceSemanticsExtension, sourceSemanticsExtensionId, sourcePrimitive, } from "./source-semantics.js";
+export { SourceFactQueries, createSourceFactQueries, } from "./consumer.js";
+export { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 //# sourceMappingURL=index.js.map

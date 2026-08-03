@@ -1,0 +1,1 @@
+{"version":3,"file":"source-execution-role.d.ts","sourceRoot":"","sources":["../../../src/extensions/source-execution-role.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,IAAI,EAAE,MAAM,0BAA0B,CAAC;AAKrD,MAAM,MAAM,0BAA0B,GAClC,mBAAmB,GACnB,2BAA2B,GAC3B,+BAA+B,CAAC;AAEpC,wBAAgB,0BAA0B,CAAC,IAAI,EAAE,IAAI,GAAG,0BAA0B,CAejF;AAED,wBAAgB,+BAA+B,CAAC,IAAI,EAAE,IAAI,GAAG,OAAO,CAEnE"}

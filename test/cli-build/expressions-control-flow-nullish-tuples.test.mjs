@@ -162,7 +162,7 @@ test("CLI rejects invalid nullish coalescing fallback literals before C# emissio
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /char literals require exactly one UTF-16 code unit/);
+  assert.match(build.stderr, /Source nullish coalescing has no exact C# result relation for the selected target operand types/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNullishCharInvalidExpectedType.csproj")), false);
 });
 
@@ -263,7 +263,7 @@ test("CLI runs tuple numeric index access through value-tuple members", async ()
   assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "tuple:4\n");
 });
 
-test("CLI rejects tuple rest/default forms that still lack explicit carrier facts", async () => {
+test("CLI emits tuple rest/default forms from finalized tuple carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "tuple-rest-default-fail-closed");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -295,10 +295,15 @@ test("CLI rejects tuple rest/default forms that still lack explicit carrier fact
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Tuple destructuring defaults for optional\/nullish tuple elements require finalized tuple optional-element facts before C# emission/);
-  assert.doesNotMatch(build.stderr, /Tuple rest destructuring requires at least two finalized tuple slice elements before C# emission/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaultsRejected.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1 \?\? "fallback";/);
+  assert.match(generatedSource, /System\.ValueTuple<double> rest = new System\.ValueTuple<double>\(__tsonic_destructure\d+\.Item2\);/);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleRestDefaultsRejected.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI rejects tuple dynamic indexes without finalized element facts", async () => {
@@ -328,7 +333,8 @@ test("CLI rejects tuple dynamic indexes without finalized element facts", async 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# source tuple element access requires a statically proven non-negative integer tuple index from TSTS literal or constant facts/);
+  assert.match(build.stderr, /The checked Array index access does not resolve to one exact native C# array element carrier/);
+  assert.match(build.stderr, /No source-name recovery or target fallback is permitted/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTupleDynamicIndex.csproj")), false);
 });
 

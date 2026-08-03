@@ -1,4 +1,3 @@
-import { recordExtensionCheckedIterationMapping, recordExtensionCheckedOperatorMapping } from "../../../extensions/checker-integration.js";
 import { Node_AsNode, Node_Pos, Node_End, Node_Name, Node_BodyData } from "../../ast/spine.js";
 import { Contains as slicesContains } from "../../../go/slices.js";
 import { AsBinaryExpression, AsSyntheticExpression, AsIfStatement, AsForStatement, AsForInOrOfStatement, AsSwitchStatement, AsTryStatement, AsCatchClause, AsLabeledStatement, AsCaseOrDefaultClause, AsCaseBlock, AsVariableStatement, AsVariableDeclarationList, AsPrefixUnaryExpression, AsPostfixUnaryExpression, AsYieldExpression, AsConditionalExpression, AsNumericLiteral, AsBigIntLiteral, } from "../../ast/generated/casts.js";
@@ -8,7 +7,8 @@ import { Diagnostic_AddRelatedInfo, Diagnostic_Code, Diagnostic_Loc } from "../.
 import { Node_Locals, SourceFile_Text, SourceFile_Diagnostics, Node_Expression, Node_Statements, Node_Statement, Node_Initializer, Node_Type, Node_Text, Node_Label, Node_Body, Node_TypeParameters, Node_TypeArguments, AsSourceFile } from "../../ast/ast.js";
 import { SignatureFlagsAbstract, SignatureFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../types.js";
 import { Checker_isIteratorResult } from "./support-queries.js";
-import { CheckModeInferential, CheckModeNormal, InferenceFlagsSkippedGenericFunction, IterationTypeKindReturn, IterationTypeKindYield, IterationTypeKindNext, IterationUseForOf, IterationUseForAwaitOf, IterationUseSpread, IterationUseYieldStar, IterationUseAsyncYieldStar, TypeFactsIsUndefined, TypeFactsTruthy, TypeFactsFalsy, UnusedKindLocal, UnusedKindParameter, Checker_getSourceFileLinks, someSignature, } from "./state.js";
+import { createExtensionForInIterationSelection, freezeExtensionCheckedIterationSelection, } from "./iteration-evidence.js";
+import { CheckModeInferential, CheckModeIsForSignatureHelp, CheckModeNormal, CheckModeSkipContextSensitive, CheckModeSkipGenericFunctions, InferenceFlagsSkippedGenericFunction, IterationTypeKindReturn, IterationTypeKindYield, IterationTypeKindNext, IterationUseForOf, IterationUseForAwaitOf, IterationUseSpread, IterationUseYieldStar, IterationUseAsyncYieldStar, TypeFactsIsUndefined, TypeFactsTruthy, TypeFactsFalsy, UnusedKindLocal, UnusedKindParameter, Checker_getSourceFileLinks, someSignature, } from "./state.js";
 import { IsEmptyStatement, IsVariableDeclarationList, IsArrowFunction, IsComputedPropertyName, IsJsxAttributes, IsJsxSelfClosingElement, IsIdentifier, IsArrayLiteralExpression, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPrivateIdentifier, IsConstructorDeclaration, IsSetAccessorDeclaration, IsBlock, IsParameterDeclaration, IsBindingElement, IsClassStaticBlockDeclaration, IsCaseClause, IsDefaultClause, IsParenthesizedExpression, IsLabeledStatement, IsConditionalExpression, IsBinaryExpression, IsSourceFile, IsLogicalOrCoalescingAssignmentOperator, } from "../../ast/generated/predicates.js";
 import { GetSourceFileOfNode, IsExternalOrCommonJSModule, IsFunctionOrModuleBlock, IsInstanceOfExpression, IsAccessExpression, IsClassLike, IsBindingPattern, SkipParentheses, SkipOuterExpressions, IsInJSFile, OEKParentheses, OEKSatisfies, OEKExcludeJSDocTypeAssertion, OEKAssertions, GetCombinedNodeFlags, IsFunctionLike, GetNodeId, ForEachReturnStatement, GetClassLikeDeclarationOfSymbol, HasModifier, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorTrue, FindAncestorQuit, GetContainingClass, IsCallLikeExpression, IsCallOrNewExpression, GetContainingFunction, IsImportCall, IsLogicalBinaryOperator, IsLogicalOrCoalescingBinaryExpression, IsLogicalOrCoalescingBinaryOperator, WalkUpParenthesizedExpressions, GetExtendsHeritageClauseElement, GetEnclosingBlockScopeContainer, NodeKindIs, IsStatic, } from "../../ast/utilities.js";
 import { FunctionFlagsAsync, FunctionFlagsGenerator, FunctionFlagsInvalid, GetFunctionFlags } from "../../ast/functionflags.js";
@@ -26,11 +26,11 @@ import { Checker_checkGrammarStatementInAmbientContext, Checker_grammarErrorOnFi
 import { Checker_produceDeferredDiagnostics, Checker_hasParseDiagnostics, Checker_addErrorOrSuggestion, Checker_addDeferredDiagnostic, Checker_isErrorType, Checker_reportOperatorError, Checker_reportOperatorErrorUnless, Checker_IsDeprecatedDeclaration, Checker_invocationError, Checker_resolveErrorCall, } from "./diagnostics.js";
 import { Checker_checkTypeAssignableToAndOptionallyElaborate, Checker_checkTypeAssignableTo, Checker_checkTypeComparableTo, Checker_isTypeAssignableTo, Checker_isTypeSubtypeOf, Checker_isTypeRelatedTo, Checker_areTypesComparable, Checker_getThisTypeOfSignature, } from "../relater.js";
 import { Checker_allTypesAssignableToKind, Checker_checkDestructuringAssignment, Checker_checkAssignmentOperator, Checker_isTypeEqualityComparableTo, Checker_isTypeAssignableToKind, Checker_isTypeAssignableToKindEx, Checker_checkSatisfiesExpression } from "./relations.js";
-import { Checker_checkIteratedTypeOrElementType, Checker_getNonNullableTypeIfNeeded, Checker_checkNonNullType, Checker_checkNonNullExpression, Checker_getTypeFromTypeNode, Checker_getUnaryResultType, Checker_checkArithmeticOperandType, Checker_bothAreBigIntLike, Checker_checkNullishCoalesceOperands, Checker_checkFunctionExpressionOrObjectLiteralMethodDeferred, Checker_hasTypeFacts, Checker_getTypeFacts, Checker_checkAwaitedType, Checker_isFunctionType, Checker_isEmptyObjectType, Checker_hasEmptyObjectIntersection, Checker_getAwaitedTypeOfPromise, Checker_getRegularTypeOfLiteralType, Checker_getWidenedLiteralLikeTypeForContextualType, Checker_instantiateContextualType, Checker_getContextualType, Checker_checkConstEnumAccess, Checker_getFreshTypeOfLiteralType, Checker_getNumberLiteralType, Checker_getBigIntLiteralType, Checker_getBaseTypeOfLiteralType, Checker_getBaseTypeOfLiteralTypeForComparison, Checker_filterType, Checker_getContextualIterationType, Checker_getYieldedTypeOfYieldExpression, Checker_getIterationTypeOfIterable, Checker_getApparentType, Checker_getStringLiteralType, Checker_checkTemplateExpression, Checker_checkRegularExpressionLiteral, Checker_checkArrayLiteral, Checker_checkObjectLiteral, Checker_checkTaggedTemplateExpression, Checker_checkFunctionExpressionOrObjectLiteralMethod, Checker_checkTypeOfExpression, Checker_checkNonNullAssertion, Checker_checkVoidExpression, Checker_checkConditionalExpression, Checker_GetNonNullableType, Checker_getUnionType, Checker_getUnionTypeEx, Checker_maybeTypeOfKind, Checker_getBaseTypes, } from "./types.js";
+import { Checker_checkForOfIterationWithExtensionSelection, Checker_checkIteratedTypeOrElementType, Checker_getNonNullableTypeIfNeeded, Checker_checkNonNullType, Checker_checkNonNullExpression, Checker_getTypeFromTypeNode, Checker_getUnaryResultType, Checker_checkArithmeticOperandType, Checker_bothAreBigIntLike, Checker_checkNullishCoalesceOperands, Checker_checkFunctionExpressionOrObjectLiteralMethodDeferred, Checker_hasTypeFacts, Checker_getTypeFacts, Checker_checkAwaitedType, Checker_isFunctionType, Checker_isEmptyObjectType, Checker_hasEmptyObjectIntersection, Checker_getAwaitedTypeOfPromise, Checker_getRegularTypeOfLiteralType, Checker_getWidenedLiteralLikeTypeForContextualType, Checker_instantiateContextualType, Checker_getContextualType, Checker_checkConstEnumAccess, Checker_getFreshTypeOfLiteralType, Checker_getNumberLiteralType, Checker_getBigIntLiteralType, Checker_getBaseTypeOfLiteralType, Checker_getBaseTypeOfLiteralTypeForComparison, Checker_filterType, Checker_getContextualIterationType, Checker_getYieldedTypeOfYieldExpression, Checker_getIterationTypeOfIterable, Checker_getApparentType, Checker_getStringLiteralType, Checker_checkTemplateExpression, Checker_checkRegularExpressionLiteral, Checker_checkArrayLiteral, Checker_checkObjectLiteral, Checker_checkTaggedTemplateExpression, Checker_checkFunctionExpressionOrObjectLiteralMethod, Checker_checkTypeOfExpression, Checker_checkNonNullAssertion, Checker_checkVoidExpression, Checker_checkConditionalExpression, Checker_GetNonNullableType, Checker_getUnionType, Checker_getUnionTypeEx, Checker_maybeTypeOfKind, Checker_getBaseTypes, } from "./types.js";
 import { Checker_isReachableFlowNode, Checker_hasMatchingArgument, Checker_getSymbolHasInstanceMethodOfObjectType } from "../flow.js";
 import { Checker_TypeToString } from "../printer.js";
 import { Checker_checkClassExpression, Checker_checkClassExpressionDeferred, Checker_checkThisInStaticClassFieldInitializerInDecoratedClass } from "./classes.js";
-import { Checker_checkTypeParameterDeferred, Checker_resolveUntypedCall, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getReturnTypeOfSignature, Checker_getReturnTypeFromAnnotation, Checker_unwrapReturnType, Checker_isUnwrappedReturnTypeUndefinedVoidOrAny, Checker_isIndirectCall, Checker_instantiateTypeWithSingleGenericCallSignature, Checker_checkGeneratorInstantiationAssignabilityToReturnType, Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getIterationTypeOfGeneratorFunctionReturnType, Checker_tryGetThisTypeAt, Checker_tryGetThisTypeAtEx, Checker_getSignaturesOfType, Checker_isUntypedFunctionCall, Checker_isConstructorAccessible, Checker_resolveCall, Checker_typeHasCallOrConstructSignatures, Checker_checkImportCallExpression, Checker_checkCallExpression, Checker_checkExpressionWithTypeArguments, Checker_isInConstructorArgumentInitializer, Checker_getBaseConstructorTypeOfClass, Checker_getTypeWithThisArgument, } from "./signatures.js";
+import { Checker_checkTypeParameterDeferred, Checker_resolveUntypedCall, Checker_resolveUntypedCallWithEvidence, Checker_getResolvedSignature, Checker_getSignatureFromDeclaration, Checker_getReturnTypeOfSignature, Checker_getReturnTypeFromAnnotation, Checker_unwrapReturnType, Checker_isUnwrappedReturnTypeUndefinedVoidOrAny, Checker_isIndirectCall, Checker_instantiateTypeWithSingleGenericCallSignature, Checker_checkGeneratorInstantiationAssignabilityToReturnType, Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getIterationTypeOfGeneratorFunctionReturnType, Checker_tryGetThisTypeAt, Checker_tryGetThisTypeAtEx, Checker_getSignaturesOfType, Checker_isUntypedFunctionCall, Checker_isConstructorAccessible, Checker_resolveCall, Checker_resolveCallWithEvidence, Checker_typeHasCallOrConstructSignatures, Checker_checkImportCallExpression, Checker_checkCallExpression, Checker_checkExpressionWithTypeArguments, Checker_isInConstructorArgumentInitializer, Checker_getBaseConstructorTypeOfClass, Checker_getTypeWithThisArgument, } from "./signatures.js";
 import { Checker_checkJsxSelfClosingElementDeferred, Checker_checkJsxElementDeferred, Checker_checkJsxExpression, Checker_checkJsxElement, Checker_checkJsxSelfClosingElement, Checker_checkJsxFragment, Checker_checkJsxAttributes, } from "../jsx.js";
 import { CheckModeTypeOnly, TypeFactsEQUndefinedOrNull, UnionReductionSubtype, createDiagnosticForNode, everyContainedType, hasCommonDomTypeName, isConstEnumObjectType } from "./state.js";
 import { Every, FirstOrNil, IfElse, OrElse } from "../../core/core.js";
@@ -38,7 +38,7 @@ import { TextRange_Contains } from "../../core/text.js";
 import { OrderedSet_Add, OrderedSet_Values, OrderedSet_Clear } from "../../collections/ordered_set.js";
 import { Set_Clear } from "../../collections/set.js";
 import { LinkStore_Get } from "../../core/linkstore.js";
-import { KindBlock, KindVariableDeclarationList, KindReturnStatement, KindCallExpression, KindNewExpression, KindTaggedTemplateExpression, KindDecorator, KindJsxOpeningElement, KindFunctionExpression, KindArrowFunction, KindMethodDeclaration, KindMethodSignature, KindGetAccessor, KindSetAccessor, KindPropertyDeclaration, KindPropertySignature, KindConstructor, KindClassStaticBlockDeclaration, KindClassExpression, KindTypeParameter, KindJsxSelfClosingElement, KindJsxElement, KindTypeAssertionExpression, KindAsExpression, KindVoidExpression, KindBinaryExpression, KindEqualsToken, KindNumericLiteral, KindBigIntLiteral, KindMinusToken, KindPlusToken, KindTildeToken, KindExclamationToken, KindPlusPlusToken, KindMinusMinusToken, KindModuleDeclaration, KindEnumDeclaration, KindIdentifier, KindPrivateIdentifier, KindThisKeyword, KindSuperKeyword, KindNullKeyword, KindStringLiteral, KindNoSubstitutionTemplateLiteral, KindTrueKeyword, KindFalseKeyword, KindTemplateExpression, KindRegularExpressionLiteral, KindArrayLiteralExpression, KindObjectLiteralExpression, KindPropertyAccessExpression, KindQualifiedName, KindElementAccessExpression, KindParenthesizedExpression, KindTypeOfExpression, KindNonNullExpression, KindExpressionWithTypeArguments, KindSatisfiesExpression, KindMetaProperty, KindDeleteExpression, KindAwaitExpression, KindPrefixUnaryExpression, KindPostfixUnaryExpression, KindConditionalExpression, KindSpreadElement, KindOmittedExpression, KindYieldExpression, KindSyntheticExpression, KindJsxExpression, KindJsxFragment, KindJsxAttributes, } from "../../ast/generated/kinds.js";
+import { KindBlock, KindVariableDeclarationList, KindReturnStatement, KindCallExpression, KindNewExpression, KindTaggedTemplateExpression, KindDecorator, KindJsxOpeningElement, KindFunctionExpression, KindArrowFunction, KindMethodDeclaration, KindMethodSignature, KindGetAccessor, KindSetAccessor, KindPropertyDeclaration, KindPropertySignature, KindConstructor, KindClassStaticBlockDeclaration, KindClassExpression, KindTypeParameter, KindJsxSelfClosingElement, KindJsxElement, KindTypeAssertionExpression, KindAsExpression, KindVoidExpression, KindBinaryExpression, KindEqualsToken, KindNumericLiteral, KindBigIntLiteral, KindMinusToken, KindPlusToken, KindTildeToken, KindExclamationToken, KindPlusPlusToken, KindMinusMinusToken, KindModuleDeclaration, KindEnumDeclaration, KindIdentifier, KindPrivateIdentifier, KindThisKeyword, KindSuperKeyword, KindNullKeyword, KindStringLiteral, KindNoSubstitutionTemplateLiteral, KindTrueKeyword, KindFalseKeyword, KindTemplateExpression, KindRegularExpressionLiteral, KindArrayLiteralExpression, KindObjectLiteralExpression, KindPropertyAccessExpression, KindQualifiedName, KindElementAccessExpression, KindParenthesizedExpression, KindTypeOfExpression, KindNonNullExpression, KindExpressionWithTypeArguments, KindSatisfiesExpression, KindMetaProperty, KindDeleteExpression, KindAwaitExpression, KindPrefixUnaryExpression, KindPostfixUnaryExpression, KindConditionalExpression, KindSpreadElement, KindOmittedExpression, KindYieldExpression, KindSyntheticExpression, KindJsxExpression, KindJsxFragment, KindJsxAttributes, KindForInStatement, KindForOfStatement, } from "../../ast/generated/kinds.js";
 import { KindAmpersandAmpersandEqualsToken, KindAmpersandAmpersandToken, KindAmpersandEqualsToken, KindAmpersandToken, KindAsteriskAsteriskEqualsToken, KindAsteriskAsteriskToken, KindAsteriskEqualsToken, KindAsteriskToken, KindBarBarEqualsToken, KindBarBarToken, KindBarEqualsToken, KindBarToken, KindCaretEqualsToken, KindCaretToken, KindCommaToken, KindEqualsEqualsEqualsToken, KindEqualsEqualsToken, KindExclamationEqualsEqualsToken, KindExclamationEqualsToken, KindGreaterThanEqualsToken, KindGreaterThanGreaterThanEqualsToken, KindGreaterThanGreaterThanGreaterThanEqualsToken, KindGreaterThanGreaterThanGreaterThanToken, KindGreaterThanGreaterThanToken, KindGreaterThanToken, KindInKeyword, KindInstanceOfKeyword, KindLessThanEqualsToken, KindLessThanLessThanEqualsToken, KindLessThanLessThanToken, KindLessThanToken, KindMinusEqualsToken, KindPercentEqualsToken, KindPercentToken, KindPlusEqualsToken, KindQuestionQuestionEqualsToken, KindQuestionQuestionToken, KindSlashEqualsToken, KindSlashToken, KindUnknown } from "../../ast/generated/kinds.js";
 import { SkipTrivia, TokenToString } from "../../scanner/scanner.js";
 import { GetTextOfNode } from "../../scanner/utilities.js";
@@ -416,6 +416,7 @@ export function Checker_checkForStatement(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForInStatement","kind":"method","status":"implemented","sigHash":"1036d4dbf8b354145c0c0f92c80d29e05c2b482399bc67dce4e9ceaa19178e59","bodyHash":"519095d2acdf211f9d06a09c73c2cb2a7432e446dc023031d85188a83b4ce9a8"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go checks remain unchanged; source-evidence queries additionally retain the already-selected for-in iterable and assignment element types."}
  *
  * Go source:
  * func (c *Checker) checkForInStatement(node *ast.Node) {
@@ -466,18 +467,20 @@ export function Checker_checkForInStatement(receiver, node) {
     const rightType = Checker_getNonNullableTypeIfNeeded(receiver, Checker_checkExpression(receiver, data.Expression));
     if (IsVariableDeclarationList(data.Initializer)) {
         const declarations = AsVariableDeclarationList(data.Initializer).Declarations.Nodes;
-        if (declarations.length !== 0 && IsBindingPattern(Node_Name(declarations[0]))) {
-            Checker_error(receiver, Node_Name(declarations[0]), The_left_hand_side_of_a_for_in_statement_cannot_be_a_destructuring_pattern);
+        const declaration = declarations[0];
+        if (declaration !== undefined && IsBindingPattern(Node_Name(declaration))) {
+            Checker_error(receiver, Node_Name(declaration), The_left_hand_side_of_a_for_in_statement_cannot_be_a_destructuring_pattern);
         }
         Checker_checkVariableDeclarationList(receiver, data.Initializer);
     }
     else {
         const varExpr = data.Initializer;
         const leftType = Checker_checkExpression(receiver, varExpr);
+        const selectedIndexType = Checker_getIndexTypeOrString(receiver, rightType);
         if (IsArrayLiteralExpression(varExpr) || IsObjectLiteralExpression(varExpr)) {
             Checker_error(receiver, varExpr, The_left_hand_side_of_a_for_in_statement_cannot_be_a_destructuring_pattern);
         }
-        else if (!Checker_isTypeAssignableTo(receiver, Checker_getIndexTypeOrString(receiver, rightType), leftType)) {
+        else if (!Checker_isTypeAssignableTo(receiver, selectedIndexType, leftType)) {
             Checker_error(receiver, varExpr, The_left_hand_side_of_a_for_in_statement_must_be_of_type_string_or_any);
         }
         else {
@@ -487,7 +490,6 @@ export function Checker_checkForInStatement(receiver, node) {
     if (rightType === receiver.neverType || !Checker_isTypeAssignableToKind(receiver, rightType, (TypeFlagsNonPrimitive | TypeFlagsInstantiableNonPrimitive))) {
         Checker_error(receiver, data.Expression, The_right_hand_side_of_a_for_in_statement_must_be_of_type_any_an_object_type_or_a_type_parameter_but_here_has_type_0, Checker_TypeToString(receiver, rightType));
     }
-    recordExtensionCheckedIterationMapping(receiver, node, "for-in", Checker_getIndexTypeOrString(receiver, rightType));
     Checker_checkSourceElement(receiver, data.Statement);
     if ((Node_Locals(node)?.size ?? 0) !== 0) {
         Checker_registerForUnusedIdentifiersCheck(receiver, node);
@@ -495,7 +497,6 @@ export function Checker_checkForInStatement(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkForOfStatement","kind":"method","status":"implemented","sigHash":"e566e597fa7d439638d7e79f7f6a58beadd26a29858a11cc0387de04ffb22181","bodyHash":"f6328f542ab5a70b49442a84232412dc6cab6f7c4c95af06a08d922482124273"}
- *
  * Go source:
  * func (c *Checker) checkForOfStatement(node *ast.Node) {
  * 	data := node.AsForInOrOfStatement()
@@ -561,13 +562,12 @@ export function Checker_checkForOfStatement(receiver, node) {
             }
         }
     }
-    let iteratedType = undefined;
     if (IsVariableDeclarationList(data.Initializer)) {
         Checker_checkVariableDeclarationList(receiver, data.Initializer);
     }
     else {
         const varExpr = data.Initializer;
-        iteratedType = Checker_checkRightHandSideOfForOf(receiver, node);
+        const iteratedType = Checker_checkRightHandSideOfForOf(receiver, node);
         if (IsArrayLiteralExpression(varExpr) || IsObjectLiteralExpression(varExpr)) {
             Checker_checkDestructuringAssignment(receiver, varExpr, OrElse(iteratedType, receiver.errorType), CheckModeNormal, false);
         }
@@ -579,7 +579,6 @@ export function Checker_checkForOfStatement(receiver, node) {
             }
         }
     }
-    recordExtensionCheckedIterationMapping(receiver, node, data.AwaitModifier !== undefined ? "for-await-of" : "for-of", iteratedType);
     Checker_checkSourceElement(receiver, data.Statement);
     if ((Node_Locals(node)?.size ?? 0) !== 0) {
         Checker_registerForUnusedIdentifiersCheck(receiver, node);
@@ -1173,6 +1172,7 @@ export function Checker_checkExpression(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkExpressionEx","kind":"method","status":"implemented","sigHash":"31bd9e3fc117abfabc0575cde0857843657e3214d7e55490b82e7e0476269dc5","bodyHash":"6d15ed64bbe48c3b4af70c5311044f49e9dd3fe52bf5c7d9312b1bdca9e97804"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go has produced an instantiated call/new result backed by source-order cached signature evidence in an actual source-checking mode, publish that immutable evidence immediately so contextual inner calls are retained before their enclosing calls without checker re-entry; provisional, query-only, and transient-flow checks remain observation-free."}
  *
  * Go source:
  * func (c *Checker) checkExpressionEx(node *ast.Node, checkMode CheckMode) *Type {
@@ -1625,6 +1625,7 @@ export function Checker_checkSuperExpression(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveNewExpression","kind":"method","status":"implemented","sigHash":"8a47b2162d02435b75fbb4d861b25b846ff133aa869ee2a9e738af5f20205d9a","bodyHash":"0e05b7e72d36969eda35ffbf98747ffe602a0b10f76086fffb618f8aa47850e4"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exact TS-Go new-expression resolver is retained; an internal worker returns immutable evidence from the same successful constructor-selection attempt for atomic resolved-signature caching."}
  *
  * Go source:
  * func (c *Checker) resolveNewExpression(node *ast.Node, candidatesOutArray *[]*Signature, checkMode CheckMode) *Signature {
@@ -1701,10 +1702,15 @@ export function Checker_checkSuperExpression(receiver, node) {
  * }
  */
 export function Checker_resolveNewExpression(receiver, node, candidatesOutArray, checkMode) {
+    return Checker_resolveNewExpressionWithEvidence(receiver, node, candidatesOutArray, checkMode, undefined);
+}
+export function Checker_resolveNewExpressionWithEvidence(receiver, node, candidatesOutArray, checkMode, output) {
     let expressionType = Checker_checkNonNullExpression(receiver, Node_Expression(node));
+    const selectedOutput = output;
     if (expressionType === receiver.silentNeverType) {
         return receiver.silentNeverSignature;
     }
+    const sourceCalleeType = expressionType;
     expressionType = Checker_getApparentType(receiver, expressionType);
     if (Checker_isErrorType(receiver, expressionType)) {
         return Checker_resolveErrorCall(receiver, node);
@@ -1713,7 +1719,9 @@ export function Checker_resolveNewExpression(receiver, node, candidatesOutArray,
         if ((Node_TypeArguments(node) ?? []).length !== 0) {
             Checker_error(receiver, node, Untyped_function_calls_may_not_accept_type_arguments);
         }
-        return Checker_resolveUntypedCall(receiver, node);
+        return selectedOutput === undefined
+            ? Checker_resolveUntypedCall(receiver, node)
+            : Checker_resolveUntypedCallWithEvidence(receiver, node, sourceCalleeType, selectedOutput);
     }
     const constructSignatures = Checker_getSignaturesOfType(receiver, expressionType, SignatureKindConstruct);
     if (constructSignatures.length !== 0) {
@@ -1731,11 +1739,28 @@ export function Checker_resolveNewExpression(receiver, node, candidatesOutArray,
                 return Checker_resolveErrorCall(receiver, node);
             }
         }
-        return Checker_resolveCall(receiver, node, constructSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
+        if (selectedOutput === undefined) {
+            return Checker_resolveCall(receiver, node, constructSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
+        }
+        const resolved = Checker_resolveCallWithEvidence(receiver, node, constructSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined, sourceCalleeType);
+        if (resolved.evidence !== undefined) {
+            selectedOutput.evidence = resolved.evidence;
+        }
+        return resolved.signature;
     }
     const callSignatures = Checker_getSignaturesOfType(receiver, expressionType, SignatureKindCall);
     if (callSignatures.length !== 0) {
-        const signature = Checker_resolveCall(receiver, node, callSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
+        let signature;
+        if (selectedOutput === undefined) {
+            signature = Checker_resolveCall(receiver, node, callSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
+        }
+        else {
+            const resolved = Checker_resolveCallWithEvidence(receiver, node, callSignatures, candidatesOutArray, checkMode, SignatureFlagsNone, undefined, sourceCalleeType);
+            signature = resolved.signature;
+            if (resolved.evidence !== undefined) {
+                selectedOutput.evidence = resolved.evidence;
+            }
+        }
         if (!receiver.noImplicitAny) {
             if (signature.declaration !== undefined && Checker_getReturnTypeOfSignature(receiver, signature) !== receiver.voidType) {
                 Checker_error(receiver, node, Only_a_void_function_can_be_called_with_the_new_keyword);
@@ -2501,7 +2526,7 @@ export function Checker_checkThisExpression(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkBinaryExpression","kind":"method","status":"implemented","sigHash":"7789a2bf27bb77f18361e12bbc4e9dd02304e6f162df1c874f94945d2d4b1bcf","bodyHash":"9faf599e69844635f35db6e35e11439ef3ffa75966c09b3c8e952309b3251d42"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go binary expression checking, extension-enabled programs may record provider-selected target operator facts for consumers; no-extension programs and unowned operators remain on the exact TS-Go path."}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Evaluate deep non-logical binary chains iteratively to avoid JavaScript call-stack exhaustion while preserving TS-Go's left-to-right checks and result types."}
  *
  * Go source:
  * func (c *Checker) checkBinaryExpression(node *ast.Node, checkMode CheckMode) *Type {
@@ -2512,13 +2537,9 @@ export function Checker_checkThisExpression(receiver, node) {
 export function Checker_checkBinaryExpression(receiver, node, checkMode) {
     const binary = AsBinaryExpression(node);
     if (isIterativelyCheckableNonLogicalBinaryExpression(node)) {
-        const result = Checker_checkNonLogicalBinaryExpressionIterative(receiver, node, checkMode);
-        recordExtensionCheckedOperatorMapping(receiver, node, binary.OperatorToken, binary.Left, binary.Right);
-        return result;
+        return Checker_checkNonLogicalBinaryExpressionIterative(receiver, node, checkMode);
     }
-    const result = Checker_checkBinaryLikeExpression(receiver, binary.Left, binary.OperatorToken, binary.Right, checkMode, node);
-    recordExtensionCheckedOperatorMapping(receiver, node, binary.OperatorToken, binary.Left, binary.Right);
-    return result;
+    return Checker_checkBinaryLikeExpression(receiver, binary.Left, binary.OperatorToken, binary.Right, checkMode, node);
 }
 function Checker_checkNonLogicalBinaryExpressionIterative(receiver, node, checkMode) {
     const binaryChain = [];
@@ -2785,6 +2806,24 @@ export function Checker_checkBinaryLikeExpression(receiver, left, operatorToken,
     const leftType = Checker_checkExpressionEx(receiver, left, checkMode);
     const rightType = Checker_checkExpressionEx(receiver, right, checkMode);
     return Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToken, right, checkMode, errorNode, leftType, rightType);
+}
+function Checker_checkBinaryLikeExpressionWithSelectedTypes(receiver, left, operatorToken, right, checkMode, errorNode) {
+    const operator = operatorToken.Kind;
+    if (operator === KindEqualsToken && (left.Kind === KindObjectLiteralExpression || left.Kind === KindArrayLiteralExpression)) {
+        const rightType = Checker_checkExpressionEx(receiver, right, checkMode);
+        return Object.freeze({
+            result: Checker_checkDestructuringAssignment(receiver, left, rightType, checkMode, right.Kind === KindThisKeyword),
+            leftType: undefined,
+            rightType,
+        });
+    }
+    const leftType = Checker_checkExpressionEx(receiver, left, checkMode);
+    const rightType = Checker_checkExpressionEx(receiver, right, checkMode);
+    return Object.freeze({
+        result: Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToken, right, checkMode, errorNode, leftType, rightType),
+        leftType,
+        rightType,
+    });
 }
 function Checker_checkBinaryLikeExpressionWithTypes(receiver, left, operatorToken, right, checkMode, errorNode, initialLeftType, initialRightType) {
     const operator = operatorToken.Kind;
@@ -3279,6 +3318,7 @@ export function keyBuilder_writeNode(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkRightHandSideOfForOf","kind":"method","status":"implemented","sigHash":"8f637629abb9bf55eaefc556e625a4b954704968fe8ecb31d25cd20e0826efea","bodyHash":"11f693ac4c38b91e7e3354961c906131c2d080dc4c2794be4908a41c6ef3c94f"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Records exact iterable and element evidence at the single normal TS-Go right-hand-side check; it neither re-enters checking nor changes the no-extension semantic result."}
  *
  * Go source:
  * func (c *Checker) checkRightHandSideOfForOf(statement *ast.Node) *Type {
@@ -3289,6 +3329,47 @@ export function keyBuilder_writeNode(receiver, node) {
 export function Checker_checkRightHandSideOfForOf(receiver, statement) {
     const use = IfElse(AsForInOrOfStatement(statement).AwaitModifier !== undefined, IterationUseForAwaitOf, IterationUseForOf);
     return Checker_checkIteratedTypeOrElementType(receiver, use, Checker_checkNonNullExpression(receiver, Node_Expression(statement)), receiver.undefinedType, Node_Expression(statement));
+}
+export function Checker_getResolvedSourceIterationInfo(receiver, statement) {
+    if (receiver === undefined || statement === undefined) {
+        return undefined;
+    }
+    if (statement.Kind === KindForInStatement) {
+        const data = AsForInOrOfStatement(statement);
+        const sourceIterableType = Checker_getNonNullableTypeIfNeeded(receiver, Checker_checkExpression(receiver, data?.Expression));
+        if (sourceIterableType === undefined) {
+            return undefined;
+        }
+        let sourceElementType;
+        if (IsVariableDeclarationList(data?.Initializer)) {
+            const declaration = AsVariableDeclarationList(data?.Initializer)?.Declarations?.Nodes[0];
+            const declarationSymbol = declaration === undefined
+                ? undefined
+                : Checker_getSymbolOfDeclaration(receiver, declaration);
+            sourceElementType = declarationSymbol === undefined
+                ? undefined
+                : Checker_getTypeOfSymbol(receiver, declarationSymbol);
+        }
+        else {
+            sourceElementType = Checker_getIndexTypeOrString(receiver, sourceIterableType);
+        }
+        return sourceElementType === undefined
+            ? undefined
+            : createExtensionForInIterationSelection(sourceIterableType, sourceElementType);
+    }
+    if (statement.Kind !== KindForOfStatement) {
+        return undefined;
+    }
+    const data = AsForInOrOfStatement(statement);
+    const sourceIterableType = Checker_checkNonNullExpression(receiver, data?.Expression);
+    if (sourceIterableType === undefined) {
+        return undefined;
+    }
+    const iterationKind = data?.AwaitModifier === undefined ? "for-of" : "for-await-of";
+    const selection = Checker_checkForOfIterationWithExtensionSelection(receiver, iterationKind, sourceIterableType, receiver.undefinedType, data?.Expression).selection;
+    return selection === undefined
+        ? undefined
+        : freezeExtensionCheckedIterationSelection(selection);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getCombinedNodeFlagsCached","kind":"method","status":"implemented","sigHash":"6e0f8babf8a548b470b3aeccea0de8d5192f0c7988d0e886f7d1e939f6091dd5","bodyHash":"196fd65918de5902e70a802ba9d2f4e9b0885daf3e1ad7a3d86b58174bfa42c2"}

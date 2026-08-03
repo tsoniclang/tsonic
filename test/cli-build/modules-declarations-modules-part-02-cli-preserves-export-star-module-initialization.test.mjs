@@ -82,12 +82,12 @@ test("CLI preserves export-star module initialization before re-exported values 
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /return Side\.sideValue;/);
-  assert.match(indexSource, /static Index\(\)/);
+  assert.match(indexSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(indexSource, /Barrel\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(indexSource, /return sideValue;|__unsupported/);
 
   const barrelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8");
-  assert.match(barrelSource, /static Barrel\(\)/);
+  assert.match(barrelSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(barrelSource, /Side\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(barrelSource, /__unsupported/);
 
@@ -218,7 +218,7 @@ test("CLI emits imported and re-exported generic source calls from TSTS-selected
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenericSourceCallsAcrossModules.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI emits module-scope arrow function values as C# Func fields", async () => {
+test("CLI emits module-scope arrow function values as lazily initialized C# Func properties", async () => {
   const projectDirectory = resolve(tempRoot, "module-arrow-function-values");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -251,10 +251,10 @@ test("CLI emits module-scope arrow function values as C# Func fields", async () 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<double, double, double> add;/);
-  assert.match(generatedSource, /public static readonly Func<string, string> greet;/);
-  assert.match(generatedSource, /public static readonly Func<double, double> @double;/);
-  assert.match(generatedSource, /public static readonly Func<double, double> triple;/);
+  assert.match(generatedSource, /public static Func<double, double, double> add\s*\{\s*get;\s*private set;\s*\} = default\(Func<double, double, double>\)!;/);
+  assert.match(generatedSource, /public static Func<string, string> greet\s*\{\s*get;\s*private set;\s*\} = default\(Func<string, string>\)!;/);
+  assert.match(generatedSource, /public static Func<double, double> @double\s*\{\s*get;\s*private set;\s*\} = default\(Func<double, double>\)!;/);
+  assert.match(generatedSource, /public static Func<double, double> triple\s*\{\s*get;\s*private set;\s*\} = default\(Func<double, double>\)!;/);
   assert.match(generatedSource, /add = \(double left, double right\) => left \+ right;/);
   assert.match(generatedSource, /greet = \(string name\) => \$"Hello \{name\}";/);
   assert.match(generatedSource, /@double = \(double value\) => value \* 2;/);

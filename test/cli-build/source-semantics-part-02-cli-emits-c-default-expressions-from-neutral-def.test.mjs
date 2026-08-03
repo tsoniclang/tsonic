@@ -92,18 +92,18 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return default\(int\);/);
+  assert.match(generatedSource, /return default\(int\)!;/);
   assert.match(generatedSource, /public static int csharpZero\(\)/);
   assert.match(generatedSource, /public class User/);
   assert.match(generatedSource, /public struct Point/);
   assert.match(generatedSource, /public static User emptyUser\(\)/);
-  assert.match(generatedSource, /return default\(User\);/);
+  assert.match(generatedSource, /return default\(User\)!;/);
   assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> emptyList\(\)/);
-  assert.match(generatedSource, /return default\(System\.Collections\.Generic\.List<int>\);/);
+  assert.match(generatedSource, /return default\(System\.Collections\.Generic\.List<int>\)!;/);
   assert.match(generatedSource, /public static User\? emptyMaybeUser\(\)/);
-  assert.match(generatedSource, /return default\(User\?\);/);
+  assert.match(generatedSource, /return default\(User\?\)!;/);
   assert.match(generatedSource, /public static Point emptyPoint\(\)/);
-  assert.match(generatedSource, /return default\(Point\);/);
+  assert.match(generatedSource, /return default\(Point\)!;/);
   assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /defaultof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -132,10 +132,9 @@ test("CLI rejects defaultof without explicit source type evidence before C# outp
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TSONIC_SOURCE_CORE_9901106/);
+  assert.match(build.stderr, /tsonic\.source-core:TS9901106/);
   assert.match(build.stderr, /index\.ts:4:10/);
   assert.match(build.stderr, /defaultof<T>\(\) requires explicit type evidence/);
-  assert.match(build.stderr, /evidence: Tsonic source-core marker requires explicit type evidence/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI rejects byref source markers for source-owned by-value call parameters", async () => {
@@ -198,7 +197,10 @@ test("CLI rejects byref source markers without finalized storage facts", async (
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TSTS_SOURCE_SEMANTICS_0001/);
+  assert.equal(
+    (build.stderr.match(/tsts\.source-semantics:TS9901101/g) ?? []).length,
+    3,
+  );
   assert.match(build.stderr, /requires a storage expression/);
   assert.match(build.stderr, /out/u);
   assert.match(build.stderr, /ref/u);
@@ -238,7 +240,10 @@ test("CLI rejects neutral borrow and move markers before C# output", async () =>
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS9100135/);
+  assert.equal(
+    (build.stderr.match(/tsonic-csharp:CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED/g) ?? []).length,
+    3,
+  );
   assert.match(build.stderr, /C# target does not implement source flow marker/);
   assert.match(build.stderr, /borrow/u);
   assert.match(build.stderr, /borrowMut/u);
@@ -324,6 +329,10 @@ test("CLI rejects any and unknown before they trickle into C# output", async () 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /unknown cannot trickle into generated C#/);
-  assert.match(build.stderr, /any cannot trickle into generated C# unless the selected target explicitly enables TypeScript compatibility carriers/);
+  assert.equal(
+    (build.stderr.match(/tsonic-csharp:CSHARP_OPAQUE_TARGET_TYPE_UNSUPPORTED/g) ?? []).length,
+    4,
+  );
+  assert.match(build.stderr, /Opaque target type 'unknown' has no renderable C# source representation/);
+  assert.match(build.stderr, /Opaque target type 'any' has no renderable C# source representation/);
 });

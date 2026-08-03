@@ -114,13 +114,13 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.match(generatedSource, /return value\.ReadCompatElement\(key\);/);
   assert.match(generatedSource, /value\.WriteCompatElement\(key, "Grace"\);/);
   assert.match(generatedSource, /return value\.InvokeCompat\("Ada", 1\);/);
-  assert.match(generatedSource, /return value\.ReadCompatSlot\("create"\)\.InvokeCompat\("Ada"\);/);
+  assert.match(generatedSource, /return value\.InvokeCompatSlot\("create", false, false, \(\) => new object\?\[\] \{ "Ada" \}\);/);
   assert.match(generatedSource, /return value\.ConstructCompat\("Ada"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinary\(value, "\+", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinaryBoolean\(value, "===", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatUnaryBoolean\(value, "!"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatTypeof\(value\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatVoid\(value\.ReadCompatSlot\("name"\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatVoid\(value\.ReadCompatSlot\("name"\)\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
   assert.match(generatedSource, /double result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
   assert.match(generatedSource, /result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
@@ -162,8 +162,7 @@ test("CLI hard-rejects explicit any object destructuring without closed extracti
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   const output = build.stdout + build.stderr;
   assert.notEqual(build.status, 0);
-  assert.match(output, /index\.ts:2:8: Destructuring source expression requires a finalized runtime carrier fact/u);
-  assert.match(output, /index\.ts:2:8: Object destructuring requires a source-owned declaration or finalized provider object-shape facts/u);
+  assert.match(output, /index\.ts:2:9: Object destructuring requires an exact source-owned declaration or target object-shape policy/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
@@ -233,8 +232,9 @@ test("CLI hard-rejects explicit any array spread without closed array carrier fa
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   const output = build.stdout + build.stderr;
   assert.notEqual(build.status, 0);
-  assert.match(output, /Array spread requires a finalized provider array carrier matching the target array element type/u);
-  assert.match(output, /source\.span=2:11-2:19/u);
+  assert.match(output, /Array spread requires a finalized sequence carrier with the exact target element type before C# emission/u);
+  assert.match(output, /Finalized spread carrier does not prove an enumerable sequence with the exact target element type/u);
+  assert.match(output, /index\.ts:2:11/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
@@ -278,12 +278,18 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
       "  return value **= 2;",
       "}",
       "",
+      "class Marker {}",
+      "",
       "export function instance(value: any): boolean {",
-      "  return value instanceof Object;",
+      "  return value instanceof Marker;",
+      "}",
+      "",
+      "function consume(value: any): void {",
+      "  void value;",
       "}",
       "",
       "export function sequence(value: any): number {",
-      "  return (value, 1);",
+      "  return (consume(value), 1);",
       "}",
       "",
       "export function deleteName(value: any): boolean {",
@@ -302,7 +308,7 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
   assert.match(build.stdout + build.stderr, /operator '\*\*='/u);
   assert.match(build.stdout + build.stderr, /operator 'instanceof'/u);
   assert.match(build.stdout + build.stderr, /operator ','/u);
-  assert.match(build.stdout + build.stderr, /operator 'delete'/u);
+  assert.match(build.stdout + build.stderr, /C# delete requires an exact selected JS Array element access/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
@@ -428,8 +434,8 @@ test("CLI compat mode wraps non-exception thrown values with closed runtime carr
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\("boom"\);/);
-  assert.match(generatedSource, /catch \(System\.Exception __tsonic_catch0\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.TsValue error = Tsonic\.CSharp\.Js\.TsThrownValueException\.toValue\(__tsonic_catch0\);/);
+  assert.match(generatedSource, /catch\s*\{/);
+  assert.doesNotMatch(generatedSource, /TsThrownValueException\.toValue/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [

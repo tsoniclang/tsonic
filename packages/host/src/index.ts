@@ -4,7 +4,7 @@ export {
   collectTargetRuntimeContributions,
   collectTstsDiagnostics,
   compileTargetFromSemanticSession,
-  createTargetCompilerExtensions,
+  createTargetSourceCompilerComposition,
   createTsonicSemanticSession,
   getSelectedSurfaceImplementations,
   getSelectedTargetCapabilities,
@@ -13,9 +13,9 @@ export {
 export type {
   CollectedTargetRuntimeContributions,
   CollectTargetRuntimeContributionsOptions,
-  CreateTargetCompilerExtensionsOptions,
+  CreateTargetSourceCompilerCompositionOptions,
   CreateTsonicSemanticSessionOptions,
-  TargetCompilerExtensionComposition,
+  TargetSourceCompilerComposition,
   TsonicSemanticSession,
 } from "./compiler-session.js";
 export { createProgramOptionsForProject } from "./program-options.js";

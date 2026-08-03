@@ -4405,7 +4405,7 @@ export function Checker_getEffectsSignature(receiver, node) {
             apparentType = Checker_getApparentType(receiver, funcType);
         }
         const signatures = Checker_getSignaturesOfType(receiver, OrElse(apparentType, receiver.unknownType), SignatureKindCall);
-        if (signatures.length === 1 && signatures[0].typeParameters === undefined) {
+        if (signatures.length === 1 && signatures[0].typeParameters.length === 0) {
             signature = signatures[0];
         }
         else if (Some(signatures, (s) => Checker_hasTypePredicateOrNeverReturnType(receiver, s))) {

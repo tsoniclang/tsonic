@@ -48,7 +48,7 @@ test("CLI rejects computed and accessor object literal members before shape fall
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /Object-shape object initializers require identifier or string-literal property names/);
-  assert.match(build.stderr, /Object literal property must match a finalized provider object-shape member/);
+  assert.match(build.stderr, /Object literal property must match one finalized object-shape source contract member/);
   assert.match(build.stderr, /Object literal member is outside the current C# planning surface/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -225,8 +225,12 @@ test("CLI emits structural type-literal methods as delegate-backed object shapes
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public Func<double, double> __tsonic_shape_method_0_run;/);
-  assert.match(generatedSource, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_0_run\(arg0\);/);
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.match(generatedShapes, /public required Func<double, double> __tsonic_shape_method_0_run;/);
+  assert.match(generatedShapes, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_0_run\(arg0\);/);
   assert.match(generatedSource, /__tsonic_shape_method_0_run = \(double value\) =>/);
   assert.match(generatedSource, /return value \+ 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

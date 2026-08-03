@@ -46,10 +46,9 @@ test("CLI rejects existing TypeScript JS built-ins without selected JS surface f
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# native array source contract has no target-backed property 'push'/);
+  assert.match(build.stderr, /TS2339: Property 'push' does not exist on type 'string\[\]'/);
   assert.match(build.stderr, /Property 'trim' does not exist on type 'string'\. Did you mean 'Trim'\?/);
-  assert.match(build.stderr, /C# property access 'toUpperCase' must be selected by TSTS\/provider facts before emission/);
-  assert.match(build.stderr, /C# property access 'slice' must be selected by TSTS\/provider facts before emission/);
+  assert.doesNotMatch(build.stderr, /tsonic-csharp:/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsBuiltinsWithoutJsSurface.csproj")), false);
 });
 
@@ -83,7 +82,7 @@ test("CLI rejects unsupported JS expression carriers even when JS surface is sel
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# JS surface could not map checked TypeScript library call 'JSON\.stringify' because the selected receiver lacks finalized target runtime facts/);
+  assert.match(build.stderr, /Target type 'target:Tsonic\.CSharp\.Js\.Map`2<target:System\.String<>,source:float64>' has no closed JSON serialization policy/);
   assert.doesNotMatch(build.stderr, /Reflection|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedJsExpressionCarrier.csproj")), false);
 });
@@ -203,10 +202,10 @@ test("CLI rejects standalone typeof without selected exact provider runtime-kind
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
 
   assert.notEqual(build.status, 0);
-  assert.match(build.stderr, /C# typeof expression emission requires a selected provider typeof operator fact/);
+  assert.match(build.stderr, /C# typeof translation requires one exact statically proven target runtime kind/);
 });
 
-test("CLI rejects element access with non-integral indexes until conversion facts are finalized", async () => {
+test("CLI rejects non-integral element indexes at the selected source-profile contract", async () => {
   const projectDirectory = resolve(tempRoot, "non-integral-element-index");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -238,9 +237,7 @@ test("CLI rejects element access with non-integral indexes until conversion fact
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /TS7053: Element implicitly has an 'any' type because expression of type 'number' can't be used to index type 'String'\./u);
-  assert.match(build.stderr, /TS9100103: C# provider could not map checked element access on target 'System\.Private\.CoreLib, Version=10\.0\.0\.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e::System\.String' from selected TSTS provider index declaration identity\./u);
-  assert.match(build.stderr, /TS9100109: C# native array element access requires an integral TSTS\/provider-backed index type\./u);
-  assert.doesNotMatch(build.stderr, /TS9100111|TS9100112/u);
+  assert.doesNotMatch(build.stderr, /tsonic-csharp:|TS91001/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNonIntegralIndexes.csproj")), false);
 });
 
@@ -301,7 +298,7 @@ test("CLI rejects unsupported primitive generic constraints without provider fac
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Generic constraints require finalized target constraint facts/);
+  assert.match(build.stderr, /The selected source constraint cannot be represented as an exact C# generic constraint/);
 });
 
 test("CLI hard-rejects dynamic eval, Function, and Proxy APIs", async () => {
@@ -348,9 +345,17 @@ test("CLI hard-rejects dynamic eval, Function, and Proxy APIs", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# emission cannot support JavaScript eval/);
-  assert.match(build.stderr, /C# emission cannot support JavaScript dynamic Function construction/);
-  assert.match(build.stderr, /C# emission cannot support JavaScript Proxy/);
+  assert.match(build.stderr, /TS9101002 index\.ts:2:10: eval requires runtime source evaluation with lexical-scope access, which has no closed C# source-to-source representation/);
+  assert.match(build.stderr, /Selected source identity: js\.Global\.eval\.call/);
+  assert.match(build.stderr, /TS9101002 index\.ts:6:10: Function construction compiles source text at runtime and has no closed C# source-to-source representation/);
+  assert.match(build.stderr, /Selected source identity: js\.FunctionConstructor\.call/);
+  assert.match(build.stderr, /TS9101002 index\.ts:10:10: Function construction compiles source text at runtime and has no closed C# source-to-source representation/);
+  assert.match(build.stderr, /Selected source identity: js\.FunctionConstructor\.construct/);
+  assert.match(build.stderr, /TS9101002 index\.ts:14:10: Proxy traps redefine object operations dynamically and have no closed C# source-to-source representation/);
+  assert.match(build.stderr, /Selected source identity: js\.ProxyConstructor\.construct/);
+  assert.match(build.stderr, /TS9101002 index\.ts:18:10: Proxy traps redefine object operations dynamically and have no closed C# source-to-source representation/);
+  assert.match(build.stderr, /Selected source identity: js\.ProxyConstructor\.revocable\.member/);
+  assert.match(build.stderr, /No target fallback, name recovery, or dynamic invocation is permitted/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDynamicCodeProxyRejections.csproj")), false);
 });
 

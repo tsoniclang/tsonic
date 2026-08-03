@@ -16,7 +16,7 @@ import { GetExternalModuleIndicatorOptions } from "../ast/parseoptions.js";
 import { TokenFlagsNone } from "../ast/tokenflags.js";
 import { NewImportDeclaration, NewStringLiteral } from "../ast/generated/factory.js";
 import { SyncMap_Load, SyncMap_LoadOrStore } from "../collections/syncmap.js";
-import { CompilerOptions_GetAllowJS, CompilerOptions_GetEmitModuleKind, CompilerOptions_GetIsolatedModules, CompilerOptions_GetModuleResolutionKind, CompilerOptions_GetResolvePackageJsonExports, CompilerOptions_GetResolvePackageJsonImports, ModuleKindCommonJS, ModuleKindESNext, ModuleKindNone, ModuleKindPreserve, ModuleKind_IsNonNodeESM, ModuleResolutionKindNode16, ModuleResolutionKindNodeNext, ResolutionModeCommonJS, ResolutionModeNone, } from "../core/compileroptions.js";
+import { CompilerOptions_GetAllowJS, CompilerOptions_GetEmitModuleKind, CompilerOptions_GetIsolatedModules, CompilerOptions_GetModuleResolutionKind, CompilerOptions_GetResolvePackageJsonExports, CompilerOptions_GetResolvePackageJsonImports, ModuleKindCommonJS, ModuleKindESNext, ModuleKindNone, ModuleKindPreserve, ModuleKind_IsNonNodeESM, ModuleResolutionKindNode16, ModuleResolutionKindNodeNext, ResolutionModeCommonJS, ResolutionModeESM, ResolutionModeNone, } from "../core/compileroptions.js";
 import { Tristate_IsFalseOrUnknown, Tristate_IsTrue } from "../core/tristate.js";
 import { IfElse, Flatten } from "../core/core.js";
 import { NewWorkGroup } from "../core/workgroup.js";
@@ -40,24 +40,39 @@ import { createProjectReferenceParseTasks, projectReferenceParser_parse, } from 
 import { PhaseParse, PhaseProgram, Tracing_Push } from "../tracing/tracing.js";
 import { ParseSourceFile } from "../parser/parser/statements-declarations.js";
 import { getExtensionHost } from "../../extensions/host.js";
+import { getProviderVirtualArtifactForCompiler, isHostOwnedProviderVirtualFileName } from "../../extensions/provider-virtual-internal.js";
 function fileLoader_getExtensionHost(receiver) {
     return getExtensionHost(receiver.opts);
 }
-function fileLoader_getProviderVirtualModule(receiver, fileName) {
-    return fileLoader_getExtensionHost(receiver)?.providers.getVirtualModuleByFileName(fileName);
+function fileLoader_getProviderVirtualArtifact(receiver, fileName) {
+    const registry = fileLoader_getExtensionHost(receiver)?.providers;
+    return registry === undefined ? undefined : getProviderVirtualArtifactForCompiler(registry, fileName);
 }
 function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, moduleName, containingFile, mode, importSite) {
     if (extensionHost === undefined) {
         return undefined;
     }
+    const containingVirtualArtifact = getProviderVirtualArtifactForCompiler(extensionHost.providers, containingFile);
+    const directVirtualArtifact = containingVirtualArtifact === undefined
+        ? undefined
+        : getProviderVirtualArtifactForCompiler(extensionHost.providers, moduleName);
+    if (directVirtualArtifact !== undefined) {
+        return fileLoader_createProviderVirtualResolvedArtifact(directVirtualArtifact);
+    }
+    if (isHostOwnedProviderVirtualFileName(moduleName)) {
+        return fileLoader_createUnresolvedProviderVirtualModule();
+    }
     const context = {
         containingFile,
-        resolutionMode: mode,
-        ...(extensionHost.activeTarget !== undefined ? { activeTarget: extensionHost.activeTarget } : {}),
-        ...(extensionHost.activeSurface !== undefined ? { activeSurface: extensionHost.activeSurface } : {}),
+        resolutionMode: mode === ResolutionModeESM
+            ? "import"
+            : mode === ResolutionModeCommonJS
+                ? "require"
+                : "none",
         importSlice: fileLoader_getProviderImportSlice(moduleName, importSite),
     };
-    if (extensionHost.providers.bindingProviders.length === 0 && extensionHost.providers.requiresProviderForModule(moduleName, context) === undefined) {
+    if (!extensionHost.providers.hasSourceDeclarationProviders
+        && extensionHost.providers.requiresProviderForModule(moduleName) === undefined) {
         return undefined;
     }
     const result = extensionHost.providers.resolveVirtualModule(moduleName, context);
@@ -65,64 +80,58 @@ function fileLoader_resolveProviderVirtualModule(receiver, extensionHost, module
         return undefined;
     }
     if (result.kind !== "resolved") {
-        return {
-            ResolutionDiagnostics: [],
-            ResolvedFileName: "",
-            OriginalPath: "",
-            Extension: "",
-            ResolvedUsingTsExtension: false,
-            PackageId: { Name: "", SubModuleName: "", Version: "", PeerDependencies: "" },
-            IsExternalLibraryImport: false,
-            AlternateResult: "",
-        };
+        return fileLoader_createUnresolvedProviderVirtualModule();
     }
+    return fileLoader_createProviderVirtualResolvedArtifact(result.module.artifact);
+}
+function fileLoader_createUnresolvedProviderVirtualModule() {
     return {
         ResolutionDiagnostics: [],
-        ResolvedFileName: result.module.resolution.virtualFileName,
+        ResolvedFileName: "",
+        OriginalPath: "",
+        Extension: "",
+        ResolvedUsingTsExtension: false,
+        PackageId: { Name: "", SubModuleName: "", Version: "", PeerDependencies: "" },
+        IsExternalLibraryImport: false,
+        AlternateResult: "",
+    };
+}
+function fileLoader_createProviderVirtualResolvedArtifact(artifact) {
+    return {
+        ResolutionDiagnostics: [],
+        ResolvedFileName: artifact.fileName,
         OriginalPath: "",
         Extension: ResolvedModuleExtensionProviderVirtual,
         ResolvedUsingTsExtension: false,
-        PackageId: fileLoader_getProviderVirtualPackageId(result.module.resolution),
+        PackageId: fileLoader_getProviderVirtualPackageId(artifact),
         IsExternalLibraryImport: true,
         AlternateResult: "",
         ProviderVirtual: {
-            ProviderId: result.module.provider.identity.id,
-            ProviderTarget: result.module.provider.identity.target,
-            ProviderModuleId: result.module.resolution.providerModuleId,
-            ModuleSpecifier: result.module.resolution.moduleSpecifier,
+            ProviderId: artifact.provider.id,
+            ProviderModuleId: artifact.providerModuleId,
+            ModuleSpecifier: artifact.moduleSpecifier,
         },
     };
 }
-function fileLoader_getProviderVirtualPackageId(resolution) {
-    const packageName = resolution.packageName ?? "";
+function fileLoader_getProviderVirtualPackageId(artifact) {
+    const packageName = artifact.packageName ?? "";
     if (packageName === "") {
         return { Name: "", SubModuleName: "", Version: "", PeerDependencies: "" };
     }
     return {
         Name: packageName,
-        SubModuleName: fileLoader_getProviderVirtualSubModuleName(packageName, resolution.moduleSpecifier, resolution.virtualFileName),
-        Version: resolution.packageVersion ?? "",
+        SubModuleName: fileLoader_getProviderVirtualSubModuleName(packageName, artifact.moduleSpecifier, artifact.id),
+        Version: artifact.packageVersion ?? "",
         PeerDependencies: "",
     };
 }
-function fileLoader_getProviderVirtualSubModuleName(packageName, moduleSpecifier, virtualFileName) {
+function fileLoader_getProviderVirtualSubModuleName(packageName, moduleSpecifier, artifactId) {
     const publicSubModuleName = moduleSpecifier === packageName
         ? ""
         : strings.HasPrefix(moduleSpecifier, `${packageName}/`)
             ? moduleSpecifier.slice(`${packageName}/`.length)
             : moduleSpecifier;
-    const sliceMarker = getProviderVirtualPackageSliceMarker(virtualFileName);
-    if (sliceMarker !== "") {
-        return `${publicSubModuleName}#${sliceMarker}`;
-    }
-    return publicSubModuleName;
-}
-function getProviderVirtualPackageSliceMarker(virtualFileName) {
-    const markerIndex = virtualFileName.indexOf("#tsts-slice-");
-    if (markerIndex < 0) {
-        return "";
-    }
-    return virtualFileName.slice(markerIndex + 1);
+    return `${publicSubModuleName}#${artifactId}`;
 }
 function fileLoader_getProviderImportSlice(moduleSpecifier, importSite) {
     const directSlice = fileLoader_getDirectProviderImportSlice(moduleSpecifier, importSite);
@@ -268,8 +277,8 @@ function fileLoader_mergeProviderImportSlices(moduleSpecifier, slicesToMerge) {
         allTypeOnly &&= slice.typeOnly === true;
         hasReexportRequest ||= slice.kind === "reexport";
         for (const requestedExport of slice.requestedExports ?? []) {
-            const key = JSON.stringify([requestedExport.exportedName, requestedExport.localName ?? "", requestedExport.kind ?? "unknown"]);
-            requestedExportsByKey.set(key, requestedExport);
+            const key = requestedExport.exportedName;
+            requestedExportsByKey.set(key, mergeProviderRequestedExport(requestedExportsByKey.get(key), requestedExport));
             hasDefaultRequest ||= requestedExport.exportedName === "default";
         }
     }
@@ -293,6 +302,27 @@ function fileLoader_mergeProviderImportSlices(moduleSpecifier, slicesToMerge) {
 }
 function getProviderImportRequestKind(typeOnly) {
     return typeOnly ? "type" : "value";
+}
+function mergeProviderRequestedExport(existing, incoming) {
+    if (existing === undefined) {
+        return {
+            exportedName: incoming.exportedName,
+            ...(incoming.kind !== undefined ? { kind: incoming.kind } : {}),
+        };
+    }
+    return {
+        exportedName: existing.exportedName,
+        kind: mergeProviderImportRequestKind(existing.kind, incoming.kind),
+    };
+}
+function mergeProviderImportRequestKind(left, right) {
+    if (left === "unknown" || right === "unknown") {
+        return "unknown";
+    }
+    if (left === "value" || right === "value") {
+        return "value";
+    }
+    return "type";
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::varGroup::_","kind":"varGroup","status":"implemented","sigHash":"49fbaf64ae10ed60e869e0234672578cdcd492d18042f56b9c710f8c12be2c3e","bodyHash":"8284e921f9f925885aeaa798132fe24f86ec0403613b3a5953059d91a14dc916"}
@@ -931,7 +961,7 @@ export function fileLoader_getDefaultLibFilePriority(receiver, a) {
  * }
  */
 export function fileLoader_loadSourceFileMetaData(receiver, fileName) {
-    if (fileLoader_getProviderVirtualModule(receiver, fileName) !== undefined) {
+    if (fileLoader_getProviderVirtualArtifact(receiver, fileName) !== undefined) {
         return {
             PackageJsonType: "",
             PackageJsonDirectory: "",
@@ -988,13 +1018,13 @@ export function fileLoader_parseSourceFile(receiver, t) {
     try {
         const path = fileLoader_toPath(receiver, t.normalizedFilePath);
         const options = projectReferenceFileMapper_getCompilerOptionsForFile(receiver.projectReferenceFileMapper, NewHasFileName(t.normalizedFilePath, path));
-        const providerVirtualModule = fileLoader_getProviderVirtualModule(receiver, t.normalizedFilePath);
-        if (providerVirtualModule !== undefined) {
+        const providerVirtualArtifact = fileLoader_getProviderVirtualArtifact(receiver, t.normalizedFilePath);
+        if (providerVirtualArtifact !== undefined) {
             return ParseSourceFile({
                 FileName: t.normalizedFilePath,
                 Path: path,
                 ExternalModuleIndicatorOptions: GetExternalModuleIndicatorOptions(t.normalizedFilePath, options, t.metadata),
-            }, providerVirtualModule.virtualSourceText, ScriptKindTS);
+            }, providerVirtualArtifact.sourceText, ScriptKindTS);
         }
         const sourceFile = receiver.opts.Host.GetSourceFile({
             FileName: t.normalizedFilePath,
@@ -1323,7 +1353,7 @@ export function fileLoader_resolveTypeReferenceDirectives(receiver, t) {
 export const externalHelpersModuleNameText = "tslib";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::method::fileLoader.resolveImportsAndModuleAugmentations","kind":"method","status":"implemented","sigHash":"30cd1cfb29885870bb53f7e50b9173e5bd146206f9dd8a020faf33710e3f44dc","bodyHash":"4171ca82fab8e6403e0310bc745bd8eb0680c1c25558125fe9ff409afeaecafd"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Provider-owned module specifiers resolve through TargetBindingProvider before physical module resolution; unowned modules and no-extension programs remain on the exact TS-Go path, and owned rejection does not fall back to files."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Provider-owned module specifiers resolve through SourceDeclarationProvider before physical module resolution; unowned modules and no-extension programs remain on the exact TS-Go path, and owned rejection does not fall back to files."}
  *
  * Go source:
  * func (p *fileLoader) resolveImportsAndModuleAugmentations(t *parseTask) {
@@ -1498,7 +1528,7 @@ export function fileLoader_resolveImportsAndModuleAugmentations(receiver, t) {
                 }
                 const resolvedFileName = resolvedModule.ResolvedFileName;
                 const isFromNodeModulesSearch = resolvedModule.IsExternalLibraryImport;
-                const isProviderVirtualFile = fileLoader_getProviderVirtualModule(receiver, resolvedFileName) !== undefined;
+                const isProviderVirtualFile = fileLoader_getProviderVirtualArtifact(receiver, resolvedFileName) !== undefined;
                 // Don't treat redirected files as JS files.
                 const isJsFile = !isProviderVirtualFile && !FileExtensionIsOneOf(resolvedFileName, SupportedTSExtensionsWithJsonFlat) && projectReferenceFileMapper_getRedirectParsedCommandLineForResolution(receiver.projectReferenceFileMapper, NewHasFileName(resolvedFileName, fileLoader_toPath(receiver, resolvedFileName))) === undefined;
                 const isJsFileFromNodeModules = isFromNodeModulesSearch && isJsFile && strings.Contains(resolvedFileName, "/node_modules/");

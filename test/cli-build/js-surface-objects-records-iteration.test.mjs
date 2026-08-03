@@ -156,11 +156,11 @@ test("CLI emits Object helpers for closed Record dictionaries from selected JS s
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> recordKeys\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> recordKeys\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.keys\(values\);/);
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<int> recordValues\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> recordValues\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.values\(values\);/);
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<\(string, int\)> recordEntries\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<\(string, int\)> recordEntries\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.entries\(values\);/);
   assert.match(generatedSource, /public static bool recordHasOwn\(System\.Collections\.Generic\.Dictionary<string, int> values\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.hasOwn\(values, "answer"\);/);
@@ -216,12 +216,14 @@ test("CLI hard-rejects unsupported Object descriptor and prototype operations", 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.setPrototypeOf'/);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.getPrototypeOf'/);
-  assert.match(build.stderr, /index\.ts:2:10: C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.create'/);
-  assert.match(build.stderr, /index\.ts:6:10: C# JS surface hard-rejected selected TypeScript standard-library call 'Object\.defineProperty'/);
-  assert.match(build.stderr, /descriptor, prototype, extensibility/);
+  assert.match(build.stderr, /TS9101002 index\.ts:2:10: Object\.create requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.create\.member/);
+  assert.match(build.stderr, /TS9101002 index\.ts:6:10: Object\.defineProperty requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.defineProperty\.member/);
+  assert.match(build.stderr, /TS9101002 index\.ts:10:10: Object\.setPrototypeOf requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.setPrototypeOf\.member/);
+  assert.match(build.stderr, /TS9101002 index\.ts:14:10: Object\.getPrototypeOf requires closed descriptor\/prototype\/extensibility semantics that are not represented by the selected C# runtime policy\./);
+  assert.match(build.stderr, /Selected source identity: js\.ObjectConstructor\.getPrototypeOf\.member/);
+  assert.match(build.stderr, /No target fallback, name recovery, or dynamic invocation is permitted/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectDescriptorPrototypeRejections.csproj")), false);
 });

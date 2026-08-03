@@ -736,7 +736,6 @@ export interface SymbolNodeLinks {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::TypeNodeLinks","kind":"type","status":"implemented","sigHash":"d179da5ea97af8b4e01f810926a7545f82b426592ab5165ddf4d80ecc0cd4e3d","bodyHash":"63f2e3ade12086f877faba2842deb70032ef48351c0a8a14043706ec94966b6a"}
- *
  * Go source:
  * TypeNodeLinks struct {
  * 	resolvedType        *Type   // Resolved type associated with node
@@ -800,8 +799,90 @@ export interface SourceFileLinks {
     localJsxFragmentFactory: GoPtr<EntityName>;
     jsxFragmentType: GoPtr<Type>;
 }
+export interface CheckedCallSourceSelectionProvenance {
+    readonly symbol?: Symbol_62f2f8bf;
+    readonly declaration?: Node;
+    readonly selectedSymbol?: Symbol_62f2f8bf;
+    readonly selectedDeclaration?: Node;
+    readonly authoredTypeNode?: Node;
+}
+export interface CheckedCallSelectionSeed {
+    readonly calleeProvenance?: CheckedCallSourceSelectionProvenance;
+    readonly receiver?: ResolvedCallSourceValueEvidence;
+    readonly calleeAccess?: ResolvedCallCalleeAccessEvidence;
+    readonly sourceProducerCandidate?: true;
+}
+export interface ResolvedCallSourceValueEvidence extends CheckedCallSourceSelectionProvenance {
+    readonly expression: Node;
+    readonly type: Type;
+}
+export type ResolvedCallCalleeAccessEvidence = {
+    readonly kind: "property";
+    readonly expression: Node;
+    readonly receiver: ResolvedCallSourceValueEvidence;
+    readonly resultType: Type;
+    readonly symbol?: Symbol_62f2f8bf;
+    readonly declaration?: Node;
+    readonly selectedSymbol?: Symbol_62f2f8bf;
+    readonly selectedDeclaration?: Node;
+} | {
+    readonly kind: "element";
+    readonly expression: Node;
+    readonly receiver: ResolvedCallSourceValueEvidence;
+    readonly argument: ResolvedCallSourceValueEvidence;
+    readonly resultType: Type;
+    readonly selectedElementIndex?: number;
+    readonly symbol?: Symbol_62f2f8bf;
+    readonly declaration?: Node;
+    readonly selectedSymbol?: Symbol_62f2f8bf;
+    readonly selectedDeclaration?: Node;
+};
+export interface ResolvedCallArgumentEvidence {
+    readonly sourceArgumentIndex: number;
+    readonly effectiveArgumentIndex: number;
+    readonly sourceForm: "value" | "spread-element" | "spread-sequence";
+    readonly spreadElementIndex?: number;
+    readonly sourceParameterIndex: number;
+    readonly sourceParameterForm: "parameter" | "rest-element" | "rest-sequence";
+    readonly selectedArgumentType: Type;
+    readonly selectedParameterType: Type;
+}
+export interface ResolvedCallSelectedMethodTypeArgumentEvidence {
+    readonly typeParameterName: string;
+    readonly typeParameter: Type;
+    readonly selectedType: Type;
+    readonly explicitTypeNode?: Node;
+}
+export interface ResolvedCallSelectedSignatureParameterEvidence {
+    readonly parameterIndex: number;
+    readonly parameterName: string;
+    readonly parameterSymbol: Symbol_62f2f8bf;
+    readonly parameterDeclaration?: Node;
+    readonly selectedType: Type;
+    readonly authoredTypeNode?: Node;
+    readonly acceptsOmission: boolean;
+    readonly rest: boolean;
+}
+export interface ResolvedCallSelectionEvidence {
+    readonly outcome: "applicable" | "untyped";
+    readonly call: Node;
+    readonly optionalChain: boolean;
+    readonly selectedSignature: Signature;
+    readonly sourceSelectedSignatureKind: "resolved" | "untyped";
+    readonly sourceSelectedMethodTypeArguments?: readonly ResolvedCallSelectedMethodTypeArgumentEvidence[];
+    readonly sourceSelectedSignatureParameters: readonly ResolvedCallSelectedSignatureParameterEvidence[];
+    readonly sourceCallee: ResolvedCallSourceValueEvidence;
+    readonly sourceArguments: readonly ResolvedCallSourceValueEvidence[];
+    readonly sourceArgumentBindings: readonly ResolvedCallArgumentEvidence[];
+    readonly sourceReceiver?: ResolvedCallSourceValueEvidence;
+    readonly sourceCalleeAccess?: ResolvedCallCalleeAccessEvidence;
+}
+export interface ResolvedCallEvidence extends ResolvedCallSelectionEvidence {
+    readonly sourceResultType: Type;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SignatureLinks","kind":"type","status":"implemented","sigHash":"a347e845fe887e23f08134d6a7c13472dcdb4602c6c632618c72b27e056bdc28","bodyHash":"4bf2baf0e113cf93bff152edafa4b1d395e4fdfca289065c748d902c87e78b3e"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Cache immutable selected call evidence beside TS-Go's resolvedSignature without changing signature resolution or cache semantics.","goSignature":"interface{decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}","tsSignature":"interface{checkedCallSelectionSeed:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::CheckedCallSelectionSeed>;decoratorSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;effectsSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>;resolvedCallEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::ResolvedCallEvidence>;resolvedCallSelectionEvidence:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::ResolvedCallSelectionEvidence>;resolvedSignature:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>}"}
  *
  * Go source:
  * SignatureLinks struct {
@@ -814,6 +895,9 @@ export interface SignatureLinks {
     resolvedSignature: GoPtr<Signature>;
     effectsSignature: GoPtr<Signature>;
     decoratorSignature: GoPtr<Signature>;
+    checkedCallSelectionSeed: GoPtr<CheckedCallSelectionSeed>;
+    resolvedCallSelectionEvidence: GoPtr<ResolvedCallSelectionEvidence>;
+    resolvedCallEvidence: GoPtr<ResolvedCallEvidence>;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::TypeFlags","kind":"type","status":"implemented","sigHash":"f25175c625db0f67dfd7e928ddb1b660e03ad62f59d0c4ee937cfa78968b53ec","bodyHash":"06d2339bb07513679d9db9d3361917653e5f784b5a3d9fda1db10a4184c759c9"}

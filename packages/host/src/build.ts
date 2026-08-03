@@ -8,14 +8,16 @@ import type {
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import { sourceProjectFiles } from "@tsonic/target-api";
 import { createCompilerSession } from "@tsonic/tsts";
+import type { CheckedSourceProgram } from "@tsonic/tsts";
 import {
-  collectResolvedSourceFilesForBackend,
   collectTargetRuntimeContributions,
   compileTargetFromSemanticSession,
   createTsonicSemanticSession,
   collectTstsDiagnostics,
 } from "./compiler-session.js";
+import { finalizeTargetDiagnostics } from "./diagnostics.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
 import { collectImportActivatedTargetCapabilities, collectRuntimeActivatedTargetCapabilities } from "./target/capability-activation.js";
@@ -118,6 +120,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     const session = createTsonicSemanticSession({
       programOptions: created.programOptions,
       project: input.project,
+      projectDirectory: paths.projectDirectory,
       target,
       targetPack,
       selectedCapabilities,
@@ -138,8 +141,8 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     }
     const targetPaths = getTargetCompilationPaths(paths, target);
     const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
-      session.ast,
-      session.sourceFiles,
+      session.source.ast,
+      sourceProjectFiles(session.source),
       selectedCapabilities,
     );
     const runtimeContributions = collectTargetRuntimeContributions({
@@ -155,14 +158,19 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, runtimeContributions.diagnostics);
       continue;
     }
-    const backendCompileResult = compileTargetFromSemanticSession(
+    const rawBackendCompileResult = compileTargetFromSemanticSession(
       session,
-      input.project,
-      target,
-      targetPack,
       targetPaths,
       runtimeContributions.references,
     );
+    const backendCompileResult = {
+      ...rawBackendCompileResult,
+      diagnostics: finalizeTargetDiagnostics(
+        session,
+        rawBackendCompileResult.diagnostics,
+        paths.projectRoot,
+      ),
+    };
     diagnostics.push(...backendCompileResult.diagnostics);
     if (hasBlockingDiagnostics(backendCompileResult.diagnostics)) {
       targets.push({
@@ -207,16 +215,16 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
 }
 
 function createCapabilityActivationContext(input: CompileProjectInput): {
-  readonly ast: ReturnType<typeof createCompilerSession>["ast"];
-  readonly sourceFiles: ReturnType<typeof collectResolvedSourceFilesForBackend>;
+  readonly ast: CheckedSourceProgram["ast"];
+  readonly sourceFiles: ReturnType<typeof sourceProjectFiles>;
 } {
   const activationSession = createCompilerSession({
     programOptions: createProgramOptionsForProject(input).programOptions,
   });
-  activationSession.ensureBound();
+  const source = activationSession.checkSource();
   return {
-    ast: activationSession.ast,
-    sourceFiles: collectResolvedSourceFilesForBackend(activationSession),
+    ast: source.ast,
+    sourceFiles: sourceProjectFiles(source),
   };
 }
 

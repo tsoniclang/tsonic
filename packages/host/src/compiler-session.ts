@@ -1,17 +1,7 @@
-import {
-  createCompilerSession,
-  createExtensionConsumerQueries,
-} from "@tsonic/tsts";
+import { createCompilerSession } from "@tsonic/tsts";
 import type {
-  AstReader,
-  CompilerSession,
-  ExtensionConsumerQueries,
-  ExtensionHost,
-  Program,
+  CheckedSourceProgram,
   ProgramOptions,
-  SourceFile,
-  TypeCheckerQueries,
-  TypeShapeQueries,
 } from "@tsonic/tsts";
 import type {
   TargetCompileInput,
@@ -19,15 +9,19 @@ import type {
   TargetCompilationPaths,
   TargetPack,
   TargetCapabilityImplementation,
+  TargetProviderContext,
   TargetRuntimeReference,
   TargetSelection,
   TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
-import { createTargetSourceAnalysisQueries } from "./analysis/queries.js";
-import { forceDiagnostics } from "./diagnostics.js";
-import { createTargetFactQueries } from "./target-facts/queries.js";
-import { createTargetCompilerExtensions, getTargetRequiredProviderModules } from "./target/extensions.js";
+import {
+  createTargetSourceProgram,
+} from "@tsonic/target-api";
+import {
+  createTargetSourceCompilerComposition,
+  getTargetRequiredProviderModules,
+} from "./target/extensions.js";
 export {
   collectTstsDiagnostics,
 } from "./diagnostics.js";
@@ -39,31 +33,25 @@ export type {
   CollectTargetRuntimeContributionsOptions,
 } from "./target/runtime-contributions.js";
 export {
-  createTargetCompilerExtensions,
+  createTargetSourceCompilerComposition,
   getSelectedSurfaceImplementations,
   getSelectedTargetCapabilities,
   getTargetRequiredProviderModules,
 } from "./target/extensions.js";
 export type {
-  CreateTargetCompilerExtensionsOptions,
-  TargetCompilerExtensionComposition,
+  CreateTargetSourceCompilerCompositionOptions,
+  TargetSourceCompilerComposition,
 } from "./target/extensions.js";
 
 export interface TsonicSemanticSession {
-  readonly compiler: CompilerSession;
-  readonly program: Program;
-  readonly ast: AstReader;
-  readonly types: TypeShapeQueries;
-  readonly sourceFiles: readonly SourceFile[];
-  readonly extensionHost: ExtensionHost;
-  readonly checker: TypeCheckerQueries;
-  readonly facts: ExtensionConsumerQueries;
-  readonly tstsDiagnostics: ReturnType<CompilerSession["getDiagnostics"]>;
+  readonly source: CheckedSourceProgram;
+  readonly targetContext: TargetProviderContext;
 }
 
 export interface CreateTsonicSemanticSessionOptions {
   readonly programOptions: ProgramOptions;
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
@@ -71,66 +59,48 @@ export interface CreateTsonicSemanticSessionOptions {
 }
 
 export function createTsonicSemanticSession(options: CreateTsonicSemanticSessionOptions): TsonicSemanticSession {
-  const { extensions, selectedCapabilities } = createTargetCompilerExtensions(options);
+  const composition = createTargetSourceCompilerComposition(options);
+  const targetContext = Object.freeze({
+    project: options.project,
+    projectDirectory: options.projectDirectory,
+    target: options.target,
+    targetPack: options.targetPack,
+    selectedCapabilities: composition.selectedCapabilities,
+    selectedSurfaces: composition.selectedSurfaces,
+  });
   const compiler = createCompilerSession({
     programOptions: options.programOptions,
     extensionHostOptions: {
-      activeTarget: options.target.id,
-      extensions,
-      requiredProviderModules: getTargetRequiredProviderModules(options.targetPack, options.target, selectedCapabilities),
+      extensions: composition.extensions,
+      requiredProviderModules: getTargetRequiredProviderModules(
+        options.targetPack,
+        options.target,
+        composition.selectedCapabilities,
+      ),
     },
   });
-  if (compiler.program === undefined) {
-    throw new Error("TSTS createCompilerSession returned no program.");
-  }
-  compiler.ensureBound();
-  const tstsDiagnostics = forceDiagnostics(compiler);
-  const extensionHost = compiler.finalizeExtensions();
-  if (extensionHost === undefined) {
-    throw new Error("TSTS extension finalization returned no extension host.");
-  }
-  const sourceFiles = collectResolvedSourceFilesForBackend(compiler);
   return {
-    compiler,
-    program: compiler.program,
-    ast: compiler.ast,
-    types: compiler.types,
-    sourceFiles,
-    extensionHost,
-    checker: compiler.checker,
-    facts: createExtensionConsumerQueries(extensionHost, "tsonic-host"),
-    tstsDiagnostics,
+    source: compiler.checkSource(),
+    targetContext,
   };
-}
-
-export function collectResolvedSourceFilesForBackend(compiler: CompilerSession): readonly SourceFile[] {
-  return compiler.getSourceFiles()
-    .filter((sourceFile): sourceFile is SourceFile =>
-      sourceFile !== undefined &&
-      !sourceFile.IsDeclarationFile &&
-      !compiler.ast.getFileName(sourceFile).startsWith("tsts-provider://"));
 }
 
 export function compileTargetFromSemanticSession(
   session: TsonicSemanticSession,
-  project: TsonicProjectConfig,
-  target: TargetSelection,
-  targetPack: TargetPack,
   paths: TargetCompilationPaths,
   runtimeReferences: readonly TargetRuntimeReference[] = [],
 ): TargetCompileResult {
+  const {
+    project,
+    target,
+    targetPack,
+  } = session.targetContext;
   const input: TargetCompileInput = {
-    program: session.program,
-    ast: session.ast,
-    types: session.types,
-    sourceFiles: session.sourceFiles,
-    facts: session.facts,
-    analysis: createTargetSourceAnalysisQueries(session.ast, session.checker, session.types, session.sourceFiles),
-    targetFacts: createTargetFactQueries(session.ast, session.checker, session.types, session.facts, session.sourceFiles),
+    source: createTargetSourceProgram(session.source),
     project,
     target,
     runtimeReferences,
     paths,
   };
-  return targetPack.createBackend({ project, target }).compile(input);
+  return targetPack.createBackend(session.targetContext).compile(input);
 }

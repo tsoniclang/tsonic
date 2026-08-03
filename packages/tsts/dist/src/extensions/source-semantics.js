@@ -1,10 +1,10 @@
 import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_Parameters, Node_PropertyName, Node_Properties, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, Node_TypeParameters, } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindArrayBindingPattern, KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindObjectBindingPattern, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
-import { ExtensionLifecycleEvent } from "./host.js";
+export const sourceSemanticsExtensionId = "tsts.source-semantics";
 function createSourceSemanticsModules(modules) {
     return modules.map((module) => {
         const primitivesByExportName = new Map();
@@ -38,31 +38,21 @@ function createSourceSemanticsModules(modules) {
 export function createSourceSemanticsExtension(options) {
     const modules = createSourceSemanticsModules(options.modules);
     return {
-        identity: options.identity,
-        composition: {
-            kind: "source",
-        },
-        capabilities: {
-            provides: [
-                "source-semantics.primitives",
-                "source-semantics.argument-passing",
-                "source-semantics.pointer-types",
-                "source-semantics.flow-markers",
-                "source-semantics.structs",
-                "source-semantics.attributes",
-                "source-semantics.defaults",
-            ],
+        identity: {
+            id: sourceSemanticsExtensionId,
+            version: "1.0.0",
         },
         initialize(context) {
-            context.factResolver.register(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
-            context.registerLifecycleHook(ExtensionLifecycleEvent.afterSourceFileBound, (request) => {
-                recordSourceSemanticsFacts(request, context.facts, context.diagnostics, options.identity.id, modules);
-            });
+            context.registerFactResolver(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
+        },
+        analyzeSource(context) {
+            for (const sourceFile of context.source.getSourceFiles()) {
+                recordSourceSemanticsFacts(sourceFile, context.facts, context.diagnostics, sourceSemanticsExtensionId, modules);
+            }
         },
     };
 }
-function recordSourceSemanticsFacts(request, facts, diagnostics, extensionId, modules) {
-    const sourceFile = getLifecycleSourceFile(request);
+function recordSourceSemanticsFacts(sourceFile, facts, diagnostics, extensionId, modules) {
     if (sourceFile === undefined) {
         return;
     }
@@ -252,7 +242,7 @@ function hasMarkerTypeArgumentCount(callExpression, count) {
 function recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, target, marker, evidence) {
     const fact = {
         mode: getArgumentPassingMode(marker.marker),
-        targetExpression: target,
+        storageExpression: target,
     };
     facts.set(callExpression, argumentPassingFactKey, fact, evidence);
     if (IsLeftHandSideExpression(target)) {
@@ -286,11 +276,14 @@ function recordFieldMarker(facts, callExpression, evidence) {
     if (fieldType === undefined) {
         return;
     }
-    const propertyAssignment = callExpression?.Parent?.Kind === KindPropertyAssignment ? callExpression.Parent : undefined;
-    if (propertyAssignment === undefined) {
+    const fieldOwner = callExpression?.Parent;
+    if (fieldOwner === undefined ||
+        (fieldOwner.Kind !== KindPropertyAssignment &&
+            fieldOwner.Kind !== KindPropertyDeclaration) ||
+        Node_Initializer(fieldOwner) !== callExpression) {
         return;
     }
-    const nameNode = Node_Name(propertyAssignment) ?? Node_PropertyName(propertyAssignment);
+    const nameNode = Node_Name(fieldOwner) ?? Node_PropertyName(fieldOwner);
     const name = getStaticSourceSemanticsNameText(nameNode);
     if (name === undefined) {
         return;
@@ -300,7 +293,7 @@ function recordFieldMarker(facts, callExpression, evidence) {
         type: fieldType,
     };
     facts.set(callExpression, fieldFactKey, fact, evidence);
-    facts.set(propertyAssignment, fieldFactKey, fact, evidence);
+    facts.set(fieldOwner, fieldFactKey, fact, evidence);
     if (nameNode !== undefined) {
         facts.set(nameNode, fieldFactKey, fact, evidence);
     }
@@ -335,7 +328,7 @@ function recordAttributeMarker(facts, callExpression, evidence) {
     const fact = {
         target,
         attributeName: getTypeReferenceNameText(target),
-        arguments: definedFactSubjects(Node_Arguments(callExpression) ?? []),
+        arguments: definedNodes(Node_Arguments(callExpression) ?? []),
     };
     facts.set(callExpression, attributeFactKey, fact, evidence);
     recordInitializerOwnerFact(facts, callExpression, attributeFactKey, fact, evidence);
@@ -434,7 +427,7 @@ function recordSourceSemanticsTypeMarker(facts, typeReference, typeName, marker)
         }
         const fact = {
             pointee,
-            mutability: "target-defined",
+            mutability: "unspecified",
             unsafeRequired: true,
         };
         facts.set(typeReference, pointerFactKey, fact, evidence);
@@ -462,7 +455,7 @@ function getFunctionPointerParameters(parameterList) {
         return [];
     }
     if (parameterList.Kind === KindTupleType) {
-        return definedFactSubjects(Node_Elements(parameterList) ?? []);
+        return definedNodes(Node_Elements(parameterList) ?? []);
     }
     return [parameterList];
 }
@@ -699,7 +692,19 @@ function isImportBindingShadowed(node, localName) {
     return false;
 }
 function declarationListContainsName(declarations, localName) {
-    return declarations.some((declaration) => Node_Text(Node_Name(declaration)) === localName);
+    return declarations.some((declaration) => bindingNameContainsName(Node_Name(declaration), localName));
+}
+function bindingNameContainsName(name, localName) {
+    if (name === undefined) {
+        return false;
+    }
+    if (name.Kind === KindIdentifier) {
+        return Node_Text(name) === localName;
+    }
+    if (name.Kind !== KindArrayBindingPattern && name.Kind !== KindObjectBindingPattern) {
+        return false;
+    }
+    return (Node_Elements(name) ?? []).some((element) => bindingNameContainsName(Node_Name(element), localName));
 }
 function getIdentifierText(node) {
     return node?.Kind === KindIdentifier ? Node_Text(node) : undefined;
@@ -758,7 +763,7 @@ function visitSourceSemanticsNodePost(node, visit) {
     });
     visit(node);
 }
-function definedFactSubjects(subjects) {
+function definedNodes(subjects) {
     return subjects.filter((subject) => subject !== undefined);
 }
 function recordNamespaceImportIdentity(facts, namespaceImport, moduleIdentity, typedImport) {
@@ -887,11 +892,5 @@ export function sourcePrimitive(exportName, primitiveKind, runtimeBase, signed, 
 }
 function getSymbolFactId(symbol) {
     return `${symbol.Name}:${String(GetSymbolId(symbol))}`;
-}
-function getLifecycleSourceFile(request) {
-    if (typeof request.sourceFile !== "object" || request.sourceFile === null) {
-        return undefined;
-    }
-    return request.sourceFile;
 }
 //# sourceMappingURL=source-semantics.js.map

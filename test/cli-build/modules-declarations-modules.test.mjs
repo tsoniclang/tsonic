@@ -33,7 +33,7 @@ const bannedGeneratedRuntimeSemantics = [
 
 
 
-test("CLI emits module-scope variables as C# static fields", async () => {
+test("CLI emits module-scope variables as lazily initialized C# static properties", async () => {
   const projectDirectory = resolve(tempRoot, "module-fields");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -65,8 +65,8 @@ test("CLI emits module-scope variables as C# static fields", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double total;/);
-  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /public static double total\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/);
+  assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(generatedSource, /total = 1;/);
   assert.match(generatedSource, /total = total \+ 1;/);
   assert.doesNotMatch(generatedSource, /public static void Main\(\)/);
@@ -75,7 +75,7 @@ test("CLI emits module-scope variables as C# static fields", async () => {
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleFields.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI emits module-scope const bindings as C# static readonly fields", async () => {
+test("CLI emits module-scope const bindings as lazily initialized C# static properties", async () => {
   const projectDirectory = resolve(tempRoot, "module-const-fields");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -106,8 +106,8 @@ test("CLI emits module-scope const bindings as C# static readonly fields", async
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly double total;/);
-  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /public static int total\s*\{\s*get;\s*private set;\s*\} = default\(int\)!;/);
+  assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(generatedSource, /total = 1;/);
   assert.doesNotMatch(generatedSource, /public static double total = 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
@@ -135,8 +135,8 @@ test("CLI erases source-local standalone export declarations", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly double value;/);
-  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /public static int value\s*\{\s*get;\s*private set;\s*\} = default\(int\)!;/);
+  assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(generatedSource, /value = 1;/);
   assert.doesNotMatch(generatedSource, /export|__unsupported/);
 });
@@ -280,17 +280,17 @@ test("CLI emits side-effect import initialization before importer top-level stat
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(indexSource, /static Index\(\)/);
+  assert.match(indexSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(indexSource, /Side\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*State\.append\("index;"\);/);
   assert.doesNotMatch(indexSource, /__unsupported/);
 
   const sideSource = await readFile(resolve(projectDirectory, "out/csharp/src/Side.cs"), "utf8");
-  assert.match(sideSource, /static Side\(\)/);
+  assert.match(sideSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*State\.append\("side;"\);/);
   assert.doesNotMatch(sideSource, /__unsupported/);
 
   const stateSource = await readFile(resolve(projectDirectory, "out/csharp/src/State.cs"), "utf8");
-  assert.match(stateSource, /public static string text;/);
+  assert.match(stateSource, /public static string text\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/);
   assert.match(stateSource, /text = "";/);
   assert.doesNotMatch(stateSource, /__unsupported/);
 
@@ -407,8 +407,8 @@ test("CLI does not run type-only module dependencies during initialization", asy
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /State\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(indexSource, /Types\.__tsonic_module_init\(\);/);
-  assert.match(indexSource, /__TsonicShape_Marker_[A-Za-z0-9_]+/);
-  assert.match(indexSource, /__TsonicShape_Named_[A-Za-z0-9_]+/);
+  assert.match(indexSource, /marker = new __TsonicShape_[a-f0-9]+/);
+  assert.match(indexSource, /named = new __TsonicShape_[a-f0-9]+/);
 
   const typesSource = await readFile(resolve(projectDirectory, "out/csharp/src/Types.cs"), "utf8");
   assert.match(typesSource, /State\.append\("types;"\);/);

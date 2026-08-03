@@ -100,8 +100,8 @@ test("CLI rejects generic type-parameter operators without selected target facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# operator '===' requires finalized provider operator facts for type-parameter operands/);
-  assert.match(build.stderr, /type-parameter operands/);
+  assert.match(build.stderr, /Source operator '===' over a type parameter requires an exact target constraint policy/);
+  assert.match(build.stderr, /type parameter/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
@@ -180,11 +180,25 @@ test("CLI emits interface index signatures as C# indexers", async () => {
     }, null, 2),
     "src/index.ts": [
       "export interface Bag {",
+      "  value: number;",
+      "  readonly fixedValue: number;",
       "  [key: string]: number;",
+      "}",
+      "",
+      "export interface ReadonlyBag {",
+      "  readonly [key: string]: number;",
       "}",
       "",
       "export function read(bag: Bag, key: string): number {",
       "  return bag[key];",
+      "}",
+      "",
+      "export function readReadonly(bag: ReadonlyBag, key: string): number {",
+      "  return bag[key];",
+      "}",
+      "",
+      "export function write(bag: Bag, key: string, value: number): void {",
+      "  bag[key] = value;",
       "}",
       "",
     ].join("\n"),
@@ -194,9 +208,12 @@ test("CLI emits interface index signatures as C# indexers", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public interface Bag/);
-  assert.match(generatedSource, /double this\[string key\] \{ get; \}/);
+  assert.match(generatedSource, /public interface Bag[\s\S]*double value \{ get; set; \}/);
+  assert.match(generatedSource, /public interface Bag[\s\S]*double fixedValue \{ get; \}/);
+  assert.match(generatedSource, /public interface Bag[\s\S]*double this\[string key\] \{ get; set; \}/);
+  assert.match(generatedSource, /public interface ReadonlyBag[\s\S]*double this\[string key\] \{ get; \}/);
   assert.match(generatedSource, /return bag\[key\];/);
+  assert.match(generatedSource, /bag\[key\] = value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedIndexSignatures.csproj"), "--nologo", "--v:minimal"]);
@@ -426,12 +443,12 @@ test("CLI emits arrays and interfaces containing callable target types", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations;/);
+  assert.match(generatedSource, /public static Func<int, int, int>\[\] operations\s*\{\s*get;\s*private set;\s*\} = default\(Func<int, int, int>\[\]\)!;/);
   assert.match(generatedSource, /operations = new Func<int, int, int>\[\] \{ \(int left, int right\) => left \+ right, \(int left, int right\) => left - right, \(int left, int right\) => left \* right \};/);
   assert.match(generatedSource, /public interface OperationMap/);
-  assert.match(generatedSource, /Func<int, int, int> add \{ get; \}/);
-  assert.match(generatedSource, /Func<int, int, int> subtract \{ get; \}/);
-  assert.match(generatedSource, /Func<int, int, int> multiply \{ get; \}/);
+  assert.match(generatedSource, /Func<int, int, int> add \{ get; set; \}/);
+  assert.match(generatedSource, /Func<int, int, int> subtract \{ get; set; \}/);
+  assert.match(generatedSource, /Func<int, int, int> multiply \{ get; set; \}/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCallableContainers.csproj"), "--nologo", "--v:minimal"]);

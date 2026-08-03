@@ -218,12 +218,10 @@ test("CLI rejects unsupported historical NodeJS alias imports without fallback",
     "node:dgram",
     "node:dns",
     "node:events",
-    "node:http",
     "node:net",
     "node:querystring",
     "node:readline",
     "node:stream",
-    "node:timers",
     "node:tls",
     "node:zlib",
   ]) {
@@ -235,7 +233,7 @@ test("CLI rejects unsupported historical NodeJS alias imports without fallback",
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects unsupported historical NodeJS type-only alias imports without fallback", async () => {
+test("CLI accepts provider-owned Node type imports without adding a runtime reference", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-nodejs-type-only-alias-imports");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -263,12 +261,14 @@ test("CLI rejects unsupported historical NodeJS type-only alias imports without 
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /node:http/);
-  assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
-  assert.match(build.stderr, /Cannot find name 'node:http'/);
-  assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static double loaded\(\)[\s\S]*return 1;/u);
+  assert.doesNotMatch(generatedSource, /IncomingMessage|ServerResponse|Reflection|dynamic|GetMethod|GetProperty/u);
+  const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "utf8");
+  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node/u);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits NodeJS namespace imports from selected provider-package facts", async () => {
@@ -510,7 +510,7 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readdirSync\(directoryPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.accessSync\(filePath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.chmodSync\(filePath, 420\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.truncateSync\(descriptorPath, System\.Convert\.ToInt64\(1\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.truncateSync\(descriptorPath, 1\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmdirSync\(emptyDir, true\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.symlinkSync\(descriptorPath, linkPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readlinkSync\(linkPath\)/);

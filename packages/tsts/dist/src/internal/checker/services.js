@@ -719,6 +719,8 @@ export function Checker_GetContextualType(receiver, node, contextFlags) {
  * }
  */
 export function runWithInferenceBlockedFromSourceNode(c, node, fn) {
+    const previousInferencePartiallyBlocked = c.isInferencePartiallyBlocked;
+    const previousSkipDirectInferenceNodes = new globalThis.Map(c.skipDirectInferenceNodes.M);
     const containingCall = FindAncestor(node, IsCallLikeExpression);
     if (containingCall !== undefined) {
         let toMarkSkip = node;
@@ -731,10 +733,16 @@ export function runWithInferenceBlockedFromSourceNode(c, node, fn) {
         }
     }
     c.isInferencePartiallyBlocked = true;
-    const result = runWithoutResolvedSignatureCaching(c, node, fn);
-    c.isInferencePartiallyBlocked = false;
-    Set_Clear(c.skipDirectInferenceNodes);
-    return result;
+    try {
+        return runWithoutResolvedSignatureCaching(c, node, fn);
+    }
+    finally {
+        c.isInferencePartiallyBlocked = previousInferencePartiallyBlocked;
+        Set_Clear(c.skipDirectInferenceNodes);
+        for (const [skipNode, value] of previousSkipDirectInferenceNodes) {
+            c.skipDirectInferenceNodes.M.set(skipNode, value);
+        }
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::func::GetResolvedSignatureForSignatureHelp","kind":"func","status":"implemented","sigHash":"2f835bae262779696e4c9406d7421d267ef0f46a545e6f24693b35cba96ed9b0","bodyHash":"93f77f76de050c32420d25e50c7cdb3dee8cbc044bc8fa0cd2e42138ba7a5187"}
@@ -794,32 +802,45 @@ export function GetResolvedSignatureForSignatureHelp(node, argumentCount, c) {
  */
 export function runWithoutResolvedSignatureCaching(c, node, fn) {
     let ancestorNode = FindAncestor(node, IsCallLikeOrFunctionLikeExpression);
-    if (ancestorNode !== undefined) {
-        const cachedResolvedSignatures = new globalThis.Map();
-        const cachedTypes = new globalThis.Map();
-        let current = ancestorNode;
-        while (current !== undefined) {
-            const signatureLinks = LinkStore_Get(c.signatureLinks, current);
-            cachedResolvedSignatures.set(signatureLinks, signatureLinks.resolvedSignature);
-            signatureLinks.resolvedSignature = undefined;
-            if (IsFunctionExpressionOrArrowFunction(current)) {
-                const symbolLinks = LinkStore_Get(c.valueSymbolLinks, Checker_getSymbolOfDeclaration(c, current));
-                const resolvedType = symbolLinks.resolvedType;
-                cachedTypes.set(symbolLinks, resolvedType);
-                symbolLinks.resolvedType = undefined;
+    const cachedResolvedSignatures = new globalThis.Map();
+    const cachedTypes = new globalThis.Map();
+    try {
+        if (ancestorNode !== undefined) {
+            let current = ancestorNode;
+            while (current !== undefined) {
+                const signatureLinks = LinkStore_Get(c.signatureLinks, current);
+                cachedResolvedSignatures.set(signatureLinks, {
+                    resolvedSignature: signatureLinks.resolvedSignature,
+                    checkedCallSelectionSeed: signatureLinks.checkedCallSelectionSeed,
+                    resolvedCallSelectionEvidence: signatureLinks.resolvedCallSelectionEvidence,
+                    resolvedCallEvidence: signatureLinks.resolvedCallEvidence,
+                });
+                signatureLinks.resolvedSignature = undefined;
+                signatureLinks.checkedCallSelectionSeed = undefined;
+                signatureLinks.resolvedCallSelectionEvidence = undefined;
+                signatureLinks.resolvedCallEvidence = undefined;
+                if (IsFunctionExpressionOrArrowFunction(current)) {
+                    const symbolLinks = LinkStore_Get(c.valueSymbolLinks, Checker_getSymbolOfDeclaration(c, current));
+                    const resolvedType = symbolLinks.resolvedType;
+                    cachedTypes.set(symbolLinks, resolvedType);
+                    symbolLinks.resolvedType = undefined;
+                }
+                current = FindAncestor(current.Parent, IsCallLikeOrFunctionLikeExpression);
             }
-            current = FindAncestor(current.Parent, IsCallLikeOrFunctionLikeExpression);
         }
-        const result = fn();
-        for (const [signatureLinks, resolvedSignature] of cachedResolvedSignatures) {
-            signatureLinks.resolvedSignature = resolvedSignature;
+        return fn();
+    }
+    finally {
+        for (const [signatureLinks, snapshot] of cachedResolvedSignatures) {
+            signatureLinks.resolvedSignature = snapshot.resolvedSignature;
+            signatureLinks.checkedCallSelectionSeed = snapshot.checkedCallSelectionSeed;
+            signatureLinks.resolvedCallSelectionEvidence = snapshot.resolvedCallSelectionEvidence;
+            signatureLinks.resolvedCallEvidence = snapshot.resolvedCallEvidence;
         }
         for (const [symbolLinks, resolvedType] of cachedTypes) {
             symbolLinks.resolvedType = resolvedType;
         }
-        return result;
     }
-    return fn();
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/services.go::method::Checker.SkipAlias","kind":"method","status":"implemented","sigHash":"109c3b6afadb4e6b6c4b27ae73bb4262aabb5a9c6c4c9fbffd122df9860fcc10","bodyHash":"c97d4c305e1d8d0fca27be06f9b9c9f2e8ba7d6f283712428a448e23e8015ae5"}

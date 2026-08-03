@@ -43,12 +43,12 @@ test("CLI runs inferred source-owned array returns through finalized carrier fac
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<double> make\(int value\)/);
-  assert.match(generatedSource, /return new System\.Collections\.Generic\.List<double>\(new double\[\] \{ value, value \+ 1 \}\);/);
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<double\[\]> nested\(int value\)/);
-  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.List<double> values;/);
-  assert.match(generatedSource, /public static readonly System\.Collections\.Generic\.List<double\[\]> nestedValues;/);
-  assert.match(generatedSource, /values\.Count/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<double> make\(int value\)/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ value, value \+ 1 \}\);/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<double>> nested\(int value\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<double> values/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<double>> nestedValues/);
+  assert.match(generatedSource, /values\.length/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4|2|7\n");

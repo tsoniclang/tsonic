@@ -1,383 +1,592 @@
-import { defineExtensionFactKey } from "./host.js";
-export const canonicalIdentityFactKey = defineExtensionFactKey({
-    extensionId: "tsts.identity",
+import { defineExtensionFactKey, markHostSourceReadableFactKey, } from "./fact-key.js";
+import { isArgumentPassingMode, } from "./argument-passing.js";
+export const canonicalIdentityFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
     name: "canonicalIdentity",
+    snapshot: snapshotCanonicalIdentityFact,
+    equals: canonicalIdentityEquals,
+}));
+export const sourcePrimitiveFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "sourcePrimitive",
+    snapshot: snapshotSourcePrimitiveFact,
     equals: (left, right) => left.kind === right.kind
+        && left.width === right.width
+        && left.signed === right.signed
+        && left.runtimeBase === right.runtimeBase,
+}));
+export const argumentPassingFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "argumentPassing",
+    snapshot: snapshotArgumentPassingFact,
+    equals: (left, right) => left.mode === right.mode
+        && left.storageExpression === right.storageExpression,
+}));
+export const functionPointerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "functionPointer",
+    snapshot: snapshotFunctionPointerFact,
+    equals: (left, right) => left.result === right.result
+        && identityArrayEquals(left.parameters, right.parameters)
+        && stringArrayEquals(left.abi, right.abi),
+}));
+export const pointerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "pointer",
+    snapshot: snapshotPointerFact,
+    equals: (left, right) => left.pointee === right.pointee
+        && left.mutability === right.mutability
+        && left.unsafeRequired === right.unsafeRequired,
+}));
+export const structFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "struct",
+    snapshot: snapshotStructFact,
+    equals: (left, right) => left.valueType === right.valueType
+        && optionalFieldArrayEquals(left.fields, right.fields),
+}));
+export const fieldFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "field",
+    snapshot: snapshotFieldFact,
+    equals: fieldFactEquals,
+}));
+export const attributeFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "attribute",
+    snapshot: snapshotAttributeFact,
+    equals: (left, right) => left.target === right.target
+        && left.attributeName === right.attributeName
+        && optionalIdentityArrayEquals(left.arguments, right.arguments),
+}));
+export const defaultValueFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "defaultValue",
+    snapshot: snapshotDefaultValueFact,
+    equals: (left, right) => left.type === right.type,
+}));
+export const flowStateFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "flowState",
+    snapshot: snapshotFlowStateFact,
+    equals: (left, right) => left.state === right.state,
+}));
+export const providerVirtualDeclarationFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.provider",
+    name: "virtualDeclaration",
+    snapshot: snapshotProviderVirtualDeclarationFact,
+    equals: providerDeclarationIdentityEquals,
+}));
+export const providerTypeFamilyFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.provider",
+    name: "typeFamily",
+    snapshot: snapshotProviderTypeFamilyFact,
+    equals: (left, right) => left.exportName === right.exportName
+        && providerTypeFamilyVariantArrayEquals(left.variants, right.variants),
+}));
+export const associatedTypeFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "associatedType",
+    snapshot: snapshotAssociatedTypeFact,
+    equals: (left, right) => left.owner === right.owner
+        && left.name === right.name
+        && left.value === right.value,
+}));
+export const constGenericFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "constGeneric",
+    snapshot: snapshotConstGenericFact,
+    equals: (left, right) => left.name === right.name
+        && left.value === right.value,
+}));
+function snapshotCanonicalIdentityFact(value) {
+    const record = exactRecord(value, "ExtensionCanonicalIdentity", [
+        "kind",
+        "id",
+        "packageName",
+        "packageVersion",
+        "subpath",
+        "exportName",
+        "importKind",
+        "canonicalSymbolId",
+    ]);
+    const kind = requiredString(record, "kind", "ExtensionCanonicalIdentity");
+    if (!canonicalIdentityKinds.has(kind)) {
+        throw new Error(`ExtensionCanonicalIdentity.kind '${kind}' is invalid.`);
+    }
+    const importKind = optionalString(record, "importKind", "ExtensionCanonicalIdentity");
+    if (importKind !== undefined && !importKinds.has(importKind)) {
+        throw new Error(`ExtensionCanonicalIdentity.importKind '${importKind}' is invalid.`);
+    }
+    return Object.freeze({
+        kind,
+        id: requiredString(record, "id", "ExtensionCanonicalIdentity"),
+        ...optionalStringFields(record, "ExtensionCanonicalIdentity", [
+            "packageName",
+            "packageVersion",
+            "subpath",
+            "exportName",
+            "canonicalSymbolId",
+        ]),
+        ...(importKind === undefined ? {} : { importKind }),
+    });
+}
+function snapshotSourcePrimitiveFact(value) {
+    const record = exactRecord(value, "SourcePrimitiveFact", ["kind", "signed", "width", "runtimeBase"]);
+    const kind = requiredString(record, "kind", "SourcePrimitiveFact");
+    if (!sourcePrimitiveKinds.has(kind)) {
+        throw new Error(`SourcePrimitiveFact.kind '${kind}' is invalid.`);
+    }
+    const runtimeBase = requiredString(record, "runtimeBase", "SourcePrimitiveFact");
+    if (!sourceRuntimeBases.has(runtimeBase)) {
+        throw new Error(`SourcePrimitiveFact.runtimeBase '${runtimeBase}' is invalid.`);
+    }
+    const signed = optionalBoolean(record, "signed", "SourcePrimitiveFact");
+    const width = optionalSafeInteger(record, "width", "SourcePrimitiveFact");
+    if (width !== undefined && width <= 0) {
+        throw new Error("SourcePrimitiveFact.width must be positive.");
+    }
+    return Object.freeze({
+        kind,
+        runtimeBase,
+        ...(signed === undefined ? {} : { signed }),
+        ...(width === undefined ? {} : { width }),
+    });
+}
+function snapshotArgumentPassingFact(value) {
+    const record = exactRecord(value, "ArgumentPassingFact", ["mode", "storageExpression"]);
+    const mode = requiredString(record, "mode", "ArgumentPassingFact");
+    if (!isArgumentPassingMode(mode)) {
+        throw new Error(`ArgumentPassingFact.mode '${mode}' is invalid.`);
+    }
+    const storageExpression = optionalNode(record, "storageExpression", "ArgumentPassingFact");
+    return Object.freeze({
+        mode,
+        ...(storageExpression === undefined ? {} : { storageExpression }),
+    });
+}
+function snapshotFunctionPointerFact(value) {
+    const record = exactRecord(value, "FunctionPointerFact", ["parameters", "result", "abi"]);
+    return Object.freeze({
+        parameters: nodeArray(record.parameters, "FunctionPointerFact.parameters"),
+        result: requiredNode(record, "result", "FunctionPointerFact"),
+        abi: stringArray(record.abi, "FunctionPointerFact.abi"),
+    });
+}
+function snapshotPointerFact(value) {
+    const record = exactRecord(value, "PointerFact", ["pointee", "mutability", "unsafeRequired"]);
+    const mutability = requiredString(record, "mutability", "PointerFact");
+    if (!pointerMutabilities.has(mutability)) {
+        throw new Error(`PointerFact.mutability '${mutability}' is invalid.`);
+    }
+    return Object.freeze({
+        pointee: requiredNode(record, "pointee", "PointerFact"),
+        mutability,
+        unsafeRequired: requiredBoolean(record, "unsafeRequired", "PointerFact"),
+    });
+}
+function snapshotStructFact(value) {
+    const record = exactRecord(value, "StructFact", ["valueType", "fields"]);
+    const fields = optionalArray(record.fields, "StructFact.fields", snapshotFieldFact);
+    return Object.freeze({
+        valueType: requiredBoolean(record, "valueType", "StructFact"),
+        ...(fields === undefined ? {} : { fields }),
+    });
+}
+function snapshotFieldFact(value) {
+    const record = exactRecord(value, "FieldFact", ["name", "type", "readonly"]);
+    const readonly = optionalBoolean(record, "readonly", "FieldFact");
+    return Object.freeze({
+        name: requiredString(record, "name", "FieldFact"),
+        type: requiredNode(record, "type", "FieldFact"),
+        ...(readonly === undefined ? {} : { readonly }),
+    });
+}
+function snapshotAttributeFact(value) {
+    const record = exactRecord(value, "AttributeFact", ["target", "attributeName", "arguments"]);
+    const args = optionalNodeArray(record.arguments, "AttributeFact.arguments");
+    return Object.freeze({
+        target: requiredNode(record, "target", "AttributeFact"),
+        attributeName: requiredString(record, "attributeName", "AttributeFact"),
+        ...(args === undefined ? {} : { arguments: args }),
+    });
+}
+function snapshotDefaultValueFact(value) {
+    const record = exactRecord(value, "DefaultValueFact", ["type"]);
+    return Object.freeze({
+        type: requiredNode(record, "type", "DefaultValueFact"),
+    });
+}
+function snapshotFlowStateFact(value) {
+    const record = exactRecord(value, "FlowStateFact", ["state"]);
+    const state = requiredString(record, "state", "FlowStateFact");
+    if (!flowStates.has(state)) {
+        throw new Error(`FlowStateFact.state '${state}' is invalid.`);
+    }
+    return Object.freeze({ state });
+}
+function snapshotProviderVirtualDeclarationFact(value) {
+    const record = exactRecord(value, "ProviderVirtualDeclarationFact", [
+        "providerId",
+        "providerVersion",
+        "providerModuleId",
+        "moduleSpecifier",
+        "artifactFileName",
+        "exportName",
+        "exportId",
+        "memberName",
+        "memberKey",
+        "memberId",
+        "memberStatic",
+        "signatureId",
+    ]);
+    const memberKey = record.memberKey === undefined
+        ? undefined
+        : snapshotProviderMemberKey(record.memberKey);
+    const memberStatic = optionalBoolean(record, "memberStatic", "ProviderVirtualDeclarationFact");
+    return Object.freeze({
+        providerId: requiredString(record, "providerId", "ProviderVirtualDeclarationFact"),
+        providerVersion: requiredString(record, "providerVersion", "ProviderVirtualDeclarationFact"),
+        providerModuleId: requiredString(record, "providerModuleId", "ProviderVirtualDeclarationFact"),
+        moduleSpecifier: requiredString(record, "moduleSpecifier", "ProviderVirtualDeclarationFact"),
+        artifactFileName: requiredString(record, "artifactFileName", "ProviderVirtualDeclarationFact"),
+        ...optionalStringFields(record, "ProviderVirtualDeclarationFact", [
+            "exportName",
+            "exportId",
+            "memberName",
+            "memberId",
+            "signatureId",
+        ]),
+        ...(memberKey === undefined ? {} : { memberKey }),
+        ...(memberStatic === undefined ? {} : { memberStatic }),
+    });
+}
+function snapshotProviderMemberKey(value) {
+    const record = exactRecord(value, "ProviderMemberKey", ["kind", "name"]);
+    const kind = requiredString(record, "kind", "ProviderMemberKey");
+    const name = requiredString(record, "name", "ProviderMemberKey");
+    if (kind === "property-key") {
+        return Object.freeze({ kind, name });
+    }
+    if (kind === "well-known-symbol" && providerWellKnownSymbolNames.has(name)) {
+        return Object.freeze({ kind, name: name });
+    }
+    throw new Error(`ProviderMemberKey kind/name '${kind}:${name}' is invalid.`);
+}
+function snapshotProviderTypeFamilyFact(value) {
+    const record = exactRecord(value, "ProviderTypeFamilyFact", ["exportName", "variants"]);
+    return Object.freeze({
+        exportName: requiredString(record, "exportName", "ProviderTypeFamilyFact"),
+        variants: requiredArray(record.variants, "ProviderTypeFamilyFact.variants", snapshotProviderTypeFamilyVariantFact),
+    });
+}
+function snapshotProviderTypeFamilyVariantFact(value) {
+    const record = exactRecord(value, "ProviderTypeFamilyVariantFact", ["sourceTypeArgumentCount", "declaration"]);
+    const sourceTypeArgumentCount = requiredSafeInteger(record, "sourceTypeArgumentCount", "ProviderTypeFamilyVariantFact");
+    if (sourceTypeArgumentCount < 0) {
+        throw new Error("ProviderTypeFamilyVariantFact.sourceTypeArgumentCount cannot be negative.");
+    }
+    return Object.freeze({
+        sourceTypeArgumentCount,
+        declaration: snapshotProviderVirtualDeclarationFact(record.declaration),
+    });
+}
+function snapshotAssociatedTypeFact(value) {
+    const record = exactRecord(value, "AssociatedTypeFact", ["owner", "name", "value"]);
+    return Object.freeze({
+        owner: requiredSubject(record, "owner", "AssociatedTypeFact"),
+        name: requiredString(record, "name", "AssociatedTypeFact"),
+        value: requiredSubject(record, "value", "AssociatedTypeFact"),
+    });
+}
+function snapshotConstGenericFact(value) {
+    const record = exactRecord(value, "ConstGenericFact", ["name", "value"]);
+    const scalar = record.value;
+    if (typeof scalar !== "string"
+        && typeof scalar !== "number"
+        && typeof scalar !== "bigint"
+        && typeof scalar !== "boolean") {
+        throw new Error("ConstGenericFact.value must be a string, number, bigint, or boolean.");
+    }
+    if (typeof scalar === "number" && !Number.isFinite(scalar)) {
+        throw new Error("ConstGenericFact.value must be finite when numeric.");
+    }
+    return Object.freeze({
+        name: requiredString(record, "name", "ConstGenericFact"),
+        value: scalar,
+    });
+}
+function canonicalIdentityEquals(left, right) {
+    return left.kind === right.kind
         && left.id === right.id
         && left.packageName === right.packageName
         && left.packageVersion === right.packageVersion
         && left.subpath === right.subpath
         && left.exportName === right.exportName
         && left.importKind === right.importKind
-        && left.canonicalSymbolId === right.canonicalSymbolId,
-});
-export const sourcePrimitiveFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "sourcePrimitive",
-    equals: (left, right) => left.kind === right.kind && left.width === right.width && left.signed === right.signed && left.runtimeBase === right.runtimeBase,
-});
-export const argumentPassingFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "argumentPassing",
-    equals: (left, right) => left.mode === right.mode
-        && left.targetExpression === right.targetExpression
-        && left.parameterIndex === right.parameterIndex
-        && optionalTargetParameterEquals(left.targetParameter, right.targetParameter)
-        && optionalProviderDeclarationIdentityEquals(left.selectedSignature, right.selectedSignature),
-});
-export const functionPointerFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "functionPointer",
-    equals: (left, right) => left.result === right.result
-        && left.parameters.length === right.parameters.length
-        && left.parameters.every((parameter, index) => parameter === right.parameters[index])
-        && left.abi.length === right.abi.length
-        && left.abi.every((abi, index) => abi === right.abi[index]),
-});
-export const pointerFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "pointer",
-    equals: (left, right) => left.pointee === right.pointee && left.mutability === right.mutability && left.unsafeRequired === right.unsafeRequired,
-});
-export const structFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "struct",
-    equals: (left, right) => left.valueType === right.valueType
-        && fieldFactArrayEquals(left.fields, right.fields),
-});
-export const fieldFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "field",
-    equals: (left, right) => left.name === right.name && left.type === right.type && left.readonly === right.readonly,
-});
-export const attributeFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "attribute",
-    equals: (left, right) => left.target === right.target
-        && left.attributeName === right.attributeName
-        && factSubjectArrayEquals(left.arguments, right.arguments),
-});
-export const defaultValueFactKey = defineExtensionFactKey({
-    extensionId: "tsts.source-semantics",
-    name: "defaultValue",
-    equals: (left, right) => left.type === right.type,
-});
-export const targetBindingFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "targetBinding",
-    equals: targetBindingFactEquals,
-});
-export const instantiatedTargetTypeFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "instantiatedTargetType",
-    equals: (left, right) => targetBindingFactEquals(left.targetType, right.targetType)
-        && factSubjectArrayEquals(left.typeArguments, right.typeArguments)
-        && targetTypeRefArrayEquals(left.resolvedTypeArguments, right.resolvedTypeArguments),
-});
-export const selectedTargetSignatureFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "selectedTargetSignature",
-    equals: (left, right) => targetMemberEquals(left.member, right.member)
-        && factSubjectArrayEquals(left.typeArguments, right.typeArguments)
-        && sourceSelectedMethodTypeArgumentArrayEquals(left.sourceSelectedMethodTypeArguments, right.sourceSelectedMethodTypeArguments)
-        && targetTypeRefArrayEquals(left.targetTypeArguments, right.targetTypeArguments)
-        && targetTypeRefArrayEquals(left.argumentConversions, right.argumentConversions)
-        && left.sourceSignature === right.sourceSignature
-        && left.sourceDeclaration === right.sourceDeclaration
-        && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration),
-});
-export const contextualTargetTypeFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "contextualTargetType",
-    equals: (left, right) => left.type === right.type && optionalTargetTypeRefEquals(left.targetType, right.targetType),
-});
-export const targetOperationFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "targetOperation",
-    equals: targetOperationFactEquals,
-});
-export const flowStateFactKey = defineExtensionFactKey({
-    extensionId: "tsts.flow",
-    name: "flowState",
-    equals: (left, right) => left.state === right.state && left.targetCompiler === right.targetCompiler,
-});
-export const runtimeCarrierFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "runtimeCarrier",
-    equals: (left, right) => targetTypeRefEquals(left.carrier, right.carrier)
-        && left.requiresAllocation === right.requiresAllocation
-        && optionalRuntimeCarrierProvenanceEquals(left.provenance, right.provenance),
-});
-export const targetConversionFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "targetConversion",
-    equals: (left, right) => optionalTargetTypeRefEquals(left.convertedType, right.convertedType) && optionalTargetOperationFactEquals(left.operation, right.operation),
-});
-export const providerVirtualDeclarationFactKey = defineExtensionFactKey({
-    extensionId: "tsts.provider",
-    name: "virtualDeclaration",
-    equals: (left, right) => left.providerId === right.providerId
-        && left.providerVersion === right.providerVersion
-        && left.providerModuleId === right.providerModuleId
-        && left.moduleSpecifier === right.moduleSpecifier
-        && left.virtualFileName === right.virtualFileName
-        && left.exportName === right.exportName
-        && left.exportId === right.exportId
-        && left.memberName === right.memberName
-        && left.memberId === right.memberId
-        && left.memberStatic === right.memberStatic
-        && left.signatureId === right.signatureId
-        && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity),
-});
-export const providerTypeFamilyFactKey = defineExtensionFactKey({
-    extensionId: "tsts.provider",
-    name: "typeFamily",
-    equals: (left, right) => left.exportName === right.exportName
-        && providerTypeFamilyVariantArrayEquals(left.variants, right.variants),
-});
-export const associatedTypeFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "associatedType",
-    equals: (left, right) => left.owner === right.owner && left.name === right.name && left.value === right.value,
-});
-export const constGenericFactKey = defineExtensionFactKey({
-    extensionId: "tsts.target-bindings",
-    name: "constGeneric",
-    equals: (left, right) => left.name === right.name && left.value === right.value,
-});
-function optionalTargetTypeRefEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return targetTypeRefEquals(left, right);
-}
-function optionalProviderDeclarationIdentityEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return providerDeclarationIdentityEquals(left, right);
-}
-function providerTypeFamilyVariantArrayEquals(left, right) {
-    return left.length === right.length && left.every((variant, index) => providerTypeFamilyVariantEquals(variant, right[index]));
-}
-function providerTypeFamilyVariantEquals(left, right) {
-    return left.sourceTypeArgumentCount === right.sourceTypeArgumentCount
-        && providerDeclarationIdentityEquals(left.declaration, right.declaration)
-        && optionalTargetBindingFactEquals(left.targetBinding, right.targetBinding);
-}
-function optionalTargetBindingFactEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return targetBindingFactEquals(left, right);
+        && left.canonicalSymbolId === right.canonicalSymbolId;
 }
 function providerDeclarationIdentityEquals(left, right) {
     return left.providerId === right.providerId
         && left.providerVersion === right.providerVersion
         && left.providerModuleId === right.providerModuleId
         && left.moduleSpecifier === right.moduleSpecifier
-        && left.virtualFileName === right.virtualFileName
+        && left.artifactFileName === right.artifactFileName
         && left.exportName === right.exportName
         && left.exportId === right.exportId
         && left.memberName === right.memberName
+        && providerMemberKeyEquals(left.memberKey, right.memberKey)
         && left.memberId === right.memberId
         && left.memberStatic === right.memberStatic
-        && left.signatureId === right.signatureId
-        && optionalTargetTypeRefEquals(left.targetIdentity, right.targetIdentity);
+        && left.signatureId === right.signatureId;
 }
-function factSubjectArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return left.length === right.length && left.every((value, index) => value === right[index]);
+function providerMemberKeyEquals(left, right) {
+    return left === undefined
+        ? right === undefined
+        : right !== undefined
+            && left.kind === right.kind
+            && left.name === right.name;
 }
-function fieldFactArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return left.length === right.length && left.every((value, index) => fieldFactEquals(value, right[index]));
+function providerTypeFamilyVariantArrayEquals(left, right) {
+    return left.length === right.length
+        && left.every((variant, index) => {
+            const candidate = right[index];
+            return variant.sourceTypeArgumentCount === candidate.sourceTypeArgumentCount
+                && providerDeclarationIdentityEquals(variant.declaration, candidate.declaration);
+        });
 }
 function fieldFactEquals(left, right) {
-    return left.name === right.name && left.type === right.type && left.readonly === right.readonly;
-}
-function targetTypeRefArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return left.length === right.length && left.every((value, index) => targetTypeRefEquals(value, right[index]));
-}
-function targetBindingFactEquals(left, right) {
-    return left.id === right.id
-        && left.sourceName === right.sourceName
-        && left.targetName === right.targetName
-        && left.target === right.target
-        && left.kind === right.kind
-        && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)
-        && targetMemberArrayEquals(left.members, right.members)
-        && targetConstraintArrayEquals(left.implementedContracts, right.implementedContracts);
-}
-function targetMemberArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return left.length === right.length && left.every((value, index) => targetMemberEquals(value, right[index]));
-}
-function targetMemberEquals(left, right) {
-    return left.id === right.id
-        && left.sourceName === right.sourceName
-        && left.targetName === right.targetName
-        && left.kind === right.kind
-        && left.static === right.static
-        && targetParameterArrayEquals(left.parameters, right.parameters)
-        && optionalTargetTypeRefEquals(left.returnType, right.returnType)
-        && targetTypeParameterArrayEquals(left.typeParameters, right.typeParameters)
-        && left.overloadGroup === right.overloadGroup
-        && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration);
-}
-function optionalTargetParameterEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
-    }
-    return targetParameterEquals(left, right);
-}
-function targetParameterArrayEquals(left, right) {
-    return left.length === right.length && left.every((value, index) => targetParameterEquals(value, right[index]));
-}
-function targetParameterEquals(left, right) {
     return left.name === right.name
-        && targetTypeRefEquals(left.type, right.type)
-        && left.passingMode === right.passingMode
-        && left.optional === right.optional
-        && left.paramsArray === right.paramsArray;
+        && left.type === right.type
+        && left.readonly === right.readonly;
 }
-function targetTypeParameterArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
+function optionalFieldArrayEquals(left, right) {
+    return left === undefined
+        ? right === undefined
+        : right !== undefined
+            && left.length === right.length
+            && left.every((field, index) => fieldFactEquals(field, right[index]));
+}
+function optionalIdentityArrayEquals(left, right) {
+    return left === undefined
+        ? right === undefined
+        : right !== undefined && identityArrayEquals(left, right);
+}
+function identityArrayEquals(left, right) {
+    return left.length === right.length
+        && left.every((subject, index) => subject === right[index]);
+}
+function stringArrayEquals(left, right) {
+    return left.length === right.length
+        && left.every((value, index) => value === right[index]);
+}
+function exactRecord(value, name, allowedFields) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error(`${name} must be an object.`);
     }
-    return left.length === right.length && left.every((value, index) => targetTypeParameterEquals(value, right[index]));
-}
-function targetTypeParameterEquals(left, right) {
-    return left.name === right.name
-        && left.variance === right.variance
-        && targetConstraintArrayEquals(left.constraints, right.constraints);
-}
-function targetConstraintArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
+    const allowed = new Set(allowedFields);
+    const captured = {};
+    for (const key of Reflect.ownKeys(value)) {
+        if (typeof key !== "string" || !allowed.has(key)) {
+            throw new Error(`${name} contains unsupported field '${String(key)}'.`);
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !("value" in descriptor)) {
+            throw new Error(`${name}.${key} must be an own data property.`);
+        }
+        captured[key] = descriptor.value;
     }
-    return left.length === right.length && left.every((value, index) => targetConstraintEquals(value, right[index]));
+    return captured;
 }
-function targetConstraintEquals(left, right) {
-    if (left.kind !== right.kind) {
-        return false;
+function requiredString(record, field, name) {
+    const value = record[field];
+    if (typeof value !== "string" || value.length === 0) {
+        throw new Error(`${name}.${field} must be a non-empty string.`);
     }
-    switch (left.kind) {
-        case "implements":
-            return right.kind === "implements"
-                && left.contract === right.contract
-                && targetTypeRefArrayEquals(left.typeArguments, right.typeArguments);
-        case "lifetime":
-            return right.kind === "lifetime" && left.name === right.name;
-        case "target-specific":
-            return right.kind === "target-specific" && left.target === right.target && left.name === right.name && Object.is(left.value, right.value);
-        case "value-type":
-        case "reference-type":
-        case "constructible":
-        case "unmanaged":
-        case "copy":
-        case "clone":
-        case "default":
-        case "sized":
-            return true;
+    return value;
+}
+function optionalString(record, field, name) {
+    const value = record[field];
+    if (value === undefined) {
+        return undefined;
     }
-}
-function optionalTargetOperationFactEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
+    if (typeof value !== "string") {
+        throw new Error(`${name}.${field} must be a string when present.`);
     }
-    return targetOperationFactEquals(left, right);
+    return value;
 }
-function targetOperationFactEquals(left, right) {
-    return left.operationId === right.operationId
-        && left.operationKind === right.operationKind
-        && left.targetOperation === right.targetOperation
-        && left.resultType === right.resultType
-        && optionalTargetOperationProvenanceEquals(left.provenance, right.provenance);
-}
-function optionalTargetOperationProvenanceEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
+function optionalStringFields(record, name, fields) {
+    const result = {};
+    for (const field of fields) {
+        const value = optionalString(record, field, name);
+        if (value !== undefined) {
+            result[field] = value;
+        }
     }
-    return optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration)
-        && left.sourceExpression === right.sourceExpression
-        && left.sourceReceiver === right.sourceReceiver
-        && left.sourceCallee === right.sourceCallee
-        && left.sourceSelectedSymbol === right.sourceSelectedSymbol
-        && left.sourceSelectedDeclaration === right.sourceSelectedDeclaration
-        && left.sourceSelectedSignature === right.sourceSelectedSignature;
+    return result;
 }
-function sourceSelectedMethodTypeArgumentArrayEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
+function requiredBoolean(record, field, name) {
+    const value = record[field];
+    if (typeof value !== "boolean") {
+        throw new Error(`${name}.${field} must be a boolean.`);
     }
-    if (left.length !== right.length) {
-        return false;
+    return value;
+}
+function optionalBoolean(record, field, name) {
+    const value = record[field];
+    if (value !== undefined && typeof value !== "boolean") {
+        throw new Error(`${name}.${field} must be a boolean when present.`);
     }
-    return left.every((argument, index) => sourceSelectedMethodTypeArgumentEquals(argument, right[index]));
+    return value;
 }
-function sourceSelectedMethodTypeArgumentEquals(left, right) {
-    return left.typeParameterName === right.typeParameterName
-        && left.typeParameter === right.typeParameter
-        && left.selectedType === right.selectedType
-        && left.explicitTypeNode === right.explicitTypeNode;
-}
-function optionalRuntimeCarrierProvenanceEquals(left, right) {
-    if (left === undefined || right === undefined) {
-        return left === right;
+function requiredSafeInteger(record, field, name) {
+    const value = record[field];
+    if (!Number.isSafeInteger(value)) {
+        throw new Error(`${name}.${field} must be a safe integer.`);
     }
-    return left.sourceType === right.sourceType
-        && left.sourceTypeReference === right.sourceTypeReference
-        && left.sourceSymbol === right.sourceSymbol
-        && optionalProviderDeclarationIdentityEquals(left.providerDeclaration, right.providerDeclaration);
+    return value;
 }
-function targetTypeRefEquals(left, right) {
-    if (left.kind !== right.kind) {
-        return false;
+function optionalSafeInteger(record, field, name) {
+    const value = record[field];
+    if (value === undefined) {
+        return undefined;
     }
-    switch (left.kind) {
-        case "source-primitive":
-            return right.kind === "source-primitive" && left.name === right.name;
-        case "target-named":
-            return right.kind === "target-named"
-                && left.id === right.id
-                && targetTypeRefListEquals(left.typeArguments ?? [], right.typeArguments ?? []);
-        case "type-parameter":
-            return right.kind === "type-parameter" && left.name === right.name;
-        case "array":
-            return right.kind === "array" && left.rank === right.rank && targetTypeRefEquals(left.element, right.element);
-        case "tuple":
-            return right.kind === "tuple" && targetTypeRefListEquals(left.elements, right.elements);
-        case "pointer":
-            return right.kind === "pointer" && left.mutability === right.mutability && targetTypeRefEquals(left.pointee, right.pointee);
-        case "function-pointer":
-            return right.kind === "function-pointer"
-                && targetTypeRefListEquals(left.args, right.args)
-                && targetTypeRefEquals(left.result, right.result)
-                && stringListEquals(left.abi ?? [], right.abi ?? []);
-        case "opaque":
-            return right.kind === "opaque" && left.id === right.id;
-        case "associated-type":
-            return right.kind === "associated-type" && left.name === right.name && targetTypeRefEquals(left.owner, right.owner);
-        case "lifetime":
-            return right.kind === "lifetime" && left.name === right.name;
-        case "target-specific":
-            return right.kind === "target-specific" && left.target === right.target && left.name === right.name && Object.is(left.value, right.value);
+    if (!Number.isSafeInteger(value)) {
+        throw new Error(`${name}.${field} must be a safe integer when present.`);
     }
+    return value;
 }
-function targetTypeRefListEquals(left, right) {
-    return left.length === right.length && left.every((item, index) => targetTypeRefEquals(item, right[index]));
+function requiredSubject(record, field, name) {
+    const value = record[field];
+    if (typeof value !== "object" || value === null) {
+        throw new Error(`${name}.${field} must be an identity-bearing object.`);
+    }
+    return value;
 }
-function stringListEquals(left, right) {
-    return left.length === right.length && left.every((item, index) => item === right[index]);
+function optionalSubject(record, field, name) {
+    const value = record[field];
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== "object" || value === null) {
+        throw new Error(`${name}.${field} must be an identity-bearing object when present.`);
+    }
+    return value;
 }
+function requiredNode(record, field, name) {
+    const value = requiredSubject(record, field, name);
+    if (!("Kind" in value) || typeof value.Kind !== "number") {
+        throw new Error(`${name}.${field} must be a compiler source node.`);
+    }
+    return value;
+}
+function optionalNode(record, field, name) {
+    return record[field] === undefined ? undefined : requiredNode(record, field, name);
+}
+function requiredArray(value, name, snapshot) {
+    if (!Array.isArray(value)) {
+        throw new Error(`${name} must be an array.`);
+    }
+    return Object.freeze(value.map((element) => snapshot(element)));
+}
+function optionalArray(value, name, snapshot) {
+    return value === undefined ? undefined : requiredArray(value, name, snapshot);
+}
+function subjectArray(value, name) {
+    if (!Array.isArray(value)) {
+        throw new Error(`${name} must be an array.`);
+    }
+    return Object.freeze(value.map((subject, index) => {
+        if (typeof subject !== "object" || subject === null) {
+            throw new Error(`${name}[${index}] must be an identity-bearing object.`);
+        }
+        return subject;
+    }));
+}
+function nodeArray(value, name) {
+    if (!Array.isArray(value)) {
+        throw new Error(`${name} must be an array.`);
+    }
+    return Object.freeze(value.map((node, index) => {
+        if (typeof node !== "object" ||
+            node === null ||
+            !("Kind" in node) ||
+            typeof node.Kind !== "number") {
+            throw new Error(`${name}[${index}] must be a compiler source node.`);
+        }
+        return node;
+    }));
+}
+function optionalSubjectArray(value, name) {
+    return value === undefined ? undefined : subjectArray(value, name);
+}
+function optionalNodeArray(value, name) {
+    return value === undefined ? undefined : nodeArray(value, name);
+}
+function stringArray(value, name) {
+    if (!Array.isArray(value)) {
+        throw new Error(`${name} must be an array.`);
+    }
+    return Object.freeze(value.map((element, index) => {
+        if (typeof element !== "string") {
+            throw new Error(`${name}[${index}] must be a string.`);
+        }
+        return element;
+    }));
+}
+const canonicalIdentityKinds = new Set([
+    "module",
+    "package",
+    "export",
+    "local-alias",
+    "symbol",
+    "type",
+    "signature",
+    "instantiated-type",
+]);
+const importKinds = new Set(["type", "value", "namespace", "unknown"]);
+const sourcePrimitiveKinds = new Set([
+    "bool",
+    "char",
+    "int8",
+    "uint8",
+    "int16",
+    "uint16",
+    "int32",
+    "uint32",
+    "int64",
+    "uint64",
+    "native-int",
+    "native-uint",
+    "float16",
+    "float32",
+    "float64",
+    "decimal",
+    "int128",
+    "uint128",
+]);
+const sourceRuntimeBases = new Set([
+    "boolean",
+    "number",
+    "bigint",
+    "string",
+    "object",
+]);
+const pointerMutabilities = new Set(["readonly", "readwrite", "unspecified"]);
+const flowStates = new Set(["moved", "borrowed-shared", "borrowed-mut"]);
+const providerWellKnownSymbolNames = new Set([
+    "asyncIterator",
+    "hasInstance",
+    "isConcatSpreadable",
+    "iterator",
+    "match",
+    "matchAll",
+    "replace",
+    "search",
+    "species",
+    "split",
+    "toPrimitive",
+    "toStringTag",
+    "unscopables",
+]);
 //# sourceMappingURL=facts.js.map

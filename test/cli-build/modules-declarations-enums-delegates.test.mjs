@@ -339,10 +339,10 @@ test("CLI emits optional callback parameters and nullable callable unions from f
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int compute\(int value, Action<int>\? callback = null\)/);
-  assert.match(generatedSource, /if \(callback != null\)/);
+  assert.match(generatedSource, /if \(callback is not null\)/);
   assert.match(generatedSource, /callback\(result\);/);
   assert.match(generatedSource, /public static int maybeTransform\(int value, Func<int, int>\? transform\)/);
-  assert.match(generatedSource, /if \(transform != null\)/);
+  assert.match(generatedSource, /if \(transform is not null\)/);
   assert.match(generatedSource, /return transform\(value\);/);
   assert.doesNotMatch(generatedSource, /Func<double, double>|undefined|__unsupported/);
 

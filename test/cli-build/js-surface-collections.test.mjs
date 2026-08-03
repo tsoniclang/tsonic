@@ -89,16 +89,16 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
   assert.match(generatedSource, /counts\.set\(key, 2\);/);
   assert.match(generatedSource, /return counts\.has\(key\);/);
   assert.match(generatedSource, /public static int\? countGet\(string key\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue\(counts, key\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue<string, int>\(counts, key\);/);
   assert.match(generatedSource, /public static int countGetOr\(string key, int fallback\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue\(counts, key\) \?\? fallback;/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Map\.getValue<string, int>\(counts, key\) \?\? fallback;/);
   assert.match(generatedSource, /public static bool namesHas\(string value\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Set<string> names = new Tsonic\.CSharp\.Js\.Set<string>\(\);/);
   assert.match(generatedSource, /names\.add\("alpha"\);/);
   assert.match(generatedSource, /names\.add\(value\);/);
   assert.match(generatedSource, /return names\.has\(value\);/);
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> mapKeys\(\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.from\(counts\.keys\(\)\);/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> mapKeys\(\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArrayStatics\.from<string>\(counts\.keys\(\)\);/);
   assert.doesNotMatch(generatedSource, /InvalidExpression|__unsupported|Reflection|GetProperty|GetMethod|dynamic/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.Dictionary|System\.Collections\.Generic\.HashSet/);
   assert.doesNotMatch(generatedSource, /new Map|new Set|MapConstructor|SetConstructor/);
@@ -181,11 +181,11 @@ test("CLI emits extended Map and Set operations from selected JS surface facts",
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.Map<string, int>\(source\.entries\(\)\)/);
   assert.match(generatedSource, /copy\.forEach\(/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.from\(copy\.values\(\)\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.from\(copy\.entries\(\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArrayStatics\.from<int>\(copy\.values\(\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArrayStatics\.from<\(string, int\)>\(copy\.entries\(\)\)/);
   assert.match(generatedSource, /copy\.clear\(\);/);
   assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.Set<string>\(source\.values\(\)\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.from\(copy\.keys\(\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArrayStatics\.from<string>\(copy\.keys\(\)\)/);
   assert.doesNotMatch(generatedSource, /InvalidExpression|__unsupported|Reflection|GetProperty|GetMethod|dynamic/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.Dictionary|System\.Collections\.Generic\.HashSet/);
   assert.doesNotMatch(generatedSource, /new Map|new Set|MapConstructor|SetConstructor/);
@@ -225,6 +225,8 @@ test("CLI rejects Map and Set without selected JS surface declarations", async (
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# property access 'size' must be selected by TSTS\/provider facts before emission/);
+  assert.match(build.stderr, /TS2583: Cannot find name 'Map'/);
+  assert.match(build.stderr, /TS2583: Cannot find name 'Set'/);
+  assert.doesNotMatch(build.stderr, /tsonic-csharp:/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedMapSetWithoutJsSurface.csproj")), false);
 });

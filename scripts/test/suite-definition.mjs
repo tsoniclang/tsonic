@@ -106,6 +106,14 @@ export function createParallelSuiteDefinition(repos) {
     ],
     dotnetSuites: [
       {
+        scope: "csharp-runtime",
+        group: "runtime-dotnet",
+        taskMode: "assembly",
+        cwd: repos.csharpRuntime,
+        projectOrSolution: resolve(repos.csharpRuntime, "Tsonic.CSharp.Runtime.sln"),
+        directory: resolve(repos.csharpRuntime, "tests/Tsonic.CSharp.Runtime.Tests"),
+      },
+      {
         scope: "csharp-js",
         group: "runtime-dotnet",
         taskMode: "assembly",
@@ -117,6 +125,7 @@ export function createParallelSuiteDefinition(repos) {
         scope: "csharp-nodejs",
         group: "runtime-dotnet",
         taskMode: "directory",
+        exclusiveGroups: Object.freeze(["net"]),
         cwd: repos.csharpNodejs,
         projectOrSolution: resolve(repos.csharpNodejs, "Tsonic.CSharp.Node.slnx"),
         directory: resolve(repos.csharpNodejs, "csharp/test/Tsonic.CSharp.Node.Tests"),

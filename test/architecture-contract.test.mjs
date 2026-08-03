@@ -104,6 +104,17 @@ const forbiddenRawModuleSpecifierScanningPatterns = Object.freeze([
   },
 ]);
 
+const forbiddenLegacyCapabilityContributionPatterns = Object.freeze([
+  {
+    name: "legacy TargetCapabilityOperationMapper contract",
+    pattern: /\bTargetCapabilityOperationMapper\b/u,
+  },
+  {
+    name: "legacy createOperationMappers hook",
+    pattern: /\bcreateOperationMappers\b/u,
+  },
+]);
+
 test("product compiler source stays ESM-only and native-compilable", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
@@ -214,6 +225,38 @@ test("architecture validator rejects raw module specifier scanning snippets", ()
   );
 });
 
+test("product compiler source uses one standard target capability contribution hook", async () => {
+  const failures = [];
+  for (const sourceFile of await productSourceFiles()) {
+    const relativePath = repoRelative(sourceFile);
+    const text = await readFile(sourceFile, "utf8");
+    for (const forbidden of forbiddenLegacyCapabilityContributionPatterns) {
+      if (forbidden.pattern.test(text)) {
+        failures.push(`${relativePath}: ${forbidden.name}`);
+      }
+    }
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+test("architecture validator rejects legacy target capability contribution hooks", () => {
+  const text = `
+    interface LegacyPlugin {
+      createOperationMappers(): readonly TargetCapabilityOperationMapper[];
+    }
+  `;
+  assert.deepEqual(
+    forbiddenLegacyCapabilityContributionPatterns
+      .filter((forbidden) => forbidden.pattern.test(text))
+      .map((forbidden) => forbidden.name),
+    [
+      "legacy TargetCapabilityOperationMapper contract",
+      "legacy createOperationMappers hook",
+    ],
+  );
+});
+
 test("architecture scan scope covers every first-party product source root", async () => {
   const expectedRoots = Object.freeze([
     "packages/cli/src",
@@ -264,10 +307,12 @@ test("architecture validator rejects catch-all semantic directories and APIs", (
   );
 });
 
-test("target fact API exposes structured carrier resolution instead of optional raw carriers", async () => {
+test("target compile API supplies checked source without a target-carrier facade", async () => {
   const text = await readFile(join(repoRoot, "packages/target-api/src/pack.ts"), "utf8");
 
-  assert.match(text, /\bexport type TargetCarrierResolution = TargetCarrierResolved \| TargetCarrierMissing;/u);
+  assert.match(text, /export interface TargetCompileInput \{[\s\S]*readonly source: TargetSourceProgram;/u);
+  assert.doesNotMatch(text, /\bTargetCarrier(?:Resolution|Resolved|Missing)\b/u);
+  assert.doesNotMatch(text, /\bRuntimeCarrierFact\b/u);
   assert.doesNotMatch(text, /\bgetRuntimeCarrierForNode\b/u);
   assert.doesNotMatch(text, /\bgetResolvedCallReturnRuntimeCarrier\b/u);
   assert.doesNotMatch(text, /\bgetResolvedCallParameterRuntimeCarriers\b/u);
@@ -289,6 +334,18 @@ test("target pack API exposes explicit provider surface backend runtime and tool
   assert.match(text, /readonly surfaces\?: readonly TargetSurfaceImplementation\[\];/u);
   assert.match(text, /createBackend\(context: TargetBackendContext\): TargetBackend;/u);
   assert.match(text, /createToolchain\(context: TargetToolchainContext\): TargetToolchain;/u);
+});
+
+test("CLI publishes only complete successful builds through the staged output boundary", async () => {
+  const cliText = await readFile(join(repoRoot, "packages/cli/src/index.ts"), "utf8");
+  const publicationText = await readFile(join(repoRoot, "packages/cli/src/output-publication.ts"), "utf8");
+
+  assert.match(cliText, /if \(diagnostics\.length === 0\) \{\s*await publishBuildOutput\(/u);
+  assert.doesNotMatch(cliText, /\bwriteBuildArtifacts\b/u);
+  assert.doesNotMatch(cliText, /rm\(targetRoot/u);
+  assert.match(publicationText, /const stageRoot = await mkdtemp\(scratch\.stagePrefix\);/u);
+  assert.match(publicationText, /await rename\(stageRoot, scratch\.outputRoot\);/u);
+  assert.match(publicationText, /await recoverBuildOutputWithoutLock\(scratch\);/u);
 });
 
 test("product package manifests use only approved compiler/runtime dependencies", async () => {

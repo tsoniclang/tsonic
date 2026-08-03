@@ -89,9 +89,9 @@ test("CLI rejects statically unsupported RegExp literals before C# artifact emis
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0, build.stdout + build.stderr);
-  assert.match(build.stderr, /TS9100180/);
-  assert.match(build.stderr, /Named capture groups are not in the proven RegExp subset|Unicode-mode pattern semantics/);
-  assert.match(build.stderr, /pattern="abc" flags="u"/);
+  assert.match(build.stderr, /CSHARP_JS_REGEXP_UNSUPPORTED/);
+  assert.match(build.stderr, /Named capture groups are not in the proven subset/);
+  assert.match(build.stderr, /RegExp flag 'u' requires ECMAScript Unicode-mode pattern semantics/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedRegExpLiteral.csproj")), false);
 });
 
@@ -380,7 +380,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /public static string replacedAll\(string value, string search, string replacement\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.replaceAll\(value, search, replacement\);/);
   assert.match(generatedSource, /public static string glue\(string value, string left, string right\)/);
-  assert.match(generatedSource, /return string\.Concat\(value, left, right\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.concat\(value, left, right\);/);
   assert.match(generatedSource, /public static string parts\(string value, int start, int end\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.substring\(value, start, end\) \+ Tsonic\.CSharp\.Js\.String\.slice\(value, start, end\) \+ Tsonic\.CSharp\.Js\.String\.substr\(value, start, end\);/);
   assert.match(generatedSource, /public static string padded\(string value, int width\)/);
@@ -401,7 +401,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCharCode\(a, b, c\);/);
   assert.match(generatedSource, /public static string fromCodePoints\(int a, int b\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCodePoint\(a, b\);/);
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> splitParts\(string value, string separator, int limit\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> splitParts\(string value, string separator, int limit\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
   assert.match(generatedSource, /public static string primitive\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.valueOf\(value\);/);
@@ -432,20 +432,18 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
       ],
     }, null, 2),
     "src/index.ts": [
-      "export function matched(value: string, pattern: RegExp): RegExpMatchArray | null {",
-      "  return value.match(pattern);",
+      "declare const template: TemplateStringsArray;",
+      "",
+      "export function matched(value: string, pattern: RegExp): void {",
+      "  value.match(pattern);",
       "}",
       "",
-      "export function raw(template: TemplateStringsArray, value: string): string {",
+      "export function raw(value: string): string {",
       "  return String.raw(template, value);",
       "}",
       "",
-      "export function all(value: string, pattern: RegExp): number {",
-      "  let count = 0;",
-      "  for (const _match of value.matchAll(pattern)) {",
-      "    count++;",
-      "  }",
-      "  return count;",
+      "export function all(value: string, pattern: RegExp): void {",
+      "  value.matchAll(pattern);",
       "}",
       "",
     ].join("\n"),
@@ -453,14 +451,14 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
-  assert.match(build.stderr, /C# JS surface hard-rejected selected TypeScript standard-library call 'String\.matchAll'/);
-  assert.match(build.stderr, /index\.ts:2:10: C# JS surface hard-rejected selected TypeScript standard-library call 'String\.match'/);
-  assert.match(build.stderr, /index\.ts:6:10: C# JS surface hard-rejected selected TypeScript standard-library call 'String\.raw'/);
-  assert.match(build.stderr, /RegExpMatchArray/);
-  assert.match(build.stderr, /template-object/);
-  assert.match(build.stderr, /iterator/);
+  assert.match(build.stderr, /String\.match requires an exact RegExp match-result carrier/);
+  assert.match(build.stderr, /String\.raw requires a closed template-raw carrier/);
+  assert.match(build.stderr, /String\.matchAll requires an exact RegExp match-result carrier/);
+  assert.match(build.stderr, /Selected source identity: js\.String\.match\.member/);
+  assert.match(build.stderr, /Selected source identity: js\.StringConstructor\.raw\.member/);
+  assert.match(build.stderr, /Selected source identity: js\.String\.matchAll\.member/);
+  assert.match(build.stderr, /RegExp match-result carrier that is not represented by the current JS source-profile runtime/);
+  assert.match(build.stderr, /template-raw carrier and is not represented by the current JS source-profile runtime/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringExactnessRejections.csproj")), false);
 });
 
@@ -492,7 +490,8 @@ test("CLI rejects JS String wrapper construction until a closed wrapper carrier 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /String\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.match(build.stdout + build.stderr, /new String\(\.\.\.\) requires an explicit wrapper-object carrier/);
+  assert.match(build.stdout + build.stderr, /Selected source identity: js\.StringConstructor\.construct/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringWrapperRejected.csproj")), false);
 });
 

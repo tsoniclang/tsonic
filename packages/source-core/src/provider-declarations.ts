@@ -2,11 +2,37 @@ import type {
   ProviderExportDeclaration,
   ProviderParameterDeclaration,
   ProviderTypeExpression,
-  SourceCallMarkerDeclaration,
+  SourceCallMarkerKind,
   SourcePrimitiveKind,
   SourceSemanticsModule,
-  SourceTypeMarkerDeclaration,
+  SourceTypeMarkerKind,
 } from "@tsonic/tsts";
+
+export const tsonicAttributeBuilderMemberIds = Object.freeze({
+  add: "__TsonicAttributeBuilder.add",
+  property: "__TsonicAttributeBuilder.property",
+  method: "__TsonicAttributeBuilder.method",
+  constructor: "__TsonicAttributeBuilder.constructor",
+  memberAdd: "__TsonicAttributeMemberBuilder.add",
+  parameter: "__TsonicAttributeMemberBuilder.parameter",
+  target: "__TsonicAttributeMemberBuilder.target",
+});
+
+export const tsonicAttributeBuilderSignatureIds = Object.freeze({
+  root: "attribute<T>(...args)",
+  add: tsonicAttributeBuilderMemberIds.add,
+  property: tsonicAttributeBuilderMemberIds.property,
+  method: tsonicAttributeBuilderMemberIds.method,
+  constructor: "__TsonicAttributeBuilder.constructor()",
+  memberAdd: tsonicAttributeBuilderMemberIds.memberAdd,
+  parameter: tsonicAttributeBuilderMemberIds.parameter,
+  target: tsonicAttributeBuilderMemberIds.target,
+});
+
+export const tsonicSourceMarkerSignatureIds = Object.freeze({
+  field: "field<T>()",
+  defaultof: "defaultof<T>()",
+});
 import {
   tsonicCoreLangModule,
 } from "./identity.js";
@@ -38,7 +64,7 @@ function providerExportDeclarationForSourceSemantics(declaration: SourceSemantic
   }
 }
 
-export function providerTypeMarkerDeclaration(exportName: string, marker: SourceTypeMarkerDeclaration["marker"]): ProviderExportDeclaration {
+export function providerTypeMarkerDeclaration(exportName: string, marker: SourceTypeMarkerKind): ProviderExportDeclaration {
   const typeParameters = marker === "ptr"
     ? [{ name: "T" }]
     : [{ name: "TArgs" }, { name: "TReturn" }];
@@ -51,7 +77,7 @@ export function providerTypeMarkerDeclaration(exportName: string, marker: Source
   };
 }
 
-export function providerCallMarkerDeclaration(exportName: string, marker: SourceCallMarkerDeclaration["marker"]): ProviderExportDeclaration {
+export function providerCallMarkerDeclaration(exportName: string, marker: SourceCallMarkerKind): ProviderExportDeclaration {
   const typeParameter = { kind: "type-parameter" as const, name: "T" };
   switch (marker) {
     case "out":
@@ -79,7 +105,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
         name: exportName,
         kind: "function",
         signatures: [{
-          id: `${exportName}<T>()`,
+          id: tsonicSourceMarkerSignatureIds[marker],
           typeParameters: [{ name: "T" }],
           parameters: [],
           returnType: typeParameter,
@@ -91,7 +117,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
         name: exportName,
         kind: "function",
         signatures: [{
-          id: `${exportName}<T>(...args)`,
+          id: tsonicAttributeBuilderSignatureIds.root,
           typeParameters: [{ name: "T" }],
           parameters: [],
           returnType: {
@@ -131,13 +157,19 @@ export function attributeBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      methodMember("__TsonicAttributeBuilder.add", "add", [
+      methodMember(tsonicAttributeBuilderMemberIds.add, "add", [
         { name: "attribute", type: { kind: "object" } },
         { name: "args", type: { kind: "array", elementType: { kind: "unknown" } }, rest: true },
       ], { kind: "void" }),
-      memberSelector("__TsonicAttributeBuilder.property", "property", ownerType, memberBuilder),
-      memberSelector("__TsonicAttributeBuilder.method", "method", ownerType, memberBuilder),
-      callablePropertyMember("__TsonicAttributeBuilder.constructor", "constructor", [], memberBuilder),
+      memberSelector(tsonicAttributeBuilderMemberIds.property, "property", ownerType, memberBuilder),
+      memberSelector(tsonicAttributeBuilderMemberIds.method, "method", ownerType, memberBuilder),
+      callablePropertyMember(
+        tsonicAttributeBuilderMemberIds.constructor,
+        tsonicAttributeBuilderSignatureIds.constructor,
+        "constructor",
+        [],
+        memberBuilder,
+      ),
     ],
   };
 }
@@ -156,14 +188,14 @@ export function attributeMemberBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      methodMember("__TsonicAttributeMemberBuilder.add", "add", [
+      methodMember(tsonicAttributeBuilderMemberIds.memberAdd, "add", [
         { name: "attribute", type: { kind: "object" } },
         { name: "args", type: { kind: "array", elementType: { kind: "unknown" } }, rest: true },
       ], { kind: "void" }),
-      methodMember("__TsonicAttributeMemberBuilder.parameter", "parameter", [
+      methodMember(tsonicAttributeBuilderMemberIds.parameter, "parameter", [
         { name: "name", type: { kind: "string" } },
       ], self),
-      methodMember("__TsonicAttributeMemberBuilder.target", "target", [
+      methodMember(tsonicAttributeBuilderMemberIds.target, "target", [
         { name: "specifier", type: { kind: "string" } },
       ], self),
     ],
@@ -180,6 +212,7 @@ function memberSelector(
     name: "selector",
     type: {
       kind: "function",
+      id: `${id}.selector`,
       parameters: [{ name: "target", type: ownerType }],
       returnType: { kind: "unknown" },
     },
@@ -207,6 +240,7 @@ function methodMember(
 
 function callablePropertyMember(
   id: string,
+  signatureId: string,
   name: string,
   parameters: readonly ProviderParameterDeclaration[],
   returnType: ProviderTypeExpression,
@@ -217,6 +251,7 @@ function callablePropertyMember(
     kind: "property" as const,
     type: {
       kind: "function" as const,
+      id: signatureId,
       parameters,
       returnType,
     },

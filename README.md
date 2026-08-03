@@ -68,6 +68,8 @@ dotnet build out/csharp/ExampleGenerated.csproj
 
 - TSTS diagnostics stop target emission for that target.
 - Target backends consume TSTS checker queries and finalized extension facts; they do not redo TypeScript inference or narrowing.
+- `outDir` is compiler-owned generated output. A successful build publishes one complete staged tree and replaces the previous tree atomically.
+- A build with errors or an incomplete artifact set leaves the last successfully published `outDir` unchanged.
 - C# source rendering is AST-only: planner builds `Csharp*` AST nodes, and only the C# printer turns those nodes into C# text.
 - Target-specific behavior lives in target packs. Generic host and target API packages do not know C# or .NET semantics.
 - Unsupported semantics produce deterministic diagnostics instead of fallback guesses.

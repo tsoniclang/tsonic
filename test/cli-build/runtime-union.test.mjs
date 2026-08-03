@@ -4,6 +4,13 @@ async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
 }
 
+async function readGeneratedObjectShapeSource(projectDirectory) {
+  return readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+}
+
 test("CLI emits runtime-union arm tests and projections from finalized facts", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-union-arm-projection");
   const assemblyName = "SmokeGeneratedRuntimeUnionArmProjection";
@@ -47,7 +54,7 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string> value = flag \? 1 : "ready";/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string> value = flag \? Tsonic\.CSharp\.Runtime\.Union<double, string>\.From1\(1\) : Tsonic\.CSharp\.Runtime\.Union<double, string>\.From2\("ready"\);/);
   assert.match(generatedSource, /if \(value\.Is2\(\)\)/);
   assert.match(generatedSource, /return value\.As2\(\);/);
   assert.doesNotMatch(generatedSource, /value is string|return value;\s*}\s*return "fallback"/);
@@ -151,12 +158,16 @@ test("CLI emits object-shape runtime-union declarations and member projections f
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  const shapeDeclarations = generatedSource.match(/public class __TsonicShape_/g) ?? [];
+  const generatedShapes = await readGeneratedObjectShapeSource(projectDirectory);
+  const shapeDeclarations = generatedShapes.match(/public class __TsonicShape_/g) ?? [];
   assert.equal(shapeDeclarations.length, 2);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<__TsonicShape_[A-Za-z0-9_]+, __TsonicShape_[A-Za-z0-9_]+> shape/);
-  assert.match(generatedSource, /if \(shape\.As1\(\)\.kind == "circle"\)/);
+  assert.match(generatedSource, /if \(shape\.Match\(__tsonic_union_arm1 => __tsonic_union_arm1\.kind, __tsonic_union_arm2 => __tsonic_union_arm2\.kind\) == "circle"\)/);
   assert.match(generatedSource, /return \$"circle:\{shape\.As1\(\)\.radius\}";/);
   assert.match(generatedSource, /return \$"square:\{shape\.As2\(\)\.size\}";/);
+  assert.match(generatedShapes, /public required string kind;/);
+  assert.match(generatedShapes, /public required double radius;/);
+  assert.match(generatedShapes, /public required double size;/);
   assert.doesNotMatch(generatedSource, /\(__TsonicShape_[A-Za-z0-9_]+\)shape/);
   assert.doesNotMatch(generatedSource, /shape\.radius|shape\.size|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 

@@ -15,7 +15,7 @@ export const oldSuiteFeatureAreas = Object.freeze([
   "config",
   "native-provider",
   "js-surface",
-  "nodejs-surface",
+  "nodejs-provider-package",
   "csharp-backend",
   "runtime",
   "toolchain",
@@ -245,11 +245,11 @@ const oldSuitePortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: "test/fixtures/nodejs-surface-alias-coverage/",
     status: "ported",
-    featureArea: "nodejs-surface",
+    featureArea: "nodejs-provider-package",
     owner: "C# NodeJS provider package",
     newPath: "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     reason:
-      "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:* modules participate through existing provider declarations, while unsupported historical modules child_process, dgram, dns, events, http, net, querystring, readline, stream, timers, tls, zlib, and type-only node:http declarations produce deterministic provider diagnostics with no target artifacts.",
+      "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:http declarations include a type-only import proof with no Node runtime reference, node:timers participates through provider declarations, and unsupported historical modules child_process, dgram, dns, events, net, querystring, readline, stream, tls, and zlib produce deterministic provider diagnostics with no target artifacts.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/top-level-code/",
@@ -803,7 +803,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: "test/fixtures/nodejs-path-posix-join/",
     status: "ported",
-    featureArea: "nodejs-surface",
+    featureArea: "nodejs-provider-package",
     owner: "C# NodeJS provider package + C# NodeJS runtime",
     newPath: "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
     reason:
@@ -812,7 +812,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: "test/fixtures/nodejs-surface-imports-negative/",
     status: "ported",
-    featureArea: "nodejs-surface",
+    featureArea: "nodejs-provider-package",
     owner: "C# NodeJS provider package + C# NodeJS runtime",
     newPath: "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     reason:
@@ -821,7 +821,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: "test/fixtures/nodejs-surface-module-graph/",
     status: "ported",
-    featureArea: "nodejs-surface",
+    featureArea: "nodejs-provider-package",
     owner: "C# NodeJS provider package + C# NodeJS runtime",
     newPath: "test/cli-build/nodejs-provider-package-modules-path-fs.test.mjs",
     reason:
@@ -2085,8 +2085,7 @@ function defaultOldSuiteCapabilityIds(entry) {
       ids.add("surface.js.string-methods");
       ids.add("runtime.csharp.js");
       break;
-    case "nodejs-surface":
-      ids.add("host.project.surface-extension-composition");
+    case "nodejs-provider-package":
       ids.add("surface.node.fs-path-process");
       ids.add("runtime.csharp.nodejs");
       break;

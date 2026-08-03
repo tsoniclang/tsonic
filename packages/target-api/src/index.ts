@@ -8,6 +8,25 @@ export type {
   TargetRuntimeReference,
   TargetSourceFile,
 } from "./artifacts.js";
+export {
+  createTargetArtifactContractGraph,
+  reconstructTargetArtifacts,
+} from "./target-artifacts/index.js";
+export type {
+  TargetArtifactContract,
+  TargetArtifactContractBatchResult,
+  TargetArtifactContractChange,
+  TargetArtifactContractClosureResult,
+  TargetArtifactContractGraph,
+  TargetArtifactContractGraphOptions,
+  TargetArtifactContractGraphResult,
+  TargetArtifactContractUpdate,
+  TargetArtifactDependency,
+  TargetArtifactFacetContract,
+  TargetArtifactReconstruction,
+  TargetArtifactReconstructionOptions,
+  TargetArtifactReconstructionRunResult,
+} from "./target-artifacts/index.js";
 export type {
   TargetId,
   TargetSelection,
@@ -23,59 +42,82 @@ export {
 } from "./config.js";
 export type {
   TargetCapabilityContext,
-  TargetCapabilityOperationMapper,
+  TargetCapabilityContribution,
   TargetCapabilityRuntimeContributionContext,
   TsonicPlugin,
   TsonicTargetCapabilityPlugin,
   TsonicTargetPlugin,
 } from "./plugins.js";
-export type {
-  TargetLazySourceAnalysis,
-  TargetSourceAccessKind,
-  TargetSourceCallsiteKind,
-  TargetSourceCallsite,
-  TargetSourceReferenceRecord,
-  TargetSourceUseOperation,
-  TargetSourceUseRecord,
-} from "./analysis/types.js";
-export {
-  createLazyTargetSourceAnalysis,
-} from "./analysis/lazy.js";
 export {
   isTsonicSourceProfileDeclarationPath,
   normalizeTargetSourceProfileSegment,
   targetSourceProfileDeclaration,
   tsonicSourceProfileVirtualDirectory,
 } from "./source-profile.js";
+export {
+  getStaticModuleReference,
+} from "./module-reference.js";
+export type {
+  StaticModuleReference,
+} from "./module-reference.js";
 export type {
   TargetSourceProfileContributions,
   TargetSourceProfileDeclaration,
 } from "./source-profile.js";
+export {
+  createSourceProgramNavigation,
+  sourceProjectFiles,
+  sourceFileIdentity,
+  sourceNodeIdentity,
+  sourceNodesEqual,
+  sourceSymbolIdentity,
+  sourceSymbolsEqual,
+} from "./source-navigation/index.js";
+export type {
+  SourceBindingWrite,
+  SourceClassConstructorParameter,
+  SourceClassConstructorResult,
+  SourceClassConstructorSignature,
+  SourceDeclarationReference,
+  SourceDeclaredHeritageEdge,
+  SourceDeclaredHeritageResult,
+  SourceHeritagePathResult,
+  SourceProgramNavigation,
+  SourceProjectMemberDispatch,
+  SourceProjectModuleDependency,
+  SourceProjectReference,
+} from "./source-navigation/index.js";
+export {
+  createTargetSourceProgram,
+  sourceTypeSyntaxIsCompositional,
+} from "./source-semantics/index.js";
+export type {
+  ResolvedSourceCallInfo,
+  SourceCallResultSelection,
+  SourceAuthoredTypeSelection,
+  SourceContextualValueTypeSelection,
+  SourceFileSemantics,
+  SourceProgramSemantics,
+  SourceTypeRelationship,
+  SourceTypeRefinement,
+  SourceValueTypeRefinementSelection,
+  TargetSourceProgram,
+} from "./source-semantics/index.js";
 export type {
   TargetBackend,
   TargetBackendContext,
-  TargetAnalysisNodeOptions,
-  TargetCallParameterCarrierResolution,
-  TargetCallParameterCarriersResolved,
-  TargetCarrierMissing,
-  TargetCarrierResolution,
-  TargetCarrierResolutionEvidence,
-  TargetCarrierResolved,
   TargetCompilationPaths,
   TargetCompileInput,
-  TargetFactQueries,
   TargetPack,
   TargetCapabilityImplementation,
-  TargetCapabilityMapper,
   TargetCapabilityRuntimeContext,
   TargetProvider,
   TargetProviderModuleOwnership,
   TargetProviderContext,
   TargetProviderSourceProfileContext,
-  TargetProjectSourceModuleDependency,
   TargetRuntimeContributionContext,
-  TargetSourceAnalysisQueries,
-  TargetSurfaceExtensionContext,
+  TargetSourceCompilerContributions,
+  TargetSurfaceSourceCompilerContext,
   TargetSurfaceImplementation,
   TargetSurfaceSourceProfileContext,
   TargetToolchain,

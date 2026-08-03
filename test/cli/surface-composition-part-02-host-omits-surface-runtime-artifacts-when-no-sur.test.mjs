@@ -1,4 +1,5 @@
-import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetCompilerExtensions, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, ExtensionLifecycleEvent, providerVirtualDeclarationFactKey, runtimeCarrierFactKey, targetOperationFactKey, TstsProviderContractVersion, repoRoot, tempRoot, createPortableOperationFactsExtension, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, fakePaths, createRegistry, extensionIds, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference } from "./surface-composition.helpers.mjs";
+import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetSourceCompilerComposition, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, fakePaths, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference } from "./surface-composition.helpers.mjs";
+import { sourceProjectFiles } from "../../packages/target-api/dist/index.js";
 
 test("host omits surface runtime artifacts when no surface is selected", async () => {
   const events = [];
@@ -218,8 +219,8 @@ test("host gives backends the TSTS source graph instead of the raw project file 
   };
   const targetPack = createFakeTargetPack(events, {
     onBackend(input) {
-      backendProjectSourceFiles = input.sourceFiles
-        .map((sourceFile) => input.ast.getFileName(sourceFile))
+      backendProjectSourceFiles = sourceProjectFiles(input.source)
+        .map((sourceFile) => input.source.ast.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
         .sort();
@@ -246,7 +247,7 @@ test("host gives backends the TSTS source graph instead of the raw project file 
     "src/index.ts",
   ]);
 });
-test("host exposes TSTS flow-narrowed source types to backend analysis queries", async () => {
+test("host exposes TSTS flow-narrowed source types through the checked source program", async () => {
   const events = [];
   const narrowedTypes = {};
   const projectDirectory = resolve(tempRoot, "tsts-flow-narrowed-analysis-query");
@@ -258,12 +259,13 @@ test("host exposes TSTS flow-narrowed source types to backend analysis queries",
   };
   const targetPack = createFakeTargetPack(events, {
     onBackend(input) {
-      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
-      const narrowedText = findVariableInitializer(input.ast, sourceFile, "narrowedText");
-      const narrowedNumber = findVariableInitializer(input.ast, sourceFile, "narrowedNumber");
-      narrowedTypes.text = input.analysis.describeTypeAtLocation(narrowedText, { sourceFile });
-      narrowedTypes.number = input.analysis.describeTypeAtLocation(narrowedNumber, { sourceFile });
+      const narrowedText = findVariableInitializer(input.source.ast, sourceFile, "narrowedText");
+      const narrowedNumber = findVariableInitializer(input.source.ast, sourceFile, "narrowedNumber");
+      const semantics = input.source.semantics.forFile(sourceFile);
+      narrowedTypes.text = semantics.typeToString(semantics.getTypeAtLocation(narrowedText));
+      narrowedTypes.number = semantics.typeToString(semantics.getTypeAtLocation(narrowedNumber));
     },
   });
   await writeProject(projectDirectory, {
@@ -365,11 +367,12 @@ test("host exposes broad TSTS flow-narrowed source types without target policy c
   };
   const targetPack = createFakeTargetPack(events, {
     onBackend(input) {
-      const sourceFile = input.sourceFiles.find((candidate) => input.ast.getFileName(candidate).endsWith("/src/index.ts"));
+      const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
+      const semantics = input.source.semantics.forFile(sourceFile);
       for (const name of ["foundShape", "missingShape", "truthyValue", "derivedValue", "nullishValue"]) {
-        const initializer = findVariableInitializer(input.ast, sourceFile, name);
-        observedTypes[name] = input.analysis.describeTypeAtLocation(initializer, { sourceFile });
+        const initializer = findVariableInitializer(input.source.ast, sourceFile, name);
+        observedTypes[name] = semantics.typeToString(semantics.getTypeAtLocation(initializer));
       }
     },
   });
@@ -444,8 +447,8 @@ test("host source graph follows relative ESM import and export edges through TST
   };
   const targetPack = createFakeTargetPack(events, {
     onBackend(input) {
-      backendProjectSourceFiles = input.sourceFiles
-        .map((sourceFile) => input.ast.getFileName(sourceFile))
+      backendProjectSourceFiles = sourceProjectFiles(input.source)
+        .map((sourceFile) => input.source.ast.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
         .sort();
@@ -506,8 +509,8 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
   };
   const targetPack = createFakeTargetPack(events, {
     onBackend(input) {
-      backendProjectSourceFiles = input.sourceFiles
-        .map((sourceFile) => input.ast.getFileName(sourceFile))
+      backendProjectSourceFiles = sourceProjectFiles(input.source)
+        .map((sourceFile) => input.source.ast.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
         .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
         .sort();
@@ -549,17 +552,13 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
   const session = createTsonicSemanticSession({
     programOptions,
     project,
+    projectDirectory,
     target: project.targets[0],
     targetPack,
     selectedSurfaces: [],
   });
-  const allTstsProjectFiles = session.compiler.getSourceFiles()
-    .map((sourceFile) => sourceFile === undefined ? undefined : session.ast.getFileName(sourceFile))
-    .filter((fileName) => fileName?.startsWith(projectDirectory))
-    .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
-    .sort();
-  const emitTstsProjectFiles = session.compiler.getSourceFilesToEmit()
-    .map((sourceFile) => sourceFile === undefined ? undefined : session.ast.getFileName(sourceFile))
+  const allTstsProjectFiles = sourceProjectFiles(session.source)
+    .map((sourceFile) => sourceFile === undefined ? undefined : session.source.ast.getFileName(sourceFile))
     .filter((fileName) => fileName?.startsWith(projectDirectory))
     .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
     .sort();
@@ -569,10 +568,6 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
     "node_modules/@demo/source-pkg/src/subpath.ts",
     "src/index.ts",
   ]);
-  assert.deepEqual(emitTstsProjectFiles, [
-    "src/index.ts",
-  ]);
-
   const result = compileProject({
     project,
     projectFilePath: resolve(projectDirectory, "tsonic.json"),

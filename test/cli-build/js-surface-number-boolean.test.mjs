@@ -76,7 +76,38 @@ test("CLI rejects Number methods without selected JS surface facts", async () =>
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberWithoutJsSurface.csproj")), false);
 });
 
-test("CLI hard-rejects selected JS Number locale formatting without Intl facts", async () => {
+test("CLI emits selected zero-argument JS Number locale formatting", async () => {
+  const projectDirectory = resolve(tempRoot, "js-number-locale-default");
+  const assemblyName = "SmokeGeneratedNumberLocaleDefault";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        surfaces: ["js"],
+        options: { namespace: "Smoke.Generated", assemblyName },
+      }],
+    }, null, 2),
+    "src/index.ts": [
+      "export function locale(value: number): string {",
+      "  return value.toLocaleString();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Number\.toLocaleString\(value\);/);
+  assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|__unsupported/);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
+test("CLI hard-rejects selected JS Number locale/options formatting without Intl facts", async () => {
   const projectDirectory = resolve(tempRoot, "js-number-locale-rejected");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -105,7 +136,7 @@ test("CLI hard-rejects selected JS Number locale formatting without Intl facts",
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
   assert.match(build.stdout + build.stderr, /Number\.toLocaleString/);
-  assert.match(build.stdout + build.stderr, /Intl\.NumberFormat-compatible locale and options semantics/);
+  assert.match(build.stdout + build.stderr, /Intl\.NumberFormat-compatible source and runtime facts/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberLocaleRejected.csproj")), false);
 });
 
@@ -137,7 +168,8 @@ test("CLI rejects JS Number wrapper construction until a closed wrapper carrier 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /Number\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.match(build.stdout + build.stderr, /new Number\(\.\.\.\) requires an explicit wrapper-object carrier/);
+  assert.match(build.stdout + build.stderr, /Selected source identity: js\.NumberConstructor\.construct/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedNumberWrapperRejected.csproj")), false);
 });
 
@@ -253,6 +285,7 @@ test("CLI rejects JS Boolean wrapper construction until a closed wrapper carrier
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /Boolean\.constructor|C# construction emission requires a source-owned constructor or a selected target constructor fact/);
+  assert.match(build.stdout + build.stderr, /new Boolean\(\.\.\.\) requires an explicit wrapper-object carrier/);
+  assert.match(build.stdout + build.stderr, /Selected source identity: js\.BooleanConstructor\.construct/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedBooleanWrapperRejected.csproj")), false);
 });

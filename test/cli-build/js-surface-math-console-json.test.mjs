@@ -304,6 +304,66 @@ test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
+test("CLI finalizes interface-backed JSON shapes and compat typeof checks after all object shapes are known", async () => {
+  const projectDirectory = resolve(tempRoot, "json-interface-shape-finalization");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        surfaces: ["js"],
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName: "SmokeGeneratedJsonInterfaceShapeFinalization",
+          typescriptCompatibility: "compat",
+        },
+      }],
+    }, null, 2),
+    "src/index.ts": [
+      "export interface Todo {",
+      "  id: number;",
+      "  title: string;",
+      "  completed: boolean;",
+      "}",
+      "",
+      "export function createTodos(): Todo[] {",
+      "  const first: Todo = { id: 1, title: \"first\", completed: false };",
+      "  const second: Todo = { id: 2, title: \"second\", completed: true };",
+      "  return [first, second];",
+      "}",
+      "",
+      "export function serializeTodos(values: Todo[]): string {",
+      "  return JSON.stringify(values);",
+      "}",
+      "",
+      "export function readTitle(text: string): string | undefined {",
+      "  const value = JSON.parse(text) as { title?: unknown };",
+      "  if (typeof value.title !== \"string\") return undefined;",
+      "  return value.title;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const generatedShape = generatedShapes.match(/public class (__TsonicShape_[A-Za-z0-9_]+) : Todo, Tsonic\.CSharp\.Js\.IJsonValue/u);
+  assert.notEqual(generatedShape, null, generatedShapes);
+  assert.equal(generatedShapes.match(/public class __TsonicShape_[A-Za-z0-9_]+ : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
+  assert.equal(generatedSource.match(new RegExp(`new ${generatedShape[1]}`, "gu"))?.length, 2);
+  assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; set; \}\s*string title \{ get; set; \}\s*bool completed \{ get; set; \}\s*\}/u);
+  assert.equal(generatedShapes.match(/void __tsonicWriteJson\(/gu)?.length, 1);
+  assert.match(generatedSource, /TsValue\.ApplyCompatTypeof\(value\.ReadCompatSlot\("title"\)\) != "string"/u);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedJsonInterfaceShapeFinalization.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
+
 test("CLI compiles existing TypeScript JS-surface utility code when JS surface is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-typescript-js-surface-utility-code");
   await writeProject(projectDirectory, {
@@ -369,16 +429,16 @@ test("CLI compiles existing TypeScript JS-surface utility code when JS surface i
   assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> appendTag\(System\.Collections\.Generic\.List<string> tags, string tag\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.push\(tags, tag\);/);
-  assert.match(generatedSource, /public static double summarize\(System\.Collections\.Generic\.IReadOnlyList<double> values\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> appendTag\(Tsonic\.CSharp\.Js\.JSArray<string> tags, string tag\)/);
+  assert.match(generatedSource, /tags\.push\(tag\);/);
+  assert.match(generatedSource, /public static double summarize\(Tsonic\.CSharp\.Js\.JSArray<double> values\)/);
   assert.match(generatedSource, /double first = Tsonic\.CSharp\.Js\.Array\.atValue\(values, 0\) \?\? 0;/);
-  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.Count - 1\) \?\? 0;/);
+  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.length - 1\) \?\? 0;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.max\(first, last\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSON\.stringify\(count\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.slice\(Tsonic\.CSharp\.Js\.String\.toUpperCase\(Tsonic\.CSharp\.Js\.String\.trim\(name\)\), 0, 8\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.Object\.keys\(values\), ","\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.String\.split\(input, ":"\), "\|"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.keys\(values\)\.join\(","\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(input, ":"\)\.join\("\|"\);/);
   assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.RegExp\("\^user:", "i"\)\.test\(input\);/);
   assert.doesNotMatch(generatedSource, /return Math\./);
   assert.doesNotMatch(generatedSource, /return Object\./);

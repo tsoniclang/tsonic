@@ -80,13 +80,31 @@ test("CLI emits expanded process operations from selected Node provider-package 
   assert.match(generatedSource, /usage\.heapUsed/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(code\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(Tsonic\.CSharp\.Generated\.__TsonicConversions\.LiftNullable<double, int>\(code, System\.Convert\.ToInt32\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.availableMemory\(\) \+ Tsonic\.CSharp\.Node\.process\.constrainedMemory\(\);/);
   assert.match(generatedSource, /double\[\] parts = Tsonic\.CSharp\.Node\.process\.hrtime\(\);/);
   assert.match(generatedSource, /return parts\[0\] \+ parts\[1\];/);
   assert.doesNotMatch(generatedSource, /return process\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const generatedConversions = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicConversions.cs"),
+    "utf8",
+  );
+  assert.equal(generatedConversions, `namespace Tsonic.CSharp.Generated
+{
+    internal static class __TsonicConversions
+    {
+        internal static TResult? LiftNullable<TSource, TResult>(TSource? value, System.Func<TSource, TResult> conversion)
+        where TSource : struct
+        where TResult : struct
+        {
+            return value.HasValue ? conversion(value.Value) : default(TResult?);
+        }
+    }
+}
+`);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeProcessExpanded.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -122,10 +140,10 @@ test("CLI rejects unsupported process stream properties without fallback", async
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   for (const memberName of ["stdin", "stdout", "stderr"]) {
-    assert.match(build.stderr, new RegExp(`hard-rejected selected property 'node:process' export 'NodeProcessModule' member '${memberName}'`));
+    assert.match(build.stderr, new RegExp(`hard-rejected selected property 'node:process' export '${memberName}'`));
     assert.match(build.stderr, new RegExp(`unsupported:Tsonic\\.CSharp\\.Node\\.process\\.${memberName}`));
   }
-  assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.match(build.stderr, /TS9100203/u);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -157,10 +175,10 @@ test("CLI rejects unsupported process nextTick without fallback", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /hard-rejected selected property 'node:process' export 'NodeProcessModule' member 'nextTick'/);
-  assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'NodeProcessModule' member 'nextTick'/);
+  assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'nextTick' member '<export>'/u);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.process\.nextTick\(Function,System\.Object\[\]\)/);
-  assert.match(build.stderr, /diagnostic\.unsupported-selected-surface-operation/);
+  assert.match(build.stderr, /TS9100203/u);
+  assert.doesNotMatch(build.stderr, /CSHARP_NODEJS_PROPERTY_NOT_MAPPED|could not map checked .* to a target property/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty|MethodInfo\.Invoke/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -599,7 +617,7 @@ test("CLI rejects unsupported selected Node crypto and os provider-package opera
   assert.match(build.stderr, /node:os\.getPriority/);
   assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'setPriority'/);
   assert.match(build.stderr, /node:os\.setPriority/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'NodeOsModule' member 'constants'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'constants'/);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.os\.constants/);
   assert.doesNotMatch(build.stderr, /createCipheriv is not a function|cpus is not a function|constants is undefined/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);

@@ -1,5 +1,15 @@
-import type { CompilerExtension, RequiredProviderModuleSpec } from "@tsonic/tsts";
-import { createTsonicCoreSourceExtension } from "@tsonic/source-core";
+import {
+  createSourceSemanticsExtension,
+} from "@tsonic/tsts";
+import type {
+  CompilerExtension,
+  RequiredProviderModuleSpec,
+  SourceSemanticsModule,
+} from "@tsonic/tsts";
+import {
+  createTsonicCoreSourceExtension,
+  tsonicCoreSourceSemanticsModules,
+} from "@tsonic/source-core";
 import type {
   TargetProvider,
   TargetPack,
@@ -9,17 +19,19 @@ import type {
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 
-export interface CreateTargetCompilerExtensionsOptions {
+export interface CreateTargetSourceCompilerCompositionOptions {
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
   readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
 }
 
-export interface TargetCompilerExtensionComposition {
+export interface TargetSourceCompilerComposition {
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+  readonly semanticsModules: readonly SourceSemanticsModule[];
   readonly extensions: readonly CompilerExtension[];
 }
 
@@ -39,7 +51,9 @@ export type TargetCapabilitySelectionResult =
       readonly error: string;
     };
 
-export function createTargetCompilerExtensions(options: CreateTargetCompilerExtensionsOptions): TargetCompilerExtensionComposition {
+export function createTargetSourceCompilerComposition(
+  options: CreateTargetSourceCompilerCompositionOptions,
+): TargetSourceCompilerComposition {
   const selectedSurfaces = options.selectedSurfaces === undefined
     ? getSelectedSurfaceImplementations(options.targetPack, options.target)
     : validateSelectedSurfaceComposition(options.targetPack, options.target, options.selectedSurfaces);
@@ -47,35 +61,46 @@ export function createTargetCompilerExtensions(options: CreateTargetCompilerExte
   const provider = requireTargetProvider(options.targetPack, options.target);
   const providerContext = {
     project: options.project,
+    projectDirectory: options.projectDirectory,
     target: options.target,
     targetPack: options.targetPack,
     selectedCapabilities,
     selectedSurfaces,
   };
-  const extensions = [
+  const providerContributions = provider.sourceCompilerContributions(providerContext);
+  const capabilityContributions = selectedCapabilities.map((capability) =>
+    capability.sourceCompilerContributions?.({
+      project: options.project,
+      target: options.target,
+      targetPack: options.targetPack,
+      selectedCapabilities,
+      selectedSurfaces,
+      capability,
+    }) ?? {}
+  );
+  const surfaceContributions = selectedSurfaces.map((surface) =>
+    surface.sourceCompilerContributions?.({
+      ...providerContext,
+      surface,
+    }) ?? {}
+  );
+  const semanticsModules = Object.freeze([
+    ...tsonicCoreSourceSemanticsModules(),
+    ...(providerContributions.semanticsModules ?? []),
+    ...capabilityContributions.flatMap((contribution) => contribution.semanticsModules ?? []),
+    ...surfaceContributions.flatMap((contribution) => contribution.semanticsModules ?? []),
+  ]);
+  const extensions = Object.freeze([
+    createSourceSemanticsExtension({ modules: semanticsModules }),
     createTsonicCoreSourceExtension(),
-    ...provider.createExtensions(providerContext),
-    ...selectedCapabilities.flatMap((capability) =>
-      capability.createExtensions({
-        project: options.project,
-        target: options.target,
-        targetPack: options.targetPack,
-        selectedCapabilities,
-        selectedSurfaces,
-        capability,
-      })
-    ),
-    ...selectedSurfaces.flatMap((surface) =>
-      surface.createExtensions?.({
-        ...providerContext,
-        targetPack: options.targetPack,
-        surface,
-      }) ?? []
-    ),
-  ];
+    ...(providerContributions.extensions ?? []),
+    ...capabilityContributions.flatMap((contribution) => contribution.extensions ?? []),
+    ...surfaceContributions.flatMap((contribution) => contribution.extensions ?? []),
+  ]);
   return {
     selectedCapabilities,
     selectedSurfaces,
+    semanticsModules,
     extensions,
   };
 }
@@ -102,7 +127,6 @@ export function getTargetRequiredProviderModules(
     specs.push({
       specifierPrefix: ownership.specifierPrefix,
       ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
-      target: target.id,
       message: ownership.message ??
         `target '${target.id}' provider must own provider module prefix '${ownership.specifierPrefix}' before it can be imported`,
     });
@@ -111,9 +135,8 @@ export function getTargetRequiredProviderModules(
     for (const ownership of capability.moduleOwnership ?? []) {
       specs.push({
         specifierPrefix: ownership.specifierPrefix,
-        ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
-        target: target.id,
-        message: ownership.message ?? `installed capability '${capability.id}' for target '${target.id}' must own provider module prefix '${ownership.specifierPrefix}' before it can be imported`,
+      ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
+      message: ownership.message ?? `installed capability '${capability.id}' for target '${target.id}' must own provider module prefix '${ownership.specifierPrefix}' before it can be imported`,
       });
     }
   }
@@ -150,6 +173,9 @@ export function selectInstalledTargetCapabilities(
 ): TargetCapabilitySelectionResult {
   const selectedCapabilities: TargetCapabilityImplementation[] = [];
   const moduleOwners = new Map<string, string>();
+  const selectedCapabilityIds = new Set(installedCapabilities
+    .filter((capability) => capability.targetId === target.id)
+    .map((capability) => capability.id));
   const selectedSurfaceIds = new Set(selectedSurfaces.map((surface) => surface.id));
   for (const capability of installedCapabilities) {
     if (capability.targetId !== target.id) {
@@ -158,6 +184,11 @@ export function selectInstalledTargetCapabilities(
     for (const requiredSurfaceId of capability.requiredSurfaces ?? []) {
       if (!selectedSurfaceIds.has(requiredSurfaceId)) {
         return { error: `installed capability '${capability.id}' for target '${target.id}' requires surface '${requiredSurfaceId}'` };
+      }
+    }
+    for (const requiredCapabilityId of capability.requiredCapabilities ?? []) {
+      if (!selectedCapabilityIds.has(requiredCapabilityId)) {
+        return { error: `installed capability '${capability.id}' for target '${target.id}' requires capability '${requiredCapabilityId}'` };
       }
     }
     for (const ownership of capability.moduleOwnership) {

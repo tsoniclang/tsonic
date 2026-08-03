@@ -4,7 +4,18 @@ export {
   tsonicCoreProviderVersion,
   tsonicCoreSourceExtensionId,
   tsonicCoreTypesModule,
+  tsonicCoreVirtualModulesProviderId,
 } from "./identity.js";
+export {
+  tsonicAttributeBuilderFactKey,
+} from "./attribute-builder-facts.js";
+export type {
+  TsonicAttributeApplicationFact,
+  TsonicAttributeApplicationMemberKind,
+  TsonicAttributeApplicationPlacement,
+  TsonicAttributeBuilderFact,
+  TsonicAttributeBuilderStateFact,
+} from "./attribute-builder-facts.js";
 export {
   attributeBuilderDeclaration,
   attributeMemberBuilderDeclaration,
@@ -12,6 +23,9 @@ export {
   providerExportDeclarationsForSourceModule,
   providerPrimitiveDeclaration,
   providerTypeMarkerDeclaration,
+  tsonicAttributeBuilderMemberIds,
+  tsonicAttributeBuilderSignatureIds,
+  tsonicSourceMarkerSignatureIds,
 } from "./provider-declarations.js";
 export { createTsonicCoreSourceExtension } from "./source-extension.js";
 export { tsonicCoreSourceSemanticsModules } from "./source-modules.js";

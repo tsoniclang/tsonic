@@ -1,5 +1,4 @@
 import { NewGoStructMap } from "../../go/compat.js";
-import { recordExtensionPostCheckAssignabilityObservation } from "../../extensions/checker-integration.js";
 import { Node_Name } from "../ast/spine.js";
 import { Node_ModifierFlags } from "../ast/ast.js";
 import { NewDiagnosticChain, Diagnostic_SetRelatedInfo, Diagnostic_AddRelatedInfo } from "../ast/diagnostic.js";
@@ -880,7 +879,6 @@ export function Checker_reportDiagnostic(receiver, diagnostic, diagnosticOutput)
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.checkTypeAssignableToAndOptionallyElaborate","kind":"method","status":"implemented","sigHash":"4db0d4f43f485c39b2d35b65a4917cac04a7a21a814eb64d706729c064060d66","bodyHash":"3fb2c8d80a6974d273442b269e10c7b48eced38a44e1af479b3b9f4ad18c96c5"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go computes assignment compatibility, extension-enabled programs may observe provider-owned target/surface assignability and report extension diagnostics; the returned TS assignability result remains the exact TS-Go result."}
  *
  * Go source:
  * func (c *Checker) checkTypeAssignableToAndOptionallyElaborate(source *Type, target *Type, errorNode *ast.Node, expr *ast.Node, headMessage *diagnostics.Message, diagnosticOutput *[]*ast.Diagnostic) bool {
@@ -888,11 +886,7 @@ export function Checker_reportDiagnostic(receiver, diagnostic, diagnosticOutput)
  * }
  */
 export function Checker_checkTypeAssignableToAndOptionallyElaborate(receiver, source, target, errorNode, expr, headMessage, diagnosticOutput) {
-    const coreAssignable = Checker_checkTypeRelatedToAndOptionallyElaborate(receiver, source, target, receiver.assignableRelation, errorNode, expr, headMessage, diagnosticOutput);
-    if (coreAssignable) {
-        recordExtensionPostCheckAssignabilityObservation(receiver, source, target, errorNode, expr, "assignment");
-    }
-    return coreAssignable;
+    return Checker_checkTypeRelatedToAndOptionallyElaborate(receiver, source, target, receiver.assignableRelation, errorNode, expr, headMessage, diagnosticOutput);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Checker.checkTypeRelatedToAndOptionallyElaborate","kind":"method","status":"implemented","sigHash":"3be8c70b5de92c27dbd732a2715271d8d1f11bddde43258ac9bc64bddbe4f952","bodyHash":"4435d044edba7a4f83ee4486f165036629f497be74b0b8cb6bbfe4e8297943ee"}

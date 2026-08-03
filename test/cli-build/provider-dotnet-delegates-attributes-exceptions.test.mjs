@@ -306,7 +306,8 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# type expression emission requires a provider target binding or a project-source class\/interface declaration/);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST system-attributes\.ts:1:37: C# type policy could not resolve source node kind 'KindObjectKeyword' to a closed target type\./u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedAttributeBuilder.csproj")), false);
 });
 
 test("CLI emits C# attributes from provider target identity facts", async () => {
@@ -499,6 +500,7 @@ test("CLI emits provider-backed C# catch variables", async () => {
       "  try {",
       "    return 1;",
       "  } catch (error) {",
+      "    void error;",
       "    return 2;",
       "  }",
       "}",
@@ -583,6 +585,7 @@ test("CLI runs provider-backed exception throw, catch, and finally semantics", a
       "    }",
       "    return \"ok\";",
       "  } catch (error) {",
+      "    void error;",
       "    return \"boom\";",
       "  } finally {",
       "    cleanup++;",

@@ -708,7 +708,7 @@ export declare function Program_extractUnresolvedImportsFromSourceFile(receiver:
 export declare function Program_SingleThreaded(receiver: GoPtr<Program>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::method::Program.BindSourceFiles","kind":"method","status":"implemented","sigHash":"adbb681ce817a1474ae6c753e2045b27ef0b0ead57fdc141f8e63bb8642fd42f","bodyHash":"a081f0a968bb98f7febda2f9fbca79e39349341857a100b2765475a5f6784907"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go binding, provider virtual modules publish canonical identity and target binding facts for consumers; programs without an attached extension host remain on the direct TS-Go path."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After normal TS-Go binding, provider virtual modules publish source declaration identities and source facts; programs without an attached extension host remain on the direct TS-Go path."}
  *
  * Go source:
  * func (p *Program) BindSourceFiles() {
@@ -1740,7 +1740,7 @@ export declare function FilterNoEmitSemanticDiagnostics(diags: GoSlice<GoPtr<Dia
 export declare function Program_getSemanticDiagnosticsWithChecker(receiver: GoPtr<Program>, ctx: Context, c: GoPtr<Checker>, sourceFile: GoPtr<SourceFile>): GoSlice<GoPtr<Diagnostic>>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::method::Program.getBindAndCheckDiagnosticsWithChecker","kind":"method","status":"implemented","sigHash":"58024f4d99ada564df7a23698f4cc8b6567aebe9250892ed517fdaae0f7ab8be","bodyHash":"c692dec725a0f679b5f3c530607a70c1efda4dbcf2b03c2aeb6de6c86e56976e"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Checker diagnostics force binding in TS-Go; extension-enabled programs must also publish bound-source lifecycle facts before checker hooks consume them. No-extension programs return immediately through the existing extension integration guard."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Checker diagnostics force binding in TS-Go; provider virtual files must also publish their source declaration facts before source analysis consumes them. No-extension programs remain on the direct TS-Go path."}
  *
  * Go source:
  * func (p *Program) getBindAndCheckDiagnosticsWithChecker(ctx context.Context, fileChecker *checker.Checker, sourceFile *ast.SourceFile) []*ast.Diagnostic {

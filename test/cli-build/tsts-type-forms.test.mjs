@@ -106,7 +106,7 @@ test("CLI consumes TSTS source meaning for narrowing, contextual typing, generic
   assert.match(generatedSource, /return "R";/);
   assert.match(generatedSource, /public static string present\(string\? value\)/);
   assert.match(generatedSource, /return value;/);
-  assert.match(generatedSource, /Func<double, string, string> format = \(double input, string label\) => \$"\{label\}:\{id\(input\)\}";/);
+  assert.match(generatedSource, /Func<double, string, string> format = \(double input, string label\) => \$"\{label\}:\{id<double>\(input\)\}";/);
   assert.match(generatedSource, /return format\(value, "value"\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -202,12 +202,12 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
   assert.match(generatedSource, /public class BaseValue/);
   assert.match(generatedSource, /public class DerivedValue : BaseValue/);
   assert.match(generatedSource, /public static string readBase\(BaseValue\? value\)/);
-  assert.match(generatedSource, /if \(value == null\)/);
+  assert.match(generatedSource, /if \(value is null\)/);
   assert.match(generatedSource, /if \(value is DerivedValue\)/);
-  assert.match(generatedSource, /return \$"\{value\.name\}:\{\(\(DerivedValue\)value\)\.score\}";/);
+  assert.match(generatedSource, /return \$"\{\(\(DerivedValue\)value\)\.name\}:\{\(\(DerivedValue\)value\)\.score\}";/);
   assert.match(generatedSource, /public static U apply<T, U>\(T value, Func<T, U> callback\)/);
   assert.match(generatedSource, /Func<double, string> render = \(double input\) => \$"\{input\}";/);
-  assert.match(generatedSource, /string direct = apply\(value, \(double input\) => \$"\{input \+ 1\}"\);/);
+  assert.match(generatedSource, /string direct = apply<double, string>\(value, \(double input\) => \$"\{input \+ 1\}"\);/);
   assert.match(generatedSource, /return \$"\{render\(value\)\}:\{direct\}";/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -244,7 +244,7 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
     "}",
     "",
   ], /TS2339: Property 'score' does not exist on type 'BaseValue'/);
-  assert.match(invalidSourceDiagnostics, /C# property access 'score' must be selected by TSTS\/provider facts before emission/);
+  assert.doesNotMatch(invalidSourceDiagnostics, /tsonic-csharp|C# property access/);
 });
 test("CLI consumes TSTS template literal type results and rejects incompatible literals", async () => {
   const { generatedSource } = await assertBuilds("template-literal-type-positive", "SmokeGeneratedTemplateLiteralTypes", [
@@ -629,5 +629,5 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "  return value;",
     "}",
     "",
-  ], /requires transformed source-core primitive type syntax to preserve explicit target primitive evidence/);
+  ], /CSHARP_OPAQUE_TARGET_TYPE_UNSUPPORTED.*source-fact-dependent-type-transform/);
 });

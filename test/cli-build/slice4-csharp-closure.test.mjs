@@ -52,7 +52,7 @@ test("Slice 4 emits source functions, lambdas, block scopes, if/else, and return
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double choose\(bool flag\)/);
   assert.match(generatedSource, /if \(flag\)/);
-  assert.match(generatedSource, /double selected = 1;/);
+  assert.match(generatedSource, /int selected = 1;/);
   assert.match(generatedSource, /return selected;/);
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 4;/);
@@ -133,7 +133,7 @@ test("Slice 4 emits classes, constructors, fields, methods, private identifiers,
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public interface Named/);
-  assert.match(generatedSource, /string name \{ get; \}/);
+  assert.match(generatedSource, /string name \{ get; set; \}/);
   assert.match(generatedSource, /public class Base/);
   assert.match(generatedSource, /public class Box<T>/);
   assert.match(generatedSource, /public T value;/);
@@ -143,10 +143,11 @@ test("Slice 4 emits classes, constructors, fields, methods, private identifiers,
   assert.match(generatedSource, /public class Derived/);
   assert.match(generatedSource, /public static double count = 0;/);
   assert.match(generatedSource, /static Derived\(\)\n\s*\{\n\s*Derived\.count = 1;/);
-  assert.match(generatedSource, /private string _secret;/);
+  const privateName = /private string (__tsonic_private_[a-f0-9]{64});/.exec(generatedSource)?.[1];
+  assert.ok(privateName);
   assert.match(generatedSource, /public SecretBox\(string secret\)/);
-  assert.match(generatedSource, /this\._secret = secret;/);
-  assert.match(generatedSource, /return this\._secret;/);
+  assert.match(generatedSource, new RegExp(`this\\.${privateName} = secret;`));
+  assert.match(generatedSource, new RegExp(`return this\\.${privateName};`));
   assert.doesNotMatch(generatedSource, /#secret|__unsupported|dynamic/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedSlice4Classes.csproj"), "--nologo", "--v:minimal"]);

@@ -1,7 +1,12 @@
-import type { CompilerExtension } from "@tsonic/tsts";
 import type { TargetRuntimeContributions } from "./artifacts.js";
 import type { TargetSelection, TsonicProjectConfig } from "./config.js";
-import type { TargetCompilationPaths, TargetPack, TargetProviderModuleOwnership, TargetSurfaceImplementation } from "./pack.js";
+import type {
+  TargetCompilationPaths,
+  TargetPack,
+  TargetProviderModuleOwnership,
+  TargetSourceCompilerContributions,
+  TargetSurfaceImplementation,
+} from "./pack.js";
 import type { TargetSourceProfileContributions } from "./source-profile.js";
 
 export type TsonicPlugin =
@@ -28,7 +33,7 @@ export interface TargetCapabilityRuntimeContributionContext extends TargetCapabi
   readonly paths: TargetCompilationPaths;
 }
 
-export interface TargetCapabilityOperationMapper {
+export interface TargetCapabilityContribution {
   readonly kind: string;
 }
 
@@ -38,9 +43,10 @@ export interface TsonicTargetCapabilityPlugin {
   readonly targetId: string;
   readonly displayName: string;
   readonly requiredSurfaces?: readonly string[];
+  readonly requiredCapabilities?: readonly string[];
   readonly moduleOwnership: readonly TargetProviderModuleOwnership[];
   sourceProfileContributions?(context: TargetCapabilityContext): TargetSourceProfileContributions;
-  createExtensions(context: TargetCapabilityContext): readonly CompilerExtension[];
-  createOperationMappers?(context: TargetCapabilityContext): readonly TargetCapabilityOperationMapper[];
+  sourceCompilerContributions?(context: TargetCapabilityContext): TargetSourceCompilerContributions;
+  createTargetContributions?(context: TargetCapabilityContext): readonly TargetCapabilityContribution[];
   runtimeContributions?(context: TargetCapabilityRuntimeContributionContext): TargetRuntimeContributions;
 }

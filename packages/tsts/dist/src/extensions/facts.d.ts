@@ -1,6 +1,7 @@
-import type { ExtensionEvidence, ExtensionFactSubject } from "./host.js";
+import type { ExtensionFactSubject, ProviderWellKnownSymbolName } from "./host.js";
+import type { Node } from "../internal/ast/ast.js";
+import { type ArgumentPassingMode } from "./argument-passing.js";
 export type { ArgumentPassingMode } from "./argument-passing.js";
-import type { ArgumentPassingMode } from "./argument-passing.js";
 export type ExtensionCanonicalIdentityKind = "module" | "package" | "export" | "local-alias" | "symbol" | "type" | "signature" | "instantiated-type";
 export type ExtensionImportKind = "type" | "value" | "namespace" | "unknown";
 export type SourcePrimitiveKind = "bool" | "char" | "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" | "int64" | "uint64" | "native-int" | "native-uint" | "float16" | "float32" | "float64" | "decimal" | "int128" | "uint128";
@@ -14,7 +15,7 @@ export interface ExtensionCanonicalIdentity {
     readonly importKind?: ExtensionImportKind;
     readonly canonicalSymbolId?: string;
 }
-export type SourcePointerMutability = "readonly" | "readwrite" | "target-defined";
+export type SourcePointerMutability = "readonly" | "readwrite" | "unspecified";
 export interface SourcePrimitiveFact {
     readonly kind: SourcePrimitiveKind;
     readonly signed?: boolean;
@@ -23,18 +24,15 @@ export interface SourcePrimitiveFact {
 }
 export interface ArgumentPassingFact {
     readonly mode: ArgumentPassingMode;
-    readonly targetExpression?: ExtensionFactSubject;
-    readonly parameterIndex?: number;
-    readonly targetParameter?: TargetParameter;
-    readonly selectedSignature?: ProviderDeclarationIdentity;
+    readonly storageExpression?: Node;
 }
 export interface FunctionPointerFact {
-    readonly parameters: readonly ExtensionFactSubject[];
-    readonly result: ExtensionFactSubject;
+    readonly parameters: readonly Node[];
+    readonly result: Node;
     readonly abi: readonly string[];
 }
 export interface PointerFact {
-    readonly pointee: ExtensionFactSubject;
+    readonly pointee: Node;
     readonly mutability: SourcePointerMutability;
     readonly unsafeRequired: boolean;
 }
@@ -44,216 +42,48 @@ export interface StructFact {
 }
 export interface FieldFact {
     readonly name: string;
-    readonly type: ExtensionFactSubject;
+    readonly type: Node;
     readonly readonly?: boolean;
 }
 export interface AttributeFact {
-    readonly target: ExtensionFactSubject;
+    readonly target: Node;
     readonly attributeName: string;
-    readonly arguments?: readonly ExtensionFactSubject[];
+    readonly arguments?: readonly Node[];
 }
 export interface DefaultValueFact {
-    readonly type: ExtensionFactSubject;
+    readonly type: Node;
+}
+export interface FlowStateFact {
+    readonly state: "moved" | "borrowed-shared" | "borrowed-mut";
 }
 export interface ProviderDeclarationIdentity {
     readonly providerId: string;
     readonly providerVersion?: string;
     readonly providerModuleId: string;
     readonly moduleSpecifier: string;
-    readonly virtualFileName?: string;
+    readonly artifactFileName?: string;
     readonly exportName?: string;
     readonly exportId?: string;
     readonly memberName?: string;
+    readonly memberKey?: ProviderMemberKey;
     readonly memberId?: string;
     readonly memberStatic?: boolean;
     readonly signatureId?: string;
-    readonly targetIdentity?: TargetTypeRef;
 }
-export type TargetTypeRef = {
-    readonly kind: "source-primitive";
-    readonly name: SourcePrimitiveKind;
-} | {
-    readonly kind: "target-named";
-    readonly id: string;
-    readonly typeArguments?: readonly TargetTypeRef[];
-} | {
-    readonly kind: "type-parameter";
+export type ProviderMemberKey = {
+    readonly kind: "property-key";
     readonly name: string;
 } | {
-    readonly kind: "array";
-    readonly element: TargetTypeRef;
-    readonly rank?: number;
-} | {
-    readonly kind: "tuple";
-    readonly elements: readonly TargetTypeRef[];
-} | {
-    readonly kind: "pointer";
-    readonly pointee: TargetTypeRef;
-    readonly mutability?: "const" | "mut" | "target-defined";
-} | {
-    readonly kind: "function-pointer";
-    readonly args: readonly TargetTypeRef[];
-    readonly result: TargetTypeRef;
-    readonly abi?: readonly string[];
-} | {
-    readonly kind: "opaque";
-    readonly id: string;
-} | {
-    readonly kind: "associated-type";
-    readonly owner: TargetTypeRef;
-    readonly name: string;
-} | {
-    readonly kind: "lifetime";
-    readonly name: string;
-} | {
-    readonly kind: "target-specific";
-    readonly target: string;
-    readonly name: string;
-    readonly value?: unknown;
+    readonly kind: "well-known-symbol";
+    readonly name: ProviderWellKnownSymbolName;
 };
-export type TargetConstraint = {
-    readonly kind: "implements";
-    readonly contract: string;
-    readonly typeArguments?: readonly TargetTypeRef[];
-} | {
-    readonly kind: "value-type";
-} | {
-    readonly kind: "reference-type";
-} | {
-    readonly kind: "constructible";
-} | {
-    readonly kind: "unmanaged";
-} | {
-    readonly kind: "copy";
-} | {
-    readonly kind: "clone";
-} | {
-    readonly kind: "default";
-} | {
-    readonly kind: "sized";
-} | {
-    readonly kind: "lifetime";
-    readonly name: string;
-} | {
-    readonly kind: "target-specific";
-    readonly target: string;
-    readonly name: string;
-    readonly value?: unknown;
-};
-export interface TargetTypeParameter {
-    readonly name: string;
-    readonly constraints?: readonly TargetConstraint[];
-    readonly variance?: "in" | "out" | "invariant" | "target-defined";
-}
-export interface TargetParameter {
-    readonly name: string;
-    readonly type: TargetTypeRef;
-    readonly passingMode: ArgumentPassingMode;
-    readonly optional?: boolean;
-    readonly paramsArray?: boolean;
-}
-export interface TargetMember {
-    readonly id: string;
-    readonly sourceName: string;
-    readonly targetName: string;
-    readonly kind: "method" | "constructor" | "property" | "field" | "indexer" | "event" | "operator";
-    readonly static?: boolean;
-    readonly parameters: readonly TargetParameter[];
-    readonly returnType?: TargetTypeRef;
-    readonly typeParameters?: readonly TargetTypeParameter[];
-    readonly overloadGroup?: string;
-    readonly providerDeclaration?: ProviderDeclarationIdentity;
-}
-export interface TargetBindingFact {
-    readonly id: string;
-    readonly sourceName: string;
-    readonly targetName: string;
-    readonly target: string;
-    readonly kind: "class" | "struct" | "interface" | "trait" | "enum" | "delegate" | "function" | "opaque";
-    readonly typeParameters?: readonly TargetTypeParameter[];
-    readonly members?: readonly TargetMember[];
-    readonly implementedContracts?: readonly TargetConstraint[];
-}
-export interface InstantiatedTargetTypeFact {
-    readonly targetType: TargetBindingFact;
-    readonly typeArguments: readonly ExtensionFactSubject[];
-    readonly resolvedTypeArguments?: readonly TargetTypeRef[];
-}
-export interface SourceSelectedMethodTypeArgument {
-    readonly typeParameterName: string;
-    readonly typeParameter?: ExtensionFactSubject;
-    readonly selectedType: ExtensionFactSubject;
-    readonly explicitTypeNode?: ExtensionFactSubject;
-}
-export interface SelectedTargetSignatureFact {
-    readonly member: TargetMember;
-    readonly typeArguments?: readonly ExtensionFactSubject[];
-    readonly sourceSelectedMethodTypeArguments?: readonly SourceSelectedMethodTypeArgument[];
-    readonly targetTypeArguments?: readonly TargetTypeRef[];
-    readonly argumentConversions?: readonly TargetTypeRef[];
-    readonly sourceSignature?: ExtensionFactSubject;
-    readonly sourceDeclaration?: ExtensionFactSubject;
-    readonly providerDeclaration?: ProviderDeclarationIdentity;
-}
-export interface ContextualTargetTypeFact {
-    readonly type: ExtensionFactSubject;
-    readonly targetType?: TargetTypeRef;
-}
-export interface TargetOperationFact {
-    readonly operationId: string;
-    readonly operationKind: "property" | "method" | "indexer" | "operator" | "constructor" | "iteration";
-    readonly targetOperation: string;
-    readonly resultType?: ExtensionFactSubject;
-    readonly evidence?: readonly ExtensionEvidence[];
-    readonly provenance?: TargetOperationProvenance;
-}
-export interface TargetOperationProvenance {
-    readonly providerDeclaration?: ProviderDeclarationIdentity;
-    readonly sourceExpression?: ExtensionFactSubject;
-    readonly sourceReceiver?: ExtensionFactSubject;
-    readonly sourceCallee?: ExtensionFactSubject;
-    readonly sourceSelectedSymbol?: ExtensionFactSubject;
-    readonly sourceSelectedDeclaration?: ExtensionFactSubject;
-    readonly sourceSelectedSignature?: ExtensionFactSubject;
-}
-export interface FlowStateFact {
-    readonly state: "moved" | "borrowed-shared" | "borrowed-mut" | "initialized" | "uninitialized" | "target-validation-required";
-    readonly targetCompiler?: string;
-    readonly evidence?: readonly ExtensionEvidence[];
-}
-export interface RuntimeCarrierFact {
-    readonly carrier: TargetTypeRef;
-    readonly requiresAllocation?: boolean;
-    readonly provenance?: RuntimeCarrierProvenance;
-}
-export interface RuntimeCarrierProvenance {
-    readonly sourceType?: ExtensionFactSubject;
-    readonly sourceTypeReference?: ExtensionFactSubject;
-    readonly sourceSymbol?: ExtensionFactSubject;
-    readonly providerDeclaration?: ProviderDeclarationIdentity;
-}
-export interface TargetConversionFact {
-    readonly convertedType?: TargetTypeRef;
-    readonly operation?: TargetOperationFact;
-}
-export interface ProviderVirtualDeclarationFact {
-    readonly providerId: string;
+export interface ProviderVirtualDeclarationFact extends ProviderDeclarationIdentity {
     readonly providerVersion: string;
-    readonly providerModuleId: string;
-    readonly moduleSpecifier: string;
-    readonly virtualFileName: string;
-    readonly exportName?: string;
-    readonly exportId?: string;
-    readonly memberName?: string;
-    readonly memberId?: string;
-    readonly memberStatic?: boolean;
-    readonly signatureId?: string;
-    readonly targetIdentity?: TargetTypeRef;
+    readonly artifactFileName: string;
 }
 export interface ProviderTypeFamilyVariantFact {
     readonly sourceTypeArgumentCount: number;
     readonly declaration: ProviderVirtualDeclarationFact;
-    readonly targetBinding?: TargetBindingFact;
 }
 export interface ProviderTypeFamilyFact {
     readonly exportName: string;
@@ -268,25 +98,18 @@ export interface ConstGenericFact {
     readonly name: string;
     readonly value: string | number | bigint | boolean;
 }
-export declare const canonicalIdentityFactKey: import("./host.js").ExtensionFactKey<ExtensionCanonicalIdentity>;
-export declare const sourcePrimitiveFactKey: import("./host.js").ExtensionFactKey<SourcePrimitiveFact>;
-export declare const argumentPassingFactKey: import("./host.js").ExtensionFactKey<ArgumentPassingFact>;
-export declare const functionPointerFactKey: import("./host.js").ExtensionFactKey<FunctionPointerFact>;
-export declare const pointerFactKey: import("./host.js").ExtensionFactKey<PointerFact>;
-export declare const structFactKey: import("./host.js").ExtensionFactKey<StructFact>;
-export declare const fieldFactKey: import("./host.js").ExtensionFactKey<FieldFact>;
-export declare const attributeFactKey: import("./host.js").ExtensionFactKey<AttributeFact>;
-export declare const defaultValueFactKey: import("./host.js").ExtensionFactKey<DefaultValueFact>;
-export declare const targetBindingFactKey: import("./host.js").ExtensionFactKey<TargetBindingFact>;
-export declare const instantiatedTargetTypeFactKey: import("./host.js").ExtensionFactKey<InstantiatedTargetTypeFact>;
-export declare const selectedTargetSignatureFactKey: import("./host.js").ExtensionFactKey<SelectedTargetSignatureFact>;
-export declare const contextualTargetTypeFactKey: import("./host.js").ExtensionFactKey<ContextualTargetTypeFact>;
-export declare const targetOperationFactKey: import("./host.js").ExtensionFactKey<TargetOperationFact>;
-export declare const flowStateFactKey: import("./host.js").ExtensionFactKey<FlowStateFact>;
-export declare const runtimeCarrierFactKey: import("./host.js").ExtensionFactKey<RuntimeCarrierFact>;
-export declare const targetConversionFactKey: import("./host.js").ExtensionFactKey<TargetConversionFact>;
-export declare const providerVirtualDeclarationFactKey: import("./host.js").ExtensionFactKey<ProviderVirtualDeclarationFact>;
-export declare const providerTypeFamilyFactKey: import("./host.js").ExtensionFactKey<ProviderTypeFamilyFact>;
-export declare const associatedTypeFactKey: import("./host.js").ExtensionFactKey<AssociatedTypeFact>;
-export declare const constGenericFactKey: import("./host.js").ExtensionFactKey<ConstGenericFact>;
+export declare const canonicalIdentityFactKey: import("./fact-key.js").ExtensionFactKey<ExtensionCanonicalIdentity>;
+export declare const sourcePrimitiveFactKey: import("./fact-key.js").ExtensionFactKey<SourcePrimitiveFact>;
+export declare const argumentPassingFactKey: import("./fact-key.js").ExtensionFactKey<ArgumentPassingFact>;
+export declare const functionPointerFactKey: import("./fact-key.js").ExtensionFactKey<FunctionPointerFact>;
+export declare const pointerFactKey: import("./fact-key.js").ExtensionFactKey<PointerFact>;
+export declare const structFactKey: import("./fact-key.js").ExtensionFactKey<StructFact>;
+export declare const fieldFactKey: import("./fact-key.js").ExtensionFactKey<FieldFact>;
+export declare const attributeFactKey: import("./fact-key.js").ExtensionFactKey<AttributeFact>;
+export declare const defaultValueFactKey: import("./fact-key.js").ExtensionFactKey<DefaultValueFact>;
+export declare const flowStateFactKey: import("./fact-key.js").ExtensionFactKey<FlowStateFact>;
+export declare const providerVirtualDeclarationFactKey: import("./fact-key.js").ExtensionFactKey<ProviderVirtualDeclarationFact>;
+export declare const providerTypeFamilyFactKey: import("./fact-key.js").ExtensionFactKey<ProviderTypeFamilyFact>;
+export declare const associatedTypeFactKey: import("./fact-key.js").ExtensionFactKey<AssociatedTypeFact>;
+export declare const constGenericFactKey: import("./fact-key.js").ExtensionFactKey<ConstGenericFact>;
 //# sourceMappingURL=facts.d.ts.map

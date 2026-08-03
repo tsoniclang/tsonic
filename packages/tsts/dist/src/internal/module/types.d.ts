@@ -120,7 +120,6 @@ export declare function PackageId_PackageName(receiver: GoPtr<PackageId>): strin
 export declare const ResolvedModuleExtensionProviderVirtual = "provider-virtual";
 export interface ResolvedModuleProviderVirtual {
     ProviderId: string;
-    ProviderTarget: string;
     ProviderModuleId: string;
     ModuleSpecifier: string;
 }

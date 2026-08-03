@@ -4,6 +4,7 @@ import type { Kind } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
 export type AstModifierKind = "public" | "private" | "protected" | "readonly" | "override" | "export" | "abstract" | "ambient" | "static" | "async" | "default" | "const";
+export type AstVariableDeclarationKind = "var" | "let" | "const" | "using" | "await using";
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
@@ -16,15 +17,26 @@ export interface AstReader {
     readonly statements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly members: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly parameters: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    /** Returns the exact authored type node owned by syntax whose TS-Go schema permits one. */
+    readonly typeNode: (node: GoPtr<Node>) => GoPtr<Node>;
     readonly typeParameters: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly typeArguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly arguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly elements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly properties: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    /** Returns the exact `?` token owned by nodes whose schema permits one. */
+    readonly questionToken: (node: GoPtr<Node>) => GoPtr<Node>;
+    /** Returns the exact operator kind name for binary, update, and type-operator syntax. */
+    readonly operatorKindName: (node: GoPtr<Node>) => string | undefined;
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifierFlags: (node: GoPtr<Node>) => number;
     readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;
+    /** Tests syntactic modifiers. `"const"` means the `const enum` modifier, not a variable declaration kind. */
     readonly hasModifierKind: (node: GoPtr<Node>, kind: AstModifierKind) => boolean;
+    /** Classifies a variable statement, declaration list, or direct variable declaration. */
+    readonly variableDeclarationKind: (node: GoPtr<Node>) => AstVariableDeclarationKind | undefined;
+    /** Uses TS-Go's canonical grammar predicate for `as const` and `<const>` assertions. */
+    readonly isConstAssertion: (node: GoPtr<Node>) => boolean;
     readonly heritageElements: (node: GoPtr<Node>, kind: "extends" | "implements") => readonly GoPtr<Node>[];
     readonly extendsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly implementsHeritageElements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
@@ -36,6 +48,7 @@ export interface AstReader {
     readonly getFileName: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getPath: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getSourceText: (sourceFile: GoPtr<SourceFile>) => string;
+    readonly isDeclarationFile: (sourceFile: GoPtr<SourceFile>) => boolean;
     readonly is: typeof predicates;
     readonly as: typeof casts;
 }
