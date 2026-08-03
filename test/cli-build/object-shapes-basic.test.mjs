@@ -184,7 +184,7 @@ test("CLI emits interface object literals through provider object-shape adapters
   );
   const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Named/.exec(generatedShapes)?.[1];
   assert.ok(shapeName);
-  assert.match(generated, /public interface Named[\s\S]*string name \{ get; \}[\s\S]*double run\(double value\);/);
+  assert.match(generated, /public interface Named[\s\S]*string name \{ get; set; \}[\s\S]*double run\(double value\);/);
   assert.match(generatedShapes, /public class __TsonicShape_[a-f0-9]{64} : Named[\s\S]*public required string name[\s\S]*get;[\s\S]*set;[\s\S]*public required Func<double, double> __tsonic_shape_method_1_run;/);
   assert.match(generatedShapes, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
   assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*name = "one",[\\s\\S]*__tsonic_shape_method_1_run = \\(double value\\) =>[\\s\\S]*return value \\+ 1;`));
@@ -221,7 +221,7 @@ test("CLI emits generic interface object literals through specialized provider a
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generated, /public interface Box<T>[\s\S]*T value \{ get; \}[\s\S]*string label \{ get; \}/);
+  assert.match(generated, /public interface Box<T>[\s\S]*T value \{ get; set; \}[\s\S]*string label \{ get; set; \}/);
   assert.match(generatedShapes, /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>[\s\S]*public required string label[\s\S]*get;[\s\S]*set;[\s\S]*public required double value[\s\S]*get;[\s\S]*set;/);
   const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>/.exec(generatedShapes)?.[1];
   assert.ok(shapeName);

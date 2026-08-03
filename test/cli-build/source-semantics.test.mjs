@@ -374,25 +374,25 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly int intFromLiteral;/);
-  assert.match(generatedSource, /public static readonly byte byteFromLiteral;/);
-  assert.match(generatedSource, /public static readonly short shortFromLiteral;/);
-  assert.match(generatedSource, /public static readonly long longFromLiteral;/);
-  assert.match(generatedSource, /public static readonly float floatFromLiteral;/);
-  assert.match(generatedSource, /public static readonly double doubleFromLiteral;/);
-  assert.match(generatedSource, /static Index\(\)/);
+  assert.match(generatedSource, /public static int intFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(int\)!;/u);
+  assert.match(generatedSource, /public static byte byteFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(byte\)!;/u);
+  assert.match(generatedSource, /public static short shortFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(short\)!;/u);
+  assert.match(generatedSource, /public static long longFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/u);
+  assert.match(generatedSource, /public static float floatFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(float\)!;/u);
+  assert.match(generatedSource, /public static double doubleFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/u);
+  assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/u);
   assert.match(generatedSource, /intFromLiteral = 1000;/);
-  assert.match(generatedSource, /byteFromLiteral = 255;/);
-  assert.match(generatedSource, /shortFromLiteral = 1000;/);
-  assert.match(generatedSource, /longFromLiteral = System\.Convert\.ToInt64\(1000000\);/);
-  assert.match(generatedSource, /floatFromLiteral = 1\.5F;/);
+  assert.match(generatedSource, /byteFromLiteral = \(byte\)255;/);
+  assert.match(generatedSource, /shortFromLiteral = \(short\)1000;/);
+  assert.match(generatedSource, /longFromLiteral = 1000000;/);
+  assert.match(generatedSource, /floatFromLiteral = \(float\)1\.5;/);
   assert.match(generatedSource, /doubleFromLiteral = 1\.5;/);
   assert.match(generatedSource, /Dog dog = \(Dog\)animal;/);
-  assert.match(generatedSource, /return System\.Convert\.ToByte\(value\);/);
-  assert.match(generatedSource, /return System\.Convert\.ToInt16\(value\);/);
-  assert.match(generatedSource, /return System\.Convert\.ToUInt32\(value\);/);
-  assert.match(generatedSource, /return System\.Convert\.ToSingle\(value\);/);
-  assert.match(generatedSource, /return System\.Convert\.ToDecimal\(value\);/);
+  assert.match(generatedSource, /return \(byte\)value;/);
+  assert.match(generatedSource, /return \(short\)value;/);
+  assert.match(generatedSource, /return \(uint\)value;/);
+  assert.match(generatedSource, /public static float singleValue\(int value\)[\s\S]*return value;/u);
+  assert.match(generatedSource, /public static decimal decimalValue\(int value\)[\s\S]*return value;/u);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeAssertions.csproj"), "--nologo", "--v:minimal"]);
@@ -419,7 +419,8 @@ test("CLI rejects broad object assertions without finalized carrier facts", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TypeScript object is a broad structural carrier/);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST index\.ts:3:35: C# type policy could not resolve source node kind 'KindObjectKeyword' to a closed target type\./u);
+  assert.match(build.stderr, /C# conversion requires closed source and target representations\./u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {

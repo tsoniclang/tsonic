@@ -116,7 +116,7 @@ test("CLI enforces provider-backed generic interface constraints through TSTS de
   assert.match(validGeneratedSource, /Acme\.Constraints\.StructTarget<int> structTarget/);
   assert.match(validGeneratedSource, /Acme\.Constraints\.UnmanagedTarget<int> unmanagedTarget/);
   assert.match(validGeneratedSource, /Acme\.Constraints\.NotNullTarget<string> notNullTarget/);
-  assert.match(validGeneratedSource, /referenceNew\.Copy\(new Acme\.Constraints\.Marked\(\)\);/);
+  assert.match(validGeneratedSource, /referenceNew\.Copy<Acme\.Constraints\.Marked>\(new Acme\.Constraints\.Marked\(\)\);/);
   assert.match(validGeneratedSource, /return box;/);
   assert.doesNotMatch(validGeneratedSource, /__unsupported/);
 
