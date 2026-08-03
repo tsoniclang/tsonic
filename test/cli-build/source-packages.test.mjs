@@ -67,6 +67,7 @@ test("CLI compiles a hoisted workspace source package through its package export
   const packageSourcePath = resolve(projectDirectory, "out/csharp/src/node_modules/@demo/domain/src/Node_modules_Demo_domain_src_index.cs");
   assert.equal(existsSync(packageSourcePath), true);
   const packageSource = await readFile(packageSourcePath, "utf8");
-  assert.match(packageSource, /public static readonly string greeting;/);
+  assert.match(packageSource, /public static string greeting\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/u);
+  assert.match(packageSource, /private static object\? __tsonic_module_init_core\(\)[\s\S]*greeting = "workspace-source";/u);
   assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedHoistedSourcePackage"), "workspace-source\n");
 });

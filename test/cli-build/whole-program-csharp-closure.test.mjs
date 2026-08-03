@@ -132,15 +132,19 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /Startup\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*Barrel\.__tsonic_module_init\(\);[\s\S]*GreeterModule\.__tsonic_module_init\(\);/);
-  assert.match(indexSource, /public static readonly User current;/);
-  assert.match(indexSource, /public class __TsonicShape_[A-Za-z0-9_]+/);
+  assert.match(indexSource, /public static User current\s*\{\s*get;\s*private set;\s*\} = default\(User\)!;/u);
+  const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const shapeName = /public class (__TsonicShape_[a-f0-9]{64})/u.exec(shapeSource)?.[1];
+  assert.ok(shapeName);
+  assert.match(shapeSource, new RegExp(`public class ${shapeName}[\\s\\S]*public required string name;`));
+  assert.match(indexSource, new RegExp(`public static ${shapeName} named`));
   assert.match(indexSource, /current = Users\.makeUser\("Ada"\);/);
   assert.match(indexSource, /greeter = new Greeter\(named\.name\);/);
   assert.doesNotMatch(indexSource, /Model\.__tsonic_module_init|UserName|__unsupported/);
 
   const modelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Model.cs"), "utf8");
   assert.match(modelSource, /public interface Model/);
-  assert.match(modelSource, /string name \{ get; \}/);
+  assert.match(modelSource, /string name \{ get; set; \}/);
   assert.match(modelSource, /public class User : Person/);
   assert.match(modelSource, /public User\(string name\) : base\(name\)/);
   assert.match(modelSource, /public class Role/);

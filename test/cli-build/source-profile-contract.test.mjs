@@ -50,7 +50,7 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
   assert.match(generated, /path\.StartsWith\("\/"\)/u);
   assert.match(generated, /parts\.Length/u);
   assert.match(generated, /parts\[1\]/u);
-  assert.match(generated, /public static readonly long wideValue;/u);
+  assert.match(generated, /public static long wideValue\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/u);
   assert.match(generated, /wideValue = wideValues\[1\];/u);
   assert.match(generated, /span\.Slice\(offset, selectedChunkSize\)/u);
 });
@@ -117,8 +117,8 @@ test("CLI pure C# profile rejects non-integral inferred CLR array indexes", asyn
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
   const output = result.stdout + result.stderr;
-  assert.match(output, /ERROR tsonic-csharp:TS9100109 .*\/src\/App\.ts:3:9:/u);
-  assert.match(output, /C# native array element access requires an integral TSTS\/provider-backed index type\./u);
+  assert.match(output, /ERROR tsonic-csharp:CSHARP_UNSUPPORTED_AST App\.ts:3:17:/u);
+  assert.match(output, /No exact C# implicit conversion relates 'source:float64' to 'source:int32'\./u);
   assert.match(output, /Artifacts: 0/u);
 });
 
@@ -146,8 +146,8 @@ test("CLI exact provider calls reject conditional arguments with incompatible ta
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
   const output = result.stdout + result.stderr;
-  assert.match(output, /ERROR tsonic-csharp:CSHARP_TARGET_CALL_NOT_CLOSED .*\/src\/App\.ts:7:9:/u);
-  assert.match(output, /Source argument 1 with C# representation 'source:float64' cannot satisfy exact target parameter 'length' with representation 'source:int32' through an implicit conversion\./u);
+  assert.match(output, /ERROR tsonic-csharp:CSHARP_TARGET_CALL_NOT_CLOSED App\.ts:7:10:/u);
+  assert.match(output, /Source argument 1 with C# representation 'source:float64' cannot satisfy exact target parameter 'length' with passing mode 'by-value' and representation 'source:int32'\./u);
   assert.match(output, /No exact C# implicit conversion relates 'source:float64' to 'source:int32'\./u);
   assert.match(output, /Artifacts: 0/u);
 });

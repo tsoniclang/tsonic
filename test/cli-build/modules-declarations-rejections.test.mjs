@@ -174,19 +174,22 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
 
   const modelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Model.cs"), "utf8");
   assert.match(modelSource, /public enum Rank[\s\S]*Silver = 2,[\s\S]*Gold = 3/);
-  assert.match(modelSource, /public interface Receipt[\s\S]*string label \{ get; \}[\s\S]*double points \{ get; \}[\s\S]*Rank rank \{ get; \}/);
+  assert.match(modelSource, /public interface Receipt[\s\S]*string label \{ get; set; \}[\s\S]*double points \{ get; set; \}[\s\S]*Rank rank \{ get; set; \}/);
   assert.match(modelSource, /public class Entity[\s\S]*public static string suffix = "score";[\s\S]*public Entity\(string label\)/);
   assert.match(modelSource, /public virtual string title[\s\S]*get[\s\S]*return this\.label \+ "-" \+ Entity\.suffix;/);
   assert.match(modelSource, /public override string title[\s\S]*get[\s\S]*return (?:this|\(\(Entity\)this\))\.label \+ "-score:" \+ this\.points;/);
   assert.match(modelSource, /public class ScoreCard : Entity[\s\S]*public static double bonus = 3;[\s\S]*public static ScoreCard create\(string label, double points\)/);
   assert.match(modelSource, /public ScoreCard\(string label, double points\) : base\(label\)/);
   assert.match(modelSource, /return base\.baseScore\(\) \+ this\.points \+ ScoreCard\.bonus;/);
-  assert.match(modelSource, /public class __TsonicShape_Receipt_[A-Za-z0-9_]+ : Receipt[\s\S]*public string label[\s\S]*get;[\s\S]*set;[\s\S]*public double points[\s\S]*get;[\s\S]*set;[\s\S]*public Rank rank[\s\S]*get;[\s\S]*set;/);
-  assert.match(modelSource, /return new __TsonicShape_Receipt_[A-Za-z0-9_]+[\s\S]*label = (?:card|\(\(Entity\)card\))\.title,[\s\S]*points = points,[\s\S]*rank = (?:Model\.)?classify\(points\)/);
+  const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Receipt/u.exec(shapeSource)?.[1];
+  assert.ok(shapeName);
+  assert.match(shapeSource, /public required string label\s*\{\s*get;\s*set;\s*\}[\s\S]*public required double points\s*\{\s*get;\s*set;\s*\}[\s\S]*public required Rank rank\s*\{\s*get;\s*set;\s*\}/u);
+  assert.match(modelSource, new RegExp(`return new ${shapeName}[\\s\\S]*label = (?:card|\\(\\(Entity\\)card\\))\\.title,[\\s\\S]*points = points,[\\s\\S]*rank = (?:Model\\.)?classify\\(points\\)`));
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /ScoreCard\.create\("Ada", 8\)/);
-  assert.match(indexSource, /public static readonly string rank;/);
+  assert.match(indexSource, /public static string rank\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/u);
   assert.match(indexSource, /rank = receipt\.rank == Rank\.Gold \? "gold" : "silver";/);
   assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(receipt\.label \+ ":" \+ receipt\.points \+ ":" \+ rank\);/);
 

@@ -133,7 +133,7 @@ test("Slice 4 emits classes, constructors, fields, methods, private identifiers,
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public interface Named/);
-  assert.match(generatedSource, /string name \{ get; \}/);
+  assert.match(generatedSource, /string name \{ get; set; \}/);
   assert.match(generatedSource, /public class Base/);
   assert.match(generatedSource, /public class Box<T>/);
   assert.match(generatedSource, /public T value;/);
