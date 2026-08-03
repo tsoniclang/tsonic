@@ -178,10 +178,16 @@ test("CLI emits interface object literals through provider object-shape adapters
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Named/.exec(generatedShapes)?.[1];
+  assert.ok(shapeName);
   assert.match(generated, /public interface Named[\s\S]*string name \{ get; \}[\s\S]*double run\(double value\);/);
-  assert.match(generated, /public class __TsonicShape_Named_[A-Za-z0-9_]+ : Named[\s\S]*public string name[\s\S]*get;[\s\S]*set;[\s\S]*public Func<double, double> __tsonic_shape_method_1_run;/);
-  assert.match(generated, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
-  assert.match(generated, /public static Named create\(\)[\s\S]*return new __TsonicShape_Named_[A-Za-z0-9_]+[\s\S]*name = "one",[\s\S]*__tsonic_shape_method_1_run = \(double value\) =>[\s\S]*return value \+ 1;/);
+  assert.match(generatedShapes, /public class __TsonicShape_[a-f0-9]{64} : Named[\s\S]*public required string name[\s\S]*get;[\s\S]*set;[\s\S]*public required Func<double, double> __tsonic_shape_method_1_run;/);
+  assert.match(generatedShapes, /public double run\(double arg0\)[\s\S]*return __tsonic_shape_method_1_run\(arg0\);/);
+  assert.match(generated, new RegExp(`public static Named create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*name = "one",[\\s\\S]*__tsonic_shape_method_1_run = \\(double value\\) =>[\\s\\S]*return value \\+ 1;`));
   assert.match(generated, /public static double invoke\(Named named\)[\s\S]*Func<double, double> run = __tsonic_destructure\d+\.run;[\s\S]*return run\(2\);/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -211,9 +217,15 @@ test("CLI emits generic interface object literals through specialized provider a
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stderr);
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
   assert.match(generated, /public interface Box<T>[\s\S]*T value \{ get; \}[\s\S]*string label \{ get; \}/);
-  assert.match(generated, /public class __TsonicShape_Box_[A-Za-z0-9_]+ : Box<double>[\s\S]*public double value[\s\S]*get;[\s\S]*set;[\s\S]*public string label[\s\S]*get;[\s\S]*set;/);
-  assert.match(generated, /public static Box<double> create\(\)[\s\S]*return new __TsonicShape_Box_[A-Za-z0-9_]+[\s\S]*value = 1,[\s\S]*label = "one",/);
+  assert.match(generatedShapes, /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>[\s\S]*public required double value[\s\S]*get;[\s\S]*set;[\s\S]*public required string label[\s\S]*get;[\s\S]*set;/);
+  const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Box<double>/.exec(generatedShapes)?.[1];
+  assert.ok(shapeName);
+  assert.match(generated, new RegExp(`public static Box<double> create\\(\\)[\\s\\S]*return new ${shapeName}[\\s\\S]*value = 1,[\\s\\S]*label = "one",`));
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
@@ -273,7 +285,7 @@ test("CLI rejects class object literals when parameterless construction is unava
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Class object literal emission requires a finalized constructible source class fact with a parameterless constructor/);
+  assert.match(build.stderr, /Class object literal emission requires an exact constructible source class with a parameterless constructor/);
 });
 test("CLI emits discriminated object-shape unions with identical finalized carriers", async () => {
   const projectDirectory = resolve(tempRoot, "discriminated-object-shape-union");
@@ -322,9 +334,13 @@ test("CLI emits discriminated object-shape unions with identical finalized carri
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public class __TsonicShape_/);
-  assert.match(generatedSource, /public string kind;/);
-  assert.match(generatedSource, /public double value;/);
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public required string kind;/);
+  assert.match(generatedShapes, /public required double value;/);
   assert.match(generatedSource, /public static double score\(__TsonicShape_[A-Za-z0-9_]+ result\)/);
   assert.match(generatedSource, /if \(result\.kind == "found"\)/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ found = result;/);
@@ -373,9 +389,13 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public class __TsonicShape_/);
-  assert.match(generatedSource, /public double value;/);
-  assert.match(generatedSource, /public string label;/);
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public required double value;/);
+  assert.match(generatedShapes, /public required string label;/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_forInTarget0 = values;/);
   assert.match(generatedSource, /string\[\] __tsonic_forInKeys0 = new string\[\] \{ "value", "label" \};/);
   assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
@@ -445,6 +465,7 @@ test("CLI emits shared generated object-shape declarations once across source fi
     resolve(projectDirectory, "out/csharp/src/A.cs"),
     resolve(projectDirectory, "out/csharp/src/B.cs"),
     resolve(projectDirectory, "out/csharp/src/Types.cs"),
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
   ].filter((fileName) => existsSync(fileName));
   const generatedSources = await Promise.all(generatedFiles.map((fileName) => readFile(fileName, "utf8")));
   const shapeDeclarationCount = generatedSources.reduce((count, source) => count + (source.match(/public class __TsonicShape_/g)?.length ?? 0), 0);
@@ -495,14 +516,18 @@ test("CLI emits nested structural object-shape literals through finalized nested
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public __TsonicShape_[A-Za-z0-9_]+ child;/);
-  assert.match(generatedSource, /public double count;/);
-  assert.match(generatedSource, /public double value;/);
-  assert.match(generatedSource, /public string label;/);
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.match(generatedShapes, /public required __TsonicShape_[A-Za-z0-9_]+ child;/);
+  assert.match(generatedShapes, /public required double count;/);
+  assert.match(generatedShapes, /public required double value;/);
+  assert.match(generatedShapes, /public required string label;/);
   assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*child = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = "ok",\s*\},\s*count = 2,\s*\};/);
   assert.match(generatedSource, /parent\.child\.label/);
   assert.match(generatedSource, /parent\.child\.value \+ parent\.count/);
-  assert.doesNotMatch(generatedSource, /Dictionary<|\bobject\b|\bdynamic\b|__unsupported|invalid/i);
+  assert.doesNotMatch(generatedSource, /Dictionary<|\bdynamic\b|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load|__unsupported|invalid/i);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "ok:7\n");
 });
@@ -571,7 +596,7 @@ test("CLI rejects object literals contextualized as unknown before C# carrier em
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /unknown cannot trickle into generated C#/);
+  assert.match(build.stderr, /C# type policy resolved 'opaque', but that target type has no renderable C# syntax/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI emits calls through parameter destructured object-shape callable facts", async () => {

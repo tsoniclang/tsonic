@@ -116,6 +116,46 @@ test("target source semantics answer checked-source questions without exposing r
   assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
 });
 
+test("target source semantics expand exact selected symbols to their declaration provenance", async () => {
+  const checked = await checkedSource("selected-member-provenance", {
+    "src/index.ts": [
+      "type Found = { kind: \"found\"; value: number };",
+      "type Missing = { kind: \"missing\"; value: number };",
+      "type Lookup = Found | Missing;",
+      "export function read(value: Lookup): string { return value.kind; }",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const property = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsPropertyAccessExpression(node));
+  const selected = semantics.getResolvedPropertyAccessInfo(property);
+  const subjects = semantics.getSelectedFactSubjects(
+    selected?.selectedSymbol,
+    selected?.selectedDeclaration,
+  );
+
+  assert.notEqual(selected?.selectedSymbol, undefined);
+  assert.equal(selected?.selectedDeclaration, undefined);
+  assert.equal(subjects.includes(selected.selectedSymbol), true);
+  assert.deepEqual(
+    subjects
+      .filter((subject) => source.ast.is.IsPropertySignatureDeclaration(subject))
+      .map((declaration) => source.ast.text(source.ast.name(declaration))),
+    ["kind", "kind"],
+  );
+  assert.equal(
+    subjects
+      .filter((subject) => source.ast.is.IsPropertySignatureDeclaration(subject))
+      .every((declaration) =>
+        source.navigation.isProjectDeclaration(declaration)
+      ),
+    true,
+  );
+});
+
 test("target source semantics expose checker-owned declared value types", async () => {
   const checked = await checkedSource("declared-value-types", {
     "src/index.ts": [

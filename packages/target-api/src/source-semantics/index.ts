@@ -2,6 +2,7 @@ import type {
   CheckedSourceProgram,
   Node,
   SourceFile,
+  Symbol,
   Type,
 } from "@tsonic/tsts";
 import {
@@ -22,6 +23,7 @@ import {
   getEffectiveSourceTypeArguments,
 } from "./type-arguments.js";
 import {
+  sourceSelectedFactSubjects,
   sourceTypeFactSubjects,
 } from "./fact-subjects.js";
 import {
@@ -80,6 +82,16 @@ export function createTargetSourceProgram(
           queries.typeShape,
           queries.checker,
           node,
+        );
+      },
+      getSelectedFactSubjects(
+        symbol: Symbol | undefined,
+        declaration: Node | undefined,
+      ) {
+        return sourceSelectedFactSubjects(
+          queries.checker,
+          symbol,
+          declaration,
         );
       },
       getTypeFactSubjects(type: Type) {

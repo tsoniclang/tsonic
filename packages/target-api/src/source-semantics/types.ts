@@ -4,6 +4,7 @@ import type {
   Node,
   ReadonlySourceFactResolver,
   SourceFile,
+  Symbol,
   TypeCheckerQueries,
   TypeShapeQueries,
   Type,
@@ -34,6 +35,10 @@ export type SourceFileSemantics = Readonly<
       selectedType: Type,
     ): SourceAuthoredTypeSelection;
     selectContextualValueType(node: Node): SourceContextualValueTypeSelection;
+    getSelectedFactSubjects(
+      symbol: Symbol | undefined,
+      declaration: Node | undefined,
+    ): readonly ExtensionFactSubject[];
     getTypeFactSubjects(type: Type): readonly ExtensionFactSubject[];
     selectTypeRefinement(
       declaredType: Type,
