@@ -19,6 +19,7 @@ import {
 import {
   sourceFileHasTopLevelAwait,
   sourceProjectModuleDependencies,
+  sourceProjectModuleReferences,
 } from "./modules.js";
 import {
   createSourceReferenceNavigation,
@@ -57,6 +58,10 @@ export function createSourceProgramNavigation(
     string,
     readonly ReturnType<typeof sourceProjectModuleDependencies>[number][]
   >();
+  const moduleReferenceCache = new Map<
+    string,
+    readonly ReturnType<typeof sourceProjectModuleReferences>[number][]
+  >();
   const topLevelAwaitCache = new Map<string, boolean>();
 
   const moduleDependencies = (
@@ -93,6 +98,26 @@ export function createSourceProgramNavigation(
     return result;
   };
 
+  const moduleReferences = (
+    sourceFile: SourceFile,
+  ): ReturnType<SourceProgramNavigation["moduleReferences"]> => {
+    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
+    if (sourceFileKey === undefined) {
+      return Object.freeze([]);
+    }
+    const cached = moduleReferenceCache.get(sourceFileKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const references = sourceProjectModuleReferences(
+      source,
+      sourceFileSet,
+      sourceFile,
+    );
+    moduleReferenceCache.set(sourceFileKey, references);
+    return references;
+  };
+
   const isProjectShape = (node: Node | undefined): boolean => {
     const declaration = references.declarationFor(node);
     return declaration !== undefined &&
@@ -117,6 +142,7 @@ export function createSourceProgramNavigation(
     referenceFor: references.referenceFor,
     declarationFor: references.declarationFor,
     moduleDependencies,
+    moduleReferences,
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
     classConstructors,

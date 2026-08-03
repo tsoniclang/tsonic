@@ -613,6 +613,14 @@ test("source navigation classifies runtime import and export dependencies exactl
     dependencies,
     cases.filter((entry) => entry.runtime).map((entry) => `${entry.id}.ts`),
   );
+  const references = createSourceProgramNavigation(source)
+    .moduleReferences(entry)
+    .map((dependency) => source.ast.getFileName(dependency.sourceFile))
+    .map((fileName) => fileName.slice(fileName.lastIndexOf("/") + 1));
+  assert.deepEqual(
+    references,
+    cases.map((entry) => `${entry.id}.ts`),
+  );
 });
 
 test("source navigation classifies top-level await without entering function bodies", async () => {

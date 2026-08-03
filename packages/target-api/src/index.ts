@@ -8,6 +8,25 @@ export type {
   TargetRuntimeReference,
   TargetSourceFile,
 } from "./artifacts.js";
+export {
+  createTargetArtifactContractGraph,
+  reconstructTargetArtifacts,
+} from "./target-artifacts/index.js";
+export type {
+  TargetArtifactContract,
+  TargetArtifactContractBatchResult,
+  TargetArtifactContractChange,
+  TargetArtifactContractClosureResult,
+  TargetArtifactContractGraph,
+  TargetArtifactContractGraphOptions,
+  TargetArtifactContractGraphResult,
+  TargetArtifactContractUpdate,
+  TargetArtifactDependency,
+  TargetArtifactFacetContract,
+  TargetArtifactReconstruction,
+  TargetArtifactReconstructionOptions,
+  TargetArtifactReconstructionRunResult,
+} from "./target-artifacts/index.js";
 export type {
   TargetId,
   TargetSelection,

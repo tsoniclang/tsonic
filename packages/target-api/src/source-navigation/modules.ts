@@ -23,6 +23,20 @@ export function sourceProjectModuleDependencies(
   sourceFiles: ReadonlySet<string>,
   sourceFile: SourceFile,
 ): readonly SourceProjectModuleDependency[] {
+  return sourceProjectModuleReferences(
+    source,
+    sourceFiles,
+    sourceFile,
+    true,
+  );
+}
+
+export function sourceProjectModuleReferences(
+  source: CheckedSourceProgram,
+  sourceFiles: ReadonlySet<string>,
+  sourceFile: SourceFile,
+  runtimeOnly = false,
+): readonly SourceProjectModuleDependency[] {
   const ast = source.ast;
   const checker = source.getSourceFileQueries(sourceFile).checker;
   const dependencies: SourceProjectModuleDependency[] = [];
@@ -32,10 +46,13 @@ export function sourceProjectModuleDependencies(
       continue;
     }
     const reference = getStaticModuleReference(ast, statement);
-    if (reference === undefined || !reference.hasRuntimeValue) {
+    if (
+      reference === undefined ||
+      (runtimeOnly && !reference.hasRuntimeValue)
+    ) {
       continue;
     }
-    const dependency = resolveRuntimeDependency(
+    const dependency = resolveProjectDependency(
       ast,
       checker,
       reference.declaration,
@@ -104,7 +121,7 @@ function isFunctionBoundary(ast: AstReader, node: Node): boolean {
     ast.is.IsSetAccessorDeclaration(node);
 }
 
-function resolveRuntimeDependency(
+function resolveProjectDependency(
   ast: AstReader,
   checker: TypeCheckerQueries,
   declaration: Node,
