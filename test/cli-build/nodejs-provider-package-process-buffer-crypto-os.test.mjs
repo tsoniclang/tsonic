@@ -80,13 +80,31 @@ test("CLI emits expanded process operations from selected Node provider-package 
   assert.match(generatedSource, /usage\.heapUsed/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.exitCode;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.chdir\(directory\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(code\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.process\.exit\(Tsonic\.CSharp\.Generated\.__TsonicConversions\.LiftNullable<double, int>\(code, System\.Convert\.ToInt32\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.kill\(Tsonic\.CSharp\.Node\.process\.pid, 0\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.process\.availableMemory\(\) \+ Tsonic\.CSharp\.Node\.process\.constrainedMemory\(\);/);
   assert.match(generatedSource, /double\[\] parts = Tsonic\.CSharp\.Node\.process\.hrtime\(\);/);
   assert.match(generatedSource, /return parts\[0\] \+ parts\[1\];/);
   assert.doesNotMatch(generatedSource, /return process\./);
   assert.doesNotMatch(generatedSource, /__unsupported/);
+
+  const generatedConversions = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicConversions.cs"),
+    "utf8",
+  );
+  assert.equal(generatedConversions, `namespace Tsonic.CSharp.Generated
+{
+    internal static class __TsonicConversions
+    {
+        internal static TResult? LiftNullable<TSource, TResult>(TSource? value, System.Func<TSource, TResult> conversion)
+        where TSource : struct
+        where TResult : struct
+        {
+            return value.HasValue ? conversion(value.Value) : default(TResult?);
+        }
+    }
+}
+`);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeProcessExpanded.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
