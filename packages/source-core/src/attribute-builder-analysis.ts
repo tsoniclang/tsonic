@@ -35,9 +35,9 @@ import {
   selectedProviderCallMatches,
 } from "./source-call-analysis.js";
 
-const attributeExportId = "attribute";
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
 const attributeMemberBuilderExportId = "__TsonicAttributeMemberBuilder";
+const attributeExportId = "attribute";
 
 interface AttributeBuilderRule {
   readonly selector: ProviderSourceCallSelector;
@@ -112,6 +112,10 @@ const attributeBuilderRules = Object.freeze([
 
 export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): void {
   forEachSelectedProviderSourceCall(context, (selected, sourceContext): void => {
+    if (readSourceFact(sourceContext, selected.call, attributeFactKey) !== undefined) {
+      analyzeAttributeRoot(selected, sourceContext);
+      return;
+    }
     for (const candidate of attributeBuilderRules) {
       if (selectedProviderCallMatches(selected, candidate.selector, sourceContext)) {
         candidate.analyze(selected, sourceContext);
