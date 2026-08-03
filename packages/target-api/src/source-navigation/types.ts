@@ -102,6 +102,7 @@ export type SourceHeritagePathResult =
 
 export interface SourceProgramNavigation {
   readonly sourceFiles: readonly SourceFile[];
+  sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
   moduleDependencies(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];

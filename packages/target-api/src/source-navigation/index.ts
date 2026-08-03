@@ -139,6 +139,7 @@ export function createSourceProgramNavigation(
 
   return Object.freeze({
     sourceFiles,
+    sourceReferenceFor: references.sourceReferenceFor,
     referenceFor: references.referenceFor,
     declarationFor: references.declarationFor,
     moduleDependencies,

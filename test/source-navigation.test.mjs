@@ -852,6 +852,34 @@ test("source navigation never queries declaration-provider files as project sour
   assert.equal(queryCount, 0);
 });
 
+test("source navigation resolves imported declaration references without treating them as project source", async () => {
+  const source = await checkedSource("external-declaration-reference", {
+    "src/provider.d.ts": [
+      "export declare class Environment {}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { Environment } from \"./provider.js\";",
+      "export const captured = Environment;",
+      "",
+    ].join("\n"),
+  });
+  const ast = source.ast;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const captured = namedVariable(ast, sourceFile, "captured");
+  const initializer = ast.as.AsVariableDeclaration(captured)?.Initializer;
+  assert.notEqual(initializer, undefined);
+
+  const navigation = createSourceProgramNavigation(source);
+  const reference = navigation.sourceReferenceFor(initializer);
+  assert.equal(ast.is.IsClassDeclaration(reference?.declaration), true);
+  assert.equal(ast.text(ast.name(reference?.declaration)), "Environment");
+  assert.match(ast.getFileName(reference?.sourceFile), /src\/provider\.d\.ts$/u);
+  assert.equal(reference?.project, false);
+  assert.equal(navigation.referenceFor(initializer), undefined);
+  assert.equal(navigation.isProjectDeclaration(reference?.declaration), false);
+});
+
 async function checkedSource(name, files) {
   const projectDirectory = resolve(tempRoot, name);
   const projectConfig = {
@@ -868,6 +896,12 @@ async function checkedSource(name, files) {
   const options = createProgramOptionsForProject({
     project,
     projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceProfileFiles: Object.entries(files)
+      .filter(([relativePath]) => relativePath.endsWith(".d.ts"))
+      .map(([relativePath, text]) => ({
+        path: resolve(projectDirectory, relativePath),
+        text,
+      })),
   });
   return createTsonicSemanticSession({
     programOptions: options.programOptions,

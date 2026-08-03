@@ -9,6 +9,7 @@ import type {
   TypeShapeQueries,
 } from "@tsonic/tsts";
 import type {
+  SourceDeclarationReference,
   SourceProjectReference,
 } from "./types.js";
 import {
@@ -24,6 +25,7 @@ import {
 } from "./identity.js";
 
 export interface SourceReferenceNavigation {
+  sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
   isProjectDeclaration(node: Node | undefined): boolean;
@@ -38,6 +40,10 @@ export function createSourceReferenceNavigation(
     sourceFiles.map((sourceFile) => sourceFileIdentity(ast, sourceFile)!),
   );
   const referenceCache = new Map<string, SourceProjectReference | null>();
+  const sourceReferenceCache = new Map<
+    string,
+    SourceDeclarationReference | null
+  >();
   const declarationCache = new Map<string, Node | null>();
 
   const isProjectSourceFile = (
@@ -105,13 +111,62 @@ export function createSourceReferenceNavigation(
       }
       return undefined;
     }
+    const selected = sourceReferenceFor(node);
+    if (selected?.project === true) {
+      const reference = {
+        symbol: selected.symbol,
+        declaration: selected.declaration,
+        sourceFile: selected.sourceFile,
+      };
+      if (nodeKey !== undefined) {
+        referenceCache.set(nodeKey, reference);
+      }
+      return reference;
+    }
+    const declaration = declarationFor(node);
+    const declarationFile = ast.getSourceFile(declaration);
+    const symbol = declaration === undefined
+      ? undefined
+      : source.getSourceFileQueries(declarationFile ?? sourceFile).checker
+        .getSymbolAtLocation(declaration);
+    const reference = declaration !== undefined &&
+      declarationFile !== undefined &&
+      symbol !== undefined
+      ? { symbol, declaration, sourceFile: declarationFile }
+      : undefined;
+    if (nodeKey !== undefined) {
+      referenceCache.set(nodeKey, reference ?? null);
+    }
+    return reference;
+  };
+
+  const sourceReferenceFor = (
+    node: Node | undefined,
+  ): SourceDeclarationReference | undefined => {
+    if (node === undefined) {
+      return undefined;
+    }
+    const nodeKey = sourceNodeIdentity(ast, node);
+    const cached = nodeKey === undefined
+      ? undefined
+      : sourceReferenceCache.get(nodeKey);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
+    const sourceFile = ast.getSourceFile(node);
+    if (!isProjectSourceFile(sourceFile)) {
+      if (nodeKey !== undefined) {
+        sourceReferenceCache.set(nodeKey, null);
+      }
+      return undefined;
+    }
     const queries = source.getSourceFileQueries(sourceFile);
     const directSymbol = symbolAtReferenceNode(
       ast,
       queries.checker,
       node,
     );
-    const imported = importedProjectReference(
+    const imported = importedDeclarationReference(
       ast,
       queries.checker,
       directSymbol,
@@ -119,7 +174,7 @@ export function createSourceReferenceNavigation(
     );
     if (imported !== undefined) {
       if (nodeKey !== undefined) {
-        referenceCache.set(nodeKey, imported);
+        sourceReferenceCache.set(nodeKey, imported);
       }
       return imported;
     }
@@ -141,7 +196,7 @@ export function createSourceReferenceNavigation(
             symbol,
           ]);
     for (const symbol of symbols) {
-      const reference = projectReferenceForSymbol(
+      const reference = declarationReferenceForSymbol(
         ast,
         queries.checker,
         symbol,
@@ -149,29 +204,19 @@ export function createSourceReferenceNavigation(
       );
       if (reference !== undefined) {
         if (nodeKey !== undefined) {
-          referenceCache.set(nodeKey, reference);
+          sourceReferenceCache.set(nodeKey, reference);
         }
         return reference;
       }
     }
-    const declaration = declarationFor(node);
-    const declarationFile = ast.getSourceFile(declaration);
-    const symbol = declaration === undefined
-      ? undefined
-      : source.getSourceFileQueries(declarationFile ?? sourceFile).checker
-        .getSymbolAtLocation(declaration);
-    const reference = declaration !== undefined &&
-      declarationFile !== undefined &&
-      symbol !== undefined
-      ? { symbol, declaration, sourceFile: declarationFile }
-      : undefined;
     if (nodeKey !== undefined) {
-      referenceCache.set(nodeKey, reference ?? null);
+      sourceReferenceCache.set(nodeKey, null);
     }
-    return reference;
+    return undefined;
   };
 
   return Object.freeze({
+    sourceReferenceFor,
     referenceFor,
     declarationFor,
     isProjectDeclaration,
@@ -205,28 +250,32 @@ function projectDeclarationForType(
     : undefined;
 }
 
-function projectReferenceForSymbol(
+function declarationReferenceForSymbol(
   ast: AstReader,
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
-): SourceProjectReference | undefined {
+): SourceDeclarationReference | undefined {
   const declaration = primaryDeclaration(checker, symbol);
   const sourceFile = ast.getSourceFile(declaration);
   return symbol !== undefined &&
     declaration !== undefined &&
-    sourceFile !== undefined &&
-    isProjectDeclaration(declaration)
-    ? { symbol, declaration, sourceFile }
+    sourceFile !== undefined
+    ? {
+        symbol,
+        declaration,
+        sourceFile,
+        project: isProjectDeclaration(declaration),
+      }
     : undefined;
 }
 
-function importedProjectReference(
+function importedDeclarationReference(
   ast: AstReader,
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
-): SourceProjectReference | undefined {
+): SourceDeclarationReference | undefined {
   if (symbol === undefined) {
     return undefined;
   }
@@ -250,7 +299,7 @@ function importedProjectReference(
       ? [imported.symbol, alias]
       : [alias, imported.symbol];
     for (const candidate of candidates) {
-      const reference = projectReferenceForSymbol(
+      const reference = declarationReferenceForSymbol(
         ast,
         checker,
         candidate,
