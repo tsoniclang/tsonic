@@ -11,6 +11,15 @@ export interface ProviderVirtualCompilerMetadata {
     readonly directDeclarationIds: readonly string[];
     readonly renderedFunctionSignatures: readonly ProviderRenderedFunctionSignature[];
 }
+interface ProviderTypeFamilyVariantIdentity {
+    readonly id: string;
+    readonly sourceTypeFamily?: {
+        readonly exportName: string;
+        readonly typeArgumentCount: number;
+    };
+}
+export declare function getStableProviderVirtualSliceSuffix(value: string): string;
+export declare function getProviderTypeFamilyVariantNominalMemberName(moduleSpecifier: string, declaration: ProviderTypeFamilyVariantIdentity): string;
 export type ProviderVirtualCompilerArtifact = ProviderVirtualModuleArtifact;
 export interface ProviderVirtualCompilerRegistryAccess {
     [providerVirtualCompilerArtifactLookup](fileName: string): ProviderVirtualCompilerArtifact | undefined;
@@ -19,4 +28,5 @@ export interface ProviderVirtualCompilerRegistryAccess {
 export declare function getProviderVirtualCompilerMetadata(registry: ProviderVirtualCompilerRegistryAccess, fileName: string): ProviderVirtualCompilerMetadata | undefined;
 export declare function getProviderVirtualArtifactForCompiler(registry: ProviderVirtualCompilerRegistryAccess, fileName: string): ProviderVirtualCompilerArtifact | undefined;
 export declare function isHostOwnedProviderVirtualFileName(fileName: string): boolean;
+export {};
 //# sourceMappingURL=provider-virtual-internal.d.ts.map
