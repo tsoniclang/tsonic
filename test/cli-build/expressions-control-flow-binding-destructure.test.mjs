@@ -289,11 +289,15 @@ test("CLI runs utility-projected object shapes and Parameters tuple destructurin
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public class __TsonicShape_/);
-  assert.match(generatedSource, /public int x;/);
-  assert.match(generatedSource, /public string label;/);
-  assert.doesNotMatch(generatedSource, /public int y;/);
-  assert.doesNotMatch(generatedSource, /public bool active;/);
+  const generatedShapes = await readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public required int x;/);
+  assert.match(generatedShapes, /public required string label;/);
+  assert.doesNotMatch(generatedShapes, /public required int y;/);
+  assert.doesNotMatch(generatedShapes, /public required bool active;/);
   assert.match(generatedSource, /public static string formatPair\(\(string, double\) args\)/);
   assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1;/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.Item2;/);

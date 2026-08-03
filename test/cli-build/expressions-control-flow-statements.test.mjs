@@ -117,7 +117,7 @@ test("CLI rewrites mixed-type for initializers into C# prelude locals", async ()
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /int index = 0;/);
+  assert.match(generatedSource, /double index = 0;/);
   assert.match(generatedSource, /bool active = true;/);
   assert.match(generatedSource, /for \(; index < limit; index\+\+\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
