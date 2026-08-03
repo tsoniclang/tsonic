@@ -674,11 +674,20 @@ test("host activates target capability source profiles only for imported owned m
     ].join("\n"),
   });
 
-  assert.ok(result.diagnostics.some((diagnostic) =>
-    diagnostic.category === "error" &&
-    diagnostic.message.includes("Cannot find name 'unusedCapabilityValue'")
-  ));
-  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.message.includes("Cannot find name 'capabilityOnlyValue'")), false);
+  assert.deepEqual(
+    result.diagnostics.map(({ code, category, message, source }) => ({
+      code,
+      category,
+      message,
+      source,
+    })),
+    [{
+      code: "TSTS_DIAGNOSTIC",
+      category: "error",
+      message: "index.ts(3,24): error TS2304: Cannot find name 'unusedCapabilityValue'.",
+      source: "tsts",
+    }],
+  );
   assert.equal(events.includes("capability-source-profile:acme:target=demo:capabilities=acme"), true);
   assert.equal(events.includes("capability-source-profile:unused:target=demo:capabilities=unused"), false);
   assert.equal(events.includes("capability-extension:unused:target=demo:capabilities=unused"), false);
@@ -703,7 +712,7 @@ test("host activates and validates transitive installed capability dependencies"
     source: "import { named } from \"@feature/native/named.js\";\nexport const value = named;\n",
   });
 
-  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.category === "error"), false, JSON.stringify(result.diagnostics));
+  assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
     "runtime/dependency.txt",
     "runtime/feature.txt",
@@ -713,5 +722,10 @@ test("host activates and validates transitive installed capability dependencies"
     installedCapabilities: [feature],
     source: "import { named } from \"@feature/native/named.js\";\nexport const value = named;\n",
   });
-  assert.ok(missing.diagnostics.some((diagnostic) => diagnostic.code === "TARGET_CAPABILITY_SELECTION" && diagnostic.message.includes("requires capability 'dependency'")));
+  assert.deepEqual(missing.diagnostics, [{
+    code: "TARGET_CAPABILITY_SELECTION",
+    category: "error",
+    message: "installed capability 'feature' for target 'demo' requires capability 'dependency'",
+    source: "demo",
+  }]);
 });

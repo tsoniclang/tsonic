@@ -91,7 +91,7 @@ test("capability activation uses the shared import and export runtime-classifica
     source,
   });
 
-  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.category === "error"), false, JSON.stringify(result.diagnostics));
+  assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(
     events.filter((event) => event.startsWith("capability-extension:"))
       .map((event) => event.split(":")[1]),
