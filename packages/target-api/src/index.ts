@@ -92,6 +92,8 @@ export {
   sourceTypeSyntaxIsCompositional,
 } from "./source-semantics/index.js";
 export type {
+  ResolvedSourceCallInfo,
+  SourceCallResultSelection,
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
   SourceFileSemantics,

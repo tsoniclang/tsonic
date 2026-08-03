@@ -23,6 +23,12 @@ import {
   selectSourceContextualValueType,
 } from "./contextual-type-selection.js";
 import {
+  selectSourceCallResult,
+} from "./call-result-selection.js";
+import type {
+  ResolvedSourceCallInfo,
+} from "./call-result-selection.js";
+import {
   getEffectiveSourceTypeArguments,
 } from "./type-arguments.js";
 import {
@@ -82,6 +88,9 @@ export function createTargetSourceProgram(
         const name = source.ast.name(declaration);
         const symbol = queries.checker.getSymbolAtLocation(name ?? declaration);
         return queries.checker.getTypeOfSymbol(symbol);
+      },
+      selectCallResult(call: ResolvedSourceCallInfo) {
+        return selectSourceCallResult(source.ast, queries.checker, call);
       },
       selectAuthoredType(authoredTypeNode: Node, selectedType: Type) {
         return selectAuthoredSourceType(
@@ -163,6 +172,10 @@ export function createTargetSourceProgram(
   });
 }
 
+export type {
+  ResolvedSourceCallInfo,
+  SourceCallResultSelection,
+} from "./call-result-selection.js";
 export type {
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,

@@ -24,6 +24,10 @@ import type {
 import type {
   SourceTypeRefinement,
 } from "./type-refinement.js";
+import type {
+  ResolvedSourceCallInfo,
+  SourceCallResultSelection,
+} from "./call-result-selection.js";
 
 export type SourceFileSemantics = Readonly<
   & { readonly sourceFile: SourceFile }
@@ -33,6 +37,9 @@ export type SourceFileSemantics = Readonly<
       node: Node,
     ): readonly ExtensionFactSubject[];
     getDeclaredValueType(declaration: Node): Type | undefined;
+    selectCallResult(
+      source: ResolvedSourceCallInfo,
+    ): SourceCallResultSelection | undefined;
     selectAuthoredType(
       authoredTypeNode: Node,
       selectedType: Type,
@@ -59,6 +66,10 @@ export interface SourceProgramSemantics {
   forNode(node: Node): SourceFileSemantics;
 }
 
+export type {
+  ResolvedSourceCallInfo,
+  SourceCallResultSelection,
+} from "./call-result-selection.js";
 export type {
   SourceAuthoredTypeSelection,
 } from "./authored-type-selection.js";

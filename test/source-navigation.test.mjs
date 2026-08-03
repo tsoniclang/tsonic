@@ -124,6 +124,43 @@ test("target source semantics answer checked-source questions without exposing r
   assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
 });
 
+test("target source semantics preserve selected signature return syntax", async () => {
+  const checked = await checkedSource("selected-call-result", {
+    "src/index.ts": [
+      "type Mapper<T, U> = (value: T) => U;",
+      "export function map<T, U>(value: T, mapper: Mapper<T, U>): U {",
+      "  return mapper(value);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const call = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsCallExpression(node));
+  const resolved = semantics.getResolvedCallInfo(call);
+
+  assert.notEqual(resolved, undefined);
+  const result = semantics.selectCallResult(resolved);
+  assert.notEqual(result, undefined);
+  assert.equal(
+    semantics.typeToString(result.selectedReturnType),
+    "U",
+  );
+  assert.equal(semantics.typeToString(result.resultType), "U");
+  assert.equal(
+    source.ast.kindName(result.authoredTypeNode),
+    "KindTypeReference",
+  );
+  assert.equal(
+    source.ast.text(
+      source.ast.as.AsTypeReferenceNode(result.authoredTypeNode)?.TypeName,
+    ),
+    "U",
+  );
+});
+
 test("target source semantics expand exact selected symbols to their declaration provenance", async () => {
   const checked = await checkedSource("selected-member-provenance", {
     "src/index.ts": [

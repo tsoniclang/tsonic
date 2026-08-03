@@ -17,6 +17,8 @@ export interface AstReader {
     readonly statements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly members: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly parameters: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    /** Returns the exact authored type node owned by syntax whose TS-Go schema permits one. */
+    readonly typeNode: (node: GoPtr<Node>) => GoPtr<Node>;
     readonly typeParameters: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly typeArguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly arguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
