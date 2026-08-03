@@ -19,24 +19,28 @@ function dependency(owner, facet) {
   return { owner, facet };
 }
 
+function publish(graph, owner, value, dependencies, artifact = { owner }) {
+  return graph.commit(owner, value, dependencies, artifact);
+}
+
 test("target artifact contracts reconstruct transitive public dependents", () => {
   const graph = createTargetArtifactContractGraph();
 
-  assert.equal(graph.commit("function:callee", contract(
+  assert.equal(publish(graph, "function:callee", contract(
     [signature, "void callee(Action[] actions)"],
     [implementation, "body-v1"],
   ), []).kind, "accepted");
-  assert.equal(graph.commit("function:caller", contract(
+  assert.equal(publish(graph, "function:caller", contract(
     [signature, "void caller()"],
     [implementation, "callee(actions)"],
   ), [dependency("function:callee", signature)]).kind, "accepted");
-  assert.equal(graph.commit("function:entry", contract(
+  assert.equal(publish(graph, "function:entry", contract(
     [signature, "void main()"],
     [implementation, "caller()"],
   ), [dependency("function:caller", signature)]).kind, "accepted");
   assert.equal(graph.hasPending(), false);
 
-  const calleeRevision = graph.commit("function:callee", contract(
+  const calleeRevision = publish(graph, "function:callee", contract(
     [signature, "void callee(params Action[] actions)"],
     [implementation, "body-v1"],
   ), []);
@@ -48,7 +52,7 @@ test("target artifact contracts reconstruct transitive public dependents", () =>
   });
   assert.equal(graph.nextDirty(), "function:caller");
 
-  const callerRevision = graph.commit("function:caller", contract(
+  const callerRevision = publish(graph, "function:caller", contract(
     [signature, "void caller(int count)"],
     [implementation, "callee(first, second)"],
   ), [dependency("function:callee", signature)]);
@@ -60,7 +64,7 @@ test("target artifact contracts reconstruct transitive public dependents", () =>
   });
   assert.equal(graph.nextDirty(), "function:entry");
 
-  assert.equal(graph.commit("function:entry", contract(
+  assert.equal(publish(graph, "function:entry", contract(
     [signature, "void main()"],
     [implementation, "caller(2)"],
   ), [dependency("function:caller", signature)]).kind, "accepted");
@@ -72,15 +76,15 @@ test("target artifact contracts reconstruct transitive public dependents", () =>
 
 test("target artifact contracts invalidate only consumers of changed facets", () => {
   const graph = createTargetArtifactContractGraph();
-  graph.commit("function:callee", contract(
+  publish(graph, "function:callee", contract(
     [signature, "void callee()"],
     [implementation, "body-v1"],
   ), []);
-  graph.commit("function:caller", contract(
+  publish(graph, "function:caller", contract(
     [implementation, "callee()"],
   ), [dependency("function:callee", signature)]);
 
-  const changed = graph.commit("function:callee", contract(
+  const changed = publish(graph, "function:callee", contract(
     [signature, "void callee()"],
     [implementation, "body-v2"],
   ), []);
@@ -93,16 +97,49 @@ test("target artifact contracts invalidate only consumers of changed facets", ()
   assert.equal(graph.nextDirty(), undefined);
 });
 
-test("target artifact contracts reject oscillation without changing committed state", () => {
+test("target artifact contracts retain the latest artifact when its public contract is unchanged", () => {
   const graph = createTargetArtifactContractGraph();
-  graph.commit("function:value", contract([signature, "v1"]), []);
-  graph.commit("function:value", contract([signature, "v2"]), []);
+  publish(graph, "function:value", contract([signature, "void value()"]), [], {
+    body: "v1",
+  });
   const revision = graph.revision;
 
-  assert.deepEqual(graph.commit(
+  const updated = publish(
+    graph,
+    "function:value",
+    contract([signature, "void value()"]),
+    [],
+    { body: "v2" },
+  );
+
+  assert.deepEqual(updated, {
+    kind: "accepted",
+    changedFacets: [],
+    contractChanged: false,
+    dependenciesChanged: false,
+  });
+  assert.equal(graph.revision, revision);
+  assert.deepEqual(graph.artifact("function:value"), { body: "v2" });
+  assert.equal(graph.hasPending(), false);
+});
+
+test("target artifact contracts reject oscillation without changing committed state", () => {
+  const graph = createTargetArtifactContractGraph();
+  publish(graph, "function:value", contract([signature, "v1"]), [], {
+    owner: "function:value",
+    version: 1,
+  });
+  publish(graph, "function:value", contract([signature, "v2"]), [], {
+    owner: "function:value",
+    version: 2,
+  });
+  const revision = graph.revision;
+
+  assert.deepEqual(publish(graph,
     "function:value",
     contract([signature, "v1"]),
     [],
+    { owner: "function:value", version: 1 },
   ), {
     kind: "rejected",
     code: "TARGET_ARTIFACT_CONTRACT_OSCILLATION",
@@ -114,11 +151,15 @@ test("target artifact contracts reject oscillation without changing committed st
     graph.contract("function:value").facets[0].value,
     "v2",
   );
+  assert.deepEqual(graph.artifact("function:value"), {
+    owner: "function:value",
+    version: 2,
+  });
 });
 
 test("target artifact contracts fail closed for unpublished dependency facets", () => {
   const graph = createTargetArtifactContractGraph();
-  graph.commit("function:caller", contract([implementation, "callee()"]), [
+  publish(graph, "function:caller", contract([implementation, "callee()"]), [
     dependency("function:callee", signature),
   ]);
 
@@ -128,7 +169,7 @@ test("target artifact contracts fail closed for unpublished dependency facets", 
     reason:
       "Target artifact 'function:caller' depends on unpublished artifact 'function:callee' facet 'callable-signature'.",
   });
-  graph.commit("function:callee", contract([implementation, "body"]), []);
+  publish(graph, "function:callee", contract([implementation, "body"]), []);
   assert.deepEqual(graph.verifyClosure(), {
     kind: "rejected",
     code: "TARGET_ARTIFACT_CONTRACT_OPEN",
@@ -149,11 +190,11 @@ test("target artifact contract budgets reject atomically", () => {
     maximumFacetValueCodeUnits: 8,
   });
   assert.equal(
-    graph.commit("a", contract(["s", "one"]), []).kind,
+    publish(graph, "a", contract(["s", "one"]), []).kind,
     "accepted",
   );
   const revision = graph.revision;
-  assert.deepEqual(graph.commit("b", contract(["s", "two"]), []), {
+  assert.deepEqual(publish(graph, "b", contract(["s", "two"]), []), {
     kind: "rejected",
     code: "TARGET_ARTIFACT_CONTRACT_BUDGET_EXCEEDED",
     reason: "Target artifact contracts exceed their finite 1-artifact budget.",
@@ -178,7 +219,10 @@ test("target artifact contract batches publish all changes atomically", () => {
   const graph = createTargetArtifactContractGraph({
     maximumArtifactCount: 2,
   });
-  graph.commit("existing", contract([signature, "v1"]), []);
+  publish(graph, "existing", contract([signature, "v1"]), [], {
+    owner: "existing",
+    version: 1,
+  });
   const revision = graph.revision;
 
   const rejected = graph.commitBatch([
@@ -186,11 +230,13 @@ test("target artifact contract batches publish all changes atomically", () => {
       owner: "first",
       contract: contract([signature, "first"]),
       dependencies: [],
+      artifact: { owner: "first" },
     },
     {
       owner: "second",
       contract: contract([signature, "second"]),
       dependencies: [],
+      artifact: { owner: "second" },
     },
   ]);
 
@@ -200,12 +246,17 @@ test("target artifact contract batches publish all changes atomically", () => {
   assert.equal(graph.artifactCount, 1);
   assert.equal(graph.contract("first"), undefined);
   assert.equal(graph.contract("second"), undefined);
+  assert.equal(graph.artifact("first"), undefined);
+  assert.deepEqual(graph.artifact("existing"), {
+    owner: "existing",
+    version: 1,
+  });
 });
 
 test("target artifact contract batches rebuild internal dependents together", () => {
   const graph = createTargetArtifactContractGraph();
-  graph.commit("callee", contract([signature, "void callee()"]), []);
-  graph.commit("caller", contract([signature, "void caller()"]), [
+  publish(graph, "callee", contract([signature, "void callee()"]), []);
+  publish(graph, "caller", contract([signature, "void caller()"]), [
     dependency("callee", signature),
   ]);
 
@@ -214,11 +265,13 @@ test("target artifact contract batches rebuild internal dependents together", ()
       owner: "callee",
       contract: contract([signature, "void callee(params Action[] values)"]),
       dependencies: [],
+      artifact: { owner: "callee", version: 2 },
     },
     {
       owner: "caller",
       contract: contract([signature, "void caller(int expandedCount)"]),
       dependencies: [dependency("callee", signature)],
+      artifact: { owner: "caller", version: 2 },
     },
   ]);
 
@@ -247,6 +300,7 @@ test("target artifact reconstruction propagates public changes to a fixed point"
             : "void callee(Action[] actions)",
         ]),
         dependencies: [],
+        artifact: { owner, restParameter },
       };
     }
     if (owner === "caller") {
@@ -262,6 +316,7 @@ test("target artifact reconstruction propagates public changes to a fixed point"
             : "void caller()",
         ]),
         dependencies: [dependency("callee", signature)],
+        artifact: { owner, calleeSignature },
       };
     }
     const callerSignature = current.contract("caller")?.facets.find(
@@ -276,6 +331,7 @@ test("target artifact reconstruction propagates public changes to a fixed point"
           : "caller()",
       ]),
       dependencies: [dependency("caller", signature)],
+      artifact: { owner, callerSignature },
     };
   };
 
@@ -283,6 +339,7 @@ test("target artifact reconstruction propagates public changes to a fixed point"
     graph,
     ["callee", "caller", "entry"],
     reconstruct,
+    { maximumReconstructionCount: 16 },
   ), { kind: "completed", reconstructionCount: 3 });
   assert.deepEqual(reconstructed, ["callee", "caller", "entry"]);
 
@@ -292,6 +349,7 @@ test("target artifact reconstruction propagates public changes to a fixed point"
     graph,
     ["callee"],
     reconstruct,
+    { maximumReconstructionCount: 16 },
   ), { kind: "completed", reconstructionCount: 3 });
   assert.deepEqual(reconstructed, ["callee", "caller", "entry"]);
   assert.equal(
@@ -311,6 +369,7 @@ test("target artifact reconstruction retries only after prerequisite progress", 
         "storage",
         contract([signature, "nullable"]),
         [],
+        { owner: "storage" },
       ).kind, "accepted");
       return {
         kind: "retry",
@@ -321,8 +380,9 @@ test("target artifact reconstruction retries only after prerequisite progress", 
       kind: "resolved",
       contract: contract([signature, "void Read(Todo? value)"]),
       dependencies: [dependency("storage", signature)],
+      artifact: { owner, signature: "void Read(Todo? value)" },
     };
-  });
+  }, { maximumReconstructionCount: 2 });
 
   assert.deepEqual(result, {
     kind: "completed",
@@ -340,10 +400,35 @@ test("target artifact reconstruction rejects retry without progress", () => {
   const result = reconstructTargetArtifacts(graph, ["source"], () => ({
     kind: "retry",
     reason: "No prerequisite changed.",
-  }));
+  }), { maximumReconstructionCount: 1 });
 
   assert.equal(result.kind, "rejected");
   assert.equal(result.code, "TARGET_ARTIFACT_RETRY_WITHOUT_PROGRESS");
   assert.equal(result.owner, "source");
   assert.equal(result.reconstructionCount, 1);
+});
+
+test("target artifact reconstruction requires an explicit finite caller budget", () => {
+  const graph = createTargetArtifactContractGraph();
+  assert.throws(
+    () => reconstructTargetArtifacts(graph, ["source"], () => ({
+      kind: "rejected",
+      code: "UNREACHABLE",
+      reason: "The reconstructor must not run without a valid budget.",
+    })),
+    /maximum reconstruction count must be a positive safe integer/u,
+  );
+  assert.throws(
+    () => reconstructTargetArtifacts(
+      graph,
+      ["source"],
+      () => ({
+        kind: "rejected",
+        code: "UNREACHABLE",
+        reason: "The reconstructor must not run without a valid budget.",
+      }),
+      { maximumReconstructionCount: Number.POSITIVE_INFINITY },
+    ),
+    /maximum reconstruction count must be a positive safe integer/u,
+  );
 });

@@ -4,11 +4,12 @@ import type {
   TargetArtifactDependency,
 } from "./contract-graph.js";
 
-export type TargetArtifactReconstruction<Facet extends string> =
+export type TargetArtifactReconstruction<Facet extends string, Artifact> =
   | {
       readonly kind: "resolved";
       readonly contract: TargetArtifactContract<Facet>;
       readonly dependencies: readonly TargetArtifactDependency<Facet>[];
+      readonly artifact: Artifact;
     }
   | {
       readonly kind: "retry";
@@ -21,7 +22,7 @@ export type TargetArtifactReconstruction<Facet extends string> =
     };
 
 export interface TargetArtifactReconstructionOptions {
-  readonly maximumReconstructionCount?: number;
+  readonly maximumReconstructionCount: number;
 }
 
 export type TargetArtifactReconstructionRunResult =
@@ -37,17 +38,16 @@ export type TargetArtifactReconstructionRunResult =
       readonly reconstructionCount: number;
     };
 
-export function reconstructTargetArtifacts<Facet extends string>(
-  graph: TargetArtifactContractGraph<Facet>,
+export function reconstructTargetArtifacts<Facet extends string, Artifact>(
+  graph: TargetArtifactContractGraph<Facet, Artifact>,
   roots: readonly string[],
   reconstruct: (
     owner: string,
-    graph: TargetArtifactContractGraph<Facet>,
-  ) => TargetArtifactReconstruction<Facet>,
-  options: TargetArtifactReconstructionOptions = {},
+    graph: TargetArtifactContractGraph<Facet, Artifact>,
+  ) => TargetArtifactReconstruction<Facet, Artifact>,
+  options: TargetArtifactReconstructionOptions,
 ): TargetArtifactReconstructionRunResult {
-  const maximumReconstructionCount =
-    options.maximumReconstructionCount ?? 1_048_576;
+  const maximumReconstructionCount = options?.maximumReconstructionCount;
   if (
     !Number.isSafeInteger(maximumReconstructionCount) ||
     maximumReconstructionCount <= 0
@@ -127,6 +127,7 @@ export function reconstructTargetArtifacts<Facet extends string>(
       owner,
       candidate.contract,
       candidate.dependencies,
+      candidate.artifact,
     );
     if (committed.kind === "rejected") {
       return {

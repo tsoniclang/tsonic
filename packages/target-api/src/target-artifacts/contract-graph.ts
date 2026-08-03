@@ -12,10 +12,14 @@ export interface TargetArtifactDependency<Facet extends string> {
   readonly facet: Facet;
 }
 
-export interface TargetArtifactContractUpdate<Facet extends string> {
+export interface TargetArtifactContractUpdate<
+  Facet extends string,
+  Artifact,
+> {
   readonly owner: string;
   readonly contract: TargetArtifactContract<Facet>;
   readonly dependencies: readonly TargetArtifactDependency<Facet>[];
+  readonly artifact: Artifact;
 }
 
 export interface TargetArtifactContractGraphOptions {
@@ -69,7 +73,7 @@ export type TargetArtifactContractClosureResult =
       readonly reason: string;
     };
 
-export interface TargetArtifactContractGraph<Facet extends string> {
+export interface TargetArtifactContractGraph<Facet extends string, Artifact> {
   readonly revision: number;
   readonly artifactCount: number;
   readonly dependencyCount: number;
@@ -78,11 +82,13 @@ export interface TargetArtifactContractGraph<Facet extends string> {
     owner: string,
     contract: TargetArtifactContract<Facet>,
     dependencies: readonly TargetArtifactDependency<Facet>[],
+    artifact: Artifact,
   ): TargetArtifactContractGraphResult<Facet>;
   commitBatch(
-    updates: readonly TargetArtifactContractUpdate<Facet>[],
+    updates: readonly TargetArtifactContractUpdate<Facet, Artifact>[],
   ): TargetArtifactContractBatchResult<Facet>;
   contract(owner: string): TargetArtifactContract<Facet> | undefined;
+  artifact(owner: string): Artifact | undefined;
   dependencies(owner: string): readonly TargetArtifactDependency<Facet>[];
   facetRevision(owner: string, facet: Facet): number;
   nextDirty(): string | undefined;
@@ -103,18 +109,20 @@ interface NormalizedDependencySet<Facet extends string> {
   readonly snapshot: readonly TargetArtifactDependency<Facet>[];
 }
 
-interface ArtifactRecord<Facet extends string> {
+interface ArtifactRecord<Facet extends string, Artifact> {
   contract: NormalizedContract<Facet>;
   dependencies: NormalizedDependencySet<Facet>;
+  artifact: Artifact;
   readonly facetRevisions: Map<Facet, number>;
   readonly history: Set<string>;
 }
 
-interface PreparedArtifactUpdate<Facet extends string> {
+interface PreparedArtifactUpdate<Facet extends string, Artifact> {
   readonly owner: string;
   readonly contract: NormalizedContract<Facet>;
   readonly dependencies: NormalizedDependencySet<Facet>;
-  readonly current?: ArtifactRecord<Facet>;
+  readonly artifact: Artifact;
+  readonly current?: ArtifactRecord<Facet, Artifact>;
   readonly changedFacets: readonly Facet[];
   readonly contractChanged: boolean;
   readonly dependenciesChanged: boolean;
@@ -142,15 +150,15 @@ const defaultLimits: TargetArtifactContractGraphLimits = Object.freeze({
   maximumFacetValueCodeUnits: 4_194_304,
 });
 
-export function createTargetArtifactContractGraph<Facet extends string>(
+export function createTargetArtifactContractGraph<Facet extends string, Artifact>(
   options: TargetArtifactContractGraphOptions = {},
-): TargetArtifactContractGraph<Facet> {
+): TargetArtifactContractGraph<Facet, Artifact> {
   const limitsResult = resolveLimits(options);
   if (limitsResult.kind === "rejected") {
     throw new Error(limitsResult.reason);
   }
   const limits = limitsResult.limits;
-  const records = new Map<string, ArtifactRecord<Facet>>();
+  const records = new Map<string, ArtifactRecord<Facet, Artifact>>();
   const reverse = new Map<string, Set<string>>();
   const dirty = new DeterministicOwnerQueue();
   const pendingUnpublished = new Set<string>();
@@ -193,8 +201,9 @@ export function createTargetArtifactContractGraph<Facet extends string>(
     owner: string,
     contract: TargetArtifactContract<Facet>,
     dependencies: readonly TargetArtifactDependency<Facet>[],
+    artifact: Artifact,
   ): TargetArtifactContractGraphResult<Facet> {
-    const batch = commitBatch([{ owner, contract, dependencies }]);
+    const batch = commitBatch([{ owner, contract, dependencies, artifact }]);
     if (batch.kind === "rejected") {
       return batch;
     }
@@ -209,7 +218,7 @@ export function createTargetArtifactContractGraph<Facet extends string>(
   }
 
   function commitBatch(
-    updates: readonly TargetArtifactContractUpdate<Facet>[],
+    updates: readonly TargetArtifactContractUpdate<Facet, Artifact>[],
   ): TargetArtifactContractBatchResult<Facet> {
     if (!Array.isArray(updates)) {
       return rejectedInvalid(
@@ -217,7 +226,7 @@ export function createTargetArtifactContractGraph<Facet extends string>(
       );
     }
     const owners = new Set<string>();
-    const prepared: PreparedArtifactUpdate<Facet>[] = [];
+    const prepared: PreparedArtifactUpdate<Facet, Artifact>[] = [];
     for (const update of updates) {
       const ownerFailure = validateIdentity(
         update?.owner,
@@ -279,6 +288,7 @@ export function createTargetArtifactContractGraph<Facet extends string>(
         owner: update.owner,
         contract: normalizedContract.contract,
         dependencies: normalizedDependencies.dependencies,
+        artifact: update.artifact,
         current,
         changedFacets,
         contractChanged,
@@ -348,20 +358,22 @@ export function createTargetArtifactContractGraph<Facet extends string>(
     const changed = prepared.filter((update) =>
       update.contractChanged || update.dependenciesChanged
     );
-    for (const update of changed) {
-      if (update.current !== undefined) {
+    for (const update of prepared) {
+      if (update.current !== undefined && update.dependenciesChanged) {
         removeReverseEdges(update.owner, update.current.dependencies.byKey);
       }
     }
-    for (const update of changed) {
-      const nextRecord: ArtifactRecord<Facet> = update.current ?? {
+    for (const update of prepared) {
+      const nextRecord: ArtifactRecord<Facet, Artifact> = update.current ?? {
         contract: update.contract,
         dependencies: update.dependencies,
+        artifact: update.artifact,
         facetRevisions: new Map(),
         history: new Set(),
       };
       nextRecord.contract = update.contract;
       nextRecord.dependencies = update.dependencies;
+      nextRecord.artifact = update.artifact;
       if (update.contractChanged) {
         nextRecord.history.add(update.contract.encoded);
         for (const facet of update.changedFacets) {
@@ -372,7 +384,9 @@ export function createTargetArtifactContractGraph<Facet extends string>(
         }
       }
       records.set(update.owner, nextRecord);
-      addReverseEdges(update.owner, update.dependencies.byKey);
+      if (update.dependenciesChanged) {
+        addReverseEdges(update.owner, update.dependencies.byKey);
+      }
     }
     dependencyCount = nextDependencyCount;
     contractCodeUnits = nextContractCodeUnits;
@@ -483,6 +497,9 @@ export function createTargetArtifactContractGraph<Facet extends string>(
     commitBatch,
     contract(owner: string): TargetArtifactContract<Facet> | undefined {
       return records.get(owner)?.contract.snapshot;
+    },
+    artifact(owner: string): Artifact | undefined {
+      return records.get(owner)?.artifact;
     },
     dependencies(owner: string): readonly TargetArtifactDependency<Facet>[] {
       return records.get(owner)?.dependencies.snapshot ?? Object.freeze([]);
