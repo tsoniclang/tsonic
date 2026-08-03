@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { compileProject, discoverInstalledTsonicPlugins, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
 import type { ProjectBuildResult } from "@tsonic/host";
+import { publishBuildOutput, recoverBuildOutput } from "./output-publication.js";
 
 interface CliResult {
   readonly exitCode: number;
@@ -58,6 +59,12 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
   const projectPath = resolve(currentDirectory, readProjectPath(args));
   const text = await readFile(projectPath, "utf8");
   const config = parseTsonicProjectConfig(JSON.parse(text));
+  const paths = resolveProjectPaths({ project: config, projectFilePath: projectPath });
+  const outputOptions = {
+    outputRoot: paths.outputRoot,
+    protectedPaths: [paths.projectDirectory],
+  } as const;
+  await recoverBuildOutput(outputOptions);
   const plugins = await discoverInstalledTsonicPlugins(projectPath);
   if (plugins.diagnostics.some((diagnostic) => diagnostic.category === "error")) {
     return {
@@ -72,8 +79,17 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
     registry: plugins.createTargetRegistry(),
     installedCapabilities: plugins.capabilities,
   });
-  await writeBuildArtifacts(projectPath, config, buildResult);
   const diagnostics = buildResult.diagnostics.filter((diagnostic) => diagnostic.category === "error");
+  if (diagnostics.length === 0) {
+    await publishBuildOutput({
+      ...outputOptions,
+      expectedTargetIds: config.targets.map((target) => target.id),
+      targets: buildResult.targets.map((target) => ({
+        targetId: target.target.id,
+        artifacts: target.compileResult.artifacts,
+      })),
+    });
+  }
   return {
     exitCode: diagnostics.length === 0 ? 0 : 1,
     stdout: [
@@ -101,40 +117,6 @@ function formatDiagnostic(diagnostic: ProjectBuildResult["diagnostics"][number])
     ? ""
     : ` ${diagnostic.sourceSpan.fileName}:${diagnostic.sourceSpan.line}:${diagnostic.sourceSpan.column}`;
   return `${diagnostic.category.toUpperCase()} ${diagnostic.source ?? "tsonic"}:${diagnostic.code}${sourceSpan}: ${diagnostic.message}${evidence}`;
-}
-
-async function writeBuildArtifacts(
-  projectPath: string,
-  config: ReturnType<typeof parseTsonicProjectConfig>,
-  buildResult: ProjectBuildResult,
-): Promise<void> {
-  const paths = resolveProjectPaths({ project: config, projectFilePath: projectPath });
-  for (const targetResult of buildResult.targets) {
-    const targetRoot = resolve(paths.outputRoot, targetResult.target.id);
-    assertContainedPath(paths.outputRoot, targetRoot, `target '${targetResult.target.id}' output root`);
-    await rm(targetRoot, { recursive: true, force: true });
-    for (const artifact of targetResult.compileResult.artifacts) {
-      const outputPath = resolve(targetRoot, artifact.path);
-      assertSafeArtifactPath(targetRoot, artifact.path, outputPath);
-      await mkdir(dirname(outputPath), { recursive: true });
-      await writeFile(outputPath, artifact.text, "utf8");
-    }
-  }
-}
-
-function assertSafeArtifactPath(targetRoot: string, artifactPath: string, outputPath: string): void {
-  if (isAbsolute(artifactPath)) {
-    throw new Error(`Target artifact path '${artifactPath}' must be project-relative inside the target output root.`);
-  }
-  assertContainedPath(targetRoot, outputPath, `target artifact '${artifactPath}'`);
-}
-
-function assertContainedPath(root: string, candidate: string, subject: string): void {
-  const relation = relative(root, candidate);
-  if (relation === "" || (!relation.startsWith("..") && !isAbsolute(relation))) {
-    return;
-  }
-  throw new Error(`${subject} resolves outside '${root}'.`);
 }
 
 function readProjectPath(args: readonly string[]): string {

@@ -354,7 +354,7 @@ test("CLI clean rebuild removes stale target artifacts before writing current ou
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Stale.cs")), false);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
 });
-test("CLI clean rebuild removes stale target artifacts when diagnostics stop emission", async () => {
+test("CLI diagnostics preserve the last successfully published target output", async () => {
   const projectDirectory = resolve(tempRoot, "clean-rebuild-diagnostic-only-target");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -385,9 +385,9 @@ test("CLI clean rebuild removes stale target artifacts when diagnostics stop emi
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedCleanDiagnostic.csproj")), false);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Stale.cs")), false);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/runtime/stale.txt")), false);
+  assert.equal(await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedCleanDiagnostic.csproj"), "utf8"), "<Project />\n");
+  assert.equal(await readFile(resolve(projectDirectory, "out/csharp/src/Stale.cs"), "utf8"), "public static class Stale {}\n");
+  assert.equal(await readFile(resolve(projectDirectory, "out/csharp/runtime/stale.txt"), "utf8"), "stale\n");
 });
 test("CLI clean rebuild removes prior target toolchain artifacts before writing current outputs", async () => {
   const assemblyName = "SmokeGeneratedCleanToolchainArtifacts";

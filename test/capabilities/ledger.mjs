@@ -478,7 +478,7 @@ const baseCapabilityDefinitions = Object.freeze([
   ["host.project.module-graph", "Create one deterministic project module graph from TSTS source files", "complete", "tsonic-host"],
   ["host.project.package-path-resolution", "Resolve project packages, package exports, and paths without package-root shims", "complete", "tsonic-host"],
   ["host.project.deterministic-output-paths", "Derive deterministic output paths from validated project-relative source paths", "complete", "tsonic-host"],
-  ["host.project.clean-rebuild", "Clean rebuild removes stale target artifacts without preserving legacy output", "complete", "tsonic-host"],
+  ["host.project.clean-rebuild", "Publish a complete successful output tree atomically while retaining the prior tree on failure", "complete", "tsonic-host"],
   ["host.project.top-level-initialization-order", "Preserve deterministic module top-level initialization order", "complete", "tsonic-host"],
 
   ["module.graph.source-files", "Resolve ordinary TypeScript source file graph", "complete", "tsts-api"],
@@ -2105,7 +2105,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "host.project.deterministic-output-paths has target-id and artifact containment proof, but remains partial until every backend artifact family is covered by deterministic output identity tests.",
     ]),
     notes:
-      "Reviewed partial proof: target ids and selected surface ids are safe canonical path segments; target pack and surface ids are registry-validated; target output roots are resolved under the configured outDir; CLI artifact writing rejects absolute or escaping artifact paths before writing.",
+      "Reviewed partial proof: target ids and selected surface ids are safe canonical path segments; target pack and surface ids are registry-validated; target output roots are resolved under the configured outDir; CLI publication validates the complete target set plus every absolute, escaping, duplicate, and file/directory-colliding artifact path before staging or touching the prior successful output.",
   }),
   "host.project.clean-rebuild": Object.freeze({
     sourceExamples: Object.freeze([
@@ -2113,26 +2113,31 @@ const reviewedCapabilityEvidence = Object.freeze({
       "export abstract class Base { abstract run(): string; }",
     ]),
     tstsDecision:
-      "TSTS and providers may produce diagnostics instead of artifacts; the host still owns deterministic target output-root cleanup for every selected target result.",
+      "TSTS and providers may produce diagnostics instead of artifacts; any error prevents publication and leaves the last complete target output tree unchanged.",
     providerFacts: Object.freeze([
-      "selectedTargetOutputRoot",
-      "diagnosticOnlyTargetResult",
-      "targetArtifactPathContainment",
+      "completeConfiguredTargetSet",
+      "validatedTargetArtifactPaths",
+      "stagedOutputTree",
+      "recoverableAtomicPublication",
     ]),
     backendContract:
-      "The CLI removes the selected target output root before writing current artifacts, and performs the same cleanup when diagnostics suppress backend/toolchain artifacts.",
+      "The CLI validates and writes the complete configured target set to a fresh sibling staging tree, then renames that complete tree into place only when the build has no errors. Diagnostics and staging failures preserve the last successfully published output.",
     positiveTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
+      "test/cli-output-publication.test.mjs",
+      "test/architecture-contract.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/target-config.test.mjs",
+      "test/cli-output-publication.test.mjs",
+      "test/architecture-contract.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/cli/src/commands/build.test.ts",
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: CLI build removes the selected target output root before writing current artifacts, so stale generated source/runtime/project files do not survive successful rebuilds or backend-diagnostic-only rebuilds. Current tests also build the generated C# project, prove target toolchain artifacts such as isolated output assemblies and obj intermediates exist, then rerun Tsonic and prove those artifacts are removed before current C# sources/projects are written. Target-id validation and artifact containment prevent clean rebuild from escaping the configured output root.",
+      "Reviewed proof: a successful CLI build replaces the whole compiler-owned outDir from a complete sibling staging tree, so stale generated targets, source/runtime/project files, and target-toolchain bin/obj artifacts cannot survive. An error diagnostic leaves the previous published tree byte-for-byte intact. Prevalidation rejects incomplete target sets and unsafe artifact graphs before publication; a process-owned lock serializes publication; dead locks, interrupted staging, pre-swap backups, and post-swap backups recover automatically without manual cache cleanup.",
   }),
   "tsts.parse-bind-check": Object.freeze({
     positiveTests: Object.freeze([

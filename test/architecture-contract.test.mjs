@@ -336,6 +336,18 @@ test("target pack API exposes explicit provider surface backend runtime and tool
   assert.match(text, /createToolchain\(context: TargetToolchainContext\): TargetToolchain;/u);
 });
 
+test("CLI publishes only complete successful builds through the staged output boundary", async () => {
+  const cliText = await readFile(join(repoRoot, "packages/cli/src/index.ts"), "utf8");
+  const publicationText = await readFile(join(repoRoot, "packages/cli/src/output-publication.ts"), "utf8");
+
+  assert.match(cliText, /if \(diagnostics\.length === 0\) \{\s*await publishBuildOutput\(/u);
+  assert.doesNotMatch(cliText, /\bwriteBuildArtifacts\b/u);
+  assert.doesNotMatch(cliText, /rm\(targetRoot/u);
+  assert.match(publicationText, /const stageRoot = await mkdtemp\(scratch\.stagePrefix\);/u);
+  assert.match(publicationText, /await rename\(stageRoot, scratch\.outputRoot\);/u);
+  assert.match(publicationText, /await recoverBuildOutputWithoutLock\(scratch\);/u);
+});
+
 test("product package manifests use only approved compiler/runtime dependencies", async () => {
   const failures = [];
   for (const manifestPath of packageManifestPaths) {
