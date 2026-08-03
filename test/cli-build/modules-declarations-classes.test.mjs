@@ -287,7 +287,7 @@ test("CLI emits C# interfaces and class heritage from TSTS AST", async () => {
   assert.match(generatedSource, /public interface Getter<T>/);
   assert.match(generatedSource, /T get\(\);/);
   assert.match(generatedSource, /public interface Named/);
-  assert.match(generatedSource, /string name \{ get; \}/);
+  assert.match(generatedSource, /string name \{ get; set; \}/);
   assert.match(generatedSource, /public class Derived : Base/);
   assert.match(generatedSource, /public Derived\(double start\) : base\(start\)/);
   assert.match(generatedSource, /return base\.value\(\) \+ 1;/);

@@ -351,12 +351,13 @@ test("CLI finalizes interface-backed JSON shapes and compat typeof checks after 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  const generatedShape = generatedSource.match(/public class (__TsonicShape_[A-Za-z0-9_]+) : Todo, Tsonic\.CSharp\.Js\.IJsonValue/u);
-  assert.notEqual(generatedShape, null, generatedSource);
-  assert.equal(generatedSource.match(/public class __TsonicShape_[A-Za-z0-9_]+ : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
+  const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  const generatedShape = generatedShapes.match(/public class (__TsonicShape_[A-Za-z0-9_]+) : Todo, Tsonic\.CSharp\.Js\.IJsonValue/u);
+  assert.notEqual(generatedShape, null, generatedShapes);
+  assert.equal(generatedShapes.match(/public class __TsonicShape_[A-Za-z0-9_]+ : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
   assert.equal(generatedSource.match(new RegExp(`new ${generatedShape[1]}`, "gu"))?.length, 2);
-  assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; \}\s*string title \{ get; \}\s*bool completed \{ get; \}\s*\}/u);
-  assert.equal(generatedSource.match(/void __tsonicWriteJson\(/gu)?.length, 1);
+  assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; set; \}\s*string title \{ get; set; \}\s*bool completed \{ get; set; \}\s*\}/u);
+  assert.equal(generatedShapes.match(/void __tsonicWriteJson\(/gu)?.length, 1);
   assert.match(generatedSource, /TsValue\.ApplyCompatTypeof\(value\.ReadCompatSlot\("title"\)\) != "string"/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedJsonInterfaceShapeFinalization.csproj"), "--nologo", "--v:minimal"]);
@@ -428,16 +429,16 @@ test("CLI compiles existing TypeScript JS-surface utility code when JS surface i
   assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static System\.Collections\.Generic\.List<string> appendTag\(System\.Collections\.Generic\.List<string> tags, string tag\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Array\.push\(tags, tag\);/);
-  assert.match(generatedSource, /public static double summarize\(System\.Collections\.Generic\.IReadOnlyList<double> values\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> appendTag\(Tsonic\.CSharp\.Js\.JSArray<string> tags, string tag\)/);
+  assert.match(generatedSource, /tags\.push\(tag\);/);
+  assert.match(generatedSource, /public static double summarize\(Tsonic\.CSharp\.Js\.JSArray<double> values\)/);
   assert.match(generatedSource, /double first = Tsonic\.CSharp\.Js\.Array\.atValue\(values, 0\) \?\? 0;/);
-  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.Count - 1\) \?\? 0;/);
+  assert.match(generatedSource, /double last = Tsonic\.CSharp\.Js\.Array\.atValue\(values, values\.length - 1\) \?\? 0;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.max\(first, last\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSON\.stringify\(count\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.slice\(Tsonic\.CSharp\.Js\.String\.toUpperCase\(Tsonic\.CSharp\.Js\.String\.trim\(name\)\), 0, 8\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.Object\.keys\(values\), ","\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.String\.split\(input, ":"\), "\|"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.keys\(values\)\.join\(","\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(input, ":"\)\.join\("\|"\);/);
   assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.RegExp\("\^user:", "i"\)\.test\(input\);/);
   assert.doesNotMatch(generatedSource, /return Math\./);
   assert.doesNotMatch(generatedSource, /return Object\./);

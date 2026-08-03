@@ -232,7 +232,7 @@ test("CLI rejects direct C# bitwise operators on plain TypeScript number", async
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# bitwise operator '&' requires integral, enum, or explicit provider operator facts/);
+  assert.match(build.stderr, /C# bitwise operator '&' requires integral operands or one exact enum type/);
 });
 
 test("CLI rejects TypeScript truthiness in C# control-flow conditions without bool facts", async () => {
@@ -335,7 +335,7 @@ test("CLI rejects logical-not on plain number without provider truthiness loweri
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# prefix unary operator '!' requires operand runtime-carrier facts/);
+  assert.match(build.stderr, /C# logical negation requires an exact bool operand/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedLogicalNotNumber.csproj")), false);
 });
 
@@ -370,7 +370,7 @@ test("CLI rejects in-operator emission without selected provider operation facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# operator 'in' has no finalized provider target operation/);
+  assert.match(build.stderr, /Source operator 'in' requires a dedicated C# translation policy/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedInOperatorFacts.csproj")), false);
 });
 

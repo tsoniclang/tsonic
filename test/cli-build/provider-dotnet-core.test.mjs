@@ -252,7 +252,7 @@ test("CLI emits provider-owned System.Console and System.Math calls from .NET vi
       "}",
       "",
       "export function read(): string {",
-      "  return Console.ReadLine();",
+      "  return Console.ReadLine() ?? \"\";",
       "}",
       "",
     ].join("\n"),
@@ -266,7 +266,7 @@ test("CLI emits provider-owned System.Console and System.Math calls from .NET vi
   assert.match(generatedSource, /System\.Console\.WriteLine\(System\.Math\.Sqrt\(value\)\);/);
   assert.match(generatedSource, /System\.Console\.Write\(value\);/);
   assert.match(generatedSource, /System\.Console\.WriteLine\(\);/);
-  assert.match(generatedSource, /return System\.Console\.ReadLine\(\);/);
+  assert.match(generatedSource, /return System\.Console\.ReadLine\(\) \?\? \"\";/);
   assert.doesNotMatch(generatedSource, /return Console\.|Console\.write|Math\.sqrt|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderConsoleMath.csproj"), "--nologo", "--v:minimal"]);

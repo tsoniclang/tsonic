@@ -100,8 +100,8 @@ test("CLI rejects generic type-parameter operators without selected target facts
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# operator '===' requires finalized provider operator facts for type-parameter operands/);
-  assert.match(build.stderr, /type-parameter operands/);
+  assert.match(build.stderr, /Source operator '===' over a type parameter requires an exact target constraint policy/);
+  assert.match(build.stderr, /type parameter/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
@@ -443,12 +443,12 @@ test("CLI emits arrays and interfaces containing callable target types", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static readonly Func<int, int, int>\[\] operations;/);
+  assert.match(generatedSource, /public static Func<int, int, int>\[\] operations\s*\{\s*get;\s*private set;\s*\} = default\(Func<int, int, int>\[\]\)!;/);
   assert.match(generatedSource, /operations = new Func<int, int, int>\[\] \{ \(int left, int right\) => left \+ right, \(int left, int right\) => left - right, \(int left, int right\) => left \* right \};/);
   assert.match(generatedSource, /public interface OperationMap/);
-  assert.match(generatedSource, /Func<int, int, int> add \{ get; \}/);
-  assert.match(generatedSource, /Func<int, int, int> subtract \{ get; \}/);
-  assert.match(generatedSource, /Func<int, int, int> multiply \{ get; \}/);
+  assert.match(generatedSource, /Func<int, int, int> add \{ get; set; \}/);
+  assert.match(generatedSource, /Func<int, int, int> subtract \{ get; set; \}/);
+  assert.match(generatedSource, /Func<int, int, int> multiply \{ get; set; \}/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCallableContainers.csproj"), "--nologo", "--v:minimal"]);

@@ -34,7 +34,7 @@ test("CLI emits array for-of from finalized provider foreach iteration facts", a
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double sum\(System\.Collections\.Generic\.IEnumerable<double> values\)/);
+  assert.match(generatedSource, /public static double sum\(Tsonic\.CSharp\.Js\.JSArray<double> values\)/);
   assert.match(generatedSource, /double total = 0;/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /total = total \+ value;/);
@@ -168,9 +168,10 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public class __TsonicShape_/);
-  assert.match(generatedSource, /public double value;/);
-  assert.match(generatedSource, /public string label;/);
+  const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public required double value;/);
+  assert.match(generatedShapes, /public required string label;/);
   assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_forInTarget0 = values;/);
   assert.match(generatedSource, /string\[\] __tsonic_forInKeys0 = new string\[\] \{ "value", "label" \};/);
   assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
