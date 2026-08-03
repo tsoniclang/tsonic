@@ -45,7 +45,7 @@ if (shards.length === 0) {
 if (options.list) {
   console.log(`parallel-run: tasks=${shards.length}`);
   for (const shard of shards) {
-    console.log(`${shard.group}\t${shard.scope}\t${shard.id}`);
+    console.log(`${shard.group}\t${shard.scope}\t${shard.exclusive === true ? "exclusive" : "parallel"}\t${shard.id}`);
   }
   process.exit(0);
 }
@@ -257,7 +257,24 @@ function validateShardCoverage(shardsToValidate) {
       failures.push(`${testSuite.scope} dotnet project/solution does not exist: ${toPosix(testSuite.projectOrSolution)}`);
       return;
     }
-    for (const file of listDotnetTestFiles(testSuite.directory)) {
+    const files = listDotnetTestFiles(testSuite.directory);
+    const exclusiveGroups = testSuite.exclusiveGroups ?? [];
+    if (exclusiveGroups.length > 0 && testSuite.taskMode !== "directory") {
+      failures.push(`${testSuite.scope} dotnet exclusive groups require directory task mode`);
+    }
+    const availableGroups = new Set(groupFilesByDirectory(testSuite.directory, files).keys());
+    const seenExclusiveGroups = new Set();
+    for (const group of exclusiveGroups) {
+      if (typeof group !== "string" || group.length === 0) {
+        failures.push(`${testSuite.scope} dotnet exclusive group must be a non-empty string`);
+      } else if (!availableGroups.has(group)) {
+        failures.push(`${testSuite.scope} dotnet exclusive group has no test task: ${group}`);
+      } else if (seenExclusiveGroups.has(group)) {
+        failures.push(`${testSuite.scope} dotnet exclusive group is duplicated: ${group}`);
+      }
+      seenExclusiveGroups.add(group);
+    }
+    for (const file of files) {
       const relativeFile = toPosix(relative(testSuite.cwd, file));
       if (extractDotnetTestClasses(file).length === 0) {
         failures.push(`${testSuite.scope} dotnet test file has no test class task: ${relativeFile}`);
@@ -315,6 +332,7 @@ function dotnetTestShard(testSuite, groupName, files, classNames) {
     id: `${testSuite.scope}:dotnet:${relativeGroup}`,
     scope: testSuite.scope,
     group: testSuite.group,
+    exclusive: testSuite.exclusiveGroups?.includes(relativeGroup) === true,
     files,
     preRunIds: preRunsForTask(testSuite.scope, testSuite.group),
     cwd: testSuite.cwd,
@@ -471,6 +489,7 @@ function createInventory(shardsToInventory) {
       const entry = {
         scope: shard.scope,
         group: shard.group,
+        exclusive: shard.exclusive === true,
         path: relativeFile,
         taskId: shard.id,
         preRunIds: shard.preRunIds ?? [],
@@ -487,6 +506,7 @@ function createInventory(shardsToInventory) {
     .map((entry) => ({
       scope: entry.scope,
       group: entry.group,
+      exclusive: entry.exclusive,
       path: entry.path,
       runner: entry.runner,
       taskIds: entry.tasks.map((task) => task.taskId).sort(),
