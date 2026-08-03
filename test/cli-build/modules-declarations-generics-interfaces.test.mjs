@@ -180,11 +180,25 @@ test("CLI emits interface index signatures as C# indexers", async () => {
     }, null, 2),
     "src/index.ts": [
       "export interface Bag {",
+      "  value: number;",
+      "  readonly fixedValue: number;",
       "  [key: string]: number;",
+      "}",
+      "",
+      "export interface ReadonlyBag {",
+      "  readonly [key: string]: number;",
       "}",
       "",
       "export function read(bag: Bag, key: string): number {",
       "  return bag[key];",
+      "}",
+      "",
+      "export function readReadonly(bag: ReadonlyBag, key: string): number {",
+      "  return bag[key];",
+      "}",
+      "",
+      "export function write(bag: Bag, key: string, value: number): void {",
+      "  bag[key] = value;",
       "}",
       "",
     ].join("\n"),
@@ -194,9 +208,12 @@ test("CLI emits interface index signatures as C# indexers", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public interface Bag/);
-  assert.match(generatedSource, /double this\[string key\] \{ get; \}/);
+  assert.match(generatedSource, /public interface Bag[\s\S]*double value \{ get; set; \}/);
+  assert.match(generatedSource, /public interface Bag[\s\S]*double fixedValue \{ get; \}/);
+  assert.match(generatedSource, /public interface Bag[\s\S]*double this\[string key\] \{ get; set; \}/);
+  assert.match(generatedSource, /public interface ReadonlyBag[\s\S]*double this\[string key\] \{ get; \}/);
   assert.match(generatedSource, /return bag\[key\];/);
+  assert.match(generatedSource, /bag\[key\] = value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedIndexSignatures.csproj"), "--nologo", "--v:minimal"]);
