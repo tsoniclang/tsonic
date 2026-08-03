@@ -866,6 +866,7 @@ export interface ResolvedCallSelectedSignatureParameterEvidence {
 export interface ResolvedCallSelectionEvidence {
     readonly outcome: "applicable" | "untyped";
     readonly call: Node;
+    readonly optionalChain: boolean;
     readonly selectedSignature: Signature;
     readonly sourceSelectedSignatureKind: "resolved" | "untyped";
     readonly sourceSelectedMethodTypeArguments?: readonly ResolvedCallSelectedMethodTypeArgumentEvidence[];

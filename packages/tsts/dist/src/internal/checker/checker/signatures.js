@@ -2983,6 +2983,7 @@ function buildApplicableResolvedCallEvidence(receiver, node, sourceCalleeType, s
     return Object.freeze({
         outcome: "applicable",
         call: node,
+        optionalChain: IsOptionalChain(node),
         selectedSignature,
         sourceSelectedSignatureKind: "resolved",
         ...(sourceSelectedMethodTypeArguments === undefined ? {} : { sourceSelectedMethodTypeArguments }),
@@ -3023,6 +3024,7 @@ function buildUntypedResolvedCallEvidence(receiver, node, sourceCalleeType, sele
     return Object.freeze({
         outcome: "untyped",
         call: node,
+        optionalChain: IsOptionalChain(node),
         selectedSignature,
         sourceSelectedSignatureKind: "untyped",
         sourceSelectedSignatureParameters: Object.freeze([]),
