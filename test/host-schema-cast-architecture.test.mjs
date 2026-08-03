@@ -33,7 +33,15 @@ const expectedCasts = Object.freeze([
   "packages/target-api/src/source-navigation/references.ts:AsImportSpecifier",
   "packages/target-api/src/source-navigation/syntax.ts:AsExpressionWithTypeArguments",
   "packages/target-api/src/source-navigation/syntax.ts:AsTypeReferenceNode",
+  "packages/target-api/src/source-semantics/authored-type-facts.ts:AsTypeAliasDeclaration",
+  "packages/target-api/src/source-semantics/authored-type-facts.ts:AsTypeReferenceNode",
   "packages/target-api/src/source-semantics/authored-type-selection.ts:AsParenthesizedTypeNode",
+  "packages/target-api/src/source-semantics/type-syntax.ts:AsArrayTypeNode",
+  "packages/target-api/src/source-semantics/type-syntax.ts:AsNamedTupleMember",
+  "packages/target-api/src/source-semantics/type-syntax.ts:AsOptionalTypeNode",
+  "packages/target-api/src/source-semantics/type-syntax.ts:AsParenthesizedTypeNode",
+  "packages/target-api/src/source-semantics/type-syntax.ts:AsRestTypeNode",
+  "packages/target-api/src/source-semantics/type-syntax.ts:AsTypeOperatorNode",
 ]);
 
 test("every generated shared source-processing AST cast has an exact local kind predicate", async () => {
