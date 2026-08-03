@@ -100,6 +100,7 @@ export type {
   SourceProgramSemantics,
   SourceTypeRelationship,
   SourceTypeRefinement,
+  SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./source-semantics/index.js";
 export type {

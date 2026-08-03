@@ -11,6 +11,7 @@ import {
 import type {
   SourceFileSemantics,
   SourceProgramSemantics,
+  SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./types.js";
 import {
@@ -155,12 +156,50 @@ export function createTargetSourceProgram(
     return forFile(sourceFile);
   };
 
+  const selectValueTypeRefinement = (
+    node: Node,
+  ): SourceValueTypeRefinementSelection => {
+    const reference = navigation.referenceFor(node);
+    if (reference === undefined) {
+      return Object.freeze({ kind: "not-project-reference" });
+    }
+    const declaredType = forFile(reference.sourceFile)
+      .getDeclaredValueType(reference.declaration);
+    if (declaredType === undefined) {
+      return Object.freeze({
+        kind: "unresolved",
+        reference,
+        missing: "declared-type",
+      });
+    }
+    const selectedSemantics = forNode(node);
+    const selectedType = selectedSemantics.getTypeAtLocation(node);
+    if (selectedType === undefined) {
+      return Object.freeze({
+        kind: "unresolved",
+        reference,
+        missing: "selected-type",
+      });
+    }
+    return Object.freeze({
+      kind: "resolved",
+      reference,
+      declaredType,
+      selectedType,
+      refinement: selectedSemantics.selectTypeRefinement(
+        declaredType,
+        selectedType,
+      ),
+    });
+  };
+
   const semantics: SourceProgramSemantics = Object.freeze({
     includes(sourceFile: SourceFile) {
       return sourceFileSet.has(sourceFile);
     },
     forFile,
     forNode,
+    selectValueTypeRefinement,
   });
 
   return Object.freeze({
@@ -183,5 +222,6 @@ export type {
   SourceProgramSemantics,
   SourceTypeRelationship,
   SourceTypeRefinement,
+  SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./types.js";

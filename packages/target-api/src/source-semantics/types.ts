@@ -11,6 +11,7 @@ import type {
 } from "@tsonic/tsts";
 import type {
   SourceProgramNavigation,
+  SourceProjectReference,
 } from "../source-navigation/index.js";
 import type {
   SourceAuthoredTypeSelection,
@@ -60,10 +61,26 @@ export type SourceFileSemantics = Readonly<
   & TypeShapeQueries
 >;
 
+export type SourceValueTypeRefinementSelection =
+  | { readonly kind: "not-project-reference" }
+  | {
+      readonly kind: "unresolved";
+      readonly reference: SourceProjectReference;
+      readonly missing: "declared-type" | "selected-type";
+    }
+  | {
+      readonly kind: "resolved";
+      readonly reference: SourceProjectReference;
+      readonly declaredType: Type;
+      readonly selectedType: Type;
+      readonly refinement: SourceTypeRefinement;
+    };
+
 export interface SourceProgramSemantics {
   includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;
+  selectValueTypeRefinement(node: Node): SourceValueTypeRefinementSelection;
 }
 
 export type {

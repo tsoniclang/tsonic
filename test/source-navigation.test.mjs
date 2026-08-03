@@ -225,6 +225,62 @@ test("target source semantics expose checker-owned declared value types", async 
   );
 });
 
+test("target source semantics classify value uses against their exact declarations", async () => {
+  const checked = await checkedSource("value-type-refinement", {
+    "src/index.ts": [
+      "export function narrowed(value: string | undefined): string {",
+      "  if (value === undefined) return \"missing\";",
+      "  return value;",
+      "}",
+      "export function caught(): unknown {",
+      "  try { throw \"boom\"; } catch (error) { return error; }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const returnedValue = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsIdentifier(node) &&
+    source.ast.text(node) === "value" &&
+    source.ast.is.IsReturnStatement(source.ast.parent(node)));
+  const returnedError = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsIdentifier(node) &&
+    source.ast.text(node) === "error" &&
+    source.ast.is.IsReturnStatement(source.ast.parent(node)));
+  const literal = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsStringLiteral(node) && source.ast.text(node) === "missing");
+
+  const narrowed = source.semantics.selectValueTypeRefinement(returnedValue);
+  assert.equal(narrowed.kind, "resolved");
+  assert.equal(
+    source.ast.is.IsParameterDeclaration(narrowed.reference.declaration),
+    true,
+  );
+  assert.equal(
+    semantics.typeToString(narrowed.declaredType),
+    "string | undefined",
+  );
+  assert.equal(semantics.typeToString(narrowed.selectedType), "string");
+  assert.equal(narrowed.refinement.kind, "members");
+
+  const exact = source.semantics.selectValueTypeRefinement(returnedError);
+  assert.equal(exact.kind, "resolved");
+  assert.equal(
+    source.ast.is.IsVariableDeclaration(exact.reference.declaration),
+    true,
+  );
+  assert.equal(semantics.typeToString(exact.declaredType), "unknown");
+  assert.equal(semantics.typeToString(exact.selectedType), "unknown");
+  assert.equal(exact.refinement.kind, "exact");
+
+  assert.deepEqual(
+    source.semantics.selectValueTypeRefinement(literal),
+    { kind: "not-project-reference" },
+  );
+});
+
 test("target source semantics retain authored, contextual, and flow-selected union evidence", async () => {
   const checked = await checkedSource("authored-union-flow-selection", {
     "src/index.ts": [
