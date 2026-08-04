@@ -86,7 +86,10 @@ test("source-core virtual module provider owns only neutral core modules", () =>
 
   const langResolution = assertVirtualModuleResolution(provider.resolveModule(tsonicCoreLangModule, {}));
   assert.equal(langResolution.providerModuleId, tsonicCoreLangModule);
-  const declarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(langResolution));
+  const declarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(langResolution, {
+    context: {},
+    materialization: { kind: "complete" },
+  }));
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => name !== "__TsonicAttributeBuilder" && name !== "__TsonicAttributeMemberBuilder"), [
     ...expectedSourceCoreLangIntrinsics.map((entry) => entry.exportName),
   ]);
@@ -94,7 +97,10 @@ test("source-core virtual module provider owns only neutral core modules", () =>
 
   const typesResolution = assertVirtualModuleResolution(provider.resolveModule(tsonicCoreTypesModule, {}));
   assert.equal(typesResolution.providerModuleId, tsonicCoreTypesModule);
-  const typesDeclarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(typesResolution), tsonicCoreTypesModule);
+  const typesDeclarationModel = assertProviderDeclarationModel(provider.getDeclarationModel(typesResolution, {
+    context: {},
+    materialization: { kind: "complete" },
+  }), tsonicCoreTypesModule);
   assert.deepEqual(typesDeclarationModel.exports.map((entry) => entry.name), [
     ...expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName),
   ]);

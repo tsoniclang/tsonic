@@ -1,3 +1,4 @@
+import { recordProviderStructuredTypeDemand } from "../../../extensions/provider-materialization-integration.js";
 import { callEvidenceWantedForCallee, retainElementCallCalleeEvidence, retainIdentifierCallCalleeEvidence, retainPropertyCallCalleeEvidence, } from "./call-evidence.js";
 import { NewGoStructMap } from "../../../go/compat.js";
 import { GetNamespaceDeclarationNode, IsImportCall, IsImportOrExportSpecifier } from "../../ast/utilities.js";
@@ -12534,6 +12535,7 @@ export function Checker_getIndexTypeOfTypeEx(receiver, t, keyType, defaultType) 
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveStructuredTypeMembers","kind":"method","status":"implemented","sigHash":"22799b7fd0d9966f53fd94f97b761de6beb46635609972401906359a2fde2105","bodyHash":"58068b8c3213a09000e7a24b805968da53a592a7501a098d23414fcc55c086ac"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Before exact TS-Go structured-member resolution, extension-enabled programs record a monotonic complete-export demand for the exact provider declaration fact already bound to the semantic type; source checking and programs without an incremental provider remain unchanged."}
  *
  * Go source:
  * func (c *Checker) resolveStructuredTypeMembers(t *Type) *StructuredType {
@@ -12566,6 +12568,7 @@ export function Checker_getIndexTypeOfTypeEx(receiver, t, keyType, defaultType) 
  * }
  */
 export function Checker_resolveStructuredTypeMembers(receiver, t) {
+    recordProviderStructuredTypeDemand(receiver.program, t, receiver.currentNode);
     if ((t.objectFlags & ObjectFlagsMembersResolved) === 0) {
         if ((t.flags & TypeFlagsObject) !== 0) {
             if ((t.objectFlags & ObjectFlagsReference) !== 0) {

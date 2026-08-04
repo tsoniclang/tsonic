@@ -31,6 +31,7 @@ export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvi
   };
   return {
     identity,
+    declarationMaterialization: "complete",
     ownsModule(specifier: string, _context: ProviderModuleContext): ProviderOwnership {
       return modules.has(specifier) ? { kind: "owned" } : { kind: "unowned" };
     },

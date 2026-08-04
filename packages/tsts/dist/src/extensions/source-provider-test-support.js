@@ -26,6 +26,7 @@ export function sourceProviderExtension(models, options = {}) {
             extensionContractVersion: TstsSourceProviderContractVersion,
             diagnosticRange: { start: 9_900_000, end: 9_900_099 },
         },
+        declarationMaterialization: options.declarationMaterialization ?? "complete",
         ownsModule(specifier, context) {
             options.onContext?.(specifier, context);
             return models.has(specifier)
@@ -44,12 +45,12 @@ export function sourceProviderExtension(models, options = {}) {
                 providerModuleId: model.providerModuleId,
             };
         },
-        getDeclarationModel(resolution) {
+        getDeclarationModel(resolution, request) {
             const model = models.get(resolution.moduleSpecifier);
             if (model === undefined) {
                 return providerDiagnostic(providerId, "TEST_PROVIDER_MODEL_MISSING", `No declaration model exists for '${resolution.moduleSpecifier}'.`);
             }
-            return options.getDeclarationModel?.(resolution, model) ?? model;
+            return options.getDeclarationModel?.(resolution, model, request) ?? model;
         },
     };
     return {

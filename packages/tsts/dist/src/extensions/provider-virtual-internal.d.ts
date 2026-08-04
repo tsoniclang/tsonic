@@ -1,3 +1,4 @@
+import type { ProviderVirtualDeclarationFact } from "./facts.js";
 import type { ProviderVirtualModuleArtifact } from "./host.js";
 import type { ProviderRenderedFunctionSignature } from "./provider-callable-signatures.js";
 export declare const providerVirtualInternalRoot = "tsts-provider://tsts-internal/";
@@ -7,6 +8,7 @@ export declare const providerCanonicalModuleDependencyContextMarker = ".tsts-mod
 export declare const providerPublicVirtualSliceMarker = ".tsts-slice-";
 export declare const providerVirtualCompilerArtifactLookup: unique symbol;
 export declare const providerVirtualCompilerMetadataLookup: unique symbol;
+export declare const providerVirtualStructuredTypeDemand: unique symbol;
 export interface ProviderVirtualCompilerMetadata {
     readonly directDeclarationIds: readonly string[];
     readonly renderedFunctionSignatures: readonly ProviderRenderedFunctionSignature[];
@@ -24,6 +26,7 @@ export type ProviderVirtualCompilerArtifact = ProviderVirtualModuleArtifact;
 export interface ProviderVirtualCompilerRegistryAccess {
     [providerVirtualCompilerArtifactLookup](fileName: string): ProviderVirtualCompilerArtifact | undefined;
     [providerVirtualCompilerMetadataLookup](fileName: string): ProviderVirtualCompilerMetadata | undefined;
+    [providerVirtualStructuredTypeDemand](fact: ProviderVirtualDeclarationFact): boolean;
 }
 export declare function getProviderVirtualCompilerMetadata(registry: ProviderVirtualCompilerRegistryAccess, fileName: string): ProviderVirtualCompilerMetadata | undefined;
 export declare function getProviderVirtualArtifactForCompiler(registry: ProviderVirtualCompilerRegistryAccess, fileName: string): ProviderVirtualCompilerArtifact | undefined;
