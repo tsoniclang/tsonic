@@ -437,8 +437,8 @@ test("CLI compiles existing TypeScript JS-surface utility code when JS surface i
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.trunc\(Tsonic\.CSharp\.Js\.Math\.max\(first, last\)\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSON\.stringify\(count\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.slice\(Tsonic\.CSharp\.Js\.String\.toUpperCase\(Tsonic\.CSharp\.Js\.String\.trim\(name\)\), 0, 8\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Object\.keys\(values\)\.join\(","\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(input, ":"\)\.join\("\|"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.Object\.keys\(values\), ","\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.join\(Tsonic\.CSharp\.Js\.String\.split\(input, ":"\), "\|"\);/);
   assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.RegExp\("\^user:", "i"\)\.test\(input\);/);
   assert.doesNotMatch(generatedSource, /return Math\./);
   assert.doesNotMatch(generatedSource, /return Object\./);
