@@ -91,8 +91,8 @@ test("CLI rejects native .NET array destructuring without a provider iterable so
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS2461: Type 'Array<number>' is not an array type\./u);
-  assert.doesNotMatch(build.stderr, /TS2488/u);
+  assert.match(build.stderr, /TS2488: Type 'Array<number>' must have a '\[Symbol\.iterator\]\(\)' method that returns an iterator\./u);
+  assert.doesNotMatch(build.stderr, /TS2461/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectDestructure.csproj")), false);
 });
 
@@ -126,8 +126,8 @@ test("CLI rejects native .NET array spread without a provider iterable source co
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS2461: Type 'Array<number>' is not an array type\./u);
-  assert.doesNotMatch(build.stderr, /TS2488/u);
+  assert.match(build.stderr, /TS2488: Type 'Array<number>' must have a '\[Symbol\.iterator\]\(\)' method that returns an iterator\./u);
+  assert.doesNotMatch(build.stderr, /TS2461/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedProviderNativeDotnetArrayRejectSpread.csproj")), false);
 });
 

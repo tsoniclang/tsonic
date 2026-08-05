@@ -25,6 +25,12 @@ export interface TargetArtifactReconstructionOptions {
   readonly maximumReconstructionCount: number;
 }
 
+export interface TargetArtifactOwnerFailure {
+  readonly owner: string;
+  readonly code: string;
+  readonly reason: string;
+}
+
 export type TargetArtifactReconstructionRunResult =
   | {
       readonly kind: "completed";
@@ -35,6 +41,12 @@ export type TargetArtifactReconstructionRunResult =
       readonly owner?: string;
       readonly code: string;
       readonly reason: string;
+      readonly reconstructionCount: number;
+    }
+  | {
+      readonly kind: "failed";
+      readonly failures: readonly TargetArtifactOwnerFailure[];
+      readonly blockedOwners: readonly string[];
       readonly reconstructionCount: number;
     };
 
@@ -69,6 +81,8 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
     }
   }
   let reconstructionCount = 0;
+  const failuresByOwner = new Map<string, TargetArtifactOwnerFailure>();
+  const blockedOwners = new Set<string>();
   while (graph.hasPending()) {
     const owner = graph.nextDirty();
     if (owner === undefined) {
@@ -79,6 +93,15 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
           "Target artifact graph reported pending reconstruction without one exact dirty owner.",
         reconstructionCount,
       };
+    }
+    if (failuresByOwner.has(owner)) {
+      graph.discardDirty(owner);
+      continue;
+    }
+    if (dependsOnFailedOwner(graph, owner, failuresByOwner)) {
+      blockedOwners.add(owner);
+      graph.discardDirty(owner);
+      continue;
     }
     reconstructionCount += 1;
     if (reconstructionCount > maximumReconstructionCount) {
@@ -94,14 +117,22 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
     const revisionBeforeReconstruction = graph.revision;
     const candidate = reconstruct(owner, graph);
     if (candidate.kind === "rejected") {
-      return {
-        ...candidate,
+      failuresByOwner.set(owner, Object.freeze({
         owner,
-        reconstructionCount,
-      };
+        code: candidate.code,
+        reason: candidate.reason,
+      }));
+      blockedOwners.delete(owner);
+      graph.discardDirty(owner);
+      continue;
     }
     if (candidate.kind === "retry") {
       if (graph.revision === revisionBeforeReconstruction) {
+        if (failuresByOwner.size > 0) {
+          blockedOwners.add(owner);
+          graph.discardDirty(owner);
+          continue;
+        }
         return {
           kind: "rejected",
           owner,
@@ -138,6 +169,21 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
         reconstructionCount,
       };
     }
+    blockedOwners.delete(owner);
+  }
+  if (failuresByOwner.size > 0) {
+    return {
+      kind: "failed",
+      failures: Object.freeze(
+        [...failuresByOwner.values()].sort((left, right) =>
+          left.owner.localeCompare(right.owner)
+        ),
+      ),
+      blockedOwners: Object.freeze(
+        [...blockedOwners].sort((left, right) => left.localeCompare(right)),
+      ),
+      reconstructionCount,
+    };
   }
   const closure = graph.verifyClosure();
   return closure.kind === "closed"
@@ -146,4 +192,17 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
         ...closure,
         reconstructionCount,
       };
+}
+
+function dependsOnFailedOwner<Facet extends string, Artifact>(
+  graph: TargetArtifactContractGraph<Facet, Artifact>,
+  owner: string,
+  failuresByOwner: ReadonlyMap<string, TargetArtifactOwnerFailure>,
+): boolean {
+  if (failuresByOwner.size === 0) {
+    return false;
+  }
+  return graph
+    .dependencies(owner)
+    .some((dependency) => failuresByOwner.has(dependency.owner));
 }

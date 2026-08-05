@@ -9,6 +9,7 @@ import type {
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import { sourceProjectFiles } from "@tsonic/target-api";
+import { performance } from "node:perf_hooks";
 import { createCompilerSession } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 import {
@@ -51,6 +52,7 @@ interface TargetBuildPlan {
 }
 
 export function compileProject(input: CompileProjectInput): ProjectBuildResult {
+  const phases = createPhaseTimer();
   const paths = resolveProjectPaths(input);
   let activationContext: ReturnType<typeof createCapabilityActivationContext> | undefined;
   const targets: TargetBuildResult[] = [];
@@ -72,7 +74,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       buildPlans.push({ target, targetPack, selectedCapabilities: [], selectedSurfaces, diagnostics: [providerDiagnostic] });
       continue;
     }
-    activationContext ??= createCapabilityActivationContext(input);
+    activationContext ??= phases.time("capability-activation", () => createCapabilityActivationContext(input));
     const importActivatedCapabilities = collectImportActivatedTargetCapabilities(
       activationContext.ast,
       activationContext.sourceFiles,
@@ -113,11 +115,11 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, sourceProfile.diagnostics);
       continue;
     }
-    const created = createProgramOptionsForProject({
+    const created = phases.time(`input-collection:${target.id}`, () => createProgramOptionsForProject({
       ...input,
       sourceProfileFiles: sourceProfile.files,
-    });
-    const session = createTsonicSemanticSession({
+    }));
+    const session = phases.time(`session-composition:${target.id}`, () => createTsonicSemanticSession({
       programOptions: created.programOptions,
       project: input.project,
       projectDirectory: paths.projectDirectory,
@@ -125,8 +127,8 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       targetPack,
       selectedCapabilities,
       selectedSurfaces,
-    });
-    const tstsDiagnostics = collectTstsDiagnostics(session, paths.projectRoot);
+    }));
+    const tstsDiagnostics = phases.time(`tsts-checking:${target.id}`, () => collectTstsDiagnostics(session, paths.projectRoot));
     diagnostics.push(...tstsDiagnostics);
     if (tstsDiagnostics.some((diagnostic) => diagnostic.category === "error")) {
       targets.push({
@@ -158,11 +160,11 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       pushDiagnosticOnlyTarget(targets, diagnostics, target, runtimeContributions.diagnostics);
       continue;
     }
-    const rawBackendCompileResult = compileTargetFromSemanticSession(
+    const rawBackendCompileResult = phases.time(`backend-compile:${target.id}`, () => compileTargetFromSemanticSession(
       session,
       targetPaths,
       runtimeContributions.references,
-    );
+    ));
     const backendCompileResult = {
       ...rawBackendCompileResult,
       diagnostics: finalizeTargetDiagnostics(
@@ -330,4 +332,26 @@ function pushDiagnosticOnlyTarget(
     },
     diagnostics: targetDiagnostics,
   });
+}
+
+interface CompileProjectPhaseTimer {
+  time<T>(phase: string, run: () => T): T;
+}
+
+function createPhaseTimer(): CompileProjectPhaseTimer {
+  if (process.env["TSONIC_PHASE_TIMINGS"] !== "1") {
+    return {
+      time: (_phase, run) => run(),
+    };
+  }
+  return {
+    time<T>(phase: string, run: () => T): T {
+      const startedAt = performance.now();
+      try {
+        return run();
+      } finally {
+        process.stderr.write(`timing: ${phase}=${(performance.now() - startedAt).toFixed(1)}ms\n`);
+      }
+    },
+  };
 }

@@ -432,3 +432,109 @@ test("target artifact reconstruction requires an explicit finite caller budget",
     /maximum reconstruction count must be a positive safe integer/u,
   );
 });
+
+test("independently invalid owners report every failure in one run, in stable order", () => {
+  const graph = createTargetArtifactContractGraph();
+  const attempted = [];
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["broken-b", "broken-a", "healthy"],
+    (owner) => {
+      attempted.push(owner);
+      if (owner.startsWith("broken")) {
+        return {
+          kind: "rejected",
+          code: "OWNER_INVALID",
+          reason: `Owner '${owner}' is independently invalid.`,
+        };
+      }
+      return {
+        kind: "resolved",
+        contract: contract([signature, "void healthy()"]),
+        dependencies: [],
+        artifact: { owner },
+      };
+    },
+    { maximumReconstructionCount: 16 },
+  );
+
+  assert.equal(result.kind, "failed");
+  assert.deepEqual(result.failures.map((failure) => failure.owner), [
+    "broken-a",
+    "broken-b",
+  ]);
+  assert.deepEqual(result.blockedOwners, []);
+  assert.deepEqual(attempted.sort(), ["broken-a", "broken-b", "healthy"]);
+  assert.notEqual(graph.artifact("healthy"), undefined);
+  assert.equal(graph.artifact("broken-a"), undefined);
+});
+
+test("dependents of a failed owner are classified blocked, not cascaded", () => {
+  const graph = createTargetArtifactContractGraph();
+  assert.equal(publish(
+    graph,
+    "base",
+    contract([signature, "void base()"]),
+    [],
+  ).kind, "accepted");
+  assert.equal(publish(
+    graph,
+    "consumer",
+    contract([signature, "void consumer()"]),
+    [dependency("base", signature)],
+  ).kind, "accepted");
+
+  const attempted = [];
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["base", "consumer"],
+    (owner) => {
+      attempted.push(owner);
+      if (owner === "base") {
+        return {
+          kind: "rejected",
+          code: "BASE_INVALID",
+          reason: "Base owner is invalid.",
+        };
+      }
+      return {
+        kind: "resolved",
+        contract: contract([signature, "void consumer()"]),
+        dependencies: [dependency("base", signature)],
+        artifact: { owner },
+      };
+    },
+    { maximumReconstructionCount: 16 },
+  );
+
+  assert.equal(result.kind, "failed");
+  assert.deepEqual(result.failures.map((failure) => failure.owner), ["base"]);
+  assert.deepEqual(result.blockedOwners, ["consumer"]);
+  assert.deepEqual(attempted, ["base"]);
+});
+
+test("no-progress retry while another owner failed classifies the retrying owner blocked", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["failing", "waiting"],
+    (owner) => {
+      if (owner === "failing") {
+        return {
+          kind: "rejected",
+          code: "OWNER_INVALID",
+          reason: "Failing owner is invalid.",
+        };
+      }
+      return {
+        kind: "retry",
+        reason: "Waiting on the failing owner's contract.",
+      };
+    },
+    { maximumReconstructionCount: 16 },
+  );
+
+  assert.equal(result.kind, "failed");
+  assert.deepEqual(result.failures.map((failure) => failure.owner), ["failing"]);
+  assert.deepEqual(result.blockedOwners, ["waiting"]);
+});
