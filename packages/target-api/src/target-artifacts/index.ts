@@ -19,5 +19,6 @@ export {
 export type {
   TargetArtifactReconstruction,
   TargetArtifactReconstructionOptions,
+  TargetArtifactOwnerFailure,
   TargetArtifactReconstructionRunResult,
 } from "./reconstruction.js";

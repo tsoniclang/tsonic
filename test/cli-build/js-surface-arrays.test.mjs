@@ -227,11 +227,11 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int lastPositiveIndex\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /return values\.findLastIndex\(\(int value, int index, Tsonic\.CSharp\.Js\.JSArray<int> source\) => source\.length > index && value > 0\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> sliceAll\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return values\.slice\(\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.slice\(values\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> sliceFrom\(Tsonic\.CSharp\.Js\.JSArray<int> values, int start\)/);
-  assert.match(generatedSource, /return values\.slice\(start\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.slice\(values, start\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> sliceRange\(Tsonic\.CSharp\.Js\.JSArray<int> values, int start, int end\)/);
-  assert.match(generatedSource, /return values\.slice\(start, end\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.slice\(values, start, end\);/);
   assert.match(generatedSource, /public static int destruct\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /int first = __tsonic_destructure\d+\[0\];/);
   assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);

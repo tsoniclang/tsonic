@@ -7,7 +7,7 @@
     "tsonic": "./dist/src/index.js"
   },
   "scripts": {
-    "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false"
+    "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false && node scripts/mark-bin-executable.mjs"
   },
   "dependencies": {
     "@tsonic/host": "0.0.1",

@@ -432,3 +432,110 @@ test("target artifact reconstruction requires an explicit finite caller budget",
     /maximum reconstruction count must be a positive safe integer/u,
   );
 });
+
+test("independently invalid owners report every failure in one run, in stable order", () => {
+  const graph = createTargetArtifactContractGraph();
+  const attempted = [];
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["broken-b", "broken-a", "healthy"],
+    (owner) => {
+      attempted.push(owner);
+      if (owner.startsWith("broken")) {
+        return {
+          kind: "rejected",
+          code: "OWNER_INVALID",
+          reason: `Owner '${owner}' is independently invalid.`,
+        };
+      }
+      return {
+        kind: "resolved",
+        contract: contract([signature, "void healthy()"]),
+        dependencies: [],
+        artifact: { owner },
+      };
+    },
+    { maximumReconstructionCount: 16 },
+  );
+
+  assert.equal(result.kind, "failed");
+  assert.deepEqual(result.failures.map((failure) => failure.owner), [
+    "broken-a",
+    "broken-b",
+  ]);
+  assert.deepEqual(attempted.sort(), ["broken-a", "broken-b", "healthy"]);
+  assert.deepEqual(graph.artifact("healthy"), { owner: "healthy" });
+  assert.equal(graph.artifact("broken-a"), undefined);
+});
+
+test("actual dependent failures are preserved instead of being guessed as blocked", () => {
+  const graph = createTargetArtifactContractGraph();
+  assert.equal(publish(
+    graph,
+    "base",
+    contract([signature, "void base()"]),
+    [],
+  ).kind, "accepted");
+  assert.equal(publish(
+    graph,
+    "consumer",
+    contract([signature, "void consumer()"]),
+    [dependency("base", signature)],
+  ).kind, "accepted");
+
+  const attempted = [];
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["base", "consumer"],
+    (owner) => {
+      attempted.push(owner);
+      if (owner === "base") {
+        return {
+          kind: "rejected",
+          code: "BASE_INVALID",
+          reason: "Base owner is invalid.",
+        };
+      }
+      return {
+        kind: "rejected",
+        code: "CONSUMER_INVALID",
+        reason: "Consumer owner is independently invalid.",
+      };
+    },
+    { maximumReconstructionCount: 16 },
+  );
+
+  assert.equal(result.kind, "failed");
+  assert.deepEqual(result.failures.map((failure) => failure.owner), [
+    "base",
+    "consumer",
+  ]);
+  assert.deepEqual(attempted, ["base", "consumer"]);
+});
+
+test("no-progress retry remains an infrastructure rejection when another owner failed", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["failing", "waiting"],
+    (owner) => {
+      if (owner === "failing") {
+        return {
+          kind: "rejected",
+          code: "OWNER_INVALID",
+          reason: "Failing owner is invalid.",
+        };
+      }
+      return {
+        kind: "retry",
+        reason: "Waiting on the failing owner's contract.",
+      };
+    },
+    { maximumReconstructionCount: 16 },
+  );
+
+  assert.equal(result.kind, "rejected");
+  assert.equal(result.owner, "waiting");
+  assert.equal(result.code, "TARGET_ARTIFACT_RETRY_WITHOUT_PROGRESS");
+  assert.equal(result.reconstructionCount, 2);
+});

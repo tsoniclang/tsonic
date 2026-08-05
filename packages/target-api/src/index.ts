@@ -25,6 +25,7 @@ export type {
   TargetArtifactFacetContract,
   TargetArtifactReconstruction,
   TargetArtifactReconstructionOptions,
+  TargetArtifactOwnerFailure,
   TargetArtifactReconstructionRunResult,
 } from "./target-artifacts/index.js";
 export type {

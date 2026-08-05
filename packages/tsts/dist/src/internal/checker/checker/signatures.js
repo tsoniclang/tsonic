@@ -2624,11 +2624,7 @@ export function Checker_resolveCallExpression(receiver, node, candidatesOutArray
 function Checker_resolveCallExpressionWithEvidence(receiver, node, candidatesOutArray, checkMode, output) {
     if (Node_Expression(node).Kind === KindSuperKeyword) {
         const superType = Checker_checkSuperExpression(receiver, Node_Expression(node));
-        const selectedOutput = output;
         if (IsTypeAny(superType)) {
-            if (selectedOutput !== undefined) {
-                return Checker_resolveUntypedCallWithEvidence(receiver, node, superType, selectedOutput);
-            }
             for (const arg of Node_Arguments(node) ?? []) {
                 Checker_checkExpression(receiver, arg);
             }
@@ -2639,12 +2635,12 @@ function Checker_resolveCallExpressionWithEvidence(receiver, node, candidatesOut
             const baseTypeNode = containingClass !== undefined ? GetExtendsHeritageClauseElement(containingClass) : undefined;
             if (baseTypeNode !== undefined) {
                 const baseConstructors = Checker_getInstantiatedConstructorsForTypeArguments(receiver, superType, Node_TypeArguments(baseTypeNode) ?? [], baseTypeNode);
-                if (selectedOutput === undefined) {
+                if (output === undefined) {
                     return Checker_resolveCall(receiver, node, baseConstructors, candidatesOutArray, checkMode, SignatureFlagsNone, undefined);
                 }
                 const resolved = Checker_resolveCallWithEvidence(receiver, node, baseConstructors, candidatesOutArray, checkMode, SignatureFlagsNone, undefined, superType);
                 if (resolved.evidence !== undefined) {
-                    selectedOutput.evidence = resolved.evidence;
+                    output.evidence = resolved.evidence;
                 }
                 return resolved.signature;
             }
@@ -3877,7 +3873,7 @@ function Checker_isSignatureApplicableWithSelectedArgumentTypes(receiver, node, 
         }
     }
     if (restType !== undefined) {
-        const spreadType = Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, argCount, args.length, restType, undefined, checkMode, selectedArguments);
+        const spreadType = Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, argCount, args.length, restType, undefined, checkMode, selectedArguments, restParameterIndex);
         const restArgCount = args.length - argCount;
         let errorNode;
         if (reportErrors) {
@@ -10108,9 +10104,12 @@ export function Checker_getContextuallyTypedParameterType(receiver, parameter) {
  * }
  */
 export function Checker_getSpreadArgumentType(receiver, args, index, argCount, restType, context, checkMode) {
-    return Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, index, argCount, restType, context, checkMode, undefined);
+    return Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, index, argCount, restType, context, checkMode, undefined, undefined);
 }
-function Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, index, argCount, restType, context, checkMode, selectedArguments) {
+function Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, index, argCount, restType, context, checkMode, selectedArguments, selectedSourceParameterIndex) {
+    if (selectedArguments !== undefined && (selectedSourceParameterIndex === undefined || selectedSourceParameterIndex < 0)) {
+        throw new Error("Selected spread-call evidence requires the exact declared rest parameter index.");
+    }
     const inConstContext = Checker_isConstTypeVariable(receiver, restType, 0);
     if (argCount > 0 && index >= argCount - 1) {
         let arg = args[argCount - 1];
@@ -10124,7 +10123,7 @@ function Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, 
             }
             if (selectedArguments !== undefined) {
                 selectedArguments[argCount - 1] = Object.freeze({
-                    sourceParameterIndex: index,
+                    sourceParameterIndex: selectedSourceParameterIndex,
                     selectedArgumentType: spreadType,
                     selectedParameterType: restType,
                 });
@@ -10154,7 +10153,7 @@ function Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, 
             }
             if (selectedArguments !== undefined) {
                 selectedArguments[argIndex] = Object.freeze({
-                    sourceParameterIndex: index,
+                    sourceParameterIndex: selectedSourceParameterIndex,
                     selectedArgumentType: spreadType,
                     selectedParameterType: restType,
                 });
@@ -10184,7 +10183,7 @@ function Checker_getSpreadArgumentTypeWithSelectedArgumentTypes(receiver, args, 
             const argType = Checker_checkExpressionWithContextualType(receiver, arg, contextualType, context, checkMode);
             if (selectedArguments !== undefined) {
                 selectedArguments[argIndex] = Object.freeze({
-                    sourceParameterIndex: index,
+                    sourceParameterIndex: selectedSourceParameterIndex,
                     selectedArgumentType: argType,
                     selectedParameterType: contextualType,
                 });
