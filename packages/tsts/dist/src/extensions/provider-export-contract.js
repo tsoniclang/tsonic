@@ -19,6 +19,30 @@ export function getProviderExportContractKeyMap(moduleSpecifier, exports) {
         JSON.stringify(declarations.sort(compareProviderContractDeclarations)),
     ]));
 }
+export function getProviderIncrementalExportContractMap(moduleSpecifier, exports) {
+    const canonicalExports = canonicalizeProviderAbiModel({
+        moduleSpecifier,
+        providerModuleId: "provider-incremental-contract",
+        exports,
+    }).exports;
+    return new Map(canonicalExports.map((declaration) => {
+        const sourceExportName = getProviderSourceExportName(declaration);
+        const typeArgumentCount = declaration.sourceTypeFamily?.typeArgumentCount;
+        const { members, signatures, ...header } = declaration;
+        const contract = Object.freeze({
+            sourceExportName,
+            ...(typeArgumentCount === undefined ? {} : { typeArgumentCount }),
+            headerKey: JSON.stringify(header),
+            ...(members === undefined && signatures === undefined
+                ? {}
+                : { bodyKey: JSON.stringify({ members, signatures }) }),
+        });
+        return [
+            JSON.stringify([sourceExportName, typeArgumentCount ?? null]),
+            contract,
+        ];
+    }));
+}
 export function getProviderTypeParameterContractKey(parameter) {
     return JSON.stringify(canonicalizeProviderAbiTypeParameter(parameter));
 }

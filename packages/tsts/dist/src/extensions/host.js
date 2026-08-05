@@ -1530,6 +1530,25 @@ export class ProviderRegistry {
             this.#diagnostics.append(diagnostic);
             return this.#cacheDeclarationLoadOutcome(requestKey, { kind: "rejected", diagnostic });
         }
+        const materializationConflict = this.#materializationRound?.recordDeclarationModel(owner.provider.identity, resolution, owner.provider.declarationMaterialization, declarationModel);
+        if (materializationConflict !== undefined) {
+            const diagnostic = createHostDiagnostic({
+                extensionCode: "INVALID_PROVIDER_DECLARATION_MODEL",
+                numericCode: ExtensionHostDiagnosticCode.invalidProviderDeclaration,
+                message: `Provider '${owner.provider.identity.id}' changed its incremental declaration contract for '${specifier}'.`,
+                evidence: [{ message: "Incremental declaration contract conflict", details: materializationConflict }],
+                identity: encodeIdentityTuple([
+                    "incremental-provider-contract-conflict",
+                    owner.provider.identity.id,
+                    specifier,
+                    materializationConflict.sourceExportName,
+                    materializationConflict.typeArgumentCount ?? -1,
+                    materializationConflict.reason,
+                ]),
+            });
+            this.#diagnostics.append(diagnostic);
+            return this.#cacheDeclarationLoadOutcome(requestKey, { kind: "rejected", diagnostic });
+        }
         const virtualModuleIdentity = getProviderVirtualModuleIdentity(owner.provider.identity, resolution, declarationModel);
         const virtualFileDiagnostic = this.#validateVirtualFileIdentity(resolution.virtualFileName, virtualModuleIdentity);
         if (virtualFileDiagnostic !== undefined) {

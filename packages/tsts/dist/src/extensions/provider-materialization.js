@@ -1,8 +1,10 @@
 import { encodeIdentityTuple } from "./identity-tuple.js";
+import { getProviderIncrementalExportContractMap, } from "./provider-export-contract.js";
 import { providerDeclarationClosureLimits } from "./provider-resource-limits.js";
 const providerMaterializationRounds = new WeakMap();
 export class ProviderMaterializationCoordinator {
     #completeExportsByModule = new Map();
+    #exportContractsByModule = new Map();
     #activeRound;
     #roundCount = 0;
     #sealed = false;
@@ -17,7 +19,7 @@ export class ProviderMaterializationCoordinator {
         if (this.#roundCount > providerDeclarationClosureLimits.maxCandidates + 1) {
             throw new Error(`Provider materialization did not converge within ${providerDeclarationClosureLimits.maxCandidates + 1} rounds.`);
         }
-        const round = new ProviderMaterializationRound(snapshotCompleteExports(this.#completeExportsByModule));
+        const round = new ProviderMaterializationRound(snapshotCompleteExports(this.#completeExportsByModule), snapshotExportContracts(this.#exportContractsByModule));
         this.#activeRound = round;
         providerMaterializationRounds.set(options, round);
         return round;
@@ -40,6 +42,7 @@ export class ProviderMaterializationCoordinator {
             }
             this.#completeExportsByModule.set(moduleKey, completeExports);
         }
+        replaceExportContracts(this.#exportContractsByModule, round.exportContracts());
         return changed;
     }
     seal(round) {
@@ -51,16 +54,19 @@ export class ProviderMaterializationCoordinator {
         }
         this.#activeRound = undefined;
         round.seal();
+        replaceExportContracts(this.#exportContractsByModule, round.exportContracts());
         this.#sealed = true;
     }
 }
 export class ProviderMaterializationRound {
     #completeExportsByModule;
+    #exportContractsByModule;
     #pendingDemandsByModule = new Map();
     #incrementalProviderLoaded = false;
     #state = "active";
-    constructor(completeExportsByModule) {
+    constructor(completeExportsByModule, exportContractsByModule) {
         this.#completeExportsByModule = completeExportsByModule;
+        this.#exportContractsByModule = exportContractsByModule;
     }
     createRequest(provider, resolution, context, mode) {
         if (mode === "complete") {
@@ -114,6 +120,41 @@ export class ProviderMaterializationRound {
         this.#pendingDemandsByModule.set(moduleKey, demands);
         return true;
     }
+    recordDeclarationModel(provider, resolution, mode, model) {
+        if (mode !== "incremental") {
+            return undefined;
+        }
+        if (this.#state !== "active") {
+            throw new Error(`Provider declaration model arrived after its materialization round was ${this.#state}.`);
+        }
+        const moduleKey = getProviderMaterializationModuleKey(provider, resolution);
+        const existing = this.#exportContractsByModule.get(moduleKey) ?? new Map();
+        const next = new Map(existing);
+        for (const [variantKey, contract] of getProviderIncrementalExportContractMap(model.moduleSpecifier, model.exports)) {
+            const previous = existing.get(variantKey);
+            if (previous?.headerKey !== undefined && previous.headerKey !== contract.headerKey) {
+                return Object.freeze({
+                    sourceExportName: contract.sourceExportName,
+                    ...(contract.typeArgumentCount === undefined ? {} : { typeArgumentCount: contract.typeArgumentCount }),
+                    reason: "stable export header changed between materialization rounds",
+                });
+            }
+            if (previous?.bodyKey !== undefined && previous.bodyKey !== contract.bodyKey) {
+                return Object.freeze({
+                    sourceExportName: contract.sourceExportName,
+                    ...(contract.typeArgumentCount === undefined ? {} : { typeArgumentCount: contract.typeArgumentCount }),
+                    reason: contract.bodyKey === undefined
+                        ? "completed export body disappeared in a later materialization round"
+                        : "completed export body changed between materialization rounds",
+                });
+            }
+            next.set(variantKey, previous?.bodyKey === undefined && contract.bodyKey !== undefined
+                ? contract
+                : previous ?? contract);
+        }
+        this.#exportContractsByModule.set(moduleKey, next);
+        return undefined;
+    }
     hasIncrementalProvider() {
         return this.#incrementalProviderLoaded;
     }
@@ -127,6 +168,9 @@ export class ProviderMaterializationRound {
             moduleKey,
             Object.freeze([...demands.values()].sort(compareCompleteExportDemands)),
         ])));
+    }
+    exportContracts() {
+        return this.#exportContractsByModule;
     }
     finish() {
         if (this.#state !== "active") {
@@ -155,6 +199,15 @@ function snapshotCompleteExports(source) {
         moduleKey,
         Object.freeze([...demands.values()].sort(compareCompleteExportDemands)),
     ]));
+}
+function snapshotExportContracts(source) {
+    return new Map([...source].map(([moduleKey, contracts]) => [moduleKey, new Map(contracts)]));
+}
+function replaceExportContracts(destination, source) {
+    destination.clear();
+    for (const [moduleKey, contracts] of source) {
+        destination.set(moduleKey, new Map(contracts));
+    }
 }
 function getProviderMaterializationModuleKey(provider, resolution) {
     return encodeIdentityTuple([
