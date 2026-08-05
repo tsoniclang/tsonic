@@ -356,6 +356,7 @@ export function createFakeVirtualBindingProvider(id, moduleOwnership, events) {
       extensionContractVersion: TstsSourceProviderContractVersion,
       displayName: `${id} fake provider`,
     },
+    declarationMaterialization: "complete",
     ownsModule(specifier) {
       return moduleOwnership.some((ownership) => specifier.startsWith(ownership.specifierPrefix))
         ? {

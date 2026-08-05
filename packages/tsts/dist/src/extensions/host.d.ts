@@ -3,10 +3,11 @@ export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
-import type { SourcePrimitiveKind } from "./facts.js";
+import type { ProviderVirtualDeclarationFact, SourcePrimitiveKind } from "./facts.js";
 import { type ExtensionFactKey } from "./fact-key.js";
 export { defineExtensionFactKey, type ExtensionFactKey, type ExtensionFactKeyOptions, } from "./fact-key.js";
-import { providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, type ProviderVirtualCompilerArtifact, type ProviderVirtualCompilerMetadata } from "./provider-virtual-internal.js";
+import { providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualStructuredTypeDemand, type ProviderVirtualCompilerArtifact, type ProviderVirtualCompilerMetadata } from "./provider-virtual-internal.js";
+import { type ProviderMaterializationRound } from "./provider-materialization.js";
 export interface ExtensionEvidence {
     readonly message: string;
     readonly details?: unknown;
@@ -58,7 +59,7 @@ export declare const ExtensionHostDiagnosticCode: {
     readonly invalidFactSnapshot: 9000034;
     readonly sourceAnalysisFailed: 9000038;
 };
-export declare const TstsSourceProviderContractVersion = "tsts.source-provider.1";
+export declare const TstsSourceProviderContractVersion = "tsts.source-provider.2";
 declare const factStoreBeginTransaction: unique symbol;
 declare const factStoreAssertCanCommitTransaction: unique symbol;
 declare const factStoreCommitTransaction: unique symbol;
@@ -231,6 +232,21 @@ export interface ProviderModuleContext {
     readonly containingFile?: string | undefined;
     readonly resolutionMode?: ProviderResolutionMode | undefined;
     readonly importSlice?: ProviderImportSlice | undefined;
+}
+export type SourceDeclarationMaterializationMode = "complete" | "incremental";
+export interface ProviderCompleteExportRequest {
+    readonly exportName: string;
+    readonly exportId?: string;
+}
+export type ProviderDeclarationMaterialization = {
+    readonly kind: "complete";
+} | {
+    readonly kind: "incremental";
+    readonly completeExports: readonly ProviderCompleteExportRequest[];
+};
+export interface ProviderDeclarationRequest {
+    readonly context: ProviderModuleContext;
+    readonly materialization: ProviderDeclarationMaterialization;
 }
 export type ProviderResolutionMode = "none" | "require" | "import";
 export type ProviderImportSliceKind = "bare" | "default" | "named" | "namespace" | "mixed" | "reexport" | "dynamic" | "synthetic" | "unknown";
@@ -455,9 +471,10 @@ export type ProviderModuleResolveResult = {
 };
 export interface SourceDeclarationProvider {
     readonly identity: ProviderIdentity;
+    readonly declarationMaterialization: SourceDeclarationMaterializationMode;
     ownsModule(specifier: string, context: ProviderModuleContext): ProviderOwnership;
     resolveModule(specifier: string, context: ProviderModuleContext): ProviderModuleResolution | ExtensionDiagnostic;
-    getDeclarationModel(module: ProviderModuleResolution): ProviderDeclarationModel | ExtensionDiagnostic;
+    getDeclarationModel(module: ProviderModuleResolution, request: ProviderDeclarationRequest): ProviderDeclarationModel | ExtensionDiagnostic;
 }
 declare const sealProviderRegistrations: unique symbol;
 export interface ExtendedProgram<TProgram extends object = object> {
@@ -576,7 +593,7 @@ export declare class ExtensionFactResolver {
 }
 export declare class ProviderRegistry {
     #private;
-    constructor(diagnostics: ExtensionDiagnosticStore, requiredProviderModules?: readonly RequiredProviderModuleSpec[]);
+    constructor(diagnostics: ExtensionDiagnosticStore, requiredProviderModules?: readonly RequiredProviderModuleSpec[], materializationRound?: ProviderMaterializationRound);
     registerSourceDeclarationProvider(provider: SourceDeclarationProvider): boolean;
     get hasSourceDeclarationProviders(): boolean;
     requiresProviderForModule(specifier: string): RequiredProviderModuleSpec | undefined;
@@ -590,6 +607,7 @@ export declare class ProviderRegistry {
     getVirtualArtifactByFileName(fileName: string): ProviderVirtualModuleArtifact | undefined;
     [providerVirtualCompilerArtifactLookup](fileName: string): ProviderVirtualCompilerArtifact | undefined;
     [providerVirtualCompilerMetadataLookup](fileName: string): ProviderVirtualCompilerMetadata | undefined;
+    [providerVirtualStructuredTypeDemand](fact: ProviderVirtualDeclarationFact): boolean;
     getVirtualDeclarationDocument(uriOrFileName: string): ProviderVirtualDeclarationDocument | undefined;
     getVirtualDeclarationDocuments(): readonly ProviderVirtualDeclarationDocument[];
 }
@@ -610,6 +628,7 @@ export declare class ExtensionHost {
     getCompilerQueryContext(context?: Context): SourceProgramQueries;
 }
 export declare function attachExtensionHost<TProgram extends object>(program: TProgram, options?: ExtensionHostOptions): ExtendedProgram<TProgram>;
+export declare function snapshotExtensionHostOptionsForCompilerSession(options: ExtensionHostOptions): ExtensionHostOptions;
 export declare function attachExtensionHostToProgram<TProgram extends object>(hostOwner: object, program: TProgram, options?: AttachExtensionHostToProgramOptions): ExtendedProgram<TProgram> | undefined;
 export declare function getExtensionHost(program: object): ExtensionHost | undefined;
 export declare function hasExtensionHost(program: object): boolean;

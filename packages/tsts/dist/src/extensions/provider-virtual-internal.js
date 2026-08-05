@@ -6,6 +6,7 @@ export const providerCanonicalModuleDependencyContextMarker = ".tsts-module-cont
 export const providerPublicVirtualSliceMarker = ".tsts-slice-";
 export const providerVirtualCompilerArtifactLookup = Symbol("tsts.provider.virtualCompilerArtifactLookup");
 export const providerVirtualCompilerMetadataLookup = Symbol("tsts.provider.virtualCompilerMetadataLookup");
+export const providerVirtualStructuredTypeDemand = Symbol("tsts.provider.structuredTypeDemand");
 export function getStableProviderVirtualSliceSuffix(value) {
     const hashes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35];
     for (let index = 0; index < value.length; index++) {

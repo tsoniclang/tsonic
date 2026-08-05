@@ -1,56 +1,181 @@
 import { Background } from "../go/context.js";
 import { SourceFile_FileName } from "../internal/ast/ast.js";
-import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
+import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
+import { snapshotExtensionHostOptionsForCompilerSession, } from "../extensions/host.js";
 import { attachExtensionHost, getExtensionHost } from "../extensions/index.js";
 import { finalizeExtensionSemantics } from "../extensions/compiler-integration.js";
+import { ProviderMaterializationCoordinator, } from "../extensions/provider-materialization.js";
 import { createSourceFactQueries } from "../extensions/consumer.js";
 import { getProviderVirtualArtifactForCompiler } from "../extensions/provider-virtual-internal.js";
 import { createCompilerHost, createInMemoryFileSystem } from "./embedding-host.js";
 export function createCompilerSession(options) {
-    attachExtensionHost(options.programOptions, options.extensionHostOptions ?? {});
-    const program = NewProgram(options.programOptions);
     const context = options.context ?? Background();
-    return createCompilerSessionFromProgram(program, options.programOptions.Host, options.programOptions.Config, context);
+    return createCompilerSessionForProgramOwner(createMaterializingProgramOwner(options.programOptions, options.extensionHostOptions ?? {}, context), options.programOptions.Host, options.programOptions.Config, context);
 }
 export function createCompilerSessionFromProgram(program, host, config, context = Background()) {
     if (program === undefined) {
         throw new Error("Compiler sessions require a compiler program.");
     }
-    const extensionHost = getExtensionHost(program)
-        ?? attachExtensionHost(program).extensionHost;
+    return createCompilerSessionForProgramOwner(createFixedProgramOwner(program, context), host, config, context);
+}
+function createCompilerSessionForProgramOwner(owner, host, config, context) {
     let checkedSourceProgram;
-    const source = extensionHost.getCompilerQueryContext(context);
     return {
-        program,
+        get program() {
+            return owner.program;
+        },
         host,
         config,
-        getSourceFilesToEmit: (targetSourceFile, forceDtsEmit = false) => (Program_getSourceFilesToEmit(program, targetSourceFile, forceDtsEmit) ?? [])
-            .filter((file) => getProviderVirtualArtifactForCompiler(extensionHost.providers, SourceFile_FileName(file))?.kind
-            !== "canonical-export-owner"),
-        ensureBound: () => Program_BindSourceFiles(program),
-        ensureChecked: (sourceFile) => Program_GetSemanticDiagnostics(program, context, sourceFile),
-        getDiagnostics: (kind = "all", sourceFile) => getDiagnostics(program, context, kind, sourceFile),
+        getSourceFilesToEmit: (targetSourceFile, forceDtsEmit = false) => {
+            const targetFileName = targetSourceFile === undefined ? undefined : SourceFile_FileName(targetSourceFile);
+            owner.prepareForSemanticQueries();
+            const currentTargetSourceFile = targetFileName === undefined
+                ? undefined
+                : requireCurrentSourceFile(owner.program, targetFileName);
+            return (Program_getSourceFilesToEmit(owner.program, currentTargetSourceFile, forceDtsEmit) ?? [])
+                .filter((file) => getProviderVirtualArtifactForCompiler(requireExtensionHost(owner.program).providers, SourceFile_FileName(file))?.kind
+                !== "canonical-export-owner");
+        },
+        ensureBound: () => Program_BindSourceFiles(owner.program),
+        ensureChecked: (sourceFile) => {
+            const fileName = sourceFile === undefined ? undefined : SourceFile_FileName(sourceFile);
+            owner.prepareForSemanticQueries();
+            return Program_GetSemanticDiagnostics(owner.program, context, fileName === undefined ? undefined : requireCurrentSourceFile(owner.program, fileName));
+        },
+        getDiagnostics: (kind = "all", sourceFile) => {
+            const fileName = sourceFile === undefined ? undefined : SourceFile_FileName(sourceFile);
+            if (diagnosticKindRequiresSemanticProgram(kind)) {
+                owner.prepareForSemanticQueries();
+            }
+            return getDiagnostics(owner.program, context, kind, fileName === undefined ? undefined : requireCurrentSourceFile(owner.program, fileName));
+        },
         checkSource: () => {
             if (checkedSourceProgram !== undefined) {
                 return checkedSourceProgram;
             }
-            const diagnostics = Object.freeze([...getDiagnostics(program, context, "all", undefined)]);
-            const finalizedHost = finalizeExtensionSemantics(program);
+            const prepared = owner.prepareFinalizedProgram();
+            const finalizedHost = prepared.finalizedHost;
             if (finalizedHost === undefined) {
                 throw new Error("Checked source requires an attached source-extension host.");
             }
-            checkedSourceProgram = Object.freeze({
+            const source = finalizedHost.getCompilerQueryContext(context);
+            const checked = Object.freeze({
                 ...source,
-                program,
+                program: prepared.program,
                 sourceFiles: Object.freeze([...source.getSourceFiles()]),
                 sourceFacts: createSourceFactQueries(finalizedHost),
-                diagnostics,
+                diagnostics: prepared.diagnostics,
                 extensionDiagnostics: finalizedHost.diagnostics.all(),
             });
-            return checkedSourceProgram;
+            checkedSourceProgram = checked;
+            return checked;
         },
     };
+}
+function createFixedProgramOwner(program, context) {
+    if (getExtensionHost(program) === undefined) {
+        attachExtensionHost(program);
+    }
+    return {
+        program,
+        prepareForSemanticQueries() { },
+        prepareFinalizedProgram() {
+            const diagnostics = Object.freeze([...getDiagnostics(program, context, "all", undefined)]);
+            return Object.freeze({
+                program,
+                diagnostics,
+                finalizedHost: finalizeExtensionSemantics(program),
+            });
+        },
+    };
+}
+function createMaterializingProgramOwner(baseProgramOptions, baseExtensionHostOptions, context) {
+    const coordinator = new ProviderMaterializationCoordinator();
+    const extensionHostOptionsSnapshot = snapshotExtensionHostOptionsForCompilerSession(baseExtensionHostOptions);
+    let state = createProgramMaterializationRound(coordinator, baseProgramOptions, extensionHostOptionsSnapshot);
+    let finalized;
+    const rebuildForPendingDemands = () => {
+        if (!state.round.hasPendingDemands()) {
+            return false;
+        }
+        if (!coordinator.finishRound(state.round)) {
+            throw new Error("Provider materialization recorded demands without monotonic progress.");
+        }
+        state = createProgramMaterializationRound(coordinator, baseProgramOptions, extensionHostOptionsSnapshot);
+        return true;
+    };
+    const prepareForSemanticQueries = () => {
+        if (finalized !== undefined || !state.round.hasIncrementalProvider()) {
+            return;
+        }
+        while (true) {
+            getDiagnostics(state.program, context, "all", undefined);
+            if (!rebuildForPendingDemands()) {
+                return;
+            }
+        }
+    };
+    const owner = {
+        get program() {
+            return state.program;
+        },
+        prepareForSemanticQueries,
+        prepareFinalizedProgram() {
+            if (finalized !== undefined) {
+                return finalized;
+            }
+            while (true) {
+                const diagnostics = Object.freeze([...getDiagnostics(state.program, context, "all", undefined)]);
+                if (rebuildForPendingDemands()) {
+                    continue;
+                }
+                const finalizedHost = finalizeExtensionSemantics(state.program);
+                if (rebuildForPendingDemands()) {
+                    continue;
+                }
+                coordinator.seal(state.round);
+                finalized = Object.freeze({
+                    program: state.program,
+                    diagnostics,
+                    finalizedHost,
+                });
+                return finalized;
+            }
+        },
+    };
+    return owner;
+}
+function createProgramMaterializationRound(coordinator, baseProgramOptions, baseExtensionHostOptions) {
+    const extensionHostOptions = Object.freeze({ ...baseExtensionHostOptions });
+    const round = coordinator.beginRound(extensionHostOptions);
+    const programOptions = { ...baseProgramOptions };
+    attachExtensionHost(programOptions, extensionHostOptions);
+    const program = NewProgram(programOptions);
+    if (program === undefined) {
+        throw new Error("Compiler sessions require a compiler program.");
+    }
+    return Object.freeze({ program, round });
+}
+function requireExtensionHost(program) {
+    const extensionHost = getExtensionHost(program);
+    if (extensionHost === undefined) {
+        throw new Error("Compiler session lost its attached source-extension host.");
+    }
+    return extensionHost;
+}
+function requireCurrentSourceFile(program, fileName) {
+    const sourceFile = Program_GetSourceFile(program, fileName);
+    if (sourceFile === undefined) {
+        throw new Error(`Compiler session rebuild removed requested source file '${fileName}'.`);
+    }
+    return sourceFile;
+}
+function diagnosticKindRequiresSemanticProgram(kind) {
+    return kind === "semantic"
+        || kind === "suggestion"
+        || kind === "declaration"
+        || kind === "all";
 }
 export function createCompilerSessionFromFiles(options) {
     const configFileName = options.configFileName ?? `${options.currentDirectory}/tsconfig.json`;
