@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { performance } from "node:perf_hooks";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { compileProject, discoverInstalledTsonicPlugins, parseTsonicProjectConfig, resolveProjectPaths } from "@tsonic/host";
@@ -81,7 +80,6 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
     installedCapabilities: plugins.capabilities,
   });
   const diagnostics = buildResult.diagnostics.filter((diagnostic) => diagnostic.category === "error");
-  const publicationStartedAt = performance.now();
   if (diagnostics.length === 0) {
     await publishBuildOutput({
       ...outputOptions,
@@ -91,9 +89,6 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
         artifacts: target.compileResult.artifacts,
       })),
     });
-    if (process.env["TSONIC_PHASE_TIMINGS"] === "1") {
-      process.stderr.write(`timing: publication=${(performance.now() - publicationStartedAt).toFixed(1)}ms\n`);
-    }
   }
   return {
     exitCode: diagnostics.length === 0 ? 0 : 1,

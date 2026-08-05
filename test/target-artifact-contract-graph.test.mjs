@@ -463,13 +463,12 @@ test("independently invalid owners report every failure in one run, in stable or
     "broken-a",
     "broken-b",
   ]);
-  assert.deepEqual(result.blockedOwners, []);
   assert.deepEqual(attempted.sort(), ["broken-a", "broken-b", "healthy"]);
   assert.notEqual(graph.artifact("healthy"), undefined);
   assert.equal(graph.artifact("broken-a"), undefined);
 });
 
-test("dependents of a failed owner are classified blocked, not cascaded", () => {
+test("actual dependent failures are preserved instead of being guessed as blocked", () => {
   const graph = createTargetArtifactContractGraph();
   assert.equal(publish(
     graph,
@@ -498,22 +497,23 @@ test("dependents of a failed owner are classified blocked, not cascaded", () => 
         };
       }
       return {
-        kind: "resolved",
-        contract: contract([signature, "void consumer()"]),
-        dependencies: [dependency("base", signature)],
-        artifact: { owner },
+        kind: "rejected",
+        code: "CONSUMER_INVALID",
+        reason: "Consumer owner is independently invalid.",
       };
     },
     { maximumReconstructionCount: 16 },
   );
 
   assert.equal(result.kind, "failed");
-  assert.deepEqual(result.failures.map((failure) => failure.owner), ["base"]);
-  assert.deepEqual(result.blockedOwners, ["consumer"]);
-  assert.deepEqual(attempted, ["base"]);
+  assert.deepEqual(result.failures.map((failure) => failure.owner), [
+    "base",
+    "consumer",
+  ]);
+  assert.deepEqual(attempted, ["base", "consumer"]);
 });
 
-test("no-progress retry while another owner failed classifies the retrying owner blocked", () => {
+test("no-progress retry remains an infrastructure rejection when another owner failed", () => {
   const graph = createTargetArtifactContractGraph();
   const result = reconstructTargetArtifacts(
     graph,
@@ -534,7 +534,8 @@ test("no-progress retry while another owner failed classifies the retrying owner
     { maximumReconstructionCount: 16 },
   );
 
-  assert.equal(result.kind, "failed");
-  assert.deepEqual(result.failures.map((failure) => failure.owner), ["failing"]);
-  assert.deepEqual(result.blockedOwners, ["waiting"]);
+  assert.equal(result.kind, "rejected");
+  assert.equal(result.owner, "waiting");
+  assert.equal(result.code, "TARGET_ARTIFACT_RETRY_WITHOUT_PROGRESS");
+  assert.equal(result.reconstructionCount, 2);
 });
