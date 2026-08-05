@@ -464,7 +464,7 @@ test("independently invalid owners report every failure in one run, in stable or
     "broken-b",
   ]);
   assert.deepEqual(attempted.sort(), ["broken-a", "broken-b", "healthy"]);
-  assert.notEqual(graph.artifact("healthy"), undefined);
+  assert.deepEqual(graph.artifact("healthy"), { owner: "healthy" });
   assert.equal(graph.artifact("broken-a"), undefined);
 });
 
