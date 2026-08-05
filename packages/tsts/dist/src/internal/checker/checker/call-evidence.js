@@ -4,7 +4,6 @@ import { IsParenthesizedExpression } from "../../ast/generated/predicates.js";
 import { IsAliasSymbolDeclaration, IsCallOrNewExpression } from "../../ast/utilities.js";
 import { LinkStore_Get } from "../../core/linkstore.js";
 import { journalSelectedCallEvidence } from "./selected-call-evidence-transaction.js";
-import { preserveEquivalentSourceType } from "./source-type-identity.js";
 export function callEvidenceWantedForCallee(callee) {
     return checkedCallForCallee(callee) !== undefined;
 }
@@ -120,106 +119,9 @@ export function retainElementCallCalleeEvidence(checker, elementAccessExpression
 function retainCallSelectionSeed(checker, callExpression, incoming) {
     const links = LinkStore_Get(checker.signatureLinks, callExpression);
     journalSelectedCallEvidence(checker, links);
-    const existing = links.checkedCallSelectionSeed;
-    const calleeProvenance = mergeSelectionProvenance(existing?.calleeProvenance, incoming.calleeProvenance);
-    const receiver = mergeSourceValueEvidence(existing?.receiver, incoming.receiver);
-    const calleeAccess = mergeCalleeAccessEvidence(existing?.calleeAccess, incoming.calleeAccess);
-    const seed = Object.freeze({
-        ...(calleeProvenance === undefined ? {} : { calleeProvenance }),
-        ...(receiver === undefined ? {} : { receiver }),
-        ...(calleeAccess === undefined ? {} : { calleeAccess }),
-    });
+    const seed = Object.freeze({ ...incoming });
     links.checkedCallSelectionSeed = seed;
     return seed;
-}
-function mergeCalleeAccessEvidence(existing, incoming) {
-    if (existing === undefined) {
-        return incoming;
-    }
-    if (incoming === undefined) {
-        return existing;
-    }
-    if (existing.kind !== incoming.kind || existing.expression !== incoming.expression) {
-        throw new Error("Call callee-access evidence conflicted before signature finalization.");
-    }
-    const receiver = mergeSourceValueEvidence(existing.receiver, incoming.receiver);
-    const resultType = preserveEquivalentSourceType(existing.resultType, incoming.resultType);
-    if (receiver === undefined || resultType === undefined) {
-        throw new Error("Call callee-access evidence lost its receiver or result type.");
-    }
-    const provenance = mergeProvenanceFields(existing, incoming, "callee");
-    if (existing.kind === "property") {
-        return Object.freeze({
-            kind: "property",
-            expression: existing.expression,
-            receiver,
-            resultType,
-            ...provenance,
-        });
-    }
-    if (incoming.kind !== "element" || existing.selectedElementIndex !== incoming.selectedElementIndex) {
-        throw new Error("Element call-callee evidence conflicted before signature finalization.");
-    }
-    const argument = mergeSourceValueEvidence(existing.argument, incoming.argument);
-    if (argument === undefined) {
-        throw new Error("Element call-callee evidence lost its argument.");
-    }
-    return Object.freeze({
-        kind: "element",
-        expression: existing.expression,
-        receiver,
-        argument,
-        resultType,
-        ...(existing.selectedElementIndex === undefined
-            ? {}
-            : { selectedElementIndex: existing.selectedElementIndex }),
-        ...provenance,
-    });
-}
-function mergeSelectionProvenance(existing, incoming) {
-    if (existing === undefined) {
-        return incoming === undefined ? undefined : Object.freeze({ ...incoming });
-    }
-    if (incoming === undefined) {
-        return existing;
-    }
-    return Object.freeze(mergeProvenanceFields(existing, incoming, "callee"));
-}
-function mergeSourceValueEvidence(existing, incoming) {
-    if (existing === undefined) {
-        return incoming === undefined ? undefined : Object.freeze({ ...incoming });
-    }
-    if (incoming === undefined) {
-        return existing;
-    }
-    if (existing.expression !== incoming.expression || existing.type !== incoming.type) {
-        throw new Error("Call receiver evidence conflicted before signature finalization.");
-    }
-    return Object.freeze({
-        expression: existing.expression,
-        type: existing.type,
-        ...mergeProvenanceFields(existing, incoming, "receiver"),
-    });
-}
-function mergeProvenanceFields(existing, incoming, subject) {
-    const symbol = mergeIdentity(existing.symbol, incoming.symbol, subject, "symbol");
-    const declaration = mergeIdentity(existing.declaration, incoming.declaration, subject, "declaration");
-    const selectedSymbol = mergeIdentity(existing.selectedSymbol, incoming.selectedSymbol, subject, "selectedSymbol");
-    const selectedDeclaration = mergeIdentity(existing.selectedDeclaration, incoming.selectedDeclaration, subject, "selectedDeclaration");
-    const authoredTypeNode = mergeIdentity(existing.authoredTypeNode, incoming.authoredTypeNode, subject, "authoredTypeNode");
-    return Object.freeze({
-        ...(symbol === undefined ? {} : { symbol }),
-        ...(declaration === undefined ? {} : { declaration }),
-        ...(selectedSymbol === undefined ? {} : { selectedSymbol }),
-        ...(selectedDeclaration === undefined ? {} : { selectedDeclaration }),
-        ...(authoredTypeNode === undefined ? {} : { authoredTypeNode }),
-    });
-}
-function mergeIdentity(existing, incoming, subject, field) {
-    if (existing !== undefined && incoming !== undefined && existing !== incoming) {
-        throw new Error(`Call ${subject} ${field} conflicted before signature finalization.`);
-    }
-    return existing ?? incoming;
 }
 function selectionProvenance(sourceSymbol, sourceDeclaration, selectedSymbol, selectedDeclaration) {
     const declaration = selectedDeclaration ?? sourceDeclaration;
