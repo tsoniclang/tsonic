@@ -116,6 +116,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     const created = createProgramOptionsForProject({
       ...input,
       sourceProfileFiles: sourceProfile.files,
+      sourceDeclarationPolicy: sourceProfile.declarationPolicy,
     });
     const session = createTsonicSemanticSession({
       programOptions: created.programOptions,

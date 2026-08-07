@@ -5427,6 +5427,7 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
         ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
+        writable: selectedElementAccessIsWritable(receiver, node, selected),
         ...resolvedSourceAccessTypes(accessMode, accessMode === "read" || accessMode === "delete" || accessMode === "read-write"
             ? sourceResultType
             : undefined, accessMode === "write" || accessMode === "read-write"
@@ -5435,6 +5436,13 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),
     });
+}
+function selectedElementAccessIsWritable(receiver, node, selected) {
+    if (selected.selectedSymbol !== undefined) {
+        return !Checker_isAssignmentToReadonlyEntity(receiver, node, selected.selectedSymbol, AssignmentKindDefinite);
+    }
+    return selected.indexSelections.length > 0
+        && selected.indexSelections.every((selection) => selection.indexInfo?.isReadonly !== true);
 }
 function checkElementAccessExpressionWithEvidence(receiver, node, exprType, checkMode, selected) {
     const objectType = selectedElementAccessReceiverType(receiver, node, exprType);
@@ -6611,6 +6619,8 @@ export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
         ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
         ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
+        writable: selected.selectedSymbol !== undefined
+            && !Checker_isAssignmentToReadonlyEntity(receiver, node, selected.selectedSymbol, AssignmentKindDefinite),
         ...resolvedSourceAccessTypes(accessMode, sourceReadType, sourceWriteType),
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),

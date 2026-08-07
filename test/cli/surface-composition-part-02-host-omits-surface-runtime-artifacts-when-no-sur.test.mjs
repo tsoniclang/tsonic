@@ -157,7 +157,7 @@ test("host suppresses backend artifacts and toolchain when backend reports error
   assert.equal(result.targets[0].compileResult.diagnostics.length, 1);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });
-test("host excludes generated declarations and metadata JSON from semantic input", async () => {
+test("host includes authored declarations but excludes metadata JSON from semantic input", async () => {
   const projectDirectory = resolve(tempRoot, "semantic-input-filter");
   const projectConfig = {
     entryPoint: "index.ts",
@@ -179,7 +179,7 @@ test("host excludes generated declarations and metadata JSON from semantic input
   const fs = created.programOptions.Host.FS();
 
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/index.ts")), true);
-  assert.equal(fs.FileExists(resolve(projectDirectory, "src/generated.d.ts")), false);
+  assert.equal(fs.FileExists(resolve(projectDirectory, "src/generated.d.ts")), true);
   assert.equal(fs.FileExists(resolve(projectDirectory, "src/provider.metadata.json")), false);
 });
 test("host excludes the configured output root from semantic input", async () => {
@@ -518,6 +518,13 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
   });
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),
+    "package.json": JSON.stringify({
+      name: "source-package-graph-app",
+      type: "module",
+      dependencies: {
+        "@demo/source-pkg": "1.0.0",
+      },
+    }, null, 2),
     "src/index.ts": [
       "import { subpathValue } from \"@demo/source-pkg/subpath.js\";",
       "export const result = subpathValue;",
@@ -525,6 +532,7 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
     ].join("\n"),
     "node_modules/@demo/source-pkg/package.json": JSON.stringify({
       name: "@demo/source-pkg",
+      version: "1.0.0",
       type: "module",
       exports: {
         "./subpath.js": {

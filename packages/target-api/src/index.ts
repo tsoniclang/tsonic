@@ -64,6 +64,7 @@ export type {
 export type {
   TargetSourceProfileContributions,
   TargetSourceProfileDeclaration,
+  TargetSourceDeclarationPolicy,
 } from "./source-profile.js";
 export {
   createSourceProgramNavigation,
@@ -97,8 +98,14 @@ export type {
   SourceCallResultSelection,
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
+  SourceAuthoredOccurrence,
+  SourceDocument,
   SourceFileSemantics,
+  SourceOccurrence,
+  SourceOccurrenceLookup,
   SourceProgramSemantics,
+  SourceProgramDocuments,
+  SourceSyntheticOccurrence,
   SourceTypeRelationship,
   SourceTypeRefinement,
   SourceValueTypeRefinementSelection,

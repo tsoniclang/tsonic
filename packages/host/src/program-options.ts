@@ -1,13 +1,20 @@
 import {
   createCompilerHost,
   createInMemoryFileSystem,
+  getBundledLibraryClosure,
   ParseCommandLine,
   formatDiagnostics,
 } from "@tsonic/tsts";
-import type { ProgramOptions } from "@tsonic/tsts";
-import type { TsonicProjectConfig } from "@tsonic/target-api";
+import type { BundledLibrarySource, ProgramOptions } from "@tsonic/tsts";
+import type { TargetSourceDeclarationPolicy, TsonicProjectConfig } from "@tsonic/target-api";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  appendInstalledDeclarationPackageFiles,
+} from "./declaration-package-inputs.js";
+import type { InstalledDeclarationSnapshot } from "./declaration-package-inputs.js";
+import { isCompilerSourceFile, isDeclarationFile } from "./package-contract.js";
 import { resolveProjectPaths } from "./project-paths.js";
 import { appendInstalledSourcePackageFiles } from "./source-package-inputs.js";
 
@@ -18,6 +25,17 @@ export interface CreateProgramOptionsInput {
     readonly path: string;
     readonly text: string;
   }[];
+  readonly sourceDeclarationPolicy?: TargetSourceDeclarationPolicy;
+}
+
+export interface SourceDeclarationSnapshot {
+  readonly fingerprint: string;
+  readonly installedPackages: InstalledDeclarationSnapshot["packages"];
+  readonly installedDeclarationFileCount: number;
+  readonly installedDeclarationByteCount: number;
+  readonly bundledLibraries: readonly string[];
+  readonly bundledLibraryClosure: readonly string[];
+  readonly bundledLibraryByteCount: number;
 }
 
 export interface CreatedProgramOptions {
@@ -25,6 +43,7 @@ export interface CreatedProgramOptions {
   readonly entryPointPath: string;
   readonly projectRoot: string;
   readonly outputRoot: string;
+  readonly sourceDeclarationSnapshot: SourceDeclarationSnapshot;
 }
 
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
@@ -32,12 +51,18 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
   const projectFiles = collectProjectFiles(paths.projectRoot, paths.outputRoot);
   appendProjectPackageJson(paths.projectDirectory, projectFiles);
   appendInstalledSourcePackageFiles(paths.projectDirectory, projectFiles);
+  const declarationPolicy = normalizeSourceDeclarationPolicy(input.sourceDeclarationPolicy);
+  const installedDeclarationSnapshot = declarationPolicy.installedDeclarations === "package-contract"
+    ? appendInstalledDeclarationPackageFiles(paths.projectDirectory, projectFiles)
+    : emptyInstalledDeclarationSnapshot();
   for (const file of input.sourceProfileFiles ?? []) {
     projectFiles.set(file.path, file.text);
   }
+  const bundledLibrarySources = getBundledLibraryClosure(declarationPolicy.bundledLibraries);
+  const bundledLibraryPaths = bundledLibrarySources.map((source) => source.path);
   const fileSystem = createInMemoryFileSystem({
     files: projectFiles,
-    includeBundledLibraries: false,
+    includeBundledLibraries: bundledLibrarySources.length > 0,
   });
   const host = createCompilerHost({
     currentDirectory: paths.projectRoot,
@@ -60,6 +85,8 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     "--allowArbitraryExtensions",
     "--rootDir",
     paths.projectRoot,
+    ...(declarationPolicy.installedDeclarations === "package-contract" ? ["--types", "*"] : []),
+    ...bundledLibraryPaths,
     ...(input.sourceProfileFiles ?? []).map((file) => file.path),
     paths.entryPointPath,
   ], host);
@@ -78,7 +105,78 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     entryPointPath: paths.entryPointPath,
     projectRoot: paths.projectRoot,
     outputRoot: paths.outputRoot,
+    sourceDeclarationSnapshot: createSourceDeclarationSnapshot(
+      bundledLibrarySources,
+      declarationPolicy.bundledLibraries,
+      installedDeclarationSnapshot,
+    ),
   };
+}
+
+function normalizeSourceDeclarationPolicy(policy: TargetSourceDeclarationPolicy | undefined): {
+  readonly bundledLibraries: readonly string[];
+  readonly installedDeclarations?: "package-contract";
+} {
+  if (policy?.installedDeclarations !== undefined && policy.installedDeclarations !== "package-contract") {
+    throw new Error(`Unsupported installed source declaration policy '${String(policy.installedDeclarations)}'.`);
+  }
+  const bundledLibraries = new Set<string>();
+  for (const library of policy?.bundledLibraries ?? []) {
+    if (typeof library !== "string" || !/^lib(?:\.[a-z0-9-]+)*\.d\.ts$/u.test(library)) {
+      throw new Error(`Bundled source declaration '${String(library)}' must be a canonical lib.*.d.ts file name.`);
+    }
+    bundledLibraries.add(library);
+  }
+  return {
+    bundledLibraries: [...bundledLibraries].sort(),
+    ...(policy?.installedDeclarations === undefined ? {} : { installedDeclarations: policy.installedDeclarations }),
+  };
+}
+
+function emptyInstalledDeclarationSnapshot(): InstalledDeclarationSnapshot {
+  return {
+    fingerprint: createHash("sha256").digest("hex"),
+    packages: [],
+    declarationFileCount: 0,
+    declarationByteCount: 0,
+  };
+}
+
+function createSourceDeclarationSnapshot(
+  bundledLibrarySources: readonly BundledLibrarySource[],
+  bundledLibraries: readonly string[],
+  installed: InstalledDeclarationSnapshot,
+): SourceDeclarationSnapshot {
+  const hash = createHash("sha256");
+  hash.update(installed.fingerprint);
+  for (const library of bundledLibraries) {
+    appendHashPart(hash, library);
+  }
+  let bundledLibraryByteCount = 0;
+  for (const source of bundledLibrarySources) {
+    hash.update(String(Buffer.byteLength(source.path, "utf8")));
+    hash.update(":");
+    hash.update(source.path);
+    hash.update(String(Buffer.byteLength(source.text, "utf8")));
+    hash.update(":");
+    hash.update(source.text);
+    bundledLibraryByteCount += Buffer.byteLength(source.text, "utf8");
+  }
+  return {
+    fingerprint: hash.digest("hex"),
+    installedPackages: installed.packages,
+    installedDeclarationFileCount: installed.declarationFileCount,
+    installedDeclarationByteCount: installed.declarationByteCount,
+    bundledLibraries,
+    bundledLibraryClosure: bundledLibrarySources.map((source) => source.name),
+    bundledLibraryByteCount,
+  };
+}
+
+function appendHashPart(hash: ReturnType<typeof createHash>, value: string): void {
+  hash.update(String(Buffer.byteLength(value, "utf8")));
+  hash.update(":");
+  hash.update(value);
 }
 
 function appendProjectPackageJson(projectDirectory: string, files: Map<string, string>): void {
@@ -104,10 +202,6 @@ function visitDirectory(directory: string, files: Map<string, string>, outputRoo
     }
     const fullPath = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules") {
-        visitNodeModulesDirectory(fullPath, files);
-        continue;
-      }
       visitDirectory(fullPath, files, outputRoot);
       continue;
     }
@@ -130,68 +224,10 @@ function shouldSkipEntry(name: string): boolean {
     name === ".temp" ||
     name === "bin" ||
     name === "dist" ||
-    name === "obj";
-}
-
-function visitNodeModulesDirectory(directory: string, files: Map<string, string>): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const fullPath = join(directory, entry.name);
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    if (entry.name.startsWith("@")) {
-      visitScopedNodeModulesDirectory(fullPath, files);
-      continue;
-    }
-    visitPackageDirectory(fullPath, files);
-  }
-}
-
-function visitScopedNodeModulesDirectory(directory: string, files: Map<string, string>): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      visitPackageDirectory(join(directory, entry.name), files);
-    }
-  }
-}
-
-function visitPackageDirectory(directory: string, files: Map<string, string>): void {
-  const packageJsonPath = join(directory, "package.json");
-  if (!existsSync(packageJsonPath)) {
-    return;
-  }
-  files.set(packageJsonPath.split("\\").join("/"), readFileSync(packageJsonPath, "utf8"));
-  visitPackageSourceDirectory(directory, files);
-}
-
-function visitPackageSourceDirectory(directory: string, files: Map<string, string>): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (shouldSkipPackageEntry(entry.name)) {
-      continue;
-    }
-    const fullPath = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      visitPackageSourceDirectory(fullPath, files);
-      continue;
-    }
-    if (entry.isFile() && isCompilerSourceFile(entry.name)) {
-      files.set(fullPath.split("\\").join("/"), readFileSync(fullPath, "utf8"));
-    }
-  }
-}
-
-function shouldSkipPackageEntry(name: string): boolean {
-  return name === ".git" ||
-    name === "bin" ||
-    name === "dist" ||
     name === "node_modules" ||
     name === "obj";
 }
 
 function isResolverInputFile(name: string): boolean {
-  return name === "package.json" || isCompilerSourceFile(name);
-}
-
-function isCompilerSourceFile(name: string): boolean {
-  return /\.(?:mts|ts)$/.test(name) && !/\.d\.(?:mts|ts)$/.test(name);
+  return name === "package.json" || isCompilerSourceFile(name) || isDeclarationFile(name);
 }

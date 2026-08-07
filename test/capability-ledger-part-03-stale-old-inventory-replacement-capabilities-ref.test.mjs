@@ -5,8 +5,6 @@ import test from "node:test";
 import {
   capabilityCompatRuntimeCarriers,
   capabilitySurfaceEvidenceGateNames,
-  coreLangIntrinsicCoverage,
-  coreLangIntrinsicModuleSpecifier,
   capabilityLaneNames,
   capabilityIdSet,
   capabilityLedger,

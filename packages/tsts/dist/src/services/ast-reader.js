@@ -5,8 +5,10 @@ import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
 import { NodeFlagsBlockScoped, NodeFlagsNone } from "../internal/ast/generated/flags.js";
 import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsAsync, ModifierFlagsConst, ModifierFlagsDefault, ModifierFlagsExport, ModifierFlagsOverride, ModifierFlagsPrivate, ModifierFlagsProtected, ModifierFlagsPublic, ModifierFlagsReadonly, ModifierFlagsStatic, } from "../internal/ast/modifierflags.js";
-import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing } from "../internal/ast/utilities.js";
+import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { KindExtendsKeyword, KindImplementsKeyword } from "../internal/ast/generated/kinds.js";
+import { ComputePositionMap, PositionMap_UTF8ToUTF16, } from "../internal/ast/positionmap.js";
+import { GetTokenPosOfNode } from "../internal/scanner/scanner.js";
 export function createAstReader() {
     const reader = {
         kind: (node) => node?.Kind,
@@ -69,6 +71,7 @@ export function createAstReader() {
         },
         pos: (node) => node === undefined ? -1 : Node_Pos(node),
         end: (node) => node === undefined ? -1 : Node_End(node),
+        authoredRange,
         getSourceFile: (node) => GetSourceFileOfNode(node),
         getFileName: (sourceFile) => sourceFile === undefined ? "" : SourceFile_FileName(sourceFile),
         getPath: (sourceFile) => sourceFile === undefined ? "" : SourceFile_Path(sourceFile),
@@ -78,6 +81,35 @@ export function createAstReader() {
         as: casts,
     };
     return Object.freeze(reader);
+}
+function authoredRange(node) {
+    if (node === undefined || NodeIsSynthesized(node)) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    const sourceFile = GetSourceFileOfNode(node);
+    if (sourceFile === undefined) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    const positionMap = authoredPositionMap(sourceFile);
+    const start = PositionMap_UTF8ToUTF16(positionMap, GetTokenPosOfNode(node, sourceFile, false));
+    const end = PositionMap_UTF8ToUTF16(positionMap, Node_End(node));
+    if (start < 0 || end < start) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    return Object.freeze({ kind: "authored", start, end });
+}
+const authoredPositionMaps = new WeakMap();
+function authoredPositionMap(sourceFile) {
+    const existing = authoredPositionMaps.get(sourceFile);
+    if (existing !== undefined) {
+        return existing;
+    }
+    const created = ComputePositionMap(SourceFile_Text(sourceFile));
+    if (created === undefined) {
+        throw new Error("TS-Go position map construction returned no result.");
+    }
+    authoredPositionMaps.set(sourceFile, created);
+    return created;
 }
 function operatorKindName(node) {
     if (node === undefined) {

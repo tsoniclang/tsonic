@@ -5,8 +5,14 @@ export interface TargetSourceProfileDeclaration {
   readonly text: string;
 }
 
+export interface TargetSourceDeclarationPolicy {
+  readonly bundledLibraries?: readonly string[];
+  readonly installedDeclarations?: "package-contract";
+}
+
 export interface TargetSourceProfileContributions {
   readonly declarations?: readonly TargetSourceProfileDeclaration[];
+  readonly declarationPolicy?: TargetSourceDeclarationPolicy;
 }
 
 export function targetSourceProfileDeclaration(fileName: string, text: string): TargetSourceProfileDeclaration {

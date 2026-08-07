@@ -473,7 +473,7 @@ test("CLI rejects package-root imports instead of applying package-root shims", 
   assert.match(build.stderr, /@tsonic\/js/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
-test("CLI rejects generated declaration files as hidden module fallbacks", async () => {
+test("CLI never treats a declaration-only relative import as a runtime implementation", async () => {
   const projectDirectory = resolve(tempRoot, "generated-declaration-no-fallback");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -488,7 +488,7 @@ test("CLI rejects generated declaration files as hidden module fallbacks", async
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /generated\.js/);
+  assert.match(build.stderr, /Declaration\/provider identifier 'value' requires a selected target operation or type-position usage/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI rejects provider metadata JSON as hidden module fallbacks", async () => {
@@ -580,6 +580,16 @@ test("CLI emits package export target source files from the TSTS subpath graph",
         },
       ],
     }, null, 2),
+    "package.json": JSON.stringify({
+      name: "package-export-source-subpath-emission",
+      type: "module",
+      dependencies: {
+        "@demo/pkg": "1.0.0",
+        "@tsonic/target-csharp": "file:../../../../tsonic-csharp",
+        "@tsonic/csharp-runtime": "file:../../../../csharp-runtime",
+        "@tsonic/csharp-js": "file:../../../../csharp-js",
+      },
+    }, null, 2),
     "index.ts": [
       "import { append, trace, value } from \"@demo/pkg/public.js\";",
       "append(\"index;\");",
@@ -592,6 +602,7 @@ test("CLI emits package export target source files from the TSTS subpath graph",
     ].join("\n"),
     "node_modules/@demo/pkg/package.json": JSON.stringify({
       name: "@demo/pkg",
+      version: "1.0.0",
       type: "module",
       exports: {
         "./public.js": {

@@ -73,3 +73,59 @@ dotnet build out/csharp/ExampleGenerated.csproj
 - C# source rendering is AST-only: planner builds `Csharp*` AST nodes, and only the C# printer turns those nodes into C# text.
 - Target-specific behavior lives in target packs. Generic host and target API packages do not know C# or .NET semantics.
 - Unsupported semantics produce deterministic diagnostics instead of fallback guesses.
+
+## Neutral source semantics
+
+`@tsonic/core` owns target-neutral source meaning. Target packs may expose
+native aliases, but generic source code uses one canonical TypeScript-style
+catalog:
+
+| Contract | Neutral source spelling |
+| --- | --- |
+| Typed mutable location | `Pointer<T>` |
+| Function pointer type | `FunctionPointer<T>` |
+| Write-only argument | `writeOnlyRef(value)` |
+| Read/write argument | `readWriteRef(value)` |
+| Read-only argument | `readOnlyRef(value)` |
+| Shared borrow | `sharedBorrow(value)` |
+| Mutable borrow | `mutableBorrow(value)` |
+| Move | `move(value)` |
+| Default value | `defaultValue<T>()` |
+| Existing location | `addressOf(storage)` |
+| Fresh location | `allocatePointer<T>(initial)` |
+| Location read | `loadPointer(pointer)` |
+| Location write | `storePointer(pointer, value)` |
+| Location identity | `equalPointer(left, right)` |
+
+For example:
+
+```ts
+import {
+  addressOf,
+  equalPointer,
+  loadPointer,
+  storePointer,
+} from "@tsonic/core/lang.js";
+import type { int32, Pointer } from "@tsonic/core/types.js";
+
+export function increment(pointer: Pointer<int32>): void {
+  storePointer(pointer, loadPointer(pointer) + 1);
+}
+
+let value: int32 = 1;
+const pointer = addressOf(value);
+increment(pointer);
+const stillTheSameLocation = equalPointer(pointer, addressOf(value));
+```
+
+TSTS records the exact selected typed-location operations. Each target first
+converts those neutral facts into one target-owned operation or rejection.
+Only that target-owned model reaches its planner and printer. For C#, the
+example becomes closed `Location<int>` operations; Rust, Python, and GPU must
+either define their own exact operation or reject it without matching the
+public marker spelling.
+
+Target-flavoured aliases remain in their target modules. C# owns
+`out`/`ref`/`inref`, `defaultof`, `ptr`, and `fnptr` in
+`@tsonic/csharp/lang.js`; Rust owns `borrow`, `borrowMut`, and `move` in
+`@tsonic/rust/lang.js`. Those aliases are not neutral-core exports.

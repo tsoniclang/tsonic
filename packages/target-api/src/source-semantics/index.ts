@@ -42,6 +42,9 @@ import {
 import {
   selectSourceTypeRefinement,
 } from "./type-refinement.js";
+import {
+  createSourceProgramDocuments,
+} from "./source-documents.js";
 
 export {
   sourceTypeSyntaxIsCompositional,
@@ -56,6 +59,7 @@ export function createTargetSourceProgram(
     ),
   );
   const sourceFileSet = new Set(sourceFiles);
+  const documents = createSourceProgramDocuments(source.ast, sourceFiles);
   const navigation = createSourceProgramNavigation(source);
   const cache = new WeakMap<SourceFile, SourceFileSemantics>();
 
@@ -205,6 +209,7 @@ export function createTargetSourceProgram(
   return Object.freeze({
     ast: source.ast,
     sourceFiles,
+    documents,
     sourceFacts: source.sourceFacts,
     navigation,
     semantics,
@@ -218,8 +223,14 @@ export type {
 export type {
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
+  SourceAuthoredOccurrence,
+  SourceDocument,
   SourceFileSemantics,
+  SourceOccurrence,
+  SourceOccurrenceLookup,
   SourceProgramSemantics,
+  SourceProgramDocuments,
+  SourceSyntheticOccurrence,
   SourceTypeRelationship,
   SourceTypeRefinement,
   SourceValueTypeRefinementSelection,

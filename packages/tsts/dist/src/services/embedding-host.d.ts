@@ -19,7 +19,13 @@ export interface InMemoryFileSystemOptions {
     readonly useCaseSensitiveFileNames?: boolean;
     readonly includeBundledLibraries?: boolean;
 }
+export interface BundledLibrarySource {
+    readonly name: string;
+    readonly path: string;
+    readonly text: string;
+}
 export declare function getBundledLibraryPath(): string;
+export declare function getBundledLibraryClosure(rootNames: readonly string[]): readonly BundledLibrarySource[];
 export declare function createInMemoryFileSystem(options: InMemoryFileSystemOptions): CompilerFileSystem;
 export declare function withBundledLibraries(fileSystem: CompilerFileSystem): CompilerFileSystem;
 export declare function createCompilerHost(options: CompilerHostOptions): CompilerHost;

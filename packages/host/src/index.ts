@@ -19,6 +19,7 @@ export type {
   TsonicSemanticSession,
 } from "./compiler-session.js";
 export { createProgramOptionsForProject } from "./program-options.js";
+export type { SourceDeclarationSnapshot } from "./program-options.js";
 export type { CreatedProgramOptions, CreateProgramOptionsInput } from "./program-options.js";
 export { collectTargetSourceProfileContributions } from "./target/source-profile.js";
 export type { CollectedTargetSourceProfile, CollectTargetSourceProfileOptions, TargetSourceProfileFile } from "./target/source-profile.js";

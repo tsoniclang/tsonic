@@ -5,6 +5,13 @@ import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
 export type AstModifierKind = "public" | "private" | "protected" | "readonly" | "override" | "export" | "abstract" | "ambient" | "static" | "async" | "default" | "const";
 export type AstVariableDeclarationKind = "var" | "let" | "const" | "using" | "await using";
+export type AstAuthoredRange = {
+    readonly kind: "authored";
+    readonly start: number;
+    readonly end: number;
+} | {
+    readonly kind: "synthetic";
+};
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
@@ -44,6 +51,8 @@ export interface AstReader {
     readonly isTypeOnlyImportOrExportDeclaration: (node: GoPtr<Node>) => boolean;
     readonly pos: (node: GoPtr<Node>) => number;
     readonly end: (node: GoPtr<Node>) => number;
+    /** Returns trivia-free UTF-16 offsets into the exact checked source text. */
+    readonly authoredRange: (node: GoPtr<Node>) => AstAuthoredRange;
     readonly getSourceFile: (node: GoPtr<Node>) => GoPtr<SourceFile>;
     readonly getFileName: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getPath: (sourceFile: GoPtr<SourceFile>) => string;

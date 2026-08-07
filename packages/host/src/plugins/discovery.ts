@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { TargetDiagnostic, TargetCapabilityImplementation, TsonicPlugin, TsonicTargetPlugin } from "@tsonic/target-api";
 import { getTargetIdValidationMessage, isValidTargetId } from "@tsonic/target-api";
 import { readTsonicPluginManifest } from "./manifest.js";
+import { findInstalledPackageRoot } from "../package-contract.js";
 import { createInstalledTsonicPluginRegistry } from "./registry.js";
 import type { InstalledTsonicPluginRegistry } from "./registry.js";
 
@@ -20,7 +21,10 @@ export async function discoverInstalledTsonicPlugins(projectFilePath: string): P
   const capabilities: TargetCapabilityImplementation[] = [];
   const diagnostics: TargetDiagnostic[] = [];
   for (const dependencyName of dependencyNames) {
-    const packageJson = await readDependencyPackageJson(dependencyName, requireFromProject);
+    const packageJson = await readDependencyPackageJson(
+      dependencyName,
+      projectDirectory,
+    );
     const manifest = readTsonicPluginManifest(dependencyName, packageJson);
     if (manifest === undefined) {
       continue;
@@ -44,14 +48,17 @@ export async function discoverInstalledTsonicPlugins(projectFilePath: string): P
   };
 }
 
-async function readDependencyPackageJson(packageName: string, requireFromProject: NodeRequire): Promise<unknown> {
-  let manifestPath: string;
-  try {
-    manifestPath = requireFromProject.resolve(`${packageName}/package.json`);
-  } catch (error) {
-    throw new Error(`Installed dependency '${packageName}' does not export package.json for Tsonic plugin discovery. ${error instanceof Error ? error.message : String(error)}`);
+async function readDependencyPackageJson(
+  packageName: string,
+  projectDirectory: string,
+): Promise<unknown> {
+  const packageRoot = findInstalledPackageRoot(projectDirectory, packageName);
+  if (packageRoot === undefined) {
+    throw new Error(
+      `Project dependency '${packageName}' is not installed for Tsonic plugin discovery.`,
+    );
   }
-  return readJsonFile(manifestPath);
+  return readJsonFile(join(packageRoot, "package.json"));
 }
 
 async function loadPlugin(packageName: string, entry: string, requireFromProject: NodeRequire): Promise<TsonicPlugin> {

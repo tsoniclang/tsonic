@@ -1,5 +1,7 @@
 import type { ExtensionFactSubject, ProviderWellKnownSymbolName } from "./host.js";
 import type { Node } from "../internal/ast/ast.js";
+import type { Symbol } from "../internal/ast/symbol.js";
+import type { Type } from "../internal/checker/types.js";
 import { type ArgumentPassingMode } from "./argument-passing.js";
 export type { ArgumentPassingMode } from "./argument-passing.js";
 export type ExtensionCanonicalIdentityKind = "module" | "package" | "export" | "local-alias" | "symbol" | "type" | "signature" | "instantiated-type";
@@ -34,8 +36,42 @@ export interface FunctionPointerFact {
 export interface PointerFact {
     readonly pointee: Node;
     readonly mutability: SourcePointerMutability;
-    readonly unsafeRequired: boolean;
 }
+interface PointerOperationFactBase {
+    readonly call: Node;
+    readonly pointeeType: Type;
+    readonly explicitPointeeTypeNode?: Node;
+    readonly resultType: Type;
+}
+export type PointerOperationFact = PointerOperationFactBase & ({
+    readonly operation: "address-of";
+    readonly storageExpression: Node;
+    readonly storageType: Type;
+    readonly storageSymbol?: Symbol;
+    readonly storageDeclaration?: Node;
+    readonly locationIdentity: Node;
+} | {
+    readonly operation: "allocate";
+    readonly initialExpression: Node;
+    readonly initialType: Type;
+    readonly locationIdentity: Node;
+} | {
+    readonly operation: "load";
+    readonly pointerExpression: Node;
+    readonly pointerType: Type;
+} | {
+    readonly operation: "store";
+    readonly pointerExpression: Node;
+    readonly pointerType: Type;
+    readonly valueExpression: Node;
+    readonly valueType: Type;
+} | {
+    readonly operation: "equal-pointer";
+    readonly leftExpression: Node;
+    readonly leftType: Type;
+    readonly rightExpression: Node;
+    readonly rightType: Type;
+});
 export interface StructFact {
     readonly valueType: boolean;
     readonly fields?: readonly FieldFact[];
@@ -103,6 +139,7 @@ export declare const sourcePrimitiveFactKey: import("./fact-key.js").ExtensionFa
 export declare const argumentPassingFactKey: import("./fact-key.js").ExtensionFactKey<ArgumentPassingFact>;
 export declare const functionPointerFactKey: import("./fact-key.js").ExtensionFactKey<FunctionPointerFact>;
 export declare const pointerFactKey: import("./fact-key.js").ExtensionFactKey<PointerFact>;
+export declare const pointerOperationFactKey: import("./fact-key.js").ExtensionFactKey<PointerOperationFact>;
 export declare const structFactKey: import("./fact-key.js").ExtensionFactKey<StructFact>;
 export declare const fieldFactKey: import("./fact-key.js").ExtensionFactKey<FieldFact>;
 export declare const attributeFactKey: import("./fact-key.js").ExtensionFactKey<AttributeFact>;
