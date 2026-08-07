@@ -115,6 +115,21 @@ const forbiddenLegacyCapabilityContributionPatterns = Object.freeze([
   },
 ]);
 
+const forbiddenNeutralMarkerCatalogPatterns = Object.freeze([
+  {
+    name: "retired neutral call-marker alias",
+    pattern: /exportName:\s*"(?:out|ref|inref|borrow|borrowMut|defaultof)"/u,
+  },
+  {
+    name: "retired neutral type-marker alias",
+    pattern: /exportName:\s*"(?:ptr|fnptr)"/u,
+  },
+  {
+    name: "retired unsafeRequired marker",
+    pattern: /\bunsafeRequired\b/u,
+  },
+]);
+
 test("product compiler source stays ESM-only and native-compilable", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
@@ -391,6 +406,30 @@ test("architecture validator rejects unapproved product dependencies", () => {
   ]);
 });
 
+test("neutral source marker catalog contains no target-flavoured aliases", async () => {
+  const text = await readFile(
+    join(repoRoot, "packages/source-core/src/source-modules.ts"),
+    "utf8",
+  );
+  assert.deepEqual(neutralMarkerCatalogFailures(text), []);
+});
+
+test("architecture validator rejects retired neutral marker spellings", () => {
+  assert.deepEqual(
+    neutralMarkerCatalogFailures(`
+      { kind: "call-marker", exportName: "out", marker: "write-only-reference" },
+      { kind: "call-marker", exportName: "borrowMut", marker: "mutable-borrow" },
+      { kind: "type-marker", exportName: "ptr", marker: "pointer" },
+      unsafeRequired(value);
+    `),
+    [
+      "retired neutral call-marker alias",
+      "retired neutral type-marker alias",
+      "retired unsafeRequired marker",
+    ],
+  );
+});
+
 function isBannedProductFileName(sourceFile) {
   return bannedProductFileNames.includes(basename(sourceFile));
 }
@@ -442,6 +481,12 @@ function collectDisallowedDependencies(failures, manifestPath, field, dependenci
       failures.push(`${manifestPath}:${field}:${dependencyName}`);
     }
   }
+}
+
+function neutralMarkerCatalogFailures(text) {
+  return forbiddenNeutralMarkerCatalogPatterns
+    .filter((forbidden) => forbidden.pattern.test(text))
+    .map((forbidden) => forbidden.name);
 }
 
 function isAllowedProductDependency(name) {
