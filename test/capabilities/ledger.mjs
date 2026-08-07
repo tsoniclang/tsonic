@@ -15,6 +15,19 @@ export const capabilityOldEvidenceAbsenceStatuses = Object.freeze([
   "reviewed-none-found",
 ]);
 
+export function isReviewedOldEvidenceAbsence(value) {
+  return (
+    isPlainObject(value) &&
+    value.status === "reviewed-none-found" &&
+    Array.isArray(value.reviewedInventories) &&
+    value.reviewedInventories.length > 0 &&
+    Array.isArray(value.searchEvidence) &&
+    value.searchEvidence.length > 0 &&
+    typeof value.reviewerNotes === "string" &&
+    value.reviewerNotes.length > 0
+  );
+}
+
 export const capabilityOwners = Object.freeze([
   "tsonic-host",
   "tsts-api",
@@ -10609,16 +10622,9 @@ function validateCompleteCapabilityProof(errors, entry) {
     errors.push("complete capabilities must have reviewed evidence");
   }
   const hasOldEvidence = Array.isArray(entry.oldEvidence) && entry.oldEvidence.length > 0;
-  const hasReviewedOldEvidenceAbsence =
-    entry.oldEvidenceAbsence !== undefined &&
-    isPlainObject(entry.oldEvidenceAbsence) &&
-    entry.oldEvidenceAbsence.status === "reviewed-none-found" &&
-    Array.isArray(entry.oldEvidenceAbsence.reviewedInventories) &&
-    entry.oldEvidenceAbsence.reviewedInventories.length > 0 &&
-    Array.isArray(entry.oldEvidenceAbsence.searchEvidence) &&
-    entry.oldEvidenceAbsence.searchEvidence.length > 0 &&
-    typeof entry.oldEvidenceAbsence.reviewerNotes === "string" &&
-    entry.oldEvidenceAbsence.reviewerNotes.length > 0;
+  const hasReviewedOldEvidenceAbsence = isReviewedOldEvidenceAbsence(
+    entry.oldEvidenceAbsence,
+  );
   if (!hasOldEvidence && !hasReviewedOldEvidenceAbsence) {
     errors.push("complete capabilities must have oldEvidence or reviewed oldEvidenceAbsence");
   }
