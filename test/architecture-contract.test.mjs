@@ -225,6 +225,13 @@ test("architecture validator rejects raw module specifier scanning snippets", ()
   );
 });
 
+test("project collection cannot recursively ingest installed package trees", async () => {
+  const text = await readFile(join(repoRoot, "packages/host/src/program-options.ts"), "utf8");
+  assert.doesNotMatch(text, /\bvisit(?:Scoped)?NodeModulesDirectory\b/u);
+  assert.doesNotMatch(text, /\bvisitPackageDirectory\b/u);
+  assert.doesNotMatch(text, /entry\.name\s*===\s*["']node_modules["']\s*\)\s*\{\s*visit/u);
+});
+
 test("product compiler source uses one standard target capability contribution hook", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {

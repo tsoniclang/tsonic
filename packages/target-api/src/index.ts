@@ -64,6 +64,7 @@ export type {
 export type {
   TargetSourceProfileContributions,
   TargetSourceProfileDeclaration,
+  TargetSourceDeclarationPolicy,
 } from "./source-profile.js";
 export {
   createSourceProgramNavigation,

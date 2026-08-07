@@ -173,3 +173,224 @@ test("product program options resolve hoisted source packages and their source d
   assert.ok(fileNames.includes(resolve(workspaceDirectory, "node_modules/@demo/math/src/index.ts").split("\\").join("/")));
   assert.equal(fileNames.some((fileName) => /\/lib\..*\.d\.ts$/u.test(fileName)), false, `bundled TypeScript lib leaked into product program: ${fileNames.join("\n")}`);
 });
+
+test("package-contract declaration policy exposes only declared package closure to NodeNext", async () => {
+  const projectDirectory = resolve(tempRoot, "package-contract-declarations");
+  const sourceDirectory = resolve(projectDirectory, "src");
+  await mkdir(sourceDirectory, { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/typed-package/types"), { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/typed-dependency"), { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/unused-package"), { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/@types/leak"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "package.json"), JSON.stringify({
+    name: "declaration-policy-app",
+    type: "module",
+    dependencies: {
+      "typed-package": "1.0.0",
+      "unused-package": "1.0.0",
+    },
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/typed-package/package.json"), JSON.stringify({
+    name: "typed-package",
+    version: "1.0.0",
+    type: "module",
+    exports: {
+      ".": {
+        types: "./types/index.d.ts",
+        default: "./index.js",
+      },
+    },
+    dependencies: {
+      "typed-dependency": "1.0.0",
+    },
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/typed-package/types/index.d.ts"), [
+    "import type { DependencyValue } from \"typed-dependency\";",
+    "export declare const value: DependencyValue;",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/typed-dependency/package.json"), JSON.stringify({
+    name: "typed-dependency",
+    version: "1.0.0",
+    type: "module",
+    exports: {
+      ".": {
+        types: "./index.d.ts",
+        default: "./index.js",
+      },
+    },
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/typed-dependency/index.d.ts"), "export type DependencyValue = number;\n", "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/unused-package/package.json"), JSON.stringify({
+    name: "unused-package",
+    version: "1.0.0",
+    types: "./index.d.ts",
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/unused-package/index.d.ts"), "export declare const unused: number;\n", "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/@types/leak/package.json"), JSON.stringify({
+    name: "@types/leak",
+    version: "1.0.0",
+    types: "./index.d.ts",
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/@types/leak/index.d.ts"), "interface String { leakedMember(): void; }\n", "utf8");
+  await writeFile(resolve(sourceDirectory, "App.ts"), "import { value } from \"typed-package\";\nexport const result: number = value;\n", "utf8");
+  const profilePath = resolve(projectDirectory, ".tsonic/source-profiles/test/profile.d.ts").split("\\").join("/");
+  const input = {
+    project: {
+      entryPoint: "./src/App.ts",
+      rootDir: ".",
+      targets: [{ id: "test" }],
+    },
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceProfileFiles: [{ path: profilePath, text: minimalNoLibProfile() }],
+    sourceDeclarationPolicy: { installedDeclarations: "package-contract" },
+  };
+  const first = createProgramOptionsForProject(input);
+  const second = createProgramOptionsForProject(input);
+  assert.deepEqual(first.sourceDeclarationSnapshot, second.sourceDeclarationSnapshot);
+  assert.equal(first.sourceDeclarationSnapshot.installedPackages.length, 3);
+  assert.equal(first.sourceDeclarationSnapshot.installedDeclarationFileCount, 6);
+  await writeFile(resolve(projectDirectory, "node_modules/typed-dependency/index.d.ts"), "export type DependencyValue = string;\n", "utf8");
+  const compiler = createCompilerSession({ programOptions: first.programOptions });
+  const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.code), [], formatDiagnostics(diagnostics, projectDirectory));
+  const source = compiler.checkSource();
+  const sourceFiles = source.getSourceFiles().map((sourceFile) => source.ast.getFileName(sourceFile));
+  assert.ok(sourceFiles.some((fileName) => fileName.endsWith("/node_modules/typed-package/types/index.d.ts")));
+  assert.ok(sourceFiles.some((fileName) => fileName.endsWith("/node_modules/typed-dependency/index.d.ts")));
+  assert.equal(sourceFiles.some((fileName) => fileName.includes("/unused-package/")), false);
+  assert.equal(sourceFiles.some((fileName) => fileName.includes("/@types/leak/")), false);
+  const changed = createProgramOptionsForProject(input);
+  assert.notEqual(changed.sourceDeclarationSnapshot.fingerprint, first.sourceDeclarationSnapshot.fingerprint);
+  const changedCompiler = createCompilerSession({ programOptions: changed.programOptions });
+  const changedDiagnostics = changedCompiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.ok(changedDiagnostics.some((diagnostic) => diagnostic.code === 2322), formatDiagnostics(changedDiagnostics, projectDirectory));
+});
+
+test("package-contract declaration policy activates only explicitly declared ambient packages", async () => {
+  const projectDirectory = resolve(tempRoot, "ambient-package-contract");
+  await mkdir(resolve(projectDirectory, "src"), { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/@types/node-example"), { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/@types/leak"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "package.json"), JSON.stringify({
+    name: "ambient-package-app",
+    type: "module",
+    devDependencies: {
+      "@types/node-example": "1.0.0",
+    },
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/@types/node-example/package.json"), JSON.stringify({
+    name: "@types/node-example",
+    version: "1.0.0",
+    types: "./index.d.ts",
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/@types/node-example/index.d.ts"), [
+    "declare module \"node:example\" {",
+    "  export function read(): string;",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/@types/leak/package.json"), JSON.stringify({
+    name: "@types/leak",
+    version: "1.0.0",
+    types: "./index.d.ts",
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/@types/leak/index.d.ts"), "interface String { leakedMember(): void; }\n", "utf8");
+  await writeFile(resolve(projectDirectory, "src/App.ts"), [
+    "import { read } from \"node:example\";",
+    "export const value: string = read();",
+    "",
+  ].join("\n"), "utf8");
+  const profilePath = resolve(projectDirectory, ".tsonic/source-profiles/test/profile.d.ts").split("\\").join("/");
+  const created = createProgramOptionsForProject({
+    project: { entryPoint: "./src/App.ts", rootDir: ".", targets: [{ id: "test" }] },
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceProfileFiles: [{ path: profilePath, text: minimalNoLibProfile() }],
+    sourceDeclarationPolicy: { installedDeclarations: "package-contract" },
+  });
+  const compiler = createCompilerSession({ programOptions: created.programOptions });
+  const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.code), [], formatDiagnostics(diagnostics, projectDirectory));
+  const source = compiler.checkSource();
+  const fileNames = source.getSourceFiles().map((sourceFile) => source.ast.getFileName(sourceFile));
+  assert.ok(fileNames.some((fileName) => fileName.endsWith("/@types/node-example/index.d.ts")));
+  assert.equal(fileNames.some((fileName) => fileName.endsWith("/@types/leak/index.d.ts")), false);
+});
+
+test("package-contract declaration policy hides physically installed undeclared packages", async () => {
+  const projectDirectory = resolve(tempRoot, "undeclared-package");
+  await mkdir(resolve(projectDirectory, "src"), { recursive: true });
+  await mkdir(resolve(projectDirectory, "node_modules/hidden-package"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "package.json"), JSON.stringify({
+    name: "undeclared-package-app",
+    type: "module",
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/hidden-package/package.json"), JSON.stringify({
+    name: "hidden-package",
+    version: "1.0.0",
+    types: "./index.d.ts",
+  }), "utf8");
+  await writeFile(resolve(projectDirectory, "node_modules/hidden-package/index.d.ts"), "export declare const hidden: number;\n", "utf8");
+  await writeFile(resolve(projectDirectory, "src/App.ts"), "import { hidden } from \"hidden-package\";\nexport const value = hidden;\n", "utf8");
+  const profilePath = resolve(projectDirectory, ".tsonic/source-profiles/test/profile.d.ts").split("\\").join("/");
+  const created = createProgramOptionsForProject({
+    project: { entryPoint: "./src/App.ts", rootDir: ".", targets: [{ id: "test" }] },
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceProfileFiles: [{ path: profilePath, text: minimalNoLibProfile() }],
+    sourceDeclarationPolicy: { installedDeclarations: "package-contract" },
+  });
+  assert.equal(created.sourceDeclarationSnapshot.installedPackages.length, 0);
+  const compiler = createCompilerSession({ programOptions: created.programOptions });
+  const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 2307), formatDiagnostics(diagnostics, projectDirectory));
+});
+
+test("bundled declaration policy roots only explicitly selected TypeScript libraries", async () => {
+  const projectDirectory = resolve(tempRoot, "bundled-library-policy");
+  await mkdir(resolve(projectDirectory, "src"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "src/App.ts"), "export const values = new Map<string, number>();\n", "utf8");
+  const created = createProgramOptionsForProject({
+    project: { entryPoint: "./src/App.ts", rootDir: ".", targets: [{ id: "test" }] },
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceDeclarationPolicy: { bundledLibraries: ["lib.es2024.d.ts"] },
+  });
+  assert.deepEqual(created.sourceDeclarationSnapshot.bundledLibraries, ["lib.es2024.d.ts"]);
+  assert.ok(created.sourceDeclarationSnapshot.bundledLibraryClosure.includes("lib.es5.d.ts"));
+  assert.equal(created.sourceDeclarationSnapshot.bundledLibraryClosure.includes("lib.dom.d.ts"), false);
+  const compiler = createCompilerSession({ programOptions: created.programOptions });
+  const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.deepEqual(diagnostics.map((diagnostic) => diagnostic.code), [], formatDiagnostics(diagnostics, projectDirectory));
+  const source = compiler.checkSource();
+  const fileNames = source.getSourceFiles().map((sourceFile) => source.ast.getFileName(sourceFile));
+  assert.ok(fileNames.some((fileName) => fileName.endsWith("/lib.es2024.d.ts")));
+  assert.equal(fileNames.some((fileName) => fileName.endsWith("/lib.dom.d.ts")), false);
+});
+
+test("bundled declaration policy rejects a canonical-looking unknown library", async () => {
+  const projectDirectory = resolve(tempRoot, "unknown-bundled-library");
+  await mkdir(resolve(projectDirectory, "src"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "src/App.ts"), "export const value = 1;\n", "utf8");
+  assert.throws(
+    () => createProgramOptionsForProject({
+      project: { entryPoint: "./src/App.ts", rootDir: ".", targets: [{ id: "test" }] },
+      projectFilePath: resolve(projectDirectory, "tsonic.json"),
+      sourceDeclarationPolicy: { bundledLibraries: ["lib.not-real.d.ts"] },
+    }),
+    /Unknown bundled library 'lib\.not-real\.d\.ts'/u,
+  );
+});
+
+function minimalNoLibProfile() {
+  return [
+    "interface Object {}",
+    "interface Function {}",
+    "interface CallableFunction extends Function {}",
+    "interface NewableFunction extends Function {}",
+    "interface IArguments {}",
+    "interface Boolean {}",
+    "interface Number {}",
+    "interface RegExp {}",
+    "interface String {}",
+    "interface Array<T> { readonly length: number; [index: number]: T; }",
+  ].join("\n");
+}

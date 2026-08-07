@@ -7,6 +7,7 @@ import type {
   TargetDiagnostic,
   TargetPack,
   TargetSelection,
+  TargetSourceDeclarationPolicy,
   TargetSourceProfileDeclaration,
   TargetSurfaceImplementation,
   TsonicProjectConfig,
@@ -21,6 +22,7 @@ export interface TargetSourceProfileFile {
 
 export interface CollectedTargetSourceProfile {
   readonly files: readonly TargetSourceProfileFile[];
+  readonly declarationPolicy: TargetSourceDeclarationPolicy;
   readonly diagnostics: readonly TargetDiagnostic[];
 }
 
@@ -37,8 +39,17 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
   const files: TargetSourceProfileFile[] = [];
   const diagnostics: TargetDiagnostic[] = [];
   const seenPaths = new Map<string, string>();
+  const bundledLibraries = new Set<string>();
+  let installedDeclarations: TargetSourceDeclarationPolicy["installedDeclarations"];
   const provider = options.targetPack.provider;
   if (provider !== undefined) {
+    const contribution = provider.sourceProfileContributions?.({
+      project: options.project,
+      target: options.target,
+      targetPack: options.targetPack,
+      selectedCapabilities: options.selectedCapabilities,
+      selectedSurfaces: options.selectedSurfaces,
+    });
     appendDeclarations({
       files,
       diagnostics,
@@ -46,16 +57,25 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
       projectRoot: options.projectRoot,
       ownerId: provider.id,
       source: provider.id,
-      declarations: provider.sourceProfileContributions?.({
-        project: options.project,
-        target: options.target,
-        targetPack: options.targetPack,
-        selectedCapabilities: options.selectedCapabilities,
-        selectedSurfaces: options.selectedSurfaces,
-      })?.declarations ?? [],
+      declarations: contribution?.declarations ?? [],
+    });
+    installedDeclarations = appendDeclarationPolicy({
+      bundledLibraries,
+      diagnostics,
+      installedDeclarations,
+      ownerId: provider.id,
+      policy: contribution?.declarationPolicy,
     });
   }
   for (const capability of options.selectedCapabilities) {
+    const contribution = capability.sourceProfileContributions?.({
+      project: options.project,
+      target: options.target,
+      targetPack: options.targetPack,
+      selectedCapabilities: options.selectedCapabilities,
+      selectedSurfaces: options.selectedSurfaces,
+      capability,
+    });
     appendDeclarations({
       files,
       diagnostics,
@@ -63,17 +83,25 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
       projectRoot: options.projectRoot,
       ownerId: capability.id,
       source: capability.id,
-      declarations: capability.sourceProfileContributions?.({
-        project: options.project,
-        target: options.target,
-        targetPack: options.targetPack,
-        selectedCapabilities: options.selectedCapabilities,
-        selectedSurfaces: options.selectedSurfaces,
-        capability,
-      })?.declarations ?? [],
+      declarations: contribution?.declarations ?? [],
+    });
+    installedDeclarations = appendDeclarationPolicy({
+      bundledLibraries,
+      diagnostics,
+      installedDeclarations,
+      ownerId: capability.id,
+      policy: contribution?.declarationPolicy,
     });
   }
   for (const surface of options.selectedSurfaces) {
+    const contribution = surface.sourceProfileContributions?.({
+      project: options.project,
+      target: options.target,
+      targetPack: options.targetPack,
+      selectedCapabilities: options.selectedCapabilities,
+      selectedSurfaces: options.selectedSurfaces,
+      surface,
+    });
     appendDeclarations({
       files,
       diagnostics,
@@ -81,17 +109,60 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
       projectRoot: options.projectRoot,
       ownerId: surface.id,
       source: `${options.targetPack.id}:${surface.id}`,
-      declarations: surface.sourceProfileContributions?.({
-        project: options.project,
-        target: options.target,
-        targetPack: options.targetPack,
-        selectedCapabilities: options.selectedCapabilities,
-        selectedSurfaces: options.selectedSurfaces,
-        surface,
-      })?.declarations ?? [],
+      declarations: contribution?.declarations ?? [],
+    });
+    installedDeclarations = appendDeclarationPolicy({
+      bundledLibraries,
+      diagnostics,
+      installedDeclarations,
+      ownerId: `${options.targetPack.id}:${surface.id}`,
+      policy: contribution?.declarationPolicy,
     });
   }
-  return { files, diagnostics };
+  return {
+    files,
+    declarationPolicy: {
+      ...(bundledLibraries.size === 0 ? {} : { bundledLibraries: [...bundledLibraries].sort() }),
+      ...(installedDeclarations === undefined ? {} : { installedDeclarations }),
+    },
+    diagnostics,
+  };
+}
+
+function appendDeclarationPolicy(options: {
+  readonly bundledLibraries: Set<string>;
+  readonly diagnostics: TargetDiagnostic[];
+  readonly installedDeclarations: TargetSourceDeclarationPolicy["installedDeclarations"];
+  readonly ownerId: string;
+  readonly policy: TargetSourceDeclarationPolicy | undefined;
+}): TargetSourceDeclarationPolicy["installedDeclarations"] {
+  const policy = options.policy;
+  if (policy === undefined) {
+    return options.installedDeclarations;
+  }
+  if (policy.installedDeclarations !== undefined && policy.installedDeclarations !== "package-contract") {
+    options.diagnostics.push({
+      code: "TARGET_SOURCE_PROFILE",
+      category: "error",
+      message: `Source declaration policy from '${options.ownerId}' has unsupported installedDeclarations value '${String(policy.installedDeclarations)}'.`,
+      source: options.ownerId,
+    });
+  }
+  for (const library of policy.bundledLibraries ?? []) {
+    if (typeof library !== "string" || !/^lib(?:\.[a-z0-9-]+)*\.d\.ts$/u.test(library)) {
+      options.diagnostics.push({
+        code: "TARGET_SOURCE_PROFILE",
+        category: "error",
+        message: `Bundled source declaration '${String(library)}' from '${options.ownerId}' must be a canonical lib.*.d.ts file name.`,
+        source: options.ownerId,
+      });
+      continue;
+    }
+    options.bundledLibraries.add(library);
+  }
+  return policy.installedDeclarations === "package-contract"
+    ? "package-contract"
+    : options.installedDeclarations;
 }
 
 function appendDeclarations(options: {
