@@ -1,13 +1,4 @@
-import {
-  TstsSourceProviderContractVersion,
-} from "@tsonic/tsts";
 import type {
-  ExtensionDiagnostic,
-  ProviderDeclarationModel,
-  ProviderIdentity,
-  ProviderModuleContext,
-  ProviderModuleResolution,
-  ProviderOwnership,
   SourceDeclarationProvider,
 } from "@tsonic/tsts";
 import {
@@ -22,75 +13,38 @@ import {
 import {
   tsonicCoreSourceSemanticsModules,
 } from "./source-modules.js";
+import {
+  createSourceSemanticsVirtualModuleProvider,
+} from "./semantics-virtual-modules.js";
 
 export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvider {
-  const modules = new Map(tsonicCoreSourceSemanticsModules().map((module) => [module.moduleSpecifier, module]));
-  const identity: ProviderIdentity = {
+  return createSourceSemanticsVirtualModuleProvider({
     id: tsonicCoreVirtualModulesProviderId,
     version: tsonicCoreProviderVersion,
-    extensionContractVersion: TstsSourceProviderContractVersion,
     displayName: "Tsonic source-core virtual modules",
-  };
-  return {
-    identity,
-    declarationMaterialization: "complete",
-    ownsModule(specifier: string, _context: ProviderModuleContext): ProviderOwnership {
-      return modules.has(specifier) ? { kind: "owned" } : { kind: "unowned" };
+    virtualDirectory: "tsonic-source-core",
+    modules: tsonicCoreSourceSemanticsModules(),
+    importsForModule(module) {
+      return module.moduleSpecifier === tsonicCoreLangModule
+        ? [{
+            moduleSpecifier: tsonicCoreTypesModule,
+            namedImports: [{ exportedName: "Pointer", kind: "type" }],
+            typeOnly: true,
+          }]
+        : [];
     },
-    resolveModule(specifier: string, _context: ProviderModuleContext): ProviderModuleResolution | ExtensionDiagnostic {
-      const module = modules.get(specifier);
-      if (module === undefined) {
-        return sourceCoreDiagnostic(identity.id, "TSONIC_SOURCE_CORE_MODULE_UNOWNED", 9200001, `Tsonic source-core provider does not own '${specifier}'.`);
-      }
-      return {
-        kind: "virtual",
-        moduleSpecifier: specifier,
-        virtualFileName: sourceCoreVirtualDeclarationFileName(specifier),
-        providerModuleId: specifier,
-        ...(module.packageName !== undefined ? { packageName: module.packageName } : {}),
-        ...(module.packageVersion !== undefined ? { packageVersion: module.packageVersion } : {}),
-        evidence: [{ message: "Tsonic source-core supplies target-neutral source module as provider virtual module." }],
-      };
+    exportsForModule: providerExportDeclarationsForSourceModule,
+    evidenceMessage:
+      "Tsonic source-core supplies target-neutral source semantics as a complete virtual module.",
+    diagnostics: {
+      unowned: {
+        extensionCode: "TSONIC_SOURCE_CORE_MODULE_UNOWNED",
+        numericCode: 9200001,
+      },
+      declarationMissing: {
+        extensionCode: "TSONIC_SOURCE_CORE_DECLARATION_MISSING",
+        numericCode: 9200002,
+      },
     },
-    getDeclarationModel(resolution: ProviderModuleResolution): ProviderDeclarationModel | ExtensionDiagnostic {
-      const module = modules.get(resolution.moduleSpecifier);
-      if (module === undefined) {
-        return sourceCoreDiagnostic(identity.id, "TSONIC_SOURCE_CORE_DECLARATION_MISSING", 9200002, `No Tsonic source-core declaration model exists for '${resolution.moduleSpecifier}'.`);
-      }
-      return {
-        moduleSpecifier: resolution.moduleSpecifier,
-        providerModuleId: resolution.providerModuleId,
-        ...(resolution.moduleSpecifier === tsonicCoreLangModule
-          ? {
-              imports: [{
-                moduleSpecifier: tsonicCoreTypesModule,
-                namedImports: [{ exportedName: "Pointer", kind: "type" as const }],
-                typeOnly: true,
-              }],
-            }
-          : {}),
-        exports: providerExportDeclarationsForSourceModule(module),
-        evidence: [{ message: "Declaration model is generated from target-neutral Tsonic source semantics." }],
-      };
-    },
-  };
-}
-
-function sourceCoreVirtualDeclarationFileName(specifier: string): string {
-  return `tsts-provider://tsonic-source-core/${encodeURIComponent(specifier)}.d.ts`;
-}
-
-function sourceCoreDiagnostic(
-  extensionId: string,
-  code: string,
-  numericCode: number,
-  message: string,
-): ExtensionDiagnostic {
-  return {
-    extensionId,
-    extensionCode: code,
-    numericCode,
-    category: "error",
-    message,
-  };
+  });
 }

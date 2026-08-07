@@ -45,8 +45,14 @@ export const tsonicSourceMarkerSignatureIds = Object.freeze({
 export function providerExportDeclarationsForSourceModule(sourceModule: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
   return [
     ...sourceSemanticsHelperDeclarations(sourceModule.moduleSpecifier),
-    ...sourceModule.exports.map(providerExportDeclarationForSourceSemantics),
+    ...providerExportDeclarationsForSemanticsModule(sourceModule),
   ];
+}
+
+export function providerExportDeclarationsForSemanticsModule(
+  sourceModule: SourceSemanticsModule,
+): readonly ProviderExportDeclaration[] {
+  return sourceModule.exports.map(providerExportDeclarationForSourceSemantics);
 }
 
 function sourceSemanticsHelperDeclarations(moduleSpecifier: string): readonly ProviderExportDeclaration[] {

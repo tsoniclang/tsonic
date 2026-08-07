@@ -20,6 +20,7 @@ export {
   attributeBuilderDeclaration,
   attributeMemberBuilderDeclaration,
   providerCallMarkerDeclaration,
+  providerExportDeclarationsForSemanticsModule,
   providerExportDeclarationsForSourceModule,
   providerPrimitiveDeclaration,
   providerTypeMarkerDeclaration,
@@ -27,6 +28,13 @@ export {
   tsonicAttributeBuilderSignatureIds,
   tsonicSourceMarkerSignatureIds,
 } from "./provider-declarations.js";
+export {
+  createSourceSemanticsVirtualModuleProvider,
+} from "./semantics-virtual-modules.js";
+export type {
+  SourceSemanticsProviderDiagnosticIdentity,
+  SourceSemanticsVirtualModuleProviderOptions,
+} from "./semantics-virtual-modules.js";
 export { createTsonicCoreSourceExtension } from "./source-extension.js";
 export { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
 export { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
