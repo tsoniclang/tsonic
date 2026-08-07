@@ -78,6 +78,7 @@ const expectedSourceCoreLangIntrinsics = [
   { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
   { kind: "call-marker", exportName: "loadPointer", marker: "load" },
   { kind: "call-marker", exportName: "storePointer", marker: "store" },
+  { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
 ] as const;
 
 const expectedSourceCoreTypeMarkers = [
@@ -1035,20 +1036,24 @@ test("source-core records FunctionPointer tuple and scalar parameter facts", () 
 
 test("source-core exposes exact typed pointer operation facts without spelling inference", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { addressOf as takeAddress, allocatePointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
+    import { addressOf as takeAddress, allocatePointer, equalPointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
     import type { int32 } from "@tsonic/core/types.js";
-    import { loadPointer as localLoadPointer } from "./local.js";
+    import { equalPointer as localEqualPointer, loadPointer as localLoadPointer } from "./local.js";
 
     let value: int32 = 1;
     const borrowed = takeAddress(value);
     const owned = allocatePointer<int32>(value);
     const first = loadPointer(borrowed);
     storePointer(owned, first);
+    const equal = equalPointer(borrowed, borrowed);
+    const nilEqual = equalPointer<int32>(undefined, undefined);
     const second = lang.loadPointer(owned);
     localLoadPointer(owned);
+    localEqualPointer(owned, owned);
   `, {
-    "/src/local.ts": "export function loadPointer<T>(pointer: T): T { return pointer; }",
+    "/src/local.ts": `export function loadPointer<T>(pointer: T): T { return pointer; }
+export function equalPointer<T>(left: T, right: T): boolean { return left === right; }`,
   });
 
   const address = getSourceFact(session, callExpression(session, sourceFile, "takeAddress"), pointerOperationFactKey);
@@ -1069,8 +1074,14 @@ test("source-core exposes exact typed pointer operation facts without spelling i
   assert.equal(store?.operation === "store" ? sourceAst(session).text(store.pointerExpression) : undefined, "owned");
   assert.equal(store?.operation === "store" ? sourceAst(session).text(store.valueExpression) : undefined, "first");
 
+  const equal = getSourceFact(session, callExpression(session, sourceFile, "equalPointer"), pointerOperationFactKey);
+  assert.equal(equal?.operation, "equal-pointer");
+  const nilEqual = getSourceFact(session, callExpression(session, sourceFile, "equalPointer", 1), pointerOperationFactKey);
+  assert.equal(nilEqual?.operation, "equal-pointer");
+
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.loadPointer"), pointerOperationFactKey)?.operation, "load");
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localLoadPointer"), pointerOperationFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localEqualPointer"), pointerOperationFactKey), undefined);
 });
 
 test("source-core does not attach type marker facts to shadowed generic type names", () => {

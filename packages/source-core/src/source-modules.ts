@@ -50,6 +50,7 @@ const callMarkerDeclarations = [
   { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
   { kind: "call-marker", exportName: "loadPointer", marker: "load" },
   { kind: "call-marker", exportName: "storePointer", marker: "store" },
+  { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
 ] satisfies SourceSemanticsModule["exports"];
 
 export function tsonicCoreSourceSemanticsModules(): readonly SourceSemanticsModule[] {

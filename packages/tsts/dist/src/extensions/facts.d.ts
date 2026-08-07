@@ -65,6 +65,12 @@ export type PointerOperationFact = PointerOperationFactBase & ({
     readonly pointerType: Type;
     readonly valueExpression: Node;
     readonly valueType: Type;
+} | {
+    readonly operation: "equal-pointer";
+    readonly leftExpression: Node;
+    readonly leftType: Type;
+    readonly rightExpression: Node;
+    readonly rightType: Type;
 });
 export interface StructFact {
     readonly valueType: boolean;

@@ -40,6 +40,7 @@ export const tsonicSourceMarkerSignatureIds = Object.freeze({
   allocatePointer: "allocatePointer<T>(initial)",
   loadPointer: "loadPointer<T>(pointer)",
   storePointer: "storePointer<T>(pointer,value)",
+  equalPointer: "equalPointer<T>(left,right)",
 });
 
 export function providerExportDeclarationsForSourceModule(sourceModule: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
@@ -137,6 +138,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
     case "allocate":
     case "load":
     case "store":
+    case "equal-pointer":
       return pointerOperationDeclaration(exportName, marker, typeParameter);
     case "attribute":
       return {
@@ -160,7 +162,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
 
 function pointerOperationDeclaration(
   exportName: string,
-  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store">,
+  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store" | "equal-pointer">,
   pointee: ProviderTypeExpression,
 ): ProviderExportDeclaration {
   const pointer: ProviderTypeExpression = {
@@ -168,6 +170,10 @@ function pointerOperationDeclaration(
     moduleSpecifier: tsonicCoreTypesModule,
     exportName: "Pointer",
     typeArguments: [pointee],
+  };
+  const optionalPointer: ProviderTypeExpression = {
+    kind: "union",
+    types: [pointer, { kind: "undefined" }],
   };
   const signature = (() => {
     switch (marker) {
@@ -197,6 +203,15 @@ function pointerOperationDeclaration(
             { name: "value", type: pointee },
           ],
           returnType: { kind: "void" as const },
+        };
+      case "equal-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.equalPointer,
+          parameters: [
+            { name: "left", type: optionalPointer },
+            { name: "right", type: optionalPointer },
+          ],
+          returnType: { kind: "boolean" as const },
         };
     }
   })();

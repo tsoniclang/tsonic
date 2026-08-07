@@ -240,6 +240,7 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
         case "allocate":
         case "load":
         case "store":
+        case "equal-pointer":
             recordPointerOperation(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, evidence);
             return;
     }
@@ -364,6 +365,26 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 pointerType: pointer.type,
                 valueExpression: value.expression,
                 valueType: value.type,
+            };
+            facts.set(callExpression, pointerOperationFactKey, fact, evidence);
+            return;
+        }
+        case "equal-pointer": {
+            const left = exactSourceCallArgument(callInfo, 0, 2);
+            const right = exactSourceCallArgument(callInfo, 1, 2);
+            if (left === undefined || right === undefined) {
+                return;
+            }
+            const fact = {
+                operation: "equal-pointer",
+                call: callExpression,
+                pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: callInfo.sourceResultType,
+                leftExpression: left.expression,
+                leftType: left.type,
+                rightExpression: right.expression,
+                rightType: right.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;

@@ -281,6 +281,27 @@ function snapshotPointerOperationFact(value) {
                 valueType: requiredCompilerType(record, "valueType", "PointerOperationFact"),
             });
         }
+        case "equal-pointer": {
+            const record = exactRecord(value, "PointerOperationFact", [
+                ...commonFields,
+                "leftExpression",
+                "leftType",
+                "rightExpression",
+                "rightType",
+            ]);
+            const explicitPointeeTypeNode = optionalNode(record, "explicitPointeeTypeNode", "PointerOperationFact");
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "PointerOperationFact"),
+                pointeeType: requiredCompilerType(record, "pointeeType", "PointerOperationFact"),
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: requiredCompilerType(record, "resultType", "PointerOperationFact"),
+                leftExpression: requiredNode(record, "leftExpression", "PointerOperationFact"),
+                leftType: requiredCompilerType(record, "leftType", "PointerOperationFact"),
+                rightExpression: requiredNode(record, "rightExpression", "PointerOperationFact"),
+                rightType: requiredCompilerType(record, "rightType", "PointerOperationFact"),
+            });
+        }
     }
 }
 function snapshotStructFact(value) {
@@ -489,6 +510,12 @@ function pointerOperationFactEquals(left, right) {
                 && left.pointerType === right.pointerType
                 && left.valueExpression === right.valueExpression
                 && left.valueType === right.valueType;
+        case "equal-pointer":
+            return right.operation === "equal-pointer"
+                && left.leftExpression === right.leftExpression
+                && left.leftType === right.leftType
+                && left.rightExpression === right.rightExpression
+                && left.rightType === right.rightType;
     }
 }
 function optionalFieldArrayEquals(left, right) {
@@ -622,7 +649,8 @@ function requiredPointerOperation(value) {
     if (operation !== "address-of"
         && operation !== "allocate"
         && operation !== "load"
-        && operation !== "store") {
+        && operation !== "store"
+        && operation !== "equal-pointer") {
         throw new Error(`PointerOperationFact.operation '${String(operation)}' is invalid.`);
     }
     return operation;
