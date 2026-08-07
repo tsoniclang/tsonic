@@ -14,6 +14,14 @@ export type ResolvedSourceCallInfo = ResolvedCallEvidence;
 export type ResolvedSourcePropertyAccessInfo = CheckerResolvedSourcePropertyAccessInfo;
 export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo;
 export type ResolvedSourceIterationInfo = ExtensionCheckedIterationSelection;
+export interface ResolvedSourceStorageInfo {
+    readonly expression: Node;
+    readonly storageExpression: Node;
+    readonly type: Type;
+    readonly symbol?: Symbol;
+    readonly declaration?: Node;
+    readonly writable: boolean;
+}
 export interface TypeCheckerQueries {
     readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
@@ -30,6 +38,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedPropertyAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourcePropertyAccessInfo>;
     readonly getResolvedElementAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceElementAccessInfo>;
     readonly getResolvedIterationInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIterationInfo>;
+    readonly getResolvedStorageInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceStorageInfo>;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
     readonly getCallSignaturesOfType: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignaturesOfType: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];

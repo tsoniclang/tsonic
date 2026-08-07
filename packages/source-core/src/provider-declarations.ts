@@ -7,6 +7,10 @@ import type {
   SourceSemanticsModule,
   SourceTypeMarkerKind,
 } from "@tsonic/tsts";
+import {
+  tsonicCoreLangModule,
+  tsonicCoreTypesModule,
+} from "./identity.js";
 
 export const tsonicAttributeBuilderMemberIds = Object.freeze({
   add: "__TsonicAttributeBuilder.add",
@@ -31,11 +35,12 @@ export const tsonicAttributeBuilderSignatureIds = Object.freeze({
 
 export const tsonicSourceMarkerSignatureIds = Object.freeze({
   field: "field<T>()",
-  defaultof: "defaultof<T>()",
+  defaultValue: "defaultValue<T>()",
+  addressOf: "addressOf<T>(storage)",
+  allocatePointer: "allocatePointer<T>(initial)",
+  loadPointer: "loadPointer<T>(pointer)",
+  storePointer: "storePointer<T>(pointer,value)",
 });
-import {
-  tsonicCoreLangModule,
-} from "./identity.js";
 
 export function providerExportDeclarationsForSourceModule(sourceModule: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
   return [
@@ -65,26 +70,35 @@ function providerExportDeclarationForSourceSemantics(declaration: SourceSemantic
 }
 
 export function providerTypeMarkerDeclaration(exportName: string, marker: SourceTypeMarkerKind): ProviderExportDeclaration {
-  const typeParameters = marker === "ptr"
-    ? [{ name: "T" }]
-    : [{ name: "TArgs" }, { name: "TReturn" }];
+  if (marker === "pointer") {
+    const pointee = { kind: "type-parameter" as const, name: "T" };
+    return {
+      id: exportName,
+      name: exportName,
+      kind: "interface",
+      typeParameters: [{ name: "T" }],
+      members: [sourceTypeBrandMember(exportName, pointee, pointee)],
+    };
+  }
+  const argumentsType = { kind: "type-parameter" as const, name: "TArgs" };
+  const resultType = { kind: "type-parameter" as const, name: "TReturn" };
   return {
     id: exportName,
     name: exportName,
-    kind: "type",
-    typeParameters,
-    type: { kind: "unknown" },
+    kind: "interface",
+    typeParameters: [{ name: "TArgs" }, { name: "TReturn" }],
+    members: [sourceTypeBrandMember(exportName, argumentsType, resultType)],
   };
 }
 
 export function providerCallMarkerDeclaration(exportName: string, marker: SourceCallMarkerKind): ProviderExportDeclaration {
   const typeParameter = { kind: "type-parameter" as const, name: "T" };
   switch (marker) {
-    case "out":
-    case "ref":
-    case "inref":
-    case "borrow":
-    case "borrowMut":
+    case "write-only-reference":
+    case "read-write-reference":
+    case "read-only-reference":
+    case "shared-borrow":
+    case "mutable-borrow":
     case "move":
     case "struct":
       return {
@@ -99,18 +113,25 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
         }],
       };
     case "field":
-    case "defaultof":
+    case "default-value":
       return {
         id: exportName,
         name: exportName,
         kind: "function",
         signatures: [{
-          id: tsonicSourceMarkerSignatureIds[marker],
+          id: marker === "field"
+            ? tsonicSourceMarkerSignatureIds.field
+            : tsonicSourceMarkerSignatureIds.defaultValue,
           typeParameters: [{ name: "T" }],
           parameters: [],
           returnType: typeParameter,
         }],
       };
+    case "address-of":
+    case "allocate":
+    case "load":
+    case "store":
+      return pointerOperationDeclaration(exportName, marker, typeParameter);
     case "attribute":
       return {
         id: exportName,
@@ -129,6 +150,79 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
         }],
       };
   }
+}
+
+function pointerOperationDeclaration(
+  exportName: string,
+  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store">,
+  pointee: ProviderTypeExpression,
+): ProviderExportDeclaration {
+  const pointer: ProviderTypeExpression = {
+    kind: "provider-ref",
+    moduleSpecifier: tsonicCoreTypesModule,
+    exportName: "Pointer",
+    typeArguments: [pointee],
+  };
+  const signature = (() => {
+    switch (marker) {
+      case "address-of":
+        return {
+          id: tsonicSourceMarkerSignatureIds.addressOf,
+          parameters: [{ name: "storage", type: pointee }],
+          returnType: pointer,
+        };
+      case "allocate":
+        return {
+          id: tsonicSourceMarkerSignatureIds.allocatePointer,
+          parameters: [{ name: "initial", type: pointee }],
+          returnType: pointer,
+        };
+      case "load":
+        return {
+          id: tsonicSourceMarkerSignatureIds.loadPointer,
+          parameters: [{ name: "pointer", type: pointer }],
+          returnType: pointee,
+        };
+      case "store":
+        return {
+          id: tsonicSourceMarkerSignatureIds.storePointer,
+          parameters: [
+            { name: "pointer", type: pointer },
+            { name: "value", type: pointee },
+          ],
+          returnType: { kind: "void" as const },
+        };
+    }
+  })();
+  return {
+    id: exportName,
+    name: exportName,
+    kind: "function",
+    signatures: [{
+      ...signature,
+      typeParameters: [{ name: "T" }],
+    }],
+  };
+}
+
+function sourceTypeBrandMember(
+  owner: string,
+  parameterType: ProviderTypeExpression,
+  returnType: ProviderTypeExpression,
+) {
+  const id = `${owner}.__tsonicSourceType`;
+  return {
+    id,
+    name: "__tsonicSourceType",
+    kind: "property" as const,
+    readonly: true,
+    type: {
+      kind: "function" as const,
+      id,
+      parameters: [{ name: "value", type: parameterType }],
+      returnType,
+    },
+  };
 }
 
 export function providerPrimitiveDeclaration(

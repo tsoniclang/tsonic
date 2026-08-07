@@ -12,6 +12,7 @@ import {
   formatDiagnostics,
   functionPointerFactKey,
   pointerFactKey,
+  pointerOperationFactKey,
   sourcePrimitiveFactKey,
   structFactKey,
 } from "@tsonic/tsts";
@@ -63,18 +64,25 @@ const expectedSourceCorePrimitiveFacts = [
 }[];
 
 const expectedSourceCoreLangIntrinsics = [
-  { kind: "call-marker", exportName: "out", marker: "out" },
-  { kind: "call-marker", exportName: "ref", marker: "ref" },
-  { kind: "call-marker", exportName: "inref", marker: "inref" },
-  { kind: "call-marker", exportName: "borrow", marker: "borrow" },
-  { kind: "call-marker", exportName: "borrowMut", marker: "borrowMut" },
+  { kind: "call-marker", exportName: "writeOnlyRef", marker: "write-only-reference" },
+  { kind: "call-marker", exportName: "readWriteRef", marker: "read-write-reference" },
+  { kind: "call-marker", exportName: "readOnlyRef", marker: "read-only-reference" },
+  { kind: "call-marker", exportName: "sharedBorrow", marker: "shared-borrow" },
+  { kind: "call-marker", exportName: "mutableBorrow", marker: "mutable-borrow" },
   { kind: "call-marker", exportName: "move", marker: "move" },
   { kind: "call-marker", exportName: "struct", marker: "struct" },
   { kind: "call-marker", exportName: "field", marker: "field" },
   { kind: "call-marker", exportName: "attribute", marker: "attribute" },
-  { kind: "call-marker", exportName: "defaultof", marker: "defaultof" },
-  { kind: "type-marker", exportName: "ptr", marker: "ptr" },
-  { kind: "type-marker", exportName: "fnptr", marker: "fnptr" },
+  { kind: "call-marker", exportName: "defaultValue", marker: "default-value" },
+  { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
+  { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
+  { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+  { kind: "call-marker", exportName: "storePointer", marker: "store" },
+] as const;
+
+const expectedSourceCoreTypeMarkers = [
+  { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
+  { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
 ] as const;
 
 test("source-core virtual module provider owns only neutral core modules", () => {
@@ -103,8 +111,9 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   }), tsonicCoreTypesModule);
   assert.deepEqual(typesDeclarationModel.exports.map((entry) => entry.name), [
     ...expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName),
+    ...expectedSourceCoreTypeMarkers.map((entry) => entry.exportName),
   ]);
-  assert.equal(typesDeclarationModel.exports.some((entry) => entry.name === "out"), false);
+  assert.equal(typesDeclarationModel.exports.some((entry) => entry.name === "writeOnlyRef"), false);
 
   const unownedResolution = provider.resolveModule("@tsonic/csharp/lang.js", {});
   assert.equal(assertExtensionDiagnostic(unownedResolution).extensionCode, "TSONIC_SOURCE_CORE_MODULE_UNOWNED");
@@ -178,11 +187,11 @@ test("source-core does not guess primitive facts from same-spelling local aliase
 
 test("source-core records direct provider-owned facts for every core lang intrinsic", () => {
   assert.deepEqual(sourceCoreLangExportFacts(), expectedSourceCoreLangIntrinsics);
+  assert.deepEqual(sourceCoreTypeMarkerExportFacts(), expectedSourceCoreTypeMarkers);
 
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { attribute, borrow, borrowMut, defaultof, field, inref, move, out, ref, struct } from "@tsonic/core/lang.js";
-    import type { fnptr, ptr } from "@tsonic/core/lang.js";
-    import type { bool, int32 } from "@tsonic/core/types.js";
+    import { attribute, sharedBorrow, mutableBorrow, defaultValue, field, readOnlyRef, move, writeOnlyRef, readWriteRef, struct } from "@tsonic/core/lang.js";
+    import type { bool, FunctionPointer, int32, Pointer } from "@tsonic/core/types.js";
 
     class RouteAttribute {}
     class User {
@@ -190,27 +199,27 @@ test("source-core records direct provider-owned facts for every core lang intrin
     }
 
     let value = 0;
-    out(value);
-    ref(value);
-    inref(value);
-    borrow(value);
-    borrowMut(value);
+    writeOnlyRef(value);
+    readWriteRef(value);
+    readOnlyRef(value);
+    sharedBorrow(value);
+    mutableBorrow(value);
     move(value);
-    const defaultValue = defaultof<int32>();
+    const zero = defaultValue<int32>();
     const Point = struct({ id: field<int32>() });
     attribute<User>().add(RouteAttribute);
-    type DirectPointer = ptr<int32>;
-    type DirectFunctionPointer = fnptr<[int32], bool>;
+    type DirectPointer = Pointer<int32>;
+    type DirectFunctionPointer = FunctionPointer<[int32], bool>;
   `);
 
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), "byref-writeonly-must-init");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), "byref-readwrite");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "inref")), "byref-readonly");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "borrow")), "borrowed-shared");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "borrowMut")), "borrowed-mut");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOnlyRef")), "byref-writeonly-must-init");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "readWriteRef")), "byref-readwrite");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "readOnlyRef")), "byref-readonly");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "sharedBorrow")), "borrowed-shared");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "mutableBorrow")), "borrowed-mut");
   assert.equal(flowState(session, callExpression(session, sourceFile, "move")), "moved");
 
-  const defaultFact = sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultof"));
+  const defaultFact = sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultValue"));
   assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "int32");
 
   const fieldFact = sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field"));
@@ -221,8 +230,7 @@ test("source-core records direct provider-owned facts for every core lang intrin
   assertAttributeApplication(session, propertyCallExpression(session, sourceFile, "add"), "User", "RouteAttribute", 0);
 
   const pointerFact = getSourceFact(session, typeAliasType(session, sourceFile, "DirectPointer"), pointerFactKey);
-  assert.equal(pointerFact?.mutability, "unspecified");
-  assert.equal(pointerFact?.unsafeRequired, true);
+  assert.equal(pointerFact?.mutability, "readwrite");
   assert.equal(typeReferenceName(session, nodeFactSubject(pointerFact?.pointee)), "int32");
 
   const functionPointerFact = getSourceFact(session, typeAliasType(session, sourceFile, "DirectFunctionPointer"), functionPointerFactKey);
@@ -233,9 +241,9 @@ test("source-core records direct provider-owned facts for every core lang intrin
 
 test("source-core records storage and flow marker facts from aliases and namespaces without guessing names", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { out as writeOut, ref as readWrite, inref as readOnly, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
+    import { writeOnlyRef as writeOut, readWriteRef as readWrite, readOnlyRef as readOnly, sharedBorrow as shared, mutableBorrow as mutable, move as moved } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
-    import { out as localOut, ref as localRef, inref as localInref, borrow as localBorrow, borrowMut as localBorrowMut, move as localMove } from "./local.js";
+    import { writeOnlyRef as localOut, readWriteRef as localRef, readOnlyRef as localInref, sharedBorrow as localBorrow, mutableBorrow as localBorrowMut, move as localMove } from "./local.js";
 
     let value = 0;
     let index = 0;
@@ -243,14 +251,14 @@ test("source-core records storage and flow marker facts from aliases and namespa
     writeOut(value);
     readWrite(box.field);
     readOnly(box.values[index]);
-    lang.out(box.field);
-    lang.ref(value);
-    lang.inref(box.values[0]);
+    lang.writeOnlyRef(box.field);
+    lang.readWriteRef(value);
+    lang.readOnlyRef(box.values[0]);
     shared(value);
     mutable(box.field);
     moved(box.values[index]);
-    lang.borrow(value);
-    lang.borrowMut(box.field);
+    lang.sharedBorrow(value);
+    lang.mutableBorrow(box.field);
     lang.move(box.values[index]);
     localOut(value);
     localRef(value);
@@ -258,10 +266,10 @@ test("source-core records storage and flow marker facts from aliases and namespa
     localBorrow(value);
     localBorrowMut(value);
     localMove(value);
-    function out(value: number): number {
+    function writeOnlyRef(value: number): number {
       return value;
     }
-    out(value);
+    writeOnlyRef(value);
     function shadow(
       writeOut: (value: number) => number,
       readWrite: (value: number) => number,
@@ -270,34 +278,34 @@ test("source-core records storage and flow marker facts from aliases and namespa
       mutable: (value: number) => number,
       moved: (value: number) => number,
       lang: {
-        out(value: number): number;
-        ref(value: number): number;
-        inref(value: number): number;
-        borrow(value: number): number;
-        borrowMut(value: number): number;
+        writeOnlyRef(value: number): number;
+        readWriteRef(value: number): number;
+        readOnlyRef(value: number): number;
+        sharedBorrow(value: number): number;
+        mutableBorrow(value: number): number;
         move(value: number): number;
       },
     ) {
       writeOut(value);
       readWrite(value);
       readOnly(value);
-      lang.out(value);
-      lang.ref(value);
-      lang.inref(value);
+      lang.writeOnlyRef(value);
+      lang.readWriteRef(value);
+      lang.readOnlyRef(value);
       shared(value);
       mutable(value);
       moved(value);
-      lang.borrow(value);
-      lang.borrowMut(value);
+      lang.sharedBorrow(value);
+      lang.mutableBorrow(value);
       lang.move(value);
     }
   `, {
     "/src/local.ts": [
-      "export function out<T>(value: T): T { return value; }",
-      "export function ref<T>(value: T): T { return value; }",
-      "export function inref<T>(value: T): T { return value; }",
-      "export function borrow<T>(value: T): T { return value; }",
-      "export function borrowMut<T>(value: T): T { return value; }",
+      "export function writeOnlyRef<T>(value: T): T { return value; }",
+      "export function readWriteRef<T>(value: T): T { return value; }",
+      "export function readOnlyRef<T>(value: T): T { return value; }",
+      "export function sharedBorrow<T>(value: T): T { return value; }",
+      "export function mutableBorrow<T>(value: T): T { return value; }",
       "export function move<T>(value: T): T { return value; }",
     ].join("\n"),
   });
@@ -305,9 +313,9 @@ test("source-core records storage and flow marker facts from aliases and namespa
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOut", 0)), "byref-writeonly-must-init");
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "readWrite")), "byref-readwrite");
   assert.equal(argumentMode(session, callExpression(session, sourceFile, "readOnly")), "byref-readonly");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.out", 0)), "byref-writeonly-must-init");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.ref")), "byref-readwrite");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.inref")), "byref-readonly");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.writeOnlyRef", 0)), "byref-writeonly-must-init");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.readWriteRef")), "byref-readwrite");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "lang.readOnlyRef")), "byref-readonly");
 
   const sharedCall = callExpression(session, sourceFile, "shared", 0);
   assert.equal(flowState(session, sharedCall), "borrowed-shared");
@@ -318,10 +326,10 @@ test("source-core records storage and flow marker facts from aliases and namespa
   const movedCall = callExpression(session, sourceFile, "moved");
   assert.equal(flowState(session, movedCall), "moved");
   assert.equal(flowState(session, firstCallArgument(session, movedCall)), "moved");
-  const namespaceBorrowCall = callExpression(session, sourceFile, "lang.borrow", 0);
+  const namespaceBorrowCall = callExpression(session, sourceFile, "lang.sharedBorrow", 0);
   assert.equal(flowState(session, namespaceBorrowCall), "borrowed-shared");
   assert.equal(flowState(session, firstCallArgument(session, namespaceBorrowCall)), "borrowed-shared");
-  const namespaceBorrowMutCall = callExpression(session, sourceFile, "lang.borrowMut", 0);
+  const namespaceBorrowMutCall = callExpression(session, sourceFile, "lang.mutableBorrow", 0);
   assert.equal(flowState(session, namespaceBorrowMutCall), "borrowed-mut");
   assert.equal(flowState(session, firstCallArgument(session, namespaceBorrowMutCall)), "borrowed-mut");
   const namespaceMoveCall = callExpression(session, sourceFile, "lang.move", 0);
@@ -334,44 +342,44 @@ test("source-core records storage and flow marker facts from aliases and namespa
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBorrow"), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBorrowMut"), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localMove"), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "out"), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "writeOnlyRef"), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "writeOut", 1), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "readWrite", 1), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "readOnly", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.writeOnlyRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.readWriteRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.readOnlyRef", 1), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.sharedBorrow", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.mutableBorrow", 1), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
 
-  assert.equal(sourceCoreFacts(session).getArgumentPassingFact(callExpression(session, sourceFile, "lang.out", 0))?.mode, "byref-writeonly-must-init");
+  assert.equal(sourceCoreFacts(session).getArgumentPassingFact(callExpression(session, sourceFile, "lang.writeOnlyRef", 0))?.mode, "byref-writeonly-must-init");
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move"), flowStateFactKey)?.state, "moved");
 });
 
 test("source-core keeps flow marker facts on exact call and argument subjects", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { borrow, borrowMut, move } from "@tsonic/core/lang.js";
+    import { sharedBorrow, mutableBorrow, move } from "@tsonic/core/lang.js";
 
     let source = { field: 1 };
     let unrelated = { field: 2 };
-    const borrowed = borrow(source);
-    const mutable = borrowMut(source.field);
+    const borrowed = sharedBorrow(source);
+    const mutable = mutableBorrow(source.field);
     const movedValue = move(source);
     const laterSource = source;
     const laterField = source.field;
     const laterUnrelated = unrelated;
   `);
 
-  const borrowCall = callExpression(session, sourceFile, "borrow");
+  const borrowCall = callExpression(session, sourceFile, "sharedBorrow");
   assert.equal(flowState(session, borrowCall), "borrowed-shared");
   assert.equal(flowState(session, firstCallArgument(session, borrowCall)), "borrowed-shared");
   assert.equal(flowState(session, variableDeclaration(session, sourceFile, "borrowed")), undefined);
 
-  const borrowMutCall = callExpression(session, sourceFile, "borrowMut");
+  const borrowMutCall = callExpression(session, sourceFile, "mutableBorrow");
   assert.equal(flowState(session, borrowMutCall), "borrowed-mut");
   assert.equal(flowState(session, firstCallArgument(session, borrowMutCall)), "borrowed-mut");
   assert.equal(flowState(session, variableDeclaration(session, sourceFile, "mutable")), undefined);
@@ -407,12 +415,12 @@ test("source-core handles source primitive array destructured parameters", () =>
 
 test("source-core reports non-storage diagnostics for byref markers", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { out, ref, inref } from "@tsonic/core/lang.js";
+    import { writeOnlyRef, readWriteRef, readOnlyRef } from "@tsonic/core/lang.js";
 
     let value = 1;
-    out(value + 1);
-    ref(value + 1);
-    inref(value + 1);
+    writeOnlyRef(value + 1);
+    readWriteRef(value + 1);
+    readOnlyRef(value + 1);
   `);
 
   const checked = checkSource(session);
@@ -429,7 +437,7 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
     9901101,
   ]);
 
-  for (const calleeText of ["out", "ref", "inref"]) {
+  for (const calleeText of ["writeOnlyRef", "readWriteRef", "readOnlyRef"]) {
     const call = callExpression(session, sourceFile, calleeText);
     assert.notEqual(getSourceFact(session, call, argumentPassingFactKey), undefined);
     assert.equal(getSourceFact(session, firstCallArgument(session, call), argumentPassingFactKey), undefined);
@@ -438,7 +446,7 @@ test("source-core reports non-storage diagnostics for byref markers", () => {
 
 test("source-core records abstract struct, field, attribute, and default facts", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { attribute, defaultof, field, struct } from "@tsonic/core/lang.js";
+    import { attribute, defaultValue, field, struct } from "@tsonic/core/lang.js";
     import type { bool, char, int32 } from "@tsonic/core/types.js";
     import { field as localField } from "./local.js";
 
@@ -447,7 +455,7 @@ test("source-core records abstract struct, field, attribute, and default facts",
       name = "";
     }
 
-    const defaultChar = defaultof<char>();
+    const defaultChar = defaultValue<char>();
     const Point = struct({ x: field<int32>(), ok: field<bool>() });
     const ignored = localField<int32>();
     attribute<User>().add(RouteAttribute, "user");
@@ -455,7 +463,7 @@ test("source-core records abstract struct, field, attribute, and default facts",
     "/src/local.ts": "export function field<T>(): T { throw new Error('local field'); }",
   });
 
-  const defaultCall = callExpression(session, sourceFile, "defaultof");
+  const defaultCall = callExpression(session, sourceFile, "defaultValue");
   const defaultFact = sourceCoreFacts(session).getDefaultValueFact(defaultCall);
   assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "char");
 
@@ -492,19 +500,19 @@ test("source-core records structural, attribute, and default facts from core nam
       struct<T>(shape: T): T { return shape; },
       field<T>(): T { throw new Error("local field"); },
       attribute<T>() { return { add(_attribute: object): void {} }; },
-      defaultof<T>(): T { throw new Error("local default"); },
+      defaultValue<T>(): T { throw new Error("local default"); },
     };
 
-    const defaultBool = lang.defaultof<bool>();
+    const defaultBool = lang.defaultValue<bool>();
     const Point = lang.struct({ id: lang.field<int32>() });
     const skipped = local.field<int32>();
     lang.attribute<User>().add(RouteAttribute);
-    const fakeDefault = local.defaultof<bool>();
+    const fakeDefault = local.defaultValue<bool>();
     const Fake = local.struct({ id: local.field<int32>() });
     local.attribute<User>().add(RouteAttribute);
   `);
 
-  const defaultCall = callExpression(session, sourceFile, "lang.defaultof");
+  const defaultCall = callExpression(session, sourceFile, "lang.defaultValue");
   const defaultFact = sourceCoreFacts(session).getDefaultValueFact(defaultCall);
   assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "bool");
 
@@ -516,15 +524,15 @@ test("source-core records structural, attribute, and default facts from core nam
   assert.deepEqual(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "lang.struct"))?.fields?.map((field) => field.name), ["id"]);
   assertAttributeApplication(session, propertyCallExpression(session, sourceFile, "add", 0), "User", "RouteAttribute", 0);
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "local.field", 0)), undefined);
-  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "local.defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "local.defaultValue")), undefined);
   assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "local.struct")), undefined);
   assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add", 1), tsonicAttributeBuilderFactKey), undefined);
 });
 
 test("source-core records structural, attribute, and default facts from aliases without guessing names", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { attribute as coreAttribute, defaultof as coreDefaultof, field as coreField, struct as coreStruct } from "@tsonic/core/lang.js";
-    import { attribute as localAttribute, defaultof as localDefaultof, field as localField, struct as localStruct } from "./local.js";
+    import { attribute as coreAttribute, defaultValue as coreDefaultof, field as coreField, struct as coreStruct } from "@tsonic/core/lang.js";
+    import { attribute as localAttribute, defaultValue as localDefaultof, field as localField, struct as localStruct } from "./local.js";
     import type { bool, int32 } from "@tsonic/core/types.js";
 
     class RouteAttribute {}
@@ -555,7 +563,7 @@ test("source-core records structural, attribute, and default facts from aliases 
       "export function struct<T>(shape: T): T { return shape; }",
       "export function field<T>(): T { throw new Error('local field'); }",
       "export function attribute<T>(): { add(attribute: object): void } { return { add(_attribute: object): void {} }; }",
-      "export function defaultof<T>(): T { throw new Error('local default'); }",
+      "export function defaultValue<T>(): T { throw new Error('local default'); }",
     ].join("\n"),
   });
 
@@ -578,10 +586,10 @@ test("source-core records structural, attribute, and default facts from aliases 
   assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add", 2), tsonicAttributeBuilderFactKey), undefined);
 });
 
-test("source-core rejects unsupported local barrel re-exports without attaching intrinsic facts", () => {
-  const { session, sourceFile } = createSourceCoreSession(`
-    import { out, ref, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from "./barrel.js";
-    import type { ptr, fnptr } from "./barrel.js";
+test("source-core rejects every unsupported local barrel re-export deterministically", () => {
+  const { session } = createSourceCoreSession(`
+    import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue } from "./barrel.js";
+    import type { Pointer as CorePointer, FunctionPointer as CoreFunctionPointer } from "./barrel.js";
     import type { bool, int32 } from "@tsonic/core/types.js";
 
     class RouteAttribute {}
@@ -590,76 +598,66 @@ test("source-core rejects unsupported local barrel re-exports without attaching 
     }
 
     let value = 0;
-    out(value);
-    ref(value);
-    inref(value);
-    borrow(value);
-    borrowMut(value);
+    writeOnlyRef(value);
+    readWriteRef(value);
+    readOnlyRef(value);
+    sharedBorrow(value);
+    mutableBorrow(value);
     move(value);
-    const defaultValue = defaultof<int32>();
+    const zero = defaultValue<int32>();
     const Point = struct({ id: field<int32>() });
     attribute<User>().add(RouteAttribute);
-    type Pointer = ptr<int32>;
-    type FunctionPointer = fnptr<[int32], bool>;
+    type ValuePointer = CorePointer<int32>;
+    type ValueFunctionPointer = CoreFunctionPointer<[int32], bool>;
   `, {
     "/src/barrel.ts": [
-      "export { out, ref, inref, borrow, borrowMut, move, struct, field, attribute, defaultof } from '@tsonic/core/lang.js';",
-      "export type { ptr, fnptr } from '@tsonic/core/lang.js';",
+      "export { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue } from '@tsonic/core/lang.js';",
+      "export type { Pointer, FunctionPointer } from '@tsonic/core/types.js';",
     ].join("\n"),
   });
 
   const reexportDiagnostics = checkSource(session).extensionDiagnostics;
   assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
   ]);
   assert.deepEqual(reexportDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110, 9901110]);
   assert.equal(reexportDiagnostics.every((diagnostic) => diagnostic.nodeOrSpan !== undefined), true);
 
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "out")), undefined);
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "ref")), undefined);
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "inref")), undefined);
-  assert.equal(flowState(session, callExpression(session, sourceFile, "borrow")), undefined);
-  assert.equal(flowState(session, callExpression(session, sourceFile, "borrowMut")), undefined);
-  assert.equal(flowState(session, callExpression(session, sourceFile, "move")), undefined);
-  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultof")), undefined);
-  assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field")), undefined);
-
-  assert.equal(sourceCoreFacts(session).getStructFact(callExpression(session, sourceFile, "struct")), undefined);
-  assert.equal(getSourceFact(session, propertyCallExpression(session, sourceFile, "add"), tsonicAttributeBuilderFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+  assert.deepEqual(reexportDiagnostics.map((diagnostic) => (
+    diagnostic.evidence?.[0]?.details as { readonly moduleSpecifier?: string } | undefined
+  )?.moduleSpecifier), [
+    tsonicCoreLangModule,
+    tsonicCoreTypesModule,
+  ]);
 });
 
 test("source-core rejects renamed and namespace local barrels without preserving source-core identity", () => {
-  const { session, sourceFile } = createSourceCoreSession(`
+  const { session } = createSourceCoreSession(`
     import { writeOut, CoreLang } from "./barrel.js";
     import type { Pointer, Callback } from "./barrel.js";
     import type { bool, int32 } from "@tsonic/core/types.js";
 
     let value = 0;
     writeOut(value);
-    CoreLang.out(value);
+    CoreLang.writeOnlyRef(value);
     type ValuePointer = Pointer<int32>;
     type ValueCallback = Callback<[int32], bool>;
   `, {
     "/src/barrel.ts": [
-      "export { out as writeOut } from '@tsonic/core/lang.js';",
-      "export type { ptr as Pointer, fnptr as Callback } from '@tsonic/core/lang.js';",
+      "export { writeOnlyRef as writeOut } from '@tsonic/core/lang.js';",
+      "export type { Pointer, FunctionPointer as Callback } from '@tsonic/core/types.js';",
       "export * as CoreLang from '@tsonic/core/lang.js';",
     ].join("\n"),
   });
 
   assert.deepEqual(checkSource(session).extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
   ]);
 
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOut")), undefined);
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "CoreLang.out")), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "Pointer"), pointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "Callback"), functionPointerFactKey), undefined);
+  assert.equal(checkSource(session).extensionDiagnostics.every((diagnostic) => diagnostic.nodeOrSpan !== undefined), true);
 });
 
 test("source-core rejects unsupported export-star barrels for portable lang intrinsics", () => {
@@ -671,32 +669,32 @@ test("source-core rejects unsupported export-star barrels for portable lang intr
   const diagnostics = definedDiagnostics(checked.diagnostics);
   assert.deepEqual(diagnostics, []);
   assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
   ]);
   assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110]);
 });
 
 test("source-core rejects unsupported type-only barrels for portable type markers", () => {
   const { session } = createSourceCoreSession(`
-    export type { ptr, fnptr } from "@tsonic/core/lang.js";
+    export type { Pointer, FunctionPointer } from "@tsonic/core/types.js";
   `);
 
   const checked = checkSource(session);
   const diagnostics = definedDiagnostics(checked.diagnostics);
   assert.deepEqual(diagnostics, []);
   assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode), [
-    "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+    "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
   ]);
   assert.deepEqual(checked.extensionDiagnostics.map((diagnostic) => diagnostic.numericCode), [9901110]);
 });
 
 test("source-core reports missing explicit type evidence for target-neutral marker facts", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { attribute, defaultof, field } from "@tsonic/core/lang.js";
+    import { attribute, defaultValue, field } from "@tsonic/core/lang.js";
 
     const missingField = field();
     const missingAttribute = attribute();
-    const missingDefault = defaultof();
+    const missingDefault = defaultValue();
   `);
 
   const checked = checkSource(session);
@@ -715,7 +713,7 @@ test("source-core reports missing explicit type evidence for target-neutral mark
 
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field")), undefined);
   assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "attribute")), undefined);
-  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultValue")), undefined);
 });
 
 test("source-core reports missing evidence diagnostics through namespace marker forms", () => {
@@ -724,7 +722,7 @@ test("source-core reports missing evidence diagnostics through namespace marker 
 
     const namespaceField = lang.field();
     const namespaceAttribute = lang.attribute();
-    const namespaceDefault = lang.defaultof();
+    const namespaceDefault = lang.defaultValue();
   `);
 
   const checked = checkSource(session);
@@ -735,14 +733,14 @@ test("source-core reports missing evidence diagnostics through namespace marker 
   ]);
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
   assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
-  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultValue")), undefined);
 });
 
 test("source-core reports alias missing-evidence diagnostics without local or shadowed name guesses", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { attribute as coreAttribute, defaultof as coreDefaultof, field as coreField } from "@tsonic/core/lang.js";
+    import { attribute as coreAttribute, defaultValue as coreDefaultof, field as coreField } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
-    import { attribute as localAttribute, defaultof as localDefaultof, field as localField } from "./local.js";
+    import { attribute as localAttribute, defaultValue as localDefaultof, field as localField } from "./local.js";
 
     coreField();
     coreAttribute();
@@ -758,7 +756,7 @@ test("source-core reports alias missing-evidence diagnostics without local or sh
       lang: {
         field(): unknown;
         attribute(): unknown;
-        defaultof(): unknown;
+        defaultValue(): unknown;
       },
     ) {
       coreField();
@@ -766,13 +764,13 @@ test("source-core reports alias missing-evidence diagnostics without local or sh
       coreDefaultof();
       lang.field();
       lang.attribute();
-      lang.defaultof();
+      lang.defaultValue();
     }
   `, {
     "/src/local.ts": [
       "export function field<T>(): T { throw new Error('local field'); }",
       "export function attribute<T>(): { add(attribute: object): void } { return { add(_attribute: object): void {} }; }",
-      "export function defaultof<T>(): T { throw new Error('local default'); }",
+      "export function defaultValue<T>(): T { throw new Error('local default'); }",
     ].join("\n"),
   });
 
@@ -793,94 +791,94 @@ test("source-core reports alias missing-evidence diagnostics without local or sh
   assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "coreDefaultof", 1)), undefined);
   assert.equal(sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "lang.field")), undefined);
   assert.equal(sourceCoreFacts(session).getAttributeFact(callExpression(session, sourceFile, "lang.attribute")), undefined);
-  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultof")), undefined);
+  assert.equal(sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "lang.defaultValue")), undefined);
 });
 
 test("source-core virtual declarations leave invalid arity to TypeScript checking", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { inref, out, ref as passRef, borrow as shared, borrowMut as mutable, move as moved } from "@tsonic/core/lang.js";
+    import { readOnlyRef, writeOnlyRef, readWriteRef as passRef, sharedBorrow as shared, mutableBorrow as mutable, move as moved } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
-    import type { ptr, fnptr } from "@tsonic/core/lang.js";
+    import type { Pointer, FunctionPointer } from "@tsonic/core/types.js";
 
     let value = 1;
-    out();
-    out(value, value);
+    writeOnlyRef();
+    writeOnlyRef(value, value);
     passRef();
     passRef(value, value);
-    inref();
-    inref(value, value);
-    lang.out();
-    lang.out(value, value);
-    lang.ref();
-    lang.ref(value, value);
-    lang.inref();
-    lang.inref(value, value);
+    readOnlyRef();
+    readOnlyRef(value, value);
+    lang.writeOnlyRef();
+    lang.writeOnlyRef(value, value);
+    lang.readWriteRef();
+    lang.readWriteRef(value, value);
+    lang.readOnlyRef();
+    lang.readOnlyRef(value, value);
     shared();
     shared(value, value);
     mutable();
     mutable(value, value);
     moved();
     moved(value, value);
-    lang.borrow();
-    lang.borrow(value, value);
-    lang.borrowMut();
-    lang.borrowMut(value, value);
+    lang.sharedBorrow();
+    lang.sharedBorrow(value, value);
+    lang.mutableBorrow();
+    lang.mutableBorrow(value, value);
     lang.move();
     lang.move(value, value);
-    type MissingPointer = ptr;
-    type ExtraPointer = ptr<number, number>;
-    type MissingFunctionPointer = fnptr<[number]>;
-    type ExtraFunctionPointer = fnptr<[number], number, number>;
+    type MissingPointer = Pointer;
+    type ExtraPointer = Pointer<number, number>;
+    type MissingFunctionPointer = FunctionPointer<[number]>;
+    type ExtraFunctionPointer = FunctionPointer<[number], number, number>;
   `);
 
   const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
   const formattedDiagnostics = formatDiagnostics(diagnostics, "/src");
   assert.match(formattedDiagnostics, /Expected 1 arguments?, but got 0/);
   assert.match(formattedDiagnostics, /Expected 1 arguments?, but got 2/);
-  assert.match(formattedDiagnostics, /Generic type 'ptr' requires 1 type argument/);
-  assert.match(formattedDiagnostics, /Generic type 'fnptr' requires 2 type argument/);
+  assert.match(formattedDiagnostics, /Generic type 'Pointer<T>' requires 1 type argument/);
+  assert.match(formattedDiagnostics, /Generic type 'FunctionPointer<TArgs, TReturn>' requires 2 type argument/);
 
   session.ensureBound();
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "out", 0), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "out", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "writeOnlyRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "writeOnlyRef", 1), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "passRef", 0), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "passRef", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "inref", 0), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "inref", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.out", 0), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.out", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.ref", 0), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.ref", 1), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.inref", 0), argumentPassingFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.inref", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "readOnlyRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "readOnlyRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.writeOnlyRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.writeOnlyRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.readWriteRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.readWriteRef", 1), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.readOnlyRef", 0), argumentPassingFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.readOnlyRef", 1), argumentPassingFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "shared", 0), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "shared", 1), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "mutable", 0), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "mutable", 1), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "moved", 0), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "moved", 1), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrow", 0), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrow", 1), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrowMut", 0), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.borrowMut", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.sharedBorrow", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.sharedBorrow", 1), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.mutableBorrow", 0), flowStateFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.mutableBorrow", 1), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move", 0), flowStateFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.move", 1), flowStateFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "ptr", 0), pointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "fnptr", 0), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "Pointer", 0), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "FunctionPointer", 0), functionPointerFactKey), undefined);
 });
 
 test("source-core finalizes struct and default owner facts with static field names", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { defaultof, field, struct } from "@tsonic/core/lang.js";
+    import { defaultValue, field, struct } from "@tsonic/core/lang.js";
     import type { bool, int32 } from "@tsonic/core/types.js";
 
-    const zero = defaultof<int32>();
+    const zero = defaultValue<int32>();
     const Shape = struct({ "display-name": field<int32>(), 2: field<bool>() });
   `);
 
   const facts = sourceCoreFacts(session);
 
-  const defaultCall = callExpression(session, sourceFile, "defaultof");
+  const defaultCall = callExpression(session, sourceFile, "defaultValue");
   assert.equal(facts.getDefaultValueFact(variableDeclaration(session, sourceFile, "zero"))?.type, facts.getDefaultValueFact(defaultCall)?.type);
   assert.equal(typeReferenceName(session, facts.getDefaultValueFact(variableDeclaration(session, sourceFile, "zero"))?.type as Node | undefined), "int32");
 
@@ -963,37 +961,35 @@ test("source-core preserves member ordering and nested struct type evidence", ()
   assert.equal(sourceAst(session).kindName(facts.getFieldFact(callExpression(session, sourceFile, "field", 2))?.type as Node | undefined), "KindTypeQuery");
 });
 
-test("source-core records ptr and fnptr facts from aliases and namespaces without local marker guessing", () => {
+test("source-core records Pointer and FunctionPointer facts from aliases and namespaces without local marker guessing", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import type { ptr as pointer, fnptr as functionPointer } from "@tsonic/core/lang.js";
-    import type * as lang from "@tsonic/core/lang.js";
-    import type { int32, bool } from "@tsonic/core/types.js";
-    import type { ptr as localPointer, fnptr as localFunctionPointer } from "./local.js";
+    import type { bool, FunctionPointer as functionPointer, int32, Pointer as pointer } from "@tsonic/core/types.js";
+    import type * as coreTypes from "@tsonic/core/types.js";
+    import type { Pointer as localPointer, FunctionPointer as localFunctionPointer } from "./local.js";
 
-    type ptr<T> = T;
-    type fnptr<TArgs, TReturn> = unknown;
+    type Pointer<T> = T;
+    type FunctionPointer<TArgs, TReturn> = unknown;
     type AliasPointer = pointer<int32>;
-    type NamespacePointer = lang.ptr<int32>;
+    type NamespacePointer = coreTypes.Pointer<int32>;
     type AliasFunctionPointer = functionPointer<[int32, bool], int32>;
-    type NamespaceFunctionPointer = lang.fnptr<[lang.ptr<int32>, int32], bool>;
+    type NamespaceFunctionPointer = coreTypes.FunctionPointer<[coreTypes.Pointer<int32>, int32], bool>;
     type LocalPointer = localPointer<int32>;
     type LocalFunctionPointer = localFunctionPointer<[int32], int32>;
-    type ShadowPointer = ptr<int32>;
-    type ShadowFunctionPointer = fnptr<[int32], int32>;
+    type ShadowPointer = Pointer<int32>;
+    type ShadowFunctionPointer = FunctionPointer<[int32], int32>;
   `, {
     "/src/local.ts": [
-      "export type ptr<T> = T;",
-      "export type fnptr<TArgs, TReturn> = unknown;",
+      "export type Pointer<T> = T;",
+      "export type FunctionPointer<TArgs, TReturn> = unknown;",
     ].join("\n"),
   });
 
   const aliasPointer = typeReference(session, sourceFile, "pointer");
-  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.mutability, "unspecified");
-  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.unsafeRequired, true);
+  assert.equal(getSourceFact(session, aliasPointer, pointerFactKey)?.mutability, "readwrite");
   assert.equal(typeReferenceName(session, nodeFactSubject(getSourceFact(session, aliasPointer, pointerFactKey)?.pointee)), "int32");
 
-  const namespacePointer = typeReference(session, sourceFile, "lang.ptr", 0);
-  assert.equal(getSourceFact(session, namespacePointer, pointerFactKey)?.mutability, "unspecified");
+  const namespacePointer = typeReference(session, sourceFile, "coreTypes.Pointer", 0);
+  assert.equal(getSourceFact(session, namespacePointer, pointerFactKey)?.mutability, "readwrite");
 
   const aliasFunctionPointer = typeReference(session, sourceFile, "functionPointer");
   const aliasFunctionPointerFact = getSourceFact(session, aliasFunctionPointer, functionPointerFactKey);
@@ -1001,22 +997,21 @@ test("source-core records ptr and fnptr facts from aliases and namespaces withou
   assert.equal(typeReferenceName(session, nodeFactSubject(aliasFunctionPointerFact?.result)), "int32");
   assert.deepEqual(aliasFunctionPointerFact?.abi, ["target-default"]);
 
-  const namespaceFunctionPointer = typeReference(session, sourceFile, "lang.fnptr");
+  const namespaceFunctionPointer = typeReference(session, sourceFile, "coreTypes.FunctionPointer");
   const namespaceFunctionPointerFact = getSourceFact(session, namespaceFunctionPointer, functionPointerFactKey);
   assert.equal(namespaceFunctionPointerFact?.parameters.length, 2);
   assert.equal(typeReferenceName(session, nodeFactSubject(namespaceFunctionPointerFact?.result)), "bool");
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "lang.ptr", 1), pointerFactKey)?.unsafeRequired, true);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "coreTypes.Pointer", 1), pointerFactKey)?.mutability, "readwrite");
 
   assert.equal(getSourceFact(session, typeReference(session, sourceFile, "localPointer"), pointerFactKey), undefined);
   assert.equal(getSourceFact(session, typeReference(session, sourceFile, "localFunctionPointer"), functionPointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "ptr"), pointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "fnptr"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "Pointer"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "FunctionPointer"), functionPointerFactKey), undefined);
 });
 
-test("source-core records fnptr tuple and scalar parameter facts", () => {
+test("source-core records FunctionPointer tuple and scalar parameter facts", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import type { fnptr as callback, ptr as pointer } from "@tsonic/core/lang.js";
-    import type { bool, int32 } from "@tsonic/core/types.js";
+    import type { bool, FunctionPointer as callback, int32, Pointer as pointer } from "@tsonic/core/types.js";
 
     type NoArgs = callback<[], bool>;
     type OneArg = callback<int32, bool>;
@@ -1034,20 +1029,59 @@ test("source-core records fnptr tuple and scalar parameter facts", () => {
 
   const pointerArgFact = getSourceFact(session, typeReference(session, sourceFile, "callback", 2), functionPointerFactKey);
   assert.equal(pointerArgFact?.parameters.length, 1);
-  assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.parameters[0]), pointerFactKey)?.unsafeRequired, true);
-  assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.result), pointerFactKey)?.unsafeRequired, true);
+  assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.parameters[0]), pointerFactKey)?.mutability, "readwrite");
+  assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.result), pointerFactKey)?.mutability, "readwrite");
+});
+
+test("source-core exposes exact typed pointer operation facts without spelling inference", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { addressOf as takeAddress, allocatePointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
+    import * as lang from "@tsonic/core/lang.js";
+    import type { int32 } from "@tsonic/core/types.js";
+    import { loadPointer as localLoadPointer } from "./local.js";
+
+    let value: int32 = 1;
+    const borrowed = takeAddress(value);
+    const owned = allocatePointer<int32>(value);
+    const first = loadPointer(borrowed);
+    storePointer(owned, first);
+    const second = lang.loadPointer(owned);
+    localLoadPointer(owned);
+  `, {
+    "/src/local.ts": "export function loadPointer<T>(pointer: T): T { return pointer; }",
+  });
+
+  const address = getSourceFact(session, callExpression(session, sourceFile, "takeAddress"), pointerOperationFactKey);
+  assert.equal(address?.operation, "address-of");
+  assert.equal(address?.operation === "address-of" ? sourceAst(session).text(address.storageExpression) : undefined, "value");
+  assert.equal(address?.operation === "address-of" ? address.locationIdentity : undefined, address?.operation === "address-of" ? address.storageExpression : undefined);
+
+  const allocation = getSourceFact(session, callExpression(session, sourceFile, "allocatePointer"), pointerOperationFactKey);
+  assert.equal(allocation?.operation, "allocate");
+  assert.equal(allocation?.operation === "allocate" ? allocation.locationIdentity : undefined, allocation?.operation === "allocate" ? allocation.call : undefined);
+
+  const load = getSourceFact(session, callExpression(session, sourceFile, "loadPointer"), pointerOperationFactKey);
+  assert.equal(load?.operation, "load");
+  assert.equal(load?.operation === "load" ? sourceAst(session).text(load.pointerExpression) : undefined, "borrowed");
+
+  const store = getSourceFact(session, callExpression(session, sourceFile, "storePointer"), pointerOperationFactKey);
+  assert.equal(store?.operation, "store");
+  assert.equal(store?.operation === "store" ? sourceAst(session).text(store.pointerExpression) : undefined, "owned");
+  assert.equal(store?.operation === "store" ? sourceAst(session).text(store.valueExpression) : undefined, "first");
+
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.loadPointer"), pointerOperationFactKey)?.operation, "load");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localLoadPointer"), pointerOperationFactKey), undefined);
 });
 
 test("source-core does not attach type marker facts to shadowed generic type names", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import type { fnptr as callback, ptr as pointer } from "@tsonic/core/lang.js";
-    import type * as lang from "@tsonic/core/lang.js";
-    import type { bool, int32 } from "@tsonic/core/types.js";
+    import type { bool, FunctionPointer as callback, int32, Pointer as pointer } from "@tsonic/core/types.js";
+    import type * as coreTypes from "@tsonic/core/types.js";
 
     function shadowPointer<pointer>(): pointer<int32> { throw new Error("shadowed pointer"); }
     function shadowCallback<callback>(): callback<[int32], bool> { throw new Error("shadowed callback"); }
-    function shadowNamespacePointer<lang>(): lang.ptr<int32> { throw new Error("shadowed namespace pointer"); }
-    function shadowNamespaceCallback<lang>(): lang.fnptr<[int32], bool> { throw new Error("shadowed namespace callback"); }
+    function shadowNamespacePointer<coreTypes>(): coreTypes.Pointer<int32> { throw new Error("shadowed namespace pointer"); }
+    function shadowNamespaceCallback<coreTypes>(): coreTypes.FunctionPointer<[int32], bool> { throw new Error("shadowed namespace callback"); }
   `);
 
   const diagnostics = definedDiagnostics(session.getDiagnostics("semantic", sourceFile));
@@ -1055,8 +1089,8 @@ test("source-core does not attach type marker facts to shadowed generic type nam
   session.ensureBound();
   assert.equal(getSourceFact(session, typeReference(session, sourceFile, "pointer"), pointerFactKey), undefined);
   assert.equal(getSourceFact(session, typeReference(session, sourceFile, "callback"), functionPointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "lang.ptr"), pointerFactKey), undefined);
-  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "lang.fnptr"), functionPointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "coreTypes.Pointer"), pointerFactKey), undefined);
+  assert.equal(getSourceFact(session, typeReference(session, sourceFile, "coreTypes.FunctionPointer"), functionPointerFactKey), undefined);
 });
 
 function assertVirtualModuleResolution(value: ProviderModuleResolution | ExtensionDiagnostic): ProviderModuleResolution {
@@ -1078,11 +1112,14 @@ function sourceCorePrimitiveExportFacts(): readonly {
   readonly exportName: string;
   readonly fact: SourcePrimitiveFact;
 }[] {
-  return sourceCoreModuleExports(tsonicCoreTypesModule).map((exportDeclaration) => {
-    if (exportDeclaration.kind !== "source-primitive") {
-      assert.fail(`Expected only source primitive declarations in ${tsonicCoreTypesModule}.`);
+  return sourceCoreModuleExports(tsonicCoreTypesModule).flatMap((exportDeclaration) => {
+    if (exportDeclaration.kind === "type-marker") {
+      return [];
     }
-    return {
+    if (exportDeclaration.kind !== "source-primitive") {
+      assert.fail(`Unexpected call marker declaration in ${tsonicCoreTypesModule}.`);
+    }
+    return [{
       exportName: exportDeclaration.exportName,
       fact: {
         kind: exportDeclaration.primitive,
@@ -1090,18 +1127,38 @@ function sourceCorePrimitiveExportFacts(): readonly {
         ...(exportDeclaration.signed !== undefined ? { signed: exportDeclaration.signed } : {}),
         ...(exportDeclaration.width !== undefined ? { width: exportDeclaration.width } : {}),
       },
-    };
+    }];
+  });
+}
+
+function sourceCoreTypeMarkerExportFacts(): readonly {
+  readonly kind: "type-marker";
+  readonly exportName: string;
+  readonly marker: string;
+}[] {
+  return sourceCoreModuleExports(tsonicCoreTypesModule).flatMap((exportDeclaration) => {
+    if (exportDeclaration.kind === "source-primitive") {
+      return [];
+    }
+    if (exportDeclaration.kind !== "type-marker") {
+      assert.fail(`Unexpected call marker declaration in ${tsonicCoreTypesModule}.`);
+    }
+    return [{
+      kind: exportDeclaration.kind,
+      exportName: exportDeclaration.exportName,
+      marker: exportDeclaration.marker,
+    }];
   });
 }
 
 function sourceCoreLangExportFacts(): readonly {
-  readonly kind: "call-marker" | "type-marker";
+  readonly kind: "call-marker";
   readonly exportName: string;
   readonly marker: string;
 }[] {
   return sourceCoreModuleExports(tsonicCoreLangModule).map((exportDeclaration) => {
-    if (exportDeclaration.kind === "source-primitive") {
-      assert.fail(`Expected only lang marker declarations in ${tsonicCoreLangModule}.`);
+    if (exportDeclaration.kind !== "call-marker") {
+      assert.fail(`Expected only call marker declarations in ${tsonicCoreLangModule}.`);
     }
     return {
       kind: exportDeclaration.kind,

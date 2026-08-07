@@ -1,12 +1,14 @@
-import { Node_Arguments, Node_Body, Node_Elements, Node_ImportClause, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_Type, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Body, Node_Elements, Node_ImportClause, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_Type, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, SourceFile_GetPositionMap, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { KindString } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
 import { NodeFlagsBlockScoped, NodeFlagsNone } from "../internal/ast/generated/flags.js";
 import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsAsync, ModifierFlagsConst, ModifierFlagsDefault, ModifierFlagsExport, ModifierFlagsOverride, ModifierFlagsPrivate, ModifierFlagsProtected, ModifierFlagsPublic, ModifierFlagsReadonly, ModifierFlagsStatic, } from "../internal/ast/modifierflags.js";
-import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing } from "../internal/ast/utilities.js";
+import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { KindExtendsKeyword, KindImplementsKeyword } from "../internal/ast/generated/kinds.js";
+import { PositionMap_UTF8ToUTF16 } from "../internal/ast/positionmap.js";
+import { GetTokenPosOfNode } from "../internal/scanner/scanner.js";
 export function createAstReader() {
     const reader = {
         kind: (node) => node?.Kind,
@@ -69,6 +71,7 @@ export function createAstReader() {
         },
         pos: (node) => node === undefined ? -1 : Node_Pos(node),
         end: (node) => node === undefined ? -1 : Node_End(node),
+        authoredRange,
         getSourceFile: (node) => GetSourceFileOfNode(node),
         getFileName: (sourceFile) => sourceFile === undefined ? "" : SourceFile_FileName(sourceFile),
         getPath: (sourceFile) => sourceFile === undefined ? "" : SourceFile_Path(sourceFile),
@@ -78,6 +81,25 @@ export function createAstReader() {
         as: casts,
     };
     return Object.freeze(reader);
+}
+function authoredRange(node) {
+    if (node === undefined || NodeIsSynthesized(node)) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    const sourceFile = GetSourceFileOfNode(node);
+    if (sourceFile === undefined) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    const positionMap = SourceFile_GetPositionMap(sourceFile);
+    if (positionMap === undefined) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    const start = PositionMap_UTF8ToUTF16(positionMap, GetTokenPosOfNode(node, sourceFile, false));
+    const end = PositionMap_UTF8ToUTF16(positionMap, Node_End(node));
+    if (start < 0 || end < start) {
+        return Object.freeze({ kind: "synthetic" });
+    }
+    return Object.freeze({ kind: "authored", start, end });
 }
 function operatorKindName(node) {
     if (node === undefined) {

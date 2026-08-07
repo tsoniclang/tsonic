@@ -30,19 +30,26 @@ const primitiveDeclarations = [
   sourcePrimitive("decimal", "decimal", "number", true, 128),
 ] satisfies SourceSemanticsModule["exports"];
 
-const markerDeclarations = [
-  { kind: "call-marker", exportName: "out", marker: "out" },
-  { kind: "call-marker", exportName: "ref", marker: "ref" },
-  { kind: "call-marker", exportName: "inref", marker: "inref" },
-  { kind: "call-marker", exportName: "borrow", marker: "borrow" },
-  { kind: "call-marker", exportName: "borrowMut", marker: "borrowMut" },
+const typeMarkerDeclarations = [
+  { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
+  { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
+] satisfies SourceSemanticsModule["exports"];
+
+const callMarkerDeclarations = [
+  { kind: "call-marker", exportName: "writeOnlyRef", marker: "write-only-reference" },
+  { kind: "call-marker", exportName: "readWriteRef", marker: "read-write-reference" },
+  { kind: "call-marker", exportName: "readOnlyRef", marker: "read-only-reference" },
+  { kind: "call-marker", exportName: "sharedBorrow", marker: "shared-borrow" },
+  { kind: "call-marker", exportName: "mutableBorrow", marker: "mutable-borrow" },
   { kind: "call-marker", exportName: "move", marker: "move" },
   { kind: "call-marker", exportName: "struct", marker: "struct" },
   { kind: "call-marker", exportName: "field", marker: "field" },
   { kind: "call-marker", exportName: "attribute", marker: "attribute" },
-  { kind: "call-marker", exportName: "defaultof", marker: "defaultof" },
-  { kind: "type-marker", exportName: "ptr", marker: "ptr" },
-  { kind: "type-marker", exportName: "fnptr", marker: "fnptr" },
+  { kind: "call-marker", exportName: "defaultValue", marker: "default-value" },
+  { kind: "call-marker", exportName: "addressOf", marker: "address-of" },
+  { kind: "call-marker", exportName: "allocatePointer", marker: "allocate" },
+  { kind: "call-marker", exportName: "loadPointer", marker: "load" },
+  { kind: "call-marker", exportName: "storePointer", marker: "store" },
 ] satisfies SourceSemanticsModule["exports"];
 
 export function tsonicCoreSourceSemanticsModules(): readonly SourceSemanticsModule[] {
@@ -51,15 +58,15 @@ export function tsonicCoreSourceSemanticsModules(): readonly SourceSemanticsModu
       moduleSpecifier: tsonicCoreTypesModule,
       packageName: "@tsonic/core",
       subpath: "types.js",
-      capabilities: ["primitive"],
-      exports: primitiveDeclarations,
+      capabilities: ["primitive", "type-marker"],
+      exports: [...primitiveDeclarations, ...typeMarkerDeclarations],
     },
     {
       moduleSpecifier: tsonicCoreLangModule,
       packageName: "@tsonic/core",
       subpath: "lang.js",
-      capabilities: ["call-marker", "type-marker"],
-      exports: markerDeclarations,
+      capabilities: ["call-marker"],
+      exports: callMarkerDeclarations,
     },
   ];
 }

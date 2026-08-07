@@ -3048,6 +3048,7 @@ interface ResolvedSourceElementAccessInfoBase {
     readonly selectedSymbol?: Symbol;
     readonly selectedDeclaration?: Node;
     readonly selectedElementIndex?: number;
+    readonly writable: boolean;
     readonly optionalChain: boolean;
     readonly callCallee: boolean;
 }
@@ -3590,6 +3591,7 @@ interface ResolvedSourcePropertyAccessInfoBase {
     readonly sourceDeclaration?: Node;
     readonly selectedSymbol?: Symbol;
     readonly selectedDeclaration?: Node;
+    readonly writable: boolean;
     readonly optionalChain: boolean;
     readonly callCallee: boolean;
 }

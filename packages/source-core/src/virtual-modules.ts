@@ -12,6 +12,8 @@ import type {
 } from "@tsonic/tsts";
 import {
   tsonicCoreProviderVersion,
+  tsonicCoreLangModule,
+  tsonicCoreTypesModule,
   tsonicCoreVirtualModulesProviderId,
 } from "./identity.js";
 import {
@@ -58,6 +60,15 @@ export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvi
       return {
         moduleSpecifier: resolution.moduleSpecifier,
         providerModuleId: resolution.providerModuleId,
+        ...(resolution.moduleSpecifier === tsonicCoreLangModule
+          ? {
+              imports: [{
+                moduleSpecifier: tsonicCoreTypesModule,
+                namedImports: [{ exportedName: "Pointer", kind: "type" as const }],
+                typeOnly: true,
+              }],
+            }
+          : {}),
         exports: providerExportDeclarationsForSourceModule(module),
         evidence: [{ message: "Declaration model is generated from target-neutral Tsonic source semantics." }],
       };

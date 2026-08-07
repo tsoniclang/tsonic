@@ -18,7 +18,6 @@ import {
   analyzeTsonicSourceMarkerEvidence,
 } from "./marker-evidence-analysis.js";
 import {
-  tsonicCoreLangModule,
   tsonicCoreProviderVersion,
   tsonicCoreSourceExtensionId,
 } from "./identity.js";
@@ -45,7 +44,7 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
       analyzeTsonicSourceMarkerEvidence(context);
       analyzeTsonicAttributeBuilders(context);
       forEachTsonicSourceFile(context, (sourceContext): void => {
-        recordUnsupportedTsonicCoreLangReExportDiagnostics(
+        recordUnsupportedTsonicCoreReExportDiagnostics(
           sourceContext.sourceFile,
           sourceContext.ast,
           sourceContext.diagnostics,
@@ -74,16 +73,17 @@ const structFieldDiagnostics = {
   },
 } as const;
 
-const unsupportedCoreLangReExportDiagnostic = {
-  extensionCode: "SOURCE_SEMANTICS_CORE_LANG_REEXPORT_UNSUPPORTED",
+const unsupportedCoreReExportDiagnostic = {
+  extensionCode: "SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED",
   numericCode: 9901110,
-  message: "Re-exporting @tsonic/core/lang.js intrinsics through a local barrel is unsupported; import source-core intrinsics directly so provider ownership remains proven.",
+  message: "Re-exporting @tsonic/core intrinsics through a local barrel is unsupported; import source-core intrinsics directly so provider ownership remains proven.",
 } as const;
 
-const sourceCoreLangExportNames = new Set(
-  tsonicCoreSourceSemanticsModules()
-    .find((module) => module.moduleSpecifier === tsonicCoreLangModule)
-    ?.exports.map((entry) => entry.exportName) ?? [],
+const sourceCoreExportNamesByModule = new Map(
+  tsonicCoreSourceSemanticsModules().map((module) => [
+    module.moduleSpecifier,
+    new Set(module.exports.map((entry) => entry.exportName)),
+  ]),
 );
 
 type DiagnosticSink = {
@@ -100,7 +100,7 @@ type DiagnosticSink = {
   }): void;
 };
 
-function recordUnsupportedTsonicCoreLangReExportDiagnostics(
+function recordUnsupportedTsonicCoreReExportDiagnostics(
   sourceFile: Node,
   ast: AstReader,
   diagnostics: DiagnosticSink,
@@ -112,35 +112,43 @@ function recordUnsupportedTsonicCoreLangReExportDiagnostics(
     }
     const statementIdentity = exportDeclarationIndex;
     exportDeclarationIndex += 1;
-    const moduleSpecifier = ast.as.AsExportDeclaration(statement)?.ModuleSpecifier;
-    if (moduleSpecifier === undefined || ast.text(moduleSpecifier) !== tsonicCoreLangModule) {
+    const moduleSpecifierNode = ast.as.AsExportDeclaration(statement)?.ModuleSpecifier;
+    const moduleSpecifier = moduleSpecifierNode === undefined ? undefined : ast.text(moduleSpecifierNode);
+    const sourceCoreExportNames = moduleSpecifier === undefined
+      ? undefined
+      : sourceCoreExportNamesByModule.get(moduleSpecifier);
+    if (moduleSpecifier === undefined || sourceCoreExportNames === undefined) {
       continue;
     }
-    const exportedNames = exportedCoreLangIntrinsicNames(statement, ast);
+    const exportedNames = exportedSourceCoreIntrinsicNames(statement, ast, sourceCoreExportNames);
     if (exportedNames.length === 0) {
       continue;
     }
     diagnostics.append({
       extensionId: tsonicCoreSourceExtensionId,
-      extensionCode: unsupportedCoreLangReExportDiagnostic.extensionCode,
-      numericCode: unsupportedCoreLangReExportDiagnostic.numericCode,
-      publicCode: `TSONIC_SOURCE_CORE_${unsupportedCoreLangReExportDiagnostic.numericCode}`,
+      extensionCode: unsupportedCoreReExportDiagnostic.extensionCode,
+      numericCode: unsupportedCoreReExportDiagnostic.numericCode,
+      publicCode: `TSONIC_SOURCE_CORE_${unsupportedCoreReExportDiagnostic.numericCode}`,
       category: "error",
-      message: unsupportedCoreLangReExportDiagnostic.message,
+      message: unsupportedCoreReExportDiagnostic.message,
       nodeOrSpan: statement,
       evidence: [{
         message: "Source-core portable intrinsic ownership does not flow through local re-export barrels.",
         details: {
-          moduleSpecifier: tsonicCoreLangModule,
+          moduleSpecifier,
           exportedNames,
         },
       }],
-      identity: `source-core-lang-reexport:${statementIdentity}:${exportedNames.join(",")}`,
+      identity: `source-core-reexport:${statementIdentity}:${moduleSpecifier}:${exportedNames.join(",")}`,
     });
   }
 }
 
-function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader): readonly string[] {
+function exportedSourceCoreIntrinsicNames(
+  exportDeclaration: Node,
+  ast: AstReader,
+  sourceCoreExportNames: ReadonlySet<string>,
+): readonly string[] {
   const exportClause = ast.as.AsExportDeclaration(exportDeclaration)?.ExportClause;
   if (exportClause === undefined) {
     return ["*"];
@@ -156,7 +164,7 @@ function exportedCoreLangIntrinsicNames(exportDeclaration: Node, ast: AstReader)
     const exportNameNode = ast.as.AsExportSpecifier(specifier)?.PropertyName ??
       ast.name(specifier);
     const exportName = exportNameNode === undefined ? undefined : ast.text(exportNameNode);
-    if (exportName !== undefined && sourceCoreLangExportNames.has(exportName)) {
+    if (exportName !== undefined && sourceCoreExportNames.has(exportName)) {
       exportedNames.push(exportName);
     }
   }

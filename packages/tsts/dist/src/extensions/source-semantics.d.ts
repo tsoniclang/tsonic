@@ -21,13 +21,13 @@ export interface SourcePrimitiveDeclaration extends Omit<SourcePrimitiveFact, "k
     readonly exportName: string;
     readonly primitive: SourcePrimitiveKind;
 }
-export type SourceCallMarkerKind = "out" | "ref" | "inref" | "borrow" | "borrowMut" | "move" | "struct" | "field" | "attribute" | "defaultof";
+export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store";
 export interface SourceCallMarkerDeclaration {
     readonly kind: "call-marker";
     readonly exportName: string;
     readonly marker: SourceCallMarkerKind;
 }
-export type SourceTypeMarkerKind = "ptr" | "fnptr";
+export type SourceTypeMarkerKind = "pointer" | "function-pointer";
 export interface SourceTypeMarkerDeclaration {
     readonly kind: "type-marker";
     readonly exportName: string;

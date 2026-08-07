@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, AssociatedTypeFact, AttributeFact, ConstGenericFact, DefaultValueFact, ExtensionCanonicalIdentity, FieldFact, FlowStateFact, FunctionPointerFact, PointerFact, ProviderTypeFamilyFact, ProviderVirtualDeclarationFact, SourcePrimitiveFact, StructFact } from "./facts.js";
+import type { ArgumentPassingFact, AssociatedTypeFact, AttributeFact, ConstGenericFact, DefaultValueFact, ExtensionCanonicalIdentity, FieldFact, FlowStateFact, FunctionPointerFact, PointerFact, PointerOperationFact, ProviderTypeFamilyFact, ProviderVirtualDeclarationFact, SourcePrimitiveFact, StructFact } from "./facts.js";
 import type { ExtensionFactEntry, ExtensionFactKey, ExtensionFactSubject, ExtensionHost, ProviderVirtualDeclarationDocument } from "./host.js";
 export interface ReadonlySourceFactResolver {
     getFact<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
@@ -16,6 +16,7 @@ export declare class SourceFactQueries implements ReadonlySourceFactResolver {
     getArgumentPassing(subject: ExtensionFactSubject | undefined): ArgumentPassingFact | undefined;
     getFunctionPointer(subject: ExtensionFactSubject | undefined): FunctionPointerFact | undefined;
     getPointer(subject: ExtensionFactSubject | undefined): PointerFact | undefined;
+    getPointerOperation(subject: ExtensionFactSubject | undefined): PointerOperationFact | undefined;
     getStruct(subject: ExtensionFactSubject | undefined): StructFact | undefined;
     getField(subject: ExtensionFactSubject | undefined): FieldFact | undefined;
     getFlowState(subject: ExtensionFactSubject | undefined): FlowStateFact | undefined;
