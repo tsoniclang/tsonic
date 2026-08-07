@@ -257,6 +257,9 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
     const pointeeType = selectedTypeArguments.length === 1
         ? selectedTypeArguments[0]?.selectedType
         : undefined;
+    const explicitPointeeTypeNode = selectedTypeArguments.length === 1
+        ? selectedTypeArguments[0]?.explicitTypeNode
+        : undefined;
     if (pointeeType === undefined) {
         diagnostics.append({
             extensionId,
@@ -296,6 +299,7 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 operation: "address-of",
                 call: callExpression,
                 pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
                 resultType: callInfo.sourceResultType,
                 storageExpression: storage.storageExpression,
                 storageType: storage.type,
@@ -317,6 +321,7 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 operation: "allocate",
                 call: callExpression,
                 pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
                 resultType: callInfo.sourceResultType,
                 initialExpression: initial.expression,
                 initialType: initial.type,
@@ -334,6 +339,7 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 operation: "load",
                 call: callExpression,
                 pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
                 resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
                 pointerType: pointer.type,
@@ -351,6 +357,7 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 operation: "store",
                 call: callExpression,
                 pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
                 resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
                 pointerType: pointer.type,

@@ -37,11 +37,14 @@ export interface PointerFact {
     readonly pointee: Node;
     readonly mutability: SourcePointerMutability;
 }
-export type PointerOperationFact = {
-    readonly operation: "address-of";
+interface PointerOperationFactBase {
     readonly call: Node;
     readonly pointeeType: Type;
+    readonly explicitPointeeTypeNode?: Node;
     readonly resultType: Type;
+}
+export type PointerOperationFact = PointerOperationFactBase & ({
+    readonly operation: "address-of";
     readonly storageExpression: Node;
     readonly storageType: Type;
     readonly storageSymbol?: Symbol;
@@ -49,29 +52,20 @@ export type PointerOperationFact = {
     readonly locationIdentity: Node;
 } | {
     readonly operation: "allocate";
-    readonly call: Node;
-    readonly pointeeType: Type;
-    readonly resultType: Type;
     readonly initialExpression: Node;
     readonly initialType: Type;
     readonly locationIdentity: Node;
 } | {
     readonly operation: "load";
-    readonly call: Node;
-    readonly pointeeType: Type;
-    readonly resultType: Type;
     readonly pointerExpression: Node;
     readonly pointerType: Type;
 } | {
     readonly operation: "store";
-    readonly call: Node;
-    readonly pointeeType: Type;
-    readonly resultType: Type;
     readonly pointerExpression: Node;
     readonly pointerType: Type;
     readonly valueExpression: Node;
     readonly valueType: Type;
-};
+});
 export interface StructFact {
     readonly valueType: boolean;
     readonly fields?: readonly FieldFact[];
