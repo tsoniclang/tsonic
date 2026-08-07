@@ -302,6 +302,53 @@ function snapshotPointerOperationFact(value) {
                 rightType: requiredCompilerType(record, "rightType", "PointerOperationFact"),
             });
         }
+        case "hash-pointer": {
+            const record = exactRecord(value, "PointerOperationFact", [
+                ...commonFields,
+                "pointerExpression",
+                "pointerType",
+            ]);
+            const explicitPointeeTypeNode = optionalNode(record, "explicitPointeeTypeNode", "PointerOperationFact");
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "PointerOperationFact"),
+                pointeeType: requiredCompilerType(record, "pointeeType", "PointerOperationFact"),
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: requiredCompilerType(record, "resultType", "PointerOperationFact"),
+                pointerExpression: requiredNode(record, "pointerExpression", "PointerOperationFact"),
+                pointerType: requiredCompilerType(record, "pointerType", "PointerOperationFact"),
+            });
+        }
+        case "project-pointer": {
+            const record = exactRecord(value, "PointerOperationFact", [
+                ...commonFields,
+                "sourcePointeeType",
+                "explicitSourcePointeeTypeNode",
+                "pointerExpression",
+                "pointerType",
+                "fromSourceExpression",
+                "fromSourceType",
+                "toSourceExpression",
+                "toSourceType",
+            ]);
+            const explicitPointeeTypeNode = optionalNode(record, "explicitPointeeTypeNode", "PointerOperationFact");
+            const explicitSourcePointeeTypeNode = optionalNode(record, "explicitSourcePointeeTypeNode", "PointerOperationFact");
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "PointerOperationFact"),
+                pointeeType: requiredCompilerType(record, "pointeeType", "PointerOperationFact"),
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: requiredCompilerType(record, "resultType", "PointerOperationFact"),
+                sourcePointeeType: requiredCompilerType(record, "sourcePointeeType", "PointerOperationFact"),
+                ...(explicitSourcePointeeTypeNode === undefined ? {} : { explicitSourcePointeeTypeNode }),
+                pointerExpression: requiredNode(record, "pointerExpression", "PointerOperationFact"),
+                pointerType: requiredCompilerType(record, "pointerType", "PointerOperationFact"),
+                fromSourceExpression: requiredNode(record, "fromSourceExpression", "PointerOperationFact"),
+                fromSourceType: requiredCompilerType(record, "fromSourceType", "PointerOperationFact"),
+                toSourceExpression: requiredNode(record, "toSourceExpression", "PointerOperationFact"),
+                toSourceType: requiredCompilerType(record, "toSourceType", "PointerOperationFact"),
+            });
+        }
     }
 }
 function snapshotStructFact(value) {
@@ -516,6 +563,20 @@ function pointerOperationFactEquals(left, right) {
                 && left.leftType === right.leftType
                 && left.rightExpression === right.rightExpression
                 && left.rightType === right.rightType;
+        case "hash-pointer":
+            return right.operation === "hash-pointer"
+                && left.pointerExpression === right.pointerExpression
+                && left.pointerType === right.pointerType;
+        case "project-pointer":
+            return right.operation === "project-pointer"
+                && left.sourcePointeeType === right.sourcePointeeType
+                && left.explicitSourcePointeeTypeNode === right.explicitSourcePointeeTypeNode
+                && left.pointerExpression === right.pointerExpression
+                && left.pointerType === right.pointerType
+                && left.fromSourceExpression === right.fromSourceExpression
+                && left.fromSourceType === right.fromSourceType
+                && left.toSourceExpression === right.toSourceExpression
+                && left.toSourceType === right.toSourceType;
     }
 }
 function optionalFieldArrayEquals(left, right) {
@@ -650,7 +711,9 @@ function requiredPointerOperation(value) {
         && operation !== "allocate"
         && operation !== "load"
         && operation !== "store"
-        && operation !== "equal-pointer") {
+        && operation !== "equal-pointer"
+        && operation !== "hash-pointer"
+        && operation !== "project-pointer") {
         throw new Error(`PointerOperationFact.operation '${String(operation)}' is invalid.`);
     }
     return operation;

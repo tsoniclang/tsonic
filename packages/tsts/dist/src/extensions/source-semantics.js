@@ -241,6 +241,8 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
         case "load":
         case "store":
         case "equal-pointer":
+        case "hash-pointer":
+        case "project-pointer":
             recordPointerOperation(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, evidence);
             return;
     }
@@ -256,11 +258,13 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
         return;
     }
     const selectedTypeArguments = callInfo.sourceSelectedMethodTypeArguments ?? [];
-    const pointeeType = selectedTypeArguments.length === 1
-        ? selectedTypeArguments[0]?.selectedType
+    const expectedTypeArgumentCount = marker.marker === "project-pointer" ? 2 : 1;
+    const pointeeIndex = marker.marker === "project-pointer" ? 1 : 0;
+    const pointeeType = selectedTypeArguments.length === expectedTypeArgumentCount
+        ? selectedTypeArguments[pointeeIndex]?.selectedType
         : undefined;
-    const explicitPointeeTypeNode = selectedTypeArguments.length === 1
-        ? selectedTypeArguments[0]?.explicitTypeNode
+    const explicitPointeeTypeNode = selectedTypeArguments.length === expectedTypeArgumentCount
+        ? selectedTypeArguments[pointeeIndex]?.explicitTypeNode
         : undefined;
     if (pointeeType === undefined) {
         diagnostics.append({
@@ -269,7 +273,7 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
             numericCode: 9901103,
             publicCode: "TSTS_SOURCE_SEMANTICS_0003",
             category: "error",
-            message: `${marker.exportName}(...) requires one exact selected pointee type.`,
+            message: `${marker.exportName}(...) requires ${expectedTypeArgumentCount} exact selected pointer type argument${expectedTypeArgumentCount === 1 ? "" : "s"}.`,
             nodeOrSpan: callExpression,
             evidence,
             identity: sourceSemanticsDiagnosticIdentity("pointer-type", marker.exportName, callExpression),
@@ -385,6 +389,54 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 leftType: left.type,
                 rightExpression: right.expression,
                 rightType: right.type,
+            };
+            facts.set(callExpression, pointerOperationFactKey, fact, evidence);
+            return;
+        }
+        case "hash-pointer": {
+            const pointer = exactSourceCallArgument(callInfo, 0, 1);
+            if (pointer === undefined) {
+                return;
+            }
+            const fact = {
+                operation: "hash-pointer",
+                call: callExpression,
+                pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: callInfo.sourceResultType,
+                pointerExpression: pointer.expression,
+                pointerType: pointer.type,
+            };
+            facts.set(callExpression, pointerOperationFactKey, fact, evidence);
+            return;
+        }
+        case "project-pointer": {
+            const pointer = exactSourceCallArgument(callInfo, 0, 3);
+            const fromSource = exactSourceCallArgument(callInfo, 1, 3);
+            const toSource = exactSourceCallArgument(callInfo, 2, 3);
+            const sourceTypeArgument = selectedTypeArguments[0];
+            if (pointer === undefined ||
+                fromSource === undefined ||
+                toSource === undefined ||
+                sourceTypeArgument?.selectedType === undefined) {
+                return;
+            }
+            const fact = {
+                operation: "project-pointer",
+                call: callExpression,
+                pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: callInfo.sourceResultType,
+                sourcePointeeType: sourceTypeArgument.selectedType,
+                ...(sourceTypeArgument.explicitTypeNode === undefined
+                    ? {}
+                    : { explicitSourcePointeeTypeNode: sourceTypeArgument.explicitTypeNode }),
+                pointerExpression: pointer.expression,
+                pointerType: pointer.type,
+                fromSourceExpression: fromSource.expression,
+                fromSourceType: fromSource.type,
+                toSourceExpression: toSource.expression,
+                toSourceType: toSource.type,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;

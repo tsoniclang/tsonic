@@ -96,6 +96,8 @@ catalog:
 | Location read | `loadPointer(pointer)` |
 | Location write | `storePointer(pointer, value)` |
 | Location identity | `equalPointer(left, right)` |
+| Location hash | `hashPointer(pointer)` |
+| Typed location projection | `projectPointer(pointer, fromSource, toSource)` |
 
 For example:
 

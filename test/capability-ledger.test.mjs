@@ -573,6 +573,8 @@ test("core intrinsic child capabilities define portable source contracts", () =>
     "loadPointer",
     "storePointer",
     "equalPointer",
+    "hashPointer",
+    "projectPointer",
     "Pointer",
     "FunctionPointer",
   ];

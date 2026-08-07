@@ -71,6 +71,20 @@ export type PointerOperationFact = PointerOperationFactBase & ({
     readonly leftType: Type;
     readonly rightExpression: Node;
     readonly rightType: Type;
+} | {
+    readonly operation: "hash-pointer";
+    readonly pointerExpression: Node;
+    readonly pointerType: Type;
+} | {
+    readonly operation: "project-pointer";
+    readonly sourcePointeeType: Type;
+    readonly explicitSourcePointeeTypeNode?: Node;
+    readonly pointerExpression: Node;
+    readonly pointerType: Type;
+    readonly fromSourceExpression: Node;
+    readonly fromSourceType: Type;
+    readonly toSourceExpression: Node;
+    readonly toSourceType: Type;
 });
 export interface StructFact {
     readonly valueType: boolean;

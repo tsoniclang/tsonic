@@ -109,6 +109,8 @@ export const coreIntrinsicCoverage = Object.freeze([
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "loadPointer", factSlug: "load-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.load-pointer" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "storePointer", factSlug: "store-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.store-pointer" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "equalPointer", factSlug: "equal-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.equal-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "hashPointer", factSlug: "hash-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.hash-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "projectPointer", factSlug: "project-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.project-pointer" },
   { moduleSpecifier: coreTypesIntrinsicModuleSpecifier, exportName: "Pointer", factSlug: "pointer", sourceKind: "type-marker", capabilityId: "source-core.types.portable-intrinsics.pointer" },
   { moduleSpecifier: coreTypesIntrinsicModuleSpecifier, exportName: "FunctionPointer", factSlug: "function-pointer", sourceKind: "type-marker", capabilityId: "source-core.types.portable-intrinsics.function-pointer" },
 ].map(freezeCoreIntrinsicCoverageEntry));
@@ -583,6 +585,8 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source-core.lang.portable-intrinsics.load-pointer", "loadPointer attaches exact typed-location read facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.store-pointer", "storePointer attaches exact typed-location write facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.equal-pointer", "equalPointer attaches exact typed-location identity-comparison facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.hash-pointer", "hashPointer attaches exact typed-location hash facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.project-pointer", "projectPointer attaches exact typed-location projection facts", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics.pointer", "Pointer attaches neutral typed-location facts", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics.function-pointer", "FunctionPointer attaches neutral function-pointer type facts", "complete", "source-core-provider"],
   ...slice4SourceCoreContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("target.csharp.") ? "target-provider" : "source-core-provider"]),
@@ -2991,10 +2995,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
-      "import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue, addressOf, allocatePointer, loadPointer, storePointer, equalPointer } from \"@tsonic/core/lang.js\";",
+      "import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue, addressOf, allocatePointer, loadPointer, storePointer, equalPointer, hashPointer, projectPointer } from \"@tsonic/core/lang.js\";",
       "writeOnlyRef(value); readWriteRef(value); readOnlyRef(value); sharedBorrow(value); mutableBorrow(value); move(value);",
       "const Point = struct({ x: field<int32>() }); const zero = defaultValue<int32>(); attribute<Point>().add(RouteAttribute);",
-      "const alias = addressOf(value); const fresh = allocatePointer<int32>(0); storePointer(alias, loadPointer(fresh)); equalPointer(alias, addressOf(value));",
+      "const alias = addressOf(value); const fresh = allocatePointer<int32>(0); storePointer(alias, loadPointer(fresh)); equalPointer(alias, addressOf(value)); hashPointer(alias); projectPointer<int32, string>(alias, String, Number);",
     ]),
     tstsDecision:
       "TSTS checks ordinary imports/calls/types from @tsonic/core/lang.js; source-core attaches marker facts only from the provider-owned module identity.",
@@ -3056,7 +3060,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed proof: @tsonic/core/lang.js exports only the canonical call markers writeOnlyRef/readWriteRef/readOnlyRef/sharedBorrow/mutableBorrow/move/struct/field/attribute/defaultValue/addressOf/allocatePointer/loadPointer/storePointer/equalPointer. Each export has one source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove provider-owned direct, aliased, and namespace facts; invalid arity and missing storage/type evidence fail closed; local and shadowed names do not acquire facts; and unsupported local barrel/export-star forms attach no portable facts. C# maps the five typed-location operations through its target-owned policy and closed runtime carrier; secondary targets reject them deterministically.",
+      "Reviewed proof: @tsonic/core/lang.js exports only the canonical call markers writeOnlyRef/readWriteRef/readOnlyRef/sharedBorrow/mutableBorrow/move/struct/field/attribute/defaultValue/addressOf/allocatePointer/loadPointer/storePointer/equalPointer/hashPointer/projectPointer. Each export has one source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove provider-owned direct, aliased, and namespace facts; invalid arity and missing storage/type evidence fail closed; local and shadowed names do not acquire facts; and unsupported local barrel/export-star forms attach no portable facts. Each target consumes a finalized typed-location fact through its declared policy or rejects it deterministically; no target recognizes marker spelling.",
   }),
   "source-core.types.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3778,6 +3782,94 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: [],
     notes:
       "Reviewed proof: equality facts retain both exact selected operands and the selected pointee type. C# canonicalizes local, parameter, static, receiver/member, nested value-member, array/index, fresh-allocation, and undefined identity without reflection or name inference; arbitrary provider/project indexers reject until exact identity policy exists.",
+  }),
+  "source-core.lang.portable-intrinsics.hash-pointer": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "hashPointer",
+    factSlug: "hash-pointer",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { hashPointer } from \"@tsonic/core/lang.js\";",
+      "const hash = hashPointer(pointer);",
+    ],
+    sourceContract:
+      "Core owns hashPointer<T>(pointer) as a stable execution-local hash of Pointer<T> location identity; equal locations hash equally, undefined hashes consistently, and unequal locations may collide.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "pointerPointeeTypeFact",
+      "pointerHashOperandFact",
+    ],
+    targetContract:
+      "Targets hash canonical target-owned location identity without exposing a raw address; consumers resolve collisions with equalPointer, and unsupported targets emit a deterministic diagnostic before emission.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "pointer-hash-operand",
+      "target-location-identity-contract",
+    ],
+    staticOperation: "emit-target-location-identity-hash",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "pointer-hash-operand-mismatch",
+      "target-location-identity-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-typescript/src/lowering/typed-location/pointer-equality.test.ts",
+      "../typescript-runtime/src/location.test.ts",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+    ],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
+    blockers: [],
+    notes:
+      "Reviewed proof: hash facts retain the exact selected pointer operand and pointee type. The TypeScript target lowers only that finalized fact to its location runtime; runtime tests prove nil stability, equal-location coherence, projected-location coherence, and unequal ordinary locations without treating the hash as an address.",
+  }),
+  "source-core.lang.portable-intrinsics.project-pointer": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "projectPointer",
+    factSlug: "project-pointer",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { projectPointer } from \"@tsonic/core/lang.js\";",
+      "const text = projectPointer<number, string>(pointer, String, Number);",
+    ],
+    sourceContract:
+      "Core owns projectPointer<F,T>(pointer,fromSource,toSource) as a typed bidirectional view of the same optional location; it preserves nil, identity, aliasing, and lifetime while converting reads and writes.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "sourcePointerPointeeTypeFact",
+      "targetPointerPointeeTypeFact",
+      "pointerProjectionConverterFacts",
+    ],
+    targetContract:
+      "Targets preserve one canonical location identity while applying the exact selected F-to-T read and T-to-F write conversions, or emit a deterministic diagnostic before emission when no exact projected location exists.",
+    targetRequiredFacts: [
+      "source-pointer-pointee-type",
+      "target-pointer-pointee-type",
+      "pointer-projection-converters",
+      "target-location-identity-contract",
+    ],
+    staticOperation: "emit-target-location-projection",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "pointer-projection-converter-mismatch",
+      "target-location-projection-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-typescript/src/lowering/typed-location/pointer-equality.test.ts",
+      "../typescript-runtime/src/location.test.ts",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+    ],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
+    blockers: [],
+    notes:
+      "Reviewed proof: projection facts retain both exact selected pointee types, the pointer operand, and both converter nodes and types. The TypeScript target transforms the same checked AST, and runtime tests prove bidirectional mutation, nil preservation, and equality/hash identity with the source location.",
   }),
   "source-core.types.portable-intrinsics.pointer": coreIntrinsicEvidence({
     moduleSpecifier: coreTypesIntrinsicModuleSpecifier,
