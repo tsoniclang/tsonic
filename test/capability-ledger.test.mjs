@@ -12,6 +12,7 @@ import {
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
+  isReviewedOldEvidenceAbsence,
   requiredCapabilityIds,
   validateCapabilityLedger,
   validateCapabilityLedgerEntry,
@@ -567,6 +568,11 @@ test("core intrinsic child capabilities define portable source contracts", () =>
     "field",
     "attribute",
     "defaultValue",
+    "addressOf",
+    "allocatePointer",
+    "loadPointer",
+    "storePointer",
+    "equalPointer",
     "Pointer",
     "FunctionPointer",
   ];
@@ -599,7 +605,11 @@ test("core intrinsic child capabilities define portable source contracts", () =>
       assert.equal(entry.blockers.length, 0, `${intrinsic.capabilityId} is complete and must not carry blockers`);
       assert.ok(entry.positiveTests.length > 0, `${intrinsic.capabilityId} is complete without positive tests`);
       assert.ok(entry.negativeTests.length > 0, `${intrinsic.capabilityId} is complete without negative tests`);
-      assert.ok(entry.oldEvidence.length > 0, `${intrinsic.capabilityId} is complete without old inventory evidence`);
+      assert.equal(
+        entry.oldEvidence.length > 0 || isReviewedOldEvidenceAbsence(entry.oldEvidenceAbsence),
+        true,
+        `${intrinsic.capabilityId} is complete without old inventory evidence or a reviewed absence record`,
+      );
     } else {
       assert.ok(entry.blockers.length > 0, `${intrinsic.capabilityId} must keep explicit partial blockers`);
     }

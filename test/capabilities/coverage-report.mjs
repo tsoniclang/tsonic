@@ -6,6 +6,7 @@ import {
   capabilityOwners,
   capabilitySurfaceEvidenceGateNames,
   capabilityStatuses,
+  isReviewedOldEvidenceAbsence,
   requiredCapabilityIds,
   validateCapabilityLedger,
   validateCapabilityLaneClassification,
@@ -259,7 +260,7 @@ function completeProofHoles({
   if (evidenceReview !== "reviewed") {
     holes.push("missing-reviewed-evidence");
   }
-  if (oldEvidence.length === 0 && !hasReviewedOldEvidenceAbsence(oldEvidenceAbsence)) {
+  if (oldEvidence.length === 0 && !isReviewedOldEvidenceAbsence(oldEvidenceAbsence)) {
     holes.push("missing-old-evidence");
   }
   if (oldPositiveEvidence.length > 0) {
@@ -269,21 +270,6 @@ function completeProofHoles({
     holes.push("negative-proof-uses-old-evidence");
   }
   return holes;
-}
-
-function hasReviewedOldEvidenceAbsence(oldEvidenceAbsence) {
-  return (
-    oldEvidenceAbsence !== undefined &&
-    typeof oldEvidenceAbsence === "object" &&
-    oldEvidenceAbsence !== null &&
-    oldEvidenceAbsence.status === "reviewed-none-found" &&
-    Array.isArray(oldEvidenceAbsence.reviewedInventories) &&
-    oldEvidenceAbsence.reviewedInventories.length > 0 &&
-    Array.isArray(oldEvidenceAbsence.searchEvidence) &&
-    oldEvidenceAbsence.searchEvidence.length > 0 &&
-    typeof oldEvidenceAbsence.reviewerNotes === "string" &&
-    oldEvidenceAbsence.reviewerNotes.length > 0
-  );
 }
 
 function evidenceScope(currentProofTests, repoScopedCurrentTests, externalCurrentTests) {

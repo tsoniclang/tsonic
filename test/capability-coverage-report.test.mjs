@@ -7,6 +7,7 @@ import {
   capabilityOwners,
   capabilityStatuses,
   capabilitySurfaceEvidenceGateNames,
+  isReviewedOldEvidenceAbsence,
 } from "./capabilities/ledger.mjs";
 import { buildCapabilityCoverageReport } from "./capabilities/coverage-report.mjs";
 import { oldEmitterPortInventory } from "./old-emitter-inventory/inventory.mjs";
@@ -42,7 +43,7 @@ function expectedProofHoles(completeEntry) {
   if (completeEntry.evidenceReview !== "reviewed") {
     holes.push("missing-reviewed-evidence");
   }
-  if (completeEntry.oldEvidence.length === 0 && !hasReviewedOldEvidenceAbsence(completeEntry.oldEvidenceAbsence)) {
+  if (completeEntry.oldEvidence.length === 0 && !isReviewedOldEvidenceAbsence(completeEntry.oldEvidenceAbsence)) {
     holes.push("missing-old-evidence");
   }
   if (completeEntry.oldPositiveEvidence.length > 0) {
@@ -52,21 +53,6 @@ function expectedProofHoles(completeEntry) {
     holes.push("negative-proof-uses-old-evidence");
   }
   return holes;
-}
-
-function hasReviewedOldEvidenceAbsence(oldEvidenceAbsence) {
-  return (
-    oldEvidenceAbsence !== undefined &&
-    typeof oldEvidenceAbsence === "object" &&
-    oldEvidenceAbsence !== null &&
-    oldEvidenceAbsence.status === "reviewed-none-found" &&
-    Array.isArray(oldEvidenceAbsence.reviewedInventories) &&
-    oldEvidenceAbsence.reviewedInventories.length > 0 &&
-    Array.isArray(oldEvidenceAbsence.searchEvidence) &&
-    oldEvidenceAbsence.searchEvidence.length > 0 &&
-    typeof oldEvidenceAbsence.reviewerNotes === "string" &&
-    oldEvidenceAbsence.reviewerNotes.length > 0
-  );
 }
 
 function assertOldInventoryCoverage(reportEntry, inventoryEntries, expectedStatusCounts) {
