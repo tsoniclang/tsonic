@@ -27,6 +27,7 @@ import { collectTargetSourceProfileContributions } from "./target/source-profile
 export interface CompileProjectInput {
   readonly project: TsonicProjectConfig;
   readonly projectFilePath: string;
+  readonly rootFiles?: readonly string[];
   readonly registry: TargetRegistry;
   readonly installedCapabilities?: readonly TargetCapabilityImplementation[];
 }

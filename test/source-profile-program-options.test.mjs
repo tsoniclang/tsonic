@@ -8,6 +8,51 @@ import { createProgramOptionsForProject } from "../packages/host/dist/index.js";
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/source-profile-program-options", `${Date.now()}-${process.pid}`);
 
+test("embedding input checks one exact explicit root-file set", async () => {
+  const projectDirectory = resolve(tempRoot, "explicit-root-files");
+  await mkdir(resolve(projectDirectory, "nested"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "entry.ts"), "export const entry = 1;\n", "utf8");
+  await writeFile(resolve(projectDirectory, "nested/additional.ts"), "export const additional = 2;\n", "utf8");
+  const project = {
+    entryPoint: "entry.ts",
+    rootDir: ".",
+    targets: [{ id: "test" }],
+  };
+  const created = createProgramOptionsForProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    rootFiles: ["nested/additional.ts", "entry.ts"],
+    sourceDeclarationPolicy: { bundledLibraries: ["lib.es2024.d.ts"] },
+  });
+  const compiler = createCompilerSession({ programOptions: created.programOptions });
+  const diagnostics = compiler.getDiagnostics("all").filter((diagnostic) => diagnostic !== undefined);
+  assert.deepEqual(diagnostics, [], formatDiagnostics(diagnostics, projectDirectory));
+  const source = compiler.checkSource();
+  const projectFiles = source.getSourceFiles()
+    .map((sourceFile) => sourceFile === undefined ? "" : source.ast.getFileName(sourceFile))
+    .filter((fileName) => fileName.startsWith(projectDirectory))
+    .sort();
+  assert.deepEqual(projectFiles, [
+    resolve(projectDirectory, "entry.ts"),
+    resolve(projectDirectory, "nested/additional.ts"),
+  ]);
+
+  for (const rootFiles of [
+    ["nested/additional.ts"],
+    ["entry.ts", "./entry.ts"],
+    ["entry.ts", "../outside.ts"],
+  ]) {
+    assert.throws(
+      () => createProgramOptionsForProject({
+        project,
+        projectFilePath: resolve(projectDirectory, "tsonic.json"),
+        rootFiles,
+      }),
+      /Explicit root file|Explicit rootFiles/u,
+    );
+  }
+});
+
 test("product program options use noLib and target-owned source-profile files", async () => {
   const projectDirectory = resolve(tempRoot, "nolib-profile");
   await mkdir(resolve(projectDirectory, "src"), { recursive: true });

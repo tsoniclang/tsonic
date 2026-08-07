@@ -8,7 +8,7 @@ import {
 import type { BundledLibrarySource, ProgramOptions } from "@tsonic/tsts";
 import type { TargetSourceDeclarationPolicy, TsonicProjectConfig } from "@tsonic/target-api";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import {
   appendInstalledDeclarationPackageFiles,
@@ -21,6 +21,7 @@ import { appendInstalledSourcePackageFiles } from "./source-package-inputs.js";
 export interface CreateProgramOptionsInput {
   readonly project: TsonicProjectConfig;
   readonly projectFilePath: string;
+  readonly rootFiles?: readonly string[];
   readonly sourceProfileFiles?: readonly {
     readonly path: string;
     readonly text: string;
@@ -48,6 +49,11 @@ export interface CreatedProgramOptions {
 
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
   const paths = resolveProjectPaths(input);
+  const rootFilePaths = resolveRootFilePaths(
+    paths.projectRoot,
+    paths.entryPointPath,
+    input.rootFiles,
+  );
   const projectFiles = collectProjectFiles(paths.projectRoot, paths.outputRoot);
   appendProjectPackageJson(paths.projectDirectory, projectFiles);
   appendInstalledSourcePackageFiles(paths.projectDirectory, projectFiles);
@@ -88,7 +94,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     ...(declarationPolicy.installedDeclarations === "package-contract" ? ["--types", "*"] : []),
     ...bundledLibraryPaths,
     ...(input.sourceProfileFiles ?? []).map((file) => file.path),
-    paths.entryPointPath,
+    ...rootFilePaths,
   ], host);
   if (parsed === undefined) {
     throw new Error("TSTS command-line parsing returned no project configuration.");
@@ -111,6 +117,45 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
       installedDeclarationSnapshot,
     ),
   };
+}
+
+function resolveRootFilePaths(
+  projectRoot: string,
+  entryPointPath: string,
+  rootFiles: readonly string[] | undefined,
+): readonly string[] {
+  if (rootFiles === undefined) {
+    return [entryPointPath];
+  }
+  if (rootFiles.length === 0) {
+    throw new Error("Explicit rootFiles must contain the configured entry point.");
+  }
+  const resolved = new Set<string>();
+  for (const rootFile of rootFiles) {
+    if (
+      typeof rootFile !== "string" ||
+      rootFile.length === 0 ||
+      isAbsolute(rootFile) ||
+      !/\.(?:mts|ts)$/u.test(rootFile) ||
+      /\.d\.(?:mts|ts)$/u.test(rootFile)
+    ) {
+      throw new Error(
+        `Explicit root file '${String(rootFile)}' must be a project-root-relative .ts or .mts source file.`,
+      );
+    }
+    const rootFilePath = resolve(projectRoot, rootFile);
+    if (!pathIsWithinOrEqual(projectRoot, rootFilePath)) {
+      throw new Error(`Explicit root file '${rootFile}' escapes the project root.`);
+    }
+    if (resolved.has(rootFilePath)) {
+      throw new Error(`Explicit root file '${rootFile}' is duplicated.`);
+    }
+    resolved.add(rootFilePath);
+  }
+  if (!resolved.has(entryPointPath)) {
+    throw new Error("Explicit rootFiles must contain the configured entry point.");
+  }
+  return [...resolved].sort();
 }
 
 function normalizeSourceDeclarationPolicy(policy: TargetSourceDeclarationPolicy | undefined): {
