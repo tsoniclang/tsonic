@@ -91,6 +91,11 @@ export const coreIntrinsicCoverage = Object.freeze([
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "field", factSlug: "field", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.field" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "attribute", factSlug: "attribute", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.attribute" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "defaultValue", factSlug: "default-value", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.default-value" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "addressOf", factSlug: "address-of", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.address-of" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "allocatePointer", factSlug: "allocate-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.allocate-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "loadPointer", factSlug: "load-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.load-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "storePointer", factSlug: "store-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.store-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "equalPointer", factSlug: "equal-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.equal-pointer" },
   { moduleSpecifier: coreTypesIntrinsicModuleSpecifier, exportName: "Pointer", factSlug: "pointer", sourceKind: "type-marker", capabilityId: "source-core.types.portable-intrinsics.pointer" },
   { moduleSpecifier: coreTypesIntrinsicModuleSpecifier, exportName: "FunctionPointer", factSlug: "function-pointer", sourceKind: "type-marker", capabilityId: "source-core.types.portable-intrinsics.function-pointer" },
 ].map(freezeCoreIntrinsicCoverageEntry));
@@ -546,6 +551,11 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.attribute", "attribute intrinsic attaches neutral attribute application facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.default-value", "defaultValue attaches neutral target-default value facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.address-of", "addressOf attaches exact writable-storage location facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.allocate-pointer", "allocatePointer attaches fresh typed-location facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.load-pointer", "loadPointer attaches exact typed-location read facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.store-pointer", "storePointer attaches exact typed-location write facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.equal-pointer", "equalPointer attaches exact typed-location identity-comparison facts", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics.pointer", "Pointer attaches neutral typed-location facts", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics.function-pointer", "FunctionPointer attaches neutral function-pointer type facts", "complete", "source-core-provider"],
   ...slice4SourceCoreContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("target.csharp.") ? "target-provider" : "source-core-provider"]),
@@ -2954,9 +2964,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
-      "import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue } from \"@tsonic/core/lang.js\";",
+      "import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue, addressOf, allocatePointer, loadPointer, storePointer, equalPointer } from \"@tsonic/core/lang.js\";",
       "writeOnlyRef(value); readWriteRef(value); readOnlyRef(value); sharedBorrow(value); mutableBorrow(value); move(value);",
       "const Point = struct({ x: field<int32>() }); const zero = defaultValue<int32>(); attribute<Point>().add(RouteAttribute);",
+      "const alias = addressOf(value); const fresh = allocatePointer<int32>(0); storePointer(alias, loadPointer(fresh)); equalPointer(alias, addressOf(value));",
     ]),
     tstsDecision:
       "TSTS checks ordinary imports/calls/types from @tsonic/core/lang.js; source-core attaches marker facts only from the provider-owned module identity.",
@@ -3018,7 +3029,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed proof: @tsonic/core/lang.js exports only the canonical call markers writeOnlyRef/readWriteRef/readOnlyRef/sharedBorrow/mutableBorrow/move/struct/field/attribute/defaultValue. Each export has one source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove provider-owned direct, aliased, and namespace facts; invalid arity and missing storage/type evidence fail closed; local and shadowed names do not acquire facts; and unsupported local barrel/export-star forms attach no portable facts. CLI and C# tests prove each selected target either maps the finalized neutral fact into a target-owned operation or rejects it deterministically.",
+      "Reviewed proof: @tsonic/core/lang.js exports only the canonical call markers writeOnlyRef/readWriteRef/readOnlyRef/sharedBorrow/mutableBorrow/move/struct/field/attribute/defaultValue/addressOf/allocatePointer/loadPointer/storePointer/equalPointer. Each export has one source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove provider-owned direct, aliased, and namespace facts; invalid arity and missing storage/type evidence fail closed; local and shadowed names do not acquire facts; and unsupported local barrel/export-star forms attach no portable facts. C# maps the five typed-location operations through its target-owned policy and closed runtime carrier; secondary targets reject them deterministically.",
   }),
   "source-core.types.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3524,6 +3535,217 @@ const reviewedCapabilityEvidence = Object.freeze({
     blockers: [],
     notes:
       "Reviewed proof: defaultValue<char>(), defaultValue<int32>(), namespace lang.defaultValue<bool>(), and aliased imports attach neutral default-value facts only from explicit source type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling functions do not attach facts. defaultValue() fails closed through direct, alias, namespace, and CLI paths. C# emits target default expressions only after converting finalized source facts to a C#-owned default-value model.",
+  }),
+  "source-core.lang.portable-intrinsics.address-of": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "addressOf",
+    factSlug: "address-of",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { addressOf } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 1; const pointer = addressOf(value);",
+    ],
+    sourceContract:
+      "Core owns addressOf(storage) as a portable typed-location operation over exact writable storage; targets own canonical location representation and identity.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "writableStorageDeclarationFact",
+      "pointerPointeeTypeFact",
+    ],
+    targetContract:
+      "Targets map finalized address-of facts to one exact location over the selected storage or emit a deterministic diagnostic before emission when that storage has no proven target location identity.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "writable-storage-declaration",
+      "target-location-identity-contract",
+    ],
+    staticOperation: "emit-target-location-address",
+    hardRejectReasons: [
+      "readonly-or-non-storage-expression",
+      "missing-storage-declaration",
+      "target-location-identity-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+    ],
+    oldEvidence: ["test/fixtures/pointer-types/"],
+    blockers: [],
+    notes:
+      "Reviewed proof: TSTS/source-core records the exact selected storage expression, declaration, source type, and pointee type for direct, aliased, and namespace imports; readonly and non-storage arguments diagnose before target emission, while local same-spelled functions receive no pointer fact. C# consumes only the finalized operation, assigns one identity per supported storage activation, evaluates receivers and indexes once, and fails closed for storage classes without exact canonical identity policy.",
+  }),
+  "source-core.lang.portable-intrinsics.allocate-pointer": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "allocatePointer",
+    factSlug: "allocate-pointer",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { allocatePointer } from \"@tsonic/core/lang.js\";",
+      "const pointer = allocatePointer<int32>(1);",
+    ],
+    sourceContract:
+      "Core owns allocatePointer<T>(initial) as a portable operation that creates one fresh typed location initialized from exact T evidence.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "pointerPointeeTypeFact",
+      "freshLocationFact",
+    ],
+    targetContract:
+      "Targets create a fresh target-owned location whose identity is distinct from every other allocation and whose value carrier is the finalized pointee type, or emit a deterministic diagnostic when no such target representation exists.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "fresh-location",
+      "target-location-representation-contract",
+    ],
+    staticOperation: "emit-target-location-allocation",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "initial-value-conversion-unproven",
+      "target-location-representation-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-python/test/marker-contract.test.mjs",
+    ],
+    oldEvidence: ["test/fixtures/pointer-types/"],
+    blockers: [],
+    notes:
+      "Reviewed proof: exact selected type arguments and initial-value evidence produce one allocate fact; C# lowers it to a closed reflection-free Location<T> allocation, independent allocations compare unequal, and unsupported targets reject the finalized operation rather than treating it as an ordinary call.",
+  }),
+  "source-core.lang.portable-intrinsics.load-pointer": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "loadPointer",
+    factSlug: "load-pointer",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { loadPointer } from \"@tsonic/core/lang.js\";",
+      "const value: int32 = loadPointer(pointer);",
+    ],
+    sourceContract:
+      "Core owns loadPointer<T>(pointer) as a portable read from the exact selected Pointer<T> location.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "pointerPointeeTypeFact",
+      "pointerOperandTypeFact",
+    ],
+    targetContract:
+      "Targets read the selected target-owned typed location and return its exact finalized pointee carrier without reconstructing T from names or context, or emit a deterministic diagnostic.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "pointer-operand-type",
+      "target-location-representation-contract",
+    ],
+    staticOperation: "emit-target-location-read",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "pointer-operand-mismatch",
+      "target-location-representation-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-gpu/test/marker-contract.test.mjs",
+    ],
+    oldEvidence: ["test/fixtures/pointer-types/"],
+    blockers: [],
+    notes:
+      "Reviewed proof: load facts retain the exact pointer operand and selected pointee/result types. C# reads its target-owned Location<T>; source and target layers contain no marker-name fallback, checker re-entry, or erased identity-call path.",
+  }),
+  "source-core.lang.portable-intrinsics.store-pointer": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "storePointer",
+    factSlug: "store-pointer",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { storePointer } from \"@tsonic/core/lang.js\";",
+      "storePointer(pointer, 2);",
+    ],
+    sourceContract:
+      "Core owns storePointer<T>(pointer,value) as a portable write through the exact selected Pointer<T> location after ordinary TypeScript checking proves T.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "pointerPointeeTypeFact",
+      "pointerValueTypeFact",
+    ],
+    targetContract:
+      "Targets convert the selected value to the finalized pointee carrier and update the target-owned location observed by every alias, or emit a deterministic diagnostic.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "pointer-value-type",
+      "target-location-representation-contract",
+    ],
+    staticOperation: "emit-target-location-write",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "pointer-value-conversion-unproven",
+      "target-location-representation-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-python/test/marker-contract.test.mjs",
+    ],
+    oldEvidence: ["test/fixtures/pointer-types/"],
+    blockers: [],
+    notes:
+      "Reviewed proof: store facts preserve exact pointer and value operands plus selected pointee/value types. C# updates the one closed location carrier so direct storage reads and all aliases observe the write; unsupported targets produce deterministic policy diagnostics.",
+  }),
+  "source-core.lang.portable-intrinsics.equal-pointer": coreIntrinsicEvidence({
+    moduleSpecifier: coreLangIntrinsicModuleSpecifier,
+    exportName: "equalPointer",
+    factSlug: "equal-pointer",
+    sourceKind: "call-marker",
+    sourceExamples: [
+      "import { equalPointer } from \"@tsonic/core/lang.js\";",
+      "const same = equalPointer(pointer, addressOf(value));",
+    ],
+    sourceContract:
+      "Core owns equalPointer<T>(left,right) as portable identity comparison for two Pointer<T> or undefined operands; it compares location identity, not current values or wrapper identity.",
+    providerFacts: [
+      "sourceCorePointerOperationFact",
+      "pointerPointeeTypeFact",
+      "pointerEqualityOperandFacts",
+    ],
+    targetContract:
+      "Targets compare canonical target-owned location identities, treat two undefined pointers as equal, and emit a deterministic diagnostic for mismatched or unrepresented operands before emission.",
+    targetRequiredFacts: [
+      "pointer-pointee-type",
+      "pointer-equality-operands",
+      "target-location-identity-contract",
+    ],
+    staticOperation: "emit-target-location-identity-comparison",
+    hardRejectReasons: [
+      "missing-pointer-pointee-type",
+      "pointer-equality-operand-mismatch",
+      "target-location-identity-unavailable",
+    ],
+    positiveTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+      "../proof-is-in-the-pudding/bcl/packages/hello-world/src/App.ts",
+    ],
+    negativeTests: [
+      "packages/source-core/src/source-extension.test.ts",
+      "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
+    ],
+    oldEvidence: ["test/fixtures/pointer-types/"],
+    blockers: [],
+    notes:
+      "Reviewed proof: equality facts retain both exact selected operands and the selected pointee type. C# canonicalizes local, parameter, static, receiver/member, nested value-member, array/index, fresh-allocation, and undefined identity without reflection or name inference; arbitrary provider/project indexers reject until exact identity policy exists.",
   }),
   "source-core.types.portable-intrinsics.pointer": coreIntrinsicEvidence({
     moduleSpecifier: coreTypesIntrinsicModuleSpecifier,

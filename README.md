@@ -95,12 +95,14 @@ catalog:
 | Fresh location | `allocatePointer<T>(initial)` |
 | Location read | `loadPointer(pointer)` |
 | Location write | `storePointer(pointer, value)` |
+| Location identity | `equalPointer(left, right)` |
 
 For example:
 
 ```ts
 import {
   addressOf,
+  equalPointer,
   loadPointer,
   storePointer,
 } from "@tsonic/core/lang.js";
@@ -111,7 +113,9 @@ export function increment(pointer: Pointer<int32>): void {
 }
 
 let value: int32 = 1;
-increment(addressOf(value));
+const pointer = addressOf(value);
+increment(pointer);
+const stillTheSameLocation = equalPointer(pointer, addressOf(value));
 ```
 
 TSTS records the exact selected typed-location operations. Each target first
