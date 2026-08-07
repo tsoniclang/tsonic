@@ -6,8 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   capabilityCompatRuntimeCarriers,
   capabilitySurfaceEvidenceGateNames,
-  coreLangIntrinsicCoverage,
-  coreLangIntrinsicModuleSpecifier,
+  coreIntrinsicCoverage,
   capabilityLaneNames,
   capabilityIdSet,
   capabilityLedger,
@@ -466,11 +465,11 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "provider.module.no-file-backed-fallback",
     "provider.module.missing-provider-diagnostic",
     "source.primitive.configured-type",
-    "source-core.out.storage-binding",
-    "source-core.ref.parameter-mode",
+    "source-core.write-only-reference.storage-binding",
+    "source-core.reference.parameter-mode",
     "source-core.struct.field-facts",
     "source-core.lang.portable-intrinsics",
-    ...coreLangIntrinsicCoverage.map((entry) => entry.capabilityId),
+    ...coreIntrinsicCoverage.map((entry) => entry.capabilityId),
     "operation.call.provider-selected-method",
     "operation.call.provider-argument-conversion",
     "operation.call.provider-parameter-mode",
@@ -556,25 +555,25 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     assert.equal(capabilityIdSet.has(capabilityId), true, `missing required capability ${capabilityId}`);
   }
 });
-test("core lang intrinsic child capabilities define portable source contracts", () => {
+test("core intrinsic child capabilities define portable source contracts", () => {
   const expectedExports = [
-    "out",
-    "ref",
-    "inref",
-    "borrow",
-    "borrowMut",
+    "writeOnlyRef",
+    "readWriteRef",
+    "readOnlyRef",
+    "sharedBorrow",
+    "mutableBorrow",
     "move",
     "struct",
     "field",
     "attribute",
-    "defaultof",
-    "ptr",
-    "fnptr",
+    "defaultValue",
+    "Pointer",
+    "FunctionPointer",
   ];
-  assert.deepEqual(coreLangIntrinsicCoverage.map((entry) => entry.exportName), expectedExports);
+  assert.deepEqual(coreIntrinsicCoverage.map((entry) => entry.exportName), expectedExports);
 
   const entriesByCapabilityId = new Map(capabilityLedger.map((entry) => [entry.capabilityId, entry]));
-  for (const intrinsic of coreLangIntrinsicCoverage) {
+  for (const intrinsic of coreIntrinsicCoverage) {
     const entry = entriesByCapabilityId.get(intrinsic.capabilityId);
     assert.notEqual(entry, undefined, `missing core intrinsic capability ${intrinsic.capabilityId}`);
     assert.ok(
@@ -582,7 +581,7 @@ test("core lang intrinsic child capabilities define portable source contracts", 
       `${intrinsic.capabilityId} must be partial or complete`,
     );
     assert.equal(entry.owner, "source-core-provider", intrinsic.capabilityId);
-    assert.equal(entry.coreIntrinsic.moduleSpecifier, coreLangIntrinsicModuleSpecifier, intrinsic.capabilityId);
+    assert.equal(entry.coreIntrinsic.moduleSpecifier, intrinsic.moduleSpecifier, intrinsic.capabilityId);
     assert.equal(entry.coreIntrinsic.exportName, intrinsic.exportName, intrinsic.capabilityId);
     assert.equal(entry.coreIntrinsic.factSlug, intrinsic.factSlug, intrinsic.capabilityId);
     assert.equal(entry.coreIntrinsic.sourceKind, intrinsic.sourceKind, intrinsic.capabilityId);
@@ -608,7 +607,7 @@ test("core lang intrinsic child capabilities define portable source contracts", 
 });
 test("capability ledger validator rejects incomplete core intrinsic metadata", () => {
   const entry = capabilityLedger.find((candidate) =>
-    candidate.capabilityId === "source-core.lang.portable-intrinsics.out"
+    candidate.capabilityId === "source-core.lang.portable-intrinsics.write-only-ref"
   );
   assert.notEqual(entry, undefined);
 
@@ -623,7 +622,7 @@ test("capability ledger validator rejects incomplete core intrinsic metadata", (
         ...entry.coreIntrinsic,
         moduleSpecifier: "@tsonic/csharp/lang.js",
       },
-    }).includes(`coreIntrinsic.moduleSpecifier must be ${coreLangIntrinsicModuleSpecifier}`),
+    }).includes(`coreIntrinsic.moduleSpecifier must be ${entry.coreIntrinsic.moduleSpecifier}`),
   );
   assert.ok(
     validateCapabilityLedgerEntry({

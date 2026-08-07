@@ -130,6 +130,42 @@ const forbiddenNeutralMarkerCatalogPatterns = Object.freeze([
   },
 ]);
 
+const neutralMarkerScanIgnoredDirectories = new Set([
+  ".analysis",
+  ".git",
+  ".temp",
+  ".tests",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+]);
+
+const neutralMarkerScanExtensions = Object.freeze([
+  ".cjs",
+  ".cts",
+  ".js",
+  ".md",
+  ".mjs",
+  ".mts",
+  ".ts",
+  ".tsx",
+]);
+
+const retiredNeutralExportsByModule = new Map([
+  ["@tsonic/core/lang.js", new Set([
+    "borrow",
+    "borrowMut",
+    "defaultof",
+    "fnptr",
+    "inref",
+    "out",
+    "ptr",
+    "ref",
+  ])],
+  ["@tsonic/core/types.js", new Set(["fnptr", "ptr"])],
+]);
+
 test("product compiler source stays ESM-only and native-compilable", async () => {
   const failures = [];
   for (const sourceFile of await productSourceFiles()) {
@@ -430,6 +466,36 @@ test("architecture validator rejects retired neutral marker spellings", () => {
   );
 });
 
+test("source tests fixtures and documentation do not import retired neutral markers", async () => {
+  const failures = [];
+  for (const sourceFile of await neutralMarkerContractFiles()) {
+    if (repoRelative(sourceFile) === "test/architecture-contract.test.mjs") {
+      continue;
+    }
+    const text = await readFile(sourceFile, "utf8");
+    failures.push(...retiredNeutralImportFailures(repoRelative(sourceFile), text));
+  }
+
+  assert.deepEqual(failures, []);
+});
+
+test("architecture validator rejects retired neutral marker imports", () => {
+  assert.deepEqual(
+    retiredNeutralImportFailures(
+      "example.ts",
+      [
+        'import { out as writeOnly, defaultof } from "@tsonic/core/lang.js";',
+        'export type { ptr } from "@tsonic/core/types.js";',
+      ].join("\n"),
+    ),
+    [
+      "example.ts: retired neutral export 'out' from @tsonic/core/lang.js",
+      "example.ts: retired neutral export 'defaultof' from @tsonic/core/lang.js",
+      "example.ts: retired neutral export 'ptr' from @tsonic/core/types.js",
+    ],
+  );
+});
+
 function isBannedProductFileName(sourceFile) {
   return bannedProductFileNames.includes(basename(sourceFile));
 }
@@ -489,6 +555,26 @@ function neutralMarkerCatalogFailures(text) {
     .map((forbidden) => forbidden.name);
 }
 
+function retiredNeutralImportFailures(relativePath, text) {
+  const failures = [];
+  const normalizedText = text.replaceAll('\\"', '"').replaceAll("\\'", "'");
+  const namedImportPattern = /\b(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["'](@tsonic\/core\/(?:lang|types)\.js)["']/gu;
+  for (const match of normalizedText.matchAll(namedImportPattern)) {
+    const importedNames = match[1]
+      .split(",")
+      .map((specifier) => specifier.trim().replace(/^type\s+/u, "").split(/\s+as\s+/u)[0])
+      .filter((name) => name.length > 0);
+    const moduleSpecifier = match[2];
+    const retiredExports = retiredNeutralExportsByModule.get(moduleSpecifier);
+    for (const importedName of importedNames) {
+      if (retiredExports?.has(importedName) === true) {
+        failures.push(`${relativePath}: retired neutral export '${importedName}' from ${moduleSpecifier}`);
+      }
+    }
+  }
+  return failures;
+}
+
 function isAllowedProductDependency(name) {
   return name.startsWith("@tsonic/");
 }
@@ -499,6 +585,28 @@ async function productSourceFiles() {
     await collectSourceFiles(join(repoRoot, sourceRoot), files);
   }
   return files.sort();
+}
+
+async function neutralMarkerContractFiles() {
+  const files = [];
+  await collectNeutralMarkerContractFiles(repoRoot, files);
+  return files.sort();
+}
+
+async function collectNeutralMarkerContractFiles(directory, files) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!neutralMarkerScanIgnoredDirectories.has(entry.name)) {
+        await collectNeutralMarkerContractFiles(path, files);
+      }
+      continue;
+    }
+    if (!entry.isFile() || !neutralMarkerScanExtensions.some((extension) => entry.name.endsWith(extension))) {
+      continue;
+    }
+    files.push(path);
+  }
 }
 
 async function collectSourceFiles(directory, files) {

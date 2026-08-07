@@ -757,15 +757,16 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
   ], [
     "backend.ast.only",
     "backend.fail-closed-facts",
-    "source-core.contract.fnptr-type-marker-evidence",
-    "source-core.contract.ptr-type-marker-evidence",
+    "source-core.types.portable-intrinsics",
+    "source-core.contract.function-pointer-type-marker-evidence",
+    "source-core.contract.pointer-type-marker-evidence",
     "source-core.contract.type-marker-shadowing",
     "source.marker.field",
-    "source.marker.contract.ptr-fnptr-facts",
-    "source.marker.ptr-fnptr",
+    "source.marker.contract.typed-location-function-pointer-facts",
+    "source.marker.typed-location-function-pointer",
     "source.marker.struct",
     "source.primitive.numeric",
-    "target.csharp.core-lang.ptr-fnptr-rendering",
+    "target.csharp.typed-location-function-pointer-lowering",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
     sourceCase("structs/basic/Point"),
@@ -1012,8 +1013,8 @@ const oldEmitterLedgerEvidenceCapabilityIdsByOldPath = new Map([
   ], [
     "diagnostic.unsupported-target-operation",
     "native.dotnet.unsupported-diagnostics",
-    "source-core.lang.portable-intrinsics.fnptr",
-    "source-core.lang.portable-intrinsics.ptr",
+    "source-core.types.portable-intrinsics.function-pointer",
+    "source-core.types.portable-intrinsics.pointer",
   ]),
   ...oldEmitterLedgerEvidenceCapabilityMapping([
     sourceCase("arrays/multidimensional/MultiDimensional"),
@@ -1378,7 +1379,7 @@ function defaultOldEmitterCapabilityIds(entry) {
     ids.add("type.variadic-tuple");
   }
   if (oldPath.includes("PointerTypes")) {
-    ids.add("source.marker.ptr-fnptr");
+    ids.add("source.marker.typed-location-function-pointer");
   }
   if (oldPath.includes("StackAlloc")) {
     ids.add("native.dotnet.parameter-modes");

@@ -269,7 +269,7 @@ test("CLI resolves TypeScript aliases through TSTS semantics before C# type rend
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeAliases.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI emits pointer signatures from finalized source pointer facts", async () => {
+test("CLI emits typed-location signatures from finalized source pointer facts", async () => {
   const projectDirectory = resolve(tempRoot, "pointer-source-semantics");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -287,12 +287,12 @@ test("CLI emits pointer signatures from finalized source pointer facts", async (
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { ptr } from \"@tsonic/core/lang.js\";",
+      "import type { Pointer } from \"@tsonic/core/types.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
-      "export function accept(value: ptr<int32>): void {}",
+      "export function accept(value: Pointer<int32>): void {}",
       "",
-      "export function accept2(value: ptr<ptr<int32>>): void {}",
+      "export function accept2(value: Pointer<Pointer<int32>>): void {}",
       "",
     ].join("\n"),
   });
@@ -301,13 +301,13 @@ test("CLI emits pointer signatures from finalized source pointer facts", async (
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public unsafe static class Index/);
-  assert.match(generatedSource, /public static void accept\(int\* value\)/);
-  assert.match(generatedSource, /public static void accept2\(int\*\* value\)/);
+  assert.match(generatedSource, /public static class Index/);
+  assert.match(generatedSource, /public static void accept\(Tsonic\.CSharp\.Runtime\.Location<int> value\)/);
+  assert.match(generatedSource, /public static void accept2\(Tsonic\.CSharp\.Runtime\.Location<Tsonic\.CSharp\.Runtime\.Location<int>> value\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedPointerFacts.csproj"), "utf8");
-  assert.match(generatedProject, /<AllowUnsafeBlocks>true<\/AllowUnsafeBlocks>/);
+  assert.doesNotMatch(generatedProject, /<AllowUnsafeBlocks>true<\/AllowUnsafeBlocks>/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointerFacts.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -441,7 +441,7 @@ test("CLI keeps neutral and C# source semantics in separate virtual modules", as
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { struct as neutralStruct, field, defaultof as neutralDefaultof } from \"@tsonic/core/lang.js\";",
+      "import { struct as neutralStruct, field, defaultValue as neutralDefaultValue } from \"@tsonic/core/lang.js\";",
       "import { struct, attribute, defaultof } from \"@tsonic/csharp/lang.js\";",
       "",
       "export function smoke(): number {",
