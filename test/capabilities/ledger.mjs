@@ -105,6 +105,20 @@ const coreIntrinsicCoverageByCapabilityId = new Map(
 );
 const coreIntrinsicSourceKindSet = new Set(["call-marker", "type-marker"]);
 const coreIntrinsicUnsupportedTargetBehaviorSet = new Set(["deterministic-diagnostic"]);
+const pointerOperationOldEvidenceAbsence = Object.freeze({
+  status: "reviewed-none-found",
+  reviewedInventories: Object.freeze([
+    "old fixture inventory",
+    "old C# emitter inventory",
+    "old product unit inventory",
+  ]),
+  searchEvidence: Object.freeze([
+    "the historical pointer-types fixture declares ptr<T> and ptr<ptr<T>> parameters but contains no address, allocation, load, store, or pointer-identity operation",
+    "the old emitter and product-unit inventories contain pointer type rendering but no typed-location operation contract",
+  ]),
+  reviewerNotes:
+    "The portable typed-location operations are new final-architecture contracts. Historical pointer evidence remains mapped only to Pointer and function-pointer type capabilities; current positive and negative tests prove each operation.",
+});
 const slice4DotnetProviderContractPositiveTests = Object.freeze([
   "../tsonic-csharp/test/dotnet-provider-contract.test.mjs",
   "../tsonic-csharp/test/dotnet-provider.test.mjs",
@@ -3573,7 +3587,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
     ],
-    oldEvidence: ["test/fixtures/pointer-types/"],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
     blockers: [],
     notes:
       "Reviewed proof: TSTS/source-core records the exact selected storage expression, declaration, source type, and pointee type for direct, aliased, and namespace imports; readonly and non-storage arguments diagnose before target emission, while local same-spelled functions receive no pointer fact. C# consumes only the finalized operation, assigns one identity per supported storage activation, evaluates receivers and indexes once, and fails closed for storage classes without exact canonical identity policy.",
@@ -3615,7 +3630,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-python/test/marker-contract.test.mjs",
     ],
-    oldEvidence: ["test/fixtures/pointer-types/"],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
     blockers: [],
     notes:
       "Reviewed proof: exact selected type arguments and initial-value evidence produce one allocate fact; C# lowers it to a closed reflection-free Location<T> allocation, independent allocations compare unequal, and unsupported targets reject the finalized operation rather than treating it as an ordinary call.",
@@ -3657,7 +3673,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-gpu/test/marker-contract.test.mjs",
     ],
-    oldEvidence: ["test/fixtures/pointer-types/"],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
     blockers: [],
     notes:
       "Reviewed proof: load facts retain the exact pointer operand and selected pointee/result types. C# reads its target-owned Location<T>; source and target layers contain no marker-name fallback, checker re-entry, or erased identity-call path.",
@@ -3699,7 +3716,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-python/test/marker-contract.test.mjs",
     ],
-    oldEvidence: ["test/fixtures/pointer-types/"],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
     blockers: [],
     notes:
       "Reviewed proof: store facts preserve exact pointer and value operands plus selected pointee/value types. C# updates the one closed location carrier so direct storage reads and all aliases observe the write; unsupported targets produce deterministic policy diagnostics.",
@@ -3742,7 +3760,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/source-extension.test.ts",
       "../tsonic-csharp/test/direct-translation-pointer-operations.test.mjs",
     ],
-    oldEvidence: ["test/fixtures/pointer-types/"],
+    oldEvidence: [],
+    oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,
     blockers: [],
     notes:
       "Reviewed proof: equality facts retain both exact selected operands and the selected pointee type. C# canonicalizes local, parameter, static, receiver/member, nested value-member, array/index, fresh-allocation, and undefined identity without reflection or name inference; arbitrary provider/project indexers reject until exact identity policy exists.",
@@ -10108,6 +10127,7 @@ function coreIntrinsicEvidence({
   positiveTests,
   negativeTests,
   oldEvidence,
+  oldEvidenceAbsence,
   blockers,
   notes,
 }) {
@@ -10140,6 +10160,7 @@ function coreIntrinsicEvidence({
     positiveTests: Object.freeze([...positiveTests]),
     negativeTests: Object.freeze([...negativeTests]),
     oldEvidence: Object.freeze([...oldEvidence]),
+    ...(oldEvidenceAbsence === undefined ? {} : { oldEvidenceAbsence }),
     blockers: Object.freeze([...blockers]),
     coreIntrinsic: freezeCoreIntrinsicContract({
       moduleSpecifier,
