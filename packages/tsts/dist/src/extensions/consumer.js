@@ -1,4 +1,4 @@
-import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
+import { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 export class SourceFactQueries {
     #host;
     constructor(host) {
@@ -33,6 +33,12 @@ export class SourceFactQueries {
     }
     getPointerOperation(subject) {
         return this.getFact(subject, pointerOperationFactKey);
+    }
+    getRawPointer(subject) {
+        return this.getFact(subject, rawPointerFactKey);
+    }
+    getRawPointerOperation(subject) {
+        return this.getFact(subject, rawPointerOperationFactKey);
     }
     getStruct(subject) {
         return this.getFact(subject, structFactKey);

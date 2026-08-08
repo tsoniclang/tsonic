@@ -45,6 +45,9 @@ export const tsonicSourceMarkerSignatureIds = Object.freeze({
   bindPointer: "bindPointer<T>(identity,read,write)",
   projectPointer: "projectPointer<F,T>(pointer,fromSource,toSource)",
   projectOptionalPointer: "projectPointer<F,T>(pointer?,fromSource,toSource)",
+  bindRawPointer: "bindRawPointer(identity)",
+  equalRawPointer: "equalRawPointer(left,right)",
+  hashRawPointer: "hashRawPointer(pointer)",
 });
 
 export function providerExportDeclarationsForSourceModule(sourceModule: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
@@ -81,6 +84,15 @@ function providerExportDeclarationForSourceSemantics(declaration: SourceSemantic
 }
 
 export function providerTypeMarkerDeclaration(exportName: string, marker: SourceTypeMarkerKind): ProviderExportDeclaration {
+  if (marker === "raw-pointer") {
+    const brand = { kind: "literal" as const, value: "RawPointer" };
+    return {
+      id: exportName,
+      name: exportName,
+      kind: "interface",
+      members: [sourceTypeBrandMember(exportName, brand, brand)],
+    };
+  }
   if (marker === "pointer") {
     const pointee = { kind: "type-parameter" as const, name: "T" };
     return {
@@ -147,6 +159,10 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
     case "bind-pointer":
     case "project-pointer":
       return pointerOperationDeclaration(exportName, marker, typeParameter);
+    case "bind-raw-pointer":
+    case "equal-raw-pointer":
+    case "hash-raw-pointer":
+      return rawPointerOperationDeclaration(exportName, marker);
     case "attribute":
       return {
         id: exportName,
@@ -165,6 +181,52 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
         }],
       };
   }
+}
+
+function rawPointerOperationDeclaration(
+  exportName: string,
+  marker: Extract<SourceCallMarkerKind, "bind-raw-pointer" | "equal-raw-pointer" | "hash-raw-pointer">,
+): ProviderExportDeclaration {
+  const rawPointer: ProviderTypeExpression = {
+    kind: "provider-ref",
+    moduleSpecifier: tsonicCoreTypesModule,
+    exportName: "RawPointer",
+  };
+  const optionalRawPointer: ProviderTypeExpression = {
+    kind: "union",
+    types: [rawPointer, { kind: "undefined" }],
+  };
+  const signature = (() => {
+    switch (marker) {
+      case "bind-raw-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.bindRawPointer,
+          parameters: [{ name: "identity", type: { kind: "object" as const } }],
+          returnType: rawPointer,
+        };
+      case "equal-raw-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.equalRawPointer,
+          parameters: [
+            { name: "left", type: optionalRawPointer },
+            { name: "right", type: optionalRawPointer },
+          ],
+          returnType: { kind: "boolean" as const },
+        };
+      case "hash-raw-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.hashRawPointer,
+          parameters: [{ name: "pointer", type: optionalRawPointer }],
+          returnType: { kind: "number" as const },
+        };
+    }
+  })();
+  return {
+    id: exportName,
+    name: exportName,
+    kind: "function",
+    signatures: [signature],
+  };
 }
 
 function pointerOperationDeclaration(

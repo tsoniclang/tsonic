@@ -3,7 +3,7 @@ import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/as
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
 import { KindArrayBindingPattern, KindCallExpression, KindExportDeclaration, KindIdentifier, KindImportDeclaration, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindObjectBindingPattern, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSourceFileOfNode, GetSymbolId, IsFunctionLike, IsLeftHandSideExpression } from "../internal/ast/utilities.js";
-import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
+import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
 export const sourceSemanticsExtensionId = "tsts.source-semantics";
 function createSourceSemanticsModules(modules) {
@@ -246,6 +246,11 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
         case "project-pointer":
             recordPointerOperation(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, evidence);
             return;
+        case "bind-raw-pointer":
+        case "equal-raw-pointer":
+        case "hash-raw-pointer":
+            recordRawPointerOperation(facts, callExpression, callInfo, marker, evidence);
+            return;
     }
 }
 function hasMarkerArgumentCount(callExpression, count) {
@@ -475,6 +480,60 @@ function exactSourceCallArgument(callInfo, index, expectedCount) {
         ? callInfo.sourceArguments[index]
         : undefined;
 }
+function recordRawPointerOperation(facts, callExpression, callInfo, marker, evidence) {
+    if (callInfo.sourceSelectedSignatureKind !== "resolved") {
+        return;
+    }
+    switch (marker.marker) {
+        case "bind-raw-pointer": {
+            const identity = exactSourceCallArgument(callInfo, 0, 1);
+            if (identity === undefined) {
+                return;
+            }
+            facts.set(callExpression, rawPointerOperationFactKey, {
+                operation: marker.marker,
+                call: callExpression,
+                resultType: callInfo.sourceResultType,
+                identityExpression: identity.expression,
+                identityType: identity.type,
+            }, evidence);
+            return;
+        }
+        case "equal-raw-pointer": {
+            const left = exactSourceCallArgument(callInfo, 0, 2);
+            const right = exactSourceCallArgument(callInfo, 1, 2);
+            if (left === undefined || right === undefined) {
+                return;
+            }
+            facts.set(callExpression, rawPointerOperationFactKey, {
+                operation: marker.marker,
+                call: callExpression,
+                resultType: callInfo.sourceResultType,
+                leftExpression: left.expression,
+                leftType: left.type,
+                rightExpression: right.expression,
+                rightType: right.type,
+            }, evidence);
+            return;
+        }
+        case "hash-raw-pointer": {
+            const pointer = exactSourceCallArgument(callInfo, 0, 1);
+            if (pointer === undefined) {
+                return;
+            }
+            facts.set(callExpression, rawPointerOperationFactKey, {
+                operation: marker.marker,
+                call: callExpression,
+                resultType: callInfo.sourceResultType,
+                pointerExpression: pointer.expression,
+                pointerType: pointer.type,
+            }, evidence);
+            return;
+        }
+        default:
+            return;
+    }
+}
 function recordArgumentPassingMarker(facts, diagnostics, extensionId, callExpression, target, marker, evidence) {
     const fact = {
         mode: getArgumentPassingMode(marker.marker),
@@ -664,6 +723,15 @@ function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerI
 function recordSourceSemanticsTypeMarker(facts, typeReference, typeName, marker) {
     const typeArguments = Node_TypeArguments(typeReference) ?? [];
     const evidence = createMarkerEvidence(marker.exportName);
+    if (marker.marker === "raw-pointer") {
+        if (typeArguments.length !== 0) {
+            return;
+        }
+        const fact = { representation: "opaque-identity" };
+        facts.set(typeReference, rawPointerFactKey, fact, evidence);
+        facts.set(typeName, rawPointerFactKey, fact, evidence);
+        return;
+    }
     if (marker.marker === "pointer") {
         if (typeArguments.length !== 1) {
             return;

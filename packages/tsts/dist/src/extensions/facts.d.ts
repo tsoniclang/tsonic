@@ -37,6 +37,9 @@ export interface PointerFact {
     readonly pointee: Node;
     readonly mutability: SourcePointerMutability;
 }
+export interface RawPointerFact {
+    readonly representation: "opaque-identity";
+}
 interface PointerOperationFactBase {
     readonly call: Node;
     readonly pointeeType: Type;
@@ -94,6 +97,25 @@ export type PointerOperationFact = PointerOperationFactBase & ({
     readonly fromSourceType: Type;
     readonly toSourceExpression: Node;
     readonly toSourceType: Type;
+});
+interface RawPointerOperationFactBase {
+    readonly call: Node;
+    readonly resultType: Type;
+}
+export type RawPointerOperationFact = RawPointerOperationFactBase & ({
+    readonly operation: "bind-raw-pointer";
+    readonly identityExpression: Node;
+    readonly identityType: Type;
+} | {
+    readonly operation: "equal-raw-pointer";
+    readonly leftExpression: Node;
+    readonly leftType: Type;
+    readonly rightExpression: Node;
+    readonly rightType: Type;
+} | {
+    readonly operation: "hash-raw-pointer";
+    readonly pointerExpression: Node;
+    readonly pointerType: Type;
 });
 export interface StructFact {
     readonly valueType: boolean;
@@ -163,6 +185,8 @@ export declare const argumentPassingFactKey: import("./fact-key.js").ExtensionFa
 export declare const functionPointerFactKey: import("./fact-key.js").ExtensionFactKey<FunctionPointerFact>;
 export declare const pointerFactKey: import("./fact-key.js").ExtensionFactKey<PointerFact>;
 export declare const pointerOperationFactKey: import("./fact-key.js").ExtensionFactKey<PointerOperationFact>;
+export declare const rawPointerFactKey: import("./fact-key.js").ExtensionFactKey<RawPointerFact>;
+export declare const rawPointerOperationFactKey: import("./fact-key.js").ExtensionFactKey<RawPointerOperationFact>;
 export declare const structFactKey: import("./fact-key.js").ExtensionFactKey<StructFact>;
 export declare const fieldFactKey: import("./fact-key.js").ExtensionFactKey<FieldFact>;
 export declare const attributeFactKey: import("./fact-key.js").ExtensionFactKey<AttributeFact>;

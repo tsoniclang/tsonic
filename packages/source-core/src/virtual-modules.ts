@@ -28,7 +28,10 @@ export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvi
       return module.moduleSpecifier === tsonicCoreLangModule
         ? [{
             moduleSpecifier: tsonicCoreTypesModule,
-            namedImports: [{ exportedName: "Pointer", kind: "type" }],
+            namedImports: [
+              { exportedName: "Pointer", kind: "type" },
+              { exportedName: "RawPointer", kind: "type" },
+            ],
             typeOnly: true,
           }]
         : [];

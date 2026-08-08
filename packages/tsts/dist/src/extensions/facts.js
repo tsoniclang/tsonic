@@ -43,6 +43,18 @@ export const pointerOperationFactKey = markHostSourceReadableFactKey(defineExten
     snapshot: snapshotPointerOperationFact,
     equals: pointerOperationFactEquals,
 }));
+export const rawPointerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "rawPointer",
+    snapshot: snapshotRawPointerFact,
+    equals: (left, right) => left.representation === right.representation,
+}));
+export const rawPointerOperationFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "rawPointerOperation",
+    snapshot: snapshotRawPointerOperationFact,
+    equals: rawPointerOperationFactEquals,
+}));
 export const structFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "struct",
@@ -188,6 +200,66 @@ function snapshotPointerFact(value) {
         pointee: requiredNode(record, "pointee", "PointerFact"),
         mutability,
     });
+}
+function snapshotRawPointerFact(value) {
+    const record = exactRecord(value, "RawPointerFact", ["representation"]);
+    const representation = requiredString(record, "representation", "RawPointerFact");
+    if (representation !== "opaque-identity") {
+        throw new Error(`RawPointerFact.representation '${representation}' is invalid.`);
+    }
+    return Object.freeze({ representation });
+}
+function snapshotRawPointerOperationFact(value) {
+    const operation = requiredRawPointerOperation(value);
+    const commonFields = ["operation", "call", "resultType"];
+    switch (operation) {
+        case "bind-raw-pointer": {
+            const record = exactRecord(value, "RawPointerOperationFact", [
+                ...commonFields,
+                "identityExpression",
+                "identityType",
+            ]);
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "RawPointerOperationFact"),
+                resultType: requiredCompilerType(record, "resultType", "RawPointerOperationFact"),
+                identityExpression: requiredNode(record, "identityExpression", "RawPointerOperationFact"),
+                identityType: requiredCompilerType(record, "identityType", "RawPointerOperationFact"),
+            });
+        }
+        case "equal-raw-pointer": {
+            const record = exactRecord(value, "RawPointerOperationFact", [
+                ...commonFields,
+                "leftExpression",
+                "leftType",
+                "rightExpression",
+                "rightType",
+            ]);
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "RawPointerOperationFact"),
+                resultType: requiredCompilerType(record, "resultType", "RawPointerOperationFact"),
+                leftExpression: requiredNode(record, "leftExpression", "RawPointerOperationFact"),
+                leftType: requiredCompilerType(record, "leftType", "RawPointerOperationFact"),
+                rightExpression: requiredNode(record, "rightExpression", "RawPointerOperationFact"),
+                rightType: requiredCompilerType(record, "rightType", "RawPointerOperationFact"),
+            });
+        }
+        case "hash-raw-pointer": {
+            const record = exactRecord(value, "RawPointerOperationFact", [
+                ...commonFields,
+                "pointerExpression",
+                "pointerType",
+            ]);
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "RawPointerOperationFact"),
+                resultType: requiredCompilerType(record, "resultType", "RawPointerOperationFact"),
+                pointerExpression: requiredNode(record, "pointerExpression", "RawPointerOperationFact"),
+                pointerType: requiredCompilerType(record, "pointerType", "RawPointerOperationFact"),
+            });
+        }
+    }
 }
 function snapshotPointerOperationFact(value) {
     const operation = requiredPointerOperation(value);
@@ -615,6 +687,29 @@ function pointerOperationFactEquals(left, right) {
                 && left.toSourceType === right.toSourceType;
     }
 }
+function rawPointerOperationFactEquals(left, right) {
+    if (left.operation !== right.operation
+        || left.call !== right.call
+        || left.resultType !== right.resultType) {
+        return false;
+    }
+    switch (left.operation) {
+        case "bind-raw-pointer":
+            return right.operation === "bind-raw-pointer"
+                && left.identityExpression === right.identityExpression
+                && left.identityType === right.identityType;
+        case "equal-raw-pointer":
+            return right.operation === "equal-raw-pointer"
+                && left.leftExpression === right.leftExpression
+                && left.leftType === right.leftType
+                && left.rightExpression === right.rightExpression
+                && left.rightType === right.rightType;
+        case "hash-raw-pointer":
+            return right.operation === "hash-raw-pointer"
+                && left.pointerExpression === right.pointerExpression
+                && left.pointerType === right.pointerType;
+    }
+}
 function optionalFieldArrayEquals(left, right) {
     return left === undefined
         ? right === undefined
@@ -752,6 +847,21 @@ function requiredPointerOperation(value) {
         && operation !== "bind-pointer"
         && operation !== "project-pointer") {
         throw new Error(`PointerOperationFact.operation '${String(operation)}' is invalid.`);
+    }
+    return operation;
+}
+function requiredRawPointerOperation(value) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        throw new Error("RawPointerOperationFact must be an object.");
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, "operation");
+    const operation = descriptor !== undefined && "value" in descriptor
+        ? descriptor.value
+        : undefined;
+    if (operation !== "bind-raw-pointer"
+        && operation !== "equal-raw-pointer"
+        && operation !== "hash-raw-pointer") {
+        throw new Error(`RawPointerOperationFact.operation '${String(operation)}' is invalid.`);
     }
     return operation;
 }
