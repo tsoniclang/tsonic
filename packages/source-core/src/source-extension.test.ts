@@ -79,6 +79,8 @@ const expectedSourceCoreLangIntrinsics = [
   { kind: "call-marker", exportName: "loadPointer", marker: "load" },
   { kind: "call-marker", exportName: "storePointer", marker: "store" },
   { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
+  { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
+  { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
 ] as const;
 
 const expectedSourceCoreTypeMarkers = [
@@ -1036,7 +1038,7 @@ test("source-core records FunctionPointer tuple and scalar parameter facts", () 
 
 test("source-core exposes exact typed pointer operation facts without spelling inference", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { addressOf as takeAddress, allocatePointer, equalPointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
+    import { addressOf as takeAddress, allocatePointer, equalPointer, hashPointer, loadPointer, projectPointer, storePointer } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
     import type { int32 } from "@tsonic/core/types.js";
     import { equalPointer as localEqualPointer, loadPointer as localLoadPointer } from "./local.js";
@@ -1048,6 +1050,8 @@ test("source-core exposes exact typed pointer operation facts without spelling i
     storePointer(owned, first);
     const equal = equalPointer(borrowed, borrowed);
     const nilEqual = equalPointer<int32>(undefined, undefined);
+    const hash = hashPointer(borrowed);
+    const projected = projectPointer<int32, int32>(borrowed, value => value, value => value);
     const second = lang.loadPointer(owned);
     localLoadPointer(owned);
     localEqualPointer(owned, owned);
@@ -1078,6 +1082,8 @@ export function equalPointer<T>(left: T, right: T): boolean { return left === ri
   assert.equal(equal?.operation, "equal-pointer");
   const nilEqual = getSourceFact(session, callExpression(session, sourceFile, "equalPointer", 1), pointerOperationFactKey);
   assert.equal(nilEqual?.operation, "equal-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashPointer"), pointerOperationFactKey)?.operation, "hash-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "projectPointer"), pointerOperationFactKey)?.operation, "project-pointer");
 
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.loadPointer"), pointerOperationFactKey)?.operation, "load");
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localLoadPointer"), pointerOperationFactKey), undefined);
