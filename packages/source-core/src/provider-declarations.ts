@@ -41,6 +41,10 @@ export const tsonicSourceMarkerSignatureIds = Object.freeze({
   loadPointer: "loadPointer<T>(pointer)",
   storePointer: "storePointer<T>(pointer,value)",
   equalPointer: "equalPointer<T>(left,right)",
+  hashPointer: "hashPointer<T>(pointer)",
+  bindPointer: "bindPointer<T>(identity,read,write)",
+  projectPointer: "projectPointer<F,T>(pointer,fromSource,toSource)",
+  projectOptionalPointer: "projectPointer<F,T>(pointer?,fromSource,toSource)",
 });
 
 export function providerExportDeclarationsForSourceModule(sourceModule: SourceSemanticsModule): readonly ProviderExportDeclaration[] {
@@ -139,6 +143,9 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
     case "load":
     case "store":
     case "equal-pointer":
+    case "hash-pointer":
+    case "bind-pointer":
+    case "project-pointer":
       return pointerOperationDeclaration(exportName, marker, typeParameter);
     case "attribute":
       return {
@@ -162,7 +169,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
 
 function pointerOperationDeclaration(
   exportName: string,
-  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store" | "equal-pointer">,
+  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer">,
   pointee: ProviderTypeExpression,
 ): ProviderExportDeclaration {
   const pointer: ProviderTypeExpression = {
@@ -175,12 +182,18 @@ function pointerOperationDeclaration(
     kind: "union",
     types: [pointer, { kind: "undefined" }],
   };
+  if (marker === "project-pointer") {
+    return pointerProjectionDeclaration(exportName, pointee);
+  }
   const signature = (() => {
     switch (marker) {
       case "address-of":
         return {
           id: tsonicSourceMarkerSignatureIds.addressOf,
-          parameters: [{ name: "storage", type: pointee }],
+          parameters: [{
+            name: "storage",
+            type: { kind: "union" as const, types: [pointee, { kind: "undefined" as const }] },
+          }],
           returnType: pointer,
         };
       case "allocate":
@@ -213,6 +226,38 @@ function pointerOperationDeclaration(
           ],
           returnType: { kind: "boolean" as const },
         };
+      case "hash-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.hashPointer,
+          parameters: [{ name: "pointer", type: optionalPointer }],
+          returnType: { kind: "number" as const },
+        };
+      case "bind-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.bindPointer,
+          parameters: [
+            { name: "identity", type: { kind: "object" as const } },
+            {
+              name: "read",
+              type: {
+                kind: "function" as const,
+                id: `${exportName}.read`,
+                parameters: [],
+                returnType: pointee,
+              },
+            },
+            {
+              name: "write",
+              type: {
+                kind: "function" as const,
+                id: `${exportName}.write`,
+                parameters: [{ name: "value", type: pointee }],
+                returnType: { kind: "void" as const },
+              },
+            },
+          ],
+          returnType: pointer,
+        };
     }
   })();
   return {
@@ -223,6 +268,78 @@ function pointerOperationDeclaration(
       ...signature,
       typeParameters: [{ name: "T" }],
     }],
+  };
+}
+
+function pointerProjectionDeclaration(
+  exportName: string,
+  targetPointee: ProviderTypeExpression,
+): ProviderExportDeclaration {
+  const sourcePointee = { kind: "type-parameter" as const, name: "F" };
+  const sourcePointer: ProviderTypeExpression = {
+    kind: "provider-ref",
+    moduleSpecifier: tsonicCoreTypesModule,
+    exportName: "Pointer",
+    typeArguments: [sourcePointee],
+  };
+  const targetPointer: ProviderTypeExpression = {
+    kind: "provider-ref",
+    moduleSpecifier: tsonicCoreTypesModule,
+    exportName: "Pointer",
+    typeArguments: [targetPointee],
+  };
+  const parameters = (
+    pointer: ProviderTypeExpression,
+    identity: string,
+  ): readonly ProviderParameterDeclaration[] => [
+    { name: "pointer", type: pointer },
+    {
+      name: "fromSource",
+      type: {
+        kind: "function",
+        id: `${exportName}.${identity}.fromSource`,
+        parameters: [{ name: "value", type: sourcePointee }],
+        returnType: targetPointee,
+      },
+    },
+    {
+      name: "toSource",
+      type: {
+        kind: "function",
+        id: `${exportName}.${identity}.toSource`,
+        parameters: [{ name: "value", type: targetPointee }],
+        returnType: sourcePointee,
+      },
+    },
+  ];
+  const typeParameters = [{ name: "F" }, { name: "T" }];
+  return {
+    id: exportName,
+    name: exportName,
+    kind: "function",
+    signatures: [
+      {
+        id: tsonicSourceMarkerSignatureIds.projectPointer,
+        typeParameters,
+        parameters: parameters(sourcePointer, "defined"),
+        returnType: targetPointer,
+      },
+      {
+        id: tsonicSourceMarkerSignatureIds.projectOptionalPointer,
+        typeParameters,
+        parameters: parameters(
+          {
+            kind: "union",
+            types: [sourcePointer, { kind: "undefined" }],
+          },
+          "optional",
+        ),
+        returnType: {
+          kind: "union",
+          types: [targetPointer, { kind: "undefined" }],
+        },
+      },
+    ],
   };
 }
 
