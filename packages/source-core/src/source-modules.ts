@@ -52,6 +52,7 @@ const callMarkerDeclarations = [
   { kind: "call-marker", exportName: "storePointer", marker: "store" },
   { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
   { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
+  { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
   { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
 ] satisfies SourceSemanticsModule["exports"];
 

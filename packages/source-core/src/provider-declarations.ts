@@ -42,6 +42,7 @@ export const tsonicSourceMarkerSignatureIds = Object.freeze({
   storePointer: "storePointer<T>(pointer,value)",
   equalPointer: "equalPointer<T>(left,right)",
   hashPointer: "hashPointer<T>(pointer)",
+  bindPointer: "bindPointer<T>(identity,read,write)",
   projectPointer: "projectPointer<F,T>(pointer,fromSource,toSource)",
   projectOptionalPointer: "projectPointer<F,T>(pointer?,fromSource,toSource)",
 });
@@ -143,6 +144,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
     case "store":
     case "equal-pointer":
     case "hash-pointer":
+    case "bind-pointer":
     case "project-pointer":
       return pointerOperationDeclaration(exportName, marker, typeParameter);
     case "attribute":
@@ -167,7 +169,7 @@ export function providerCallMarkerDeclaration(exportName: string, marker: Source
 
 function pointerOperationDeclaration(
   exportName: string,
-  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "project-pointer">,
+  marker: Extract<SourceCallMarkerKind, "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer">,
   pointee: ProviderTypeExpression,
 ): ProviderExportDeclaration {
   const pointer: ProviderTypeExpression = {
@@ -229,6 +231,32 @@ function pointerOperationDeclaration(
           id: tsonicSourceMarkerSignatureIds.hashPointer,
           parameters: [{ name: "pointer", type: optionalPointer }],
           returnType: { kind: "number" as const },
+        };
+      case "bind-pointer":
+        return {
+          id: tsonicSourceMarkerSignatureIds.bindPointer,
+          parameters: [
+            { name: "identity", type: { kind: "object" as const } },
+            {
+              name: "read",
+              type: {
+                kind: "function" as const,
+                id: `${exportName}.read`,
+                parameters: [],
+                returnType: pointee,
+              },
+            },
+            {
+              name: "write",
+              type: {
+                kind: "function" as const,
+                id: `${exportName}.write`,
+                parameters: [{ name: "value", type: pointee }],
+                returnType: { kind: "void" as const },
+              },
+            },
+          ],
+          returnType: pointer,
         };
     }
   })();

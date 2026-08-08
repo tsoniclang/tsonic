@@ -76,6 +76,15 @@ export type PointerOperationFact = PointerOperationFactBase & ({
     readonly pointerExpression: Node;
     readonly pointerType: Type;
 } | {
+    readonly operation: "bind-pointer";
+    readonly identityExpression: Node;
+    readonly identityType: Type;
+    readonly readExpression: Node;
+    readonly readType: Type;
+    readonly writeExpression: Node;
+    readonly writeType: Type;
+    readonly locationIdentity: Node;
+} | {
     readonly operation: "project-pointer";
     readonly sourcePointeeType: Type;
     readonly explicitSourcePointeeTypeNode?: Node;

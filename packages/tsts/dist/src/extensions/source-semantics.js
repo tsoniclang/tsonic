@@ -242,6 +242,7 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
         case "store":
         case "equal-pointer":
         case "hash-pointer":
+        case "bind-pointer":
         case "project-pointer":
             recordPointerOperation(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, evidence);
             return;
@@ -406,6 +407,30 @@ function recordPointerOperation(facts, diagnostics, extensionId, checker, callEx
                 resultType: callInfo.sourceResultType,
                 pointerExpression: pointer.expression,
                 pointerType: pointer.type,
+            };
+            facts.set(callExpression, pointerOperationFactKey, fact, evidence);
+            return;
+        }
+        case "bind-pointer": {
+            const identity = exactSourceCallArgument(callInfo, 0, 3);
+            const read = exactSourceCallArgument(callInfo, 1, 3);
+            const write = exactSourceCallArgument(callInfo, 2, 3);
+            if (identity === undefined || read === undefined || write === undefined) {
+                return;
+            }
+            const fact = {
+                operation: "bind-pointer",
+                call: callExpression,
+                pointeeType,
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: callInfo.sourceResultType,
+                identityExpression: identity.expression,
+                identityType: identity.type,
+                readExpression: read.expression,
+                readType: read.type,
+                writeExpression: write.expression,
+                writeType: write.type,
+                locationIdentity: identity.expression,
             };
             facts.set(callExpression, pointerOperationFactKey, fact, evidence);
             return;

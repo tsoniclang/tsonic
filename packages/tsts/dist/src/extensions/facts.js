@@ -319,6 +319,33 @@ function snapshotPointerOperationFact(value) {
                 pointerType: requiredCompilerType(record, "pointerType", "PointerOperationFact"),
             });
         }
+        case "bind-pointer": {
+            const record = exactRecord(value, "PointerOperationFact", [
+                ...commonFields,
+                "identityExpression",
+                "identityType",
+                "readExpression",
+                "readType",
+                "writeExpression",
+                "writeType",
+                "locationIdentity",
+            ]);
+            const explicitPointeeTypeNode = optionalNode(record, "explicitPointeeTypeNode", "PointerOperationFact");
+            return Object.freeze({
+                operation,
+                call: requiredNode(record, "call", "PointerOperationFact"),
+                pointeeType: requiredCompilerType(record, "pointeeType", "PointerOperationFact"),
+                ...(explicitPointeeTypeNode === undefined ? {} : { explicitPointeeTypeNode }),
+                resultType: requiredCompilerType(record, "resultType", "PointerOperationFact"),
+                identityExpression: requiredNode(record, "identityExpression", "PointerOperationFact"),
+                identityType: requiredCompilerType(record, "identityType", "PointerOperationFact"),
+                readExpression: requiredNode(record, "readExpression", "PointerOperationFact"),
+                readType: requiredCompilerType(record, "readType", "PointerOperationFact"),
+                writeExpression: requiredNode(record, "writeExpression", "PointerOperationFact"),
+                writeType: requiredCompilerType(record, "writeType", "PointerOperationFact"),
+                locationIdentity: requiredNode(record, "locationIdentity", "PointerOperationFact"),
+            });
+        }
         case "project-pointer": {
             const record = exactRecord(value, "PointerOperationFact", [
                 ...commonFields,
@@ -567,6 +594,15 @@ function pointerOperationFactEquals(left, right) {
             return right.operation === "hash-pointer"
                 && left.pointerExpression === right.pointerExpression
                 && left.pointerType === right.pointerType;
+        case "bind-pointer":
+            return right.operation === "bind-pointer"
+                && left.identityExpression === right.identityExpression
+                && left.identityType === right.identityType
+                && left.readExpression === right.readExpression
+                && left.readType === right.readType
+                && left.writeExpression === right.writeExpression
+                && left.writeType === right.writeType
+                && left.locationIdentity === right.locationIdentity;
         case "project-pointer":
             return right.operation === "project-pointer"
                 && left.sourcePointeeType === right.sourcePointeeType
@@ -713,6 +749,7 @@ function requiredPointerOperation(value) {
         && operation !== "store"
         && operation !== "equal-pointer"
         && operation !== "hash-pointer"
+        && operation !== "bind-pointer"
         && operation !== "project-pointer") {
         throw new Error(`PointerOperationFact.operation '${String(operation)}' is invalid.`);
     }

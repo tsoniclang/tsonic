@@ -21,7 +21,7 @@ export interface SourcePrimitiveDeclaration extends Omit<SourcePrimitiveFact, "k
     readonly exportName: string;
     readonly primitive: SourcePrimitiveKind;
 }
-export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "project-pointer";
+export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer";
 export interface SourceCallMarkerDeclaration {
     readonly kind: "call-marker";
     readonly exportName: string;

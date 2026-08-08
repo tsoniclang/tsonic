@@ -80,6 +80,7 @@ const expectedSourceCoreLangIntrinsics = [
   { kind: "call-marker", exportName: "storePointer", marker: "store" },
   { kind: "call-marker", exportName: "equalPointer", marker: "equal-pointer" },
   { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
+  { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
   { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
 ] as const;
 
@@ -1038,10 +1039,10 @@ test("source-core records FunctionPointer tuple and scalar parameter facts", () 
 
 test("source-core exposes exact typed pointer operation facts without spelling inference", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { addressOf as takeAddress, allocatePointer, equalPointer, hashPointer, loadPointer, projectPointer, storePointer } from "@tsonic/core/lang.js";
+    import { addressOf as takeAddress, allocatePointer, bindPointer, equalPointer, hashPointer, loadPointer, projectPointer, storePointer } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
     import type { int32 } from "@tsonic/core/types.js";
-    import { equalPointer as localEqualPointer, loadPointer as localLoadPointer } from "./local.js";
+    import { bindPointer as localBindPointer, equalPointer as localEqualPointer, loadPointer as localLoadPointer } from "./local.js";
 
     let value: int32 = 1;
     const borrowed = takeAddress(value);
@@ -1051,13 +1052,17 @@ test("source-core exposes exact typed pointer operation facts without spelling i
     const equal = equalPointer(borrowed, borrowed);
     const nilEqual = equalPointer<int32>(undefined, undefined);
     const hash = hashPointer(borrowed);
+    const storage = { value };
+    const bound = bindPointer<int32>(storage, () => storage.value, next => { storage.value = next; });
+    localBindPointer(storage, () => storage.value, next => { storage.value = next; });
     const projected = projectPointer<int32, int32>(borrowed, value => value, value => value);
     const second = lang.loadPointer(owned);
     localLoadPointer(owned);
     localEqualPointer(owned, owned);
   `, {
     "/src/local.ts": `export function loadPointer<T>(pointer: T): T { return pointer; }
-export function equalPointer<T>(left: T, right: T): boolean { return left === right; }`,
+export function equalPointer<T>(left: T, right: T): boolean { return left === right; }
+export function bindPointer<T>(_identity: object, read: () => T, _write: (value: T) => void): T { return read(); }`,
   });
 
   const address = getSourceFact(session, callExpression(session, sourceFile, "takeAddress"), pointerOperationFactKey);
@@ -1082,12 +1087,16 @@ export function equalPointer<T>(left: T, right: T): boolean { return left === ri
   assert.equal(equal?.operation, "equal-pointer");
   const nilEqual = getSourceFact(session, callExpression(session, sourceFile, "equalPointer", 1), pointerOperationFactKey);
   assert.equal(nilEqual?.operation, "equal-pointer");
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashPointer"), pointerOperationFactKey)?.operation, "hash-pointer");
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "projectPointer"), pointerOperationFactKey)?.operation, "project-pointer");
+    assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashPointer"), pointerOperationFactKey)?.operation, "hash-pointer");
+  const bound = getSourceFact(session, callExpression(session, sourceFile, "bindPointer"), pointerOperationFactKey);
+  assert.equal(bound?.operation, "bind-pointer");
+  assert.equal(bound?.operation === "bind-pointer" ? bound.locationIdentity : undefined, bound?.operation === "bind-pointer" ? bound.identityExpression : undefined);
+    assert.equal(getSourceFact(session, callExpression(session, sourceFile, "projectPointer"), pointerOperationFactKey)?.operation, "project-pointer");
 
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.loadPointer"), pointerOperationFactKey)?.operation, "load");
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localLoadPointer"), pointerOperationFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localEqualPointer"), pointerOperationFactKey), undefined);
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBindPointer"), pointerOperationFactKey), undefined);
 });
 
 test("source-core does not attach type marker facts to shadowed generic type names", () => {
