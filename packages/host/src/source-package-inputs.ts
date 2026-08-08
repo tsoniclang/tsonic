@@ -37,7 +37,7 @@ function appendSourcePackageDependency(
   visitedPackageRoots.add(packageRoot);
   const packageJsonPath = join(packageRoot, "package.json");
   const packageJson = readPackageJson(packageJsonPath);
-  if (!hasCompilerSourceExport(packageJson)) {
+  if (!hasCompilerSourceExport(packageRoot, packageJson)) {
     return;
   }
   files.set(normalizePackagePath(packageJsonPath), readFileSync(packageJsonPath, "utf8"));

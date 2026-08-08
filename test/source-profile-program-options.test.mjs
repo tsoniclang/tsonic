@@ -114,7 +114,7 @@ test("product program options resolve hoisted source packages and their source d
     name: "@demo/domain",
     type: "module",
     exports: {
-      "./index.js": "./src/index.ts",
+      "./index.js": "./src/index.js",
       "./package.json": "./package.json",
     },
     dependencies: {
@@ -130,7 +130,7 @@ test("product program options resolve hoisted source packages and their source d
     name: "@demo/math",
     type: "module",
     exports: {
-      "./index.js": "./src/index.ts",
+      "./index.js": "./src/index.js",
       "./package.json": "./package.json",
     },
   }), "utf8");

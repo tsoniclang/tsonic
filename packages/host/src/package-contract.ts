@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type PackageJson = Readonly<Record<string, unknown>>;
 
@@ -57,10 +57,10 @@ export function readDependencyNames(
   return [...names].sort();
 }
 
-export function hasCompilerSourceExport(packageJson: PackageJson): boolean {
-  return hasCompilerSourceTarget(packageJson.exports) ||
-    hasCompilerSourceTarget(packageJson.main) ||
-    hasCompilerSourceTarget(packageJson.module);
+export function hasCompilerSourceExport(packageRoot: string, packageJson: PackageJson): boolean {
+  return hasCompilerSourceTarget(packageRoot, packageJson.exports) ||
+    hasCompilerSourceTarget(packageRoot, packageJson.main) ||
+    hasCompilerSourceTarget(packageRoot, packageJson.module);
 }
 
 export function isCompilerSourceFile(name: string): boolean {
@@ -75,17 +75,44 @@ export function normalizePackagePath(path: string): string {
   return path.split("\\").join("/");
 }
 
-function hasCompilerSourceTarget(value: unknown): boolean {
+function hasCompilerSourceTarget(packageRoot: string, value: unknown): boolean {
   if (typeof value === "string") {
-    return isCompilerSourceFile(value);
+    return compilerSourceTargetCandidates(value).some((candidate) => {
+      const candidatePath = resolve(packageRoot, candidate);
+      const packageRelativePath = relative(packageRoot, candidatePath);
+      return packageRelativePath !== "" &&
+        !isAbsolute(packageRelativePath) &&
+        packageRelativePath !== ".." &&
+        !packageRelativePath.startsWith(`..${sep}`) &&
+        existsSync(candidatePath);
+    });
   }
   if (Array.isArray(value)) {
-    return value.some(hasCompilerSourceTarget);
+    return value.some((entry) => hasCompilerSourceTarget(packageRoot, entry));
   }
   if (!isRecord(value)) {
     return false;
   }
-  return Object.values(value).some(hasCompilerSourceTarget);
+  return Object.values(value).some((entry) => hasCompilerSourceTarget(packageRoot, entry));
+}
+
+function compilerSourceTargetCandidates(target: string): readonly string[] {
+  if (isCompilerSourceFile(target)) {
+    return [target];
+  }
+  if (target.endsWith(".js")) {
+    return [`${target.slice(0, -3)}.ts`, `${target.slice(0, -3)}.tsx`];
+  }
+  if (target.endsWith(".mjs")) {
+    return [`${target.slice(0, -4)}.mts`];
+  }
+  if (target.endsWith(".cjs")) {
+    return [`${target.slice(0, -4)}.cts`];
+  }
+  if (target.endsWith(".jsx")) {
+    return [`${target.slice(0, -4)}.tsx`];
+  }
+  return [];
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
