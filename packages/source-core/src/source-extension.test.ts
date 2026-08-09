@@ -13,6 +13,8 @@ import {
   functionPointerFactKey,
   pointerFactKey,
   pointerOperationFactKey,
+  rawPointerFactKey,
+  rawPointerOperationFactKey,
   sourcePrimitiveFactKey,
   structFactKey,
 } from "@tsonic/tsts";
@@ -82,10 +84,14 @@ const expectedSourceCoreLangIntrinsics = [
   { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
   { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
   { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
+  { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
+  { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
+  { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
 ] as const;
 
 const expectedSourceCoreTypeMarkers = [
   { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
+  { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
   { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
 ] as const;
 
@@ -1097,6 +1103,34 @@ export function bindPointer<T>(_identity: object, read: () => T, _write: (value:
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localLoadPointer"), pointerOperationFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localEqualPointer"), pointerOperationFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBindPointer"), pointerOperationFactKey), undefined);
+});
+
+test("source-core exposes opaque raw-pointer identity facts without spelling inference", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import type { RawPointer } from "@tsonic/core/types.js";
+    import { bindRawPointer, equalRawPointer, hashRawPointer } from "@tsonic/core/lang.js";
+    import * as lang from "@tsonic/core/lang.js";
+    import { bindRawPointer as localBindRawPointer } from "./local.js";
+
+    type Address = RawPointer;
+    const identity = {};
+    const first = bindRawPointer(identity); const second = lang.bindRawPointer(identity);
+    const equal = equalRawPointer(first, second);
+    const hash = hashRawPointer(first);
+    localBindRawPointer(identity);
+  `, {
+    "/src/local.ts": "export function bindRawPointer(identity: object): object { return identity; }",
+  });
+
+  assert.equal(
+    getSourceFact(session, typeAliasType(session, sourceFile, "Address"), rawPointerFactKey)?.representation,
+    "opaque-identity",
+  );
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "bindRawPointer"), rawPointerOperationFactKey)?.operation, "bind-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.bindRawPointer"), rawPointerOperationFactKey)?.operation, "bind-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "equalRawPointer"), rawPointerOperationFactKey)?.operation, "equal-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashRawPointer"), rawPointerOperationFactKey)?.operation, "hash-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBindRawPointer"), rawPointerOperationFactKey), undefined);
 });
 
 test("source-core does not attach type marker facts to shadowed generic type names", () => {

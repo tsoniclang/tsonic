@@ -32,6 +32,7 @@ const primitiveDeclarations = [
 
 const typeMarkerDeclarations = [
   { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
+  { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
   { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
 ] satisfies SourceSemanticsModule["exports"];
 
@@ -54,6 +55,9 @@ const callMarkerDeclarations = [
   { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
   { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
   { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
+  { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
+  { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
+  { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
 ] satisfies SourceSemanticsModule["exports"];
 
 export function tsonicCoreSourceSemanticsModules(): readonly SourceSemanticsModule[] {

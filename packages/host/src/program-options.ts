@@ -41,6 +41,7 @@ export interface SourceDeclarationSnapshot {
 export interface CreatedProgramOptions {
   readonly programOptions: ProgramOptions;
   readonly entryPointPath: string;
+  readonly rootFilePaths: readonly string[];
   readonly projectRoot: string;
   readonly outputRoot: string;
   readonly sourceDeclarationSnapshot: SourceDeclarationSnapshot;
@@ -88,7 +89,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     ...(declarationPolicy.installedDeclarations === "package-contract" ? ["--types", "*"] : []),
     ...bundledLibraryPaths,
     ...(input.sourceProfileFiles ?? []).map((file) => file.path),
-    paths.entryPointPath,
+    ...paths.rootFilePaths,
   ], host);
   if (parsed === undefined) {
     throw new Error("TSTS command-line parsing returned no project configuration.");
@@ -103,6 +104,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
       Config: parsed,
     },
     entryPointPath: paths.entryPointPath,
+    rootFilePaths: paths.rootFilePaths,
     projectRoot: paths.projectRoot,
     outputRoot: paths.outputRoot,
     sourceDeclarationSnapshot: createSourceDeclarationSnapshot(

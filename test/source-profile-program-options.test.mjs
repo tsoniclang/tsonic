@@ -3,7 +3,7 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { createCompilerSession, formatDiagnostics } from "@tsonic/tsts";
-import { createProgramOptionsForProject } from "../packages/host/dist/index.js";
+import { createProgramOptionsForProject, parseTsonicProjectConfig } from "../packages/host/dist/index.js";
 
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/source-profile-program-options", `${Date.now()}-${process.pid}`);
@@ -89,6 +89,85 @@ test("product program options accept relative .ts imports without loading TS def
   assert.equal(fileNames.some((fileName) => /\/lib\..*\.d\.ts$/u.test(fileName)), false, `bundled TypeScript lib leaked into product program: ${fileNames.join("\n")}`);
 });
 
+test("product program options retain the exact configured root-file set", async () => {
+  const projectDirectory = resolve(tempRoot, "explicit-root-files");
+  await mkdir(resolve(projectDirectory, "src"), { recursive: true });
+  await writeFile(resolve(projectDirectory, "src/index.ts"), "export const reachable = 1;\n", "utf8");
+  await writeFile(resolve(projectDirectory, "src/unreferenced.ts"), "export const retained = 2;\n", "utf8");
+  const project = {
+    entryPoint: "index.ts",
+    rootFiles: ["index.ts", "unreferenced.ts"],
+    rootDir: "src",
+    targets: [{ id: "csharp" }],
+  };
+  const sourceProfilePath = resolve(projectDirectory, "src/.tsonic/source-profiles/test/profile.d.ts").split("\\").join("/");
+  const created = createProgramOptionsForProject({
+    project,
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    sourceProfileFiles: [{ path: sourceProfilePath, text: minimalNoLibProfile() }],
+  });
+  assert.deepEqual(created.rootFilePaths, [
+    resolve(projectDirectory, "src/index.ts"),
+    resolve(projectDirectory, "src/unreferenced.ts"),
+  ]);
+  const source = createCompilerSession({ programOptions: created.programOptions }).checkSource();
+  const fileNames = source.getSourceFiles().map((sourceFile) => source.ast.getFileName(sourceFile));
+  assert.ok(fileNames.includes(resolve(projectDirectory, "src/index.ts").split("\\").join("/")));
+  assert.ok(fileNames.includes(resolve(projectDirectory, "src/unreferenced.ts").split("\\").join("/")));
+});
+
+test("project config admits one explicit root-file set and rejects ambiguous sets", () => {
+  assert.deepEqual(parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    rootFiles: ["index.ts", "unreferenced.ts"],
+    targets: [{ id: "csharp" }],
+  }).rootFiles, ["index.ts", "unreferenced.ts"]);
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      rootFiles: ["other.ts"],
+      targets: [{ id: "csharp" }],
+    }),
+    /rootFiles must contain entryPoint 'index\.ts'/u,
+  );
+  assert.throws(
+    () => parseTsonicProjectConfig({
+      entryPoint: "index.ts",
+      rootFiles: ["index.ts", "index.ts"],
+      targets: [{ id: "csharp" }],
+    }),
+    /root file 'index\.ts' is declared more than once/u,
+  );
+});
+
+test("product program options reject root sets that omit or alias the entry point", () => {
+  const projectFilePath = resolve(tempRoot, "invalid-root-files/tsonic.json");
+  assert.throws(
+    () => createProgramOptionsForProject({
+      project: {
+        entryPoint: "index.ts",
+        rootFiles: ["other.ts"],
+        rootDir: "src",
+        targets: [{ id: "csharp" }],
+      },
+      projectFilePath,
+    }),
+    /rootFiles must contain the resolved entryPoint/u,
+  );
+  assert.throws(
+    () => createProgramOptionsForProject({
+      project: {
+        entryPoint: "index.ts",
+        rootFiles: ["index.ts", "nested\/..\/index.ts"],
+        rootDir: "src",
+        targets: [{ id: "csharp" }],
+      },
+      projectFilePath,
+    }),
+    /rootFiles must resolve to distinct source paths/u,
+  );
+});
+
 test("product program options resolve hoisted source packages and their source dependencies", async () => {
   const workspaceDirectory = resolve(tempRoot, "hoisted-source-packages");
   const projectDirectory = resolve(workspaceDirectory, "packages/app");
@@ -114,7 +193,7 @@ test("product program options resolve hoisted source packages and their source d
     name: "@demo/domain",
     type: "module",
     exports: {
-      "./index.js": "./src/index.ts",
+      "./index.js": "./src/index.js",
       "./package.json": "./package.json",
     },
     dependencies: {
@@ -130,7 +209,7 @@ test("product program options resolve hoisted source packages and their source d
     name: "@demo/math",
     type: "module",
     exports: {
-      "./index.js": "./src/index.ts",
+      "./index.js": "./src/index.js",
       "./package.json": "./package.json",
     },
   }), "utf8");

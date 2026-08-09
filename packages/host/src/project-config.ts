@@ -10,8 +10,10 @@ export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
   if (!isSupportedEntryPoint(entryPoint)) {
     throw new Error("Project config entryPoint must use a final ESM TypeScript source extension: .ts or .mts.");
   }
+  const rootFiles = readOptionalRootFiles(value, entryPoint);
   return {
     entryPoint,
+    ...(rootFiles !== undefined ? { rootFiles } : {}),
     ...(readOptionalString(value, "rootDir") !== undefined ? { rootDir: readOptionalString(value, "rootDir") } : {}),
     ...(readOptionalString(value, "outDir") !== undefined ? { outDir: readOptionalString(value, "outDir") } : {}),
     targets: readTargets(value.targets),
@@ -51,7 +53,7 @@ function readTargets(value: unknown): readonly TargetSelection[] {
 
 function rejectUnknownProjectConfigKeys(value: Readonly<Record<string, unknown>>): void {
   rejectUnsupportedCompilerConfigKeys(value);
-  rejectUnknownKeys(value, new Set(["$schema", "entryPoint", "rootDir", "outDir", "targets"]), "Project config");
+  rejectUnknownKeys(value, new Set(["$schema", "entryPoint", "rootFiles", "rootDir", "outDir", "targets"]), "Project config");
 }
 
 function rejectUnsupportedCompilerConfigKeys(value: Readonly<Record<string, unknown>>): void {
@@ -93,6 +95,34 @@ function readOptionalString(value: Readonly<Record<string, unknown>>, key: strin
     throw new Error(`Project config field '${key}' must be a non-empty string.`);
   }
   return field;
+}
+
+function readOptionalRootFiles(
+  value: Readonly<Record<string, unknown>>,
+  entryPoint: string,
+): readonly string[] | undefined {
+  const field = value.rootFiles;
+  if (field === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(field) || field.length === 0) {
+    throw new Error("Project config rootFiles must be a non-empty array of final ESM TypeScript source paths.");
+  }
+  const seen = new Set<string>();
+  const rootFiles = field.map((rootFile, index) => {
+    if (typeof rootFile !== "string" || !isSupportedEntryPoint(rootFile)) {
+      throw new Error(`Project config rootFiles[${index}] must use a final ESM TypeScript source extension: .ts or .mts.`);
+    }
+    if (seen.has(rootFile)) {
+      throw new Error(`Project config root file '${rootFile}' is declared more than once.`);
+    }
+    seen.add(rootFile);
+    return rootFile;
+  });
+  if (!seen.has(entryPoint)) {
+    throw new Error(`Project config rootFiles must contain entryPoint '${entryPoint}'.`);
+  }
+  return Object.freeze(rootFiles);
 }
 
 function readOptionalSurfaces(value: Readonly<Record<string, unknown>>, targetId: string): readonly string[] | undefined {
