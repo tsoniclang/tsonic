@@ -11,7 +11,7 @@ import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } 
 import { createProviderRenderedFunctionSignature, hasUniqueProviderCallableIdentities, renderProviderFunctionSignatureMarker, } from "./provider-callable-signatures.js";
 import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
-import { providerAncillaryDataLimits, providerDeclarationClosureLimits, providerDeclarationModelLimits } from "./provider-resource-limits.js";
+import { providerAncillaryDataLimits, providerDeclarationClosureLimits, providerDeclarationModelLimits, providerModuleContextLimits, } from "./provider-resource-limits.js";
 import { getProviderMaterializationRound, } from "./provider-materialization.js";
 import { hasAttachedExtensionHost, lookupAttachedExtensionHost, registerAttachedExtensionHost, } from "./host-attachment.js";
 export const ExtensionHostDiagnosticCode = {
@@ -3538,15 +3538,15 @@ function snapshotProviderModuleContext(context) {
     let physicalNodeAndCollectionEntryCount = 1;
     const countString = (value, path) => {
         scalarCodeUnits += value.length;
-        if (!Number.isSafeInteger(scalarCodeUnits) || scalarCodeUnits > providerAncillaryDataLimits.maxTotalScalarCodeUnits) {
-            throw new Error(`${path} exceeds the total provider string limit of ${providerAncillaryDataLimits.maxTotalScalarCodeUnits} UTF-16 code units`);
+        if (!Number.isSafeInteger(scalarCodeUnits) || scalarCodeUnits > providerModuleContextLimits.maxTotalScalarCodeUnits) {
+            throw new Error(`${path} exceeds the total provider module-context string limit of ${providerModuleContextLimits.maxTotalScalarCodeUnits} UTF-16 code units`);
         }
     };
     const countPhysicalResources = (count, path) => {
         physicalNodeAndCollectionEntryCount += count;
         if (!Number.isSafeInteger(physicalNodeAndCollectionEntryCount)
-            || physicalNodeAndCollectionEntryCount > providerAncillaryDataLimits.maxTotalEntries) {
-            throw new Error(`${path} exceeds the total provider entry limit of ${providerAncillaryDataLimits.maxTotalEntries}`);
+            || physicalNodeAndCollectionEntryCount > providerModuleContextLimits.maxTotalEntries) {
+            throw new Error(`${path} exceeds the total provider module-context entry limit of ${providerModuleContextLimits.maxTotalEntries}`);
         }
     };
     const hasContainingFile = Object.prototype.hasOwnProperty.call(context, "containingFile");
@@ -3598,8 +3598,8 @@ function snapshotProviderModuleContext(context) {
     }
     let snapshotRequestedExports;
     if (requestedExports !== undefined) {
-        if (requestedExports.length > providerAncillaryDataLimits.maxArrayEntries) {
-            throw new Error(`context.importSlice.requestedExports exceeds the provider array limit of ${providerAncillaryDataLimits.maxArrayEntries}`);
+        if (requestedExports.length > providerModuleContextLimits.maxArrayEntries) {
+            throw new Error(`context.importSlice.requestedExports exceeds the provider module-context array limit of ${providerModuleContextLimits.maxArrayEntries}`);
         }
         countPhysicalResources(1 + requestedExports.length, "context.importSlice.requestedExports");
         const entries = [];

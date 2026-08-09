@@ -221,14 +221,12 @@ export function PositionIsSynthesized(pos) {
  * }
  */
 export function FindLastVisibleNode(nodes) {
-    const loop = (fromEnd) => {
-        if (fromEnd > nodes.length)
-            return undefined;
-        if ((nodes[nodes.length - fromEnd].Flags & NodeFlagsReparsed) === 0)
-            return nodes[nodes.length - fromEnd];
-        return loop((fromEnd + 1));
-    };
-    return loop(1);
+    let fromEnd = 1;
+    while (fromEnd <= nodes.length &&
+        (nodes[nodes.length - fromEnd].Flags & NodeFlagsReparsed) !== 0) {
+        fromEnd = (fromEnd + 1);
+    }
+    return fromEnd <= nodes.length ? nodes[nodes.length - fromEnd] : undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::NodeKindIs","kind":"func","status":"implemented","sigHash":"7ec8613b75bda45cac32bcfda9af826bd45783ff51d506ed4b37a8c3a1297080","bodyHash":"a2c8021b32cf139b660a83635e5faf99244a6f5c288b87eb0abd8aaee7b95f4e"}
@@ -308,12 +306,10 @@ export function IsAssignmentExpression(node, excludeCompoundAssignment) {
  * }
  */
 export function GetRightMostAssignedExpression(node) {
-    const loop = (current) => {
-        if (!IsAssignmentExpression(current, false /*excludeCompoundAssignment*/))
-            return current;
-        return loop(AsBinaryExpression(current).Right);
-    };
-    return loop(node);
+    while (IsAssignmentExpression(node, false /*excludeCompoundAssignment*/)) {
+        node = AsBinaryExpression(node).Right;
+    }
+    return node;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsDestructuringAssignment","kind":"func","status":"implemented","sigHash":"1bb1dbfb1aab8203b57653338e8ecf3f7b0165ca2e605d0260d3f5e86ba673f7","bodyHash":"21a6163966ceba2a6cd32d6936166d4248bff5cdf9e74f2062d12f0274ddaeef"}
@@ -475,7 +471,8 @@ export function IsAssignmentTarget(node) {
  * }
  */
 export function GetAssignmentTarget(node) {
-    const loop = (current) => {
+    let current = node;
+    while (true) {
         const parent = current.Parent;
         switch (parent.Kind) {
             case KindBinaryExpression:
@@ -502,22 +499,25 @@ export function GetAssignmentTarget(node) {
             case KindArrayLiteralExpression:
             case KindSpreadElement:
             case KindNonNullExpression:
-                return loop(parent);
+                current = parent;
+                continue;
             case KindSpreadAssignment:
-                return loop(parent.Parent);
+                current = parent.Parent;
+                continue;
             case KindShorthandPropertyAssignment:
                 if (Node_Name(parent) !== current)
                     return undefined;
-                return loop(parent.Parent);
+                current = parent.Parent;
+                continue;
             case KindPropertyAssignment:
                 if (Node_Name(parent) === current)
                     return undefined;
-                return loop(parent.Parent);
+                current = parent.Parent;
+                continue;
             default:
                 return undefined;
         }
-    };
-    return loop(node);
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsLogicalBinaryOperator","kind":"func","status":"implemented","sigHash":"6d9edaa96aeaef4182e162b5f7c6fdd30c8c580a0170629d0e9d42587629e2eb","bodyHash":"9a5fb26a8f0f1e5a0040c73126323b44a7758d71d7f07c034320ce35a155558a"}
@@ -582,16 +582,18 @@ export function IsLogicalOrCoalescingAssignmentExpression(expr) {
  * }
  */
 export function IsLogicalExpression(node) {
-    const loop = (current) => {
-        if (current.Kind === KindParenthesizedExpression)
-            return loop(Node_Expression(current));
-        if (current.Kind === KindPrefixUnaryExpression &&
-            AsPrefixUnaryExpression(current).Operator === KindExclamationToken) {
-            return loop(AsPrefixUnaryExpression(current).Operand);
+    while (true) {
+        if (node.Kind === KindParenthesizedExpression) {
+            node = Node_Expression(node);
+            continue;
         }
-        return IsLogicalOrCoalescingBinaryExpression(current);
-    };
-    return loop(node);
+        if (node.Kind === KindPrefixUnaryExpression &&
+            AsPrefixUnaryExpression(node).Operator === KindExclamationToken) {
+            node = AsPrefixUnaryExpression(node).Operand;
+            continue;
+        }
+        return IsLogicalOrCoalescingBinaryExpression(node);
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsAccessor","kind":"func","status":"implemented","sigHash":"b56e229b288396f7e55b9e2fbb2c88ccd1bdace242c7d70d41d4c71347a07024","bodyHash":"c39029e483433765cb3fe5dadf0cab229e505c97775533aaeb077bd8c521d331"}
@@ -1871,12 +1873,10 @@ export function IsOuterExpression(node, kinds) {
  * }
  */
 export function SkipOuterExpressions(node, kinds) {
-    const loop = (current) => {
-        if (!IsOuterExpression(current, kinds))
-            return current;
-        return loop(Node_Expression(current));
-    };
-    return loop(node);
+    while (IsOuterExpression(node, kinds)) {
+        node = Node_Expression(node);
+    }
+    return node;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::SkipParentheses","kind":"func","status":"implemented","sigHash":"03e90efa385138c356cb91b2e6d394dbd9a6ef633690404c10f3058a54225c41","bodyHash":"487390cda4c067c144d7c224f34c99b25d6a23d48ebc75ae130305975aebb05c"}
@@ -1901,12 +1901,10 @@ export function SkipParentheses(node) {
  * }
  */
 export function SkipTypeParentheses(node) {
-    const loop = (current) => {
-        if (!IsParenthesizedTypeNode(current))
-            return current;
-        return loop(Node_Type(current));
-    };
-    return loop(node);
+    while (IsParenthesizedTypeNode(node)) {
+        node = Node_Type(node);
+    }
+    return node;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::SkipPartiallyEmittedExpressions","kind":"func","status":"implemented","sigHash":"0a477e8abb59c269d30a1d5055e59da0aa30bf3e0766409ba86a53606be65bb6","bodyHash":"51e5dd331fe4a819a097878b9937e087a57024d05645cf8e9445f757ae92b96c"}
@@ -1931,12 +1929,11 @@ export function SkipPartiallyEmittedExpressions(node) {
  * }
  */
 export function WalkUpParenthesizedExpressions(node) {
-    const loop = (current) => {
-        if (current === undefined || current.Kind !== KindParenthesizedExpression)
-            return current;
-        return loop(current.Parent);
-    };
-    return loop(node);
+    let current = node;
+    while (current !== undefined && current.Kind === KindParenthesizedExpression) {
+        current = current.Parent;
+    }
+    return current;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::WalkUpParenthesizedTypes","kind":"func","status":"implemented","sigHash":"3ea8b8743d7a0e5cd653f6c959f8877bc7125fec092d05860f75b781a52bfb89","bodyHash":"8c41fab30abce5884c6e57f6d247c96d5b6666eb107d880bedb2bab627a61174"}
@@ -1950,12 +1947,11 @@ export function WalkUpParenthesizedExpressions(node) {
  * }
  */
 export function WalkUpParenthesizedTypes(node) {
-    const loop = (current) => {
-        if (current === undefined || current.Kind !== KindParenthesizedType)
-            return current;
-        return loop(current.Parent);
-    };
-    return loop(node);
+    let current = node;
+    while (current !== undefined && current.Kind === KindParenthesizedType) {
+        current = current.Parent;
+    }
+    return current;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::GetSourceFileOfNode","kind":"func","status":"implemented","sigHash":"c08c22c988a6f37f6a16f53ec595db6a952847817c10df620b3be20a5ed3969e","bodyHash":"aebb5774c6321c7c3f46fea19bf8f9f98bbceb82c987e7cf0a4db9fe0a45bf7d"}
@@ -1972,14 +1968,14 @@ export function WalkUpParenthesizedTypes(node) {
  * }
  */
 export function GetSourceFileOfNode(node) {
-    const loop = (current) => {
-        if (current === undefined)
-            return undefined;
-        if (current.Kind === KindSourceFile)
+    let current = node;
+    while (current !== undefined) {
+        if (current.Kind === KindSourceFile) {
             return AsSourceFile(current);
-        return loop(current.Parent);
-    };
-    return loop(node);
+        }
+        current = current.Parent;
+    }
+    return undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::varGroup::setParentInChildrenPool","kind":"varGroup","status":"implemented","sigHash":"ae451dac263fcd49a052fbaaa91c461d227f7ab108efd244750e66b475cd12be","bodyHash":"10ec3135e70425ace0e1321700abd0e4a2d549977d7e18cb9f2fb6b7acd151fc"}
@@ -2190,14 +2186,11 @@ export function FindAncestorOrQuit(node, callback) {
  * }
  */
 export function IsNodeDescendantOf(node, ancestor) {
-    const loop = (current) => {
-        if (current === undefined)
-            return false;
+    for (let current = node; current !== undefined; current = current.Parent) {
         if (current === ancestor)
             return true;
-        return loop(current.Parent);
-    };
-    return loop(node);
+    }
+    return false;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::HasSyntacticModifier","kind":"func","status":"implemented","sigHash":"fb84cd1682b98907585e52cfd0c402a98cdb042732f9109baa7b9f9771529804","bodyHash":"bfbf0a7749750c05d987851f968d7f237d353398517aaf7c169dc5494a514bde"}
@@ -2581,12 +2574,10 @@ export function ForEachReturnStatement(body, visitor) {
  * }
  */
 export function GetRootDeclaration(node) {
-    const loop = (current) => {
-        if (current.Kind !== KindBindingElement)
-            return current;
-        return loop(current.Parent.Parent);
-    };
-    return loop(node);
+    while (node.Kind === KindBindingElement) {
+        node = node.Parent.Parent;
+    }
+    return node;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::getCombinedFlags","kind":"func","status":"implemented","sigHash":"57357718aef237ec0c4225b4d23ebf3fbe4fd8b63d51ae00c3dd43d04c15541f","bodyHash":"e917b239c8a6620fa1a968fc4cc6822fe724a441a184b3b63cc8c9a53af31bf6"}
@@ -2739,14 +2730,12 @@ export function IsDeprecatedDeclarationWithCachedFlags(declaration, combinedFlag
     }
     // Walk up to find the node that directly has the flag, since JSDoc is
     // attached to that node (e.g. VariableStatement, not VariableDeclaration).
-    const loop = (n) => {
-        if (n === undefined)
-            return false;
-        if ((n.Flags & NodeFlagsPossiblyContainsDeprecatedTag) !== 0)
-            return (GetJSDocDeprecatedTag(n) !== undefined);
-        return loop(n.Parent);
-    };
-    return loop(declaration);
+    for (let node = declaration; node !== undefined; node = node.Parent) {
+        if ((node.Flags & NodeFlagsPossiblyContainsDeprecatedTag) !== 0) {
+            return (GetJSDocDeprecatedTag(node) !== undefined);
+        }
+    }
+    return false;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsVarConst","kind":"func","status":"implemented","sigHash":"e8fb3ffb6e448cdd76358f8802a62fec0b0dd6a78e515e0d91deeabf9cf43ee7","bodyHash":"d02fe582dda2472efb717e422f2246b853c51d1e38e094f7f04337f6852430c9"}
@@ -2822,12 +2811,11 @@ export function IsImportMeta(node) {
  * }
  */
 export function WalkUpBindingElementsAndPatterns(binding) {
-    const loop = (node) => {
-        if (!IsBindingElement(node.Parent))
-            return node;
-        return loop(node.Parent.Parent);
-    };
-    return loop(binding.Parent).Parent;
+    let node = binding.Parent;
+    while (IsBindingElement(node.Parent)) {
+        node = node.Parent.Parent;
+    }
+    return node.Parent;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsSourceFileJS","kind":"func","status":"implemented","sigHash":"b204fc76633eba41f561eb271eca10bad46b04cc4fbd1159f412f5a0d2b15eaf","bodyHash":"760468b8d74b9d7ef0e5fb64274e58a152ace8f6d8ffd142fd64f2ea57436081"}
@@ -3168,12 +3156,10 @@ export function GetElementOrPropertyAccessName(node) {
  * }
  */
 export function GetInitializerOfBinaryExpression(expr) {
-    const loop = (current) => {
-        if (!IsBinaryExpression(current.Right))
-            return Node_Expression(current.Right);
-        return loop(AsBinaryExpression(current.Right));
-    };
-    return loop(expr);
+    while (IsBinaryExpression(expr.Right)) {
+        expr = AsBinaryExpression(expr.Right);
+    }
+    return Node_Expression(expr.Right);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsExpressionWithTypeArgumentsInClassExtendsClause","kind":"func","status":"implemented","sigHash":"5d8edbabb232c6d7f92eeef289284c6f919d4e5065cbf92a0d69c1c1e1114f7b","bodyHash":"d2024707de9a0b3fefb23f9ac858665b77039a1617442e8fd0814063e894d067"}
@@ -3955,12 +3941,10 @@ export function getHeritageClauses(node) {
  * }
  */
 export function IsPartOfTypeQuery(node) {
-    const loop = (current) => {
-        if (current.Kind !== KindQualifiedName && current.Kind !== KindIdentifier)
-            return (current.Kind === KindTypeQuery);
-        return loop(current.Parent);
-    };
-    return loop(node);
+    while (node.Kind === KindQualifiedName || node.Kind === KindIdentifier) {
+        node = node.Parent;
+    }
+    return (node.Kind === KindTypeQuery);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsPartOfParameterDeclaration","kind":"func","status":"implemented","sigHash":"3cc664798a46e3c10c6588a3791a193b0407f4db3c565955ae42df59c1c01d36","bodyHash":"173a0568bd86fbac902ccc85b2778194dd2b023d77633bbe2158d7d754c84a20"}
@@ -4039,30 +4023,37 @@ export function IsInTopLevelContext(node) {
  * }
  */
 export function GetThisContainer(node, includeArrowFunctions, includeClassComputedPropertyName) {
-    const loop = (n) => {
+    let current = node.Parent;
+    while (true) {
+        const n = current;
         if (n === undefined)
             throw new globalThis.Error("nil parent in getThisContainer");
         switch (n.Kind) {
             case KindComputedPropertyName:
                 if (includeClassComputedPropertyName && IsClassLike(n.Parent.Parent))
                     return n;
-                return loop(n.Parent.Parent.Parent);
+                current = n.Parent.Parent.Parent;
+                continue;
             case KindDecorator:
                 if (n.Parent.Kind === KindParameter && IsClassElement(n.Parent.Parent)) {
                     // If the decorator's parent is a ParameterDeclaration, we resolve the this container from
                     // the grandparent class declaration.
-                    return loop(n.Parent.Parent.Parent);
+                    current = n.Parent.Parent.Parent;
                 }
                 else if (IsClassElement(n.Parent)) {
                     // If the decorator's parent is a class element, we resolve the 'this' container
                     // from the parent class declaration.
-                    return loop(n.Parent.Parent);
+                    current = n.Parent.Parent;
                 }
-                return loop(n.Parent);
+                else {
+                    current = n.Parent;
+                }
+                continue;
             case KindArrowFunction:
                 if (includeArrowFunctions)
                     return n;
-                return loop(n.Parent);
+                current = n.Parent;
+                continue;
             case KindFunctionDeclaration:
             case KindFunctionExpression:
             case KindModuleDeclaration:
@@ -4081,10 +4072,9 @@ export function GetThisContainer(node, includeArrowFunctions, includeClassComput
             case KindSourceFile:
                 return n;
             default:
-                return loop(n.Parent);
+                current = n.Parent;
         }
-    };
-    return loop(node.Parent);
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::GetSuperContainer","kind":"func","status":"implemented","sigHash":"cd5ccb43fed2fc682e5aab6e87df7a2d65bc43617a82a8a41809c628cbee99b2","bodyHash":"4743c04e20b2e296c68d933ed709a5d095a18a5a17d4b25345d93453566d4342"}
@@ -4119,17 +4109,22 @@ export function GetThisContainer(node, includeArrowFunctions, includeClassComput
  * }
  */
 export function GetSuperContainer(node, stopOnFunctions) {
-    const loop = (n) => {
+    let current = node.Parent;
+    while (true) {
+        const n = current;
         if (n === undefined)
             return undefined;
         switch (n.Kind) {
             case KindComputedPropertyName:
-                return loop(n.Parent.Parent);
+                current = n.Parent.Parent;
+                continue;
             case KindFunctionDeclaration:
             case KindFunctionExpression:
             case KindArrowFunction:
-                if (!stopOnFunctions)
-                    return loop(n.Parent);
+                if (!stopOnFunctions) {
+                    current = n.Parent;
+                    continue;
+                }
                 return n;
             case KindPropertyDeclaration:
             case KindPropertySignature:
@@ -4145,19 +4140,21 @@ export function GetSuperContainer(node, stopOnFunctions) {
                 if (n.Parent.Kind === KindParameter && IsClassElement(n.Parent.Parent)) {
                     // If the decorator's parent is a ParameterDeclaration, we resolve the this container from
                     // the grandparent class declaration.
-                    return loop(n.Parent.Parent.Parent);
+                    current = n.Parent.Parent.Parent;
                 }
                 else if (IsClassElement(n.Parent)) {
                     // If the decorator's parent is a class element, we resolve the 'this' container
                     // from the parent class declaration.
-                    return loop(n.Parent.Parent);
+                    current = n.Parent.Parent;
                 }
-                return loop(n.Parent);
+                else {
+                    current = n.Parent;
+                }
+                continue;
             default:
-                return loop(n.Parent);
+                current = n.Parent;
         }
-    };
-    return loop(node.Parent);
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::GetImmediatelyInvokedFunctionExpression","kind":"func","status":"implemented","sigHash":"b19184b5ac259dbda3f1ba2a227d4a80ddaade923ff33b39bc3c84aec41ced1a","bodyHash":"e8e0de4309519f72eac13faecda0328dc9ccd8dac5f166b8c239dd47760a5ec3"}
@@ -4180,13 +4177,13 @@ export function GetSuperContainer(node, stopOnFunctions) {
  */
 export function GetImmediatelyInvokedFunctionExpression(fn) {
     if (IsFunctionExpressionOrArrowFunction(fn)) {
-        const loop = (prev, parent) => {
-            if (!IsParenthesizedExpression(parent)) {
-                return (IsCallExpression(parent) && Node_Expression(parent) === prev) ? parent : undefined;
-            }
-            return loop(parent, parent.Parent);
-        };
-        return loop(fn, fn.Parent);
+        let previous = fn;
+        let parent = fn.Parent;
+        while (IsParenthesizedExpression(parent)) {
+            previous = parent;
+            parent = parent.Parent;
+        }
+        return (IsCallExpression(parent) && Node_Expression(parent) === previous) ? parent : undefined;
     }
     return undefined;
 }
@@ -4463,12 +4460,10 @@ export function IsExpressionNode(node) {
         case KindExpressionWithTypeArguments:
             return !IsHeritageClause(node.Parent);
         case KindQualifiedName: {
-            const findRoot = (current) => {
-                if (current.Parent.Kind !== KindQualifiedName)
-                    return current;
-                return findRoot(current.Parent);
-            };
-            const root = findRoot(node);
+            let root = node;
+            while (root.Parent.Kind === KindQualifiedName) {
+                root = root.Parent;
+            }
             return (IsTypeQueryNode(root.Parent) || IsJSDocLinkLike(root.Parent) || IsJSDocNameReference(root.Parent) || IsJsxTagName(root));
         }
         case KindPrivateIdentifier:
@@ -5526,10 +5521,8 @@ export function getModuleInstanceStateForAliasTarget(node, ancestors, visited) {
         // Skip for invalid syntax like this: export { "x" }
         return ModuleInstanceStateInstantiated;
     }
-    const [initAncestors, initP] = popAncestor(ancestors, node);
-    const outerLoop = (currentAncestors, p) => {
-        if (p === undefined)
-            return ModuleInstanceStateInstantiated;
+    let [currentAncestors, p] = popAncestor(ancestors, node);
+    while (p !== undefined) {
         const [nextAncestors, nextP] = popAncestor(currentAncestors, p);
         if (IsBlock(p) || IsModuleBlock(p) || IsSourceFile(p)) {
             const statementsAncestors = pushAncestor(currentAncestors, p);
@@ -5556,10 +5549,11 @@ export function getModuleInstanceStateForAliasTarget(node, ancestors, visited) {
                 return foundBox.value;
             }
         }
-        return outerLoop(nextAncestors, nextP);
-    };
+        currentAncestors = nextAncestors;
+        p = nextP;
+    }
     // Couldn't locate, assume could refer to a value
-    return outerLoop(initAncestors, initP);
+    return ModuleInstanceStateInstantiated;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsInstantiatedModule","kind":"func","status":"implemented","sigHash":"d1f45ff0581c843ed2e40ef144a266a826203c2c398e51f530b2ef3d96e3dec2","bodyHash":"d54b29d188c85742154c72e58e7b60606519f7c647cfcc5684b2445d51747d6b"}
@@ -6059,7 +6053,8 @@ export function IsParseTreeNode(node) {
  * }
  */
 export function GetNodeAtPosition(file, position, includeJSDoc) {
-    const loop = (current) => {
+    let current = NodeDefault_AsNode(file);
+    while (true) {
         const jsdocChild = includeJSDoc ? (() => {
             const found = { value: undefined };
             for (const jsdoc of Node_JSDoc(current, file)) {
@@ -6083,9 +6078,8 @@ export function GetNodeAtPosition(file, position, includeJSDoc) {
         })();
         if (child === undefined || IsMetaProperty(child))
             return current;
-        return loop(child);
-    };
-    return loop(NodeDefault_AsNode(file));
+        current = child;
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::nodeContainsPosition","kind":"func","status":"implemented","sigHash":"1af2b5728d837bc3b1eefd0e507e02a4ee5beebd0119539e887cad3e4568d67b","bodyHash":"d9f250e35674da43bdfcd309002360b912b16a666f437fca04885f0e0d5befa7"}
@@ -6220,9 +6214,8 @@ export function findImportOrRequire(text, start) {
 export function ForEachDynamicImportOrRequireCall(file, includeTypeSpaceImports, requireStringLiteralLikeArgument, cb) {
     const isJavaScriptFile = IsInJSFile(NodeDefault_AsNode(file));
     const text = SourceFile_Text(file);
-    const loop = (lastIndex, size) => {
-        if (lastIndex < 0)
-            return false;
+    let [lastIndex, size] = findImportOrRequire(text, 0);
+    while (lastIndex >= 0) {
         const node = GetNodeAtPosition(file, lastIndex, (isJavaScriptFile && includeTypeSpaceImports));
         if (isJavaScriptFile && IsRequireCall(node, requireStringLiteralLikeArgument)) {
             if (cb(node, Node_Arguments(node)[0]))
@@ -6237,11 +6230,9 @@ export function ForEachDynamicImportOrRequireCall(file, includeTypeSpaceImports,
                 return true;
         }
         // skip past import/require
-        const [nextIndex, nextSize] = findImportOrRequire(text, (lastIndex + size));
-        return loop(nextIndex, nextSize);
-    };
-    const [initIndex, initSize] = findImportOrRequire(text, 0);
-    return loop(initIndex, initSize);
+        [lastIndex, size] = findImportOrRequire(text, (lastIndex + size));
+    }
+    return false;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsRequireCall","kind":"func","status":"implemented","sigHash":"1ef07c58213033d789455f51fe438f46b3bf05546a2569c987f6177df7272870","bodyHash":"924db1409b46fdc9f11850684c62eb4876489cae12a409bd3d4c28049926c61d"}
@@ -6568,12 +6559,10 @@ export function IsPlainJSFile(file, checkJs) {
  * }
  */
 export function GetLeftmostAccessExpression(expr) {
-    const loop = (current) => {
-        if (!IsAccessExpression(current))
-            return current;
-        return loop(Node_Expression(current));
-    };
-    return loop(expr);
+    while (IsAccessExpression(expr)) {
+        expr = Node_Expression(expr);
+    }
+    return expr;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsTypeOnlyImportDeclaration","kind":"func","status":"implemented","sigHash":"ac71bae689037eecf5ba6a6f483b43cb60c4ebc6243a89887d9b529a1b3a8cd1","bodyHash":"d0328ab14c41667d5ffc83c9c5f6a4f081a0ab67f7b78c7f741d95eb796174d7"}
@@ -6805,12 +6794,10 @@ export function IsThisInTypeQuery(node) {
     if (!IsThisIdentifier(node)) {
         return false;
     }
-    const loop = (current) => {
-        if (IsQualifiedName(current.Parent) && AsQualifiedName(current.Parent).Left === current)
-            return loop(current.Parent);
-        return (current.Parent.Kind === KindTypeQuery);
-    };
-    return loop(node);
+    while (IsQualifiedName(node.Parent) && AsQualifiedName(node.Parent).Left === node) {
+        node = node.Parent;
+    }
+    return (node.Parent.Kind === KindTypeQuery);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsLet","kind":"func","status":"implemented","sigHash":"474d48c7b2ebffa02b8c28c30da68d32b9f9b43eff4d5626f92ac31e463ab3fb","bodyHash":"ca684e34d57da2d3a0e2d6db38cc607ad205e82b07d5a3d488cc95e692dd0678"}
@@ -7196,12 +7183,11 @@ export function isIdentifierInNonEmittingHeritageClause(node) {
     if (!IsIdentifier(node)) {
         return false;
     }
-    const loop = (parent) => {
-        if (IsPropertyAccessExpression(parent) || IsExpressionWithTypeArguments(parent))
-            return loop(parent.Parent);
-        return (IsHeritageClause(parent) && (AsHeritageClause(parent).Token === KindImplementsKeyword || IsInterfaceDeclaration(parent.Parent)));
-    };
-    return loop(node.Parent);
+    let parent = node.Parent;
+    while (IsPropertyAccessExpression(parent) || IsExpressionWithTypeArguments(parent)) {
+        parent = parent.Parent;
+    }
+    return (IsHeritageClause(parent) && (AsHeritageClause(parent).Token === KindImplementsKeyword || IsInterfaceDeclaration(parent.Parent)));
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::isPartOfPossiblyValidTypeOrAbstractComputedPropertyName","kind":"func","status":"implemented","sigHash":"9014c9c96a80ff1ab81578192a510045abbc13cce60bcd92c5bf9a8a694a2320","bodyHash":"19d0d9300fa6f276149351f25cb88ee07298276582c9d09299204ef285c34b99"}
@@ -7221,12 +7207,10 @@ export function isIdentifierInNonEmittingHeritageClause(node) {
  * }
  */
 export function isPartOfPossiblyValidTypeOrAbstractComputedPropertyName(node) {
-    const findCurrent = (current) => {
-        if (!NodeKindIs(current, KindIdentifier, KindPropertyAccessExpression))
-            return current;
-        return findCurrent(current.Parent);
-    };
-    const current = findCurrent(node);
+    let current = node;
+    while (NodeKindIs(current, KindIdentifier, KindPropertyAccessExpression)) {
+        current = current.Parent;
+    }
     if (current.Kind !== KindComputedPropertyName) {
         return false;
     }
@@ -9968,7 +9952,8 @@ export function GetReparsedNodeForNode(node) {
  * }
  */
 export function findCloneInNode(node, original) {
-    const loop = (current) => {
+    let current = node;
+    while (true) {
         if (current.Kind === original.Kind &&
             TextRange_Pos(current.Loc) === TextRange_Pos(original.Loc) &&
             TextRange_End(current.Loc) === TextRange_End(original.Loc)) {
@@ -9984,9 +9969,8 @@ export function findCloneInNode(node, original) {
         });
         if (!foundContainingChild)
             return undefined;
-        return loop(container.next);
-    };
-    return loop(node);
+        current = container.next;
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/utilities.go::func::IsExpandoPropertyDeclaration","kind":"func","status":"implemented","sigHash":"60ba98efc89b2a16bd3af60566d51c0ce07298363191fdb41156120f2c706d3e","bodyHash":"729f31d0969a5c058134044da05019905af99d48056c26bc2a57f5c8d8ede4bd"}

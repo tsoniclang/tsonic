@@ -9723,16 +9723,18 @@ export function Relater_reportError(receiver, message, ...args) {
  */
 export function addToDottedName(head, tail) {
     const wrappedHead = head.startsWith("new ") ? "(" + head + ")" : head;
-    const computePos = (pos) => {
+    let pos = 0;
+    while (true) {
         if (tail.slice(pos).startsWith("(")) {
-            return computePos(pos + 1);
+            pos = (pos + 1);
+            continue;
         }
         if (tail.slice(pos).startsWith("new ")) {
-            return computePos(pos + 4);
+            pos = (pos + 4);
+            continue;
         }
-        return pos;
-    };
-    const pos = computePos(0);
+        break;
+    }
     const prefix = tail.slice(0, pos);
     const suffix = tail.slice(pos);
     if (suffix.startsWith("[")) {
@@ -9759,16 +9761,15 @@ export function addToDottedName(head, tail) {
  * }
  */
 export function Relater_getChainMessage(receiver, index) {
-    const walk = (e, idx) => {
-        if (e === undefined) {
-            return undefined;
+    let entry = receiver.errorChain;
+    while (entry !== undefined) {
+        if (index === 0) {
+            return entry.message;
         }
-        if (idx === 0) {
-            return e.message;
-        }
-        return walk(e.next, idx - 1);
-    };
-    return walk(receiver.errorChain, index);
+        entry = entry.next;
+        index = (index - 1);
+    }
+    return undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/relater.go::method::Relater.chainArgsMatch","kind":"method","status":"implemented","sigHash":"90283374fb1746d048ca258e7e3fbb29f67a7de344aceeb923f47f11fe539bc4","bodyHash":"3041a426a09cdb440003d62cb16ea266aabf27f6739f9af1616f3cefb31f38a7"}

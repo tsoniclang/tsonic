@@ -18,6 +18,15 @@ export interface ExtensionCanonicalIdentity {
     readonly canonicalSymbolId?: string;
 }
 export type SourcePointerMutability = "readonly" | "readwrite" | "unspecified";
+export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer" | "bind-raw-pointer" | "equal-raw-pointer" | "hash-raw-pointer";
+export type SourceTypeMarkerKind = "pointer" | "function-pointer" | "raw-pointer";
+export type SourceMarkerFact = {
+    readonly kind: "call-marker";
+    readonly marker: SourceCallMarkerKind;
+} | {
+    readonly kind: "type-marker";
+    readonly marker: SourceTypeMarkerKind;
+};
 export interface SourcePrimitiveFact {
     readonly kind: SourcePrimitiveKind;
     readonly signed?: boolean;
@@ -181,6 +190,7 @@ export interface ConstGenericFact {
 }
 export declare const canonicalIdentityFactKey: import("./fact-key.js").ExtensionFactKey<ExtensionCanonicalIdentity>;
 export declare const sourcePrimitiveFactKey: import("./fact-key.js").ExtensionFactKey<SourcePrimitiveFact>;
+export declare const sourceMarkerFactKey: import("./fact-key.js").ExtensionFactKey<SourceMarkerFact>;
 export declare const argumentPassingFactKey: import("./fact-key.js").ExtensionFactKey<ArgumentPassingFact>;
 export declare const functionPointerFactKey: import("./fact-key.js").ExtensionFactKey<FunctionPointerFact>;
 export declare const pointerFactKey: import("./fact-key.js").ExtensionFactKey<PointerFact>;

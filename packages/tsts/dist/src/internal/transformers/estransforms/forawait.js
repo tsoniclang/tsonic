@@ -572,13 +572,10 @@ export function forawaitTransformer_visitLabeledStatement(receiver, node) {
  * }
  */
 export function unwrapInnermostStatementOfLabel(node) {
-    const go = (current) => {
-        if (current.Statement.Kind !== KindLabeledStatement) {
-            return current.Statement;
-        }
-        return go(AsLabeledStatement(current.Statement));
-    };
-    return go(node);
+    while (node.Statement.Kind === KindLabeledStatement) {
+        node = AsLabeledStatement(node.Statement);
+    }
+    return node.Statement;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/transformers/estransforms/forawait.go::method::forawaitTransformer.visitSourceFile","kind":"method","status":"implemented","sigHash":"81f2fe063999736dc3574324128d48e9cf46849897977e24473fb3c5100041fe","bodyHash":"b8fe4b288aa94dbbd9430a7ef39a18335a50d4ce8c3ae7a13f1edbfa63790cff"}

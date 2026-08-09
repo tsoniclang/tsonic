@@ -229,15 +229,10 @@ export function ChangeTrackerWriter_setLastNonTriviaPosition(receiver, s, force)
     const bytes = utf8Encoder.encode(s);
     if (force || SkipTrivia(s, 0) !== byteLen(s)) {
         receiver.lastNonTriviaPosition = textWriter_GetTextPos(receiver.__tsgoEmbedded0);
-        const trailing = (() => {
-            const loop = (i) => {
-                if (IsWhiteSpaceLike(bytes[bytes.length - i - 1])) {
-                    return loop((i + 1));
-                }
-                return i;
-            };
-            return loop(0);
-        })();
+        let trailing = 0;
+        while (IsWhiteSpaceLike(bytes[bytes.length - trailing - 1])) {
+            trailing = (trailing + 1);
+        }
         // trim trailing whitespaces
         receiver.lastNonTriviaPosition = (receiver.lastNonTriviaPosition - trailing);
     }

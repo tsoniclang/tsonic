@@ -5,6 +5,12 @@ export declare const providerAncillaryDataLimits: Readonly<{
     maxStringCodeUnits: 65536;
     maxTotalScalarCodeUnits: 262144;
 }>;
+export declare const providerModuleContextLimits: Readonly<{
+    maxArrayEntries: 65536;
+    maxTotalEntries: 65536;
+    maxStringCodeUnits: 65536;
+    maxTotalScalarCodeUnits: 4194304;
+}>;
 export declare const providerDeclarationModelLimits: Readonly<{
     maxNestingDepth: 256;
     maxPhysicalNodeAndArrayEntries: 65536;

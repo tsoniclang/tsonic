@@ -647,14 +647,12 @@ export function NodeBuilderImpl_rewriteModuleSpecifier(receiver, parent, lit) {
  */
 export function NodeBuilderImpl_getEnclosingDeclarationIgnoringFakeScope(receiver) {
     const links = receiver.links;
-    const loop = (enc) => {
-        if (enc === undefined)
-            return undefined;
-        if (LinkStore_Get(links, enc).fakeScopeForSignatureDeclaration === undefined)
-            return enc;
-        return loop(enc.Parent);
-    };
-    return loop(receiver.ctx.enclosingDeclaration);
+    let enclosing = receiver.ctx.enclosingDeclaration;
+    while (enclosing !== undefined &&
+        LinkStore_Get(links, enclosing).fakeScopeForSignatureDeclaration !== undefined) {
+        enclosing = enclosing.Parent;
+    }
+    return enclosing;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/nodecopy.go::func::getExistingNodeTreeVisitor","kind":"func","status":"implemented","sigHash":"f23a46dc64b0d3a0dcb8be0adbb3b14920a0890683fe6d3ae276db72fa8babde","bodyHash":"9c2d206c056f5816846c7d8dcdd7a8730348bf9f355a348821f9811cc32b591a"}

@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import type { TargetCompilationPaths, TargetSelection, TsonicProjectConfig } from "@tsonic/target-api";
+import { isPathStrictlyWithin } from "./path-relation.js";
 
 export interface ProjectPathOptions {
   readonly projectFilePath: string;
@@ -20,6 +21,7 @@ export function resolveProjectPaths(options: ProjectPathOptions): ProjectPaths {
   const projectDirectory = dirname(projectFilePath);
   const projectRoot = resolve(projectDirectory, options.project.rootDir ?? ".");
   const entryPointPath = resolve(projectRoot, options.project.entryPoint);
+  requireProjectSourcePath(projectRoot, entryPointPath, "entryPoint");
   const rootFilePaths = resolveRootFilePaths(projectRoot, entryPointPath, options.project.rootFiles);
   const outputRoot = resolve(projectDirectory, options.project.outDir ?? "dist/tsonic");
   return {
@@ -43,6 +45,9 @@ function resolveRootFilePaths(
   if (rootFilePaths.length === 0) {
     throw new Error("Project rootFiles must not be empty.");
   }
+  rootFilePaths.forEach((rootFilePath, index) =>
+    requireProjectSourcePath(projectRoot, rootFilePath, `rootFiles[${index}]`)
+  );
   if (!rootFilePaths.includes(entryPointPath)) {
     throw new Error("Project rootFiles must contain the resolved entryPoint.");
   }
@@ -50,6 +55,16 @@ function resolveRootFilePaths(
     throw new Error("Project rootFiles must resolve to distinct source paths.");
   }
   return Object.freeze(rootFilePaths);
+}
+
+function requireProjectSourcePath(
+  projectRoot: string,
+  sourcePath: string,
+  field: string,
+): void {
+  if (!isPathStrictlyWithin(projectRoot, sourcePath)) {
+    throw new Error(`Project ${field} must resolve to a source file inside projectRoot.`);
+  }
 }
 
 export function getTargetCompilationPaths(paths: ProjectPaths, target: TargetSelection): TargetCompilationPaths {

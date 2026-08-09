@@ -37,30 +37,41 @@ function appendSourcePackageDependency(
   visitedPackageRoots.add(packageRoot);
   const packageJsonPath = join(packageRoot, "package.json");
   const packageJson = readPackageJson(packageJsonPath);
-  if (!hasCompilerSourceExport(packageRoot, packageJson)) {
+  const sourceFiles = collectCompilerSourceFiles(packageRoot);
+  if (!hasCompilerSourceExport(packageRoot, packageJson, sourceFiles)) {
     return;
   }
   files.set(normalizePackagePath(packageJsonPath), readFileSync(packageJsonPath, "utf8"));
-  appendCompilerSourceFiles(packageRoot, files);
+  for (const sourceFile of sourceFiles) {
+    files.set(normalizePackagePath(sourceFile), readFileSync(sourceFile, "utf8"));
+  }
   for (const dependencyName of readDependencyNames(packageJson, false)) {
     appendSourcePackageDependency(packageRoot, dependencyName, files, visitedPackageRoots);
   }
 }
 
-function appendCompilerSourceFiles(directory: string, files: Map<string, string>): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+function collectCompilerSourceFiles(directory: string): readonly string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    comparePackageEntryNames(left.name, right.name)
+  )) {
     if (shouldSkipPackageEntry(entry.name)) {
       continue;
     }
     const fullPath = join(directory, entry.name);
     if (entry.isDirectory()) {
-      appendCompilerSourceFiles(fullPath, files);
+      files.push(...collectCompilerSourceFiles(fullPath));
       continue;
     }
     if (entry.isFile() && isCompilerSourceFile(entry.name)) {
-      files.set(normalizePackagePath(fullPath), readFileSync(fullPath, "utf8"));
+      files.push(fullPath);
     }
   }
+  return Object.freeze(files);
+}
+
+function comparePackageEntryNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function shouldSkipPackageEntry(name: string): boolean {

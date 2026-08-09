@@ -2516,14 +2516,10 @@ export function NodeBuilderImpl_setTextRange(receiver, range_, location) {
         return cloned;
     }
     // Don't overwrite the original node if `cloned` has an `original` node that points either directly or indirectly to `location`
-    const checkOriginal = (() => {
-        const findOriginalLoop = (o) => {
-            if (o === undefined || o === location)
-                return o;
-            return findOriginalLoop(EmitContext_Original(receiver.e, o));
-        };
-        return findOriginalLoop(EmitContext_Original(receiver.e, cloned));
-    })();
+    let checkOriginal = EmitContext_Original(receiver.e, cloned);
+    while (checkOriginal !== undefined && checkOriginal !== location) {
+        checkOriginal = EmitContext_Original(receiver.e, checkOriginal);
+    }
     if (checkOriginal === undefined) {
         EmitContext_SetOriginalEx(receiver.e, cloned, location, true);
     }

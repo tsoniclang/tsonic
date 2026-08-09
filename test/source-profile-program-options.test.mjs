@@ -3,7 +3,19 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { createCompilerSession, formatDiagnostics } from "@tsonic/tsts";
-import { createProgramOptionsForProject, parseTsonicProjectConfig } from "../packages/host/dist/index.js";
+import {
+  createProgramOptionsForProject,
+  parseTsonicProjectConfig,
+  resolveProjectPaths,
+} from "../packages/host/dist/index.js";
+import {
+  hasCompilerSourceExport,
+  isCompilerSourceFile,
+} from "../packages/host/dist/package-contract.js";
+import {
+  isPathStrictlyWithin,
+  isPathWithinOrEqual,
+} from "../packages/host/dist/path-relation.js";
 
 const repoRoot = process.cwd();
 const tempRoot = resolve(repoRoot, ".temp/test-runs/source-profile-program-options", `${Date.now()}-${process.pid}`);
@@ -116,20 +128,12 @@ test("product program options retain the exact configured root-file set", async 
   assert.ok(fileNames.includes(resolve(projectDirectory, "src/unreferenced.ts").split("\\").join("/")));
 });
 
-test("project config admits one explicit root-file set and rejects ambiguous sets", () => {
+test("project config validates root-file syntax without comparing unresolved spellings", () => {
   assert.deepEqual(parseTsonicProjectConfig({
-    entryPoint: "index.ts",
+    entryPoint: "./index.ts",
     rootFiles: ["index.ts", "unreferenced.ts"],
     targets: [{ id: "csharp" }],
   }).rootFiles, ["index.ts", "unreferenced.ts"]);
-  assert.throws(
-    () => parseTsonicProjectConfig({
-      entryPoint: "index.ts",
-      rootFiles: ["other.ts"],
-      targets: [{ id: "csharp" }],
-    }),
-    /rootFiles must contain entryPoint 'index\.ts'/u,
-  );
   assert.throws(
     () => parseTsonicProjectConfig({
       entryPoint: "index.ts",
@@ -140,10 +144,22 @@ test("project config admits one explicit root-file set and rejects ambiguous set
   );
 });
 
-test("product program options reject root sets that omit or alias the entry point", () => {
+test("product paths resolve root identity once and reject aliases or escapes", () => {
   const projectFilePath = resolve(tempRoot, "invalid-root-files/tsonic.json");
+  assert.deepEqual(resolveProjectPaths({
+    project: {
+      entryPoint: "./index.ts",
+      rootFiles: ["index.ts", "other.ts"],
+      rootDir: "src",
+      targets: [{ id: "csharp" }],
+    },
+    projectFilePath,
+  }).rootFilePaths, [
+    resolve(tempRoot, "invalid-root-files/src/index.ts"),
+    resolve(tempRoot, "invalid-root-files/src/other.ts"),
+  ]);
   assert.throws(
-    () => createProgramOptionsForProject({
+    () => resolveProjectPaths({
       project: {
         entryPoint: "index.ts",
         rootFiles: ["other.ts"],
@@ -155,7 +171,7 @@ test("product program options reject root sets that omit or alias the entry poin
     /rootFiles must contain the resolved entryPoint/u,
   );
   assert.throws(
-    () => createProgramOptionsForProject({
+    () => resolveProjectPaths({
       project: {
         entryPoint: "index.ts",
         rootFiles: ["index.ts", "nested\/..\/index.ts"],
@@ -166,6 +182,90 @@ test("product program options reject root sets that omit or alias the entry poin
     }),
     /rootFiles must resolve to distinct source paths/u,
   );
+  assert.throws(
+    () => resolveProjectPaths({
+      project: {
+        entryPoint: "../outside.ts",
+        rootDir: "src",
+        targets: [{ id: "csharp" }],
+      },
+      projectFilePath,
+    }),
+    /entryPoint must resolve to a source file inside projectRoot/u,
+  );
+  assert.throws(
+    () => resolveProjectPaths({
+      project: {
+        entryPoint: "index.ts",
+        rootFiles: ["index.ts", "../outside.ts"],
+        rootDir: "src",
+        targets: [{ id: "csharp" }],
+      },
+      projectFilePath,
+    }),
+    /rootFiles\[1\] must resolve to a source file inside projectRoot/u,
+  );
+});
+
+test("host path relations distinguish parent segments from dot-prefixed names", () => {
+  const parent = resolve(tempRoot, "path-relation");
+  const dotPrefixedChild = resolve(parent, "..cache/index.ts");
+  assert.equal(isPathWithinOrEqual(parent, parent), true);
+  assert.equal(isPathWithinOrEqual(parent, dotPrefixedChild), true);
+  assert.equal(isPathStrictlyWithin(parent, dotPrefixedChild), true);
+  assert.equal(isPathStrictlyWithin(parent, parent), false);
+  assert.equal(isPathWithinOrEqual(parent, resolve(parent, "../outside.ts")), false);
+});
+
+test("source-package exports select only exact available ESM TypeScript paths", () => {
+  const packageRoot = resolve(tempRoot, "source-package-contract");
+  const sourceFiles = [
+    resolve(packageRoot, "src/index.ts"),
+    resolve(packageRoot, "src/features/math.mts"),
+    resolve(packageRoot, "private.ts"),
+    resolve(packageRoot, "src/ignored.tsx"),
+    resolve(packageRoot, "src/ignored.cts"),
+    resolve(packageRoot, "../outside.ts"),
+  ];
+
+  assert.equal(hasCompilerSourceExport(packageRoot, {
+    exports: { ".": { import: "./src/index.js" } },
+  }, sourceFiles), true);
+  assert.equal(hasCompilerSourceExport(packageRoot, {
+    exports: { "./features/*.mjs": "./src/features/*.mjs" },
+  }, sourceFiles), true);
+  assert.equal(hasCompilerSourceExport(packageRoot, {
+    exports: { "./features/*.js": "./missing/*.js" },
+  }, sourceFiles), false);
+  assert.equal(hasCompilerSourceExport(packageRoot, {
+    exports: { ".": "../outside.js" },
+  }, sourceFiles), false);
+  assert.equal(hasCompilerSourceExport(packageRoot, {
+    exports: { ".": "./src/ignored.jsx" },
+  }, sourceFiles), false);
+  assert.equal(hasCompilerSourceExport(packageRoot, {
+    exports: { ".": "./src/ignored.cjs" },
+  }, sourceFiles), false);
+});
+
+test("compiler source-file policy accepts only final ESM TypeScript source", () => {
+  assert.deepEqual([
+    "index.ts",
+    "index.mts",
+    "index.d.ts",
+    "index.d.mts",
+    "index.tsx",
+    "index.cts",
+    "index.js",
+  ].map((fileName) => [fileName, isCompilerSourceFile(fileName)]), [
+    ["index.ts", true],
+    ["index.mts", true],
+    ["index.d.ts", false],
+    ["index.d.mts", false],
+    ["index.tsx", false],
+    ["index.cts", false],
+    ["index.js", false],
+  ]);
 });
 
 test("product program options resolve hoisted source packages and their source dependencies", async () => {
@@ -193,7 +293,7 @@ test("product program options resolve hoisted source packages and their source d
     name: "@demo/domain",
     type: "module",
     exports: {
-      "./index.js": "./src/index.js",
+      "./*.js": "./src/*.js",
       "./package.json": "./package.json",
     },
     dependencies: {
@@ -205,11 +305,13 @@ test("product program options resolve hoisted source packages and their source d
     "export const domainValue: number = addOne(41);",
     "",
   ].join("\n"), "utf8");
+  await writeFile(resolve(domainDirectory, "src/ignored.tsx"), "export const ignoredTsx = 1;\n", "utf8");
+  await writeFile(resolve(domainDirectory, "src/ignored.cts"), "export const ignoredCts = 1;\n", "utf8");
   await writeFile(resolve(mathDirectory, "package.json"), JSON.stringify({
     name: "@demo/math",
     type: "module",
     exports: {
-      "./index.js": "./src/index.js",
+      "./*.js": "./src/*.js",
       "./package.json": "./package.json",
     },
   }), "utf8");
@@ -250,6 +352,8 @@ test("product program options resolve hoisted source packages and their source d
     .filter((fileName) => fileName !== "");
   assert.ok(fileNames.includes(resolve(workspaceDirectory, "node_modules/@demo/domain/src/index.ts").split("\\").join("/")));
   assert.ok(fileNames.includes(resolve(workspaceDirectory, "node_modules/@demo/math/src/index.ts").split("\\").join("/")));
+  assert.equal(fileNames.some((fileName) => fileName.endsWith("/ignored.tsx")), false);
+  assert.equal(fileNames.some((fileName) => fileName.endsWith("/ignored.cts")), false);
   assert.equal(fileNames.some((fileName) => /\/lib\..*\.d\.ts$/u.test(fileName)), false, `bundled TypeScript lib leaked into product program: ${fileNames.join("\n")}`);
 });
 

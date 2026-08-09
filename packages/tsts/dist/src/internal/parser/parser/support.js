@@ -773,20 +773,16 @@ export function getSpaceSuggestion(expressionText) {
 export function Parser_parseEntityName(receiver, allowReservedWords, diagnosticMessage) {
     const pos = Parser_nodePos(receiver);
     // entity is rebound through the qualified-name loop; Go reassigns the local.
-    const initialEntity = allowReservedWords ? Parser_parseIdentifierNameWithDiagnostic(receiver, diagnosticMessage) : Parser_parseIdentifierWithDiagnostic(receiver, diagnosticMessage, undefined);
-    const loop = (entity) => {
-        if (!Parser_parseOptional(receiver, KindDotToken)) {
-            return entity;
-        }
+    let entity = allowReservedWords ? Parser_parseIdentifierNameWithDiagnostic(receiver, diagnosticMessage) : Parser_parseIdentifierWithDiagnostic(receiver, diagnosticMessage, undefined);
+    while (Parser_parseOptional(receiver, KindDotToken)) {
         if (receiver.token === KindLessThanToken) {
             // The entity is part of a JSDoc-style generic. We will use the gap between `typeName` and
             // `typeArguments` to report it as a grammar error in the checker.
-            return entity;
+            break;
         }
-        const next = Parser_finishNode(receiver, NewQualifiedName(receiver.factory, entity, Parser_parseRightSideOfDot(receiver, allowReservedWords, false /*allowPrivateIdentifiers*/, true /*allowUnicodeEscapeSequenceInIdentifierName*/)), pos);
-        return loop(next);
-    };
-    return loop(initialEntity);
+        entity = Parser_finishNode(receiver, NewQualifiedName(receiver.factory, entity, Parser_parseRightSideOfDot(receiver, allowReservedWords, false /*allowPrivateIdentifiers*/, true /*allowUnicodeEscapeSequenceInIdentifierName*/)), pos);
+    }
+    return entity;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/parser/parser.go::method::Parser.parseParameter","kind":"method","status":"implemented","sigHash":"d188380143a1cbc79da292b3bb7cc1b40bb5a157d3a2d40fae61c9e38784fcdd","bodyHash":"b5ef8c04a8f6d29eb9aeb79968f91b686431d45247794351694eea1b4a8148aa"}

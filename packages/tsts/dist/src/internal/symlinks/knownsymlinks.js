@@ -223,14 +223,14 @@ export function KnownSymlinks_guessDirectorySymlink(receiver, a, b, cwd) {
         !KnownSymlinks_isNodeModulesOrScopedPackageDirectory(receiver, ap[ap.length - 2]) &&
         !KnownSymlinks_isNodeModulesOrScopedPackageDirectory(receiver, bp[bp.length - 2]) &&
         GetCanonicalFileName(ap[ap.length - 1], receiver.useCaseSensitiveFileNames) === GetCanonicalFileName(bp[bp.length - 1], receiver.useCaseSensitiveFileNames);
-    const stripCommon = (ap, bp) => {
-        if (!canStrip(ap, bp)) {
-            return [ap, bp, false];
-        }
-        const [fa, fb] = stripCommon(ap.slice(0, -1), bp.slice(0, -1));
-        return [fa, fb, true];
-    };
-    const [finalA, finalB, isDirectory] = stripCommon(GetPathComponents(GetNormalizedAbsolutePath(a, cwd), ""), GetPathComponents(GetNormalizedAbsolutePath(b, cwd), ""));
+    let finalA = GetPathComponents(GetNormalizedAbsolutePath(a, cwd), "");
+    let finalB = GetPathComponents(GetNormalizedAbsolutePath(b, cwd), "");
+    let isDirectory = false;
+    while (canStrip(finalA, finalB)) {
+        finalA = finalA.slice(0, -1);
+        finalB = finalB.slice(0, -1);
+        isDirectory = true;
+    }
     if (!isDirectory) {
         return ["", ""];
     }
