@@ -94,6 +94,9 @@ function recordConfiguredSourceSemanticsDeclarations(sourceFile, checker, facts,
     }
 }
 function recordSourceSemanticsDeclarationAliases(facts, sourceFile, checker, modules) {
+    if (facts.get(sourceFile, providerVirtualDeclarationFactKey) !== undefined) {
+        return;
+    }
     visitSourceSemanticsNodePost(sourceFile, (node) => {
         if (node === undefined ||
             (node.Kind !== KindImportSpecifier && node.Kind !== KindExportSpecifier)) {
