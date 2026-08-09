@@ -1,5 +1,5 @@
 export { ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ProviderRegistry, TstsSourceProviderContractVersion, attachExtensionHost, attachExtensionHostToProgram, defineExtensionFactKey, getExtensionHost, hasExtensionHost, } from "./host.js";
 export { createSourceSemanticsExtension, sourceSemanticsExtensionId, sourcePrimitive, } from "./source-semantics.js";
 export { SourceFactQueries, createSourceFactQueries, } from "./consumer.js";
-export { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
+export { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, sourceMarkerFactKey, structFactKey, } from "./facts.js";
 //# sourceMappingURL=index.js.map

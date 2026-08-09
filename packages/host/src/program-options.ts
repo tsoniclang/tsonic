@@ -8,13 +8,14 @@ import {
 import type { BundledLibrarySource, ProgramOptions } from "@tsonic/tsts";
 import type { TargetSourceDeclarationPolicy, TsonicProjectConfig } from "@tsonic/target-api";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
 import {
   appendInstalledDeclarationPackageFiles,
 } from "./declaration-package-inputs.js";
 import type { InstalledDeclarationSnapshot } from "./declaration-package-inputs.js";
 import { isCompilerSourceFile, isDeclarationFile } from "./package-contract.js";
+import { isPathWithinOrEqual } from "./path-relation.js";
 import { resolveProjectPaths } from "./project-paths.js";
 import { appendInstalledSourcePackageFiles } from "./source-package-inputs.js";
 
@@ -195,7 +196,7 @@ function collectProjectFiles(projectRoot: string, outputRoot: string): Map<strin
 }
 
 function visitDirectory(directory: string, files: Map<string, string>, outputRoot: string): void {
-  if (pathIsWithinOrEqual(outputRoot, directory)) {
+  if (isPathWithinOrEqual(outputRoot, directory)) {
     return;
   }
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -213,12 +214,6 @@ function visitDirectory(directory: string, files: Map<string, string>, outputRoo
     const normalizedPath = fullPath.split("\\").join("/");
     files.set(normalizedPath, readFileSync(fullPath, "utf8"));
   }
-}
-
-function pathIsWithinOrEqual(parentPath: string, candidatePath: string): boolean {
-  const relativePath = relative(parentPath, candidatePath);
-  return relativePath === "" ||
-    (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 function shouldSkipEntry(name: string): boolean {

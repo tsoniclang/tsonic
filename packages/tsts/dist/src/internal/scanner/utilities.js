@@ -204,15 +204,13 @@ export function IsIdentifierText(name, languageVariant) {
     if (!IsIdentifierStart(ch)) {
         return false;
     }
-    const loop = (i) => {
-        if (i >= byteLen(name))
-            return true;
-        const [ch2, sz] = DecodeRuneInStringAt(name, i);
+    for (let index = size; index < byteLen(name);) {
+        const [ch2, sz] = DecodeRuneInStringAt(name, index);
         if (!IsIdentifierPartEx(ch2, languageVariant))
             return false;
-        return loop((i + sz));
-    };
-    return loop(size);
+        index = (index + sz);
+    }
+    return true;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/utilities.go::func::IsIntrinsicJsxName","kind":"func","status":"implemented","sigHash":"7cf3e81e7a4af8bd5623e3fb0ed2679987e21e4a6e17e28069f6028cbd3ce225","bodyHash":"531253eef38befaa611f654ca8f59419dccc473ab55b52fffe4929a12ca0dfea"}

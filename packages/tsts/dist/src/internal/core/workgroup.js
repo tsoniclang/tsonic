@@ -117,14 +117,13 @@ export function singleThreadedWorkGroup_Queue(receiver, fn) {
  * }
  */
 export function singleThreadedWorkGroup_RunAndWait(receiver) {
-    const drain = () => {
+    for (;;) {
         const fn = singleThreadedWorkGroup_pop(receiver);
-        if (fn !== undefined) {
-            fn();
-            drain();
+        if (fn === undefined) {
+            break;
         }
-    };
-    drain();
+        fn();
+    }
     receiver.done.Store(true);
 }
 /**

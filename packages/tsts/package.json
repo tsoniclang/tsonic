@@ -15,6 +15,10 @@
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
     },
+    "./target-ast": {
+      "types": "./dist/src/services/target-ast.d.ts",
+      "import": "./dist/src/services/target-ast.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {

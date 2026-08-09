@@ -104,7 +104,9 @@ function collectDeclarationFiles(packageRoot: string): Map<string, string> {
 }
 
 function visitPackageDirectory(directory: string, files: Map<string, string>, packageRoot: boolean): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    comparePackageEntryNames(left.name, right.name)
+  )) {
     if (entry.name === ".git" || entry.name === ".temp" || entry.name === "node_modules") {
       continue;
     }
@@ -127,9 +129,9 @@ function createSnapshot(
   packages: readonly { name: string; version?: string; root: string }[],
 ): InstalledDeclarationSnapshot {
   const sortedPackages = [...packages].sort((left, right) =>
-    left.root.localeCompare(right.root) || left.name.localeCompare(right.name)
+    comparePackageEntryNames(left.root, right.root) || comparePackageEntryNames(left.name, right.name)
   );
-  const sortedFiles = [...files].sort(([left], [right]) => left.localeCompare(right));
+  const sortedFiles = [...files].sort(([left], [right]) => comparePackageEntryNames(left, right));
   const hash = createHash("sha256");
   let byteCount = 0;
   for (const entry of sortedPackages) {
@@ -148,6 +150,10 @@ function createSnapshot(
     declarationFileCount: sortedFiles.length,
     declarationByteCount: byteCount,
   };
+}
+
+function comparePackageEntryNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function appendHashPart(hash: ReturnType<typeof createHash>, value: string): void {

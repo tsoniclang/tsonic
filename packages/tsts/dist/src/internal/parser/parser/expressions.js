@@ -805,17 +805,14 @@ export function Parser_parseExpression(receiver) {
     const saveContextFlags = receiver.contextFlags;
     receiver.contextFlags = receiver.contextFlags & ~NodeFlagsDecoratorContext;
     const pos = Parser_nodePos(receiver);
-    const exprResult = (() => {
-        const initial = Parser_parseAssignmentExpressionOrHigher(receiver);
-        const loop = (expr) => {
-            const operatorToken = Parser_parseOptionalToken(receiver, KindCommaToken);
-            if (operatorToken === undefined) {
-                return expr;
-            }
-            return loop(Parser_makeBinaryExpression(receiver, expr, operatorToken, Parser_parseAssignmentExpressionOrHigher(receiver), pos));
-        };
-        return loop(initial);
-    })();
+    let exprResult = Parser_parseAssignmentExpressionOrHigher(receiver);
+    while (true) {
+        const operatorToken = Parser_parseOptionalToken(receiver, KindCommaToken);
+        if (operatorToken === undefined) {
+            break;
+        }
+        exprResult = Parser_makeBinaryExpression(receiver, exprResult, operatorToken, Parser_parseAssignmentExpressionOrHigher(receiver), pos);
+    }
     receiver.contextFlags = saveContextFlags;
     return exprResult;
 }
@@ -2911,15 +2908,14 @@ export function Parser_parseTemplateExpression(receiver, isTaggedTemplate) {
  */
 export function Parser_parseTemplateSpans(receiver, isTaggedTemplate) {
     const pos = Parser_nodePos(receiver);
-    const collect = (list) => {
+    const list = [];
+    while (true) {
         const span = Parser_parseTemplateSpan(receiver, isTaggedTemplate);
-        const next = [...list, span];
+        list.push(span);
         if (AsTemplateSpan(span).Literal.Kind !== KindTemplateMiddle) {
-            return next;
+            break;
         }
-        return collect(next);
-    };
-    const list = collect([]);
+    }
     return Parser_newNodeList(receiver, NewTextRange(pos, Parser_nodePos(receiver)), list);
 }
 /**

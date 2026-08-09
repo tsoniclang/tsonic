@@ -3,6 +3,7 @@ import type { SourceFile } from "@tsonic/tsts";
 import type { TargetDiagnostic, TargetDiagnosticSourceSpan } from "@tsonic/target-api";
 import { isAbsolute, relative } from "node:path";
 import type { TsonicSemanticSession } from "./compiler-session.js";
+import { isPathWithinOrEqual } from "./path-relation.js";
 
 export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDirectory: string): readonly TargetDiagnostic[] {
   const diagnostics = session.source.diagnostics
@@ -266,7 +267,7 @@ function formatSourceFileName(fileName: string, currentDirectory: string): strin
     return fileName.split("\\").join("/");
   }
   const relativePath = relative(currentDirectory, fileName);
-  if (relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath))) {
+  if (isPathWithinOrEqual(currentDirectory, fileName)) {
     return relativePath.split("\\").join("/");
   }
   return fileName.split("\\").join("/");

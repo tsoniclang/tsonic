@@ -10,7 +10,7 @@ export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
   if (!isSupportedEntryPoint(entryPoint)) {
     throw new Error("Project config entryPoint must use a final ESM TypeScript source extension: .ts or .mts.");
   }
-  const rootFiles = readOptionalRootFiles(value, entryPoint);
+  const rootFiles = readOptionalRootFiles(value);
   return {
     entryPoint,
     ...(rootFiles !== undefined ? { rootFiles } : {}),
@@ -99,7 +99,6 @@ function readOptionalString(value: Readonly<Record<string, unknown>>, key: strin
 
 function readOptionalRootFiles(
   value: Readonly<Record<string, unknown>>,
-  entryPoint: string,
 ): readonly string[] | undefined {
   const field = value.rootFiles;
   if (field === undefined) {
@@ -119,9 +118,6 @@ function readOptionalRootFiles(
     seen.add(rootFile);
     return rootFile;
   });
-  if (!seen.has(entryPoint)) {
-    throw new Error(`Project config rootFiles must contain entryPoint '${entryPoint}'.`);
-  }
   return Object.freeze(rootFiles);
 }
 

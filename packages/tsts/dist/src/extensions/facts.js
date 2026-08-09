@@ -15,6 +15,13 @@ export const sourcePrimitiveFactKey = markHostSourceReadableFactKey(defineExtens
         && left.signed === right.signed
         && left.runtimeBase === right.runtimeBase,
 }));
+export const sourceMarkerFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
+    extensionId: "tsts.source-semantics",
+    name: "sourceMarker",
+    snapshot: snapshotSourceMarkerFact,
+    equals: (left, right) => left.kind === right.kind
+        && left.marker === right.marker,
+}));
 export const argumentPassingFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
     name: "argumentPassing",
@@ -169,6 +176,18 @@ function snapshotSourcePrimitiveFact(value) {
         ...(signed === undefined ? {} : { signed }),
         ...(width === undefined ? {} : { width }),
     });
+}
+function snapshotSourceMarkerFact(value) {
+    const record = exactRecord(value, "SourceMarkerFact", ["kind", "marker"]);
+    const kind = requiredString(record, "kind", "SourceMarkerFact");
+    const marker = requiredString(record, "marker", "SourceMarkerFact");
+    if (kind === "call-marker" && sourceCallMarkerKinds.has(marker)) {
+        return Object.freeze({ kind, marker: marker });
+    }
+    if (kind === "type-marker" && sourceTypeMarkerKinds.has(marker)) {
+        return Object.freeze({ kind, marker: marker });
+    }
+    throw new Error(`SourceMarkerFact '${kind}:${marker}' is invalid.`);
 }
 function snapshotArgumentPassingFact(value) {
     const record = exactRecord(value, "ArgumentPassingFact", ["mode", "storageExpression"]);
@@ -973,6 +992,34 @@ const sourceRuntimeBases = new Set([
     "bigint",
     "string",
     "object",
+]);
+const sourceCallMarkerKinds = new Set([
+    "write-only-reference",
+    "read-write-reference",
+    "read-only-reference",
+    "shared-borrow",
+    "mutable-borrow",
+    "move",
+    "struct",
+    "field",
+    "attribute",
+    "default-value",
+    "address-of",
+    "allocate",
+    "load",
+    "store",
+    "equal-pointer",
+    "hash-pointer",
+    "bind-pointer",
+    "project-pointer",
+    "bind-raw-pointer",
+    "equal-raw-pointer",
+    "hash-raw-pointer",
+]);
+const sourceTypeMarkerKinds = new Set([
+    "pointer",
+    "function-pointer",
+    "raw-pointer",
 ]);
 const pointerMutabilities = new Set(["readonly", "readwrite", "unspecified"]);
 const flowStates = new Set(["moved", "borrowed-shared", "borrowed-mut"]);

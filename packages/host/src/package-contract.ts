@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export type PackageJson = Readonly<Record<string, unknown>>;
 
@@ -57,14 +57,31 @@ export function readDependencyNames(
   return [...names].sort();
 }
 
-export function hasCompilerSourceExport(packageRoot: string, packageJson: PackageJson): boolean {
-  return hasCompilerSourceTarget(packageRoot, packageJson.exports) ||
-    hasCompilerSourceTarget(packageRoot, packageJson.main) ||
-    hasCompilerSourceTarget(packageRoot, packageJson.module);
+export function hasCompilerSourceExport(
+  packageRoot: string,
+  packageJson: PackageJson,
+  sourceFiles: readonly string[],
+): boolean {
+  const availableSourcePaths = new Set(sourceFiles.flatMap((sourceFile) => {
+    const packageRelativePath = relative(packageRoot, sourceFile);
+    if (
+      packageRelativePath === "" ||
+      packageRelativePath === ".." ||
+      packageRelativePath.startsWith("../") ||
+      packageRelativePath.startsWith("..\\") ||
+      isAbsolute(packageRelativePath)
+    ) {
+      return [];
+    }
+    return [`./${normalizePackagePath(packageRelativePath)}`];
+  }));
+  return hasCompilerSourceTarget(packageJson.exports, availableSourcePaths) ||
+    hasCompilerSourceTarget(packageJson.main, availableSourcePaths) ||
+    hasCompilerSourceTarget(packageJson.module, availableSourcePaths);
 }
 
 export function isCompilerSourceFile(name: string): boolean {
-  return /\.(?:cts|mts|ts)$/u.test(name) && !/\.d\.(?:cts|mts|ts)$/u.test(name);
+  return /\.(?:mts|ts)$/u.test(name) && !/\.d\.(?:mts|ts)$/u.test(name);
 }
 
 export function isDeclarationFile(name: string): boolean {
@@ -75,25 +92,24 @@ export function normalizePackagePath(path: string): string {
   return path.split("\\").join("/");
 }
 
-function hasCompilerSourceTarget(packageRoot: string, value: unknown): boolean {
+function hasCompilerSourceTarget(
+  value: unknown,
+  availableSourcePaths: ReadonlySet<string>,
+): boolean {
   if (typeof value === "string") {
-    return compilerSourceTargetCandidates(value).some((candidate) => {
-      const candidatePath = resolve(packageRoot, candidate);
-      const packageRelativePath = relative(packageRoot, candidatePath);
-      return packageRelativePath !== "" &&
-        !isAbsolute(packageRelativePath) &&
-        packageRelativePath !== ".." &&
-        !packageRelativePath.startsWith(`..${sep}`) &&
-        existsSync(candidatePath);
-    });
+    return compilerSourceTargetCandidates(value).some((candidate) =>
+      matchesAvailableSourcePath(candidate, availableSourcePaths)
+    );
   }
   if (Array.isArray(value)) {
-    return value.some((entry) => hasCompilerSourceTarget(packageRoot, entry));
+    return value.some((entry) => hasCompilerSourceTarget(entry, availableSourcePaths));
   }
   if (!isRecord(value)) {
     return false;
   }
-  return Object.values(value).some((entry) => hasCompilerSourceTarget(packageRoot, entry));
+  return Object.values(value).some((entry) =>
+    hasCompilerSourceTarget(entry, availableSourcePaths)
+  );
 }
 
 function compilerSourceTargetCandidates(target: string): readonly string[] {
@@ -101,18 +117,53 @@ function compilerSourceTargetCandidates(target: string): readonly string[] {
     return [target];
   }
   if (target.endsWith(".js")) {
-    return [`${target.slice(0, -3)}.ts`, `${target.slice(0, -3)}.tsx`];
+    return [`${target.slice(0, -3)}.ts`];
   }
   if (target.endsWith(".mjs")) {
     return [`${target.slice(0, -4)}.mts`];
   }
-  if (target.endsWith(".cjs")) {
-    return [`${target.slice(0, -4)}.cts`];
-  }
-  if (target.endsWith(".jsx")) {
-    return [`${target.slice(0, -4)}.tsx`];
-  }
   return [];
+}
+
+function matchesAvailableSourcePath(
+  candidate: string,
+  availableSourcePaths: ReadonlySet<string>,
+): boolean {
+  const normalized = normalizeExportTarget(candidate);
+  if (normalized === undefined) {
+    return false;
+  }
+  const wildcardIndex = normalized.indexOf("*");
+  if (wildcardIndex < 0) {
+    return availableSourcePaths.has(normalized);
+  }
+  if (normalized.indexOf("*", wildcardIndex + 1) >= 0) {
+    return false;
+  }
+  const prefix = normalized.slice(0, wildcardIndex);
+  const suffix = normalized.slice(wildcardIndex + 1);
+  for (const sourcePath of availableSourcePaths) {
+    if (
+      sourcePath.length >= prefix.length + suffix.length &&
+      sourcePath.startsWith(prefix) &&
+      sourcePath.endsWith(suffix)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeExportTarget(target: string): string | undefined {
+  const normalized = normalizePackagePath(target);
+  const withPrefix = normalized.startsWith("./") ? normalized : `./${normalized}`;
+  if (
+    isAbsolute(normalized) ||
+    withPrefix.split("/").some((segment) => segment === "..")
+  ) {
+    return undefined;
+  }
+  return withPrefix;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

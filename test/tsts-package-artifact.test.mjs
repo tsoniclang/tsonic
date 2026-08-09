@@ -5,9 +5,10 @@ import test from "node:test";
 
 const repoRoot = process.cwd();
 
-test("vendored TSTS artifact exposes only the public package root", async () => {
+test("vendored TSTS artifact exposes only the approved public entrypoints", async () => {
   const root = await import("@tsonic/tsts");
   const explicitIndex = await import("@tsonic/tsts/index.js");
+  const targetAst = await import("@tsonic/tsts/target-ast");
 
   assert.equal(typeof root.createCompilerSessionFromFiles, "function");
   assert.equal(typeof root.createCompilerSessionFromProgram, "function");
@@ -19,7 +20,11 @@ test("vendored TSTS artifact exposes only the public package root", async () => 
   assert.equal(root.createTypeCheckerQueries, undefined);
   assert.equal(root.createTypeShapeQueries, undefined);
   assert.equal(root.createSourceFactQueries, undefined);
+  assert.equal(root.transformTargetSourceFile, undefined);
   assert.equal(root.createCompilerSessionFromFiles, explicitIndex.createCompilerSessionFromFiles);
+  assert.equal(typeof targetAst.transformTargetSourceFile, "function");
+  assert.equal(typeof targetAst.encodeTargetSourceFileForPrinting, "function");
+  assert.equal(typeof targetAst.NodeFactory_NewNodeList, "function");
 
   await assert.rejects(
     () => import("@tsonic/tsts/dist/src/index.js"),
@@ -44,12 +49,18 @@ test("vendored TSTS artifact contains dist output and no source-project tooling"
       types: "./dist/src/index.d.ts",
       import: "./dist/src/index.js",
     },
+    "./target-ast": {
+      types: "./dist/src/services/target-ast.d.ts",
+      import: "./dist/src/services/target-ast.js",
+    },
     "./package.json": "./package.json",
   });
   assert.equal(manifest.scripts, undefined);
 
   await access(resolve(packageRoot, "dist/src/index.js"));
   await access(resolve(packageRoot, "dist/src/index.d.ts"));
+  await access(resolve(packageRoot, "dist/src/services/target-ast.js"));
+  await access(resolve(packageRoot, "dist/src/services/target-ast.d.ts"));
   await access(resolve(packageRoot, "dist/src/internal/bundled/libs_generated.d.ts"));
   await assertMissing(resolve(packageRoot, "src"));
   await assertMissing(resolve(packageRoot, "tools"));

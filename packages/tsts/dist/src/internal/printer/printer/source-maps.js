@@ -53,11 +53,9 @@ export function Printer_writeLine(receiver) {
  * }
  */
 export function Printer_writeLineRepeat(receiver, count) {
-    const loop = (i) => { if (i < count) {
+    for (let index = 0; index < count; index = (index + 1)) {
         Printer_writeLine(receiver);
-        loop((i + 1));
-    } };
-    loop(0);
+    }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/printer/printer.go::method::Printer.writeLines","kind":"method","status":"implemented","sigHash":"655b6f0ebf49a096af67b3f994705403c12e5396c3e92b194e24e3863e89a34f","bodyHash":"46b9017bcdfb4962017102f4d19df9c5a2a07a881830e1b27a5217056821fbbf"}
