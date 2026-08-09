@@ -16,6 +16,7 @@ export interface TargetSelection {
 
 export interface TsonicProjectConfig {
   readonly entryPoint: string;
+  readonly rootFiles?: readonly string[];
   readonly rootDir?: string;
   readonly outDir?: string;
   readonly targets: readonly TargetSelection[];

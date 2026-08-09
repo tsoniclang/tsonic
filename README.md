@@ -28,6 +28,7 @@ TypeScript source
 ```json
 {
   "entryPoint": "index.ts",
+  "rootFiles": ["index.ts", "unreferenced-module.ts"],
   "rootDir": "src",
   "outDir": "out",
   "targets": [
