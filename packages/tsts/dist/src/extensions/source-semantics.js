@@ -115,10 +115,10 @@ function recordSourceSemanticsMarkerAliases(facts, sourceFile, checker) {
     });
 }
 function recordSourceSemanticsFacts(sourceFile, checker, facts, diagnostics, extensionId, modules) {
-    const markerImportIndex = createSourceSemanticsMarkerImportIndex(sourceFile, modules);
+    const primitiveImportIndex = createSourcePrimitiveImportIndex(sourceFile, modules);
     recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modules);
-    recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker, modules);
-    recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex);
+    recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker);
+    recordSourceSemanticsTypeReferences(facts, sourceFile, modules, primitiveImportIndex);
 }
 function recordSourceSemanticsImportClause(facts, checker, importDeclaration, moduleIdentity) {
     const importClause = Node_ImportClause(importDeclaration);
@@ -217,13 +217,13 @@ function recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modul
         facts.set(node, sourceMarkerFactKey, fact, createMarkerEvidence(marker.exportName));
     });
 }
-function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker, modules) {
+function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker) {
     visitSourceSemanticsNodePost(sourceFile, (node) => {
         if (node?.Kind !== KindCallExpression) {
             return;
         }
         const callInfo = checker.getResolvedCallInfo(node);
-        const marker = resolveSelectedSourceSemanticsCallMarker(facts, callInfo, modules);
+        const marker = resolveSelectedSourceSemanticsCallMarker(facts, callInfo);
         if (marker === undefined || callInfo === undefined) {
             return;
         }
@@ -755,7 +755,7 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
         evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
     };
 }
-function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerImportIndex) {
+function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, primitiveImportIndex) {
     visitSourceSemanticsNode(sourceFile, (node) => {
         if (node?.Kind !== KindTypeReference) {
             return;
@@ -764,11 +764,11 @@ function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, markerI
         if (typeName === undefined) {
             return;
         }
-        const marker = resolveSourceSemanticsTypeMarkerReference(facts, typeName, modules, markerImportIndex);
+        const marker = resolveSourceSemanticsTypeMarkerReference(facts, typeName);
         if (marker !== undefined) {
             recordSourceSemanticsTypeMarker(facts, node, typeName, marker);
         }
-        const primitive = resolvePrimitiveTypeReference(facts, typeName, modules, markerImportIndex);
+        const primitive = resolvePrimitiveTypeReference(facts, typeName, modules, primitiveImportIndex);
         if (primitive === undefined) {
             return;
         }
@@ -840,41 +840,24 @@ function getFunctionPointerParameters(parameterList) {
     }
     return [parameterList];
 }
-function resolveSelectedSourceSemanticsCallMarker(facts, callInfo, modules) {
+function resolveSelectedSourceSemanticsCallMarker(facts, callInfo) {
     if (callInfo === undefined) {
         return undefined;
     }
     const callee = callInfo.sourceCallee;
     for (const subject of [
+        callee.expression,
         callee.selectedDeclaration,
         callee.declaration,
+        callee.selectedSymbol,
+        callee.symbol,
     ]) {
-        const marker = resolveCallMarkerFromSelectedSubject(facts, subject, modules);
-        if (marker !== undefined) {
+        const marker = facts.get(subject, selectedSourceMarkerDeclarationFactKey);
+        if (marker?.kind === "call-marker") {
             return marker;
         }
-    }
-    for (const symbol of [callee.selectedSymbol, callee.symbol]) {
-        const marker = resolveCallMarkerFromSelectedSubject(facts, symbol, modules)
-            ?? resolveCallMarkerFromSelectedSymbol(facts, symbol, modules);
-        if (marker !== undefined) {
-            return marker;
-        }
-    }
-    const access = callInfo.sourceCalleeAccess;
-    if (access === undefined) {
-        return undefined;
-    }
-    const receiverIdentity = access.receiver.symbol === undefined
-        ? undefined
-        : facts.get(access.receiver.symbol, canonicalIdentityFactKey);
-    if (receiverIdentity?.kind === "module" && access.selectedSymbol !== undefined) {
-        return getModuleCallMarker(modules, receiverIdentity.id, access.selectedSymbol.Name);
     }
     return undefined;
-}
-function resolveCallMarkerFromSelectedSubject(facts, subject, modules) {
-    return resolveMarkerFromSelectedSubject(facts, subject, modules, "call-marker");
 }
 function resolveMarkerFromCheckedReference(facts, checker, node, modules, capability) {
     const localSymbol = checker.getSymbolAtLocation(node);
@@ -924,12 +907,6 @@ function resolveMarkerFromSelectedSubject(facts, subject, modules, capability) {
     }
     return undefined;
 }
-function resolveCallMarkerFromSelectedSymbol(facts, symbol, modules) {
-    return resolveMarkerFromSelectedSymbol(facts, symbol, modules, "call-marker");
-}
-function resolveTypeMarkerFromSelectedSymbol(facts, symbol, modules) {
-    return resolveMarkerFromSelectedSymbol(facts, symbol, modules, "type-marker");
-}
 function resolveMarkerFromSelectedSymbol(facts, symbol, modules, capability) {
     const direct = resolveMarkerFromSelectedSubject(facts, symbol, modules, capability);
     if (direct !== undefined) {
@@ -944,97 +921,16 @@ function resolveMarkerFromSelectedSymbol(facts, symbol, modules, capability) {
     const module = modules.find((candidate) => candidate.moduleSpecifier === parentIdentity.id);
     return getModuleMarker(module, capability, symbol.Name);
 }
-function getModuleCallMarker(modules, moduleSpecifier, exportName) {
-    return modules.find((candidate) => candidate.moduleSpecifier === moduleSpecifier)
-        ?.callMarkersByExportName.get(exportName);
-}
-function resolveSourceSemanticsTypeMarkerReference(facts, node, modules, markerImportIndex) {
-    return resolveSourceSemanticsTypeMarkerFromImportIndex(node, markerImportIndex.typeMarkersByLocalName, markerImportIndex.namespacesByLocalName) ?? resolveSourceSemanticsTypeMarkerReferenceFromFacts(facts, node, modules);
-}
-function resolveSourceSemanticsTypeMarkerFromImportIndex(node, markersByLocalName, namespacesByLocalName) {
-    if (node === undefined) {
-        return undefined;
-    }
-    if (node.Kind === KindPropertyAccessExpression) {
-        const receiver = AsPropertyAccessExpression(node)?.Expression;
-        const receiverName = getIdentifierText(receiver);
-        if (receiverName === undefined) {
-            return undefined;
-        }
-        const namespaceBinding = namespacesByLocalName.get(receiverName);
-        if (namespaceBinding === undefined || isImportBindingShadowed(receiver, receiverName)) {
-            return undefined;
-        }
-        const propertyName = getStaticSourceSemanticsNameText(Node_Name(node));
-        if (propertyName === undefined) {
-            return undefined;
-        }
-        return namespaceBinding.moduleIdentity.typeMarkersByExportName.get(propertyName);
-    }
-    if (node.Kind === KindQualifiedName) {
-        const qualifiedName = AsQualifiedName(node);
-        const leftName = getIdentifierText(qualifiedName?.Left);
-        if (leftName === undefined) {
-            return undefined;
-        }
-        const namespaceBinding = namespacesByLocalName.get(leftName);
-        if (namespaceBinding === undefined || isImportBindingShadowed(qualifiedName?.Left, leftName)) {
-            return undefined;
-        }
-        const exportName = getIdentifierText(qualifiedName?.Right);
-        if (exportName === undefined) {
-            return undefined;
-        }
-        return namespaceBinding.moduleIdentity.typeMarkersByExportName.get(exportName);
-    }
-    const localName = getIdentifierText(node);
-    if (localName === undefined) {
-        return undefined;
-    }
-    const binding = markersByLocalName.get(localName);
-    return binding !== undefined && !isImportBindingShadowed(node, localName) ? binding.marker : undefined;
-}
-function resolveSourceSemanticsTypeMarkerReferenceFromFacts(facts, node, modules) {
+function resolveSourceSemanticsTypeMarkerReference(facts, node) {
     if (node === undefined) {
         return undefined;
     }
     const selected = facts.get(node, selectedSourceMarkerDeclarationFactKey)
         ?? facts.get(Node_Symbol(node), selectedSourceMarkerDeclarationFactKey);
-    if (selected?.kind === "type-marker") {
-        return selected;
-    }
-    if (node.Kind === KindPropertyAccessExpression) {
-        const propertyName = Node_Text(Node_Name(node));
-        const receiverSymbol = Node_Symbol(AsPropertyAccessExpression(node)?.Expression);
-        const receiverIdentity = receiverSymbol === undefined ? undefined : facts.get(receiverSymbol, canonicalIdentityFactKey);
-        if (receiverIdentity?.kind !== "module") {
-            return undefined;
-        }
-        const module = modules.find((candidate) => candidate.moduleSpecifier === receiverIdentity.id);
-        return module?.typeMarkersByExportName.get(propertyName);
-    }
-    if (node.Kind === KindQualifiedName) {
-        const qualifiedName = AsQualifiedName(node);
-        const exportName = Node_Text(qualifiedName?.Right);
-        const leftSymbol = Node_Symbol(qualifiedName?.Left);
-        const leftIdentity = leftSymbol === undefined ? undefined : facts.get(leftSymbol, canonicalIdentityFactKey);
-        if (leftIdentity?.kind !== "module") {
-            return undefined;
-        }
-        const module = modules.find((candidate) => candidate.moduleSpecifier === leftIdentity.id);
-        return module?.typeMarkersByExportName.get(exportName);
-    }
-    const symbol = Node_Symbol(node);
-    const identity = symbol === undefined ? undefined : facts.get(symbol, canonicalIdentityFactKey);
-    if (identity?.exportName === undefined) {
-        return undefined;
-    }
-    const module = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
-    return module?.typeMarkersByExportName.get(identity.exportName);
+    return selected?.kind === "type-marker" ? selected : undefined;
 }
-function createSourceSemanticsMarkerImportIndex(sourceFile, modules) {
+function createSourcePrimitiveImportIndex(sourceFile, modules) {
     const primitivesByLocalName = new Map();
-    const typeMarkersByLocalName = new Map();
     const namespacesByLocalName = new Map();
     for (const statement of Node_Statements(sourceFile) ?? []) {
         if (statement?.Kind !== KindImportDeclaration) {
@@ -1075,16 +971,9 @@ function createSourceSemanticsMarkerImportIndex(sourceFile, modules) {
                     primitiveFact: primitive,
                 });
             }
-            const typeMarker = moduleIdentity.typeMarkersByExportName.get(exportName);
-            if (typeMarker !== undefined) {
-                typeMarkersByLocalName.set(localName, {
-                    localName,
-                    marker: typeMarker,
-                });
-            }
         }
     }
-    return { primitivesByLocalName, typeMarkersByLocalName, namespacesByLocalName };
+    return { primitivesByLocalName, namespacesByLocalName };
 }
 function resolvePrimitiveTypeReference(facts, typeName, modules, importIndex) {
     if (typeName === undefined) {
@@ -1184,9 +1073,6 @@ function bindingNameContainsName(name, localName) {
         return false;
     }
     return (Node_Elements(name) ?? []).some((element) => bindingNameContainsName(Node_Name(element), localName));
-}
-function getIdentifierText(node) {
-    return node?.Kind === KindIdentifier ? Node_Text(node) : undefined;
 }
 function getStaticSourceSemanticsNameText(node) {
     switch (node?.Kind) {
