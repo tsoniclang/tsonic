@@ -1,5 +1,5 @@
 export const defaultTargetAstEncodingLimits = Object.freeze({
-    maximumNodeRows: 1_048_576,
+    maximumNodeRows: 2_097_152,
     maximumDepth: 1_024,
     maximumStringCount: 1_048_576,
     maximumStringBytes: 256 * 1024 * 1024,

@@ -1,12 +1,19 @@
-import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_Parameters, Node_PropertyName, Node_Properties, SourceFile_Path, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, Node_TypeParameters, } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_PropertyName, Node_Properties, SourceFile_Path, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindArrayBindingPattern, KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindObjectBindingPattern, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
-import { GetSourceFileOfNode, GetSymbolId, IsDeclarationName, IsFunctionLike, IsLeftHandSideExpression, IsRightSideOfQualifiedNameOrPropertyAccess, } from "../internal/ast/utilities.js";
+import { KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { GetSourceFileOfNode, GetSymbolId, IsDeclarationName, IsLeftHandSideExpression, IsRightSideOfQualifiedNameOrPropertyAccess, } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerVirtualDeclarationFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { defineExtensionFactKey } from "./fact-key.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
 export const sourceSemanticsExtensionId = "tsts.source-semantics";
+const selectedSourcePrimitiveDeclarationFactKey = defineExtensionFactKey({
+    extensionId: sourceSemanticsExtensionId,
+    name: "selectedSourcePrimitiveDeclaration",
+    snapshot: (value) => Object.freeze({ ...value }),
+    equals: (left, right) => left.moduleSpecifier === right.moduleSpecifier
+        && left.exportName === right.exportName,
+});
 const selectedSourceMarkerDeclarationFactKey = defineExtensionFactKey({
     extensionId: sourceSemanticsExtensionId,
     name: "selectedSourceMarkerDeclaration",
@@ -61,7 +68,7 @@ export function createSourceSemanticsExtension(options) {
                 recordConfiguredSourceSemanticsDeclarations(sourceFile, context.source.getSourceFileQueries(sourceFile).checker, context.facts, modules);
             }
             for (const sourceFile of sourceFiles) {
-                recordSourceSemanticsMarkerAliases(context.facts, sourceFile, context.source.getSourceFileQueries(sourceFile).checker);
+                recordSourceSemanticsDeclarationAliases(context.facts, sourceFile, context.source.getSourceFileQueries(sourceFile).checker, modules);
             }
             for (const sourceFile of sourceFiles) {
                 recordSourceSemanticsFacts(sourceFile, context.source.getSourceFileQueries(sourceFile).checker, context.facts, context.diagnostics, sourceSemanticsExtensionId, modules);
@@ -86,7 +93,7 @@ function recordConfiguredSourceSemanticsDeclarations(sourceFile, checker, facts,
         }
     }
 }
-function recordSourceSemanticsMarkerAliases(facts, sourceFile, checker) {
+function recordSourceSemanticsDeclarationAliases(facts, sourceFile, checker, modules) {
     visitSourceSemanticsNodePost(sourceFile, (node) => {
         if (node === undefined ||
             (node.Kind !== KindImportSpecifier && node.Kind !== KindExportSpecifier)) {
@@ -99,6 +106,22 @@ function recordSourceSemanticsMarkerAliases(facts, sourceFile, checker) {
         const selectedSymbol = checker.getAliasedSymbol(localSymbol);
         if (selectedSymbol === undefined) {
             return;
+        }
+        const primitive = facts.get(selectedSymbol, selectedSourcePrimitiveDeclarationFactKey);
+        if (primitive !== undefined) {
+            const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === primitive.moduleSpecifier);
+            const declaration = moduleIdentity?.primitivesByExportName.get(primitive.exportName);
+            if (moduleIdentity === undefined || declaration === undefined) {
+                throw new Error(`Selected source primitive '${primitive.moduleSpecifier}::${primitive.exportName}' has no configured declaration.`);
+            }
+            const identity = createExportIdentity(moduleIdentity, primitive.exportName, "type", getSymbolFactId(localSymbol));
+            const evidence = createPrimitiveEvidence(moduleIdentity, primitive.exportName);
+            facts.set(node, selectedSourcePrimitiveDeclarationFactKey, primitive, evidence);
+            facts.set(node, canonicalIdentityFactKey, identity, evidence);
+            facts.set(node, sourcePrimitiveFactKey, stripExportName(declaration), evidence);
+            facts.set(localSymbol, selectedSourcePrimitiveDeclarationFactKey, primitive, evidence);
+            facts.set(localSymbol, canonicalIdentityFactKey, identity, evidence);
+            facts.set(localSymbol, sourcePrimitiveFactKey, stripExportName(declaration), evidence);
         }
         const marker = facts.get(selectedSymbol, selectedSourceMarkerDeclarationFactKey);
         if (marker === undefined) {
@@ -115,10 +138,9 @@ function recordSourceSemanticsMarkerAliases(facts, sourceFile, checker) {
     });
 }
 function recordSourceSemanticsFacts(sourceFile, checker, facts, diagnostics, extensionId, modules) {
-    const primitiveImportIndex = createSourcePrimitiveImportIndex(sourceFile, modules);
     recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modules);
     recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker);
-    recordSourceSemanticsTypeReferences(facts, sourceFile, modules, primitiveImportIndex);
+    recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules);
 }
 function recordSourceSemanticsImportClause(facts, checker, importDeclaration, moduleIdentity) {
     const importClause = Node_ImportClause(importDeclaration);
@@ -148,7 +170,7 @@ function recordSourceSemanticsImportClause(facts, checker, importDeclaration, mo
         const exportName = Node_Text(Node_PropertyName(importSpecifier) ?? localName);
         const primitiveFact = moduleIdentity.primitivesByExportName.get(exportName);
         if (primitiveFact !== undefined) {
-            recordSourcePrimitiveImport(facts, importSpecifier, moduleIdentity, exportName, primitiveFact, typedImport);
+            recordSourcePrimitiveImport(facts, checker, importSpecifier, moduleIdentity, exportName, primitiveFact, typedImport);
             continue;
         }
         const callMarker = moduleIdentity.callMarkersByExportName.get(exportName);
@@ -180,7 +202,7 @@ function recordSourceSemanticsExportClause(facts, checker, exportDeclaration, mo
         const primitiveFact = moduleIdentity.primitivesByExportName.get(sourceName);
         if (primitiveFact !== undefined) {
             const specifierIsTypeOnly = AsExportSpecifier(exportSpecifier).IsTypeOnly;
-            recordSourcePrimitiveImport(facts, exportSpecifier, moduleIdentity, sourceName, primitiveFact, declarationIsTypeOnly || specifierIsTypeOnly);
+            recordSourcePrimitiveImport(facts, checker, exportSpecifier, moduleIdentity, sourceName, primitiveFact, declarationIsTypeOnly || specifierIsTypeOnly);
             continue;
         }
         const specifierIsTypeOnly = AsExportSpecifier(exportSpecifier).IsTypeOnly;
@@ -746,7 +768,7 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
         return undefined;
     }
     const typeName = AsTypeReferenceNode(node)?.TypeName;
-    const primitive = resolvePrimitiveTypeReference(context.facts, typeName, modules);
+    const primitive = resolveRecordedPrimitiveTypeReference(context.facts, node, typeName, modules);
     if (primitive === undefined) {
         return undefined;
     }
@@ -755,7 +777,7 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
         evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
     };
 }
-function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, primitiveImportIndex) {
+function recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules) {
     visitSourceSemanticsNode(sourceFile, (node) => {
         if (node?.Kind !== KindTypeReference) {
             return;
@@ -768,13 +790,16 @@ function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, primiti
         if (marker !== undefined) {
             recordSourceSemanticsTypeMarker(facts, node, typeName, marker);
         }
-        const primitive = resolvePrimitiveTypeReference(facts, typeName, modules, primitiveImportIndex);
+        const primitive = resolvePrimitiveFromCheckedReference(facts, checker, typeName, modules);
         if (primitive === undefined) {
             return;
         }
         const evidence = createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName);
+        const selection = createSourcePrimitiveSelection(primitive.moduleIdentity, primitive.exportName);
+        facts.set(node, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
         facts.set(node, canonicalIdentityFactKey, primitive.identity, evidence);
         facts.set(node, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
+        facts.set(typeName, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
         facts.set(typeName, canonicalIdentityFactKey, primitive.identity, evidence);
         facts.set(typeName, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
         if (typeName.Kind === KindQualifiedName) {
@@ -782,6 +807,7 @@ function recordSourceSemanticsTypeReferences(facts, sourceFile, modules, primiti
             if (right === undefined) {
                 return;
             }
+            facts.set(right, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
             facts.set(right, canonicalIdentityFactKey, primitive.identity, evidence);
             facts.set(right, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
         }
@@ -929,150 +955,113 @@ function resolveSourceSemanticsTypeMarkerReference(facts, node) {
         ?? facts.get(Node_Symbol(node), selectedSourceMarkerDeclarationFactKey);
     return selected?.kind === "type-marker" ? selected : undefined;
 }
-function createSourcePrimitiveImportIndex(sourceFile, modules) {
-    const primitivesByLocalName = new Map();
-    const namespacesByLocalName = new Map();
-    for (const statement of Node_Statements(sourceFile) ?? []) {
-        if (statement?.Kind !== KindImportDeclaration) {
-            continue;
-        }
-        const moduleIdentity = getSourceSemanticsModuleIdentity(statement, modules);
-        if (moduleIdentity === undefined) {
-            continue;
-        }
-        const namedBindings = AsImportClause(Node_ImportClause(statement))?.NamedBindings;
-        if (namedBindings === undefined) {
-            continue;
-        }
-        if (namedBindings.Kind === KindNamespaceImport) {
-            const namespaceNameNode = Node_Name(namedBindings);
-            const namespaceName = Node_Text(namespaceNameNode);
-            if (namespaceName !== "") {
-                namespacesByLocalName.set(namespaceName, {
-                    localName: namespaceName,
-                    moduleIdentity,
-                });
-            }
-            continue;
-        }
-        if (namedBindings.Kind !== KindNamedImports) {
-            continue;
-        }
-        for (const importSpecifier of Node_Elements(namedBindings) ?? []) {
-            const localNameNode = Node_Name(importSpecifier);
-            const localName = Node_Text(localNameNode);
-            const exportName = Node_Text(Node_PropertyName(importSpecifier) ?? localNameNode);
-            const primitive = moduleIdentity.primitivesByExportName.get(exportName);
-            if (primitive !== undefined) {
-                primitivesByLocalName.set(localName, {
-                    moduleIdentity,
-                    localName,
-                    exportName,
-                    primitiveFact: primitive,
-                });
-            }
-        }
-    }
-    return { primitivesByLocalName, namespacesByLocalName };
-}
-function resolvePrimitiveTypeReference(facts, typeName, modules, importIndex) {
+function resolvePrimitiveFromCheckedReference(facts, checker, typeName, modules) {
     if (typeName === undefined) {
         return undefined;
     }
-    if (typeName.Kind === KindQualifiedName) {
-        return resolveQualifiedPrimitiveFromImportIndex(typeName, importIndex)
-            ?? resolveQualifiedPrimitiveReference(facts, typeName, modules);
+    const localSymbol = checker.getSymbolAtLocation(typeName);
+    const direct = resolvePrimitiveFromSelectedSymbol(facts, localSymbol, modules);
+    if (direct !== undefined) {
+        return direct;
     }
-    const indexedPrimitive = resolvePrimitiveFromImportIndex(typeName, importIndex);
-    if (indexedPrimitive !== undefined) {
-        return indexedPrimitive;
+    const receiver = typeName.Kind === KindQualifiedName
+        ? AsQualifiedName(typeName)?.Left
+        : undefined;
+    if (receiver !== undefined) {
+        const receiverSymbol = checker.getSymbolAtLocation(receiver);
+        const receiverIdentity = receiverSymbol === undefined
+            ? undefined
+            : facts.get(receiverSymbol, canonicalIdentityFactKey);
+        const selectedMember = AsQualifiedName(typeName)?.Right;
+        const selectedSymbol = checker.getResolvedSymbolOrNil(typeName)
+            ?? checker.getResolvedSymbolOrNil(selectedMember)
+            ?? checker.getSymbolAtLocation(selectedMember);
+        if (receiverIdentity?.kind === "module"
+            && selectedSymbol !== undefined) {
+            const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === receiverIdentity.id);
+            const primitive = resolveConfiguredPrimitive(moduleIdentity, checker.getSymbolName(selectedSymbol), selectedSymbol);
+            if (primitive !== undefined) {
+                return primitive;
+            }
+        }
     }
-    const typeNameSymbol = Node_Symbol(typeName);
-    if (typeNameSymbol === undefined) {
+    return resolvePrimitiveFromSelectedSymbol(facts, checker.getResolvedSymbolOrNil(typeName), modules);
+}
+function resolvePrimitiveFromSelectedSymbol(facts, symbol, modules) {
+    if (symbol === undefined) {
         return undefined;
     }
-    const primitiveFact = facts.get(typeNameSymbol, sourcePrimitiveFactKey);
-    const identity = facts.get(typeNameSymbol, canonicalIdentityFactKey);
-    if (primitiveFact === undefined || identity === undefined || identity.exportName === undefined) {
+    const selection = facts.get(symbol, selectedSourcePrimitiveDeclarationFactKey);
+    if (selection !== undefined) {
+        return resolvePrimitiveSelection(selection, modules, symbol);
+    }
+    const providerDeclaration = facts.get(symbol, providerVirtualDeclarationFactKey);
+    if (providerDeclaration?.exportName !== undefined) {
+        const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === providerDeclaration.moduleSpecifier);
+        return resolveConfiguredPrimitive(moduleIdentity, providerDeclaration.exportName, symbol);
+    }
+    const identity = facts.get(symbol, canonicalIdentityFactKey);
+    if (identity?.kind !== "export" || identity.exportName === undefined) {
         return undefined;
     }
     const moduleIdentity = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
-    if (moduleIdentity === undefined) {
-        return undefined;
-    }
-    const declaration = moduleIdentity.primitivesByExportName.get(identity.exportName);
-    if (declaration === undefined) {
-        return undefined;
-    }
-    return { moduleIdentity, exportName: identity.exportName, primitiveFact: declaration, identity };
+    return resolveConfiguredPrimitive(moduleIdentity, identity.exportName, symbol);
 }
-function resolvePrimitiveFromImportIndex(typeName, importIndex) {
-    if (typeName === undefined || importIndex === undefined) {
+function resolveRecordedPrimitiveTypeReference(facts, typeReference, typeName, modules) {
+    if (typeName === undefined) {
         return undefined;
     }
-    const binding = importIndex.primitivesByLocalName.get(Node_Text(typeName));
-    if (binding === undefined || isImportBindingShadowed(typeName, binding.localName)) {
-        return undefined;
+    const subjects = typeName.Kind === KindQualifiedName
+        ? [typeReference, typeName, AsQualifiedName(typeName)?.Right]
+        : [typeReference, typeName];
+    for (const subject of subjects) {
+        if (subject === undefined) {
+            continue;
+        }
+        const selection = facts.get(subject, selectedSourcePrimitiveDeclarationFactKey);
+        if (selection === undefined) {
+            continue;
+        }
+        const identity = facts.get(subject, canonicalIdentityFactKey);
+        if (identity === undefined) {
+            throw new Error(`Selected source primitive '${selection.moduleSpecifier}::${selection.exportName}' has no canonical identity.`);
+        }
+        return resolvePrimitiveSelection(selection, modules, undefined, identity);
     }
-    const symbol = Node_Symbol(typeName);
+    return undefined;
+}
+function resolvePrimitiveSelection(selection, modules, symbol, identity) {
+    const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === selection.moduleSpecifier);
+    const primitive = moduleIdentity?.primitivesByExportName.get(selection.exportName);
+    if (moduleIdentity === undefined || primitive === undefined) {
+        throw new Error(`Selected source primitive '${selection.moduleSpecifier}::${selection.exportName}' has no configured declaration.`);
+    }
     return {
-        ...binding,
-        identity: createExportIdentity(binding.moduleIdentity, binding.exportName, "type", symbol === undefined ? `${binding.moduleIdentity.moduleSpecifier}::${binding.exportName}` : getSymbolFactId(symbol)),
+        moduleIdentity,
+        exportName: selection.exportName,
+        primitiveFact: primitive,
+        identity: identity ?? createExportIdentity(moduleIdentity, selection.exportName, "type", symbol === undefined
+            ? `${selection.moduleSpecifier}::${selection.exportName}`
+            : getSymbolFactId(symbol)),
     };
 }
-function resolveQualifiedPrimitiveFromImportIndex(typeName, importIndex) {
-    if (typeName === undefined || importIndex === undefined) {
+function resolveConfiguredPrimitive(moduleIdentity, exportName, symbol) {
+    const primitiveFact = moduleIdentity?.primitivesByExportName.get(exportName);
+    if (moduleIdentity === undefined || primitiveFact === undefined) {
         return undefined;
     }
-    const qualifiedName = AsQualifiedName(typeName);
-    const leftName = Node_Text(qualifiedName?.Left);
-    const namespaceBinding = importIndex.namespacesByLocalName.get(leftName);
-    if (namespaceBinding === undefined || isImportBindingShadowed(qualifiedName?.Left, leftName)) {
-        return undefined;
-    }
-    const right = qualifiedName.Right;
-    const exportName = Node_Text(right);
-    const primitiveFact = namespaceBinding.moduleIdentity.primitivesByExportName.get(exportName);
-    if (primitiveFact === undefined) {
-        return undefined;
-    }
-    const symbol = Node_Symbol(right);
     return {
-        moduleIdentity: namespaceBinding.moduleIdentity,
+        moduleIdentity,
         exportName,
         primitiveFact,
-        identity: createExportIdentity(namespaceBinding.moduleIdentity, exportName, "type", symbol === undefined ? `${namespaceBinding.moduleIdentity.moduleSpecifier}::${exportName}` : getSymbolFactId(symbol)),
+        identity: createExportIdentity(moduleIdentity, exportName, "type", getSymbolFactId(symbol)),
     };
 }
-function isImportBindingShadowed(node, localName) {
-    if (node === undefined || localName === "") {
-        return false;
-    }
-    let current = node.Parent;
-    while (current !== undefined) {
-        if (IsFunctionLike(current)) {
-            if (declarationListContainsName(Node_Parameters(current), localName) || declarationListContainsName(Node_TypeParameters(current) ?? [], localName)) {
-                return true;
-            }
-        }
-        current = current.Parent;
-    }
-    return false;
-}
-function declarationListContainsName(declarations, localName) {
-    return declarations.some((declaration) => bindingNameContainsName(Node_Name(declaration), localName));
-}
-function bindingNameContainsName(name, localName) {
-    if (name === undefined) {
-        return false;
-    }
-    if (name.Kind === KindIdentifier) {
-        return Node_Text(name) === localName;
-    }
-    if (name.Kind !== KindArrayBindingPattern && name.Kind !== KindObjectBindingPattern) {
-        return false;
-    }
-    return (Node_Elements(name) ?? []).some((element) => bindingNameContainsName(Node_Name(element), localName));
+function createSourcePrimitiveSelection(moduleIdentity, exportName) {
+    return {
+        moduleSpecifier: moduleIdentity.moduleSpecifier,
+        exportName,
+    };
 }
 function getStaticSourceSemanticsNameText(node) {
     switch (node?.Kind) {
@@ -1083,30 +1072,6 @@ function getStaticSourceSemanticsNameText(node) {
         default:
             return undefined;
     }
-}
-function resolveQualifiedPrimitiveReference(facts, typeName, modules) {
-    const qualifiedName = AsQualifiedName(typeName);
-    const leftSymbol = Node_Symbol(qualifiedName?.Left);
-    if (leftSymbol === undefined) {
-        return undefined;
-    }
-    const moduleIdentityFact = facts.get(leftSymbol, canonicalIdentityFactKey);
-    if (moduleIdentityFact?.kind !== "module") {
-        return undefined;
-    }
-    const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === moduleIdentityFact.id);
-    if (moduleIdentity === undefined) {
-        return undefined;
-    }
-    const right = qualifiedName.Right;
-    const exportName = Node_Text(right);
-    const primitiveFact = moduleIdentity.primitivesByExportName.get(exportName);
-    if (primitiveFact === undefined) {
-        return undefined;
-    }
-    const rightSymbol = Node_Symbol(right);
-    const identity = createExportIdentity(moduleIdentity, exportName, "type", rightSymbol === undefined ? `${moduleIdentity.moduleSpecifier}::${exportName}` : getSymbolFactId(rightSymbol));
-    return { moduleIdentity, exportName, primitiveFact, identity };
 }
 function visitSourceSemanticsNode(node, visit) {
     if (node === undefined) {
@@ -1145,17 +1110,24 @@ function getSourceSemanticsModuleIdentity(node, modules) {
         ? undefined
         : modules.find((candidate) => candidate.moduleSpecifier === Node_Text(moduleSpecifier));
 }
-function recordSourcePrimitiveImport(facts, importSpecifier, moduleIdentity, exportName, primitiveFact, typedImport) {
+function recordSourcePrimitiveImport(facts, checker, importSpecifier, moduleIdentity, exportName, primitiveFact, typedImport) {
     const localSymbol = Node_Symbol(importSpecifier);
     if (localSymbol === undefined) {
         return;
     }
     const identity = createExportIdentity(moduleIdentity, exportName, typedImport ? "type" : "value", getSymbolFactId(localSymbol));
+    const selection = createSourcePrimitiveSelection(moduleIdentity, exportName);
     const evidence = createPrimitiveEvidence(moduleIdentity, exportName);
+    facts.set(importSpecifier, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
     facts.set(importSpecifier, canonicalIdentityFactKey, identity, evidence);
     facts.set(importSpecifier, sourcePrimitiveFactKey, stripExportName(primitiveFact), evidence);
+    facts.set(localSymbol, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
     facts.set(localSymbol, canonicalIdentityFactKey, identity, evidence);
     facts.set(localSymbol, sourcePrimitiveFactKey, stripExportName(primitiveFact), evidence);
+    const selectedSymbol = checker.getAliasedSymbol(localSymbol);
+    if (selectedSymbol !== undefined && selectedSymbol !== localSymbol) {
+        facts.set(selectedSymbol, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
+    }
 }
 function recordSourceSemanticsSymbolImport(facts, importSpecifier, moduleIdentity, exportName, importKind) {
     const localSymbol = Node_Symbol(importSpecifier);
