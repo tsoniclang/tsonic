@@ -266,7 +266,7 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const generatedEntrypoint = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs"), "utf8");
-  assert.match(generatedSource, /public static double total\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/);
+  assert.match(generatedSource, /public static double total\s*\{\s*get;\s*internal set;\s*\} = default\(double\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(generatedSource, /total = 0;/);
   assert.match(generatedEntrypoint, /public static void Main\(\)/);

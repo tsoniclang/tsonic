@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "./cli-build/harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "./cli-build/harness.mjs";
 
 test("CLI emits and executes async functions from TSTS Promise carriers", async () => {
   const assemblyName = "SmokeGeneratedAsyncFunctions";
@@ -521,9 +521,9 @@ test("CLI rejects unsupported Promise chains before target artifacts", async () 
   assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
 });
 
-test("CLI rejects async generators before target artifacts", async () => {
-  const assemblyName = "SmokeGeneratedAsyncGeneratorRejected";
-  const projectDirectory = resolve(tempRoot, "async-generator-rejected");
+test("CLI emits and executes async generators through native C# async iterators", async () => {
+  const assemblyName = "SmokeGeneratedAsyncGenerator";
+  const projectDirectory = resolve(tempRoot, "async-generator");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -535,23 +535,35 @@ test("CLI rejects async generators before target artifacts", async () => {
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "export async function* stream(): AsyncGenerator<number> {",
-      "  yield 1;",
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export async function* stream(): AsyncGenerator<number, string, number> {",
+      "  const received = yield 1;",
+      "  return `done:${received}`;",
       "}",
+      "",
+      "const generator = stream();",
+      "const first = await generator.next();",
+      "const completed = await generator.next(4);",
+      "Console.WriteLine(`${first.value as number}:${completed.value as string}`);",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /TS2583: Cannot find name 'AsyncGenerator'/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
-  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.AsyncGenerator<double, string, double> stream\(\)/);
+  assert.match(generatedSource, /async System\.Collections\.Generic\.IAsyncEnumerable<double> __tsonic_iterator0/);
+  assert.doesNotMatch(generatedSource, /__unsupported/);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "1:done:4\n");
 });
 
 async function readGeneratedModuleSource(projectDirectory) {

@@ -269,7 +269,7 @@ test("CLI escapes TypeScript identifiers that are C# reserved words", async () =
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double @event\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/u);
+  assert.match(generatedSource, /public static double @event\s*\{\s*get;\s*internal set;\s*\} = default\(double\)!;/u);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/u);
   assert.match(generatedSource, /@event = 1;/);
   assert.match(generatedSource, /public static double read\(double @operator\)/);
