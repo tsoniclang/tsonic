@@ -88,6 +88,13 @@ export function sourceFileHasTopLevelAwait(
       return;
     }
     if (
+      ast.is.IsVariableDeclaration(node) &&
+      ast.variableDeclarationKind(node) === "await using"
+    ) {
+      found = true;
+      return;
+    }
+    if (
       ast.is.IsForOfStatement(node) &&
       ast.as.AsForInOrOfStatement(node)?.AwaitModifier !== undefined
     ) {

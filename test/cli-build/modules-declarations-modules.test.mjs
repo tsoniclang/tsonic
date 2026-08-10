@@ -65,7 +65,7 @@ test("CLI emits module-scope variables as lazily initialized C# static propertie
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double total\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/);
+  assert.match(generatedSource, /public static double total\s*\{\s*get;\s*internal set;\s*\} = default\(double\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(generatedSource, /total = 1;/);
   assert.match(generatedSource, /total = total \+ 1;/);
@@ -290,7 +290,7 @@ test("CLI emits side-effect import initialization before importer top-level stat
   assert.doesNotMatch(sideSource, /__unsupported/);
 
   const stateSource = await readFile(resolve(projectDirectory, "out/csharp/src/State.cs"), "utf8");
-  assert.match(stateSource, /public static string text\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/);
+  assert.match(stateSource, /public static string text\s*\{\s*get;\s*internal set;\s*\} = default\(string\)!;/);
   assert.match(stateSource, /text = "";/);
   assert.doesNotMatch(stateSource, /__unsupported/);
 

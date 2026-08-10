@@ -1,5 +1,5 @@
 import { NewGoStructMap } from "../../../go/compat.js";
-import { captureExtensionArrayOrStringIteration, captureKnownIterableInstantiation, captureSelectedIteratorMember, combineExtensionProtocolMechanisms, createChildExtensionIterationCapture, createExtensionIterationProtocolSelectionCapture, sourceIterationEvidenceLimits, extensionIterationTypesMatch, isForAwaitOfIterationMechanism, isForOfIterationMechanism, setExtensionProtocolMechanismKind, } from "./iteration-evidence.js";
+import { captureExtensionArrayOrStringIteration, captureKnownIterableInstantiation, captureSelectedIteratorMember, combineExtensionProtocolMechanisms, createChildExtensionIterationCapture, createExtensionIterationProtocolSelectionCapture, sourceIterationEvidenceLimits, extensionIterationTypesMatch, freezeExtensionCheckedYieldStarResult, isForAwaitOfIterationMechanism, isForOfIterationMechanism, setExtensionProtocolMechanismKind, } from "./iteration-evidence.js";
 import * as core from "../../core/core.js";
 import * as slices from "../../../go/slices.js";
 import { MaxInt } from "../../../go/math.js";
@@ -703,6 +703,56 @@ export function Checker_checkForOfIterationWithExtensionSelection(receiver, iter
             mechanism,
         },
     };
+}
+export function Checker_checkYieldStarWithExtensionSelection(receiver, inputType, sentType, asynchronous) {
+    if (inputType === undefined || sentType === undefined) {
+        return undefined;
+    }
+    if (IsTypeAny(inputType)) {
+        const mechanism = asynchronous
+            ? {
+                kind: "untyped-dynamic-iteration",
+                sourceIterableType: inputType,
+            }
+            : {
+                kind: "untyped-dynamic-iteration",
+                sourceIterableType: inputType,
+            };
+        return freezeExtensionCheckedYieldStarResult({
+            sourceIterableType: inputType,
+            iterationTypes: {
+                yieldType: receiver.anyType,
+                returnType: receiver.anyType,
+                nextType: receiver.anyType,
+            },
+            mechanism,
+        }, asynchronous);
+    }
+    const use = asynchronous ? IterationUseAsyncYieldStar : IterationUseYieldStar;
+    const capture = createExtensionIterationProtocolSelectionCapture();
+    const yieldedType = Checker_getIteratedTypeOrElementTypeInternal(receiver, use, inputType, sentType, undefined, false, capture);
+    const mechanism = capture.mechanism;
+    if (yieldedType === undefined || mechanism === undefined) {
+        return undefined;
+    }
+    if (asynchronous) {
+        if (!isForAwaitOfIterationMechanism(mechanism)) {
+            return undefined;
+        }
+    }
+    else if (!isForOfIterationMechanism(mechanism)) {
+        return undefined;
+    }
+    const iterationTypes = Checker_getIterationTypesOfIterable(receiver, inputType, use, undefined);
+    return freezeExtensionCheckedYieldStarResult({
+        sourceIterableType: inputType,
+        iterationTypes: {
+            yieldType: yieldedType,
+            returnType: iterationTypes.returnType,
+            nextType: iterationTypes.nextType,
+        },
+        mechanism,
+    }, asynchronous);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIteratedTypeOrElementType","kind":"method","status":"implemented","sigHash":"0f0d4a167758d8fc19cee150bca9739b72c2d7ce0eb1f448d803a9ba7191902b","bodyHash":"9ea356abc30dfdf30fe198592eeea25fb8a6c72251efdf4b40b4a104ba6dc9a1"}

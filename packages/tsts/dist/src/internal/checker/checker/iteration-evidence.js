@@ -28,6 +28,15 @@ export function freezeExtensionCheckedIterationSelection(selection) {
             });
     }
 }
+export function freezeExtensionCheckedYieldStarResult(result, asynchronous) {
+    return Object.freeze({
+        sourceIterableType: result.sourceIterableType,
+        iterationTypes: Object.freeze({ ...result.iterationTypes }),
+        mechanism: asynchronous
+            ? freezeForAwaitOfIterationMechanism(result.mechanism)
+            : freezeForOfIterationMechanism(result.mechanism),
+    });
+}
 function hasIterationTypes(iterationTypes) {
     return iterationTypes.yieldType !== undefined
         || iterationTypes.returnType !== undefined

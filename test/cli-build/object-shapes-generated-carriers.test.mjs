@@ -25,8 +25,8 @@ test("CLI emits non-nullish unions through finalized runtime-carrier facts", asy
   assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.Union<string, double> choose\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? Tsonic\.CSharp\.Runtime\.Union<string, double>\.From1\("x"\) : Tsonic\.CSharp\.Runtime\.Union<string, double>\.From2\(1\);/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.Union<double, string> choose\(bool flag\)/);
+  assert.match(generatedSource, /return flag \? Tsonic\.CSharp\.Runtime\.Union<double, string>\.From2\("x"\) : Tsonic\.CSharp\.Runtime\.Union<double, string>\.From1\(1\);/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

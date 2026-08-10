@@ -16,6 +16,9 @@ import {
   createTargetSourceProgram,
   sourceTypeSyntaxIsCompositional,
 } from "../packages/target-api/dist/index.js";
+import {
+  sourcePrimitiveFactKey,
+} from "../packages/tsts/dist/src/index.js";
 
 const tempRoot = resolve(
   process.cwd(),
@@ -122,6 +125,29 @@ test("target source semantics answer checked-source questions without exposing r
     "resolved",
   );
   assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
+});
+
+test("authored type fact subjects include exact imported semantic provenance", async () => {
+  const checked = await checkedSource("authored-imported-type-facts", {
+    "src/index.ts": [
+      'import type { int32 } from "@tsonic/core/types.js";',
+      "export function read(value: int32): int32 { return value; }",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const typeReference = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsTypeReferenceNode(node) &&
+    source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) === "int32");
+  const subjects = source.semantics.forNode(typeReference)
+    .getAuthoredTypeFactSubjects(typeReference);
+  const primitiveFacts = subjects
+    .map((subject) => source.sourceFacts.getFact(subject, sourcePrimitiveFactKey))
+    .filter((fact) => fact !== undefined);
+
+  assert.equal(primitiveFacts.length > 0, true);
+  assert.deepEqual([...new Set(primitiveFacts.map((fact) => fact.kind))], ["int32"]);
 });
 
 test("target source semantics preserve selected signature return syntax", async () => {
@@ -805,6 +831,29 @@ test("source navigation classifies top-level await without entering function bod
 
   assert.equal(navigation.moduleHasTopLevelAwait(entry), false);
   assert.equal(navigation.moduleHasTopLevelAwait(index), true);
+  assert.equal(navigation.moduleHasTopLevelAwait(index), true);
+});
+
+test("source navigation classifies top-level await using without entering functions", async () => {
+  const source = await checkedSource("module-top-level-await-using", {
+    "src/entry.ts": [
+      "export async function nested(): Promise<void> {",
+      "  await using nestedResource = null;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { nested } from \"./entry.js\";",
+      "await using topLevelResource = null;",
+      "void nested;",
+      "",
+    ].join("\n"),
+  });
+  const navigation = createSourceProgramNavigation(source);
+  const entry = projectSourceFile(source, "src/entry.ts");
+  const index = projectSourceFile(source, "src/index.ts");
+
+  assert.equal(navigation.moduleHasTopLevelAwait(entry), false);
   assert.equal(navigation.moduleHasTopLevelAwait(index), true);
 });
 

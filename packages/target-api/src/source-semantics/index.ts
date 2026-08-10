@@ -86,6 +86,7 @@ export function createTargetSourceProgram(
           source.ast,
           navigation,
           source.sourceFacts,
+          queries.checker,
           node,
         );
       },
