@@ -1,12 +1,12 @@
 import { Node_Expression, Node_Initializer, } from "../internal/ast/ast.js";
 import { FunctionFlagsAsync, FunctionFlagsGenerator, GetFunctionFlags, } from "../internal/ast/functionflags.js";
 import { NodeFlagsAwaitUsing, NodeFlagsBlockScoped, NodeFlagsUsing, } from "../internal/ast/generated/flags.js";
-import { IsComputedPropertyName, IsVariableDeclaration, IsYieldExpression, } from "../internal/ast/generated/predicates.js";
+import { IsComputedPropertyName, IsForOfStatement, IsVariableDeclaration, IsVariableDeclarationList, IsYieldExpression, } from "../internal/ast/generated/predicates.js";
 import { AsYieldExpression } from "../internal/ast/generated/casts.js";
 import { GetContainingFunction, } from "../internal/ast/utilities.js";
 import { Checker_GetReturnTypeOfSignature, } from "../internal/checker/exports.js";
 import { Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getSignatureFromDeclaration, } from "../internal/checker/checker/signatures.js";
-import { Checker_checkExpressionCached, Checker_checkYieldExpression, Checker_getCombinedNodeFlagsCached, } from "../internal/checker/checker/syntax-checking.js";
+import { Checker_checkExpressionCached, Checker_checkYieldExpression, Checker_getCombinedNodeFlagsCached, Checker_getResolvedSourceIterationInfo, } from "../internal/checker/checker/syntax-checking.js";
 import { Checker_checkYieldStarWithExtensionSelection, Checker_GetTypeAtLocation, Checker_getYieldedTypeOfYieldExpression, } from "../internal/checker/checker/types.js";
 import { Checker_getPropertyOfType, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_widenTypeForVariableLikeDeclaration, } from "../internal/checker/checker/symbols.js";
 import { TypeFlagsAny, TypeFlagsNever, TypeFlagsNull, TypeFlagsUndefined, TypeFlagsUnion, Type_Types, } from "../internal/checker/types.js";
@@ -156,21 +156,19 @@ export function resolveSourceResourceManagementInfo(checker, declaration) {
         : flags === NodeFlagsUsing
             ? "using"
             : undefined;
-    const initializer = Node_Initializer(declaration);
-    if (declarationKind === undefined || initializer === undefined) {
+    if (declarationKind === undefined) {
         return undefined;
     }
-    const sourceInitializerType = Checker_checkExpressionCached(checker, initializer);
-    const sourceResourceType = Checker_widenTypeForVariableLikeDeclaration(checker, sourceInitializerType, declaration, false);
-    if (sourceInitializerType === undefined || sourceResourceType === undefined) {
+    const acquisition = resolveResourceAcquisition(checker, declaration);
+    if (acquisition === undefined) {
         return undefined;
     }
+    const sourceResourceType = acquisition.sourceResourceType;
     if ((sourceResourceType.flags & TypeFlagsAny) !== 0) {
         return Object.freeze({
             declaration,
-            initializer,
             declarationKind,
-            sourceInitializerType,
+            acquisition: acquisition.evidence,
             sourceResourceType,
             acceptsNullish: true,
             disposal: Object.freeze({
@@ -195,9 +193,8 @@ export function resolveSourceResourceManagementInfo(checker, declaration) {
     }
     return Object.freeze({
         declaration,
-        initializer,
         declarationKind,
-        sourceInitializerType,
+        acquisition: acquisition.evidence,
         sourceResourceType,
         acceptsNullish: true,
         disposal: Object.freeze({
@@ -205,6 +202,43 @@ export function resolveSourceResourceManagementInfo(checker, declaration) {
             alternatives: Object.freeze(alternatives),
         }),
     });
+}
+function resolveResourceAcquisition(checker, declaration) {
+    const initializer = Node_Initializer(declaration);
+    if (initializer !== undefined) {
+        const sourceType = Checker_checkExpressionCached(checker, initializer);
+        const sourceResourceType = Checker_widenTypeForVariableLikeDeclaration(checker, sourceType, declaration, false);
+        return sourceType === undefined || sourceResourceType === undefined
+            ? undefined
+            : {
+                evidence: Object.freeze({
+                    kind: "initializer",
+                    expression: initializer,
+                    sourceType,
+                }),
+                sourceResourceType,
+            };
+    }
+    const declarationList = declaration.Parent;
+    const statement = declarationList?.Parent;
+    if (declarationList === undefined
+        || statement === undefined
+        || !IsVariableDeclarationList(declarationList)
+        || !IsForOfStatement(statement)) {
+        return undefined;
+    }
+    const iteration = Checker_getResolvedSourceIterationInfo(checker, statement);
+    if (iteration === undefined) {
+        return undefined;
+    }
+    return {
+        evidence: Object.freeze({
+            kind: "iteration",
+            statement,
+            sourceType: iteration.sourceElementType,
+        }),
+        sourceResourceType: iteration.sourceElementType,
+    };
 }
 const wellKnownSymbolProperties = Object.freeze([
     ["iterator", "iterator"],

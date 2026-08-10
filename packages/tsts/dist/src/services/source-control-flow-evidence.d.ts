@@ -51,9 +51,16 @@ export interface ResolvedSourceDisposalAlternative {
 }
 export interface ResolvedSourceResourceManagementInfo {
     readonly declaration: Node;
-    readonly initializer: Node;
     readonly declarationKind: "using" | "await using";
-    readonly sourceInitializerType: Type;
+    readonly acquisition: {
+        readonly kind: "initializer";
+        readonly expression: Node;
+        readonly sourceType: Type;
+    } | {
+        readonly kind: "iteration";
+        readonly statement: Node;
+        readonly sourceType: Type;
+    };
     readonly sourceResourceType: Type;
     readonly acceptsNullish: true;
     readonly disposal: {

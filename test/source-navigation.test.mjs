@@ -834,6 +834,29 @@ test("source navigation classifies top-level await without entering function bod
   assert.equal(navigation.moduleHasTopLevelAwait(index), true);
 });
 
+test("source navigation classifies top-level await using without entering functions", async () => {
+  const source = await checkedSource("module-top-level-await-using", {
+    "src/entry.ts": [
+      "export async function nested(): Promise<void> {",
+      "  await using nestedResource = null;",
+      "}",
+      "",
+    ].join("\n"),
+    "src/index.ts": [
+      "import { nested } from \"./entry.js\";",
+      "await using topLevelResource = null;",
+      "void nested;",
+      "",
+    ].join("\n"),
+  });
+  const navigation = createSourceProgramNavigation(source);
+  const entry = projectSourceFile(source, "src/entry.ts");
+  const index = projectSourceFile(source, "src/index.ts");
+
+  assert.equal(navigation.moduleHasTopLevelAwait(entry), false);
+  assert.equal(navigation.moduleHasTopLevelAwait(index), true);
+});
+
 test("source navigation never queries declaration-provider files as project source", () => {
   const projectFile = {
     FileName: "/project/index.ts",
