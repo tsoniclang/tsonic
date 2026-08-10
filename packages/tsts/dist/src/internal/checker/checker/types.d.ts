@@ -1,6 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
 import type { GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
-import type { ExtensionCheckedIterationResult } from "./iteration-evidence.js";
+import type { ExtensionCheckedIterationResult, ExtensionCheckedYieldStarResult } from "./iteration-evidence.js";
 import type { Node } from "../../ast/spine.js";
 import type { TypeNode } from "../../ast/generated/unions.js";
 import type { Diagnostic } from "../../ast/diagnostic.js";
@@ -320,6 +320,7 @@ export declare function Checker_checkBaseTypeAccessibility(receiver: GoPtr<Check
  */
 export declare function Checker_checkIteratedTypeOrElementType(receiver: GoPtr<Checker>, use: IterationUse, inputType: GoPtr<Type>, sentType: GoPtr<Type>, errorNode: GoPtr<Node>): GoPtr<Type>;
 export declare function Checker_checkForOfIterationWithExtensionSelection(receiver: GoPtr<Checker>, iterationKind: "for-of" | "for-await-of", inputType: GoPtr<Type>, sentType: GoPtr<Type>, errorNode: GoPtr<Node>): ExtensionCheckedIterationResult;
+export declare function Checker_checkYieldStarWithExtensionSelection(receiver: GoPtr<Checker>, inputType: GoPtr<Type>, sentType: GoPtr<Type>, asynchronous: bool): GoPtr<ExtensionCheckedYieldStarResult>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getIteratedTypeOrElementType","kind":"method","status":"implemented","sigHash":"0f0d4a167758d8fc19cee150bca9739b72c2d7ce0eb1f448d803a9ba7191902b","bodyHash":"9ea356abc30dfdf30fe198592eeea25fb8a6c72251efdf4b40b4a104ba6dc9a1"}
  * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the exact TS-Go body with an absent extension capture; the extension-only wrapper supplies a capture without changing this public signature or allocating evidence on this path."}

@@ -103,7 +103,13 @@ export interface ExtensionCheckedIterationResult {
     readonly elementType: Type;
     readonly selection: ExtensionCheckedIterationSelection | undefined;
 }
+export interface ExtensionCheckedYieldStarResult {
+    readonly sourceIterableType: Type;
+    readonly iterationTypes: ExtensionSelectedIterationTypes;
+    readonly mechanism: ExtensionForOfIterationMechanism | ExtensionForAwaitOfIterationMechanism;
+}
 export declare function freezeExtensionCheckedIterationSelection(selection: ExtensionCheckedIterationSelection): ExtensionCheckedIterationSelection;
+export declare function freezeExtensionCheckedYieldStarResult(result: ExtensionCheckedYieldStarResult, asynchronous: boolean): ExtensionCheckedYieldStarResult;
 export interface ExtensionIterationSelectionBudget {
     remainingUnionAlternatives: number;
     exhausted: boolean;
