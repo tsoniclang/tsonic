@@ -3,15 +3,18 @@ import type {
   ExtensionFactSubject,
   Node,
   ReadonlySourceFactResolver,
+  TypeCheckerQueries,
 } from "@tsonic/tsts";
 import type {
   SourceProgramNavigation,
 } from "../source-navigation/index.js";
+import { sourceTypeFactSubjects } from "./fact-subjects.js";
 
 export function authoredSourceTypeFactDependencies(
   ast: AstReader,
   navigation: SourceProgramNavigation,
   facts: ReadonlySourceFactResolver,
+  checker: TypeCheckerQueries,
   node: Node,
 ): readonly ExtensionFactSubject[] {
   const visited = new Set<Node>();
@@ -38,5 +41,13 @@ export function authoredSourceTypeFactDependencies(
     }
   };
   visit(node);
+  const type = checker.getTypeFromTypeNode(node);
+  if (type !== undefined) {
+    for (const subject of sourceTypeFactSubjects(checker, type)) {
+      if (facts.getFacts(subject).length > 0 && !subjects.includes(subject)) {
+        subjects.push(subject);
+      }
+    }
+  }
   return Object.freeze(subjects);
 }
