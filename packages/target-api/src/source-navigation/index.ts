@@ -8,6 +8,9 @@ import {
   createSourceMemberDispatchNavigation,
 } from "./member-dispatch.js";
 import {
+  createSourceMemberImplementationNavigation,
+} from "./member-implementation.js";
+import {
   sourceFileIdentity,
 } from "./identity.js";
 import {
@@ -49,6 +52,12 @@ export function createSourceProgramNavigation(
   const heritage = createSourceHeritageNavigation(
     source,
     references.isProjectDeclaration,
+  );
+  const memberImplementations = createSourceMemberImplementationNavigation(
+    source,
+    references.referenceFor,
+    references.isProjectDeclaration,
+    heritage.declaredHeritagePath,
   );
   const classConstructors = createSourceClassConstructorNavigation(
     source,
@@ -146,6 +155,7 @@ export function createSourceProgramNavigation(
     moduleReferences,
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
+    memberImplementation: memberImplementations.memberImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
@@ -210,6 +220,7 @@ export type {
   SourceHeritagePathResult,
   SourceProgramNavigation,
   SourceProjectMemberDispatch,
+  SourceProjectMemberImplementationResult,
   SourceProjectModuleDependency,
   SourceProjectReference,
 } from "./types.js";

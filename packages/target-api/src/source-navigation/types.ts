@@ -24,6 +24,18 @@ export interface SourceProjectMemberDispatch {
   readonly hasDerivedOverride: boolean;
 }
 
+export type SourceProjectMemberImplementationResult =
+  | {
+      readonly kind: "resolved";
+      readonly contractDeclaration: Node;
+      readonly implementation: SourceDeclarationReference;
+    }
+  | { readonly kind: "unrelated" }
+  | {
+      readonly kind: "unresolved";
+      readonly reason: string;
+    };
+
 export interface SourceBindingWrite {
   readonly reference: Node;
   readonly operation: Node;
@@ -109,6 +121,10 @@ export interface SourceProgramNavigation {
   moduleReferences(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
   moduleHasTopLevelAwait(sourceFile: SourceFile): boolean;
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
+  memberImplementation(
+    classDeclaration: Node,
+    contractMemberDeclaration: Node,
+  ): SourceProjectMemberImplementationResult;
   classConstructors(declaration: Node): SourceClassConstructorResult;
   declaredHeritage(declaration: Node): SourceDeclaredHeritageResult;
   declaredHeritagePath(

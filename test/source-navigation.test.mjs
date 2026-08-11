@@ -98,6 +98,63 @@ test("source navigation resolves project references, shapes, constructors, and d
   assert.equal(navigation.memberDispatch(computedMember), undefined);
 });
 
+test("source navigation resolves exact class implementations for base and interface members", async () => {
+  const source = await checkedSource("project-member-implementation", {
+    "src/index.ts": [
+      "export interface Readable {",
+      "  value: number;",
+      "  read(): number;",
+      "}",
+      "export class Base {",
+      "  read(): number { return 1; }",
+      "}",
+      "export class Derived extends Base implements Readable {",
+      "  value = 2;",
+      "  read(): number { return this.value; }",
+      "}",
+      "export class Inherited extends Derived {}",
+      "export class SameSpelling {",
+      "  read(): number { return 3; }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const { ast } = source;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  const readable = namedDeclaration(ast, sourceFile, "Readable");
+  const base = namedDeclaration(ast, sourceFile, "Base");
+  const derived = namedDeclaration(ast, sourceFile, "Derived");
+  const inherited = namedDeclaration(ast, sourceFile, "Inherited");
+  const sameSpelling = namedDeclaration(ast, sourceFile, "SameSpelling");
+  const readableValue = namedMember(ast, readable, "value");
+  const readableRead = namedMember(ast, readable, "read");
+  const baseRead = namedMember(ast, base, "read");
+  const derivedValue = namedMember(ast, derived, "value");
+  const derivedRead = namedMember(ast, derived, "read");
+
+  assert.strictEqual(
+    navigation.memberImplementation(derived, baseRead).implementation?.declaration,
+    derivedRead,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(derived, readableRead).implementation?.declaration,
+    derivedRead,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(derived, readableValue).implementation?.declaration,
+    derivedValue,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(inherited, readableRead).implementation?.declaration,
+    derivedRead,
+  );
+  assert.deepEqual(
+    navigation.memberImplementation(sameSpelling, baseRead),
+    { kind: "unrelated" },
+  );
+});
+
 test("target source semantics answer checked-source questions without exposing raw checker access", async () => {
   const checked = await checkedSource("target-source-semantics", {
     "src/index.ts": [

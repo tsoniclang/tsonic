@@ -86,6 +86,7 @@ export type {
   SourceHeritagePathResult,
   SourceProgramNavigation,
   SourceProjectMemberDispatch,
+  SourceProjectMemberImplementationResult,
   SourceProjectModuleDependency,
   SourceProjectReference,
 } from "./source-navigation/index.js";
