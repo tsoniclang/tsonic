@@ -294,12 +294,13 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "utf8");
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedProject, /<AllowUnsafeBlocks>true<\/AllowUnsafeBlocks>/);
-  assert.match(generatedSource, /public unsafe class NativeSlots/);
+  assert.match(generatedSource, /public class NativeSlots/);
+  assert.doesNotMatch(generatedSource, /public unsafe class NativeSlots/);
   assert.match(generatedSource, /public Tsonic\.CSharp\.Runtime\.Location<int> current;/);
-  assert.match(generatedSource, /public delegate\*<int, int> callback;/);
-  assert.match(generatedSource, /public Tsonic\.CSharp\.Runtime\.Location<int> csharpCurrent;/);
-  assert.match(generatedSource, /public delegate\*<int, int> csharpCallback;/);
-  assert.match(generatedSource, /public NativeSlots\(Tsonic\.CSharp\.Runtime\.Location<int> current, delegate\*<int, int> callback, Tsonic\.CSharp\.Runtime\.Location<int> csharpCurrent, delegate\*<int, int> csharpCallback\)/);
+  assert.match(generatedSource, /public unsafe delegate\*<int, int> callback;/);
+  assert.match(generatedSource, /public unsafe int\* csharpCurrent;/);
+  assert.match(generatedSource, /public unsafe delegate\*<int, int> csharpCallback;/);
+  assert.match(generatedSource, /public unsafe NativeSlots\(Tsonic\.CSharp\.Runtime\.Location<int> current, delegate\*<int, int> callback, int\* csharpCurrent, delegate\*<int, int> csharpCallback\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "--nologo", "--v:minimal"]);

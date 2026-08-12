@@ -45,8 +45,8 @@ test("CLI resolves neutral source primitives through provider modules", async ()
             targetFramework: "net10.0",
             outputType: "Library",
             publishAot: false,
+            languageDialect: "csharp15-preview",
             properties: {
-              LangVersion: "preview",
               CheckForOverflowUnderflow: true,
             },
           },
