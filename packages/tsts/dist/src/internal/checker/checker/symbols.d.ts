@@ -3593,6 +3593,8 @@ interface ResolvedSourcePropertyAccessInfoBase {
     readonly sourceDeclaration?: Node;
     readonly selectedSymbol?: Symbol;
     readonly selectedDeclaration?: Node;
+    readonly selectedReadDeclaration?: Node;
+    readonly selectedWriteDeclaration?: Node;
     readonly writable: boolean;
     readonly optionalChain: boolean;
     readonly callCallee: boolean;

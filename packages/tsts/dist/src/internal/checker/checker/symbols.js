@@ -6612,6 +6612,12 @@ export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
         : accessMode === "read-write"
             ? selected.writeType
             : undefined;
+    const selectedReadDeclaration = accessMode === "read" || accessMode === "delete" || accessMode === "read-write"
+        ? selectedPropertyAccessDeclaration(selected, "read")
+        : undefined;
+    const selectedWriteDeclaration = accessMode === "write" || accessMode === "read-write"
+        ? selectedPropertyAccessDeclaration(selected, "write")
+        : undefined;
     return Object.freeze({
         expression: node,
         receiver: Object.freeze({
@@ -6624,12 +6630,21 @@ export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
         ...(selected.sourceDeclaration === undefined ? {} : { sourceDeclaration: selected.sourceDeclaration }),
         ...(selected.selectedSymbol === undefined ? {} : { selectedSymbol: selected.selectedSymbol }),
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
+        ...(selectedReadDeclaration === undefined ? {} : { selectedReadDeclaration }),
+        ...(selectedWriteDeclaration === undefined ? {} : { selectedWriteDeclaration }),
         writable: selected.selectedSymbol !== undefined
             && !Checker_isAssignmentToReadonlyEntity(receiver, node, selected.selectedSymbol, AssignmentKindDefinite),
         ...resolvedSourceAccessTypes(accessMode, sourceReadType, sourceWriteType),
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),
     });
+}
+function selectedPropertyAccessDeclaration(selected, selectionMode) {
+    const accessorKind = selectionMode === "read" ? KindGetAccessor : KindSetAccessor;
+    return selected.selectedSymbol === undefined
+        ? selected.selectedDeclaration
+        : GetDeclarationOfKind(selected.selectedSymbol, accessorKind)
+            ?? selected.selectedDeclaration;
 }
 function resolvedSourceAccessTypes(accessMode, sourceReadType, sourceWriteType) {
     switch (accessMode) {
