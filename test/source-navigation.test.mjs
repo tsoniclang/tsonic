@@ -745,6 +745,39 @@ test("source navigation proves references outside an exact excluded subtree", as
   assert.equal(navigation.hasReferenceOutside(usedSymbol, sourceFile), false);
 });
 
+test("shared source navigation enumerates exact symbol references within a subtree", async () => {
+  const source = await checkedSource("references-within", {
+    "src/index.ts": [
+      "export function read(value: number): number {",
+      "  const copy = value;",
+      "  {",
+      "    const value = 2;",
+      "    void value;",
+      "  }",
+      "  return (() => value + copy)();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const ast = source.ast;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const parameter = requiredNode(ast, sourceFile, (node) =>
+    ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === "value");
+  const symbol = source.getSourceFileQueries(sourceFile).checker
+    .getSymbolAtLocation(ast.name(parameter), { sourceFile });
+
+  assert.notEqual(symbol, undefined);
+  const navigation = createSourceProgramNavigation(source);
+  const references = navigation.referencesWithin(symbol, sourceFile);
+  assert.equal(references.length, 2);
+  assert.equal(new Set(references).size, 2);
+  assert.equal(
+    references.every((reference) =>
+      navigation.sourceReferenceFor(reference)?.declaration === parameter),
+    true,
+  );
+});
+
 test("shared source navigation classifies exact binding writes without treating object mutation as rebinding", async () => {
   const source = await checkedSource("binding-writes", {
     "src/index.ts": [

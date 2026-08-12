@@ -30,6 +30,7 @@ import {
 import {
   sourceBindingWritesWithin,
   sourceSymbolHasReferenceOutside,
+  sourceSymbolReferencesWithin,
 } from "./references-usage.js";
 import type {
   SourceProgramNavigation,
@@ -160,7 +161,20 @@ export function createSourceProgramNavigation(
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
     bindingWritesWithin(symbol: Symbol, root: Node) {
-      return sourceBindingWritesWithin(source, symbol, root);
+      return sourceBindingWritesWithin(
+        source,
+        symbol,
+        root,
+        references.sourceReferenceFor,
+      );
+    },
+    referencesWithin(symbol: Symbol, root: Node) {
+      return sourceSymbolReferencesWithin(
+        source,
+        symbol,
+        root,
+        references.sourceReferenceFor,
+      );
     },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
