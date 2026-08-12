@@ -13,8 +13,16 @@ export interface CreateTypeCheckerQueriesOptions {
     readonly context?: Context;
 }
 export type ResolvedSourceCallInfo = ResolvedCallEvidence;
-export type ResolvedSourcePropertyAccessInfo = CheckerResolvedSourcePropertyAccessInfo;
-export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo;
+export interface ResolvedSourceReceiverValueEvidence {
+    readonly valueSymbol?: Symbol;
+    readonly valueDeclaration?: Node;
+}
+export type ResolvedSourcePropertyAccessInfo = CheckerResolvedSourcePropertyAccessInfo & {
+    readonly receiver: CheckerResolvedSourcePropertyAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
+};
+export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo & {
+    readonly receiver: CheckerResolvedSourceElementAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
+};
 export type ResolvedSourceIterationInfo = ExtensionCheckedIterationSelection;
 export interface ResolvedSourceStorageInfo {
     readonly expression: Node;
