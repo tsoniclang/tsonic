@@ -12,8 +12,10 @@ import {
   tsonicCoreTypesModule,
 } from "./identity.js";
 import {
+  nativePointerOperationProviderDeclarations,
   nativePointerProviderDeclaration,
   safetyProviderDeclarations,
+  tsonicCoreNativePointerProviderNames,
   tsonicCoreSafetyProviderNames,
   unsafeContextProviderDeclaration,
 } from "./explicit-safety-declarations.js";
@@ -74,12 +76,17 @@ function sourceSemanticsHelperDeclarations(moduleSpecifier: string): readonly Pr
     return [
         attributeBuilderDeclaration(),
         attributeMemberBuilderDeclaration(),
+        ...nativePointerOperationProviderDeclarations(
+          tsonicCoreNativePointerProviderNames,
+        ),
         unsafeContextProviderDeclaration(tsonicCoreSafetyProviderNames),
         ...safetyProviderDeclarations(tsonicCoreSafetyProviderNames),
       ];
   }
   return moduleSpecifier === tsonicCoreTypesModule
-    ? [nativePointerProviderDeclaration(tsonicCoreSafetyProviderNames.nativePointerExport)]
+    ? [nativePointerProviderDeclaration(
+        tsonicCoreNativePointerProviderNames.nativePointerExport,
+      )]
     : [];
 }
 

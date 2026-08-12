@@ -31,6 +31,7 @@ export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvi
             namedImports: [
               { exportedName: "Pointer", kind: "type" },
               { exportedName: "RawPointer", kind: "type" },
+              { exportedName: "NativePointer", kind: "type" },
             ],
             typeOnly: true,
           }]

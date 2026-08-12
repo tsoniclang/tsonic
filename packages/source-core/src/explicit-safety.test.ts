@@ -16,6 +16,7 @@ import type {
   SourceFile,
 } from "@tsonic/tsts";
 import {
+  tsonicNativePointerOperationFactKey,
   tsonicSafetyBuilderFactKey,
   tsonicUnsafeContextFactKey,
 } from "./explicit-safety-facts.js";
@@ -46,8 +47,98 @@ test("source-core publishes one exact neutral native-pointer and safety surface"
   assert.equal(types.exports.filter((entry) => entry.name === "NativePointer").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "unsafeContext").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "safety").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "loadNativePointer").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "storeNativePointer").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "offsetNativePointer").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "__TsonicSafetyBuilder").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "__TsonicSafetyMemberBuilder").length, 1);
+});
+
+test("native pointer operations retain exact selected pointee and operand evidence", () => {
+  const { checked, sourceFile } = createCleanSession(`
+    import type { NativePointer, int32, nativeInt } from "@tsonic/core/types.js";
+    import {
+      loadNativePointer as load,
+      offsetNativePointer,
+      storeNativePointer,
+    } from "@tsonic/core/lang.js";
+    import * as core from "@tsonic/core/lang.js";
+
+    declare const pointer: NativePointer<int32>;
+    declare const offset: nativeInt;
+    const first = load(pointer);
+    storeNativePointer(pointer, first + 1);
+    const next = offsetNativePointer(pointer, offset);
+    const second = core.loadNativePointer(next);
+  `);
+
+  const loadFact = fact(
+    checked,
+    call(checked.ast, sourceFile, "load"),
+    tsonicNativePointerOperationFactKey,
+  );
+  assert.equal(loadFact?.operation, "load");
+  assert.ok(loadFact?.pointerExpression !== undefined);
+  assert.ok(loadFact?.pointeeType !== undefined);
+
+  const storeFact = fact(
+    checked,
+    call(checked.ast, sourceFile, "storeNativePointer"),
+    tsonicNativePointerOperationFactKey,
+  );
+  assert.equal(storeFact?.operation, "store");
+  assert.ok(storeFact?.valueExpression !== undefined);
+  assert.equal(storeFact?.pointeeType, loadFact?.pointeeType);
+
+  const offsetFact = fact(
+    checked,
+    call(checked.ast, sourceFile, "offsetNativePointer"),
+    tsonicNativePointerOperationFactKey,
+  );
+  assert.equal(offsetFact?.operation, "offset");
+  assert.ok(offsetFact?.offsetExpression !== undefined);
+  assert.equal(offsetFact?.pointeeType, loadFact?.pointeeType);
+
+  const namespacedLoad = fact(
+    checked,
+    call(checked.ast, sourceFile, "core.loadNativePointer"),
+    tsonicNativePointerOperationFactKey,
+  );
+  assert.equal(namespacedLoad?.operation, "load");
+  assert.equal(namespacedLoad?.pointeeType, loadFact?.pointeeType);
+});
+
+test("native pointer operations ignore local same-spelled calls", () => {
+  const { checked, sourceFile } = createCleanSession(`
+    import type { NativePointer, int32 } from "@tsonic/core/types.js";
+    import { loadNativePointer as sourceLoad } from "@tsonic/core/lang.js";
+    import { loadNativePointer as localLoad } from "./local.js";
+
+    declare const pointer: NativePointer<int32>;
+    sourceLoad(pointer);
+    localLoad(pointer);
+  `, {
+    "/src/local.ts": `
+      export function loadNativePointer<T>(pointer: T): T { return pointer; }
+    `,
+  });
+
+  assert.equal(
+    fact(
+      checked,
+      call(checked.ast, sourceFile, "sourceLoad"),
+      tsonicNativePointerOperationFactKey,
+    )?.operation,
+    "load",
+  );
+  assert.equal(
+    fact(
+      checked,
+      call(checked.ast, sourceFile, "localLoad"),
+      tsonicNativePointerOperationFactKey,
+    ),
+    undefined,
+  );
 });
 
 test("unsafe context facts distinguish exact expression and remaining-block forms", () => {

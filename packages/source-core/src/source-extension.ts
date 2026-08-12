@@ -15,13 +15,18 @@ import {
   analyzeTsonicAttributeBuilders,
 } from "./attribute-builder-analysis.js";
 import {
+  tsonicCoreNativePointerProviderNames,
   sourceSafetySignatureIds,
   tsonicCoreSafetyProviderNames,
 } from "./explicit-safety-declarations.js";
 import {
+  tsonicNativePointerOperationFactKey,
   tsonicSafetyBuilderFactKey,
   tsonicUnsafeContextFactKey,
 } from "./explicit-safety-facts.js";
+import {
+  analyzeNativePointerOperations,
+} from "./native-pointer-operation-analysis.js";
 import {
   analyzeTsonicSourceMarkerEvidence,
 } from "./marker-evidence-analysis.js";
@@ -58,6 +63,16 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
       context.registerSourceDeclarationProvider(createTsonicCoreVirtualModulesProvider());
     },
     analyzeSource(context): void {
+      analyzeNativePointerOperations(context, {
+        providerId: tsonicCoreVirtualModulesProviderId,
+        providerVersion: tsonicCoreProviderVersion,
+        providerModuleId: tsonicCoreLangModule,
+        names: tsonicCoreNativePointerProviderNames,
+        factKey: tsonicNativePointerOperationFactKey,
+        extensionId: tsonicCoreSourceExtensionId,
+        diagnosticPrefix: "SOURCE_CORE_NATIVE_POINTER",
+        diagnosticNumberBase: 9901150,
+      });
       analyzeUnsafeContextCalls(context, {
         blockSelector: {
           kind: "export-signature",
@@ -136,9 +151,12 @@ const sourceCoreExportNamesByModule = new Map(
     new Set([
       ...module.exports.map((entry) => entry.exportName),
       ...(module.moduleSpecifier === tsonicCoreTypesModule
-        ? [tsonicCoreSafetyProviderNames.nativePointerExport]
+        ? [tsonicCoreNativePointerProviderNames.nativePointerExport]
         : module.moduleSpecifier === tsonicCoreLangModule
         ? [
+            tsonicCoreNativePointerProviderNames.loadExport,
+            tsonicCoreNativePointerProviderNames.storeExport,
+            tsonicCoreNativePointerProviderNames.offsetExport,
             tsonicCoreSafetyProviderNames.unsafeContextExport,
             tsonicCoreSafetyProviderNames.safetyExport,
           ]
