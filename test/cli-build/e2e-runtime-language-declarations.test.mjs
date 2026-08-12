@@ -21,7 +21,7 @@ test("CLI runs generated C# executable for module constants and variable declara
       "const explicitInt: int = 42;",
       "const explicitByte: byte = 255;",
       "const explicitShort: short = 1000;",
-      "const explicitLong: long = 1000000;",
+      "const explicitLong: long = 1000000n;",
       "const explicitFloat: float = 1.5;",
       "const explicitDouble: number = 1.5;",
       "let mutableInt: int = 0;",

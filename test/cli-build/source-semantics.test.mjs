@@ -330,7 +330,7 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
       ],
     }, null, 2),
     "src/index.ts": [
-      "import type { int32, uint8, int16, int64, uint32, float32, decimal } from \"@tsonic/core/types.js\";",
+      "import type { int32, uint8, int16, int64, uint64, int128, uint128, uint32, float32, decimal } from \"@tsonic/core/types.js\";",
       "",
       "class Animal {}",
       "class Dog extends Animal {}",
@@ -338,7 +338,10 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
       "export const intFromLiteral: int32 = 1000;",
       "export const byteFromLiteral = 255 as uint8;",
       "export const shortFromLiteral = 1000 as int16;",
-      "export const longFromLiteral = 1000000 as int64;",
+      "export const longFromLiteral = 1000000n as int64;",
+      "export const ulongFromLiteral = 18446744073709551615n as uint64;",
+      "export const int128FromLiteral = -170141183460469231731687303715884105728n as int128;",
+      "export const uint128FromLiteral = 340282366920938463463374607431768211455n as uint128;",
       "export const floatFromLiteral = 1.5 as float32;",
       "export const doubleFromLiteral = 1.5 as number;",
       "",
@@ -378,13 +381,19 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
   assert.match(generatedSource, /public static byte byteFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(byte\)!;/u);
   assert.match(generatedSource, /public static short shortFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(short\)!;/u);
   assert.match(generatedSource, /public static long longFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(long\)!;/u);
+  assert.match(generatedSource, /public static ulong ulongFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(ulong\)!;/u);
+  assert.match(generatedSource, /public static Int128 int128FromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(Int128\)!;/u);
+  assert.match(generatedSource, /public static UInt128 uint128FromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(UInt128\)!;/u);
   assert.match(generatedSource, /public static float floatFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(float\)!;/u);
   assert.match(generatedSource, /public static double doubleFromLiteral\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/u);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/u);
   assert.match(generatedSource, /intFromLiteral = 1000;/);
   assert.match(generatedSource, /byteFromLiteral = \(byte\)255;/);
   assert.match(generatedSource, /shortFromLiteral = \(short\)1000;/);
-  assert.match(generatedSource, /longFromLiteral = 1000000;/);
+  assert.match(generatedSource, /longFromLiteral = 1000000L;/);
+  assert.match(generatedSource, /ulongFromLiteral = 18446744073709551615UL;/u);
+  assert.match(generatedSource, /int128FromLiteral = new Int128\(9223372036854775808UL, 0UL\);/u);
+  assert.match(generatedSource, /uint128FromLiteral = new UInt128\(18446744073709551615UL, 18446744073709551615UL\);/u);
   assert.match(generatedSource, /floatFromLiteral = \(float\)1\.5;/);
   assert.match(generatedSource, /doubleFromLiteral = 1\.5;/);
   assert.match(generatedSource, /Dog dog = \(Dog\)animal;/);

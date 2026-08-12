@@ -474,7 +474,7 @@ const oldEmitterPortInventoryEntries = Object.freeze([
     featureArea: "source-semantics",
     owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Closed by stronger current-semantics coverage that separates accepted and rejected assertion flows: source primitives such as `255 as uint8`, `1000000 as int64`, and `value as decimal` emit finalized target-conversion facts and Roslyn/System.Convert output; source-owned `animal as Dog` emits a C# cast AST; stale broad `object` assertions such as `value: object; value as Animal` fail closed because TypeScript `object` has no finalized carrier.",
+      "Closed by stronger current-semantics coverage that separates accepted and rejected assertion flows: source primitives such as `255 as uint8`, `1000000n as int64`, and `value as decimal` emit finalized target-conversion facts and Roslyn/System.Convert output; source-owned `animal as Dog` emits a C# cast AST; stale broad `object` assertions such as `value: object; value as Animal` fail closed because TypeScript `object` has no finalized carrier.",
   }),
   Object.freeze({
     oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
