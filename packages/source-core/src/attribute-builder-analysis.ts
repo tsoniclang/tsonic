@@ -2,8 +2,6 @@ import {
   attributeFactKey,
 } from "@tsonic/tsts";
 import type {
-  ExtensionFactSubject,
-  Node,
   SourceAnalysisContext,
 } from "@tsonic/tsts";
 import type {
@@ -34,6 +32,9 @@ import {
   readSourceFact,
   selectedProviderCallMatches,
 } from "./source-call-analysis.js";
+import {
+  selectInlineSourceMember,
+} from "./selected-source-member.js";
 
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
 const attributeMemberBuilderExportId = "__TsonicAttributeMemberBuilder";
@@ -328,154 +329,39 @@ function getAttributeBuilderPredecessor(
   return undefined;
 }
 
-interface SelectedInlineMember {
-  readonly expression: ExtensionFactSubject;
-  readonly selectedMember: ExtensionFactSubject;
-}
-
 function selectedInlineMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
-): SelectedInlineMember | undefined {
-  const inlineFunction = selected.selection.sourceArguments[0]?.expression;
-  if (
-    inlineFunction === undefined ||
-    (!context.ast.is.IsArrowFunction(inlineFunction) &&
-      !context.ast.is.IsFunctionExpression(inlineFunction))
-  ) {
-    appendSelectorDiagnostic(
-      selected,
-      context,
-      "SOURCE_CORE_ATTRIBUTE_SELECTOR_NOT_PROVEN",
-      9901117,
-      "The selected attribute member operation requires an inline function expression.",
-    );
-    return undefined;
+): Extract<ReturnType<typeof selectInlineSourceMember>, { readonly kind: "selected" }> | undefined {
+  const result = selectInlineSourceMember(selected, context);
+  if (result.kind === "selected") {
+    return result;
   }
-  const parameters = context.ast.parameters(inlineFunction);
-  const parameter = parameters.length === 1 ? parameters[0] : undefined;
-  const parameterName = parameter === undefined ? undefined : context.ast.name(parameter);
-  const parameterSymbol = context.checker.getSymbolAtLocation(parameterName);
-  const returned = singleReturnedExpression(inlineFunction, context);
-  if (
-    parameter === undefined ||
-    parameterSymbol === undefined ||
-    returned === undefined ||
-    !context.ast.is.IsPropertyAccessExpression(returned)
-  ) {
-    appendSelectorDiagnostic(
-      selected,
-      context,
-      "SOURCE_CORE_ATTRIBUTE_SELECTOR_NOT_PROVEN",
-      9901117,
-      "The selected attribute member callback must have one parameter and return one property access.",
-    );
-    return undefined;
-  }
-  const property = context.checker.getResolvedPropertyAccessInfo(returned);
-  if (
-    property === undefined ||
-    property.accessMode !== "read" ||
-    property.callCallee ||
-    !selectedReceiverMatchesParameter(property.receiver, parameter, parameterSymbol)
-  ) {
-    appendSelectorDiagnostic(
-      selected,
-      context,
-      "SOURCE_CORE_ATTRIBUTE_SELECTOR_RECEIVER_NOT_PROVEN",
-      9901118,
-      "The selected attribute member callback must read a member from its exact callback parameter.",
-    );
-    return undefined;
-  }
-  const selectedMember = property.selectedDeclaration ?? property.selectedSymbol;
-  if (selectedMember === undefined) {
-    appendSelectorDiagnostic(
-      selected,
-      context,
-      "SOURCE_CORE_ATTRIBUTE_SELECTOR_MEMBER_NOT_PROVEN",
-      9901119,
-      "The selected attribute member callback requires exact selected member declaration evidence.",
-    );
-    return undefined;
-  }
-  return {
-    expression: property.expression,
-    selectedMember,
-  };
-}
-
-function selectedReceiverMatchesParameter(
-  receiver: {
-    readonly symbol?: ExtensionFactSubject;
-    readonly declaration?: ExtensionFactSubject;
-  },
-  parameter: ExtensionFactSubject,
-  parameterSymbol: ExtensionFactSubject,
-): boolean {
-  return receiver.symbol === parameterSymbol ||
-    receiver.declaration === parameter;
-}
-
-function singleReturnedExpression(
-  inlineFunction: Node,
-  context: TsonicSourceFileAnalysisContext,
-): Node | undefined {
-  const body = context.ast.body(inlineFunction);
-  if (body === undefined) {
-    return undefined;
-  }
-  if (!context.ast.is.IsBlock(body)) {
-    return unwrapParentheses(body, context);
-  }
-  const returned: Node[] = [];
-  collectReturnExpressions(body, context, returned, true);
-  return returned.length === 1
-    ? unwrapParentheses(returned[0], context)
-    : undefined;
-}
-
-function collectReturnExpressions(
-  node: Node,
-  context: TsonicSourceFileAnalysisContext,
-  returned: Node[],
-  root: boolean,
-): void {
-  if (!root && isFunctionBoundary(node, context)) {
-    return;
-  }
-  if (context.ast.is.IsReturnStatement(node)) {
-    const expression = context.ast.as.AsReturnStatement(node)?.Expression;
-    if (expression !== undefined) {
-      returned.push(expression);
-    }
-    return;
-  }
-  for (const child of context.ast.children(node)) {
-    if (child !== undefined) {
-      collectReturnExpressions(child, context, returned, false);
-    }
-  }
-}
-
-function isFunctionBoundary(node: Node, context: TsonicSourceFileAnalysisContext): boolean {
-  return context.ast.is.IsArrowFunction(node) ||
-    context.ast.is.IsFunctionExpression(node) ||
-    context.ast.is.IsFunctionDeclaration(node) ||
-    context.ast.is.IsMethodDeclaration(node) ||
-    context.ast.is.IsGetAccessorDeclaration(node) ||
-    context.ast.is.IsSetAccessorDeclaration(node);
-}
-
-function unwrapParentheses(
-  node: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
-): Node | undefined {
-  let current = node;
-  while (current !== undefined && context.ast.is.IsParenthesizedExpression(current)) {
-    current = context.ast.as.AsParenthesizedExpression(current)?.Expression;
-  }
-  return current;
+  const diagnostic = result.reason === "receiver"
+    ? {
+        extensionCode: "SOURCE_CORE_ATTRIBUTE_SELECTOR_RECEIVER_NOT_PROVEN",
+        numericCode: 9901118,
+        message: "The selected attribute member callback must read a member from its exact callback parameter.",
+      }
+    : result.reason === "member-evidence"
+    ? {
+        extensionCode: "SOURCE_CORE_ATTRIBUTE_SELECTOR_MEMBER_NOT_PROVEN",
+        numericCode: 9901119,
+        message: "The selected attribute member callback requires exact selected member declaration evidence.",
+      }
+    : {
+        extensionCode: "SOURCE_CORE_ATTRIBUTE_SELECTOR_NOT_PROVEN",
+        numericCode: 9901117,
+        message: "The selected attribute member callback must have one parameter and return one property access.",
+      };
+  appendSelectorDiagnostic(
+    selected,
+    context,
+    diagnostic.extensionCode,
+    diagnostic.numericCode,
+    diagnostic.message,
+  );
+  return undefined;
 }
 
 function authoredStringArgument(

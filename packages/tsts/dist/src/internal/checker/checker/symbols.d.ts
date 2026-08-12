@@ -3038,6 +3038,8 @@ interface ResolvedSourceElementAccessInfoBase {
     readonly receiver: {
         readonly expression: Node;
         readonly type: Type;
+        readonly symbol?: Symbol;
+        readonly declaration?: Node;
     };
     readonly argument: {
         readonly expression: Node;

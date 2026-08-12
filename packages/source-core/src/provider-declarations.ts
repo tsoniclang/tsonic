@@ -11,6 +11,14 @@ import {
   tsonicCoreLangModule,
   tsonicCoreTypesModule,
 } from "./identity.js";
+import {
+  nativePointerOperationProviderDeclarations,
+  nativePointerProviderDeclaration,
+  safetyProviderDeclarations,
+  tsonicCoreNativePointerProviderNames,
+  tsonicCoreSafetyProviderNames,
+  unsafeContextProviderDeclaration,
+} from "./explicit-safety-declarations.js";
 
 export const tsonicAttributeBuilderMemberIds = Object.freeze({
   add: "__TsonicAttributeBuilder.add",
@@ -64,11 +72,21 @@ export function providerExportDeclarationsForSemanticsModule(
 }
 
 function sourceSemanticsHelperDeclarations(moduleSpecifier: string): readonly ProviderExportDeclaration[] {
-  return moduleSpecifier === tsonicCoreLangModule
-    ? [
+  if (moduleSpecifier === tsonicCoreLangModule) {
+    return [
         attributeBuilderDeclaration(),
         attributeMemberBuilderDeclaration(),
-      ]
+        ...nativePointerOperationProviderDeclarations(
+          tsonicCoreNativePointerProviderNames,
+        ),
+        unsafeContextProviderDeclaration(tsonicCoreSafetyProviderNames),
+        ...safetyProviderDeclarations(tsonicCoreSafetyProviderNames),
+      ];
+  }
+  return moduleSpecifier === tsonicCoreTypesModule
+    ? [nativePointerProviderDeclaration(
+        tsonicCoreNativePointerProviderNames.nativePointerExport,
+      )]
     : [];
 }
 

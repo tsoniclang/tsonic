@@ -29,6 +29,7 @@ export interface TypeCheckerQueries {
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<Type>;
     readonly getSymbolAtLocation: (node: GoPtr<Node>) => GoPtr<Symbol>;
+    readonly getLexicallyResolvedSymbol: (identifier: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getResolvedSymbol: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getResolvedSymbolOrNil: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getAliasedSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Symbol>;

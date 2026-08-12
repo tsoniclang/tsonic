@@ -9,6 +9,41 @@ export {
 export {
   tsonicAttributeBuilderFactKey,
 } from "./attribute-builder-facts.js";
+export {
+  nativePointerOperationProviderDeclarations,
+  nativePointerProviderDeclaration,
+  safetyProviderDeclarations,
+  sourceNativePointerSignatureIds,
+  sourceSafetySignatureIds,
+  tsonicCoreNativePointerProviderNames,
+  tsonicCoreSafetyProviderNames,
+  unsafeContextProviderDeclaration,
+} from "./explicit-safety-declarations.js";
+export type {
+  SourceNativePointerProviderNames,
+  SourceSafetyProviderNames,
+} from "./explicit-safety-declarations.js";
+export {
+  tsonicNativePointerOperationFactKey,
+  tsonicSafetyBuilderFactKey,
+  tsonicUnsafeContextFactKey,
+} from "./explicit-safety-facts.js";
+export type {
+  TsonicNativePointerOperationFact,
+  TsonicSafetyApplicationFact,
+  TsonicSafetyApplicationPlacement,
+  TsonicSafetyBuilderFact,
+  TsonicSafetyBuilderStateFact,
+  TsonicSafetyContract,
+  TsonicSafetyMemberKind,
+  TsonicUnsafeContextFact,
+} from "./explicit-safety-facts.js";
+export {
+  analyzeNativePointerOperations,
+} from "./native-pointer-operation-analysis.js";
+export type {
+  NativePointerOperationAnalysisContract,
+} from "./native-pointer-operation-analysis.js";
 export type {
   TsonicAttributeApplicationFact,
   TsonicAttributeApplicationMemberKind,
@@ -16,6 +51,18 @@ export type {
   TsonicAttributeBuilderFact,
   TsonicAttributeBuilderStateFact,
 } from "./attribute-builder-facts.js";
+export {
+  analyzeSafetyBuilderCalls,
+} from "./safety-builder-analysis.js";
+export type {
+  SafetyBuilderAnalysisContract,
+} from "./safety-builder-analysis.js";
+export {
+  analyzeUnsafeContextCalls,
+} from "./unsafe-context-analysis.js";
+export type {
+  UnsafeContextAnalysisContract,
+} from "./unsafe-context-analysis.js";
 export {
   attributeBuilderDeclaration,
   attributeMemberBuilderDeclaration,
