@@ -36,6 +36,9 @@ export type SourceProjectMemberImplementationResult =
       readonly reason: string;
     };
 
+export type SourceCallableImplementationResult =
+  SourceProjectMemberImplementationResult;
+
 export interface SourceBindingWrite {
   readonly reference: Node;
   readonly operation: Node;
@@ -125,6 +128,9 @@ export interface SourceProgramNavigation {
     classDeclaration: Node,
     contractMemberDeclaration: Node,
   ): SourceProjectMemberImplementationResult;
+  callableImplementation(
+    contractDeclaration: Node,
+  ): SourceCallableImplementationResult;
   classConstructors(declaration: Node): SourceClassConstructorResult;
   declaredHeritage(declaration: Node): SourceDeclaredHeritageResult;
   declaredHeritagePath(

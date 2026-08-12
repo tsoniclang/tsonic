@@ -11,6 +11,9 @@ import {
   createSourceMemberImplementationNavigation,
 } from "./member-implementation.js";
 import {
+  createSourceCallableImplementationNavigation,
+} from "./callable-implementation.js";
+import {
   sourceFileIdentity,
 } from "./identity.js";
 import {
@@ -59,6 +62,11 @@ export function createSourceProgramNavigation(
     references.referenceFor,
     references.isProjectDeclaration,
     heritage.declaredHeritagePath,
+  );
+  const callableImplementations = createSourceCallableImplementationNavigation(
+    source,
+    references.sourceReferenceFor,
+    references.isProjectDeclaration,
   );
   const classConstructors = createSourceClassConstructorNavigation(
     source,
@@ -157,6 +165,7 @@ export function createSourceProgramNavigation(
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
     memberImplementation: memberImplementations.memberImplementation,
+    callableImplementation: callableImplementations.callableImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
@@ -228,6 +237,7 @@ export type {
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,
+  SourceCallableImplementationResult,
   SourceDeclarationReference,
   SourceDeclaredHeritageEdge,
   SourceDeclaredHeritageResult,
