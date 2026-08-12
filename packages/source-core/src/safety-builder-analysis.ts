@@ -98,6 +98,8 @@ function createRules(
       analyzeMemberSelector(selected, context, contract, "method")),
     rule(member(builder, sourceSafetySignatureIds.property), (selected, context) =>
       analyzeMemberSelector(selected, context, contract, "property")),
+    rule(member(builder, sourceSafetySignatureIds.indexer), (selected, context) =>
+      analyzeMemberSelector(selected, context, contract, "indexer")),
     rule(member(builder, sourceSafetySignatureIds.constructor), (selected, context) =>
       changePlacement(selected, context, contract, "constructor")),
     rule(member(memberBuilder, sourceSafetySignatureIds.getter), (selected, context) =>
@@ -170,7 +172,11 @@ function analyzeMemberSelector(
   if (predecessor === undefined) {
     return;
   }
-  const selection = selectInlineSourceMember(selected, context);
+  const selection = selectInlineSourceMember(
+    selected,
+    context,
+    memberKind === "indexer" ? "element" : "property",
+  );
   if (selection.kind === "rejected") {
     appendDiagnostic(
       selected,
@@ -197,6 +203,8 @@ function analyzeMemberSelector(
     kind: "builder-state",
     applicationTarget: selection.expression,
     selectedMember: selection.selectedMember,
+    selectedMemberDeclaration: selection.selectedDeclaration,
+    selectedMemberDeclarations: selection.selectedDeclarations,
     applicationMemberKind: memberKind,
     applicationPlacement: "declaration",
   });
@@ -213,6 +221,8 @@ function selectedDeclarationMatchesKind(
   return memberKind === "method"
     ? context.ast.is.IsMethodDeclaration(declaration) ||
       context.ast.is.IsMethodSignatureDeclaration(declaration)
+    : memberKind === "indexer"
+    ? context.ast.is.IsIndexSignatureDeclaration(declaration)
     : context.ast.is.IsPropertyDeclaration(declaration) ||
       context.ast.is.IsPropertySignatureDeclaration(declaration) ||
       context.ast.is.IsGetAccessorDeclaration(declaration) ||
@@ -244,14 +254,17 @@ function changePropertyAccessorPlacement(
   if (predecessor === undefined) {
     return;
   }
-  if (predecessor.applicationMemberKind !== "property") {
+  if (
+    predecessor.applicationMemberKind !== "property" &&
+    predecessor.applicationMemberKind !== "indexer"
+  ) {
     appendDiagnostic(
       selected,
       context,
       contract,
       "ACCESSOR_REQUIRES_PROPERTY",
       3,
-      `The selected safety ${placement} operation requires a preceding exact property selection.`,
+      `The selected safety ${placement} operation requires a preceding exact property or indexer selection.`,
     );
     return;
   }

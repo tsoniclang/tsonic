@@ -159,9 +159,11 @@ This repo uses PRs for `main`. The goal is that `main` is never behind the versi
 
 ## Explicit Target Semantics (IMPORTANT)
 
+- Explicit is the default: represent each independently controllable target behavior with its own fact, marker, policy choice, or project setting. The absence of that explicit selection means the behavior was not requested; do not derive it from a related control.
 - Preserve every independently controllable target-language semantic knob as an independent explicit source fact or policy choice.
 - Never infer one target control from another for convenience. A type, operation, declaration annotation, lexical region, project setting, or toolchain option may imply another behavior only when the pinned target-language specification itself defines that implication.
 - Emit exactly the target language's documented coupling—no more. Do not strengthen current compiler behavior into a Tsonic language rule, because a later target-language version may separate or redefine those controls.
+- Any mandatory implicit coupling must be tied to the selected target-language version and covered by tests for that exact rule. Current compiler acceptance, convention, proximity, or convenience is not specification evidence.
 - For example, a native pointer type must not by itself mark a C# member `unsafe`, an explicit unsafe expression region must not by itself impose a requires-unsafe caller contract, and `AllowUnsafeBlocks` must not grant semantic permission. If C# itself couples controls for a particular construct, model that exact coupling or reject an unrepresentable combination precisely.
 - When target versions differ, select an explicit target dialect/version policy and validate against that specification. Do not silently approximate the newest or oldest behavior.
 

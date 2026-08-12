@@ -13,7 +13,7 @@ import {
 export type TsonicUnsafeContextFact =
   | {
       readonly kind: "expression";
-      readonly expression: ExtensionFactSubject;
+      readonly expression: Node;
     }
   | {
       readonly kind: "remaining-block";
@@ -43,7 +43,7 @@ export type TsonicNativePointerOperationFact =
     };
 
 export type TsonicSafetyContract = "requires-unsafe" | "safe";
-export type TsonicSafetyMemberKind = "method" | "property";
+export type TsonicSafetyMemberKind = "indexer" | "method" | "property";
 export type TsonicSafetyApplicationPlacement =
   | "declaration"
   | "constructor"
@@ -54,6 +54,8 @@ export interface TsonicSafetyBuilderStateFact {
   readonly kind: "builder-state";
   readonly applicationTarget: ExtensionFactSubject;
   readonly selectedMember?: ExtensionFactSubject;
+  readonly selectedMemberDeclaration?: Node;
+  readonly selectedMemberDeclarations?: readonly Node[];
   readonly applicationMemberKind?: TsonicSafetyMemberKind;
   readonly applicationPlacement: TsonicSafetyApplicationPlacement;
 }
@@ -63,6 +65,8 @@ export interface TsonicSafetyApplicationFact {
   readonly contract: TsonicSafetyContract;
   readonly applicationTarget: ExtensionFactSubject;
   readonly selectedMember?: ExtensionFactSubject;
+  readonly selectedMemberDeclaration?: Node;
+  readonly selectedMemberDeclarations?: readonly Node[];
   readonly applicationMemberKind?: TsonicSafetyMemberKind;
   readonly applicationPlacement: TsonicSafetyApplicationPlacement;
 }
@@ -116,12 +120,45 @@ function nativePointerOperationFactsEqual(
 export const tsonicSafetyBuilderFactKey = defineExtensionFactKey<TsonicSafetyBuilderFact>({
   extensionId: tsonicCoreSourceExtensionId,
   name: "safetyBuilderApplication",
-  snapshot: (value) => Object.freeze({ ...value }),
+  snapshot: snapshotSafetyBuilderFact,
   equals: (left, right) => left.kind === right.kind &&
     left.applicationTarget === right.applicationTarget &&
     left.selectedMember === right.selectedMember &&
+    left.selectedMemberDeclaration === right.selectedMemberDeclaration &&
+    sourceNodesEqual(
+      left.selectedMemberDeclarations,
+      right.selectedMemberDeclarations,
+    ) &&
     left.applicationMemberKind === right.applicationMemberKind &&
     left.applicationPlacement === right.applicationPlacement &&
     (left.kind !== "application" || right.kind !== "application" ||
       left.contract === right.contract),
 });
+
+function snapshotSafetyBuilderFact(
+  value: TsonicSafetyBuilderFact,
+): TsonicSafetyBuilderFact {
+  return Object.freeze({
+    ...value,
+    ...(value.selectedMemberDeclarations === undefined
+      ? {}
+      : {
+          selectedMemberDeclarations: Object.freeze([
+            ...value.selectedMemberDeclarations,
+          ]),
+        }),
+  });
+}
+
+function sourceNodesEqual(
+  left: readonly Node[] | undefined,
+  right: readonly Node[] | undefined,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === undefined || right === undefined || left.length !== right.length) {
+    return false;
+  }
+  return left.every((node, index) => node === right[index]);
+}

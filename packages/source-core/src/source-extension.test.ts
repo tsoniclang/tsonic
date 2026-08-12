@@ -109,6 +109,9 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     materialization: { kind: "complete" },
   }));
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => !name.startsWith("__Tsonic")), [
+    "loadNativePointer",
+    "storeNativePointer",
+    "offsetNativePointer",
     "unsafeContext",
     "safety",
     ...expectedSourceCoreLangIntrinsics.map((entry) => entry.exportName),

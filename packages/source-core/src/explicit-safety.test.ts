@@ -205,6 +205,9 @@ test("safety facts retain exact function, member, constructor, and accessor subj
       get current(): int32 { return this.value; }
       set current(value: int32) { this.value = value; }
     }
+    interface Indexed {
+      [key: string]: int32;
+    }
 
     safety(read).requiresUnsafe();
     safety<Box>().method(box => box.method).requiresUnsafe();
@@ -212,6 +215,7 @@ test("safety facts retain exact function, member, constructor, and accessor subj
     safety<Box>().property(box => box.value).requiresUnsafe();
     safety<Box>().property(box => box.current).getter().safe();
     safety<Box>().property(box => box.current).setter().requiresUnsafe();
+    safety<Indexed>().indexer(value => value[""]).getter().requiresUnsafe();
   `);
 
   const applications = [
@@ -221,6 +225,7 @@ test("safety facts retain exact function, member, constructor, and accessor subj
     ["requiresUnsafe", 2, "requires-unsafe", "declaration", "value"],
     ["safe", 1, "safe", "getter", "current"],
     ["requiresUnsafe", 3, "requires-unsafe", "setter", "current"],
+    ["requiresUnsafe", 4, "requires-unsafe", "getter", undefined],
   ] as const;
   for (const [callee, occurrence, contract, placement, selectedName] of applications) {
     const application = fact(
@@ -235,7 +240,22 @@ test("safety facts retain exact function, member, constructor, and accessor subj
     assert.equal(application.contract, contract);
     assert.equal(application.applicationPlacement, placement);
     const selected = application.selectedMember ?? application.applicationTarget;
-    assert.equal(typeName(checked.ast, checked.ast.name(selected as Node) ?? selected as Node), selectedName);
+    if (selectedName !== undefined) {
+      assert.equal(typeName(checked.ast, checked.ast.name(selected as Node) ?? selected as Node), selectedName);
+    } else {
+      assert.ok(checked.ast.is.IsIndexSignatureDeclaration(selected as Node));
+    }
+    if (application.selectedMember !== undefined) {
+      assert.ok(application.selectedMemberDeclaration !== undefined);
+      assert.ok(application.selectedMemberDeclarations !== undefined);
+      assert.ok(application.selectedMemberDeclarations.length > 0);
+      assert.ok(
+        application.selectedMemberDeclarations.includes(
+          application.selectedMemberDeclaration,
+        ),
+      );
+      assert.ok(Object.isFrozen(application.selectedMemberDeclarations));
+    }
   }
 });
 

@@ -1,6 +1,7 @@
 import type {
   ExtensionFactSubject,
   Node,
+  Symbol,
 } from "@tsonic/tsts";
 import type {
   TsonicSourceFileAnalysisContext,
@@ -15,6 +16,7 @@ export type SelectedInlineSourceMemberResult =
       readonly expression: ExtensionFactSubject;
       readonly selectedMember: ExtensionFactSubject;
       readonly selectedDeclaration?: Node;
+      readonly selectedDeclarations: readonly Node[];
     }
   | {
       readonly kind: "rejected";
@@ -24,6 +26,7 @@ export type SelectedInlineSourceMemberResult =
 export function selectInlineSourceMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
+  syntax: "element" | "property" = "property",
 ): SelectedInlineSourceMemberResult {
   const inlineFunction = selected.selection.sourceArguments[0]?.expression;
   if (
@@ -42,10 +45,33 @@ export function selectInlineSourceMember(
     parameter === undefined ||
     parameterSymbol === undefined ||
     returned === undefined ||
-    !context.ast.is.IsPropertyAccessExpression(returned)
+    (syntax === "property"
+      ? !context.ast.is.IsPropertyAccessExpression(returned)
+      : !context.ast.is.IsElementAccessExpression(returned))
   ) {
     return { kind: "rejected", reason: "function-shape" };
   }
+  return syntax === "property"
+    ? selectPropertyMember(
+        returned,
+        parameter,
+        parameterSymbol,
+        context,
+      )
+    : selectElementMember(
+        returned,
+        parameter,
+        parameterSymbol,
+        context,
+      );
+}
+
+function selectPropertyMember(
+  returned: Node,
+  parameter: Node,
+  parameterSymbol: Symbol,
+  context: TsonicSourceFileAnalysisContext,
+): SelectedInlineSourceMemberResult {
   const property = context.checker.getResolvedPropertyAccessInfo(returned);
   if (
     property === undefined ||
@@ -59,27 +85,76 @@ export function selectInlineSourceMember(
   ) {
     return { kind: "rejected", reason: "receiver" };
   }
-  const selectedMember = property.selectedDeclaration ?? property.selectedSymbol;
-  if (selectedMember === undefined) {
+  return selectedMemberResult(
+    property.expression,
+    property.selectedSymbol,
+    property.selectedDeclaration,
+    context,
+  );
+}
+
+function selectElementMember(
+  returned: Node,
+  parameter: Node,
+  parameterSymbol: Symbol,
+  context: TsonicSourceFileAnalysisContext,
+): SelectedInlineSourceMemberResult {
+  const element = context.checker.getResolvedElementAccessInfo(returned);
+  if (
+    element === undefined ||
+    element.accessMode !== "read" ||
+    element.callCallee ||
+    !selectedReceiverMatchesParameter(
+      element.receiver,
+      parameter,
+      parameterSymbol,
+    )
+  ) {
+    return { kind: "rejected", reason: "receiver" };
+  }
+  return selectedMemberResult(
+    element.expression,
+    element.selectedSymbol,
+    element.selectedDeclaration,
+    context,
+  );
+}
+
+function selectedMemberResult(
+  expression: Node,
+  selectedSymbol: Symbol | undefined,
+  selectedDeclaration: Node | undefined,
+  context: TsonicSourceFileAnalysisContext,
+): SelectedInlineSourceMemberResult {
+  const selectedMember = selectedDeclaration ?? selectedSymbol;
+  const selectedDeclarations = selectedSymbol === undefined
+    ? selectedDeclaration === undefined
+      ? []
+      : [selectedDeclaration]
+    : context.checker.getSymbolDeclarations(selectedSymbol).filter(
+        (declaration): declaration is Node => declaration !== undefined,
+      );
+  if (selectedMember === undefined || selectedDeclarations.length === 0) {
     return { kind: "rejected", reason: "member-evidence" };
   }
   return {
     kind: "selected",
-    expression: property.expression,
+    expression,
     selectedMember,
-    ...(property.selectedDeclaration === undefined
+    selectedDeclarations: Object.freeze([...selectedDeclarations]),
+    ...(selectedDeclaration === undefined
       ? {}
-      : { selectedDeclaration: property.selectedDeclaration }),
+      : { selectedDeclaration }),
   };
 }
 
 function selectedReceiverMatchesParameter(
   receiver: {
-    readonly symbol?: ExtensionFactSubject;
-    readonly declaration?: ExtensionFactSubject;
+    readonly symbol?: Symbol;
+    readonly declaration?: Node;
   },
-  parameter: ExtensionFactSubject,
-  parameterSymbol: ExtensionFactSubject,
+  parameter: Node,
+  parameterSymbol: Symbol,
 ): boolean {
   return receiver.symbol === parameterSymbol || receiver.declaration === parameter;
 }

@@ -30,6 +30,7 @@ export const sourceSafetySignatureIds = Object.freeze({
   safe: "__TsonicSafetyBuilder.safe",
   method: "__TsonicSafetyBuilder.method",
   property: "__TsonicSafetyBuilder.property",
+  indexer: "__TsonicSafetyBuilder.indexer",
   constructor: "__TsonicSafetyBuilder.constructor",
   memberRequiresUnsafe: "__TsonicSafetyMemberBuilder.requiresUnsafe",
   memberSafe: "__TsonicSafetyMemberBuilder.safe",
@@ -226,6 +227,7 @@ function safetyBuilderDeclaration(
       terminalMember("safe", sourceSafetySignatureIds.safe),
       selectorMember("method", sourceSafetySignatureIds.method, owner, memberBuilder),
       selectorMember("property", sourceSafetySignatureIds.property, owner, memberBuilder),
+      selectorMember("indexer", sourceSafetySignatureIds.indexer, owner, memberBuilder),
       callablePropertyMember(
         "constructor",
         sourceSafetySignatureIds.constructor,
