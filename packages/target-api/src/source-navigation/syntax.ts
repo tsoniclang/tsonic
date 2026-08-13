@@ -87,7 +87,7 @@ export function isTypeSyntaxNode(ast: AstReader, node: Node): boolean {
     ast.is.IsImportTypeNode(node);
 }
 
-function referenceQueryNode(ast: AstReader, node: Node): Node | undefined {
+export function referenceQueryNode(ast: AstReader, node: Node): Node | undefined {
   const parent = ast.parent(node);
   if (
     parent !== undefined &&

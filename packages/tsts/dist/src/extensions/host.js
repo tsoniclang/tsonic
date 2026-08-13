@@ -4935,6 +4935,11 @@ function renderSourcePrimitiveType(name) {
             return "boolean";
         case "char":
             return "string";
+        case "int64":
+        case "uint64":
+        case "int128":
+        case "uint128":
+            return "bigint";
         default:
             return "number";
     }

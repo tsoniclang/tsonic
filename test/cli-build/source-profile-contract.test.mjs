@@ -25,7 +25,7 @@ test("CLI pure C# source profile accepts CLR names and emits those names", async
       "const parts = path.Split(\"/\");",
       "const ok = path.StartsWith(\"/\");",
       "const first = parts[1];",
-      "const wideValues: long[] = [1, 2];",
+      "const wideValues: long[] = [1n, 2n];",
       "const wideValue: long = wideValues[1];",
       "function chunkLength(): int {",
       "  const values: int[] = [1, 2, 3];",

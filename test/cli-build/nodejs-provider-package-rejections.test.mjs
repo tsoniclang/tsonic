@@ -510,7 +510,7 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readdirSync\(directoryPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.accessSync\(filePath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.chmodSync\(filePath, 420\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.truncateSync\(descriptorPath, 1\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.truncateSync\(descriptorPath, 1L\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmdirSync\(emptyDir, true\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.symlinkSync\(descriptorPath, linkPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readlinkSync\(linkPath\)/);

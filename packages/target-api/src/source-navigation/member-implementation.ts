@@ -8,6 +8,9 @@ import {
 import {
   primaryDeclaration,
 } from "./syntax.js";
+import {
+  selectCallableImplementationDeclaration,
+} from "./callable-implementation.js";
 import type {
   SourceHeritagePathResult,
   SourceProjectMemberImplementationResult,
@@ -130,7 +133,12 @@ function resolveMemberImplementation(
   const checker = source.getSourceFileQueries(classReference.sourceFile).checker;
   const classType = checker.getDeclaredTypeOfSymbol(classReference.symbol);
   const implementationSymbol = checker.getPropertyOfType(classType, memberName);
-  const implementationDeclaration = primaryDeclaration(checker, implementationSymbol);
+  const implementationDeclaration = selectCallableImplementationDeclaration(
+    ast,
+    checker,
+    contractMemberDeclaration,
+    implementationSymbol,
+  ) ?? primaryDeclaration(checker, implementationSymbol);
   const implementationSourceFile = ast.getSourceFile(implementationDeclaration);
   if (
     implementationSymbol === undefined ||

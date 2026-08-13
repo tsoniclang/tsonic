@@ -155,6 +155,51 @@ test("source navigation resolves exact class implementations for base and interf
   );
 });
 
+test("source navigation resolves overload signatures to one concrete callable body", async () => {
+  const source = await checkedSource("project-callable-implementation", {
+    "src/index.ts": [
+      "export function format(value: string): string;",
+      "export function format(value: string, suffix?: string): string;",
+      "export function format(value: string, suffix?: string): string {",
+      "  return value + (suffix ?? '');",
+      "}",
+      "export class Formatter {",
+      "  constructor(prefix: string);",
+      "  constructor(prefix: string, suffix?: string);",
+      "  constructor(prefix: string, suffix?: string) { void prefix; void suffix; }",
+      "  render(value: string): string;",
+      "  render(value: string, suffix?: string): string;",
+      "  render(value: string, suffix?: string): string { return value + (suffix ?? ''); }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const { ast } = source;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  const functions = ast.statements(sourceFile).filter((statement) =>
+    statement !== undefined && ast.is.IsFunctionDeclaration(statement));
+  const formatter = namedDeclaration(ast, sourceFile, "Formatter");
+  const constructors = ast.members(formatter).filter((member) =>
+    member !== undefined && ast.is.IsConstructorDeclaration(member));
+  const methods = ast.members(formatter).filter((member) =>
+    member !== undefined && ast.is.IsMethodDeclaration(member));
+
+  assert.equal(functions.length, 3);
+  assert.equal(constructors.length, 3);
+  assert.equal(methods.length, 3);
+  for (const declarations of [functions, constructors, methods]) {
+    const implementation = declarations[2];
+    assert.notEqual(implementation, undefined);
+    for (const declaration of declarations) {
+      assert.strictEqual(
+        navigation.callableImplementation(declaration).implementation?.declaration,
+        implementation,
+      );
+    }
+  }
+});
+
 test("target source semantics answer checked-source questions without exposing raw checker access", async () => {
   const checked = await checkedSource("target-source-semantics", {
     "src/index.ts": [
@@ -743,6 +788,39 @@ test("source navigation proves references outside an exact excluded subtree", as
   assert.equal(navigation.hasReferenceOutside(unusedSymbol, unused), true);
   assert.equal(navigation.hasReferenceOutside(neverUsedSymbol, neverUsed), false);
   assert.equal(navigation.hasReferenceOutside(usedSymbol, sourceFile), false);
+});
+
+test("shared source navigation enumerates exact symbol references within a subtree", async () => {
+  const source = await checkedSource("references-within", {
+    "src/index.ts": [
+      "export function read(value: number): number {",
+      "  const copy = value;",
+      "  {",
+      "    const value = 2;",
+      "    void value;",
+      "  }",
+      "  return (() => value + copy)();",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const ast = source.ast;
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const parameter = requiredNode(ast, sourceFile, (node) =>
+    ast.is.IsParameterDeclaration(node) && ast.text(ast.name(node)) === "value");
+  const symbol = source.getSourceFileQueries(sourceFile).checker
+    .getSymbolAtLocation(ast.name(parameter), { sourceFile });
+
+  assert.notEqual(symbol, undefined);
+  const navigation = createSourceProgramNavigation(source);
+  const references = navigation.referencesWithin(symbol, sourceFile);
+  assert.equal(references.length, 2);
+  assert.equal(new Set(references).size, 2);
+  assert.equal(
+    references.every((reference) =>
+      navigation.sourceReferenceFor(reference)?.declaration === parameter),
+    true,
+  );
 });
 
 test("shared source navigation classifies exact binding writes without treating object mutation as rebinding", async () => {

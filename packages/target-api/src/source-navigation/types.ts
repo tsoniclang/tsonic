@@ -36,6 +36,9 @@ export type SourceProjectMemberImplementationResult =
       readonly reason: string;
     };
 
+export type SourceCallableImplementationResult =
+  SourceProjectMemberImplementationResult;
+
 export interface SourceBindingWrite {
   readonly reference: Node;
   readonly operation: Node;
@@ -125,6 +128,9 @@ export interface SourceProgramNavigation {
     classDeclaration: Node,
     contractMemberDeclaration: Node,
   ): SourceProjectMemberImplementationResult;
+  callableImplementation(
+    contractDeclaration: Node,
+  ): SourceCallableImplementationResult;
   classConstructors(declaration: Node): SourceClassConstructorResult;
   declaredHeritage(declaration: Node): SourceDeclaredHeritageResult;
   declaredHeritagePath(
@@ -132,6 +138,7 @@ export interface SourceProgramNavigation {
     targetDeclaration: Node,
   ): SourceHeritagePathResult;
   bindingWritesWithin(symbol: Symbol, root: Node): readonly SourceBindingWrite[];
+  referencesWithin(symbol: Symbol, root: Node): readonly Node[];
   hasReferenceOutside(symbol: Symbol, excludedNode: Node): boolean;
   isProjectShape(node: Node | undefined): boolean;
   isProjectConstructibleObject(node: Node | undefined): boolean;

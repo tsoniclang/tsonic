@@ -11,6 +11,9 @@ import {
   createSourceMemberImplementationNavigation,
 } from "./member-implementation.js";
 import {
+  createSourceCallableImplementationNavigation,
+} from "./callable-implementation.js";
+import {
   sourceFileIdentity,
 } from "./identity.js";
 import {
@@ -30,6 +33,7 @@ import {
 import {
   sourceBindingWritesWithin,
   sourceSymbolHasReferenceOutside,
+  sourceSymbolReferencesWithin,
 } from "./references-usage.js";
 import type {
   SourceProgramNavigation,
@@ -58,6 +62,11 @@ export function createSourceProgramNavigation(
     references.referenceFor,
     references.isProjectDeclaration,
     heritage.declaredHeritagePath,
+  );
+  const callableImplementations = createSourceCallableImplementationNavigation(
+    source,
+    references.sourceReferenceFor,
+    references.isProjectDeclaration,
   );
   const classConstructors = createSourceClassConstructorNavigation(
     source,
@@ -156,11 +165,25 @@ export function createSourceProgramNavigation(
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
     memberImplementation: memberImplementations.memberImplementation,
+    callableImplementation: callableImplementations.callableImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
     declaredHeritagePath: heritage.declaredHeritagePath,
     bindingWritesWithin(symbol: Symbol, root: Node) {
-      return sourceBindingWritesWithin(source, symbol, root);
+      return sourceBindingWritesWithin(
+        source,
+        symbol,
+        root,
+        references.sourceReferenceFor,
+      );
+    },
+    referencesWithin(symbol: Symbol, root: Node) {
+      return sourceSymbolReferencesWithin(
+        source,
+        symbol,
+        root,
+        references.sourceReferenceFor,
+      );
     },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
@@ -214,6 +237,7 @@ export type {
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,
+  SourceCallableImplementationResult,
   SourceDeclarationReference,
   SourceDeclaredHeritageEdge,
   SourceDeclaredHeritageResult,

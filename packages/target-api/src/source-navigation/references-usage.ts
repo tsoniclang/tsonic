@@ -6,10 +6,12 @@ import type {
   Symbol,
 } from "@tsonic/tsts";
 import type {
+  SourceDeclarationReference,
   SourceBindingWrite,
 } from "./types.js";
 import {
   aliasedSymbol,
+  referenceQueryNode,
   symbolAtReferenceNode,
 } from "./syntax.js";
 import {
@@ -46,36 +48,55 @@ export function sourceBindingWritesWithin(
   source: CheckedSourceProgram,
   symbol: Symbol,
   root: Node,
+  sourceReferenceFor: (
+    node: Node | undefined,
+  ) => SourceDeclarationReference | undefined,
 ): readonly SourceBindingWrite[] {
+  const writes = sourceSymbolReferencesWithin(
+    source,
+    symbol,
+    root,
+    sourceReferenceFor,
+  )
+    .map((reference) => bindingWriteAtReference(source.ast, reference))
+    .filter((write): write is SourceBindingWrite => write !== undefined);
+  return Object.freeze(writes);
+}
+
+export function sourceSymbolReferencesWithin(
+  source: CheckedSourceProgram,
+  symbol: Symbol,
+  root: Node,
+  sourceReferenceFor: (
+    node: Node | undefined,
+  ) => SourceDeclarationReference | undefined,
+): readonly Node[] {
   const sourceFile = source.ast.getSourceFile(root);
   if (sourceFile === undefined) {
     return Object.freeze([]);
   }
   const checker = source.getSourceFileQueries(sourceFile).checker;
-  const writes: SourceBindingWrite[] = [];
+  const references: Node[] = [];
   const visit = (node: Node | undefined): void => {
     if (node === undefined) {
       return;
     }
-    const direct = symbolAtReferenceNode(source.ast, checker, node);
+    const queryNode = referenceQueryNode(source.ast, node);
+    const selected = queryNode !== undefined &&
+        sourceNodesEqual(source.ast, queryNode, node)
+      ? sourceReferenceFor(node)
+      : undefined;
     if (
-      sourceSymbolsEqual(source.ast, checker, direct, symbol) ||
-      sourceSymbolsEqual(
-        source.ast,
-        checker,
-        aliasedSymbol(source.ast, checker, direct),
-        symbol,
-      )
+      selected !== undefined &&
+      sourceSymbolsEqual(source.ast, checker, selected.symbol, symbol) &&
+      !sourceNodesEqual(source.ast, source.ast.name(selected.declaration), node)
     ) {
-      const write = bindingWriteAtReference(source.ast, node);
-      if (write !== undefined) {
-        writes.push(write);
-      }
+      references.push(node);
     }
     source.ast.forEachChild(node, visit);
   };
   visit(root);
-  return Object.freeze(writes);
+  return Object.freeze(references);
 }
 
 export function sourceSymbolHasReferenceOutside(

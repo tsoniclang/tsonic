@@ -80,6 +80,7 @@ export type {
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,
+  SourceCallableImplementationResult,
   SourceDeclarationReference,
   SourceDeclaredHeritageEdge,
   SourceDeclaredHeritageResult,

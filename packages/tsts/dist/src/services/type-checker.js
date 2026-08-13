@@ -52,8 +52,8 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const sourceResultType = Checker_GetTypeAtLocation(checker, node);
             return Checker_finalizeResolvedCallEvidence(checker, node, sourceResultType);
         })),
-        getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourcePropertyAccessInfo(checker, node))),
-        getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceElementAccessInfo(checker, node))),
+        getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourcePropertyAccessInfo(checker, node)))),
+        getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourceElementAccessInfo(checker, node)))),
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
         getResolvedGeneratorInfo: (node) => memoizeResolvedNodeQuery(generatorInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceGeneratorInfo(checker, node))),
@@ -185,6 +185,29 @@ function getDiagnosticFreeResolvedSymbol(checker, node) {
     return resolved !== undefined && resolved !== checker?.unknownSymbol
         ? resolved
         : undefined;
+}
+function withResolvedSourceReceiverValueEvidence(checker, selected) {
+    if (checker === undefined || selected === undefined) {
+        return undefined;
+    }
+    const sourceSymbol = getDiagnosticFreeResolvedSymbol(checker, selected.receiver.expression);
+    const valueSymbol = sourceSymbol !== undefined &&
+        (sourceSymbol.Flags & SymbolFlagsAlias) !== 0
+        ? Checker_GetAliasedSymbol(checker, sourceSymbol)
+        : sourceSymbol;
+    if (valueSymbol === undefined || valueSymbol === checker.unknownSymbol) {
+        return selected;
+    }
+    return Object.freeze({
+        ...selected,
+        receiver: Object.freeze({
+            ...selected.receiver,
+            valueSymbol,
+            ...(valueSymbol.ValueDeclaration === undefined
+                ? {}
+                : { valueDeclaration: valueSymbol.ValueDeclaration }),
+        }),
+    });
 }
 function withCheckerForNode(program, node, defaultOptions, callback) {
     if (node === undefined) {
