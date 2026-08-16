@@ -105,6 +105,14 @@ test("source navigation resolves exact class implementations for base and interf
       "  value: number;",
       "  read(): number;",
       "}",
+      "export interface BaseShape {",
+      "  value: number;",
+      "  read(): number;",
+      "}",
+      "export interface DerivedShape extends BaseShape {",
+      "  value: number;",
+      "  read(): number;",
+      "}",
       "export class Base {",
       "  read(): number { return 1; }",
       "}",
@@ -123,12 +131,18 @@ test("source navigation resolves exact class implementations for base and interf
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const navigation = createSourceProgramNavigation(source);
   const readable = namedDeclaration(ast, sourceFile, "Readable");
+  const baseShape = namedDeclaration(ast, sourceFile, "BaseShape");
+  const derivedShape = namedDeclaration(ast, sourceFile, "DerivedShape");
   const base = namedDeclaration(ast, sourceFile, "Base");
   const derived = namedDeclaration(ast, sourceFile, "Derived");
   const inherited = namedDeclaration(ast, sourceFile, "Inherited");
   const sameSpelling = namedDeclaration(ast, sourceFile, "SameSpelling");
   const readableValue = namedMember(ast, readable, "value");
   const readableRead = namedMember(ast, readable, "read");
+  const baseShapeValue = namedMember(ast, baseShape, "value");
+  const baseShapeRead = namedMember(ast, baseShape, "read");
+  const derivedShapeValue = namedMember(ast, derivedShape, "value");
+  const derivedShapeRead = namedMember(ast, derivedShape, "read");
   const baseRead = namedMember(ast, base, "read");
   const derivedValue = namedMember(ast, derived, "value");
   const derivedRead = namedMember(ast, derived, "read");
@@ -148,6 +162,14 @@ test("source navigation resolves exact class implementations for base and interf
   assert.strictEqual(
     navigation.memberImplementation(inherited, readableRead).implementation?.declaration,
     derivedRead,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(derivedShape, baseShapeValue).implementation?.declaration,
+    derivedShapeValue,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(derivedShape, baseShapeRead).implementation?.declaration,
+    derivedShapeRead,
   );
   assert.deepEqual(
     navigation.memberImplementation(sameSpelling, baseRead),

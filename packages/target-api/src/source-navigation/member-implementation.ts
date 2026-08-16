@@ -19,7 +19,7 @@ import type {
 
 export interface SourceMemberImplementationNavigation {
   memberImplementation(
-    classDeclaration: Node,
+    typeDeclaration: Node,
     contractMemberDeclaration: Node,
   ): SourceProjectMemberImplementationResult;
 }
@@ -37,14 +37,14 @@ export function createSourceMemberImplementationNavigation(
   const cache = new Map<string, SourceProjectMemberImplementationResult>();
 
   const memberImplementation = (
-    classDeclaration: Node,
+    typeDeclaration: Node,
     contractMemberDeclaration: Node,
   ): SourceProjectMemberImplementationResult => {
-    const classIdentity = sourceNodeIdentity(ast, classDeclaration);
+    const typeIdentity = sourceNodeIdentity(ast, typeDeclaration);
     const memberIdentity = sourceNodeIdentity(ast, contractMemberDeclaration);
-    const cacheKey = classIdentity === undefined || memberIdentity === undefined
+    const cacheKey = typeIdentity === undefined || memberIdentity === undefined
       ? undefined
-      : `${classIdentity}::${memberIdentity}`;
+      : `${typeIdentity}::${memberIdentity}`;
     const cached = cacheKey === undefined ? undefined : cache.get(cacheKey);
     if (cached !== undefined) {
       return cached;
@@ -52,7 +52,7 @@ export function createSourceMemberImplementationNavigation(
 
     const result = resolveMemberImplementation(
       source,
-      classDeclaration,
+      typeDeclaration,
       contractMemberDeclaration,
       referenceFor,
       isProjectDeclaration,
@@ -69,7 +69,7 @@ export function createSourceMemberImplementationNavigation(
 
 function resolveMemberImplementation(
   source: CheckedSourceProgram,
-  classDeclaration: Node,
+  typeDeclaration: Node,
   contractMemberDeclaration: Node,
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
@@ -81,23 +81,26 @@ function resolveMemberImplementation(
   const { ast } = source;
   const contractOwner = ast.parent(contractMemberDeclaration);
   if (
-    !ast.is.IsClassDeclaration(classDeclaration) ||
+    (
+      !ast.is.IsClassDeclaration(typeDeclaration) &&
+      !ast.is.IsInterfaceDeclaration(typeDeclaration)
+    ) ||
     contractOwner === undefined ||
     (
       !ast.is.IsClassDeclaration(contractOwner) &&
       !ast.is.IsInterfaceDeclaration(contractOwner)
     ) ||
-    !isProjectDeclaration(classDeclaration) ||
+    !isProjectDeclaration(typeDeclaration) ||
     !isProjectDeclaration(contractMemberDeclaration)
   ) {
     return Object.freeze({
       kind: "unresolved",
       reason:
-        "Project member implementation requires one project class and one project class/interface member declaration.",
+        "Project member implementation requires one project class/interface type and one project class/interface member declaration.",
     });
   }
 
-  const relation = declaredHeritagePath(classDeclaration, contractOwner);
+  const relation = declaredHeritagePath(typeDeclaration, contractOwner);
   if (relation.kind === "unrelated") {
     return Object.freeze({ kind: "unrelated" });
   }
@@ -105,12 +108,12 @@ function resolveMemberImplementation(
     return Object.freeze({ kind: "unresolved", reason: relation.reason });
   }
 
-  const className = ast.name(classDeclaration);
-  const classReference = referenceFor(className);
-  if (className === undefined || classReference === undefined) {
+  const typeName = ast.name(typeDeclaration);
+  const typeReference = referenceFor(typeName);
+  if (typeName === undefined || typeReference === undefined) {
     return Object.freeze({
       kind: "unresolved",
-      reason: "The checked source program did not expose the project class declaration symbol.",
+      reason: "The checked source program did not expose the project type declaration symbol.",
     });
   }
 
@@ -130,9 +133,9 @@ function resolveMemberImplementation(
     });
   }
 
-  const checker = source.getSourceFileQueries(classReference.sourceFile).checker;
-  const classType = checker.getDeclaredTypeOfSymbol(classReference.symbol);
-  const implementationSymbol = checker.getPropertyOfType(classType, memberName);
+  const checker = source.getSourceFileQueries(typeReference.sourceFile).checker;
+  const selectedType = checker.getDeclaredTypeOfSymbol(typeReference.symbol);
+  const implementationSymbol = checker.getPropertyOfType(selectedType, memberName);
   const implementationDeclaration = selectCallableImplementationDeclaration(
     ast,
     checker,
