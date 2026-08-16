@@ -20,6 +20,8 @@ import {
   sourceSymbolsEqual,
 } from "./identity.js";
 
+const noSourceReferences: readonly Node[] = Object.freeze([]);
+
 const assignmentOperatorKinds = new Set([
   "KindEqualsToken",
   "KindPlusEqualsToken",
@@ -97,6 +99,62 @@ export function sourceSymbolReferencesWithin(
   };
   visit(root);
   return Object.freeze(references);
+}
+
+export function createSourceDeclarationReferenceIndex(
+  source: CheckedSourceProgram,
+  sourceFiles: readonly SourceFile[],
+  sourceReferenceFor: (
+    node: Node | undefined,
+  ) => SourceDeclarationReference | undefined,
+): {
+  referencesToDeclaration(declaration: Node): readonly Node[];
+} {
+  let referencesByDeclaration: ReadonlyMap<string, readonly Node[]> | undefined;
+
+  const build = (): ReadonlyMap<string, readonly Node[]> => {
+    const pending = new Map<string, Node[]>();
+    const visit = (node: Node | undefined): void => {
+      if (node === undefined) {
+        return;
+      }
+      const queryNode = referenceQueryNode(source.ast, node);
+      if (queryNode !== undefined && sourceNodesEqual(source.ast, queryNode, node)) {
+        const selected = sourceReferenceFor(node);
+        const declaration = selected?.declaration;
+        const declarationIdentity = sourceNodeIdentity(source.ast, declaration);
+        if (
+          declaration !== undefined &&
+          declarationIdentity !== undefined &&
+          !sourceNodesEqual(source.ast, source.ast.name(declaration), node)
+        ) {
+          const references = pending.get(declarationIdentity) ?? [];
+          references.push(node);
+          pending.set(declarationIdentity, references);
+        }
+      }
+      source.ast.forEachChild(node, visit);
+    };
+    for (const sourceFile of sourceFiles) {
+      visit(sourceFile);
+    }
+    return new Map(
+      [...pending.entries()].map(([identity, references]) => [
+        identity,
+        Object.freeze(references),
+      ]),
+    );
+  };
+
+  return Object.freeze({
+    referencesToDeclaration(declaration: Node): readonly Node[] {
+      referencesByDeclaration ??= build();
+      const identity = sourceNodeIdentity(source.ast, declaration);
+      return identity === undefined
+        ? noSourceReferences
+        : referencesByDeclaration.get(identity) ?? noSourceReferences;
+    },
+  });
 }
 
 export function sourceSymbolHasReferenceOutside(

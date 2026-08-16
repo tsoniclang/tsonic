@@ -823,6 +823,50 @@ test("shared source navigation enumerates exact symbol references within a subtr
   );
 });
 
+test("shared source navigation indexes exact references to one declaration across modules", async () => {
+  const source = await checkedSource("references-to-declaration", {
+    "src/api.ts": [
+      "export const transform = (value: number): number => value + 1;",
+      "",
+    ].join("\n"),
+    "src/direct.ts": [
+      'import { transform as apply } from "./api.js";',
+      "export const direct = apply(1);",
+      "export const retained = apply;",
+      "",
+    ].join("\n"),
+    "src/namespace.ts": [
+      'import * as api from "./api.js";',
+      "export const namespaced = api.transform(2);",
+      "function local(transform: (value: number) => number): number {",
+      "  return transform(3);",
+      "}",
+      "void local;",
+      "",
+    ].join("\n"),
+  });
+  const ast = source.ast;
+  const apiFile = projectSourceFile(source, "src/api.ts");
+  const declaration = namedVariable(ast, apiFile, "transform");
+  const navigation = createSourceProgramNavigation(source);
+  const references = navigation.referencesToDeclaration(declaration);
+
+  assert.equal(references.length, 5);
+  assert.equal(new Set(references).size, references.length);
+  assert.equal(
+    references.every((reference) =>
+      navigation.sourceReferenceFor(reference)?.declaration === declaration),
+    true,
+  );
+  assert.equal(
+    references.filter((reference) => ast.is.IsPropertyAccessExpression(reference)).length,
+    1,
+  );
+  assert.equal(references.some((reference) =>
+    ast.is.IsPropertyAccessExpression(reference) &&
+    ast.getFileName(ast.getSourceFile(reference)).endsWith("namespace.ts")), true);
+});
+
 test("shared source navigation classifies exact binding writes without treating object mutation as rebinding", async () => {
   const source = await checkedSource("binding-writes", {
     "src/index.ts": [
