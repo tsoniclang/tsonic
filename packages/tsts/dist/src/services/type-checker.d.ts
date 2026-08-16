@@ -24,6 +24,20 @@ export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccess
     readonly receiver: CheckerResolvedSourceElementAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
 };
 export type ResolvedSourceIterationInfo = ExtensionCheckedIterationSelection;
+export type ResolvedSourceObjectLiteralElementKind = "property" | "shorthand" | "method" | "get" | "set";
+export interface ResolvedSourceObjectLiteralElementInfo {
+    readonly objectLiteral: Node;
+    readonly element: Node;
+    readonly elementKind: ResolvedSourceObjectLiteralElementKind;
+    readonly objectLiteralType: Type;
+    readonly contextualType?: Type;
+    readonly sourceElementSymbol?: Symbol;
+    readonly sourceElementType: Type;
+    readonly sourceSelectedSymbol?: Symbol;
+    readonly sourceSelectedDeclaration?: Node;
+    readonly sourceSelectedDeclarations: readonly Node[];
+    readonly sourceSelectedType: Type;
+}
 export interface ResolvedSourceStorageInfo {
     readonly expression: Node;
     readonly storageExpression: Node;
@@ -49,6 +63,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedPropertyAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourcePropertyAccessInfo>;
     readonly getResolvedElementAccessInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceElementAccessInfo>;
     readonly getResolvedIterationInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIterationInfo>;
+    readonly getResolvedObjectLiteralElementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceObjectLiteralElementInfo>;
     readonly getResolvedStorageInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceStorageInfo>;
     readonly getResolvedGeneratorInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceGeneratorInfo>;
     readonly getResolvedYieldInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceYieldInfo>;

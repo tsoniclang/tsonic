@@ -9,7 +9,7 @@ export type { ParsedBuildCommandLine } from "./internal/tsoptions/parsedbuildcom
 export type { ParsedCommandLine } from "./internal/tsoptions/parsedcommandline.js";
 export { barebonesLibContent, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
 export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileOptions, TranspileOutput } from "./services/transpile.js";
-export type { ResolvedSourceCallInfo, ResolvedSourceElementAccessInfo, ResolvedSourceIterationInfo, ResolvedSourceGeneratorInfo, ResolvedSourcePropertyAccessInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, TypeCheckerQueries, } from "./services/type-checker.js";
+export type { ResolvedSourceCallInfo, ResolvedSourceElementAccessInfo, ResolvedSourceIterationInfo, ResolvedSourceGeneratorInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourceObjectLiteralElementKind, ResolvedSourcePropertyAccessInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, TypeCheckerQueries, } from "./services/type-checker.js";
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryClosure, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export type { BundledLibrarySource, CompilerFileSystem, CompilerHostOptions, CompilerTraceCallback, InMemoryFileSystemOptions } from "./services/embedding-host.js";
 export type { AstAuthoredRange, AstModifierKind, AstReader, AstVariableDeclarationKind } from "./services/ast-reader.js";

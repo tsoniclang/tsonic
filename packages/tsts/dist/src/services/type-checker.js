@@ -1,14 +1,14 @@
 import { Background } from "../go/context.js";
 import { Node_Text } from "../internal/ast/ast.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
-import { IsElementAccessExpression, IsIdentifier, IsPropertyAccessExpression } from "../internal/ast/generated/predicates.js";
-import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
+import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
+import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Checker_GetPropertyOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
-import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
-import { Checker_getContextualType, Checker_GetTypeAtLocation } from "../internal/checker/checker/types.js";
+import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getSymbolOfDeclaration, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_getApparentTypeOfContextualType, Checker_getContextualType, Checker_getContextualTypeForObjectLiteralElement, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite } from "../internal/checker/utilities.js";
 import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/checker/syntax-checking.js";
@@ -24,6 +24,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     const propertyAccessInfos = new WeakMap();
     const elementAccessInfos = new WeakMap();
     const iterationInfos = new WeakMap();
+    const objectLiteralElementInfos = new WeakMap();
     const storageInfos = new WeakMap();
     const generatorInfos = new WeakMap();
     const yieldInfos = new WeakMap();
@@ -55,6 +56,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourcePropertyAccessInfo(checker, node)))),
         getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourceElementAccessInfo(checker, node)))),
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
+        getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node))),
         getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
         getResolvedGeneratorInfo: (node) => memoizeResolvedNodeQuery(generatorInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceGeneratorInfo(checker, node))),
         getResolvedYieldInfo: (node) => memoizeResolvedNodeQuery(yieldInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
@@ -86,6 +88,74 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getSignatureThisParameter: (signature) => signature?.thisParameter,
     };
     return Object.freeze(queries);
+}
+function getResolvedSourceObjectLiteralElementInfo(checker, element) {
+    const elementKind = resolvedSourceObjectLiteralElementKind(element);
+    const objectLiteral = element?.Parent;
+    if (checker === undefined || element === undefined || elementKind === undefined ||
+        objectLiteral === undefined ||
+        !IsObjectLiteralExpression(objectLiteral)) {
+        return undefined;
+    }
+    const objectLiteralType = Checker_GetTypeAtLocation(checker, objectLiteral);
+    const sourceElementType = Checker_GetTypeAtLocation(checker, element);
+    const contextualType = Checker_getApparentTypeOfContextualType(checker, objectLiteral, ContextFlagsNone);
+    const sourceElementSymbol = Checker_getSymbolOfDeclaration(checker, element);
+    if (objectLiteralType === undefined || sourceElementType === undefined ||
+        sourceElementSymbol === undefined) {
+        return undefined;
+    }
+    const selectedOwnerType = contextualType ?? objectLiteralType;
+    const sourceSelectedSymbol = Checker_GetPropertyOfType(checker, selectedOwnerType, sourceElementSymbol.Name);
+    const sourceSelectedType = contextualType === undefined
+        ? sourceSelectedSymbol === undefined
+            ? sourceElementType
+            : Checker_getTypeOfSymbol(checker, sourceSelectedSymbol)
+        : Checker_getContextualTypeForObjectLiteralElement(checker, element, ContextFlagsNone);
+    if (sourceSelectedType === undefined) {
+        return undefined;
+    }
+    const rawSourceSelectedDeclarations = sourceSelectedSymbol?.Declarations ?? [];
+    if (rawSourceSelectedDeclarations.some((declaration) => declaration === undefined)) {
+        return undefined;
+    }
+    const sourceSelectedDeclarations = Object.freeze([
+        ...rawSourceSelectedDeclarations,
+    ]);
+    return Object.freeze({
+        objectLiteral,
+        element,
+        elementKind,
+        objectLiteralType,
+        ...(contextualType === undefined ? {} : { contextualType }),
+        sourceElementSymbol,
+        sourceElementType,
+        ...(sourceSelectedSymbol === undefined ? {} : { sourceSelectedSymbol }),
+        ...(() => {
+            const sourceSelectedDeclaration = getPrimarySymbolDeclaration(sourceSelectedSymbol);
+            return sourceSelectedDeclaration === undefined ? {} : { sourceSelectedDeclaration };
+        })(),
+        sourceSelectedDeclarations,
+        sourceSelectedType,
+    });
+}
+function resolvedSourceObjectLiteralElementKind(element) {
+    if (IsPropertyAssignment(element)) {
+        return "property";
+    }
+    if (IsShorthandPropertyAssignment(element)) {
+        return "shorthand";
+    }
+    if (IsObjectLiteralMethod(element)) {
+        return "method";
+    }
+    if (IsGetAccessorDeclaration(element)) {
+        return "get";
+    }
+    if (IsSetAccessorDeclaration(element)) {
+        return "set";
+    }
+    return undefined;
 }
 function getResolvedSourceStorageInfo(checker, expression) {
     if (checker === undefined || expression === undefined) {
