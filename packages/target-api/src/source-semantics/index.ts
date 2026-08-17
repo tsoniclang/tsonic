@@ -49,6 +49,9 @@ import {
 export {
   sourceTypeSyntaxIsCompositional,
 } from "./type-syntax.js";
+export {
+  orderEnumerableOwnStringProperties,
+} from "./enumerable-own-properties.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,

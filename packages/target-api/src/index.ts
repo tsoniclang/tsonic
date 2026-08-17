@@ -93,6 +93,7 @@ export type {
 } from "./source-navigation/index.js";
 export {
   createTargetSourceProgram,
+  orderEnumerableOwnStringProperties,
   sourceTypeSyntaxIsCompositional,
 } from "./source-semantics/index.js";
 export type {
