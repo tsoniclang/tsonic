@@ -38,6 +38,7 @@ import {
 } from "./identity.js";
 import { createTsonicCoreSourceExtension } from "./source-extension.js";
 import { tsonicAttributeBuilderFactKey } from "./attribute-builder-facts.js";
+import { tsonicFixedArrayFactKey } from "./fixed-array-facts.js";
 import { tsonicCoreSourceSemanticsModules } from "./source-modules.js";
 import { createTsonicCoreVirtualModulesProvider } from "./virtual-modules.js";
 
@@ -93,6 +94,7 @@ const expectedSourceCoreTypeMarkers = [
   { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
   { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
   { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
+  { kind: "type-marker", exportName: "FixedArray", marker: "fixed-array" },
 ] as const;
 
 test("source-core virtual module provider owns only neutral core modules", () => {
@@ -1047,6 +1049,70 @@ test("source-core records FunctionPointer tuple and scalar parameter facts", () 
   assert.equal(pointerArgFact?.parameters.length, 1);
   assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.parameters[0]), pointerFactKey)?.mutability, "readwrite");
   assert.equal(getSourceFact(session, nodeFactSubject(pointerArgFact?.result), pointerFactKey)?.mutability, "readwrite");
+});
+
+test("source-core records exact fixed-array element and length facts without spelling inference", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import type { FixedArray as fixed, uint8 } from "@tsonic/core/types.js";
+    import type * as coreTypes from "@tsonic/core/types.js";
+    import type { FixedArray as localFixedArray } from "./local.js";
+
+    type FixedArray<T, N extends number> = readonly T[];
+    type Direct = fixed<uint8, 4>;
+    type Namespace = coreTypes.FixedArray<uint8, 0x08>;
+    type Local = localFixedArray<uint8, 4>;
+    type Shadow = FixedArray<uint8, 4>;
+  `, {
+    "/src/local.ts": "export type FixedArray<T, N extends number> = readonly T[];",
+  });
+
+  const direct = getSourceFact(
+    session,
+    typeReference(session, sourceFile, "fixed"),
+    tsonicFixedArrayFactKey,
+  );
+  assert.equal(direct?.length, 4);
+  assert.equal(typeReferenceName(session, direct?.elementType), "uint8");
+
+  const namespace = getSourceFact(
+    session,
+    typeReference(session, sourceFile, "coreTypes.FixedArray"),
+    tsonicFixedArrayFactKey,
+  );
+  assert.equal(namespace?.length, 8);
+  assert.equal(typeReferenceName(session, namespace?.elementType), "uint8");
+
+  assert.equal(getSourceFact(
+    session,
+    typeReference(session, sourceFile, "localFixedArray"),
+    tsonicFixedArrayFactKey,
+  ), undefined);
+  assert.equal(getSourceFact(
+    session,
+    typeReference(session, sourceFile, "FixedArray"),
+    tsonicFixedArrayFactKey,
+  ), undefined);
+});
+
+test("source-core rejects non-literal and invalid fixed-array lengths", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import type { FixedArray, uint8 } from "@tsonic/core/types.js";
+
+    type Open = FixedArray<uint8, number>;
+    type Negative = FixedArray<uint8, -1>;
+    type Fractional = FixedArray<uint8, 1.5>;
+    type UnsafeInteger = FixedArray<uint8, 9007199254740992>;
+  `);
+
+  const diagnostics = definedDiagnostics(checkSource(session).extensionDiagnostics);
+  assert.equal(diagnostics.length, 4);
+  assert.ok(diagnostics.every((diagnostic) =>
+    diagnostic.extensionCode === "SOURCE_CORE_FIXED_ARRAY_LENGTH_NOT_LITERAL"));
+  assert.equal(getSourceFact(
+    session,
+    typeReference(session, sourceFile, "FixedArray", 0),
+    tsonicFixedArrayFactKey,
+  ), undefined);
 });
 
 test("source-core exposes exact typed pointer operation facts without spelling inference", () => {

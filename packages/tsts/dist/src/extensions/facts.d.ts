@@ -19,7 +19,7 @@ export interface ExtensionCanonicalIdentity {
 }
 export type SourcePointerMutability = "readonly" | "readwrite" | "unspecified";
 export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer" | "bind-raw-pointer" | "equal-raw-pointer" | "hash-raw-pointer";
-export type SourceTypeMarkerKind = "pointer" | "function-pointer" | "raw-pointer";
+export type SourceTypeMarkerKind = "pointer" | "function-pointer" | "raw-pointer" | "fixed-array";
 export type SourceMarkerFact = {
     readonly kind: "call-marker";
     readonly marker: SourceCallMarkerKind;

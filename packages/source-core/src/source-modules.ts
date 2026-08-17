@@ -34,6 +34,7 @@ const typeMarkerDeclarations = [
   { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
   { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
   { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
+  { kind: "type-marker", exportName: "FixedArray", marker: "fixed-array" },
 ] satisfies SourceSemanticsModule["exports"];
 
 const callMarkerDeclarations = [

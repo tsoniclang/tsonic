@@ -28,6 +28,19 @@ export {
   tsonicSafetyBuilderFactKey,
   tsonicUnsafeContextFactKey,
 } from "./explicit-safety-facts.js";
+export {
+  tsonicFixedArrayFactKey,
+} from "./fixed-array-facts.js";
+export type {
+  TsonicFixedArrayFact,
+} from "./fixed-array-facts.js";
+export {
+  tsonicFixedArrayProviderIds,
+  tsonicFixedArrayProviderMember,
+} from "./fixed-array-provider.js";
+export type {
+  TsonicFixedArrayProviderMember,
+} from "./fixed-array-provider.js";
 export type {
   TsonicNativePointerOperationFact,
   TsonicSafetyApplicationFact,

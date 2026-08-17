@@ -12,6 +12,9 @@ import {
   tsonicCoreTypesModule,
 } from "./identity.js";
 import {
+  tsonicFixedArrayProviderIds,
+} from "./fixed-array-provider.js";
+import {
   nativePointerOperationProviderDeclarations,
   nativePointerProviderDeclaration,
   safetyProviderDeclarations,
@@ -121,6 +124,9 @@ export function providerTypeMarkerDeclaration(exportName: string, marker: Source
       members: [sourceTypeBrandMember(exportName, pointee, pointee)],
     };
   }
+  if (marker === "fixed-array") {
+    return fixedArrayTypeMarkerDeclaration(exportName);
+  }
   const argumentsType = { kind: "type-parameter" as const, name: "TArgs" };
   const resultType = { kind: "type-parameter" as const, name: "TReturn" };
   return {
@@ -129,6 +135,53 @@ export function providerTypeMarkerDeclaration(exportName: string, marker: Source
     kind: "interface",
     typeParameters: [{ name: "TArgs" }, { name: "TReturn" }],
     members: [sourceTypeBrandMember(exportName, argumentsType, resultType)],
+  };
+}
+
+function fixedArrayTypeMarkerDeclaration(exportName: string): ProviderExportDeclaration {
+  const elementType = { kind: "type-parameter" as const, name: "T" };
+  const lengthType = { kind: "type-parameter" as const, name: "TLength" };
+  return {
+    id: exportName,
+    name: exportName,
+    kind: "interface",
+    typeParameters: [
+      { name: "T" },
+      { name: "TLength", constraints: [{ kind: "number" }] },
+    ],
+    members: [
+      {
+        id: tsonicFixedArrayProviderIds.indexMemberId,
+        name: "index",
+        kind: "indexer",
+        signatures: [{
+          id: tsonicFixedArrayProviderIds.indexSignatureId,
+          parameters: [{ name: "index", type: { kind: "number" } }],
+          returnType: elementType,
+        }],
+      },
+      {
+        id: tsonicFixedArrayProviderIds.lengthMemberId,
+        name: "length",
+        kind: "property",
+        readonly: true,
+        type: lengthType,
+      },
+      {
+        id: tsonicFixedArrayProviderIds.iteratorMemberId,
+        name: { kind: "well-known-symbol", name: "iterator" },
+        kind: "method",
+        signatures: [{
+          id: tsonicFixedArrayProviderIds.iteratorSignatureId,
+          parameters: [],
+          returnType: {
+            kind: "source-global",
+            name: "Iterator",
+            typeArguments: [elementType],
+          },
+        }],
+      },
+    ],
   };
 }
 
