@@ -18,6 +18,7 @@ import {
   selectAuthoredSourceType,
 } from "./authored-type-selection.js";
 import {
+  authoredSourceTypeFactNodes,
   authoredSourceTypeFactDependencies,
 } from "./authored-type-facts.js";
 import {
@@ -45,6 +46,10 @@ import {
 import {
   createSourceProgramDocuments,
 } from "./source-documents.js";
+import {
+  selectSourceCallableTypeEvidence,
+  selectStandardSourceTypeTransformation,
+} from "./standard-type-transformations.js";
 
 export {
   sourceTypeSyntaxIsCompositional,
@@ -52,6 +57,19 @@ export {
 export {
   orderEnumerableOwnStringProperties,
 } from "./enumerable-own-properties.js";
+export {
+  selectSourceObjectLiteralAccessors,
+} from "./object-literal-accessors.js";
+export type {
+  SourceObjectLiteralAccessorMember,
+  SourceObjectLiteralAccessorOccurrence,
+  SourceObjectLiteralAccessorSelection,
+} from "./object-literal-accessors.js";
+export {
+  sourcePropertyTypeEvidenceNodes,
+  sourceTransformedTypeFactEvidenceNodes,
+  sourceTupleElementTypeEvidenceNodes,
+} from "./type-component-evidence.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
@@ -86,6 +104,15 @@ export function createTargetSourceProgram(
       },
       getAuthoredTypeFactSubjects(node: Node) {
         return authoredSourceTypeFactDependencies(
+          source.ast,
+          navigation,
+          source.sourceFacts,
+          queries.checker,
+          node,
+        );
+      },
+      getAuthoredTypeFactNodes(node: Node) {
+        return authoredSourceTypeFactNodes(
           source.ast,
           navigation,
           source.sourceFacts,
@@ -147,6 +174,31 @@ export function createTargetSourceProgram(
           source.sourceFacts,
           left,
           right,
+        );
+      },
+      selectStandardTypeTransformation(
+        authoredTypeNode: Node,
+        selectedType: Type,
+      ) {
+        return selectStandardSourceTypeTransformation(
+          {
+            ast: source.ast,
+            navigation,
+            semanticsFor: forNode,
+          },
+          authoredTypeNode,
+          selectedType,
+        );
+      },
+      selectCallableType(type: Type) {
+        return selectSourceCallableTypeEvidence(
+          type,
+          {
+            ...queries.typeShape,
+            getSignatureDeclaration:
+              queries.checker.getSignatureDeclaration,
+          },
+          source.ast,
         );
       },
     }) satisfies SourceFileSemantics;
@@ -237,6 +289,9 @@ export type {
   SourceSyntheticOccurrence,
   SourceTypeRelationship,
   SourceTypeRefinement,
+  SourceCallableTypeEvidence,
+  SourceStandardTypeTransformation,
+  SourceTypeComponentEvidence,
   SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./types.js";

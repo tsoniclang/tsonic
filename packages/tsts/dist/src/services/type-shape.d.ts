@@ -14,10 +14,27 @@ export interface TypeIndexInfo {
 }
 export interface TypePropertyInfo {
     readonly symbol: Symbol;
+    readonly rootSymbols: readonly Symbol[];
     readonly name: string;
     readonly type: Type;
     readonly optional: boolean;
     readonly readonly: boolean;
+}
+export interface TypeTupleElementInfo {
+    readonly type: Type;
+    readonly elementKind: "required" | "optional" | "rest" | "variadic";
+    readonly declaration?: Node;
+}
+export interface TypeSignatureParameterInfo {
+    readonly sourceSymbol: Symbol;
+    readonly type: Type;
+    readonly parameterKind: "required" | "optional" | "rest";
+    readonly declaration?: Node;
+}
+export interface TypeSignatureThisParameterInfo {
+    readonly symbol: Symbol;
+    readonly type: Type;
+    readonly declaration?: Node;
 }
 export interface CreateTypeShapeQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
@@ -41,14 +58,19 @@ export interface TypeShapeQueries {
     readonly isTypeReference: (type: GoPtr<Type>) => boolean;
     readonly isTuple: (type: GoPtr<Type>) => boolean;
     readonly isArrayLike: (type: GoPtr<Type>) => boolean;
+    readonly isTypeIdenticalTo: (left: GoPtr<Type>, right: GoPtr<Type>) => boolean;
     readonly couldContainTypeVariables: (type: GoPtr<Type>) => boolean;
     readonly getUnionOrIntersectionTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
+    readonly getSubstitutionBaseType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTupleElementTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
+    readonly getTupleElementInfos: (type: GoPtr<Type>) => readonly TypeTupleElementInfo[];
     readonly getPropertyInfos: (type: GoPtr<Type>) => readonly TypePropertyInfo[];
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
+    readonly getSignatureParameterInfos: (signature: GoPtr<Signature>) => readonly TypeSignatureParameterInfo[];
+    readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
     readonly getIndexInfos: (type: GoPtr<Type>) => readonly TypeIndexInfo[];
     readonly getApparentType: (type: GoPtr<Type>) => GoPtr<Type>;

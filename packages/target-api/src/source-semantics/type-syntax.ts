@@ -11,10 +11,12 @@ export function sourceTypeSyntaxIsCompositional(
     return false;
   }
   if (
-    ast.is.IsKeywordTypeNode(node) ||
-    ast.is.IsLiteralTypeNode(node) ||
-    ast.is.IsThisTypeNode(node)
+    ast.is.IsKeywordTypeNode(node) &&
+    ast.kindName(node) !== "KindIntrinsicKeyword"
   ) {
+    return true;
+  }
+  if (ast.is.IsLiteralTypeNode(node) || ast.is.IsThisTypeNode(node)) {
     return true;
   }
   if (ast.is.IsTypeReferenceNode(node)) {

@@ -12,7 +12,7 @@ import { Checker_getApparentTypeOfContextualType, Checker_getContextualType, Che
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite } from "../internal/checker/utilities.js";
 import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/checker/syntax-checking.js";
-import { Checker_GetConstantValue, Checker_GetExportsOfModule } from "../internal/checker/services.js";
+import { Checker_GetConstantValue, Checker_GetExportsOfModule, Checker_GetRootSymbols, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
 import { resolveSourceGeneratorInfo, resolveSourceResourceManagementInfo, resolveSourceWellKnownSymbolInfo, resolveSourceYieldInfo, } from "./source-control-flow-evidence.js";
@@ -78,6 +78,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getExportsOfModule: (moduleSymbol) => withCheckerForSymbol(program, moduleSymbol, defaultOptions, (checker) => Checker_GetExportsOfModule(checker, moduleSymbol)) ?? [],
         getSymbolName: (symbol) => symbol?.Name ?? "",
         getSymbolDeclarations: (symbol) => symbol?.Declarations ?? [],
+        getRootSymbols: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_GetRootSymbols(checker, symbol)) ?? [],
         getSymbolValueDeclaration: (symbol) => symbol?.ValueDeclaration,
         getPrimarySymbolDeclaration: (symbol) => getPrimarySymbolDeclaration(symbol),
         getSymbolSourceFile: (symbol) => getSymbolSourceFile(symbol),

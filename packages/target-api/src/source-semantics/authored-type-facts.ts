@@ -17,7 +17,45 @@ export function authoredSourceTypeFactDependencies(
   checker: TypeCheckerQueries,
   node: Node,
 ): readonly ExtensionFactSubject[] {
+  return collectAuthoredSourceTypeFactDependencies(
+    ast,
+    navigation,
+    facts,
+    checker,
+    node,
+  ).subjects;
+}
+
+export function authoredSourceTypeFactNodes(
+  ast: AstReader,
+  navigation: SourceProgramNavigation,
+  facts: ReadonlySourceFactResolver,
+  checker: TypeCheckerQueries,
+  node: Node,
+): readonly Node[] {
+  return collectAuthoredSourceTypeFactDependencies(
+    ast,
+    navigation,
+    facts,
+    checker,
+    node,
+  ).nodes;
+}
+
+interface AuthoredSourceTypeFactDependencies {
+  readonly nodes: readonly Node[];
+  readonly subjects: readonly ExtensionFactSubject[];
+}
+
+function collectAuthoredSourceTypeFactDependencies(
+  ast: AstReader,
+  navigation: SourceProgramNavigation,
+  facts: ReadonlySourceFactResolver,
+  checker: TypeCheckerQueries,
+  node: Node,
+): AuthoredSourceTypeFactDependencies {
   const visited = new Set<Node>();
+  const nodes: Node[] = [];
   const subjects: ExtensionFactSubject[] = [];
   const visit = (current: Node | undefined): void => {
     if (current === undefined || visited.has(current)) {
@@ -26,6 +64,7 @@ export function authoredSourceTypeFactDependencies(
     visited.add(current);
     if (facts.getFacts(current).length > 0) {
       subjects.push(current);
+      nodes.push(current);
     }
     ast.forEachChild(current, visit);
     if (!ast.is.IsTypeReferenceNode(current)) {
@@ -49,5 +88,8 @@ export function authoredSourceTypeFactDependencies(
       }
     }
   }
-  return Object.freeze(subjects);
+  return Object.freeze({
+    nodes: Object.freeze(nodes),
+    subjects: Object.freeze(subjects),
+  });
 }
