@@ -139,6 +139,7 @@ export interface SourceProgramNavigation {
   ): SourceHeritagePathResult;
   bindingWritesWithin(symbol: Symbol, root: Node): readonly SourceBindingWrite[];
   referencesWithin(symbol: Symbol, root: Node): readonly Node[];
+  referencesToDeclaration(declaration: Node): readonly Node[];
   hasReferenceOutside(symbol: Symbol, excludedNode: Node): boolean;
   isProjectShape(node: Node | undefined): boolean;
   isProjectConstructibleObject(node: Node | undefined): boolean;

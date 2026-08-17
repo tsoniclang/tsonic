@@ -31,6 +31,7 @@ import {
   createSourceReferenceNavigation,
 } from "./references.js";
 import {
+  createSourceDeclarationReferenceIndex,
   sourceBindingWritesWithin,
   sourceSymbolHasReferenceOutside,
   sourceSymbolReferencesWithin,
@@ -47,6 +48,11 @@ export function createSourceProgramNavigation(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
   const references = createSourceReferenceNavigation(source, sourceFiles);
+  const referenceIndex = createSourceDeclarationReferenceIndex(
+    source,
+    sourceFiles,
+    references.sourceReferenceFor,
+  );
   const dispatch = createSourceMemberDispatchNavigation(
     source,
     sourceFiles,
@@ -185,6 +191,7 @@ export function createSourceProgramNavigation(
         references.sourceReferenceFor,
       );
     },
+    referencesToDeclaration: referenceIndex.referencesToDeclaration,
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
         source,
