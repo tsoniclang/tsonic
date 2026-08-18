@@ -127,62 +127,75 @@ test("CLI rejects static this before C# emission instead of guessing receiver se
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
 });
 
-test("CLI rejects JavaScript this-binding contexts that lack instance receiver facts", async () => {
-  const cases = [
-    {
-      name: "object-literal-method-this-rejected",
-      assemblyName: "SmokeGeneratedObjectLiteralThisRejected",
-      source: [
-        "export const box = {",
-        "  value: 7,",
-        "  read(): number {",
-        "    return this.value;",
-        "  },",
-        "};",
-        "",
-      ],
-      message: /object-literal or non-class method receiver/,
-    },
-    {
-      name: "class-field-this-rejected",
-      assemblyName: "SmokeGeneratedClassFieldThisRejected",
-      source: [
-        "export class Counter {",
-        "  value: number = 7;",
-        "  doubled: number = this.value * 2;",
-        "}",
-        "",
-      ],
-      message: /class field initializer receiver/,
-    },
-  ];
+test("CLI emits object-literal lexical this through a receiver-bound generated shape", async () => {
+  const projectDirectory = resolve(tempRoot, "object-literal-method-this");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName: "SmokeGeneratedObjectLiteralThis",
+        },
+      }],
+    }, null, 2),
+    "src/index.ts": [
+      "type Box = { value: number; read(): number };",
+      "export function read(): number {",
+      "  const direct: Box = { value: 3, read(): number { return 3; } };",
+      "  const receiver: Box = {",
+      "    value: 7,",
+      "    read(): number { return this.value; },",
+      "  };",
+      "  return direct.read() + receiver.read();",
+      "}",
+      "",
+    ].join("\n"),
+  });
 
-  for (const thisCase of cases) {
-    const projectDirectory = resolve(tempRoot, thisCase.name);
-    await writeProject(projectDirectory, {
-      "tsonic.json": JSON.stringify({
-        entryPoint: "index.ts",
-        rootDir: "src",
-        outDir: "out",
-        targets: [
-          {
-            id: "csharp",
-            options: {
-              namespace: "Smoke.Generated",
-              assemblyName: thisCase.assemblyName,
-            },
-          },
-        ],
-      }, null, 2),
-      "src/index.ts": thisCase.source.join("\n"),
-    });
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const source = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const shapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
+  assert.match(shapes, /public required Func<__TsonicShape_[a-f0-9]{64}, double> __tsonic_shape_method_/u);
+  assert.match(shapes, /return __tsonic_shape_method_\w+\(this\);/u);
+  assert.equal((source.match(/__tsonic_shape_method_\w+ =/gu) ?? []).length, 2);
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectLiteralThis.csproj"), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+});
 
-    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-    assert.notEqual(build.status, 0, thisCase.name);
-    assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
-    assert.match(build.stderr, thisCase.message);
-    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
-  }
+test("CLI rejects class-field this without a finalized field-initializer receiver contract", async () => {
+  const projectDirectory = resolve(tempRoot, "class-field-this-rejected");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName: "SmokeGeneratedClassFieldThisRejected",
+        },
+      }],
+    }, null, 2),
+    "src/index.ts": [
+      "export class Counter {",
+      "  value: number = 7;",
+      "  doubled: number = this.value * 2;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
+  assert.match(build.stderr, /class field initializer receiver/);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
 });
 
 test("CLI rejects lambdas without contextual target delegate facts", async () => {

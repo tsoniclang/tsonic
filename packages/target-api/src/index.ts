@@ -96,6 +96,7 @@ export {
   createTargetSourceProgram,
   orderEnumerableOwnStringProperties,
   selectSourceObjectLiteralAccessors,
+  sourceCallableUsesLexicalThis,
   sourcePropertyTypeEvidenceNodes,
   sourceTransformedTypeFactEvidenceNodes,
   sourceTupleElementTypeEvidenceNodes,

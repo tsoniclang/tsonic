@@ -36,6 +36,7 @@ const expectedCasts = Object.freeze([
   "packages/target-api/src/source-semantics/authored-type-facts.ts:AsTypeAliasDeclaration",
   "packages/target-api/src/source-semantics/authored-type-facts.ts:AsTypeReferenceNode",
   "packages/target-api/src/source-semantics/authored-type-selection.ts:AsParenthesizedTypeNode",
+  "packages/target-api/src/source-semantics/standard-type-transformations.ts:AsTypeReferenceNode",
   "packages/target-api/src/source-semantics/type-syntax.ts:AsArrayTypeNode",
   "packages/target-api/src/source-semantics/type-syntax.ts:AsNamedTupleMember",
   "packages/target-api/src/source-semantics/type-syntax.ts:AsOptionalTypeNode",

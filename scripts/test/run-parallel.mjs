@@ -4,6 +4,7 @@ import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, wr
 import { availableParallelism, cpus } from "node:os";
 import { relative, resolve, sep } from "node:path";
 import { defaultParallelWorkerCount } from "./parallel-worker-budget.mjs";
+import { parallelGroupWorkerCount } from "./parallel-group-budget.mjs";
 import { createParallelSuiteDefinition } from "./suite-definition.mjs";
 
 const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
@@ -174,6 +175,19 @@ function validateShardCoverage(shardsToValidate) {
   }
   const representedFiles = new Set(representedFileCounts.keys());
   const failures = [];
+  const representedGroups = new Set(shardsToValidate.map((shard) => shard.group));
+  for (const [group, limit] of Object.entries(
+    suiteDefinition.groupWorkerLimits ?? {},
+  )) {
+    if (!representedGroups.has(group)) {
+      failures.push(`parallel worker limit references unknown group: ${group}`);
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      failures.push(
+        `parallel worker limit for '${group}' must be a positive safe integer`,
+      );
+    }
+  }
   for (const [file, count] of representedFileCounts.entries()) {
     if (count !== 1) {
       failures.push(`test file is represented by ${count} parallel tasks: ${file}`);
@@ -659,8 +673,13 @@ async function runShards(allShards, concurrency) {
     const groupShards = allShards.filter((shard) => shard.group === group);
     const parallelShards = groupShards.filter((shard) => shard.exclusive !== true);
     const exclusiveShards = groupShards.filter((shard) => shard.exclusive === true);
-    console.log(`parallel-group: start group=${group} tasks=${groupShards.length} parallel=${parallelShards.length} exclusive=${exclusiveShards.length}`);
-    results.push(...await runShardQueue(parallelShards, concurrency));
+    const groupConcurrency = parallelGroupWorkerCount(
+      concurrency,
+      group,
+      suiteDefinition.groupWorkerLimits,
+    );
+    console.log(`parallel-group: start group=${group} tasks=${groupShards.length} parallel=${parallelShards.length} exclusive=${exclusiveShards.length} concurrency=${groupConcurrency}`);
+    results.push(...await runShardQueue(parallelShards, groupConcurrency));
     for (const shard of exclusiveShards) {
       results.push(await runShard(shard));
     }

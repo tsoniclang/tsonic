@@ -63,6 +63,9 @@ export {
 export {
   selectSourceObjectLiteralAccessors,
 } from "./object-literal-accessors.js";
+export {
+  sourceCallableUsesLexicalThis,
+} from "./lexical-this.js";
 export type {
   SourceObjectLiteralAccessorMember,
   SourceObjectLiteralAccessorOccurrence,

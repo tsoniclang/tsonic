@@ -614,7 +614,10 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "",
   ], /TS2339: Property 'missing' does not exist on type 'Required<UserShape>'/);
 
-  await assertRejected("advanced-type-source-primitive-erasure-negative", "SmokeGeneratedAdvancedTypeSourcePrimitiveErasureNegative", [
+  const transformedSource = (await assertBuilds(
+    "advanced-type-source-primitive-erasure",
+    "SmokeGeneratedAdvancedTypeSourcePrimitiveErasure",
+    [
     "import type { int } from \"@tsonic/csharp/types.js\";",
     "import { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
     "",
@@ -629,5 +632,15 @@ test("CLI consumes advanced type forms across source-core primitives and provide
     "  return value;",
     "}",
     "",
-  ], /CSHARP_OPAQUE_TARGET_TYPE_UNSUPPORTED.*source-fact-dependent-type-transform/);
+    ],
+  )).generatedSource;
+  assert.match(
+    transformedSource,
+    /public static int fromProvider\(System\.Collections\.Generic\.List<int> values\)/u,
+  );
+  assert.match(transformedSource, /public static int fromTuple\(int value\)/u);
+  assert.doesNotMatch(
+    transformedSource,
+    /source-fact-dependent-type-transform|__unsupported/u,
+  );
 });
