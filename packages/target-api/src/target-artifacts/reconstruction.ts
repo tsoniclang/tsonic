@@ -281,9 +281,7 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
   function dependencyIsAvailable(
     dependency: TargetArtifactDependency<Facet>,
   ): boolean {
-    return graph.contract(dependency.owner)?.facets.some((facet) =>
-      facet.facet === dependency.facet
-    ) === true;
+    return graph.hasPublishedFacet(dependency);
   }
 }
 

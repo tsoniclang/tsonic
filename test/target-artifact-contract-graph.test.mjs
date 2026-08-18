@@ -123,6 +123,28 @@ test("target artifact contracts retain the latest artifact when its public contr
   assert.equal(graph.hasPending(), false);
 });
 
+test("target artifact contracts report exact published facets", () => {
+  const graph = createTargetArtifactContractGraph();
+
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:value", signature)),
+    false,
+  );
+  publish(graph, "function:value", contract([implementation, "body"]), []);
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:value", implementation)),
+    true,
+  );
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:value", signature)),
+    false,
+  );
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:missing", implementation)),
+    false,
+  );
+});
+
 test("target artifact contracts reject oscillation without changing committed state", () => {
   const graph = createTargetArtifactContractGraph();
   publish(graph, "function:value", contract([signature, "v1"]), [], {
@@ -416,7 +438,10 @@ test("target artifact reconstruction defers unpublished prerequisites without pu
     ["a-caller", "z-callee"],
     (owner) => {
       attempts.push(owner);
-      if (owner === "a-caller" && graph.contract("z-callee") === undefined) {
+      if (
+        owner === "a-caller" &&
+        !graph.hasPublishedFacet(dependency("z-callee", signature))
+      ) {
         return {
           kind: "blocked",
           reason: "Caller requires the exact callee signature.",
