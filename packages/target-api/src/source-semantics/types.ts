@@ -85,8 +85,12 @@ export interface SourceTypeComponentEvidence {
   readonly authoredTypeNode?: Node;
 }
 
+export interface SourceCallableParameterEvidence extends TypeSignatureParameterInfo {
+  readonly omissionKind: "required" | "undefined" | "initializer" | "rest";
+}
+
 export interface SourceCallableTypeEvidence {
-  readonly parameters: readonly TypeSignatureParameterInfo[];
+  readonly parameters: readonly SourceCallableParameterEvidence[];
   readonly result: SourceTypeComponentEvidence;
 }
 
@@ -97,7 +101,7 @@ export type SourceStandardTypeTransformation =
     }
   | {
       readonly kind: "parameter-list";
-      readonly parameters: readonly TypeSignatureParameterInfo[];
+      readonly parameters: readonly SourceCallableParameterEvidence[];
     }
   | {
       readonly kind: "callable";

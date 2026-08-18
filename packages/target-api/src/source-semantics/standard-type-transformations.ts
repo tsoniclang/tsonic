@@ -13,6 +13,7 @@ import type {
 import { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utilities.js";
 import type {
   SourceCallableTypeEvidence,
+  SourceCallableParameterEvidence,
   SourceFileSemantics,
   SourceStandardTypeTransformation,
   SourceTypeComponentEvidence,
@@ -73,12 +74,14 @@ export function selectStandardSourceTypeTransformation(
         semantics.getCallSignatures(inputType),
         selectedType,
         semantics,
+        context.ast,
       );
     case "ConstructorParameters":
       return selectParameterListTransformation(
         semantics.getConstructSignatures(inputType),
         selectedType,
         semantics,
+        context.ast,
       );
     case "ReturnType":
       return selectResultTransformation(
@@ -130,12 +133,15 @@ function selectParameterListTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
   semantics: SourceFileSemantics,
+  ast: AstReader,
 ): SourceStandardTypeTransformation {
   const signature = lastDefined(signatures);
   if (signature === undefined) {
     return { kind: "unresolved" };
   }
-  const parameters = semantics.getSignatureParameterInfos(signature);
+  const parameters = semantics.getSignatureParameterInfos(signature).map(
+    (parameter) => sourceCallableParameterEvidence(parameter, ast),
+  );
   const selectedElements = semantics.isTuple(selectedType)
     ? semantics.getTupleElementInfos(selectedType)
     : undefined;
@@ -222,7 +228,9 @@ function selectCallableTransformation(
   if (input === undefined || output === undefined) {
     return { kind: "unresolved" };
   }
-  const inputParameters = semantics.getSignatureParameterInfos(input);
+  const inputParameters = semantics.getSignatureParameterInfos(input).map(
+    (parameter) => sourceCallableParameterEvidence(parameter, ast),
+  );
   const inputResult = signatureResultEvidence(input, semantics, ast);
   if (
     inputResult === undefined ||
@@ -233,6 +241,7 @@ function selectCallableTransformation(
     ) ||
     inputParameters.some((parameter, index) =>
       parameter.parameterKind !== output.parameters[index]?.parameterKind ||
+      parameter.omissionKind !== output.parameters[index]?.omissionKind ||
       !semantics.isTypeIdenticalTo(
         parameter.type,
         output.parameters[index]?.type,
@@ -267,10 +276,28 @@ export function selectSourceCallableTypeEvidence(
     ? undefined
     : Object.freeze({
         parameters: Object.freeze(
-          semantics.getSignatureParameterInfos(signature).slice(),
+          semantics.getSignatureParameterInfos(signature).map(
+            (parameter) => sourceCallableParameterEvidence(parameter, ast),
+          ),
         ),
         result,
       });
+}
+
+function sourceCallableParameterEvidence(
+  parameter: TypeSignatureParameterInfo,
+  ast: AstReader,
+): SourceCallableParameterEvidence {
+  const omissionKind = parameter.parameterKind === "rest"
+    ? "rest"
+    : parameter.parameterKind !== "optional"
+      ? "required"
+      : parameter.declaration !== undefined &&
+          ast.is.IsParameterDeclaration(parameter.declaration) &&
+          ast.as.AsParameterDeclaration(parameter.declaration)?.Initializer !== undefined
+        ? "initializer"
+        : "undefined";
+  return Object.freeze({ ...parameter, omissionKind });
 }
 
 function signatureResultEvidence(

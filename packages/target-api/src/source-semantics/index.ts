@@ -316,6 +316,7 @@ export type {
   SourceTypeRelationship,
   SourceTypeRefinement,
   SourceCallableTypeEvidence,
+  SourceCallableParameterEvidence,
   SourceStandardTypeTransformation,
   SourceTypeComponentEvidence,
   SourceValueTypeRefinementSelection,
