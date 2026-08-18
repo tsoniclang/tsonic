@@ -50,6 +50,9 @@ import {
   selectSourceCallableTypeEvidence,
   selectStandardSourceTypeTransformation,
 } from "./standard-type-transformations.js";
+import {
+  selectSourceCallParameterSlots,
+} from "./call-parameter-slots.js";
 
 export {
   sourceTypeSyntaxIsCompositional,
@@ -65,6 +68,9 @@ export type {
   SourceObjectLiteralAccessorOccurrence,
   SourceObjectLiteralAccessorSelection,
 } from "./object-literal-accessors.js";
+export type {
+  SourceCallParameterSlot,
+} from "./call-parameter-slots.js";
 export {
   sourcePropertyTypeEvidenceNodes,
   sourceTransformedTypeFactEvidenceNodes,
@@ -127,6 +133,9 @@ export function createTargetSourceProgram(
       },
       selectCallResult(call: ResolvedSourceCallInfo) {
         return selectSourceCallResult(source.ast, queries.checker, call);
+      },
+      selectCallParameterSlots(call: ResolvedSourceCallInfo) {
+        return selectSourceCallParameterSlots(call, queries.typeShape);
       },
       selectAuthoredType(authoredTypeNode: Node, selectedType: Type) {
         return selectAuthoredSourceType(

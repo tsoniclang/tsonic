@@ -104,6 +104,7 @@ export {
 export type {
   ResolvedSourceCallInfo,
   SourceCallResultSelection,
+  SourceCallParameterSlot,
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
   SourceAuthoredOccurrence,

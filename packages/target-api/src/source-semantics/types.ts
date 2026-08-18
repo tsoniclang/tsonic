@@ -30,6 +30,9 @@ import type {
   ResolvedSourceCallInfo,
   SourceCallResultSelection,
 } from "./call-result-selection.js";
+import type {
+  SourceCallParameterSlot,
+} from "./call-parameter-slots.js";
 
 export type SourceFileSemantics = Readonly<
   & { readonly sourceFile: SourceFile }
@@ -43,6 +46,9 @@ export type SourceFileSemantics = Readonly<
     selectCallResult(
       source: ResolvedSourceCallInfo,
     ): SourceCallResultSelection | undefined;
+    selectCallParameterSlots(
+      source: ResolvedSourceCallInfo,
+    ): readonly SourceCallParameterSlot[] | undefined;
     selectAuthoredType(
       authoredTypeNode: Node,
       selectedType: Type,
