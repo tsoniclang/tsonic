@@ -25,6 +25,9 @@ import {
   selectSourceContextualValueType,
 } from "./contextual-type-selection.js";
 import {
+  selectSourceContextualTupleLiteral,
+} from "./contextual-tuple-literal.js";
+import {
   selectSourceCallResult,
 } from "./call-result-selection.js";
 import type {
@@ -104,7 +107,7 @@ export function createTargetSourceProgram(
       return existing;
     }
     const queries = source.getSourceFileQueries(sourceFile);
-    const semantics = Object.freeze({
+    const semantics: SourceFileSemantics = Object.freeze({
       sourceFile,
       ...queries.checker,
       ...queries.typeShape,
@@ -155,6 +158,16 @@ export function createTargetSourceProgram(
           queries.typeShape,
           queries.checker,
           node,
+        );
+      },
+      selectContextualTupleLiteral(
+        node: Node,
+        presentElementCount: number,
+      ) {
+        return selectSourceContextualTupleLiteral(
+          semantics,
+          node,
+          presentElementCount,
         );
       },
       getSelectedFactSubjects(
@@ -291,6 +304,7 @@ export type {
 export type {
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
+  SourceContextualTupleLiteralSelection,
   SourceAuthoredOccurrence,
   SourceDocument,
   SourceFileSemantics,

@@ -108,6 +108,7 @@ export type {
   SourceCallParameterSlot,
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
+  SourceContextualTupleLiteralSelection,
   SourceAuthoredOccurrence,
   SourceDocument,
   SourceFileSemantics,
