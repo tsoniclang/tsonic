@@ -13,6 +13,7 @@ import type {
 import { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utilities.js";
 import type {
   SourceCallableTypeEvidence,
+  SourceCallableParameterEvidence,
   SourceFileSemantics,
   SourceStandardTypeTransformation,
   SourceTypeComponentEvidence,
@@ -69,16 +70,18 @@ export function selectStandardSourceTypeTransformation(
   }
   switch (name) {
     case "Parameters":
-      return selectTupleTransformation(
+      return selectParameterListTransformation(
         semantics.getCallSignatures(inputType),
         selectedType,
         semantics,
+        context.ast,
       );
     case "ConstructorParameters":
-      return selectTupleTransformation(
+      return selectParameterListTransformation(
         semantics.getConstructSignatures(inputType),
         selectedType,
         semantics,
+        context.ast,
       );
     case "ReturnType":
       return selectResultTransformation(
@@ -126,32 +129,40 @@ function isCanonicalTypescriptUtilityDeclaration(
     context.ast.getSourceText(sourceFile) === typescriptNoLibUtilityDeclarations;
 }
 
-function selectTupleTransformation(
+function selectParameterListTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
   semantics: SourceFileSemantics,
+  ast: AstReader,
 ): SourceStandardTypeTransformation {
-  const signature = singleDefined(signatures);
-  const selectedElements = semantics.getTupleElementInfos(selectedType);
-  if (signature === undefined || !semantics.isTuple(selectedType)) {
+  const signature = lastDefined(signatures);
+  if (signature === undefined) {
     return { kind: "unresolved" };
   }
-  const parameters = semantics.getSignatureParameterInfos(signature);
-  if (
-    parameters.length !== selectedElements.length ||
-    parameters.some((parameter, index) =>
-      !semantics.isTypeIdenticalTo(
+  const parameters = semantics.getSignatureParameterInfos(signature).map(
+    (parameter) => sourceCallableParameterEvidence(parameter, ast),
+  );
+  const selectedElements = semantics.isTuple(selectedType)
+    ? semantics.getTupleElementInfos(selectedType)
+    : undefined;
+  const tupleMatches = selectedElements !== undefined &&
+    parameters.length === selectedElements.length &&
+    parameters.every((parameter, index) =>
+      semantics.isTypeIdenticalTo(
         parameter.type,
         selectedElements[index]?.type,
-      ) || parameterKindToTupleKind(parameter.parameterKind) !==
+      ) && parameterKindToTupleKind(parameter.parameterKind) ===
         selectedElements[index]?.elementKind
-    )
-  ) {
+    );
+  const restSequenceMatches = parameters.length === 1 &&
+    parameters[0]?.parameterKind === "rest" &&
+    semantics.isTypeIdenticalTo(parameters[0].type, selectedType);
+  if (!tupleMatches && !restSequenceMatches) {
     return { kind: "unresolved" };
   }
   return {
-    kind: "tuple",
-    elements: Object.freeze(parameters.slice()),
+    kind: "parameter-list",
+    parameters: Object.freeze(parameters.slice()),
   };
 }
 
@@ -161,7 +172,7 @@ function selectResultTransformation(
   semantics: SourceFileSemantics,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
-  const signature = singleDefined(signatures);
+  const signature = lastDefined(signatures);
   if (signature === undefined) {
     return { kind: "unresolved" };
   }
@@ -178,7 +189,7 @@ function selectThisParameterTransformation(
   semantics: SourceFileSemantics,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
-  const signature = singleDefined(signatures);
+  const signature = lastDefined(signatures);
   const parameter = signature === undefined
     ? undefined
     : semantics.getSignatureThisParameterInfo(signature);
@@ -208,7 +219,7 @@ function selectCallableTransformation(
   semantics: SourceFileSemantics,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
-  const input = singleDefined(inputSignatures);
+  const input = lastDefined(inputSignatures);
   const output = selectSourceCallableTypeEvidence(
     selectedType,
     semantics,
@@ -217,7 +228,9 @@ function selectCallableTransformation(
   if (input === undefined || output === undefined) {
     return { kind: "unresolved" };
   }
-  const inputParameters = semantics.getSignatureParameterInfos(input);
+  const inputParameters = semantics.getSignatureParameterInfos(input).map(
+    (parameter) => sourceCallableParameterEvidence(parameter, ast),
+  );
   const inputResult = signatureResultEvidence(input, semantics, ast);
   if (
     inputResult === undefined ||
@@ -228,6 +241,7 @@ function selectCallableTransformation(
     ) ||
     inputParameters.some((parameter, index) =>
       parameter.parameterKind !== output.parameters[index]?.parameterKind ||
+      parameter.omissionKind !== output.parameters[index]?.omissionKind ||
       !semantics.isTypeIdenticalTo(
         parameter.type,
         output.parameters[index]?.type,
@@ -262,10 +276,28 @@ export function selectSourceCallableTypeEvidence(
     ? undefined
     : Object.freeze({
         parameters: Object.freeze(
-          semantics.getSignatureParameterInfos(signature).slice(),
+          semantics.getSignatureParameterInfos(signature).map(
+            (parameter) => sourceCallableParameterEvidence(parameter, ast),
+          ),
         ),
         result,
       });
+}
+
+function sourceCallableParameterEvidence(
+  parameter: TypeSignatureParameterInfo,
+  ast: AstReader,
+): SourceCallableParameterEvidence {
+  const omissionKind = parameter.parameterKind === "rest"
+    ? "rest"
+    : parameter.parameterKind !== "optional"
+      ? "required"
+      : parameter.declaration !== undefined &&
+          ast.is.IsParameterDeclaration(parameter.declaration) &&
+          ast.as.AsParameterDeclaration(parameter.declaration)?.Initializer !== undefined
+        ? "initializer"
+        : "undefined";
+  return Object.freeze({ ...parameter, omissionKind });
 }
 
 function signatureResultEvidence(
@@ -310,4 +342,16 @@ function singleDefined<T>(
   values: readonly (T | undefined)[],
 ): T | undefined {
   return values.length === 1 ? values[0] : undefined;
+}
+
+function lastDefined<T>(
+  values: readonly (T | undefined)[],
+): T | undefined {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const value = values[index];
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
 }

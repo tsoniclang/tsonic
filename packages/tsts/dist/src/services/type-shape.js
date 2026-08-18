@@ -5,6 +5,7 @@ import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
 import { Checker_getTypeOfSymbol, Checker_isReadonlySymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_isOptionalParameter } from "../internal/checker/utilities.js";
 import { signatureHasRestParameter, } from "../internal/checker/checker/state.js";
 import { Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, Checker_GetRootSymbols, } from "../internal/checker/services.js";
@@ -156,19 +157,27 @@ function getTypeSignatureParameterInfos(checker, signature) {
         const tupleElement = tupleExpanded && index >= restIndex
             ? tupleElements[index - restIndex]
             : undefined;
+        const unexpandedRest = restIndex >= 0 && !tupleExpanded &&
+            index === restIndex;
         const sourceSymbol = tupleElement === undefined
-            ? parameter
+            ? unexpandedRest
+                ? restSymbol
+                : parameter
             : restSymbol;
-        const type = Checker_getTypeOfSymbol(checker, parameter);
+        const type = unexpandedRest
+            ? restType
+            : Checker_getTypeOfSymbol(checker, parameter);
         if (sourceSymbol === undefined || type === undefined) {
             throw new Error("The checker returned an effective signature parameter without exact source ownership or type evidence.");
         }
         const declaration = tupleElement?.declaration ??
             sourceSymbol.ValueDeclaration ?? sourceSymbol.Declarations?.[0];
         const parameterKind = tupleElement?.elementKind === "optional" ||
+            (declaration !== undefined &&
+                Checker_isOptionalParameter(checker, declaration)) ||
             (parameter.CheckFlags & CheckFlagsOptionalParameter) !== 0
             ? "optional"
-            : tupleElement?.elementKind === "rest" ||
+            : unexpandedRest || tupleElement?.elementKind === "rest" ||
                 tupleElement?.elementKind === "variadic" ||
                 (parameter.CheckFlags & CheckFlagsRestParameter) !== 0
                 ? "rest"

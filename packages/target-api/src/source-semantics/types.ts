@@ -8,6 +8,7 @@ import type {
   TypeCheckerQueries,
   TypeSignatureParameterInfo,
   TypeShapeQueries,
+  TypeTupleElementInfo,
   Type,
 } from "@tsonic/tsts";
 import type {
@@ -54,6 +55,10 @@ export type SourceFileSemantics = Readonly<
       selectedType: Type,
     ): SourceAuthoredTypeSelection;
     selectContextualValueType(node: Node): SourceContextualValueTypeSelection;
+    selectContextualTupleLiteral(
+      node: Node,
+      presentElementCount: number,
+    ): SourceContextualTupleLiteralSelection;
     getSelectedFactSubjects(
       symbol: Symbol | undefined,
       declaration: Node | undefined,
@@ -80,8 +85,12 @@ export interface SourceTypeComponentEvidence {
   readonly authoredTypeNode?: Node;
 }
 
+export interface SourceCallableParameterEvidence extends TypeSignatureParameterInfo {
+  readonly omissionKind: "required" | "undefined" | "initializer" | "rest";
+}
+
 export interface SourceCallableTypeEvidence {
-  readonly parameters: readonly TypeSignatureParameterInfo[];
+  readonly parameters: readonly SourceCallableParameterEvidence[];
   readonly result: SourceTypeComponentEvidence;
 }
 
@@ -91,8 +100,8 @@ export type SourceStandardTypeTransformation =
       readonly component: SourceTypeComponentEvidence;
     }
   | {
-      readonly kind: "tuple";
-      readonly elements: readonly TypeSignatureParameterInfo[];
+      readonly kind: "parameter-list";
+      readonly parameters: readonly SourceCallableParameterEvidence[];
     }
   | {
       readonly kind: "callable";
@@ -100,6 +109,15 @@ export type SourceStandardTypeTransformation =
     }
   | { readonly kind: "structural" }
   | { readonly kind: "unresolved" };
+
+export type SourceContextualTupleLiteralSelection =
+  | {
+      readonly kind: "selected";
+      readonly type: Type;
+      readonly elements: readonly TypeTupleElementInfo[];
+      readonly omittedOptionalElementIndexes: readonly number[];
+    }
+  | { readonly kind: "unavailable" };
 
 export type SourceValueTypeRefinementSelection =
   | { readonly kind: "not-project-reference" }

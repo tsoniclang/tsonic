@@ -57,4 +57,5 @@ import "./cli-build/target-config.test.mjs";
 import "./cli-build/target-config-part-02-cli-emits-c-source-project-from-tsts-semantics-a.test.mjs";
 import "./cli-build/tsts-type-forms.test.mjs";
 import "./cli-build/tsts-type-forms-part-02-cli-consumes-broad-tsts-type-form-matrix-without.test.mjs";
+import "./cli-build/typescript-utility-types-comprehensive.test.mjs";
 import "./cli-build/whole-program-csharp-closure.test.mjs";
