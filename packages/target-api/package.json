@@ -3,14 +3,27 @@
   "version": "0.0.1",
   "description": "Target pack contracts for the Tsonic source-to-source compiler",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/public/index.js",
+  "types": "./dist/public/index.d.ts",
   "files": ["dist"],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+      "types": "./dist/public/index.d.ts",
+      "default": "./dist/public/index.js"
+    },
+    "./artifacts": {
+      "types": "./dist/public/artifacts.d.ts",
+      "default": "./dist/public/artifacts.js"
+    },
+    "./provider": {
+      "types": "./dist/public/provider.d.ts",
+      "default": "./dist/public/provider.js"
+    },
+    "./source": {
+      "types": "./dist/public/source.d.ts",
+      "default": "./dist/public/source.js"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",

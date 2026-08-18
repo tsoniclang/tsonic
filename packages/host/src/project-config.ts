@@ -1,5 +1,12 @@
-import { getTargetIdValidationMessage, isValidTargetId, isValidTargetSurfaceId } from "@tsonic/target-api";
-import type { TargetSelection, TsonicProjectConfig } from "@tsonic/target-api";
+import {
+  getTargetIdValidationMessage,
+  isValidTargetId,
+  isValidTargetSurfaceId,
+} from "@tsonic/target-api";
+import type {
+  TargetSelection,
+  TsonicProjectConfig,
+} from "@tsonic/target-api";
 
 export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
   if (!isRecord(value)) {

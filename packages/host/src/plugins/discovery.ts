@@ -2,8 +2,16 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { TargetDiagnostic, TargetCapabilityImplementation, TsonicPlugin, TsonicTargetPlugin } from "@tsonic/target-api";
-import { getTargetIdValidationMessage, isValidTargetId } from "@tsonic/target-api";
+import type {
+  TsonicPlugin,
+  TsonicTargetPlugin,
+} from "@tsonic/target-api";
+import type { TargetCapabilityImplementation } from "@tsonic/target-api/provider";
+import type { TargetDiagnostic } from "@tsonic/target-api/artifacts";
+import {
+  getTargetIdValidationMessage,
+  isValidTargetId,
+} from "@tsonic/target-api";
 import { readTsonicPluginManifest } from "./manifest.js";
 import { findInstalledPackageRoot } from "../package-contract.js";
 import { createInstalledTsonicPluginRegistry } from "./registry.js";

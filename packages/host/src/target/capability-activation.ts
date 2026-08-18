@@ -1,6 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
-import type { TargetCapabilityImplementation, TargetSelection } from "@tsonic/target-api";
-import { getStaticModuleReference } from "@tsonic/target-api";
+import type { TargetSelection } from "@tsonic/target-api";
+import type { TargetCapabilityImplementation } from "@tsonic/target-api/provider";
+import { getStaticModuleReference } from "@tsonic/target-api/provider";
 import { moduleSpecifierMatchesOwnership } from "./extensions.js";
 
 export function collectImportActivatedTargetCapabilities(

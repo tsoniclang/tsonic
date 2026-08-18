@@ -1,17 +1,19 @@
 import {
   normalizeTargetSourceProfileSegment,
   tsonicSourceProfileVirtualDirectory,
+} from "@tsonic/target-api/provider";
+import type {
+  TargetPack,
+  TargetSelection,
+  TsonicProjectConfig,
 } from "@tsonic/target-api";
 import type {
   TargetCapabilityImplementation,
-  TargetDiagnostic,
-  TargetPack,
-  TargetSelection,
   TargetSourceDeclarationPolicy,
   TargetSourceProfileDeclaration,
   TargetSurfaceImplementation,
-  TsonicProjectConfig,
-} from "@tsonic/target-api";
+} from "@tsonic/target-api/provider";
+import type { TargetDiagnostic } from "@tsonic/target-api/artifacts";
 import { join } from "node:path";
 
 export interface TargetSourceProfileFile {
