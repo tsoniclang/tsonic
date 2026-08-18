@@ -154,6 +154,9 @@ export function createParallelSuiteDefinition(repos) {
       "node-provider",
       "runtime-dotnet",
     ],
+    groupWorkerLimits: Object.freeze({
+      "runtime-dotnet": 2,
+    }),
   };
 }
 

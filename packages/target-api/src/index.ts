@@ -66,6 +66,7 @@ export type {
   TargetSourceProfileDeclaration,
   TargetSourceDeclarationPolicy,
 } from "./source-profile.js";
+export { typescriptNoLibUtilityDeclarations } from "./typescript-no-lib-utilities.js";
 export {
   createSourceProgramNavigation,
   sourceProjectFiles,
@@ -93,11 +94,18 @@ export type {
 } from "./source-navigation/index.js";
 export {
   createTargetSourceProgram,
+  orderEnumerableOwnStringProperties,
+  selectSourceObjectLiteralAccessors,
+  sourceCallableUsesLexicalThis,
+  sourcePropertyTypeEvidenceNodes,
+  sourceTransformedTypeFactEvidenceNodes,
+  sourceTupleElementTypeEvidenceNodes,
   sourceTypeSyntaxIsCompositional,
 } from "./source-semantics/index.js";
 export type {
   ResolvedSourceCallInfo,
   SourceCallResultSelection,
+  SourceCallParameterSlot,
   SourceAuthoredTypeSelection,
   SourceContextualValueTypeSelection,
   SourceAuthoredOccurrence,
@@ -105,11 +113,17 @@ export type {
   SourceFileSemantics,
   SourceOccurrence,
   SourceOccurrenceLookup,
+  SourceObjectLiteralAccessorMember,
+  SourceObjectLiteralAccessorOccurrence,
+  SourceObjectLiteralAccessorSelection,
   SourceProgramSemantics,
   SourceProgramDocuments,
   SourceSyntheticOccurrence,
   SourceTypeRelationship,
   SourceTypeRefinement,
+  SourceCallableTypeEvidence,
+  SourceStandardTypeTransformation,
+  SourceTypeComponentEvidence,
   SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./source-semantics/index.js";

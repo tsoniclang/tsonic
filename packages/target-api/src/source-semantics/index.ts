@@ -18,6 +18,7 @@ import {
   selectAuthoredSourceType,
 } from "./authored-type-selection.js";
 import {
+  authoredSourceTypeFactNodes,
   authoredSourceTypeFactDependencies,
 } from "./authored-type-facts.js";
 import {
@@ -45,10 +46,39 @@ import {
 import {
   createSourceProgramDocuments,
 } from "./source-documents.js";
+import {
+  selectSourceCallableTypeEvidence,
+  selectStandardSourceTypeTransformation,
+} from "./standard-type-transformations.js";
+import {
+  selectSourceCallParameterSlots,
+} from "./call-parameter-slots.js";
 
 export {
   sourceTypeSyntaxIsCompositional,
 } from "./type-syntax.js";
+export {
+  orderEnumerableOwnStringProperties,
+} from "./enumerable-own-properties.js";
+export {
+  selectSourceObjectLiteralAccessors,
+} from "./object-literal-accessors.js";
+export {
+  sourceCallableUsesLexicalThis,
+} from "./lexical-this.js";
+export type {
+  SourceObjectLiteralAccessorMember,
+  SourceObjectLiteralAccessorOccurrence,
+  SourceObjectLiteralAccessorSelection,
+} from "./object-literal-accessors.js";
+export type {
+  SourceCallParameterSlot,
+} from "./call-parameter-slots.js";
+export {
+  sourcePropertyTypeEvidenceNodes,
+  sourceTransformedTypeFactEvidenceNodes,
+  sourceTupleElementTypeEvidenceNodes,
+} from "./type-component-evidence.js";
 
 export function createTargetSourceProgram(
   source: CheckedSourceProgram,
@@ -90,6 +120,15 @@ export function createTargetSourceProgram(
           node,
         );
       },
+      getAuthoredTypeFactNodes(node: Node) {
+        return authoredSourceTypeFactNodes(
+          source.ast,
+          navigation,
+          source.sourceFacts,
+          queries.checker,
+          node,
+        );
+      },
       getDeclaredValueType(declaration: Node) {
         const name = source.ast.name(declaration);
         const symbol = queries.checker.getSymbolAtLocation(name ?? declaration);
@@ -97,6 +136,9 @@ export function createTargetSourceProgram(
       },
       selectCallResult(call: ResolvedSourceCallInfo) {
         return selectSourceCallResult(source.ast, queries.checker, call);
+      },
+      selectCallParameterSlots(call: ResolvedSourceCallInfo) {
+        return selectSourceCallParameterSlots(call, queries.typeShape);
       },
       selectAuthoredType(authoredTypeNode: Node, selectedType: Type) {
         return selectAuthoredSourceType(
@@ -144,6 +186,31 @@ export function createTargetSourceProgram(
           source.sourceFacts,
           left,
           right,
+        );
+      },
+      selectStandardTypeTransformation(
+        authoredTypeNode: Node,
+        selectedType: Type,
+      ) {
+        return selectStandardSourceTypeTransformation(
+          {
+            ast: source.ast,
+            navigation,
+            semanticsFor: forNode,
+          },
+          authoredTypeNode,
+          selectedType,
+        );
+      },
+      selectCallableType(type: Type) {
+        return selectSourceCallableTypeEvidence(
+          type,
+          {
+            ...queries.typeShape,
+            getSignatureDeclaration:
+              queries.checker.getSignatureDeclaration,
+          },
+          source.ast,
         );
       },
     }) satisfies SourceFileSemantics;
@@ -234,6 +301,9 @@ export type {
   SourceSyntheticOccurrence,
   SourceTypeRelationship,
   SourceTypeRefinement,
+  SourceCallableTypeEvidence,
+  SourceStandardTypeTransformation,
+  SourceTypeComponentEvidence,
   SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./types.js";

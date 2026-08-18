@@ -90,6 +90,7 @@ export interface TargetArtifactContractGraph<Facet extends string, Artifact> {
   contract(owner: string): TargetArtifactContract<Facet> | undefined;
   artifact(owner: string): Artifact | undefined;
   dependencies(owner: string): readonly TargetArtifactDependency<Facet>[];
+  hasPublishedFacet(dependency: TargetArtifactDependency<Facet>): boolean;
   facetRevision(owner: string, facet: Facet): number;
   nextDirty(): string | undefined;
   discardDirty(owner: string): void;
@@ -503,6 +504,11 @@ export function createTargetArtifactContractGraph<Facet extends string, Artifact
     },
     dependencies(owner: string): readonly TargetArtifactDependency<Facet>[] {
       return records.get(owner)?.dependencies.snapshot ?? Object.freeze([]);
+    },
+    hasPublishedFacet(dependency: TargetArtifactDependency<Facet>): boolean {
+      return records.get(dependency.owner)?.contract.facets.has(
+        dependency.facet,
+      ) === true;
     },
     facetRevision(owner: string, facet: Facet): number {
       return records.get(owner)?.facetRevisions.get(facet) ?? 0;

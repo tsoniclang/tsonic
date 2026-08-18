@@ -1020,6 +1020,7 @@ const sourceTypeMarkerKinds = new Set([
     "pointer",
     "function-pointer",
     "raw-pointer",
+    "fixed-array",
 ]);
 const pointerMutabilities = new Set(["readonly", "readwrite", "unspecified"]);
 const flowStates = new Set(["moved", "borrowed-shared", "borrowed-mut"]);

@@ -28,6 +28,9 @@ import {
   analyzeNativePointerOperations,
 } from "./native-pointer-operation-analysis.js";
 import {
+  analyzeTsonicFixedArrayTypes,
+} from "./fixed-array-analysis.js";
+import {
   analyzeTsonicSourceMarkerEvidence,
 } from "./marker-evidence-analysis.js";
 import {
@@ -108,6 +111,7 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
         diagnosticNumberBase: 9901140,
       });
       analyzeTsonicSourceMarkerEvidence(context);
+      analyzeTsonicFixedArrayTypes(context);
       analyzeTsonicAttributeBuilders(context);
       forEachTsonicSourceFile(context, (sourceContext): void => {
         recordUnsupportedTsonicCoreReExportDiagnostics(

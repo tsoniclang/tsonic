@@ -847,6 +847,11 @@ test("shared source navigation enumerates exact symbol references within a subtr
 
 test("shared source navigation indexes exact references to one declaration across modules", async () => {
   const source = await checkedSource("references-to-declaration", {
+    "src/index.ts": [
+      'import "./direct.js";',
+      'import "./namespace.js";',
+      "",
+    ].join("\n"),
     "src/api.ts": [
       "export const transform = (value: number): number => value + 1;",
       "",

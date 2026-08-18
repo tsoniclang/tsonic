@@ -622,9 +622,9 @@ const oldSuitePortInventoryEntries = Object.freeze([
     status: "replaced-by-stronger-test",
     featureArea: "csharp-backend",
     owner: "TSTS this-binding facts + C# backend planner",
-    newPath: "test/cli-build/expressions-control-flow.test.mjs",
+    newPath: "test/cli-build/expressions-control-flow-functions-this-async.test.mjs",
     reason:
-      "Replaced by current-architecture positive and negative CLI proof for this-binding: instance and lexical class this emit only with finalized receiver facts, while object-literal method this is now a deterministic fail-closed diagnostic before C# artifacts instead of a JavaScript this fallback.",
+      "Replaced by current-architecture positive and negative CLI proof for this-binding: instance and lexical class this emit only with finalized receiver facts; object-literal method this strengthens one generated receiver-bound shape contract and replans all dependent initializers; static and class-field this remain deterministic fail-closed diagnostics.",
   }),
   ...deferredFixtures([
     "object-literal-accessors",

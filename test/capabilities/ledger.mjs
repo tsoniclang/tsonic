@@ -7051,22 +7051,23 @@ const reviewedCapabilityEvidence = Object.freeze({
   "function.this-binding": Object.freeze({
     sourceExamples: Object.freeze([
       "class Counter { value = 7; read(): number { const read = (): number => this.value; return read(); } }",
+      "const box: { value: number; read(): number } = { value: 7, read(): number { return this.value; } };",
       "class Counter { static value = 7; static read(): number { return this.value; } }",
     ]),
     tstsDecision:
-      "TSTS owns source validity and lexical this binding for checked TypeScript; the C# backend may emit this only after the selected source context is an instance class receiver and the receiver expression has finalized runtime carrier facts.",
+      "TSTS owns source validity and lexical this binding for checked TypeScript. Shared Tsonic syntax analysis identifies the exact lexical-this requirement without target inference; C# may emit this only from a finalized class receiver or a receiver-bound generated object-shape method contract.",
     providerFacts: Object.freeze([
       "tsts-selected-this-expression",
-      "instance-class-receiver-context",
+      "finalized-csharp-this-receiver-contract",
       "resolvedReceiverTargetType",
     ]),
     backendContract:
-      "C# emits a ThisExpression/this identifier only from a finalized instance receiver carrier. Static members, object-literal methods, dynamic functions, class field initializers, and top-level module receivers fail closed before artifact emission instead of falling back to JavaScript this semantics.",
+      "C# emits a ThisExpression/this identifier only from a finalized instance receiver carrier. Object-literal method implementations strengthen their generated shape artifact to one receiver-bearing delegate contract and replan every dependent initializer. Static members, callable-property methods without receiver contracts, dynamic functions, class field initializers, and top-level module receivers fail closed.",
     positiveTests: Object.freeze([
-      "test/cli-build/expressions-control-flow-expressions.test.mjs",
+      "test/cli-build/expressions-control-flow-functions-this-async.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "test/cli-build/expressions-control-flow-expressions.test.mjs",
+      "test/cli-build/expressions-control-flow-functions-this-async.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/object-literal-method-this/",
@@ -7079,12 +7080,12 @@ const reviewedCapabilityEvidence = Object.freeze({
         lane: "static-native",
         requiredFacts: Object.freeze([
           "tsts-checked-this-expression",
-          "instance-class-receiver-context",
+          "finalized-csharp-this-receiver-contract",
           "receiver-runtime-carrier",
         ]),
         hardRejectIfMissing: Object.freeze([
           "missing-receiver-carrier",
-          "non-instance-class-this-context",
+          "unproven-this-context",
           "unsupported-javascript-this-binding",
         ]),
       },
@@ -7092,7 +7093,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         lane: "static-native",
         requiredFacts: Object.freeze([
           "tsts-checked-this-expression",
-          "instance-class-receiver-context",
+          "finalized-csharp-this-receiver-contract",
           "receiver-runtime-carrier",
         ]),
         operation: "emit-this-target-ast",
@@ -7102,7 +7103,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         reasons: Object.freeze([
           "missing-receiver-carrier",
           "static-member-this",
-          "object-literal-method-this",
+          "callable-property-method-this-without-receiver-contract",
           "dynamic-function-this",
           "class-field-initializer-this",
           "top-level-this",
@@ -7110,7 +7111,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed proof: backend unit tests require finalized receiver carrier facts before emitting this, accept lexical arrows only when they close over an instance class receiver, and reject static, object-literal, runtime-bound function, class-field initializer, and top-level this contexts with deterministic diagnostics. CLI/toolchain tests prove instance plus lexical this emits C# this through target AST and dotnet-builds, while static, object-literal method, and class-field initializer this reject before generated artifacts. The old object-literal-method-this fixture is mapped to the current fail-closed object-literal receiver diagnostic instead of old JavaScript this fallback.",
+      "Reviewed proof: shared lexical-this analysis enters arrows and stops at independently bound functions/classes. Class methods require finalized instance receiver facts. Object-literal methods monotonically strengthen the generated object-shape type surface to a receiver-bearing delegate, invalidating and replanning every dependent initializer so one shape cannot acquire incompatible storage. CLI/toolchain proof emits both receiver-free and receiver-using implementations of one structural method contract, generates one receiver-bound C# shape, and dotnet-builds it. Static this and class-field-initializer this still reject before artifacts; callable-property method syntax cannot use this without an explicit receiver contract.",
   }),
   "function.async": Object.freeze({
     sourceExamples: Object.freeze([

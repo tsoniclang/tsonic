@@ -6,6 +6,7 @@ import type {
   SourceFile,
   Symbol,
   TypeCheckerQueries,
+  TypeSignatureParameterInfo,
   TypeShapeQueries,
   Type,
 } from "@tsonic/tsts";
@@ -29,6 +30,9 @@ import type {
   ResolvedSourceCallInfo,
   SourceCallResultSelection,
 } from "./call-result-selection.js";
+import type {
+  SourceCallParameterSlot,
+} from "./call-parameter-slots.js";
 
 export type SourceFileSemantics = Readonly<
   & { readonly sourceFile: SourceFile }
@@ -37,10 +41,14 @@ export type SourceFileSemantics = Readonly<
     getAuthoredTypeFactSubjects(
       node: Node,
     ): readonly ExtensionFactSubject[];
+    getAuthoredTypeFactNodes(node: Node): readonly Node[];
     getDeclaredValueType(declaration: Node): Type | undefined;
     selectCallResult(
       source: ResolvedSourceCallInfo,
     ): SourceCallResultSelection | undefined;
+    selectCallParameterSlots(
+      source: ResolvedSourceCallInfo,
+    ): readonly SourceCallParameterSlot[] | undefined;
     selectAuthoredType(
       authoredTypeNode: Node,
       selectedType: Type,
@@ -56,10 +64,42 @@ export type SourceFileSemantics = Readonly<
       selectedType: Type,
     ): SourceTypeRefinement;
     getTypeRelationship(left: Type, right: Type): SourceTypeRelationship;
+    selectStandardTypeTransformation(
+      authoredTypeNode: Node,
+      selectedType: Type,
+    ): SourceStandardTypeTransformation | undefined;
+    selectCallableType(type: Type): SourceCallableTypeEvidence | undefined;
   }
   & TypeCheckerQueries
   & TypeShapeQueries
 >;
+
+export interface SourceTypeComponentEvidence {
+  readonly selectedType: Type;
+  readonly declaration?: Node;
+  readonly authoredTypeNode?: Node;
+}
+
+export interface SourceCallableTypeEvidence {
+  readonly parameters: readonly TypeSignatureParameterInfo[];
+  readonly result: SourceTypeComponentEvidence;
+}
+
+export type SourceStandardTypeTransformation =
+  | {
+      readonly kind: "component";
+      readonly component: SourceTypeComponentEvidence;
+    }
+  | {
+      readonly kind: "tuple";
+      readonly elements: readonly TypeSignatureParameterInfo[];
+    }
+  | {
+      readonly kind: "callable";
+      readonly callable: SourceCallableTypeEvidence;
+    }
+  | { readonly kind: "structural" }
+  | { readonly kind: "unresolved" };
 
 export type SourceValueTypeRefinementSelection =
   | { readonly kind: "not-project-reference" }

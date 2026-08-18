@@ -123,6 +123,28 @@ test("target artifact contracts retain the latest artifact when its public contr
   assert.equal(graph.hasPending(), false);
 });
 
+test("target artifact contracts report exact published facets", () => {
+  const graph = createTargetArtifactContractGraph();
+
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:value", signature)),
+    false,
+  );
+  publish(graph, "function:value", contract([implementation, "body"]), []);
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:value", implementation)),
+    true,
+  );
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:value", signature)),
+    false,
+  );
+  assert.equal(
+    graph.hasPublishedFacet(dependency("function:missing", implementation)),
+    false,
+  );
+});
+
 test("target artifact contracts reject oscillation without changing committed state", () => {
   const graph = createTargetArtifactContractGraph();
   publish(graph, "function:value", contract([signature, "v1"]), [], {
@@ -406,6 +428,114 @@ test("target artifact reconstruction rejects retry without progress", () => {
   assert.equal(result.code, "TARGET_ARTIFACT_RETRY_WITHOUT_PROGRESS");
   assert.equal(result.owner, "source");
   assert.equal(result.reconstructionCount, 1);
+});
+
+test("target artifact reconstruction defers unpublished prerequisites without publishing partial consumers", () => {
+  const graph = createTargetArtifactContractGraph();
+  const attempts = [];
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["a-caller", "z-callee"],
+    (owner) => {
+      attempts.push(owner);
+      if (
+        owner === "a-caller" &&
+        !graph.hasPublishedFacet(dependency("z-callee", signature))
+      ) {
+        return {
+          kind: "blocked",
+          reason: "Caller requires the exact callee signature.",
+          dependencies: [dependency("z-callee", signature)],
+        };
+      }
+      return {
+        kind: "resolved",
+        contract: contract([
+          signature,
+          owner === "z-callee" ? "int callee(int value)" : "int caller(int value)",
+        ]),
+        dependencies: owner === "a-caller"
+          ? [dependency("z-callee", signature)]
+          : [],
+        artifact: { owner },
+      };
+    },
+    { maximumReconstructionCount: 8 },
+  );
+
+  assert.deepEqual(result, {
+    kind: "completed",
+    reconstructionCount: 3,
+  });
+  assert.deepEqual(attempts, ["a-caller", "z-callee", "a-caller"]);
+  assert.deepEqual(graph.artifact("a-caller"), { owner: "a-caller" });
+});
+
+test("target artifact reconstruction reports the provider failure without publishing blocked dependents", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["a-caller", "z-callee"],
+    (owner) => owner === "a-caller"
+      ? {
+          kind: "blocked",
+          reason: "Caller requires the exact callee signature.",
+          dependencies: [dependency("z-callee", signature)],
+        }
+      : {
+          kind: "rejected",
+          code: "CALLEE_INVALID",
+          reason: "Callee is invalid.",
+        },
+    { maximumReconstructionCount: 8 },
+  );
+
+  assert.deepEqual(result, {
+    kind: "failed",
+    failures: [{
+      owner: "z-callee",
+      code: "CALLEE_INVALID",
+      reason: "Callee is invalid.",
+    }],
+    reconstructionCount: 2,
+  });
+  assert.equal(graph.artifact("a-caller"), undefined);
+});
+
+test("target artifact reconstruction rejects blockers without a producible prerequisite", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["caller"],
+    () => ({
+      kind: "blocked",
+      reason: "Missing prerequisite.",
+      dependencies: [dependency("absent", signature)],
+    }),
+    { maximumReconstructionCount: 8 },
+  );
+
+  assert.equal(result.kind, "rejected");
+  assert.equal(result.owner, "caller");
+  assert.equal(result.code, "TARGET_ARTIFACT_BLOCKED_WITHOUT_PROGRESS");
+  assert.equal(graph.artifact("caller"), undefined);
+});
+
+test("target artifact reconstruction requires exact dependencies for blocked owners", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(
+    graph,
+    ["caller"],
+    () => ({
+      kind: "blocked",
+      reason: "No dependency supplied.",
+      dependencies: [],
+    }),
+    { maximumReconstructionCount: 8 },
+  );
+
+  assert.equal(result.kind, "rejected");
+  assert.equal(result.code, "TARGET_ARTIFACT_BLOCKED_DEPENDENCY_INVALID");
 });
 
 test("target artifact reconstruction requires an explicit finite caller budget", () => {
