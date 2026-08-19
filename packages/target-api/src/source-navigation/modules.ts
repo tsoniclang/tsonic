@@ -13,10 +13,51 @@ import {
 } from "./identity.js";
 import type {
   SourceProjectModuleDependency,
+  SourceProjectModuleExport,
 } from "./types.js";
 import {
+  aliasedSymbol,
   primaryDeclaration,
 } from "./syntax.js";
+
+export function sourceProjectModuleExports(
+  source: CheckedSourceProgram,
+  sourceFile: SourceFile,
+): readonly SourceProjectModuleExport[] {
+  const checker = source.getSourceFileQueries(sourceFile).checker;
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+  if (moduleSymbol === undefined) {
+    return Object.freeze([]);
+  }
+  const moduleExports: SourceProjectModuleExport[] = [];
+  for (const exportedSymbol of checker.getExportsOfModule(moduleSymbol)) {
+    if (exportedSymbol === undefined) {
+      continue;
+    }
+    const symbol = aliasedSymbol(source.ast, checker, exportedSymbol) ?? exportedSymbol;
+    const declaration = primaryDeclaration(checker, symbol);
+    const declarationSourceFile = source.ast.getSourceFile(declaration);
+    if (declaration === undefined || declarationSourceFile === undefined ||
+      declarationSourceFile.IsDeclarationFile) {
+      continue;
+    }
+    moduleExports.push(Object.freeze({
+      exportName: checker.getSymbolName(exportedSymbol),
+      symbol,
+      declaration,
+      sourceFile: declarationSourceFile,
+    }));
+  }
+  moduleExports.sort((left, right) =>
+    left.exportName.localeCompare(right.exportName, "en") ||
+    source.ast.getFileName(left.sourceFile).localeCompare(
+      source.ast.getFileName(right.sourceFile),
+      "en",
+    ) ||
+    source.ast.pos(left.declaration) - source.ast.pos(right.declaration)
+  );
+  return Object.freeze(moduleExports);
+}
 
 export function sourceProjectModuleDependencies(
   source: CheckedSourceProgram,

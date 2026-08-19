@@ -2,11 +2,7 @@ export type TargetId = string;
 
 export type TargetSurfaceId = string;
 
-export type TargetTypescriptCompatibilityMode = "strict-native" | "compat";
-
-export interface TargetSelectionOptions extends Readonly<Record<string, unknown>> {
-  readonly typescriptCompatibility?: TargetTypescriptCompatibilityMode;
-}
+export type TargetSelectionOptions = Readonly<Record<string, unknown>>;
 
 export interface TargetSelection {
   readonly id: TargetId;

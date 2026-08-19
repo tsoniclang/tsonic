@@ -479,12 +479,12 @@ const oldEmitterPortInventoryEntries = Object.freeze([
   Object.freeze({
     oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
     oldExpectedPath: `${oldEmitterCaseRoot}/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs`,
-    newPath: "test/cli-build/object-shapes.test.mjs",
-    status: "invalid-stale-architecture",
+    newPath: "test/cli-build/core/object-shapes/basic.test.mjs",
+    status: "replaced-by-stronger-test",
     featureArea: "object-shapes",
     owner: "current TSTS/provider/C# AST pipeline",
     reason:
-      "Closed by current-architecture fail-closed coverage: an object literal contextualized as unknown now reports a deterministic diagnostic before C# carrier emission, because unknown/any object shapes must not lower to object, dynamic, dictionary, or anonymous fallback carriers.",
+      "Closed by stronger executable current-architecture coverage: an object literal contextualized as unknown lowers its exact finalized data properties into nested TsObject/TsValue carriers, C# builds and runs the result, and no object, C# dynamic, reflection, dictionary, anonymous type, or generated structural declaration is introduced.",
   }),
   Object.freeze({
     oldPath: `${oldEmitterCaseRoot}/expected/edge-cases/record-nested-object/RecordNestedObject.cs`,
@@ -789,7 +789,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "backend.no-semantic-strings",
     "carrier.object-shape",
-    "compat.unknown.no-dynamic-access",
+    "dynamic-value.unknown.no-dynamic-access",
     "declaration.generated-structural",
     "diagnostic.missing-target-fact",
     "expression.object-literal",
@@ -810,7 +810,7 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.fail-closed-facts",
     "backend.csharp.no-direct-semantic-string-output",
     "backend.no-semantic-strings",
-    "compat.any.operators",
+    "dynamic-value.any.operators",
     "diagnostic.missing-target-fact",
     "expression.operator",
     "expression.nullish-optional",
@@ -927,11 +927,11 @@ const oldEmitterReplacementProofByOldPath = new Map([
   [expectedCase("edge-cases/object-literal-unknown/ObjectLiteralUnknown"), Object.freeze({
     replacementCapabilityIds: freezeSortedStrings([
       "backend.fail-closed-facts",
-      "compat.unknown.no-dynamic-access",
+      "dynamic-value.unknown.no-dynamic-access",
       "diagnostic.missing-target-fact",
     ]),
     replacementCapabilityPath:
-      "Current object-shape diagnostics replace the old unknown-to-object-literal golden: unknown has no dynamic/object-shape carrier, so backend.fail-closed-facts plus compat.unknown.no-dynamic-access produce diagnostic.missing-target-fact instead of C# emission.",
+      "Current object-shape diagnostics replace the old unknown-to-object-literal golden: unknown has no dynamic/object-shape carrier, so backend.fail-closed-facts plus dynamic-value.unknown.no-dynamic-access produce diagnostic.missing-target-fact instead of C# emission.",
   })],
   [expectedCase("operators/in-operator/InOperator"), Object.freeze({
     replacementCapabilityIds: freezeSortedStrings([

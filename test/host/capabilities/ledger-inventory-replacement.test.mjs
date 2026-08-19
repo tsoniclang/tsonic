@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import test from "node:test";
 import {
-  capabilityCompatRuntimeCarriers,
+  capabilityClosedRuntimeCarriers,
   capabilitySurfaceEvidenceGateNames,
   capabilityLaneNames,
   capabilityIdSet,
@@ -36,7 +36,7 @@ import {
 const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
-const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
+const capabilityClosedRuntimeCarrierSet = new Set(capabilityClosedRuntimeCarriers);
 
 
 
@@ -79,7 +79,7 @@ function assertValidLaneClassification(entry) {
   for (const lane of classification.possibleLanes) {
     assert.equal(capabilityLaneSet.has(lane), true, `${entry.capabilityId} has unknown lane ${lane}`);
   }
-  assertValidLaneBehavior(entry, "strictNative", classification.strictNative);
+  assertValidLaneBehavior(entry, "canonical", classification.canonical);
   if (classification.possibleLanes.includes("static-native")) {
     assertValidLaneBehavior(entry, "staticNative", classification.staticNative);
     assert.ok(
@@ -87,8 +87,8 @@ function assertValidLaneClassification(entry) {
       `${entry.capabilityId} static-native lane must require facts`,
     );
   }
-  if (classification.possibleLanes.includes("compat-runtime")) {
-    assertValidLaneBehavior(entry, "compat", classification.compat);
+  if (classification.possibleLanes.includes("closed-runtime")) {
+    assertValidLaneBehavior(entry, "closedRuntime", classification.closedRuntime);
   }
   assertValidLaneBehavior(entry, "hardReject", classification.hardReject);
   assert.equal(classification.hardReject.lane, "hard-reject", `${entry.capabilityId} hardReject.lane must be hard-reject`);
@@ -162,7 +162,7 @@ function capabilityEntry({
     laneClassification: {
       patternKind: "validation-test-pattern",
       possibleLanes: ["static-native", "hard-reject"],
-      strictNative: {
+      canonical: {
         lane: "static-native",
       },
       staticNative: {

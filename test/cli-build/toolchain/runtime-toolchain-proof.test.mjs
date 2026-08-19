@@ -33,7 +33,7 @@ test("C# runtime packages do not contain reflection or dynamic language semantic
   }
 });
 
-test("CLI emits configured C# library projects with runtime-only references", async () => {
+test("CLI emits configured C# library projects with closed base runtime references", async () => {
   const assemblyName = "SmokeGeneratedRuntimeOnlyLibrary";
   const projectDirectory = resolve(tempRoot, "runtime-only-library");
   await writeProject(projectDirectory, {
@@ -66,7 +66,7 @@ test("CLI emits configured C# library projects with runtime-only references", as
   const generatedProjectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
   const generatedProject = await readFile(generatedProjectPath, "utf8");
   assert.match(generatedProject, /<OutputType>Library<\/OutputType>/);
-  assertRuntimeReferences(generatedProject, { runtime: true, js: false, nodejs: false });
+  assertRuntimeReferences(generatedProject, { runtime: true, js: true, nodejs: false });
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs")), false);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -290,7 +290,7 @@ test("CLI generated C# executable publishes and runs through NativeAOT", async (
   const generatedProject = await readFile(generatedProjectPath, "utf8");
   assert.match(generatedProject, /<OutputType>Exe<\/OutputType>/);
   assert.match(generatedProject, /<PublishAot>true<\/PublishAot>/);
-  assertRuntimeReferences(generatedProject, { runtime: true, js: false, nodejs: false });
+  assertRuntimeReferences(generatedProject, { runtime: true, js: true, nodejs: false });
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
 
   const publishDirectory = resolve(projectDirectory, "nativeaot-publish");

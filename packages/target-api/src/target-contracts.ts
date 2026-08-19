@@ -18,6 +18,7 @@ import type {
 import type {
   TargetSourceProgram,
 } from "./source-semantics/index.js";
+import type { TargetSourcePackageGraph } from "./source-packages/model.js";
 
 export type TsonicPlugin =
   | TsonicTargetPlugin
@@ -96,6 +97,7 @@ export interface TargetSurfaceSourceProfileContext extends TargetProviderSourceP
 
 export interface TargetCompileInput {
   readonly source: TargetSourceProgram;
+  readonly sourcePackages: TargetSourcePackageGraph;
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly runtimeReferences: readonly TargetRuntimeReference[];

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
-  capabilityCompatRuntimeCarriers,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
@@ -114,7 +113,7 @@ function capabilityEntry({
         laneClassification: laneClassification ?? {
           patternKind: "validation-test-pattern",
           possibleLanes: ["static-native", "hard-reject"],
-          strictNative: {
+          canonical: {
             lane: "static-native",
           },
           staticNative: {

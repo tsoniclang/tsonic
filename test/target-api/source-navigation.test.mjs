@@ -429,6 +429,55 @@ test("target source semantics classify value uses against their exact declaratio
   );
 });
 
+test("source navigation separates type-only references from runtime callable uses", async () => {
+  const checked = await checkedSource("type-only-declaration-uses", {
+    "src/index.ts": [
+      "function format(value: number): string { return String(value); }",
+      "type FormatParameters = Parameters<typeof format>;",
+      "export function call(values: FormatParameters): string {",
+      "  return format(values[0]);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const format = namedDeclaration(source.ast, sourceFile, "format");
+  const uses = source.navigation.declarationUses(format);
+  const summary = source.navigation.declarationUseSummary(format);
+
+  assert.deepEqual(uses.map((use) => use.kind).sort(), ["direct-call", "type-only"]);
+  assert.deepEqual(uses.map((use) => use.role).sort(), ["call-target", "type-only"]);
+  assert.equal(summary.directCallCount, 1);
+  assert.equal(summary.firstClassUseCount, 0);
+  assert.equal(summary.hasUnclassifiedValueUse, false);
+});
+
+test("source navigation separates class-member mutation from binding writes", async () => {
+  const checked = await checkedSource("class-member-use-summary", {
+    "src/index.ts": [
+      "class Counter {",
+      "  value = 0;",
+      "  constructor() { this.value = 1; }",
+      "  increment(): void { this.value += 1; }",
+      "}",
+      "const counter = new Counter();",
+      "counter.value = 3;",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const counter = namedDeclaration(source.ast, sourceFile, "Counter");
+  const value = namedMember(source.ast, counter, "value");
+  const summary = source.navigation.declarationUseSummary(value);
+
+  assert.equal(summary.bindingWritten, false);
+  assert.equal(summary.memberWritten, true);
+  assert.equal(summary.constructorInitialized, true);
+  assert.equal(summary.mutatedAfterInitialization, true);
+});
+
 test("target source semantics retain authored, contextual, and flow-selected union evidence", async () => {
   const checked = await checkedSource("authored-union-flow-selection", {
     "src/index.ts": [

@@ -19,6 +19,13 @@ export interface SourceProjectModuleDependency {
   readonly kind: "import" | "export";
 }
 
+export interface SourceProjectModuleExport {
+  readonly exportName: string;
+  readonly symbol: Symbol;
+  readonly declaration: Node;
+  readonly sourceFile: SourceFile;
+}
+
 export interface SourceProjectMemberDispatch {
   readonly overridesBase: boolean;
   readonly hasDerivedOverride: boolean;
@@ -50,6 +57,98 @@ export interface SourceDeclarationReference {
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
   readonly project: boolean;
+}
+
+export interface SourceExpressionEffects {
+  readonly invokes: boolean;
+  readonly mutates: boolean;
+  readonly suspends: boolean;
+  readonly mayThrow: boolean;
+}
+
+export interface SourceDeclarationUse {
+  readonly reference: Node;
+  readonly kind: "direct-call" | "first-class" | "source-linkage" | "type-only";
+  readonly role:
+    | "call-target"
+    | "receiver"
+    | "argument"
+    | "return"
+    | "yield"
+    | "write"
+    | "storage"
+    | "comparison"
+    | "condition"
+    | "value"
+    | "source-linkage"
+    | "type-only";
+  readonly captured: boolean;
+  readonly throughMember: boolean;
+}
+
+export type SourceValueEscapeKind =
+  | "argument"
+  | "capture"
+  | "export"
+  | "return"
+  | "storage"
+  | "yield";
+
+export interface SourceDeclarationUseSummary {
+  readonly declaration: Node;
+  readonly uses: readonly SourceDeclarationUse[];
+  readonly directCallCount: number;
+  readonly firstClassUseCount: number;
+  readonly bindingWritten: boolean;
+  readonly memberWritten: boolean;
+  readonly constructorInitialized: boolean;
+  readonly mutatedAfterInitialization: boolean;
+  readonly receiverUsed: boolean;
+  readonly identityCompared: boolean;
+  readonly conditionallyRead: boolean;
+  readonly aliasedOrStored: boolean;
+  readonly captured: boolean;
+  readonly exported: boolean;
+  readonly escapeKinds: readonly SourceValueEscapeKind[];
+  readonly hasUnclassifiedValueUse: boolean;
+}
+
+export interface SourceParameterUseSummary extends SourceDeclarationUseSummary {
+  readonly kind: "parameter";
+  readonly passedAsArgument: boolean;
+  readonly returned: boolean;
+  readonly yielded: boolean;
+}
+
+export interface SourceCountedLoop {
+  readonly statement: Node;
+  readonly counterDeclaration: Node;
+  readonly counterSymbol: Symbol;
+  readonly start: Node;
+  readonly bound: Node;
+  readonly body: Node;
+  readonly direction: "ascending";
+  readonly comparison: "exclusive-upper-bound";
+  readonly step: 1;
+}
+
+export interface SourceExpressionValueFlowSummary {
+  readonly expression: Node;
+  readonly aliasDeclarations: readonly Node[];
+  readonly uses: readonly SourceDeclarationUse[];
+  readonly bindingAliased: boolean;
+  readonly memberWritten: boolean;
+  readonly receiverUsed: boolean;
+  readonly identityCompared: boolean;
+  readonly captured: boolean;
+  readonly returned: boolean;
+  readonly yielded: boolean;
+  readonly passedAsArgument: boolean;
+  readonly storedOutsideBinding: boolean;
+  readonly exported: boolean;
+  readonly discarded: boolean;
+  readonly hasUnclassifiedUse: boolean;
+  readonly escapes: boolean;
 }
 
 export interface SourceDeclaredHeritageEdge {
@@ -122,6 +221,7 @@ export interface SourceProgramNavigation {
   declarationFor(node: Node | undefined): Node | undefined;
   moduleDependencies(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
   moduleReferences(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
+  moduleExports(sourceFile: SourceFile): readonly SourceProjectModuleExport[];
   moduleHasTopLevelAwait(sourceFile: SourceFile): boolean;
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;
   memberImplementation(
@@ -140,6 +240,13 @@ export interface SourceProgramNavigation {
   bindingWritesWithin(symbol: Symbol, root: Node): readonly SourceBindingWrite[];
   referencesWithin(symbol: Symbol, root: Node): readonly Node[];
   referencesToDeclaration(declaration: Node): readonly Node[];
+  declarationUses(declaration: Node): readonly SourceDeclarationUse[];
+  declarationUseSummary(declaration: Node): SourceDeclarationUseSummary;
+  parameterUseSummary(parameter: Node): SourceParameterUseSummary | undefined;
+  countedLoop(statement: Node): SourceCountedLoop | undefined;
+  expressionValueFlow(expression: Node): SourceExpressionValueFlowSummary;
+  expressionResultUse(expression: Node): "consumed" | "discarded";
+  expressionEffects(expression: Node): SourceExpressionEffects;
   hasReferenceOutside(symbol: Symbol, excludedNode: Node): boolean;
   isProjectShape(node: Node | undefined): boolean;
   isProjectConstructibleObject(node: Node | undefined): boolean;

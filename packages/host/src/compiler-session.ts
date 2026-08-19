@@ -8,6 +8,7 @@ import type {
   TargetCompilationPaths,
   TargetPack,
   TargetSelection,
+  TargetSourcePackageGraph,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import type {
@@ -47,11 +48,13 @@ export type {
 
 export interface TsonicSemanticSession {
   readonly source: CheckedSourceProgram;
+  readonly sourcePackages: TargetSourcePackageGraph;
   readonly targetContext: TargetProviderContext;
 }
 
 export interface CreateTsonicSemanticSessionOptions {
   readonly programOptions: ProgramOptions;
+  readonly sourcePackages: TargetSourcePackageGraph;
   readonly project: TsonicProjectConfig;
   readonly projectDirectory: string;
   readonly target: TargetSelection;
@@ -83,6 +86,7 @@ export function createTsonicSemanticSession(options: CreateTsonicSemanticSession
   });
   return {
     source: compiler.checkSource(),
+    sourcePackages: options.sourcePackages,
     targetContext,
   };
 }
@@ -99,6 +103,7 @@ export function compileTargetFromSemanticSession(
   } = session.targetContext;
   const input: TargetCompileInput = {
     source: createTargetSourceProgram(session.source),
+    sourcePackages: session.sourcePackages,
     project,
     target,
     runtimeReferences,

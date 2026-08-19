@@ -81,8 +81,8 @@ test("old C# emitter inventory report counts are deterministic", () => {
   assert.deepEqual(report.counts, {
     total: 73,
     ported: 55,
-    "replaced-by-stronger-test": 2,
-    "invalid-stale-architecture": 2,
+    "replaced-by-stronger-test": 3,
+    "invalid-stale-architecture": 1,
     deferred: 14,
     unclassified: 0,
   });
@@ -90,8 +90,8 @@ test("old C# emitter inventory report counts are deterministic", () => {
   assert.equal(formatOldEmitterInventoryCounts(report.counts), [
     "total: 73",
     "ported: 55",
-    "replaced-by-stronger-test: 2",
-    "invalid-stale-architecture: 2",
+    "replaced-by-stronger-test: 3",
+    "invalid-stale-architecture: 1",
     "deferred: 14",
     "unclassified: 0",
   ].join("\n"));

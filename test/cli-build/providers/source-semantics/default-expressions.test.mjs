@@ -306,7 +306,7 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI rejects any and unknown before they trickle into C# output", async () => {
+test("CLI emits any and unknown through the closed JS-value carrier", async () => {
   const projectDirectory = resolve(tempRoot, "reject-any-unknown");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -328,11 +328,21 @@ test("CLI rejects any and unknown before they trickle into C# output", async () 
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.equal(
-    (build.stderr.match(/tsonic-csharp:CSHARP_OPAQUE_TARGET_TYPE_UNSUPPORTED/g) ?? []).length,
-    4,
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(
+    resolve(projectDirectory, "out/csharp/src/Index.cs"),
+    "utf8",
   );
-  assert.match(build.stderr, /Opaque target type 'unknown' has no renderable C# source representation/);
-  assert.match(build.stderr, /Opaque target type 'any' has no renderable C# source representation/);
+  assert.match(
+    generatedSource,
+    /Tsonic\.CSharp\.Js\.TsValue leakUnknown\(Tsonic\.CSharp\.Js\.TsValue value\)/u,
+  );
+  assert.match(
+    generatedSource,
+    /Tsonic\.CSharp\.Js\.TsValue leakAny\(Tsonic\.CSharp\.Js\.TsValue value\)/u,
+  );
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|\bobject\b/u);
+  const project = resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj");
+  const dotnet = run("dotnet", ["build", project, "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });

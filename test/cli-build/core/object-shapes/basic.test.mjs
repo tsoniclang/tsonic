@@ -577,27 +577,47 @@ test("CLI emits nested Record object literals through explicit Dictionary carrie
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordNestedObject.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI rejects object literals contextualized as unknown before C# carrier emission", async () => {
+test("CLI runs nested object literals through the canonical broad JS-value carrier", async () => {
   const projectDirectory = resolve(tempRoot, "unknown-object-shape");
+  const assemblyName = "SmokeGeneratedUnknownObjectShape";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
       rootDir: "src",
       outDir: "out",
-      targets: [{ id: "csharp" }],
+      targets: [{
+        id: "csharp",
+        options: {
+          assemblyName,
+          namespace: "Smoke.Generated",
+          outputType: "Exe",
+        },
+      }],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "import type { int } from \"@tsonic/csharp/types.js\";",
+      "",
       "export function leak(): unknown {",
-      "  return { value: 1 };",
+      "  return { value: 1, child: { label: \"ready\" } };",
       "}",
+      "const value: any = leak();",
+      "const count: int = value.value;",
+      "const label: string = value.child.label;",
+      "Console.WriteLine(`${count}:${label}`);",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_OPAQUE_TARGET_TYPE_UNSUPPORTED[\s\S]*Opaque target type 'unknown' has no renderable C# source representation/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Js\.TsValue\.from\(\(int\)1\), "child", Tsonic\.CSharp\.Js\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Js\.TsValue\.from\("ready"\)\)\)/u);
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|__TsonicShape_/u);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "1:ready\n");
 });
 test("CLI emits calls through parameter destructured object-shape callable facts", async () => {
   const projectDirectory = resolve(tempRoot, "parameter-object-callable-destructuring");

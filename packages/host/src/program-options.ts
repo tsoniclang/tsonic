@@ -6,7 +6,7 @@ import {
   formatDiagnostics,
 } from "@tsonic/tsts";
 import type { BundledLibrarySource, ProgramOptions } from "@tsonic/tsts";
-import type { TsonicProjectConfig } from "@tsonic/target-api";
+import type { TargetSourcePackageGraph, TsonicProjectConfig } from "@tsonic/target-api";
 import type { TargetSourceDeclarationPolicy } from "@tsonic/target-api/provider";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ import type { InstalledDeclarationSnapshot } from "./declaration-package-inputs.
 import { isCompilerSourceFile, isDeclarationFile } from "./package-contract.js";
 import { isPathWithinOrEqual } from "./path-relation.js";
 import { resolveProjectPaths } from "./project-paths.js";
-import { appendInstalledSourcePackageFiles } from "./source-package-inputs.js";
+import { collectTargetSourcePackageGraph } from "./source-package-inputs.js";
 
 export interface CreateProgramOptionsInput {
   readonly project: TsonicProjectConfig;
@@ -47,13 +47,18 @@ export interface CreatedProgramOptions {
   readonly projectRoot: string;
   readonly outputRoot: string;
   readonly sourceDeclarationSnapshot: SourceDeclarationSnapshot;
+  readonly sourcePackages: TargetSourcePackageGraph;
 }
 
 export function createProgramOptionsForProject(input: CreateProgramOptionsInput): CreatedProgramOptions {
   const paths = resolveProjectPaths(input);
   const projectFiles = collectProjectFiles(paths.projectRoot, paths.outputRoot);
   appendProjectPackageJson(paths.projectDirectory, projectFiles);
-  appendInstalledSourcePackageFiles(paths.projectDirectory, projectFiles);
+  const sourcePackages = collectTargetSourcePackageGraph(
+    paths.projectDirectory,
+    paths.projectRoot,
+    projectFiles,
+  );
   const declarationPolicy = normalizeSourceDeclarationPolicy(input.sourceDeclarationPolicy);
   const installedDeclarationSnapshot = declarationPolicy.installedDeclarations === "package-contract"
     ? appendInstalledDeclarationPackageFiles(paths.projectDirectory, projectFiles)
@@ -109,6 +114,7 @@ export function createProgramOptionsForProject(input: CreateProgramOptionsInput)
     rootFilePaths: paths.rootFilePaths,
     projectRoot: paths.projectRoot,
     outputRoot: paths.outputRoot,
+    sourcePackages,
     sourceDeclarationSnapshot: createSourceDeclarationSnapshot(
       bundledLibrarySources,
       declarationPolicy.bundledLibraries,

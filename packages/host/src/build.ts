@@ -124,6 +124,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     });
     const session = createTsonicSemanticSession({
       programOptions: created.programOptions,
+      sourcePackages: created.sourcePackages,
       project: input.project,
       projectDirectory: paths.projectDirectory,
       target,
