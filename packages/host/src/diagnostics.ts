@@ -1,29 +1,31 @@
 import { formatDiagnostics } from "@tsonic/tsts";
-import type { SourceFile } from "@tsonic/tsts";
-import type { TargetDiagnostic, TargetDiagnosticSourceSpan } from "@tsonic/target-api";
+import type { CheckedSourceProgram, SourceFile } from "@tsonic/tsts";
+import type {
+  TargetDiagnostic,
+  TargetDiagnosticSourceSpan,
+} from "@tsonic/target-api/artifacts";
 import { isAbsolute, relative } from "node:path";
-import type { TsonicSemanticSession } from "./compiler-session.js";
 import { isPathWithinOrEqual } from "./path-relation.js";
 
-export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDirectory: string): readonly TargetDiagnostic[] {
-  const diagnostics = session.source.diagnostics
+export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDirectory: string): readonly TargetDiagnostic[] {
+  const diagnostics = source.diagnostics
     .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
   const tstsDiagnostics: TargetDiagnostic[] = diagnostics.map((diagnostic): TargetDiagnostic => ({
     code: "TSTS_DIAGNOSTIC",
     category: tstsDiagnosticCategory(diagnostic),
     message: formatDiagnostics([diagnostic], currentDirectory).trimEnd(),
     source: "tsts",
-    sourceSpan: getTstsDiagnosticSourceSpan(session, diagnostic, currentDirectory),
+    sourceSpan: getTstsDiagnosticSourceSpan(source, diagnostic, currentDirectory),
     evidence: tstsDiagnosticEvidence(diagnostic),
   }));
   return [
     ...tstsDiagnostics,
-    ...session.source.extensionDiagnostics.map((diagnostic): TargetDiagnostic => ({
+    ...source.extensionDiagnostics.map((diagnostic): TargetDiagnostic => ({
       code: `TS${diagnostic.numericCode}`,
       category: diagnostic.category,
       message: diagnostic.message,
       source: diagnostic.extensionId,
-      sourceSpan: getExtensionDiagnosticSourceSpan(session, diagnostic.nodeOrSpan, currentDirectory),
+      sourceSpan: getExtensionDiagnosticSourceSpan(source, diagnostic.nodeOrSpan, currentDirectory),
       evidence: diagnostic.evidence?.map((entry) =>
         entry.details === undefined ? entry.message : `${entry.message}: ${formatDiagnosticEvidenceDetails(entry.details)}`),
     })),
@@ -31,14 +33,14 @@ export function collectTstsDiagnostics(session: TsonicSemanticSession, currentDi
 }
 
 export function finalizeTargetDiagnostics(
-  session: TsonicSemanticSession,
+  source: CheckedSourceProgram,
   diagnostics: readonly TargetDiagnostic[],
   currentDirectory: string,
 ): readonly TargetDiagnostic[] {
   return diagnostics.map((diagnostic) => {
     const sourceSpan = diagnostic.sourceSpan ??
       getExtensionDiagnosticSourceSpan(
-        session,
+        source,
         diagnostic.sourceNode,
         currentDirectory,
       );
@@ -69,7 +71,7 @@ function tstsDiagnosticEvidence(diagnostic: unknown): readonly string[] {
 }
 
 function getTstsDiagnosticSourceSpan(
-  session: TsonicSemanticSession,
+  source: CheckedSourceProgram,
   diagnostic: unknown,
   currentDirectory: string,
 ): TargetDiagnosticSourceSpan | undefined {
@@ -81,7 +83,7 @@ function getTstsDiagnosticSourceSpan(
   if (!isSourceFileLike(file) || !isDiagnosticLocation(loc)) {
     return undefined;
   }
-  return createSourceSpan(session, file, loc.pos, loc.end, currentDirectory);
+  return createSourceSpan(source, file, loc.pos, loc.end, currentDirectory);
 }
 
 function isSourceFileLike(value: unknown): value is SourceFile {
@@ -95,7 +97,7 @@ function isDiagnosticLocation(value: unknown): value is { readonly pos: number; 
 }
 
 function getExtensionDiagnosticSourceSpan(
-  session: TsonicSemanticSession,
+  source: CheckedSourceProgram,
   nodeOrSpan: unknown,
   currentDirectory: string,
 ): TargetDiagnosticSourceSpan | undefined {
@@ -104,25 +106,25 @@ function getExtensionDiagnosticSourceSpan(
   }
   if (isExtensionDiagnosticSourceSpan(nodeOrSpan)) {
     return createSourceSpan(
-      session,
+      source,
       nodeOrSpan.sourceFile as SourceFile,
       nodeOrSpan.pos,
       nodeOrSpan.end,
       currentDirectory,
     );
   }
-  if (session.source.ast.kind(nodeOrSpan as SourceFile) === undefined) {
+  if (source.ast.kind(nodeOrSpan as SourceFile) === undefined) {
     return undefined;
   }
-  const sourceFile = session.source.ast.getSourceFile(nodeOrSpan as SourceFile);
+  const sourceFile = source.ast.getSourceFile(nodeOrSpan as SourceFile);
   if (sourceFile === undefined) {
     return undefined;
   }
   return createSourceSpan(
-    session,
+    source,
     sourceFile,
-    session.source.ast.pos(nodeOrSpan as SourceFile),
-    session.source.ast.end(nodeOrSpan as SourceFile),
+    source.ast.pos(nodeOrSpan as SourceFile),
+    source.ast.end(nodeOrSpan as SourceFile),
     currentDirectory,
   );
 }
@@ -138,13 +140,13 @@ function isExtensionDiagnosticSourceSpan(
 }
 
 function createSourceSpan(
-  session: TsonicSemanticSession,
+  source: CheckedSourceProgram,
   sourceFile: SourceFile,
   pos: number,
   end: number,
   currentDirectory: string,
 ): TargetDiagnosticSourceSpan | undefined {
-  const text = session.source.ast.getSourceText(sourceFile);
+  const text = source.ast.getSourceText(sourceFile);
   if (!Number.isInteger(pos) || !Number.isInteger(end) || pos < 0 || end < pos) {
     return undefined;
   }
@@ -155,7 +157,7 @@ function createSourceSpan(
     return undefined;
   }
   return {
-    fileName: formatSourceFileName(session.source.ast.getFileName(sourceFile), currentDirectory),
+    fileName: formatSourceFileName(source.ast.getFileName(sourceFile), currentDirectory),
     line: start.line,
     column: start.column,
     endLine: finish.line,

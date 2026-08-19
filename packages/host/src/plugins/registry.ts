@@ -1,5 +1,10 @@
 import { createTargetRegistry } from "@tsonic/target-api";
-import type { TargetDiagnostic, TargetCapabilityImplementation, TargetRegistry, TsonicTargetPlugin } from "@tsonic/target-api";
+import type {
+  TargetRegistry,
+  TsonicTargetPlugin,
+} from "@tsonic/target-api";
+import type { TargetCapabilityImplementation } from "@tsonic/target-api/provider";
+import type { TargetDiagnostic } from "@tsonic/target-api/artifacts";
 
 export interface InstalledTsonicPluginRegistry {
   readonly targets: readonly TsonicTargetPlugin[];

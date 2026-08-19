@@ -1,15 +1,19 @@
 import type {
-  TargetArtifact,
   TargetCompilationPaths,
-  TargetDiagnostic,
   TargetPack,
-  TargetCapabilityImplementation,
-  TargetRuntimeContributions,
-  TargetRuntimeReference,
   TargetSelection,
-  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import type {
+  TargetCapabilityImplementation,
+  TargetSurfaceImplementation,
+} from "@tsonic/target-api/provider";
+import type {
+  TargetArtifact,
+  TargetDiagnostic,
+  TargetRuntimeContributions,
+  TargetRuntimeReference,
+} from "@tsonic/target-api/artifacts";
 import { requireTargetProvider } from "./extensions.js";
 
 export interface CollectTargetRuntimeContributionsOptions {

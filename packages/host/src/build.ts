@@ -1,14 +1,18 @@
 import type {
-  TargetCompileResult,
-  TargetDiagnostic,
   TargetPack,
-  TargetCapabilityImplementation,
   TargetRegistry,
   TargetSelection,
-  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
-import { sourceProjectFiles } from "@tsonic/target-api";
+import type {
+  TargetCapabilityImplementation,
+  TargetSurfaceImplementation,
+} from "@tsonic/target-api/provider";
+import type {
+  TargetCompileResult,
+  TargetDiagnostic,
+} from "@tsonic/target-api/artifacts";
+import { sourceProjectFiles } from "@tsonic/target-api/source";
 import { createCompilerSession } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
 import {
@@ -127,7 +131,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       selectedCapabilities,
       selectedSurfaces,
     });
-    const tstsDiagnostics = collectTstsDiagnostics(session, paths.projectRoot);
+    const tstsDiagnostics = collectTstsDiagnostics(session.source, paths.projectRoot);
     diagnostics.push(...tstsDiagnostics);
     if (tstsDiagnostics.some((diagnostic) => diagnostic.category === "error")) {
       targets.push({
@@ -167,7 +171,7 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
     const backendCompileResult = {
       ...rawBackendCompileResult,
       diagnostics: finalizeTargetDiagnostics(
-        session,
+        session.source,
         rawBackendCompileResult.diagnostics,
         paths.projectRoot,
       ),

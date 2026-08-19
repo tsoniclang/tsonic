@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { isValidTargetId } from "@tsonic/target-api";
-import type { TargetArtifact } from "@tsonic/target-api";
+import type { TargetArtifact } from "@tsonic/target-api/artifacts";
 
 export interface BuildOutputRecoveryOptions {
   readonly outputRoot: string;

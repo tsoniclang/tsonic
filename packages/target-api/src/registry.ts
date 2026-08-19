@@ -1,6 +1,6 @@
 import { getTargetIdValidationMessage, isValidTargetId, isValidTargetSurfaceId } from "./config.js";
 import type { TargetId } from "./config.js";
-import type { TargetPack } from "./pack.js";
+import type { TargetPack } from "./target-contracts.js";
 
 export interface TargetRegistry {
   readonly packs: readonly TargetPack[];

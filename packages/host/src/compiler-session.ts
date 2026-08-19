@@ -5,19 +5,21 @@ import type {
 } from "@tsonic/tsts";
 import type {
   TargetCompileInput,
-  TargetCompileResult,
   TargetCompilationPaths,
   TargetPack,
-  TargetCapabilityImplementation,
-  TargetProviderContext,
-  TargetRuntimeReference,
   TargetSelection,
-  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
-import {
-  createTargetSourceProgram,
-} from "@tsonic/target-api";
+import type {
+  TargetCapabilityImplementation,
+  TargetProviderContext,
+  TargetSurfaceImplementation,
+} from "@tsonic/target-api/provider";
+import type {
+  TargetCompileResult,
+  TargetRuntimeReference,
+} from "@tsonic/target-api/artifacts";
+import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import {
   createTargetSourceCompilerComposition,
   getTargetRequiredProviderModules,

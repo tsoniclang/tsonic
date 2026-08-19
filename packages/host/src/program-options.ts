@@ -6,7 +6,8 @@ import {
   formatDiagnostics,
 } from "@tsonic/tsts";
 import type { BundledLibrarySource, ProgramOptions } from "@tsonic/tsts";
-import type { TargetSourceDeclarationPolicy, TsonicProjectConfig } from "@tsonic/target-api";
+import type { TsonicProjectConfig } from "@tsonic/target-api";
+import type { TargetSourceDeclarationPolicy } from "@tsonic/target-api/provider";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";

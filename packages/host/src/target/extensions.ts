@@ -11,13 +11,15 @@ import {
   tsonicCoreSourceSemanticsModules,
 } from "@tsonic/source-core";
 import type {
-  TargetProvider,
   TargetPack,
-  TargetCapabilityImplementation,
   TargetSelection,
-  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
+import type {
+  TargetProvider,
+  TargetCapabilityImplementation,
+  TargetSurfaceImplementation,
+} from "@tsonic/target-api/provider";
 
 export interface CreateTargetSourceCompilerCompositionOptions {
   readonly project: TsonicProjectConfig;

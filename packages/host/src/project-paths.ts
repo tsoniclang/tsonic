@@ -1,5 +1,9 @@
 import { dirname, resolve } from "node:path";
-import type { TargetCompilationPaths, TargetSelection, TsonicProjectConfig } from "@tsonic/target-api";
+import type {
+  TargetCompilationPaths,
+  TargetSelection,
+  TsonicProjectConfig,
+} from "@tsonic/target-api";
 import { isPathStrictlyWithin } from "./path-relation.js";
 
 export interface ProjectPathOptions {
