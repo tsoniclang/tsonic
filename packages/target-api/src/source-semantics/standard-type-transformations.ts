@@ -3,9 +3,7 @@ import type {
   Node,
   Signature,
   Type,
-  TypeCheckerQueries,
   TypeSignatureParameterInfo,
-  TypeShapeQueries,
 } from "@tsonic/tsts";
 import type {
   SourceProgramNavigation,
@@ -14,7 +12,9 @@ import { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utiliti
 import type {
   SourceCallableTypeEvidence,
   SourceCallableParameterEvidence,
+  SourceFinalTypeQueries,
   SourceFileSemantics,
+  SourceSelectedDeclarationQueries,
   SourceStandardTypeTransformation,
   SourceTypeComponentEvidence,
 } from "./types.js";
@@ -63,52 +63,60 @@ export function selectStandardSourceTypeTransformation(
   if (typeArguments.length !== 1) {
     return { kind: "unresolved" };
   }
+  const typeArgument = typeArguments[0];
+  if (typeArgument === undefined) {
+    return { kind: "unresolved" };
+  }
   const semantics = context.semanticsFor(authoredTypeNode);
-  const inputType = semantics.getTypeFromTypeNode(typeArguments[0]);
+  const inputType = semantics.types.authoredType(typeArgument);
   if (inputType === undefined) {
     return { kind: "unresolved" };
   }
+  const callableQueries = Object.freeze({
+    ...semantics.types,
+    signatureDeclaration: semantics.declarations.signatureDeclaration,
+  });
   switch (name) {
     case "Parameters":
       return selectParameterListTransformation(
-        semantics.getCallSignatures(inputType),
+        semantics.types.callSignatures(inputType),
         selectedType,
-        semantics,
+        callableQueries,
         context.ast,
       );
     case "ConstructorParameters":
       return selectParameterListTransformation(
-        semantics.getConstructSignatures(inputType),
+        semantics.types.constructSignatures(inputType),
         selectedType,
-        semantics,
+        callableQueries,
         context.ast,
       );
     case "ReturnType":
       return selectResultTransformation(
-        semantics.getCallSignatures(inputType),
+        semantics.types.callSignatures(inputType),
         selectedType,
-        semantics,
+        callableQueries,
         context.ast,
       );
     case "InstanceType":
       return selectResultTransformation(
-        semantics.getConstructSignatures(inputType),
+        semantics.types.constructSignatures(inputType),
         selectedType,
-        semantics,
+        callableQueries,
         context.ast,
       );
     case "ThisParameterType":
       return selectThisParameterTransformation(
-        semantics.getCallSignatures(inputType),
+        semantics.types.callSignatures(inputType),
         selectedType,
-        semantics,
+        semantics.types,
         context.ast,
       );
     case "OmitThisParameter":
       return selectCallableTransformation(
-        semantics.getCallSignatures(inputType),
+        semantics.types.callSignatures(inputType),
         selectedType,
-        semantics,
+        callableQueries,
         context.ast,
       );
     default:
@@ -132,31 +140,31 @@ function isCanonicalTypescriptUtilityDeclaration(
 function selectParameterListTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  semantics: SourceFileSemantics,
+  types: SourceFinalTypeQueries,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
   const signature = lastDefined(signatures);
   if (signature === undefined) {
     return { kind: "unresolved" };
   }
-  const parameters = semantics.getSignatureParameterInfos(signature).map(
+  const parameters = types.signatureParameterInfos(signature).map(
     (parameter) => sourceCallableParameterEvidence(parameter, ast),
   );
-  const selectedElements = semantics.isTuple(selectedType)
-    ? semantics.getTupleElementInfos(selectedType)
+  const selectedElements = types.isTuple(selectedType)
+    ? types.tupleElementInfos(selectedType)
     : undefined;
   const tupleMatches = selectedElements !== undefined &&
     parameters.length === selectedElements.length &&
-    parameters.every((parameter, index) =>
-      semantics.isTypeIdenticalTo(
-        parameter.type,
-        selectedElements[index]?.type,
-      ) && parameterKindToTupleKind(parameter.parameterKind) ===
-        selectedElements[index]?.elementKind
-    );
+    parameters.every((parameter, index) => {
+      const selectedElement = selectedElements[index];
+      return selectedElement !== undefined &&
+        types.isIdentical(parameter.type, selectedElement.type) &&
+        parameterKindToTupleKind(parameter.parameterKind) ===
+          selectedElement.elementKind;
+    });
   const restSequenceMatches = parameters.length === 1 &&
     parameters[0]?.parameterKind === "rest" &&
-    semantics.isTypeIdenticalTo(parameters[0].type, selectedType);
+    types.isIdentical(parameters[0].type, selectedType);
   if (!tupleMatches && !restSequenceMatches) {
     return { kind: "unresolved" };
   }
@@ -169,16 +177,17 @@ function selectParameterListTransformation(
 function selectResultTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  semantics: SourceFileSemantics,
+  types: SourceFinalTypeQueries &
+    Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
   const signature = lastDefined(signatures);
   if (signature === undefined) {
     return { kind: "unresolved" };
   }
-  const result = signatureResultEvidence(signature, semantics, ast);
+  const result = signatureResultEvidence(signature, types, ast);
   return result !== undefined &&
-      semantics.isTypeIdenticalTo(result.selectedType, selectedType)
+      types.isIdentical(result.selectedType, selectedType)
     ? { kind: "component", component: result }
     : { kind: "unresolved" };
 }
@@ -186,16 +195,16 @@ function selectResultTransformation(
 function selectThisParameterTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  semantics: SourceFileSemantics,
+  types: SourceFinalTypeQueries,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
   const signature = lastDefined(signatures);
   const parameter = signature === undefined
     ? undefined
-    : semantics.getSignatureThisParameterInfo(signature);
+    : types.signatureThisParameterInfo(signature);
   if (
     parameter === undefined ||
-    !semantics.isTypeIdenticalTo(parameter.type, selectedType)
+    !types.isIdentical(parameter.type, selectedType)
   ) {
     return { kind: "unresolved" };
   }
@@ -216,33 +225,34 @@ function selectThisParameterTransformation(
 function selectCallableTransformation(
   inputSignatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  semantics: SourceFileSemantics,
+  types: SourceFinalTypeQueries &
+    Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
   const input = lastDefined(inputSignatures);
   const output = selectSourceCallableTypeEvidence(
     selectedType,
-    semantics,
+    types,
     ast,
   );
   if (input === undefined || output === undefined) {
     return { kind: "unresolved" };
   }
-  const inputParameters = semantics.getSignatureParameterInfos(input).map(
+  const inputParameters = types.signatureParameterInfos(input).map(
     (parameter) => sourceCallableParameterEvidence(parameter, ast),
   );
-  const inputResult = signatureResultEvidence(input, semantics, ast);
+  const inputResult = signatureResultEvidence(input, types, ast);
   if (
     inputResult === undefined ||
     inputParameters.length !== output.parameters.length ||
-    !semantics.isTypeIdenticalTo(
+    !types.isIdentical(
       inputResult.selectedType,
       output.result.selectedType,
     ) ||
     inputParameters.some((parameter, index) =>
       parameter.parameterKind !== output.parameters[index]?.parameterKind ||
       parameter.omissionKind !== output.parameters[index]?.omissionKind ||
-      !semantics.isTypeIdenticalTo(
+      !types.isIdentical(
         parameter.type,
         output.parameters[index]?.type,
       )
@@ -261,22 +271,25 @@ function selectCallableTransformation(
 
 export function selectSourceCallableTypeEvidence(
   type: Type,
-  semantics: TypeShapeQueries & Pick<
-    TypeCheckerQueries,
-    "getSignatureDeclaration"
-  >,
+  types: Pick<
+    SourceFinalTypeQueries,
+    | "callSignatures"
+    | "signatureParameterInfos"
+    | "returnType"
+    | "signatureThisParameterInfo"
+  > & Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceCallableTypeEvidence | undefined {
-  const signature = singleDefined(semantics.getCallSignatures(type));
+  const signature = singleDefined(types.callSignatures(type));
   if (signature === undefined) {
     return undefined;
   }
-  const result = signatureResultEvidence(signature, semantics, ast);
+  const result = signatureResultEvidence(signature, types, ast);
   return result === undefined
     ? undefined
     : Object.freeze({
         parameters: Object.freeze(
-          semantics.getSignatureParameterInfos(signature).map(
+          types.signatureParameterInfos(signature).map(
             (parameter) => sourceCallableParameterEvidence(parameter, ast),
           ),
         ),
@@ -302,17 +315,15 @@ function sourceCallableParameterEvidence(
 
 function signatureResultEvidence(
   signature: Signature,
-  semantics: TypeShapeQueries & Pick<
-    TypeCheckerQueries,
-    "getSignatureDeclaration"
-  >,
+  types: Pick<SourceFinalTypeQueries, "returnType"> &
+    Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceTypeComponentEvidence | undefined {
-  const selectedType = semantics.getReturnTypeOfSignature(signature);
+  const selectedType = types.returnType(signature);
   if (selectedType === undefined) {
     return undefined;
   }
-  const declaration = semantics.getSignatureDeclaration(signature);
+  const declaration = types.signatureDeclaration(signature);
   return Object.freeze({
     selectedType,
     ...(declaration === undefined

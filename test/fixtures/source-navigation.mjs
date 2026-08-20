@@ -4,9 +4,16 @@ import { dirname, resolve } from "node:path";
 
 import {
   createProgramOptionsForProject,
-  createTsonicSemanticSession,
   parseTsonicProjectConfig,
 } from "../../packages/host/dist/index.js";
+import {
+  createCompilerSession,
+  createSourceSemanticsExtension,
+} from "@tsonic/tsts";
+import {
+  createTsonicCoreSourceExtension,
+  tsonicCoreSourceSemanticsModules,
+} from "../../packages/source-core/dist/public/index.js";
 
 const tempRoot = resolve(
   process.cwd(),
@@ -14,7 +21,7 @@ const tempRoot = resolve(
   `${Date.now()}-${process.pid}`,
 );
 
-export async function checkedSource(name, files) {
+export async function checkedSource(name, files, fixtureOptions = {}) {
   const projectDirectory = resolve(tempRoot, name);
   const projectConfig = {
     entryPoint: "index.ts",
@@ -27,7 +34,7 @@ export async function checkedSource(name, files) {
     ...files,
   });
   const project = parseTsonicProjectConfig(projectConfig);
-  const options = createProgramOptionsForProject({
+  const programOptions = createProgramOptionsForProject({
     project,
     projectFilePath: resolve(projectDirectory, "tsonic.json"),
     sourceProfileFiles: Object.entries(files)
@@ -37,14 +44,20 @@ export async function checkedSource(name, files) {
         text,
       })),
   });
-  return createTsonicSemanticSession({
-    programOptions: options.programOptions,
-    project,
-    projectDirectory,
-    target: project.targets[0],
-    targetPack: fakeTargetPack,
-    selectedSurfaces: [],
-  }).source;
+  const sourceCoreExtensions = fixtureOptions.sourceCore === true
+    ? [
+        createSourceSemanticsExtension({
+          modules: tsonicCoreSourceSemanticsModules(),
+        }),
+        createTsonicCoreSourceExtension(),
+      ]
+    : undefined;
+  return createCompilerSession({
+    programOptions: programOptions.programOptions,
+    ...(sourceCoreExtensions === undefined
+      ? {}
+      : { extensionHostOptions: { extensions: sourceCoreExtensions } }),
+  }).checkSource();
 }
 
 async function writeProject(projectDirectory, files) {
@@ -121,29 +134,3 @@ export function requiredNode(ast, root, predicate) {
 export function moduleCase(id, runtime, render) {
   return { id, runtime, render };
 }
-
-const fakeTargetPack = {
-  id: "demo",
-  displayName: "Demo Target",
-  provider: {
-    id: "demo-provider",
-    displayName: "Demo Provider",
-    sourceCompilerContributions() {
-      return {};
-    },
-  },
-  createBackend() {
-    return {
-      compile() {
-        return { artifacts: [], diagnostics: [] };
-      },
-    };
-  },
-  createToolchain() {
-    return {
-      prepare() {
-        return { diagnostics: [], producedArtifacts: [] };
-      },
-    };
-  },
-};

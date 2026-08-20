@@ -23,22 +23,17 @@ test("source declaration policies compose as one deterministic selected-profile 
       return { declarationPolicy: { bundledLibraries: ["lib.es2024.d.ts", "lib.es2023.d.ts"] } };
     },
   };
-  const targetPack = {
-    id: "test.pack",
-    provider: {
-      id: "test.provider",
-      sourceProfileContributions() {
-        return { declarationPolicy: { installedDeclarations: "package-contract" } };
-      },
-    },
-  };
   const collected = collectTargetSourceProfileContributions({
     project,
     projectRoot: "/project",
+    projectDirectory: "/project",
     target,
-    targetPack,
+    targetPackId: "test.pack",
     selectedCapabilities: [capability],
     selectedSurfaces: [surface],
+    targetContributions: {
+      declarationPolicy: { installedDeclarations: "package-contract" },
+    },
   });
   assert.deepEqual(collected.diagnostics, []);
   assert.deepEqual(collected.declarationPolicy, {
@@ -48,27 +43,20 @@ test("source declaration policies compose as one deterministic selected-profile 
 });
 
 test("source declaration policies reject paths and unknown modes before compiler input", () => {
-  const targetPack = {
-    id: "test.pack",
-    provider: {
-      id: "test.provider",
-      sourceProfileContributions() {
-        return {
-          declarationPolicy: {
-            bundledLibraries: ["../lib.es2024.d.ts"],
-            installedDeclarations: "everything-installed",
-          },
-        };
-      },
-    },
-  };
   const collected = collectTargetSourceProfileContributions({
     project,
     projectRoot: "/project",
+    projectDirectory: "/project",
     target,
-    targetPack,
+    targetPackId: "test.pack",
     selectedCapabilities: [],
     selectedSurfaces: [],
+    targetContributions: {
+      declarationPolicy: {
+        bundledLibraries: ["../lib.es2024.d.ts"],
+        installedDeclarations: "everything-installed",
+      },
+    },
   });
   assert.deepEqual(collected.declarationPolicy, {});
   assert.equal(collected.diagnostics.length, 2);

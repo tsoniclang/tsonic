@@ -1,31 +1,43 @@
 import type {
+  TargetCompilationSession,
   TargetPack,
   TargetRegistry,
   TargetSelection,
+  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import type {
   TargetCapabilityImplementation,
-  TargetSurfaceImplementation,
 } from "@tsonic/target-api/provider";
+import {
+  rejectedTargetStage,
+  resolvedTargetStage,
+} from "@tsonic/target-api/artifacts";
 import type {
   TargetCompileResult,
+  TargetCompileOutput,
   TargetDiagnostic,
 } from "@tsonic/target-api/artifacts";
 import { sourceProjectFiles } from "@tsonic/target-api/source";
+import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import { createCompilerSession } from "@tsonic/tsts";
 import type { CheckedSourceProgram } from "@tsonic/tsts";
-import {
-  collectTargetRuntimeContributions,
-  compileTargetFromSemanticSession,
-  createTsonicSemanticSession,
-  collectTstsDiagnostics,
-} from "./compiler-session.js";
+import { checkTargetSource } from "./compiler-session.js";
+import { collectTstsDiagnostics } from "./diagnostics.js";
 import { finalizeTargetDiagnostics } from "./diagnostics.js";
 import { createProgramOptionsForProject } from "./program-options.js";
 import { getTargetCompilationPaths, resolveProjectPaths } from "./project-paths.js";
-import { collectImportActivatedTargetCapabilities, collectRuntimeActivatedTargetCapabilities } from "./target/capability-activation.js";
-import { getMissingTargetProviderMessage, selectInstalledTargetCapabilities, selectTargetSurfaceImplementations } from "./target/extensions.js";
+import {
+  collectImportActivatedTargetCapabilities,
+  collectRuntimeActivatedTargetCapabilities,
+} from "./target/capability-activation.js";
+import {
+  captureTargetCapabilityContributions,
+  selectInstalledTargetCapabilities,
+  selectTargetSurfaceImplementations,
+  validateTargetModuleOwnership,
+} from "./target/extensions.js";
+import { collectTargetRuntimeContributions } from "./target/runtime-contributions.js";
 import { collectTargetSourceProfileContributions } from "./target/source-profile.js";
 
 export interface CompileProjectInput {
@@ -56,24 +68,40 @@ interface TargetBuildPlan {
 
 export function compileProject(input: CompileProjectInput): ProjectBuildResult {
   const paths = resolveProjectPaths(input);
-  let activationContext: ReturnType<typeof createCapabilityActivationContext> | undefined;
   const targets: TargetBuildResult[] = [];
   const diagnostics: TargetDiagnostic[] = [];
-  const buildPlans: TargetBuildPlan[] = [];
+  const buildPlans = createTargetBuildPlans(input);
+  for (const plan of buildPlans) {
+    const result = plan.diagnostics.some(isErrorDiagnostic)
+      ? diagnosticTargetBuild(plan.target, plan.diagnostics)
+      : compileTargetBuild(input, paths, plan);
+    targets.push(result);
+    diagnostics.push(...result.diagnostics);
+  }
+  return Object.freeze({
+    targets: Object.freeze(targets),
+    diagnostics: Object.freeze(diagnostics),
+  });
+}
+
+function createTargetBuildPlans(
+  input: CompileProjectInput,
+): readonly TargetBuildPlan[] {
+  const plans: TargetBuildPlan[] = [];
+  let activationContext: CapabilityActivationContext | undefined;
   for (const target of input.project.targets) {
     const targetPack = getRequiredTargetPack(input.registry, target);
     if (isTargetDiagnostic(targetPack)) {
-      buildPlans.push({ target, diagnostics: [targetPack] });
+      plans.push({ target, diagnostics: [targetPack] });
       continue;
     }
-    const selectedSurfaces = getTargetSelectedSurfaces(targetPack, target);
-    if (isTargetDiagnostic(selectedSurfaces)) {
-      buildPlans.push({ target, targetPack, diagnostics: [selectedSurfaces] });
-      continue;
-    }
-    const providerDiagnostic = getTargetProviderDiagnostic(targetPack, target);
-    if (providerDiagnostic !== undefined) {
-      buildPlans.push({ target, targetPack, selectedCapabilities: [], selectedSurfaces, diagnostics: [providerDiagnostic] });
+    const surfaces = selectTargetSurfaceImplementations(targetPack, target);
+    if ("error" in surfaces) {
+      plans.push({
+        target,
+        targetPack,
+        diagnostics: [targetDiagnostic(targetPack.id, "TARGET_SURFACE_SELECTION", surfaces.error)],
+      });
       continue;
     }
     activationContext ??= createCapabilityActivationContext(input);
@@ -83,155 +111,217 @@ export function compileProject(input: CompileProjectInput): ProjectBuildResult {
       input.installedCapabilities ?? [],
       target,
     );
-    const selectedCapabilities = getTargetSelectedCapabilities(importActivatedCapabilities, targetPack, target, selectedSurfaces);
-    if (isTargetDiagnostic(selectedCapabilities)) {
-      buildPlans.push({ target, targetPack, selectedSurfaces, diagnostics: [selectedCapabilities] });
+    const capabilities = selectInstalledTargetCapabilities(
+      target,
+      importActivatedCapabilities,
+      surfaces.selectedSurfaces,
+    );
+    if ("error" in capabilities) {
+      plans.push({
+        target,
+        targetPack,
+        selectedSurfaces: surfaces.selectedSurfaces,
+        diagnostics: [targetDiagnostic(targetPack.id, "TARGET_CAPABILITY_SELECTION", capabilities.error)],
+      });
       continue;
     }
-    buildPlans.push({ target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: [] });
-  }
-  if (buildPlans.every((plan) => hasBlockingDiagnostics(plan.diagnostics))) {
-    pushDiagnosticOnlyTargets(buildPlans, targets, diagnostics);
-    return {
-      targets,
-      diagnostics,
-    };
-  }
-  for (const { target, targetPack, selectedCapabilities, selectedSurfaces, diagnostics: planDiagnostics } of buildPlans) {
-    if (hasBlockingDiagnostics(planDiagnostics)) {
-      pushDiagnosticOnlyTarget(targets, diagnostics, target, planDiagnostics);
+    try {
+      validateTargetModuleOwnership(target, targetPack.provider, capabilities.selectedCapabilities);
+    } catch (error) {
+      plans.push({
+        target,
+        targetPack,
+        selectedCapabilities: capabilities.selectedCapabilities,
+        selectedSurfaces: surfaces.selectedSurfaces,
+        diagnostics: [targetDiagnostic(targetPack.id, "TARGET_MODULE_OWNERSHIP", errorMessage(error))],
+      });
       continue;
     }
-    if (targetPack === undefined || selectedCapabilities === undefined || selectedSurfaces === undefined) {
-      throw new Error(`Target '${target.id}' build planning produced no provider-backed target pack.`);
-    }
-    const sourceProfile = collectTargetSourceProfileContributions({
-      project: input.project,
-      projectRoot: paths.projectRoot,
+    plans.push(Object.freeze({
       target,
       targetPack,
-      selectedCapabilities,
-      selectedSurfaces,
-    });
-    if (hasBlockingDiagnostics(sourceProfile.diagnostics)) {
-      pushDiagnosticOnlyTarget(targets, diagnostics, target, sourceProfile.diagnostics);
-      continue;
-    }
-    const created = createProgramOptionsForProject({
-      ...input,
-      sourceProfileFiles: sourceProfile.files,
-      sourceDeclarationPolicy: sourceProfile.declarationPolicy,
-    });
-    const session = createTsonicSemanticSession({
-      programOptions: created.programOptions,
-      sourcePackages: created.sourcePackages,
+      selectedCapabilities: capabilities.selectedCapabilities,
+      selectedSurfaces: surfaces.selectedSurfaces,
+      diagnostics: Object.freeze([]),
+    }));
+  }
+  return Object.freeze(plans);
+}
+
+function compileTargetBuild(
+  input: CompileProjectInput,
+  paths: ReturnType<typeof resolveProjectPaths>,
+  plan: TargetBuildPlan,
+): TargetBuildResult {
+  if (
+    plan.targetPack === undefined ||
+    plan.selectedCapabilities === undefined ||
+    plan.selectedSurfaces === undefined
+  ) {
+    throw new Error(`Target '${plan.target.id}' build plan is incomplete without a diagnostic.`);
+  }
+  const targetPack = plan.targetPack;
+  const targetPaths = getTargetCompilationPaths(paths, plan.target);
+  let session: TargetCompilationSession | undefined;
+  let compileResult: TargetCompileResult | undefined;
+  let diagnostics: readonly TargetDiagnostic[] = [];
+  try {
+    const capturedCapabilities = captureTargetCapabilityContributions({
       project: input.project,
       projectDirectory: paths.projectDirectory,
-      target,
-      targetPack,
-      selectedCapabilities,
-      selectedSurfaces,
+      target: plan.target,
+      selectedCapabilities: plan.selectedCapabilities,
+      selectedSurfaces: plan.selectedSurfaces,
     });
-    const tstsDiagnostics = collectTstsDiagnostics(session.source, paths.projectRoot);
-    diagnostics.push(...tstsDiagnostics);
-    if (tstsDiagnostics.some((diagnostic) => diagnostic.category === "error")) {
-      targets.push({
-        target,
-        compileResult: {
-          artifacts: [],
-          diagnostics: [],
-        },
-        diagnostics: tstsDiagnostics,
-      });
-      continue;
-    }
-    const targetPaths = getTargetCompilationPaths(paths, target);
-    const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
-      session.source.ast,
-      sourceProjectFiles(session.source),
-      selectedCapabilities,
-    );
-    const runtimeContributions = collectTargetRuntimeContributions({
+    session = targetPack.createCompilationSession(Object.freeze({
       project: input.project,
-      target,
-      targetPack,
-      selectedCapabilities,
-      runtimeActivatedCapabilities,
-      selectedSurfaces,
+      projectDirectory: paths.projectDirectory,
+      target: plan.target,
       paths: targetPaths,
+      selectedSurfaceIds: Object.freeze(plan.selectedSurfaces.map((surface) => surface.id)),
+      capabilities: capturedCapabilities,
+    }));
+    const sourceProfile = collectTargetSourceProfileContributions({
+      project: input.project,
+      projectDirectory: paths.projectDirectory,
+      projectRoot: paths.projectRoot,
+      target: plan.target,
+      targetPackId: targetPack.id,
+      selectedCapabilities: plan.selectedCapabilities,
+      selectedSurfaces: plan.selectedSurfaces,
+      targetContributions: session.sourceProfileContributions(),
     });
-    if (hasBlockingDiagnostics(runtimeContributions.diagnostics)) {
-      pushDiagnosticOnlyTarget(targets, diagnostics, target, runtimeContributions.diagnostics);
-      continue;
-    }
-    const rawBackendCompileResult = compileTargetFromSemanticSession(
-      session,
-      targetPaths,
-      runtimeContributions.references,
-    );
-    const backendCompileResult = {
-      ...rawBackendCompileResult,
-      diagnostics: finalizeTargetDiagnostics(
-        session.source,
-        rawBackendCompileResult.diagnostics,
-        paths.projectRoot,
-      ),
-    };
-    diagnostics.push(...backendCompileResult.diagnostics);
-    if (hasBlockingDiagnostics(backendCompileResult.diagnostics)) {
-      targets.push({
-        target,
-        compileResult: {
-          artifacts: [],
-          diagnostics: backendCompileResult.diagnostics,
-        },
-        diagnostics: [...tstsDiagnostics, ...backendCompileResult.diagnostics],
+    diagnostics = Object.freeze([...diagnostics, ...sourceProfile.diagnostics]);
+    if (sourceProfile.diagnostics.some(isErrorDiagnostic)) {
+      compileResult = rejectedTargetStage(diagnostics);
+    } else {
+      const created = createProgramOptionsForProject({
+        ...input,
+        sourceProfileFiles: sourceProfile.files,
+        sourceDeclarationPolicy: sourceProfile.declarationPolicy,
       });
-      continue;
+      const checked = checkTargetSource({
+        programOptions: created.programOptions,
+        sourcePackages: created.sourcePackages,
+        project: input.project,
+        projectDirectory: paths.projectDirectory,
+        target: plan.target,
+        targetPack,
+        selectedCapabilities: plan.selectedCapabilities,
+        selectedSurfaces: plan.selectedSurfaces,
+        targetContributions: session.sourceCompilerContributions(),
+      });
+      const sourceDiagnostics = collectTstsDiagnostics(checked.source, paths.projectRoot);
+      diagnostics = Object.freeze([...diagnostics, ...sourceDiagnostics]);
+      if (sourceDiagnostics.some(isErrorDiagnostic)) {
+        compileResult = rejectedTargetStage(diagnostics);
+      } else {
+        const runtimeActivatedCapabilities = collectRuntimeActivatedTargetCapabilities(
+          checked.source.ast,
+          sourceProjectFiles(checked.source),
+          plan.selectedCapabilities,
+        );
+        const runtime = collectTargetRuntimeContributions({
+          project: input.project,
+          projectDirectory: paths.projectDirectory,
+          target: plan.target,
+          targetPackId: targetPack.id,
+          selectedCapabilities: plan.selectedCapabilities,
+          runtimeActivatedCapabilities,
+          selectedSurfaces: plan.selectedSurfaces,
+          paths: targetPaths,
+          targetContributions: session.runtimeContributions(),
+        });
+        diagnostics = Object.freeze([...diagnostics, ...runtime.diagnostics]);
+        if (runtime.diagnostics.some(isErrorDiagnostic)) {
+          compileResult = rejectedTargetStage(diagnostics);
+        } else {
+          const targetResult = session.compile({
+            source: createTargetSourceProgram(checked.source),
+            sourcePackages: checked.sourcePackages,
+            project: input.project,
+            target: plan.target,
+            runtimeReferences: runtime.references,
+            paths: targetPaths,
+          });
+          const targetDiagnostics = finalizeTargetDiagnostics(
+            checked.source,
+            targetResult.diagnostics,
+            paths.projectRoot,
+          );
+          diagnostics = Object.freeze([...diagnostics, ...targetDiagnostics]);
+          compileResult = targetResult.kind === "rejected" ||
+              targetDiagnostics.some(isErrorDiagnostic)
+            ? rejectedTargetStage(diagnostics)
+            : resolvedTargetStage({
+                artifacts: Object.freeze([
+                  ...runtime.artifacts,
+                  ...targetResult.value.artifacts,
+                ]),
+              }, diagnostics);
+        }
+      }
     }
-    const compileResult = {
-      artifacts: [
-        ...runtimeContributions.artifacts,
-        ...backendCompileResult.artifacts,
-      ],
-      diagnostics: backendCompileResult.diagnostics,
-    };
-    const toolchainResult = targetPack.createToolchain({ project: input.project, target }).prepare({
+  } catch (error) {
+    const diagnostic = targetDiagnostic(targetPack.id, "TARGET_COMPILATION", errorMessage(error));
+    diagnostics = Object.freeze([...diagnostics, diagnostic]);
+    compileResult = rejectedTargetStage(diagnostics);
+  } finally {
+    if (session !== undefined) {
+      try {
+        session.close();
+      } catch (error) {
+        const diagnostic = targetDiagnostic(targetPack.id, "TARGET_SESSION_CLOSE", errorMessage(error));
+        diagnostics = Object.freeze([...diagnostics, diagnostic]);
+        compileResult = rejectedTargetStage(diagnostics);
+      }
+    }
+  }
+  if (compileResult === undefined) {
+    throw new Error(`Target '${plan.target.id}' completed without a stage result.`);
+  }
+  if (compileResult.kind === "resolved") {
+    const toolchainResult = targetPack.createToolchain({
+      project: input.project,
+      target: plan.target,
+    }).prepare({
       artifactsRoot: targetPaths.targetOutputRoot,
       project: input.project,
-      target,
-      compileResult,
+      target: plan.target,
+      compileOutput: compileResult.value,
     });
-    diagnostics.push(...toolchainResult.diagnostics.map((message): TargetDiagnostic => ({
+    const toolchainDiagnostics = toolchainResult.diagnostics.map((message): TargetDiagnostic => ({
       code: "TARGET_TOOLCHAIN",
       category: "suggestion",
       message,
       source: targetPack.id,
-    })));
-    targets.push({
-      target,
-      compileResult,
-      diagnostics: [...tstsDiagnostics, ...compileResult.diagnostics],
-    });
+    }));
+    diagnostics = Object.freeze([...diagnostics, ...toolchainDiagnostics]);
+    compileResult = resolvedTargetStage(compileResult.value, diagnostics);
   }
-  return {
-    targets,
+  return Object.freeze({
+    target: plan.target,
+    compileResult,
     diagnostics,
-  };
+  });
 }
 
-function createCapabilityActivationContext(input: CompileProjectInput): {
+interface CapabilityActivationContext {
   readonly ast: CheckedSourceProgram["ast"];
   readonly sourceFiles: ReturnType<typeof sourceProjectFiles>;
-} {
+}
+
+function createCapabilityActivationContext(
+  input: CompileProjectInput,
+): CapabilityActivationContext {
   const activationSession = createCompilerSession({
     programOptions: createProgramOptionsForProject(input).programOptions,
   });
   const source = activationSession.checkSource();
-  return {
+  return Object.freeze({
     ast: source.ast,
     sourceFiles: sourceProjectFiles(source),
-  };
+  });
 }
 
 function getRequiredTargetPack(
@@ -239,101 +329,41 @@ function getRequiredTargetPack(
   target: TargetSelection,
 ): TargetPack | TargetDiagnostic {
   const targetPack = registry.get(target.id);
-  if (targetPack === undefined) {
-    return {
-      code: "TARGET_SELECTION",
-      category: "error",
-      message: `Unknown target '${target.id}'.`,
-      source: "tsonic-host",
-    };
-  }
-  return targetPack;
+  return targetPack ?? targetDiagnostic(
+    "tsonic-host",
+    "TARGET_SELECTION",
+    `Unknown target '${target.id}'.`,
+  );
 }
 
-function getTargetSelectedSurfaces(
-  targetPack: TargetPack,
+function diagnosticTargetBuild(
   target: TargetSelection,
-): readonly TargetSurfaceImplementation[] | TargetDiagnostic {
-  const result = selectTargetSurfaceImplementations(targetPack, target);
-  if ("error" in result) {
-    return {
-      code: "TARGET_SURFACE_SELECTION",
-      category: "error",
-      message: result.error,
-      source: targetPack.id,
-    };
-  }
-  return result.selectedSurfaces;
+  diagnostics: readonly TargetDiagnostic[],
+): TargetBuildResult {
+  return Object.freeze({
+    target,
+    compileResult: rejectedTargetStage<TargetCompileOutput>(diagnostics),
+    diagnostics,
+  });
 }
 
-function getTargetSelectedCapabilities(
-  installedCapabilities: readonly TargetCapabilityImplementation[],
-  targetPack: TargetPack,
-  target: TargetSelection,
-  selectedSurfaces: readonly TargetSurfaceImplementation[],
-): readonly TargetCapabilityImplementation[] | TargetDiagnostic {
-  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces);
-  if ("error" in result) {
-    return {
-      code: "TARGET_CAPABILITY_SELECTION",
-      category: "error",
-      message: result.error,
-      source: targetPack.id,
-    };
-  }
-  return result.selectedCapabilities;
+function targetDiagnostic(
+  source: string,
+  code: string,
+  message: string,
+): TargetDiagnostic {
+  return Object.freeze({ code, category: "error", message, source });
 }
 
-function getTargetProviderDiagnostic(
-  targetPack: TargetPack,
-  target: TargetSelection,
-): TargetDiagnostic | undefined {
-  if (targetPack.provider !== undefined) {
-    return undefined;
-  }
-  return {
-    code: "TARGET_PROVIDER",
-    category: "error",
-    message: getMissingTargetProviderMessage(target),
-    source: targetPack.id,
-  };
-}
-
-function isTargetDiagnostic(
-  value: unknown,
-): value is TargetDiagnostic {
-  return typeof value === "object" &&
-    value !== null &&
+function isTargetDiagnostic(value: unknown): value is TargetDiagnostic {
+  return typeof value === "object" && value !== null &&
     typeof (value as Readonly<Record<string, unknown>>).code === "string";
 }
 
-function hasBlockingDiagnostics(diagnostics: readonly TargetDiagnostic[]): boolean {
-  return diagnostics.some((diagnostic) => diagnostic.category === "error");
+function isErrorDiagnostic(diagnostic: TargetDiagnostic): boolean {
+  return diagnostic.category === "error";
 }
 
-function pushDiagnosticOnlyTargets(
-  buildPlans: readonly TargetBuildPlan[],
-  targets: TargetBuildResult[],
-  diagnostics: TargetDiagnostic[],
-): void {
-  for (const plan of buildPlans) {
-    pushDiagnosticOnlyTarget(targets, diagnostics, plan.target, plan.diagnostics);
-  }
-}
-
-function pushDiagnosticOnlyTarget(
-  targets: TargetBuildResult[],
-  diagnostics: TargetDiagnostic[],
-  target: TargetSelection,
-  targetDiagnostics: readonly TargetDiagnostic[],
-): void {
-  diagnostics.push(...targetDiagnostics);
-  targets.push({
-    target,
-    compileResult: {
-      artifacts: [],
-      diagnostics: [],
-    },
-    diagnostics: targetDiagnostics,
-  });
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -11,14 +11,19 @@ import {
   tsonicCoreSourceSemanticsModules,
 } from "@tsonic/source-core";
 import type {
+  SelectedTargetCapabilityContributions,
+  TargetCompositionContext,
   TargetPack,
+  TargetProviderDescriptor,
   TargetSelection,
+  TargetSourceCompilerContributions,
+  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import type {
-  TargetProvider,
+  TargetCapabilityContext,
   TargetCapabilityImplementation,
-  TargetSurfaceImplementation,
+  TargetProviderModuleOwnership,
 } from "@tsonic/target-api/provider";
 
 export interface CreateTargetSourceCompilerCompositionOptions {
@@ -26,15 +31,22 @@ export interface CreateTargetSourceCompilerCompositionOptions {
   readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
-  readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
-  readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+  readonly targetContributions: TargetSourceCompilerContributions;
 }
 
 export interface TargetSourceCompilerComposition {
-  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
-  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly semanticsModules: readonly SourceSemanticsModule[];
   readonly extensions: readonly CompilerExtension[];
+}
+
+export interface CaptureTargetCapabilityContributionsOptions {
+  readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
+  readonly target: TargetSelection;
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
 }
 
 export type TargetSurfaceSelectionResult =
@@ -53,119 +65,146 @@ export type TargetCapabilitySelectionResult =
       readonly error: string;
     };
 
+export function captureTargetCapabilityContributions(
+  options: CaptureTargetCapabilityContributionsOptions,
+): readonly SelectedTargetCapabilityContributions[] {
+  const context = createCompositionContext(options);
+  return Object.freeze(options.selectedCapabilities.map((capability) => {
+    const contributionContext: TargetCapabilityContext = Object.freeze({
+      ...context,
+      capability,
+    });
+    const contributions = capability.createTargetContributions?.(contributionContext) ?? [];
+    if (!Array.isArray(contributions)) {
+      throw new Error(
+        `Target capability '${capability.id}' returned a non-array target contribution set.`,
+      );
+    }
+    return Object.freeze({
+      capabilityId: capability.id,
+      moduleOwnership: Object.freeze([...capability.moduleOwnership]),
+      contributions: Object.freeze([...contributions]),
+    });
+  }));
+}
+
 export function createTargetSourceCompilerComposition(
   options: CreateTargetSourceCompilerCompositionOptions,
 ): TargetSourceCompilerComposition {
-  const selectedSurfaces = options.selectedSurfaces === undefined
-    ? getSelectedSurfaceImplementations(options.targetPack, options.target)
-    : validateSelectedSurfaceComposition(options.targetPack, options.target, options.selectedSurfaces);
-  const selectedCapabilities = options.selectedCapabilities ?? [];
-  const provider = requireTargetProvider(options.targetPack, options.target);
-  const providerContext = {
-    project: options.project,
-    projectDirectory: options.projectDirectory,
-    target: options.target,
-    targetPack: options.targetPack,
-    selectedCapabilities,
-    selectedSurfaces,
-  };
-  const providerContributions = provider.sourceCompilerContributions(providerContext);
-  const capabilityContributions = selectedCapabilities.map((capability) =>
-    capability.sourceCompilerContributions?.({
-      project: options.project,
-      target: options.target,
-      targetPack: options.targetPack,
-      selectedCapabilities,
-      selectedSurfaces,
+  const context = createCompositionContext(options);
+  const capabilityContributions = options.selectedCapabilities.map((capability) =>
+    capability.sourceCompilerContributions?.(Object.freeze({
+      ...context,
       capability,
-    }) ?? {}
+    })) ?? {},
   );
-  const surfaceContributions = selectedSurfaces.map((surface) =>
-    surface.sourceCompilerContributions?.({
-      ...providerContext,
+  const surfaceContributions = options.selectedSurfaces.map((surface) =>
+    surface.sourceCompilerContributions?.(Object.freeze({
+      ...context,
       surface,
-    }) ?? {}
+    })) ?? {},
   );
   const semanticsModules = Object.freeze([
     ...tsonicCoreSourceSemanticsModules(),
-    ...(providerContributions.semanticsModules ?? []),
+    ...(options.targetContributions.semanticsModules ?? []),
     ...capabilityContributions.flatMap((contribution) => contribution.semanticsModules ?? []),
     ...surfaceContributions.flatMap((contribution) => contribution.semanticsModules ?? []),
   ]);
   const extensions = Object.freeze([
     createSourceSemanticsExtension({ modules: semanticsModules }),
     createTsonicCoreSourceExtension(),
-    ...(providerContributions.extensions ?? []),
+    ...(options.targetContributions.extensions ?? []),
     ...capabilityContributions.flatMap((contribution) => contribution.extensions ?? []),
     ...surfaceContributions.flatMap((contribution) => contribution.extensions ?? []),
   ]);
-  return {
-    selectedCapabilities,
-    selectedSurfaces,
-    semanticsModules,
-    extensions,
-  };
-}
-
-export function requireTargetProvider(targetPack: TargetPack, target: TargetSelection): TargetProvider {
-  const provider = targetPack.provider;
-  if (provider === undefined) {
-    throw new Error(getMissingTargetProviderMessage(target));
-  }
-  return provider;
-}
-
-export function getMissingTargetProviderMessage(target: TargetSelection): string {
-  return `target '${target.id}' does not declare a provider; Tsonic requires provider-composed TSTS facts before backend emission`;
+  return Object.freeze({ semanticsModules, extensions });
 }
 
 export function getTargetRequiredProviderModules(
-  targetPack: TargetPack,
   target: TargetSelection,
-  selectedCapabilities: readonly TargetCapabilityImplementation[] = [],
+  provider: TargetProviderDescriptor,
+  selectedCapabilities: readonly TargetCapabilityImplementation[],
 ): readonly RequiredProviderModuleSpec[] {
-  const specs: RequiredProviderModuleSpec[] = [];
-  for (const ownership of targetPack.provider?.moduleOwnership ?? []) {
-    specs.push({
-      specifierPrefix: ownership.specifierPrefix,
-      ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
-      message: ownership.message ??
-        `target '${target.id}' provider must own provider module prefix '${ownership.specifierPrefix}' before it can be imported`,
-    });
-  }
-  for (const capability of selectedCapabilities) {
-    for (const ownership of capability.moduleOwnership ?? []) {
-      specs.push({
-        specifierPrefix: ownership.specifierPrefix,
-      ...(ownership.providerId === undefined ? {} : { providerId: ownership.providerId }),
-      message: ownership.message ?? `installed capability '${capability.id}' for target '${target.id}' must own provider module prefix '${ownership.specifierPrefix}' before it can be imported`,
-      });
+  const ownership = validateTargetModuleOwnership(
+    target,
+    provider,
+    selectedCapabilities,
+  );
+  return Object.freeze(ownership.map((entry) => Object.freeze({
+    specifierPrefix: entry.ownership.specifierPrefix,
+    ...(entry.ownership.providerId === undefined ? {} : { providerId: entry.ownership.providerId }),
+    message: entry.ownership.message ??
+      `${entry.ownerKind} '${entry.ownerId}' for target '${target.id}' must own provider module prefix '${entry.ownership.specifierPrefix}' before it can be imported`,
+  })));
+}
+
+export function validateTargetModuleOwnership(
+  target: TargetSelection,
+  provider: TargetProviderDescriptor,
+  selectedCapabilities: readonly TargetCapabilityImplementation[],
+): readonly TargetModuleOwnership[] {
+  const declared: TargetModuleOwnership[] = [
+    ...provider.moduleOwnership.map((ownership) => ({
+      ownerId: provider.id,
+      ownerKind: "target provider" as const,
+      ownership,
+    })),
+    ...selectedCapabilities.flatMap((capability) => capability.moduleOwnership.map((ownership) => ({
+      ownerId: capability.id,
+      ownerKind: "target capability" as const,
+      ownership,
+    }))),
+  ];
+  const canonical: TargetModuleOwnership[] = [];
+  for (const entry of declared) {
+    let duplicate = false;
+    for (const existing of canonical) {
+      if (!moduleOwnershipOverlaps(existing.ownership.specifierPrefix, entry.ownership.specifierPrefix)) {
+        continue;
+      }
+      if (existing.ownerId !== entry.ownerId) {
+        throw new Error(
+          `Ambiguous Tsonic provider ownership for target '${target.id}' and module prefixes '${existing.ownership.specifierPrefix}' (${existing.ownerId}) and '${entry.ownership.specifierPrefix}' (${entry.ownerId}).`,
+        );
+      }
+      if (effectiveProviderId(existing) !== effectiveProviderId(entry)) {
+        throw new Error(
+          `Contradictory Tsonic provider ownership for target '${target.id}' and module prefixes '${existing.ownership.specifierPrefix}' and '${entry.ownership.specifierPrefix}' from '${entry.ownerId}'.`,
+        );
+      }
+      if (existing.ownership.specifierPrefix === entry.ownership.specifierPrefix) {
+        if (!sameModuleOwnership(existing.ownership, entry.ownership)) {
+          throw new Error(
+            `Contradictory Tsonic provider ownership metadata for target '${target.id}' and module prefix '${entry.ownership.specifierPrefix}' from '${entry.ownerId}'.`,
+          );
+        }
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) {
+      canonical.push(entry);
     }
   }
-  return specs;
+  return Object.freeze([...canonical].sort(compareTargetModuleOwnership));
 }
 
-export function getSelectedSurfaceImplementations(
-  targetPack: TargetPack,
-  target: TargetSelection,
-): readonly TargetSurfaceImplementation[] {
-  const result = selectTargetSurfaceImplementations(targetPack, target);
-  if ("error" in result) {
-    throw new Error(result.error);
-  }
-  return result.selectedSurfaces;
+export interface TargetModuleOwnership {
+  readonly ownerId: string;
+  readonly ownerKind: "target provider" | "target capability";
+  readonly ownership: TargetProviderModuleOwnership;
 }
 
-export function getSelectedTargetCapabilities(
-  target: TargetSelection,
-  installedCapabilities: readonly TargetCapabilityImplementation[],
-  selectedSurfaces: readonly TargetSurfaceImplementation[] = [],
-): readonly TargetCapabilityImplementation[] {
-  const result = selectInstalledTargetCapabilities(target, installedCapabilities, selectedSurfaces);
-  if ("error" in result) {
-    throw new Error(result.error);
+export function moduleSpecifierMatchesOwnership(specifier: string, specifierPrefix: string): boolean {
+  if (specifier.startsWith(specifierPrefix) && /[:/]$/.test(specifierPrefix)) {
+    return true;
   }
-  return result.selectedCapabilities;
+  return specifier === specifierPrefix || specifier.startsWith(`${specifierPrefix}/`);
+}
+
+export function moduleOwnershipOverlaps(left: string, right: string): boolean {
+  return moduleSpecifierMatchesOwnership(left, right) ||
+    moduleSpecifierMatchesOwnership(right, left);
 }
 
 export function selectInstalledTargetCapabilities(
@@ -174,7 +213,6 @@ export function selectInstalledTargetCapabilities(
   selectedSurfaces: readonly TargetSurfaceImplementation[] = [],
 ): TargetCapabilitySelectionResult {
   const selectedCapabilities: TargetCapabilityImplementation[] = [];
-  const moduleOwners = new Map<string, string>();
   const selectedCapabilityIds = new Set(installedCapabilities
     .filter((capability) => capability.targetId === target.id)
     .map((capability) => capability.id));
@@ -193,23 +231,20 @@ export function selectInstalledTargetCapabilities(
         return { error: `installed capability '${capability.id}' for target '${target.id}' requires capability '${requiredCapabilityId}'` };
       }
     }
-    for (const ownership of capability.moduleOwnership) {
-      const previousOwner = moduleOwners.get(ownership.specifierPrefix);
-      if (previousOwner !== undefined) {
-        return { error: `Ambiguous Tsonic capability ownership for target '${target.id}' and module '${ownership.specifierPrefix}': ${previousOwner}, ${capability.id}` };
+    for (const existing of selectedCapabilities) {
+      for (const left of existing.moduleOwnership) {
+        for (const right of capability.moduleOwnership) {
+          if (moduleOwnershipOverlaps(left.specifierPrefix, right.specifierPrefix)) {
+            return {
+              error: `Ambiguous Tsonic capability ownership for target '${target.id}' and module prefixes '${left.specifierPrefix}' (${existing.id}) and '${right.specifierPrefix}' (${capability.id}).`,
+            };
+          }
+        }
       }
-      moduleOwners.set(ownership.specifierPrefix, capability.id);
     }
     selectedCapabilities.push(capability);
   }
-  return { selectedCapabilities };
-}
-
-export function moduleSpecifierMatchesOwnership(specifier: string, specifierPrefix: string): boolean {
-  if (specifier.startsWith(specifierPrefix) && /[:/]$/.test(specifierPrefix)) {
-    return true;
-  }
-  return specifier === specifierPrefix || specifier.startsWith(`${specifierPrefix}/`);
+  return { selectedCapabilities: Object.freeze(selectedCapabilities) };
 }
 
 export function selectTargetSurfaceImplementations(
@@ -218,7 +253,7 @@ export function selectTargetSurfaceImplementations(
 ): TargetSurfaceSelectionResult {
   const requestedSurfaces = target.surfaces ?? [];
   const surfaceById = new Map<string, TargetSurfaceImplementation>();
-  for (const surface of targetPack.surfaces ?? []) {
+  for (const surface of targetPack.surfaces) {
     if (surfaceById.has(surface.id)) {
       return { error: `target '${target.id}' declares surface '${surface.id}' more than once` };
     }
@@ -244,26 +279,44 @@ export function selectTargetSurfaceImplementations(
       }
     }
   }
-  return { selectedSurfaces };
+  return { selectedSurfaces: Object.freeze(selectedSurfaces) };
 }
 
-function validateSelectedSurfaceComposition(
-  targetPack: TargetPack,
-  target: TargetSelection,
-  selectedSurfaces: readonly TargetSurfaceImplementation[],
-): readonly TargetSurfaceImplementation[] {
-  const expectedSurfaces = getSelectedSurfaceImplementations(targetPack, target);
-  const hasExactComposition = selectedSurfaces.length === expectedSurfaces.length &&
-    selectedSurfaces.every((surface, index) => surface === expectedSurfaces[index]);
-  if (!hasExactComposition) {
-    throw new Error(
-      `target '${target.id}' selected surface composition is stale or unowned; expected selected target pack surfaces ` +
-        `[${formatSurfaceIds(expectedSurfaces)}], received [${formatSurfaceIds(selectedSurfaces)}]`,
-    );
-  }
-  return selectedSurfaces;
+function createCompositionContext(options: {
+  readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
+  readonly target: TargetSelection;
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+}): TargetCompositionContext {
+  return Object.freeze({
+    project: options.project,
+    projectDirectory: options.projectDirectory,
+    target: options.target,
+    selectedCapabilityIds: Object.freeze(options.selectedCapabilities.map((capability) => capability.id)),
+    selectedSurfaceIds: Object.freeze(options.selectedSurfaces.map((surface) => surface.id)),
+  });
 }
 
-function formatSurfaceIds(surfaces: readonly TargetSurfaceImplementation[]): string {
-  return surfaces.map((surface) => surface.id).join(",");
+function sameModuleOwnership(
+  left: TargetProviderModuleOwnership,
+  right: TargetProviderModuleOwnership,
+): boolean {
+  return left.specifierPrefix === right.specifierPrefix &&
+    left.providerId === right.providerId &&
+    left.message === right.message;
+}
+
+function effectiveProviderId(entry: TargetModuleOwnership): string {
+  return entry.ownership.providerId ?? entry.ownerId;
+}
+
+function compareTargetModuleOwnership(
+  left: TargetModuleOwnership,
+  right: TargetModuleOwnership,
+): number {
+  return right.ownership.specifierPrefix.length - left.ownership.specifierPrefix.length ||
+    left.ownership.specifierPrefix.localeCompare(right.ownership.specifierPrefix) ||
+    left.ownerId.localeCompare(right.ownerId) ||
+    (left.ownership.providerId ?? "").localeCompare(right.ownership.providerId ?? "");
 }

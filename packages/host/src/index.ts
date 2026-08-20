@@ -1,23 +1,5 @@
 export { compileProject } from "./build.js";
 export type { CompileProjectInput, ProjectBuildResult, TargetBuildResult } from "./build.js";
-export {
-  collectTargetRuntimeContributions,
-  collectTstsDiagnostics,
-  compileTargetFromSemanticSession,
-  createTargetSourceCompilerComposition,
-  createTsonicSemanticSession,
-  getSelectedSurfaceImplementations,
-  getSelectedTargetCapabilities,
-  getTargetRequiredProviderModules,
-} from "./compiler-session.js";
-export type {
-  CollectedTargetRuntimeContributions,
-  CollectTargetRuntimeContributionsOptions,
-  CreateTargetSourceCompilerCompositionOptions,
-  CreateTsonicSemanticSessionOptions,
-  TargetSourceCompilerComposition,
-  TsonicSemanticSession,
-} from "./compiler-session.js";
 export { createProgramOptionsForProject } from "./program-options.js";
 export type { SourceDeclarationSnapshot } from "./program-options.js";
 export type { CreatedProgramOptions, CreateProgramOptionsInput } from "./program-options.js";

@@ -1,4 +1,4 @@
-import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetSourceCompilerComposition, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, fakePaths, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference } from "./surface-composition.helpers.mjs";
+import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectFakeTargetSourceProfile, compileProject, createProgramOptionsForProject, composeFakeTargetSourceCompiler, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference, targetArtifacts } from "./surface-composition.helpers.mjs";
 import { sourceProjectFiles } from "../../../packages/target-api/dist/public/source.js";
 
 test("host omits surface runtime artifacts when no surface is selected", async () => {
@@ -21,19 +21,19 @@ test("host omits surface runtime artifacts when no surface is selected", async (
     id: "demo",
   });
 
-  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+  assert.deepEqual(targetArtifacts(result.targets[0]).map((artifact) => artifact.path), [
     "runtime/provider.txt",
   ]);
   assert.equal(events.includes("surface-runtime:js"), false);
 });
-test("host reports duplicate runtime artifacts as target diagnostics before backend emission", async () => {
+test("host reports duplicate runtime artifacts as target diagnostics before target compilation", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     providerArtifacts: [
       createFakeArtifact("asset", "runtime/shared.txt", "provider"),
     ],
-    backendArtifacts: [
-      createFakeArtifact("source", "src/App.demo", "backend"),
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
     ],
     surfaces: [
       createFakeSurface("js", {
@@ -59,18 +59,18 @@ test("host reports duplicate runtime artifacts as target diagnostics before back
   assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "duplicate target runtime artifact 'runtime/shared.txt'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
-  assert.equal(events.includes("backend:demo"), false);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
+  assert.equal(events.includes("compile:demo"), false);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });
-test("host reports duplicate runtime references as target diagnostics before backend emission", async () => {
+test("host reports duplicate runtime references as target diagnostics before target compilation", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     providerReferences: [
       createFakeReference("project", "../runtime/Runtime.csproj"),
     ],
-    backendArtifacts: [
-      createFakeArtifact("source", "src/App.demo", "backend"),
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
     ],
     surfaces: [
       createFakeSurface("js", {
@@ -96,25 +96,25 @@ test("host reports duplicate runtime references as target diagnostics before bac
   assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "duplicate target runtime reference 'project:../runtime/Runtime.csproj'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
-  assert.equal(events.includes("backend:demo"), false);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
+  assert.equal(events.includes("compile:demo"), false);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });
-test("host suppresses backend artifacts and toolchain when backend reports errors", async () => {
+test("host suppresses compiled artifacts and toolchain when target compilation reports errors", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     providerArtifacts: [
       createFakeArtifact("asset", "runtime/provider.txt", "provider"),
     ],
-    backendArtifacts: [
-      createFakeArtifact("source", "src/App.demo", "backend"),
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
     ],
-    backendDiagnostics: [
+    compileDiagnostics: [
       {
         code: "MISSING_FACT",
         category: "error",
         message: "backend requires finalized target facts before emission",
-        source: "demo-backend",
+        source: "demo-target",
         sourceSpan: {
           fileName: "src/index.ts",
           line: 1,
@@ -137,7 +137,7 @@ test("host suppresses backend artifacts and toolchain when backend reports error
   assert.deepEqual(events, [
     "provider:demo:surfaces=",
     "provider-runtime:demo",
-    "backend:demo",
+    "compile:demo",
   ]);
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "MISSING_FACT");
@@ -153,7 +153,7 @@ test("host suppresses backend artifacts and toolchain when backend reports error
     "required fact: selected-target-operation",
     "capability: diagnostic.missing-target-fact",
   ]);
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
   assert.equal(result.targets[0].compileResult.diagnostics.length, 1);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });
@@ -218,7 +218,7 @@ test("host gives backends the TSTS source graph instead of the raw project file 
     targets: [{ id: "demo" }],
   };
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       backendProjectSourceFiles = sourceProjectFiles(input.source)
         .map((sourceFile) => input.source.ast.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
@@ -258,14 +258,18 @@ test("host exposes TSTS flow-narrowed source types through the checked source pr
     targets: [{ id: "demo" }],
   };
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
       const narrowedText = findVariableInitializer(input.source.ast, sourceFile, "narrowedText");
       const narrowedNumber = findVariableInitializer(input.source.ast, sourceFile, "narrowedNumber");
       const semantics = input.source.semantics.forFile(sourceFile);
-      narrowedTypes.text = semantics.typeToString(semantics.getTypeAtLocation(narrowedText));
-      narrowedTypes.number = semantics.typeToString(semantics.getTypeAtLocation(narrowedNumber));
+      narrowedTypes.text = semantics.types.isStringLike(
+        semantics.types.expressionType(narrowedText),
+      );
+      narrowedTypes.number = semantics.types.isNumberLike(
+        semantics.types.expressionType(narrowedNumber),
+      );
     },
   });
   await writeProject(projectDirectory, {
@@ -294,13 +298,13 @@ test("host exposes TSTS flow-narrowed source types through the checked source pr
 
   assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(narrowedTypes, {
-    text: "string",
-    number: "number",
+    text: true,
+    number: true,
   });
   assert.deepEqual(events, [
     "provider:demo:surfaces=",
     "provider-runtime:demo",
-    "backend:demo",
+    "compile:demo",
     "toolchain:demo:artifacts=",
   ]);
 });
@@ -314,7 +318,7 @@ test("host rejects invalid flow-narrowed source before backend analysis runs", a
     targets: [{ id: "demo" }],
   };
   const targetPack = createFakeTargetPack(events, {
-    onBackend() {
+    onCompile() {
       assert.fail("Backend must not run after TSTS source diagnostics.");
     },
   });
@@ -353,7 +357,7 @@ test("host rejects invalid flow-narrowed source before backend analysis runs", a
   assert.deepEqual(events, [
     "provider:demo:surfaces=",
   ]);
-  assert.deepEqual(result.targets[0].compileResult.artifacts, []);
+  assert.deepEqual(targetArtifacts(result.targets[0]), []);
 });
 test("host exposes broad TSTS flow-narrowed source types without target policy conclusions", async () => {
   const events = [];
@@ -366,13 +370,16 @@ test("host exposes broad TSTS flow-narrowed source types without target policy c
     targets: [{ id: "demo" }],
   };
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       const sourceFile = sourceProjectFiles(input.source).find((candidate) => input.source.ast.getFileName(candidate).endsWith("/src/index.ts"));
       assert.ok(sourceFile !== undefined);
       const semantics = input.source.semantics.forFile(sourceFile);
       for (const name of ["foundShape", "missingShape", "truthyValue", "derivedValue", "nullishValue"]) {
         const initializer = findVariableInitializer(input.source.ast, sourceFile, name);
-        observedTypes[name] = semantics.typeToString(semantics.getTypeAtLocation(initializer));
+        observedTypes[name] = summarizeSourceType(
+          semantics,
+          semantics.types.expressionType(initializer),
+        );
       }
     },
   });
@@ -422,19 +429,35 @@ test("host exposes broad TSTS flow-narrowed source types without target policy c
 
   assert.deepEqual(result.diagnostics, []);
   assert.deepEqual(observedTypes, {
-    foundShape: "Found",
-    missingShape: "Missing",
-    truthyValue: "string | number",
-    derivedValue: "DerivedValue",
-    nullishValue: "string | number",
+    foundShape: { symbol: "Found", string: false, number: false, nullish: false },
+    missingShape: { symbol: "Missing", string: false, number: false, nullish: false },
+    truthyValue: { symbol: undefined, string: true, number: true, nullish: false },
+    derivedValue: { symbol: "DerivedValue", string: false, number: false, nullish: false },
+    nullishValue: { symbol: undefined, string: true, number: true, nullish: false },
   });
   assert.deepEqual(events, [
     "provider:demo:surfaces=",
     "provider-runtime:demo",
-    "backend:demo",
+    "compile:demo",
     "toolchain:demo:artifacts=",
   ]);
 });
+
+function summarizeSourceType(semantics, type) {
+  const members = semantics.types.isUnion(type)
+    ? semantics.types.unionOrIntersectionTypes(type)
+    : [type];
+  const symbol = semantics.declarations.typeAliasSymbol(type) ??
+    semantics.declarations.typeSymbol(type);
+  return {
+    symbol: symbol === undefined
+      ? undefined
+      : semantics.declarations.symbolName(symbol),
+    string: members.some((member) => semantics.types.isStringLike(member)),
+    number: members.some((member) => semantics.types.isNumberLike(member)),
+    nullish: members.some((member) => semantics.types.isNullish(member)),
+  };
+}
 test("host source graph follows relative ESM import and export edges through TSTS", async () => {
   const events = [];
   let backendProjectSourceFiles = [];
@@ -446,7 +469,7 @@ test("host source graph follows relative ESM import and export edges through TST
     targets: [{ id: "demo" }],
   };
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       backendProjectSourceFiles = sourceProjectFiles(input.source)
         .map((sourceFile) => input.source.ast.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
@@ -508,7 +531,7 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
     targets: [{ id: "demo" }],
   };
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       backendProjectSourceFiles = sourceProjectFiles(input.source)
         .map((sourceFile) => input.source.ast.getFileName(sourceFile))
         .filter((fileName) => fileName.startsWith(projectDirectory))
@@ -553,20 +576,9 @@ test("host source graph follows package exports and subpaths through TSTS", asyn
   });
 
   const project = parseTsonicProjectConfig(projectConfig);
-  const programOptions = createProgramOptionsForProject({
-    project,
-    projectFilePath: resolve(projectDirectory, "tsonic.json"),
-  }).programOptions;
-  const session = createTsonicSemanticSession({
-    programOptions,
-    project,
-    projectDirectory,
-    target: project.targets[0],
-    targetPack,
-    selectedSurfaces: [],
-  });
-  const allTstsProjectFiles = sourceProjectFiles(session.source)
-    .map((sourceFile) => sourceFile === undefined ? undefined : session.source.ast.getFileName(sourceFile))
+  const checked = createSemanticSession(projectDirectory, projectConfig, targetPack).source;
+  const allTstsProjectFiles = sourceProjectFiles(checked)
+    .map((sourceFile) => sourceFile === undefined ? undefined : checked.ast.getFileName(sourceFile))
     .filter((fileName) => fileName?.startsWith(projectDirectory))
     .map((fileName) => fileName.slice(projectDirectory.length + 1).split("\\").join("/"))
     .sort();
@@ -614,7 +626,7 @@ test("host rejects invalid target source-profile declaration file names", () => 
     ],
   });
 
-  const sourceProfile = collectTargetSourceProfileContributions({
+  const sourceProfile = collectFakeTargetSourceProfile({
     project,
     projectRoot,
     target,
@@ -625,9 +637,9 @@ test("host rejects invalid target source-profile declaration file names", () => 
 
   assert.deepEqual(sourceProfile.files, []);
   assert.deepEqual(sourceProfile.diagnostics.map((diagnostic) => diagnostic.message), [
-    "Source profile declaration 'globals.ts' from 'demo-provider' must be a .d.ts file.",
-    "Source profile declaration '../escape.d.ts' from 'demo-provider' must be a file name, not a path.",
-    "Source profile declaration 'nested/globals.d.ts' from 'demo-provider' must be a file name, not a path.",
+    "Source profile declaration 'globals.ts' from 'demo' must be a .d.ts file.",
+    "Source profile declaration '../escape.d.ts' from 'demo' must be a file name, not a path.",
+    "Source profile declaration 'nested/globals.d.ts' from 'demo' must be a file name, not a path.",
   ]);
 });
 test("host rejects duplicate target source-profile virtual paths from one owner", () => {
@@ -645,7 +657,7 @@ test("host rejects duplicate target source-profile virtual paths from one owner"
     ],
   });
 
-  const sourceProfile = collectTargetSourceProfileContributions({
+  const sourceProfile = collectFakeTargetSourceProfile({
     project,
     projectRoot,
     target,
@@ -655,10 +667,10 @@ test("host rejects duplicate target source-profile virtual paths from one owner"
   });
 
   assert.deepEqual(sourceProfile.files.map((file) => file.path), [
-    resolve(projectRoot, ".tsonic/source-profiles/demo-provider/globals.d.ts").split("\\").join("/"),
+    resolve(projectRoot, ".tsonic/source-profiles/demo/globals.d.ts").split("\\").join("/"),
   ]);
   assert.deepEqual(sourceProfile.diagnostics.map((diagnostic) => diagnostic.message), [
-    `Source profile declaration path '${resolve(projectRoot, ".tsonic/source-profiles/demo-provider/globals.d.ts").split("\\").join("/")}' is contributed by both 'demo-provider' and 'demo-provider'.`,
+    `Source profile declaration path '${resolve(projectRoot, ".tsonic/source-profiles/demo/globals.d.ts").split("\\").join("/")}' is contributed by both 'demo' and 'demo'.`,
   ]);
 });
 test("host blocks semantic input and backend execution for invalid source-profile declarations", async () => {
@@ -674,7 +686,7 @@ test("host blocks semantic input and backend execution for invalid source-profil
   assert.deepEqual(events, []);
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "TARGET_SOURCE_PROFILE");
-  assert.equal(result.diagnostics[0].message, "Source profile declaration 'globals.ts' from 'demo-provider' must be a .d.ts file.");
+  assert.equal(result.diagnostics[0].message, "Source profile declaration 'globals.ts' from 'demo' must be a .d.ts file.");
   assert.equal(result.targets.length, 1);
-  assert.deepEqual(result.targets[0].compileResult.artifacts, []);
+  assert.deepEqual(targetArtifacts(result.targets[0]), []);
 });

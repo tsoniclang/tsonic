@@ -4,27 +4,34 @@ import { dirname, resolve } from "node:path";
 import test from "node:test";
 
 import {
-  collectTstsDiagnostics,
   collectTargetSourceProfileContributions,
-  compileTargetFromSemanticSession,
   compileProject,
   createProgramOptionsForProject,
-  createTsonicSemanticSession,
-  createTargetSourceCompilerComposition,
   parseTsonicProjectConfig,
 } from "../../../packages/host/dist/index.js";
+import { collectTstsDiagnostics } from "../../../packages/host/dist/diagnostics.js";
+import {
+  captureTargetCapabilityContributions,
+  createTargetSourceCompilerComposition,
+  getTargetRequiredProviderModules,
+} from "../../../packages/host/dist/target/extensions.js";
 import {
   createTargetRegistry,
 } from "../../../packages/target-api/dist/public/index.js";
+import {
+  rejectedTargetStage,
+  resolvedTargetStage,
+} from "../../../packages/target-api/dist/public/artifacts.js";
 import {
   targetSourceProfileDeclaration,
 } from "../../../packages/target-api/dist/public/provider.js";
 import {
   defineExtensionFactKey,
+  createCompilerSession,
   providerVirtualDeclarationFactKey,
   TstsSourceProviderContractVersion,
 } from "@tsonic/tsts";
-export { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetSourceCompilerComposition, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, TstsSourceProviderContractVersion };
+export { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileProject, createProgramOptionsForProject, parseTsonicProjectConfig, createTargetRegistry, rejectedTargetStage, resolvedTargetStage, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, TstsSourceProviderContractVersion };
 
 export const repoRoot = process.cwd();
 export const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);
@@ -122,13 +129,32 @@ export async function compileFakeProject(name, targetPack, targetSelection, opti
 export function createSemanticSession(projectDirectory, projectConfig, targetPack, selectedCapabilities = []) {
   const project = parseTsonicProjectConfig(projectConfig);
   const target = project.targets[0];
+  const selectedSurfaces = targetPack.surfaces.filter((surface) =>
+    (target.surfaces ?? []).includes(surface.id));
+  const paths = fakePaths(projectDirectory);
+  const targetSession = targetPack.createCompilationSession({
+    project,
+    projectDirectory,
+    target,
+    paths,
+    selectedSurfaceIds: selectedSurfaces.map((surface) => surface.id),
+    capabilities: captureTargetCapabilityContributions({
+      project,
+      projectDirectory,
+      target,
+      selectedCapabilities,
+      selectedSurfaces,
+    }),
+  });
   const sourceProfile = collectTargetSourceProfileContributions({
     project,
     projectRoot: projectDirectory,
+    projectDirectory,
     target,
-    targetPack,
+    targetPackId: targetPack.id,
     selectedCapabilities,
-    selectedSurfaces: [],
+    selectedSurfaces,
+    targetContributions: targetSession.sourceProfileContributions(),
   });
   assert.deepEqual(sourceProfile.diagnostics, []);
   const programOptions = createProgramOptionsForProject({
@@ -136,14 +162,111 @@ export function createSemanticSession(projectDirectory, projectConfig, targetPac
     projectFilePath: resolve(projectDirectory, "tsonic.json"),
     sourceProfileFiles: sourceProfile.files,
   }).programOptions;
-  return createTsonicSemanticSession({
-    programOptions,
+  const composition = createTargetSourceCompilerComposition({
     project,
     projectDirectory,
     target,
     targetPack,
     selectedCapabilities,
+    selectedSurfaces,
+    targetContributions: targetSession.sourceCompilerContributions(),
   });
+  const source = createCompilerSession({
+    programOptions,
+    extensionHostOptions: {
+      extensions: composition.extensions,
+      requiredProviderModules: getTargetRequiredProviderModules(
+        target,
+        targetPack.provider,
+        selectedCapabilities,
+      ),
+    },
+  }).checkSource();
+  targetSession.close();
+  return { source };
+}
+
+export function composeFakeTargetSourceCompiler({
+  project,
+  projectDirectory,
+  target,
+  targetPack,
+  selectedCapabilities = [],
+}) {
+  const selectedSurfaces = targetPack.surfaces.filter((surface) =>
+    (target.surfaces ?? []).includes(surface.id));
+  const targetSession = targetPack.createCompilationSession({
+    project,
+    projectDirectory,
+    target,
+    paths: fakePaths(projectDirectory),
+    selectedSurfaceIds: selectedSurfaces.map((surface) => surface.id),
+    capabilities: captureTargetCapabilityContributions({
+      project,
+      projectDirectory,
+      target,
+      selectedCapabilities,
+      selectedSurfaces,
+    }),
+  });
+  targetSession.sourceProfileContributions();
+  const composition = createTargetSourceCompilerComposition({
+    project,
+    projectDirectory,
+    target,
+    targetPack,
+    selectedCapabilities,
+    selectedSurfaces,
+    targetContributions: targetSession.sourceCompilerContributions(),
+  });
+  targetSession.close();
+  return {
+    ...composition,
+    selectedCapabilities,
+    selectedSurfaces,
+  };
+}
+
+export function collectFakeTargetSourceProfile({
+  project,
+  projectRoot,
+  target,
+  targetPack,
+  selectedCapabilities = [],
+  selectedSurfaces = [],
+}) {
+  const targetSession = targetPack.createCompilationSession({
+    project,
+    projectDirectory: projectRoot,
+    target,
+    paths: fakePaths(projectRoot),
+    selectedSurfaceIds: selectedSurfaces.map((surface) => surface.id),
+    capabilities: captureTargetCapabilityContributions({
+      project,
+      projectDirectory: projectRoot,
+      target,
+      selectedCapabilities,
+      selectedSurfaces,
+    }),
+  });
+  const result = collectTargetSourceProfileContributions({
+    project,
+    projectRoot,
+    projectDirectory: projectRoot,
+    target,
+    targetPackId: targetPack.id,
+    selectedCapabilities,
+    selectedSurfaces,
+    targetContributions: targetSession.sourceProfileContributions(),
+  });
+  targetSession.close();
+  return result;
+}
+
+export function targetArtifacts(targetBuild) {
+  return targetBuild.compileResult.kind === "resolved"
+    ? targetBuild.compileResult.value.artifacts
+    : [];
 }
 
 export async function writeProject(projectDirectory, files) {
@@ -225,29 +348,27 @@ export function createFakeTargetPack(events, options = {}) {
   return {
     id: options.id ?? "demo",
     displayName: "Demo Target",
-    ...(options.includeProvider === false
-      ? {}
-      : {
-          provider: {
-            id: "demo-provider",
-            displayName: "Demo Provider",
-            ...((options.providerModuleOwnership ?? []).length > 0 ? { moduleOwnership: options.providerModuleOwnership } : {}),
-            sourceCompilerContributions(context) {
-              events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
-              return options.targetExtension === undefined
-                ? {}
-                : { extensions: [options.targetExtension] };
-            },
-            runtimeContributions(context) {
-              events.push(`provider-runtime:${context.target.id}`);
-              return {
-                artifacts: options.providerArtifacts ?? [],
-                references: options.providerReferences ?? [],
-              };
-            },
-            sourceProfileContributions() {
-              return {
-                declarations: options.providerSourceProfileDeclarations ?? [
+    provider: {
+      id: "demo-provider",
+      displayName: "Demo Provider",
+      moduleOwnership: options.providerModuleOwnership ?? [],
+    },
+    surfaces: options.surfaces ?? [],
+    createCompilationSession(context) {
+      options.onSessionContext?.(context);
+      if (options.traceLifecycle === true) {
+        events.push("session:create");
+      }
+      let state = "created";
+      return {
+        sourceProfileContributions() {
+          assert.equal(state, "created");
+          state = "profile";
+          if (options.traceLifecycle === true) {
+            events.push("session:profile");
+          }
+          return {
+            declarations: options.providerSourceProfileDeclarations ?? [
                   targetSourceProfileDeclaration("globals.d.ts", [
                     "interface Array<T> {}",
                     "interface Boolean {}",
@@ -262,23 +383,58 @@ export function createFakeTargetPack(events, options = {}) {
                     "",
                   ].join("\n")),
                 ],
-              };
-            },
-          },
-        }),
-    surfaces: options.surfaces ?? [],
-    createBackend() {
-      return {
+          };
+        },
+        sourceCompilerContributions() {
+          assert.equal(state, "profile");
+          state = "compiler";
+          if (options.traceLifecycle === true) {
+            events.push("session:compiler");
+          }
+          events.push(`provider:${context.target.id}:surfaces=${context.selectedSurfaceIds.join(",")}`);
+          return options.targetExtension === undefined
+            ? {}
+            : { extensions: [options.targetExtension] };
+        },
+        runtimeContributions() {
+          assert.equal(state, "compiler");
+          state = "runtime";
+          if (options.traceLifecycle === true) {
+            events.push("session:runtime");
+          }
+          events.push(`provider-runtime:${context.target.id}`);
+          return {
+            artifacts: options.providerArtifacts ?? [],
+            references: options.providerReferences ?? [],
+          };
+        },
         compile(input) {
-          const result = options.onBackend?.(input);
+          assert.equal(state, "runtime");
+          state = "compiled";
+          if (options.traceLifecycle === true) {
+            events.push("session:compile");
+          }
+          const result = options.onCompile?.(input);
+          events.push(`compile:${input.target.id}`);
           if (result !== undefined) {
             return result;
           }
-          events.push(`backend:${input.target.id}`);
-          return {
-            artifacts: options.backendArtifacts ?? [],
-            diagnostics: options.backendDiagnostics ?? [],
-          };
+          const diagnostics = options.compileDiagnostics ?? [];
+          return diagnostics.some((diagnostic) => diagnostic.category === "error")
+            ? rejectedTargetStage(diagnostics)
+            : resolvedTargetStage(
+                { artifacts: options.compileArtifacts ?? [] },
+                diagnostics,
+              );
+        },
+        close() {
+          state = "closed";
+          if (options.traceLifecycle === true) {
+            events.push("session:close");
+          }
+          if (options.closeError !== undefined) {
+            throw options.closeError;
+          }
         },
       };
     },
@@ -286,7 +442,7 @@ export function createFakeTargetPack(events, options = {}) {
       return {
         prepare(input) {
           options.onToolchain?.(input);
-          events.push(`toolchain:${input.target.id}:artifacts=${input.compileResult.artifacts.map((artifact) => artifact.path).join(",")}`);
+          events.push(`toolchain:${input.target.id}:artifacts=${input.compileOutput.artifacts.map((artifact) => artifact.path).join(",")}`);
           return {
             diagnostics: [],
             producedArtifacts: [],
@@ -306,8 +462,17 @@ export function createFakeTargetCapability(id, options = {}) {
     ...((options.requiredSurfaces ?? []).length > 0 ? { requiredSurfaces: options.requiredSurfaces } : {}),
     ...((options.requiredCapabilities ?? []).length > 0 ? { requiredCapabilities: options.requiredCapabilities } : {}),
     moduleOwnership: options.moduleOwnership ?? [],
+    ...(options.targetContributions === undefined
+      ? {}
+      : {
+          createTargetContributions(context) {
+            options.events?.push(`capability-target:${id}`);
+            assert.equal(context.capability.id, id);
+            return options.targetContributions;
+          },
+        }),
     sourceCompilerContributions(context) {
-      options.events?.push(`capability-extension:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilities.map((capability) => capability.id).join(",")}`);
+      options.events?.push(`capability-extension:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilityIds.join(",")}`);
       assert.equal(context.capability.id, id);
       return options.extension === undefined
         ? {}
@@ -324,7 +489,7 @@ export function createFakeTargetCapability(id, options = {}) {
       ? {}
       : {
           sourceProfileContributions(context) {
-            options.events?.push(`capability-source-profile:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilities.map((capability) => capability.id).join(",")}`);
+            options.events?.push(`capability-source-profile:${id}:target=${context.target.id}:capabilities=${context.selectedCapabilityIds.join(",")}`);
             return {
               declarations: options.sourceProfileDeclarations,
             };
@@ -446,7 +611,7 @@ export function createFakeSurface(id, optionsOrRequiredSurfaces = {}) {
       ? {}
       : {
           sourceCompilerContributions(context) {
-            options.events?.push(`surface-extension:${id}:target=${context.target.id}:surfaces=${context.selectedSurfaces.map((surface) => surface.id).join(",")}`);
+            options.events?.push(`surface-extension:${id}:target=${context.target.id}:surfaces=${context.selectedSurfaceIds.join(",")}`);
             assert.equal(context.surface.id, id);
             return { extensions: [options.extension] };
           },

@@ -42,7 +42,7 @@ test("project dependency analysis uses the shared import and export runtime-clas
   };
   let runtimeDependencies = [];
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       const entry = input.source.sourceFiles.find((sourceFile) =>
         sourceFile !== undefined &&
         input.source.ast.getFileName(sourceFile) === resolve(projectDirectory, "src/index.ts"));

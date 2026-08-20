@@ -5142,20 +5142,20 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "architecture.target-pack.boundaries": Object.freeze({
     sourceExamples: Object.freeze([
-      "const pack: TargetPack = { id: 'csharp', provider, surfaces, createBackend, createToolchain };",
+      "const pack: TargetPack = { id: 'csharp', provider, surfaces, createCompilationSession, createToolchain };",
     ]),
     tstsDecision:
-      "TSTS owns source parse/bind/check/query state. Target packs compose explicit provider, surface, backend, runtime contribution, and toolchain modules around finalized TSTS facts.",
+      "TSTS owns source parse/bind/check/query state. Target packs compose one explicit provider descriptor, surfaces, compilation session, and toolchain around finalized TSTS facts.",
     providerFacts: Object.freeze([
       "targetPackBoundaryFact",
       "targetProviderFact",
       "targetSurfaceFact",
-      "targetBackendFact",
+      "targetCompilationSessionFact",
       "targetToolchainFact",
       "targetRuntimeContributionFact",
     ]),
     backendContract:
-      "Target pack APIs expose provider, surfaces, backend, runtime contribution, and toolchain contracts as explicit modules. They must not collapse into one catch-all semantic blob or hidden helper path.",
+      "Target pack APIs expose required provider, surfaces, one compilation-session lifecycle, and toolchain contracts as explicit modules. They must not expose a split backend path or collapse into one catch-all semantic blob.",
     positiveTests: Object.freeze([
       "test/architecture/dependency-boundaries.test.mjs",
     ]),
@@ -5167,7 +5167,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: architecture-contract asserts the public target-pack API exposes TargetProvider, TargetSurfaceImplementation, TargetBackend, TargetToolchain, runtime contribution context, and TargetPack provider/surfaces/createBackend/createToolchain boundaries.",
+      "Reviewed proof: architecture-contract asserts the public target-pack API exposes TargetProviderDescriptor, TargetSurfaceImplementation, TargetCompilationSession, TargetToolchain, runtime contribution context, and required TargetPack provider/surfaces/createCompilationSession/createToolchain boundaries.",
   }),
   "architecture.target-pack.no-catch-all-semantics": Object.freeze({
     sourceExamples: Object.freeze([

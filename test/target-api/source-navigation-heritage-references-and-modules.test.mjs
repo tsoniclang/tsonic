@@ -54,7 +54,7 @@ test("shared source navigation resolves exact generic and transitive declared he
         source.ast.kindName(argument)),
       selectedTypeArgumentCount: edge.selectedTypeArguments.length,
       selectedTypeArguments: edge.selectedTypeArguments.map((argument) =>
-        semantics.typeToString(argument)),
+        sourceTypeKind(semantics, argument)),
     })),
     [
       {
@@ -79,7 +79,7 @@ test("shared source navigation resolves exact generic and transitive declared he
   assert.deepEqual(defaultHeritage.edges[0].typeArguments, []);
   assert.equal(defaultHeritage.edges[0].selectedTypeArguments.length, 1);
   assert.equal(
-    semantics.isStringLike(
+    semantics.types.isStringLike(
       defaultHeritage.edges[0].selectedTypeArguments[0],
     ),
     true,
@@ -127,7 +127,7 @@ test("shared source navigation exposes exact effective class constructors", asyn
       ),
       parameters: signature.parameters.map((parameter) => ({
         name: parameter.parameterName,
-        type: semantics.typeToString(parameter.selectedType),
+        type: sourceTypeKind(semantics, parameter.selectedType),
         omission: parameter.acceptsOmission,
         rest: parameter.rest,
       })),
@@ -152,6 +152,29 @@ test("shared source navigation exposes exact effective class constructors", asyn
   assert.equal(empty.signatures[0].declaration, undefined);
   assert.deepEqual(empty.signatures[0].parameters, []);
 });
+
+function sourceTypeKind(semantics, type) {
+  if (semantics.types.isStringLike(type)) {
+    return "string";
+  }
+  if (semantics.types.isNumberLike(type)) {
+    return "number";
+  }
+  if (semantics.types.isUnion(type)) {
+    const members = semantics.types.unionOrIntersectionTypes(type);
+    if (
+      members.some((member) => semantics.types.isNumberLike(member)) &&
+      members.some((member) => semantics.types.isNullish(member))
+    ) {
+      return "number | undefined";
+    }
+  }
+  const symbol = semantics.declarations.typeAliasSymbol(type) ??
+    semantics.declarations.typeSymbol(type);
+  return symbol === undefined
+    ? undefined
+    : semantics.declarations.symbolName(symbol);
+}
 
 test("source navigation proves references outside an exact excluded subtree", async () => {
   const source = await checkedSource("reference-usage", {

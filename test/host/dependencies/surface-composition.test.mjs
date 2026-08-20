@@ -1,4 +1,4 @@
-import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileTargetFromSemanticSession, compileProject, createProgramOptionsForProject, createTsonicSemanticSession, createTargetSourceCompilerComposition, parseTsonicProjectConfig, createTargetRegistry, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, fakePaths, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference } from "./surface-composition.helpers.mjs";
+import { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, compileProject, createProgramOptionsForProject, composeFakeTargetSourceCompiler, parseTsonicProjectConfig, createTargetRegistry, rejectedTargetStage, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, repoRoot, tempRoot, createPortableOperationFactsExtension, portableOperationFactKey, compileFakeProject, createSemanticSession, writeProject, findVariableInitializer, findBinaryExpression, createRegistry, extensionIds, createFakeCompilerExtension, createFakeTargetPack, createFakeTargetCapability, createFakeVirtualTargetCapability, createFakeVirtualBindingProvider, formatImportSliceExports, createFakeSurface, createFakeArtifact, createFakeReference, targetArtifacts } from "./surface-composition.helpers.mjs";
 
 test("vendored TSTS is a package artifact, not a checked-in source project", async () => {
   await assert.rejects(
@@ -28,7 +28,7 @@ test("host passes no selected surfaces to target provider when target requests n
   });
   const target = project.targets[0];
 
-  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
+  const composition = composeFakeTargetSourceCompiler({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(events, ["provider:demo:surfaces="]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), []);
@@ -50,7 +50,7 @@ test("host passes selected surfaces to the single target provider", () => {
   });
   const target = project.targets[0];
 
-  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
+  const composition = composeFakeTargetSourceCompiler({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(target.surfaces, ["js"]);
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
@@ -78,7 +78,7 @@ test("host composes installed target capabilities between target provider and su
   });
   const target = project.targets[0];
 
-  const composition = createTargetSourceCompilerComposition({
+  const composition = composeFakeTargetSourceCompiler({
     project,
     projectDirectory: process.cwd(),
     target,
@@ -169,11 +169,11 @@ test("host composes installed target capabilities as provider-owned virtual modu
     "provider-resolve:acme:@acme/alias/aliased.js:named:named as aliasNamed",
   ]);
 });
-test("non-C# target backend consumes portable source-analysis facts directly", async () => {
+test("non-C# target compilation consumes portable source-analysis facts directly", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     targetExtension: createPortableOperationFactsExtension(),
-    onBackend(input) {
+    onCompile(input) {
       const sourceFile = input.source.sourceFiles.find((candidate) => input.source.ast.getFileName(candidate).endsWith("src/index.ts"));
       assert.notEqual(sourceFile, undefined);
       const expression = findBinaryExpression(input.source.ast, sourceFile);
@@ -182,7 +182,7 @@ test("non-C# target backend consumes portable source-analysis facts directly", a
         operator: "KindPlusToken",
         resultType: "number",
       });
-      events.push("backend-consumed-portable-operation-facts");
+      events.push("compile-consumed-portable-operation-facts");
     },
   });
   const projectDirectory = resolve(tempRoot, "portable-operation-contract-positive");
@@ -200,33 +200,32 @@ test("non-C# target backend consumes portable source-analysis facts directly", a
     ].join("\n"),
   });
 
-  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const result = compileTargetFromSemanticSession(session, fakePaths(projectDirectory));
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
 
-  assert.deepEqual(collectTstsDiagnostics(session.source, projectDirectory), []);
   assert.deepEqual(result.diagnostics, []);
-  assert.equal(events.includes("backend-consumed-portable-operation-facts"), true);
+  assert.equal(events.includes("compile-consumed-portable-operation-facts"), true);
 });
-test("non-C# target backend fails closed when portable operation facts are missing", async () => {
+test("non-C# target compilation fails closed when portable operation facts are missing", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
-    onBackend(input) {
+    onCompile(input) {
       const sourceFile = input.source.sourceFiles.find((candidate) => input.source.ast.getFileName(candidate).endsWith("src/index.ts"));
       assert.notEqual(sourceFile, undefined);
       const expression = findBinaryExpression(input.source.ast, sourceFile);
       const operation = input.source.sourceFacts.getFact(expression, portableOperationFactKey);
       assert.equal(operation, undefined);
-      return {
-        artifacts: [],
-        diagnostics: [
+      return rejectedTargetStage([
           {
             code: "DEMO_MISSING_PORTABLE_OPERATION_FACT",
             category: "error",
             message: "neutral backend expression emission requires the portable source-analysis fact",
-            source: "demo-backend",
+            source: "demo-target",
           },
-        ],
-      };
+        ]);
     },
   });
   const projectDirectory = resolve(tempRoot, "portable-operation-contract-negative");
@@ -244,11 +243,13 @@ test("non-C# target backend fails closed when portable operation facts are missi
     ].join("\n"),
   });
 
-  const session = createSemanticSession(projectDirectory, projectConfig, targetPack);
-  const result = compileTargetFromSemanticSession(session, fakePaths(projectDirectory));
+  const result = compileProject({
+    project: parseTsonicProjectConfig(projectConfig),
+    projectFilePath: resolve(projectDirectory, "tsonic.json"),
+    registry: createRegistry(targetPack),
+  });
 
-  assert.deepEqual(collectTstsDiagnostics(session.source, projectDirectory), []);
-  assert.equal(result.artifacts.length, 0);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "DEMO_MISSING_PORTABLE_OPERATION_FACT");
   assert.match(result.diagnostics[0].message, /neutral backend expression emission/);
@@ -272,7 +273,7 @@ test("host composes target provider extensions before selected surface extension
   });
   const target = project.targets[0];
 
-  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
+  const composition = composeFakeTargetSourceCompiler({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(events, [
     "provider:demo:surfaces=js,web",
@@ -285,7 +286,7 @@ test("host composes target provider extensions before selected surface extension
   assert.equal(composition.extensions[3], jsExtension);
   assert.equal(composition.extensions[4], webExtension);
 });
-test("host rejects stale or unowned supplied surface composition", () => {
+test("host composition uses only the target pack's selected surface identity", () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     targetExtension: createFakeCompilerExtension("target"),
@@ -300,11 +301,15 @@ test("host rejects stale or unowned supplied surface composition", () => {
   const target = project.targets[0];
   const copiedSurface = createFakeSurface("js");
 
-  assert.throws(
-    () => createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack, selectedSurfaces: [copiedSurface] }),
-    /selected surface composition is stale or unowned/,
-  );
-  assert.deepEqual(events, []);
+  const composition = composeFakeTargetSourceCompiler({
+    project,
+    projectDirectory: process.cwd(),
+    target,
+    targetPack,
+  });
+  assert.equal(composition.selectedSurfaces[0], targetPack.surfaces[0]);
+  assert.notEqual(composition.selectedSurfaces[0], copiedSurface);
+  assert.deepEqual(events, ["provider:demo:surfaces=js"]);
 });
 test("host reports unknown selected target as target diagnostic", async () => {
   const events = [];
@@ -319,7 +324,7 @@ test("host reports unknown selected target as target diagnostic", async () => {
   assert.equal(result.diagnostics[0].code, "TARGET_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "Unknown target 'not-real'.");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
 });
 test("host resolves target and surface selection before creating semantic input", () => {
   const events = [];
@@ -352,7 +357,7 @@ test("host resolves target and surface selection before creating semantic input"
   ]);
   assert.match(result.diagnostics[0].message, /Unknown target 'not-real'/);
   assert.match(result.diagnostics[1].message, /target 'demo' does not implement requested surface 'not-real'/);
-  assert.deepEqual(result.targets.map((target) => target.compileResult.artifacts.length), [0, 0]);
+  assert.deepEqual(result.targets.map((target) => targetArtifacts(target).length), [0, 0]);
 });
 test("host reports unknown requested surface as target diagnostic", async () => {
   const events = [];
@@ -380,7 +385,7 @@ test("host reports unknown requested surface as target diagnostic", async () => 
   assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "target 'demo' does not implement requested surface 'not-real'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
 });
 test("host reports duplicate target surface implementations before provider composition", async () => {
   const events = [];
@@ -401,30 +406,20 @@ test("host reports duplicate target surface implementations before provider comp
   assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "target 'demo' declares surface 'js' more than once");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
 });
-test("host reports missing target provider as target diagnostic", async () => {
+test("target registry rejects a pack without its required provider descriptor", async () => {
   const events = [];
-  const targetPack = createFakeTargetPack(events, {
-    includeProvider: false,
-    backendArtifacts: [
-      createFakeArtifact("source", "src/App.demo", "backend"),
-    ],
-  });
+  const targetPack = {
+    ...createFakeTargetPack(events),
+    provider: undefined,
+  };
 
-  const result = await compileFakeProject("missing-provider", targetPack, {
-    id: "demo",
-  });
-
-  assert.equal(result.diagnostics.length, 1);
-  assert.deepEqual(events, []);
-  assert.equal(result.diagnostics[0].code, "TARGET_PROVIDER");
-  assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(
-    result.diagnostics[0].message,
-    "target 'demo' does not declare a provider; Tsonic requires provider-composed TSTS facts before backend emission",
+  assert.throws(
+    () => createTargetRegistry([targetPack]),
+    /must declare one complete provider descriptor/u,
   );
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.deepEqual(events, []);
 });
 test("host reports missing selected surface dependency as target diagnostic", async () => {
   const events = [];
@@ -445,7 +440,7 @@ test("host reports missing selected surface dependency as target diagnostic", as
   assert.equal(result.diagnostics[0].code, "TARGET_SURFACE_SELECTION");
   assert.equal(result.diagnostics[0].category, "error");
   assert.equal(result.diagnostics[0].message, "target 'demo' surface 'web' requires surface 'js'");
-  assert.equal(result.targets[0].compileResult.artifacts.length, 0);
+  assert.equal(targetArtifacts(result.targets[0]).length, 0);
 });
 test("host rejects unsafe configured target and surface identifiers", () => {
   assert.throws(
@@ -514,14 +509,14 @@ test("host does not pass unselected surfaces to the target provider", () => {
   });
   const target = project.targets[0];
 
-  const composition = createTargetSourceCompilerComposition({ project, projectDirectory: process.cwd(), target, targetPack });
+  const composition = composeFakeTargetSourceCompiler({ project, projectDirectory: process.cwd(), target, targetPack });
 
   assert.deepEqual(events, ["provider:demo:surfaces=js"]);
   assert.deepEqual(composition.selectedSurfaces.map((surface) => surface.id), ["js"]);
   assert.deepEqual(extensionIds(composition.extensions), ["tsts.source-semantics", "tsonic.source-core", "target"]);
   assert.equal(composition.extensions[2], targetExtension);
 });
-test("host composes provider, selected surface, and backend artifacts for toolchain handoff", async () => {
+test("host composes provider, selected surface, and compiled artifacts for toolchain handoff", async () => {
   const events = [];
   let toolchainArtifacts = [];
   let toolchainArtifactsRoot = "";
@@ -531,11 +526,11 @@ test("host composes provider, selected surface, and backend artifacts for toolch
     providerArtifacts: [
       createFakeArtifact("asset", "runtime/provider.txt", "provider"),
     ],
-    backendArtifacts: [
-      createFakeArtifact("source", "src/App.demo", "backend"),
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
     ],
     onToolchain(input) {
-      toolchainArtifacts = input.compileResult.artifacts.map((artifact) => artifact.path);
+      toolchainArtifacts = input.compileOutput.artifacts.map((artifact) => artifact.path);
       toolchainArtifactsRoot = input.artifactsRoot;
       toolchainTargetId = input.target.id;
       toolchainProjectTargetIds = input.project.targets.map((target) => target.id);
@@ -563,7 +558,7 @@ test("host composes provider, selected surface, and backend artifacts for toolch
     id: "demo",
     surfaces: ["js"],
   });
-  const artifactPaths = result.targets[0].compileResult.artifacts.map((artifact) => artifact.path);
+  const artifactPaths = targetArtifacts(result.targets[0]).map((artifact) => artifact.path);
 
   assert.deepEqual(artifactPaths, [
     "runtime/provider.txt",
@@ -577,13 +572,13 @@ test("host composes provider, selected surface, and backend artifacts for toolch
   assert.equal(events.includes("surface-runtime:web"), false);
   assert.equal(events.includes("provider-runtime:demo"), true);
   assert.equal(events.includes("surface-runtime:js"), true);
-  assert.equal(events.includes("backend:demo"), true);
+  assert.equal(events.includes("compile:demo"), true);
   assert.equal(events.includes("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"), true);
-  assert.ok(events.indexOf("provider-runtime:demo") < events.indexOf("backend:demo"));
-  assert.ok(events.indexOf("surface-runtime:js") < events.indexOf("backend:demo"));
-  assert.ok(events.indexOf("backend:demo") < events.indexOf("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"));
+  assert.ok(events.indexOf("provider-runtime:demo") < events.indexOf("compile:demo"));
+  assert.ok(events.indexOf("surface-runtime:js") < events.indexOf("compile:demo"));
+  assert.ok(events.indexOf("compile:demo") < events.indexOf("toolchain:demo:artifacts=runtime/provider.txt,runtime/js.txt,src/App.demo"));
 });
-test("host composes selected target capability runtime artifacts before surfaces and backend", async () => {
+test("host composes selected target capability runtime artifacts before target compilation", async () => {
   const events = [];
   const acme = createFakeVirtualTargetCapability("acme", {
     events,
@@ -605,8 +600,8 @@ test("host composes selected target capability runtime artifacts before surfaces
     providerArtifacts: [
       createFakeArtifact("asset", "runtime/provider.txt", "provider"),
     ],
-    backendArtifacts: [
-      createFakeArtifact("source", "src/App.demo", "backend"),
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
     ],
     surfaces: [
       createFakeSurface("js", {
@@ -626,7 +621,7 @@ test("host composes selected target capability runtime artifacts before surfaces
     source: "import { named } from \"@acme/native/named.js\";\nexport const value = named;\n",
   });
 
-  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+  assert.deepEqual(targetArtifacts(result.targets[0]).map((artifact) => artifact.path), [
     "runtime/provider.txt",
     "runtime/acme.txt",
     "runtime/js.txt",
@@ -639,7 +634,7 @@ test("host composes selected target capability runtime artifacts before surfaces
     "provider-runtime:demo",
     "capability-runtime:acme",
     "surface-runtime:js",
-    "backend:demo",
+    "compile:demo",
     "toolchain:demo:artifacts=runtime/provider.txt,runtime/acme.txt,runtime/js.txt,src/App.demo",
   ]);
   assert.equal(events.includes("capability-runtime:unused"), false);
@@ -713,7 +708,7 @@ test("host activates and validates transitive installed capability dependencies"
   });
 
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(result.targets[0].compileResult.artifacts.map((artifact) => artifact.path), [
+  assert.deepEqual(targetArtifacts(result.targets[0]).map((artifact) => artifact.path), [
     "runtime/dependency.txt",
     "runtime/feature.txt",
   ]);
