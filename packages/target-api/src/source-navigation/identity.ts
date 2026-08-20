@@ -38,7 +38,7 @@ export function projectSourceNodeIdentity(
     return undefined;
   }
   const sourceFile = ast.getSourceFile(node);
-  const file = sourceFileIdentity(ast, sourceFile);
+  const file = sourceFile === undefined ? undefined : ast.getFileName(sourceFile);
   const kind = ast.kind(node);
   if (file === undefined || kind === undefined) {
     return undefined;

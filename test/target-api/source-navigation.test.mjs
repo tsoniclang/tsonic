@@ -25,12 +25,15 @@ import {
   requiredNode,
 } from "../fixtures/source-navigation.mjs";
 
-test("project source-node identities are stable across checkout roots", () => {
+test("project source-node identities are stable across checkout roots and compiler path forms", () => {
   const node = {};
   const sourceFile = {};
-  const astFor = (path) => ({
+  const astFor = (fileName, path = fileName) => ({
     getSourceFile(candidate) {
       return candidate === node ? sourceFile : undefined;
+    },
+    getFileName(candidate) {
+      return candidate === sourceFile ? fileName : undefined;
     },
     getPath(candidate) {
       return candidate === sourceFile ? path : undefined;
@@ -49,7 +52,7 @@ test("project source-node identities are stable across checkout roots", () => {
 
   assert.equal(
     projectSourceNodeIdentity(
-      astFor("/first/project/src/index.ts"),
+      astFor("/first/project/src/index.ts", "src/index.ts"),
       node,
       "/first/project",
     ),
