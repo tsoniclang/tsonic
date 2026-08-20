@@ -39,7 +39,7 @@ export function collectTargetSourcePackageGraph(
   const projectSourceFiles = [...files.keys()]
     .filter((fileName) => isCompilerSourceFile(fileName) && pathIsWithin(projectRoot, fileName))
     .sort(compareNames);
-  const rootPackageId = packageIdentity(projectDirectory);
+  const rootPackageId = packageIdentity(projectDirectory, projectDirectory);
   const pending = new Map<string, PendingSourcePackage>();
   const root: PendingSourcePackage = {
     id: rootPackageId,
@@ -58,6 +58,7 @@ export function collectTargetSourcePackageGraph(
   root.dependencies = Object.freeze(readDependencyNames(projectPackage, true)
     .flatMap((packageName) => {
       const dependency = collectInstalledSourcePackage(
+        projectDirectory,
         projectDirectory,
         packageName,
         files,
@@ -91,6 +92,7 @@ export function collectTargetSourcePackageGraph(
 }
 
 function collectInstalledSourcePackage(
+  projectDirectory: string,
   resolutionDirectory: string,
   packageName: string,
   files: Map<string, string>,
@@ -100,7 +102,7 @@ function collectInstalledSourcePackage(
   if (packageRoot === undefined) {
     return undefined;
   }
-  const id = packageIdentity(packageRoot);
+  const id = packageIdentity(projectDirectory, packageRoot);
   if (pending.has(id)) {
     return id;
   }
@@ -138,6 +140,7 @@ function collectInstalledSourcePackage(
   entry.dependencies = Object.freeze(readDependencyNames(packageJson, false)
     .flatMap((dependencyName) => {
       const dependency = collectInstalledSourcePackage(
+        projectDirectory,
         packageRoot,
         dependencyName,
         files,
@@ -265,11 +268,14 @@ function sourcePackageGraphFingerprint(
     ...packages.flatMap((entry) => [
       entry.id,
       entry.name ?? "",
-      entry.packageRoot,
-      entry.sourceRoot,
-      ...entry.sourceFiles,
+      packageRelativeIdentity(entry.packageRoot, entry.sourceRoot),
+      ...entry.sourceFiles.map((sourceFile) =>
+        packageRelativeIdentity(entry.packageRoot, sourceFile)),
       ...entry.dependencies,
-      ...entry.exports.flatMap((exported) => [exported.specifier, exported.sourceFile]),
+      ...entry.exports.flatMap((exported) => [
+        exported.specifier,
+        packageRelativeIdentity(entry.packageRoot, exported.sourceFile),
+      ]),
       entry.componentId,
     ]),
     ...components.flatMap((component) => [
@@ -290,8 +296,17 @@ function hashParts(parts: readonly string[]): string {
   return hash.digest("hex");
 }
 
-function packageIdentity(packageRoot: string): string {
-  return `source-package:${normalizePackagePath(resolve(packageRoot))}`;
+function packageIdentity(projectDirectory: string, packageRoot: string): string {
+  const location = normalizePackagePath(relative(
+    resolve(projectDirectory),
+    resolve(packageRoot),
+  ));
+  return `source-package:${location === "" ? "." : location}`;
+}
+
+function packageRelativeIdentity(packageRoot: string, value: string): string {
+  const location = normalizePackagePath(relative(resolve(packageRoot), resolve(value)));
+  return location === "" ? "." : location;
 }
 
 function packageNameField(packageJson: Readonly<Record<string, unknown>>): {

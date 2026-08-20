@@ -9,9 +9,13 @@ import {
   resolveProjectPaths,
 } from "../../../packages/host/dist/index.js";
 import {
+  collectCompilerSourceExports,
   hasCompilerSourceExport,
   isCompilerSourceFile,
 } from "../../../packages/host/dist/package-contract.js";
+import {
+  collectTargetSourcePackageGraph,
+} from "../../../packages/host/dist/source-package-inputs.js";
 import {
   isPathStrictlyWithin,
   isPathWithinOrEqual,
@@ -246,6 +250,58 @@ test("source-package exports select only exact available ESM TypeScript paths", 
   assert.equal(hasCompilerSourceExport(packageRoot, {
     exports: { ".": "./src/ignored.cjs" },
   }, sourceFiles), false);
+  assert.throws(
+    () => collectCompilerSourceExports(packageRoot, {
+      exports: {
+        ".": {
+          development: "./src/index.js",
+          production: "./private.js",
+        },
+      },
+    }, sourceFiles),
+    /Compiler source export '\.' .* resolves to both/u,
+  );
+});
+
+test("source-package graph identities and fingerprints are independent of checkout location", async () => {
+  const graphs = [];
+  for (const checkout of ["first-checkout", "second-checkout"]) {
+    const projectDirectory = resolve(tempRoot, checkout);
+    const projectRoot = resolve(projectDirectory, "src");
+    const dependencyRoot = resolve(projectDirectory, "node_modules/@demo/library");
+    const projectSource = resolve(projectRoot, "index.ts");
+    const dependencySource = resolve(dependencyRoot, "src/index.ts");
+    await mkdir(projectRoot, { recursive: true });
+    await mkdir(resolve(dependencyRoot, "src"), { recursive: true });
+    await writeFile(resolve(projectDirectory, "package.json"), JSON.stringify({
+      name: "@demo/application",
+      dependencies: { "@demo/library": "1.0.0" },
+    }), "utf8");
+    await writeFile(resolve(dependencyRoot, "package.json"), JSON.stringify({
+      name: "@demo/library",
+      exports: { ".": "./src/index.js" },
+    }), "utf8");
+    await writeFile(dependencySource, "export const value = 1;\n", "utf8");
+    graphs.push(collectTargetSourcePackageGraph(
+      projectDirectory,
+      projectRoot,
+      new Map([[projectSource, "export const result = 1;\n"]]),
+    ));
+  }
+
+  assert.deepEqual(graphs.map((graph) => graph.rootPackageId), [
+    "source-package:.",
+    "source-package:.",
+  ]);
+  assert.deepEqual(
+    graphs.map((graph) => graph.packages.map((entry) => entry.id)),
+    [
+      ["source-package:.", "source-package:node_modules/@demo/library"],
+      ["source-package:.", "source-package:node_modules/@demo/library"],
+    ],
+  );
+  assert.equal(graphs[0].fingerprint, graphs[1].fingerprint);
+  assert.notEqual(graphs[0].packages[0].packageRoot, graphs[1].packages[0].packageRoot);
 });
 
 test("compiler source-file policy accepts only final ESM TypeScript source", () => {

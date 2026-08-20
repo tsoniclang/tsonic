@@ -92,11 +92,17 @@ export function collectCompilerSourceExports(
   collectCompilerSourceExportTargets(packageJson.exports, ".", availableSourcePaths, exports);
   collectCompilerSourceExportTargets(packageJson.main, ".", availableSourcePaths, exports);
   collectCompilerSourceExportTargets(packageJson.module, ".", availableSourcePaths, exports);
-  const byIdentity = new Map<string, CompilerSourceExport>();
+  const bySpecifier = new Map<string, CompilerSourceExport>();
   for (const entry of exports) {
-    byIdentity.set(`${entry.specifier.length}:${entry.specifier}${entry.sourceFile}`, entry);
+    const existing = bySpecifier.get(entry.specifier);
+    if (existing !== undefined && existing.sourceFile !== entry.sourceFile) {
+      throw new Error(
+        `Compiler source export '${entry.specifier}' in '${normalizePackagePath(resolve(packageRoot))}' resolves to both '${existing.sourceFile}' and '${entry.sourceFile}'.`,
+      );
+    }
+    bySpecifier.set(entry.specifier, entry);
   }
-  return Object.freeze([...byIdentity.values()].sort((left, right) =>
+  return Object.freeze([...bySpecifier.values()].sort((left, right) =>
     left.specifier.localeCompare(right.specifier, "en") ||
     left.sourceFile.localeCompare(right.sourceFile, "en")
   ));
