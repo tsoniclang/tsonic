@@ -1084,7 +1084,6 @@ const slice6WholeProgramOldEvidenceByCapability = Object.freeze({
   ]),
   "declaration.generated-structural": Object.freeze([
     "packages/targets/csharp/emitter/testcases/common/edge-cases/object-literal-type-parameter/ObjectLiteralTypeParameter.ts",
-    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
   ]),
   "backend.ast.only": Object.freeze([
     "packages/frontend/src/lowering/plan-builders.test.ts",
@@ -1163,7 +1162,6 @@ const slice6WholeProgramOldEvidenceByCapability = Object.freeze({
   "diagnostic.missing-target-fact": Object.freeze([
     "packages/frontend/src/lowering/plan-builders.test.ts",
     "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
-    "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
   ]),
   "diagnostic.missing-provider-fact": Object.freeze([
     "packages/cli/src/commands/restore.test.ts",
@@ -9098,7 +9096,6 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/lowering/plan-builders.test.ts",
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
       "packages/frontend/src/validator-maximus-cases/feature-gating.test.ts",
-      "packages/targets/csharp/emitter/testcases/common/expected/edge-cases/object-literal-unknown/ObjectLiteralUnknown.cs",
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
     ]),
     blockers: Object.freeze([
