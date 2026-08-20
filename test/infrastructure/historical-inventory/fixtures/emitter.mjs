@@ -788,10 +788,8 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
     "backend.ast.only",
     "backend.fail-closed-facts",
     "backend.no-semantic-strings",
-    "carrier.object-shape",
+    "carrier.any-tsvalue",
     "dynamic-value.unknown.no-dynamic-access",
-    "declaration.generated-structural",
-    "diagnostic.missing-target-fact",
     "expression.object-literal",
   ]),
   ...reviewedOldEmitterCapabilityMapping([
@@ -924,15 +922,6 @@ const oldEmitterReviewedCapabilityIdsByOldPath = new Map([
 ]);
 
 const oldEmitterReplacementProofByOldPath = new Map([
-  [expectedCase("edge-cases/object-literal-unknown/ObjectLiteralUnknown"), Object.freeze({
-    replacementCapabilityIds: freezeSortedStrings([
-      "backend.fail-closed-facts",
-      "dynamic-value.unknown.no-dynamic-access",
-      "diagnostic.missing-target-fact",
-    ]),
-    replacementCapabilityPath:
-      "Current object-shape diagnostics replace the old unknown-to-object-literal golden: unknown has no dynamic/object-shape carrier, so backend.fail-closed-facts plus dynamic-value.unknown.no-dynamic-access produce diagnostic.missing-target-fact instead of C# emission.",
-  })],
   [expectedCase("operators/in-operator/InOperator"), Object.freeze({
     replacementCapabilityIds: freezeSortedStrings([
       "backend.fail-closed-facts",
