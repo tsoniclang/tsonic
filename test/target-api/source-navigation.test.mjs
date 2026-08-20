@@ -122,6 +122,13 @@ test("source navigation resolves exact class implementations for base and interf
       "export class SameSpelling {",
       "  read(): number { return 3; }",
       "}",
+      "declare const computedKey: unique symbol;",
+      "export class ComputedBase {",
+      "  [computedKey](): number { return 4; }",
+      "}",
+      "export class ComputedDerived extends ComputedBase {",
+      "  [computedKey](): number { return 5; }",
+      "}",
       "",
     ].join("\n"),
   });
@@ -135,6 +142,8 @@ test("source navigation resolves exact class implementations for base and interf
   const derived = namedDeclaration(ast, sourceFile, "Derived");
   const inherited = namedDeclaration(ast, sourceFile, "Inherited");
   const sameSpelling = namedDeclaration(ast, sourceFile, "SameSpelling");
+  const computedBase = namedDeclaration(ast, sourceFile, "ComputedBase");
+  const computedDerived = namedDeclaration(ast, sourceFile, "ComputedDerived");
   const readableValue = namedMember(ast, readable, "value");
   const readableRead = namedMember(ast, readable, "read");
   const baseShapeValue = namedMember(ast, baseShape, "value");
@@ -145,6 +154,8 @@ test("source navigation resolves exact class implementations for base and interf
   const derivedValue = namedMember(ast, derived, "value");
   const derivedRead = namedMember(ast, derived, "read");
   const sameSpellingRead = namedMember(ast, sameSpelling, "read");
+  const computedBaseMember = ast.members(computedBase)[0];
+  const computedDerivedMember = ast.members(computedDerived)[0];
 
   assert.strictEqual(
     navigation.memberImplementation(derived, baseRead).implementation?.declaration,
@@ -173,6 +184,20 @@ test("source navigation resolves exact class implementations for base and interf
   assert.deepEqual(
     navigation.memberImplementation(sameSpelling, baseRead),
     { kind: "unrelated" },
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(
+      computedBase,
+      computedBaseMember,
+    ).implementation?.declaration,
+    computedBaseMember,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(
+      computedDerived,
+      computedBaseMember,
+    ).implementation?.declaration,
+    computedDerivedMember,
   );
   assert.deepEqual(
     navigation.memberContracts(derivedRead),
