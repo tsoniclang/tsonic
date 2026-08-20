@@ -24,8 +24,10 @@ export function sourceDeclarationUses(
   return Object.freeze(references.map((reference) => {
     const kind = sourceDeclarationUseKind(ast, reference);
     const role = sourceDeclarationUseRole(ast, reference);
+    const memberReceiver = sourceDeclarationMemberReceiver(ast, reference);
     return Object.freeze({
       reference,
+      ...(memberReceiver === undefined ? {} : { memberReceiver }),
       kind,
       role: role.role,
       captured: kind === "direct-call" || kind === "first-class"
@@ -34,6 +36,38 @@ export function sourceDeclarationUses(
       throughMember: role.throughMember,
     });
   }));
+}
+
+function sourceDeclarationMemberReceiver(
+  ast: AstReader,
+  reference: Node,
+): Node | undefined {
+  const access = sourceMemberAccessForReference(ast, reference);
+  if (access === undefined) {
+    return undefined;
+  }
+  if (ast.is.IsPropertyAccessExpression(access)) {
+    return ast.as.AsPropertyAccessExpression(access)?.Expression;
+  }
+  return ast.is.IsElementAccessExpression(access)
+    ? ast.as.AsElementAccessExpression(access)?.Expression
+    : undefined;
+}
+
+function sourceMemberAccessForReference(
+  ast: AstReader,
+  reference: Node,
+): Node | undefined {
+  if (ast.is.IsPropertyAccessExpression(reference) ||
+    ast.is.IsElementAccessExpression(reference)) {
+    return reference;
+  }
+  const parent = ast.parent(reference);
+  if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) &&
+    sourceNodesEqual(ast, ast.name(parent), reference)) {
+    return parent;
+  }
+  return undefined;
 }
 
 function sourceDeclarationUseKind(
@@ -46,13 +80,8 @@ function sourceDeclarationUseKind(
   if (belongsToTypeSyntax(ast, reference)) {
     return "type-only";
   }
-  let target = reference;
+  let target = sourceMemberAccessForReference(ast, reference) ?? reference;
   let parent = ast.parent(target);
-  if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) &&
-    sourceNodesEqual(ast, ast.name(parent), target)) {
-    target = parent;
-    parent = ast.parent(target);
-  }
   while (parent !== undefined && transparentExpressionContains(ast, parent, target)) {
     target = parent;
     parent = ast.parent(target);
@@ -88,7 +117,7 @@ function sourceDeclarationUseRole(
   if (belongsToTypeSyntax(ast, reference)) {
     return { role: "type-only", throughMember: false };
   }
-  let current = reference;
+  let current = sourceMemberAccessForReference(ast, reference) ?? reference;
   let receiverPath = false;
   for (;;) {
     const parent = ast.parent(current);

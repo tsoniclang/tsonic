@@ -11,6 +11,9 @@ import {
   createSourceMemberImplementationNavigation,
 } from "./member-implementation.js";
 import {
+  createSourceMemberContractNavigation,
+} from "./member-contracts.js";
+import {
   createSourceCallableImplementationNavigation,
 } from "./callable-implementation.js";
 import {
@@ -84,6 +87,12 @@ export function createSourceProgramNavigation(
     references.isProjectDeclaration,
     heritage.declaredHeritagePath,
   );
+  const memberContracts = createSourceMemberContractNavigation(
+    source.ast,
+    references.isProjectDeclaration,
+    heritage.declaredHeritage,
+    memberImplementations.memberImplementation,
+  );
   const callableImplementations = createSourceCallableImplementationNavigation(
     source,
     references.sourceReferenceFor,
@@ -114,6 +123,9 @@ export function createSourceProgramNavigation(
   >>();
   const expressionValueFlowCache = new WeakMap<Node, ReturnType<
     typeof sourceExpressionValueFlow
+  >>();
+  const expressionEffectsCache = new WeakMap<Node, ReturnType<
+    typeof sourceExpressionEffects
   >>();
 
   const declarationUses = (declaration: Node): ReturnType<
@@ -248,6 +260,7 @@ export function createSourceProgramNavigation(
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
     memberImplementation: memberImplementations.memberImplementation,
+    memberContracts: memberContracts.memberContracts,
     callableImplementation: callableImplementations.callableImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
@@ -310,7 +323,13 @@ export function createSourceProgramNavigation(
       return sourceExpressionResultUse(source.ast, expression);
     },
     expressionEffects(expression: Node) {
-      return sourceExpressionEffects(source.ast, expression);
+      const cached = expressionEffectsCache.get(expression);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const effects = sourceExpressionEffects(source, expression);
+      expressionEffectsCache.set(expression, effects);
+      return effects;
     },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
@@ -318,6 +337,7 @@ export function createSourceProgramNavigation(
         sourceFiles,
         symbol,
         excludedNode,
+        references.sourceReferenceFor,
       );
     },
     isProjectShape,
@@ -377,6 +397,7 @@ export type {
   SourceProgramNavigation,
   SourceParameterUseSummary,
   SourceProjectMemberDispatch,
+  SourceProjectMemberContractsResult,
   SourceProjectMemberImplementationResult,
   SourceProjectModuleDependency,
   SourceProjectModuleExport,

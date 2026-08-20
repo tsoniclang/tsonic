@@ -144,6 +144,7 @@ test("source navigation resolves exact class implementations for base and interf
   const baseRead = namedMember(ast, base, "read");
   const derivedValue = namedMember(ast, derived, "value");
   const derivedRead = namedMember(ast, derived, "read");
+  const sameSpellingRead = namedMember(ast, sameSpelling, "read");
 
   assert.strictEqual(
     navigation.memberImplementation(derived, baseRead).implementation?.declaration,
@@ -172,6 +173,30 @@ test("source navigation resolves exact class implementations for base and interf
   assert.deepEqual(
     navigation.memberImplementation(sameSpelling, baseRead),
     { kind: "unrelated" },
+  );
+  assert.deepEqual(
+    navigation.memberContracts(derivedRead),
+    {
+      kind: "resolved",
+      implementationDeclaration: derivedRead,
+      contracts: [baseRead, readableRead],
+    },
+  );
+  assert.deepEqual(
+    navigation.memberContracts(derivedShapeRead),
+    {
+      kind: "resolved",
+      implementationDeclaration: derivedShapeRead,
+      contracts: [baseShapeRead],
+    },
+  );
+  assert.deepEqual(
+    navigation.memberContracts(sameSpellingRead),
+    {
+      kind: "resolved",
+      implementationDeclaration: sameSpellingRead,
+      contracts: [],
+    },
   );
 });
 
@@ -476,6 +501,175 @@ test("source navigation separates class-member mutation from binding writes", as
   assert.equal(summary.memberWritten, true);
   assert.equal(summary.constructorInitialized, true);
   assert.equal(summary.mutatedAfterInitialization, true);
+});
+
+test("source navigation exposes exact member receivers for declaration uses", async () => {
+  const checked = await checkedSource("class-member-receivers", {
+    "src/index.ts": [
+      "class Counter {",
+      "  value = 0;",
+      "  increment(): void { this.value += 1; }",
+      "  advance(): void { this.increment(); }",
+      "  advanceComputed(): void { this[\"increment\"](); }",
+      "}",
+      "const counter = new Counter();",
+      "counter.advance();",
+      "counter[\"advance\"]();",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const counter = namedDeclaration(source.ast, sourceFile, "Counter");
+  const increment = namedMember(source.ast, counter, "increment");
+  const advance = namedMember(source.ast, counter, "advance");
+  const incrementUses = source.navigation.declarationUses(increment).filter((use) =>
+    use.kind === "direct-call");
+  const advanceUses = source.navigation.declarationUses(advance).filter((use) =>
+    use.kind === "direct-call");
+
+  assert.deepEqual(
+    incrementUses.map((use) => source.ast.kindName(use.reference)).sort(),
+    ["KindElementAccessExpression", "KindPropertyAccessExpression"],
+  );
+  assert.deepEqual(
+    incrementUses.map((use) => source.ast.kindName(use.memberReceiver)),
+    ["KindThisKeyword", "KindThisKeyword"],
+  );
+  assert.deepEqual(
+    advanceUses.map((use) => source.ast.kindName(use.reference)).sort(),
+    ["KindElementAccessExpression", "KindPropertyAccessExpression"],
+  );
+  assert.deepEqual(
+    advanceUses.map((use) => source.ast.kindName(use.memberReceiver)),
+    ["KindIdentifier", "KindIdentifier"],
+  );
+  assert.deepEqual(
+    advanceUses.map((use) => source.ast.text(use.memberReceiver)),
+    ["counter", "counter"],
+  );
+  assert.deepEqual(
+    [...incrementUses, ...advanceUses].map((use) => use.role),
+    ["call-target", "call-target", "call-target", "call-target"],
+  );
+});
+
+test("source expression effects stop at function boundaries", async () => {
+  const checked = await checkedSource("function-expression-effects", {
+    "src/index.ts": [
+      "let count = 0;",
+      "function increment(): number { count += 1; return count; }",
+      "const callback = () => increment();",
+      "export const value = callback();",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const arrow = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsArrowFunction(node));
+  const invocation = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node)?.Expression) === "callback");
+
+  assert.deepEqual(source.navigation.expressionEffects(arrow), {
+    invokes: false,
+    mutates: false,
+    suspends: false,
+    mayThrow: false,
+  });
+  assert.deepEqual(source.navigation.expressionEffects(invocation), {
+    invokes: true,
+    mutates: false,
+    suspends: false,
+    mayThrow: true,
+  });
+});
+
+test("source expression effects retain coercion, iteration, and computed-key behavior", async () => {
+  const checked = await checkedSource("expression-effect-semantics", {
+    "src/index.ts": [
+      "declare const left: any;",
+      "declare const right: any;",
+      "declare const numberLeft: number;",
+      "declare const numberRight: number;",
+      "declare const values: any[];",
+      "export const coercion = left + right;",
+      "export const numeric = numberLeft + numberRight;",
+      "export const negated = -1;",
+      "export const uncertainUnary = -left;",
+      "export const spread = [...values];",
+      "export const template = `${left}`;",
+      "export const computed = { [left]: right };",
+      "export const strict = left === right;",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const byOperator = (operator) => requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsBinaryExpression(node) &&
+    source.ast.operatorKindName(node) === operator);
+  const byKind = (kind) => requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.kindName(node) === kind);
+
+  const coercion = requiredNode(source.ast, sourceFile, (node) => {
+    if (!source.ast.is.IsBinaryExpression(node) ||
+      source.ast.operatorKindName(node) !== "KindPlusToken") {
+      return false;
+    }
+    return source.ast.text(source.ast.as.AsBinaryExpression(node)?.Left) === "left";
+  });
+  assert.deepEqual(source.navigation.expressionEffects(coercion), {
+    invokes: true,
+    mutates: false,
+    suspends: false,
+    mayThrow: true,
+  });
+  const numeric = requiredNode(source.ast, sourceFile, (node) => {
+    if (!source.ast.is.IsBinaryExpression(node) ||
+      source.ast.operatorKindName(node) !== "KindPlusToken") {
+      return false;
+    }
+    return source.ast.text(source.ast.as.AsBinaryExpression(node)?.Left) === "numberLeft";
+  });
+  const primitiveUnary = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsPrefixUnaryExpression(node) &&
+    source.ast.operatorKindName(node) === "KindMinusToken" &&
+    source.ast.kindName(source.ast.as.AsPrefixUnaryExpression(node)?.Operand) ===
+      "KindNumericLiteral");
+  const uncertainUnary = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsPrefixUnaryExpression(node) &&
+    source.ast.operatorKindName(node) === "KindMinusToken" &&
+    source.ast.text(source.ast.as.AsPrefixUnaryExpression(node)?.Operand) === "left");
+  for (const node of [numeric, primitiveUnary]) {
+    assert.deepEqual(source.navigation.expressionEffects(node), {
+      invokes: false,
+      mutates: false,
+      suspends: false,
+      mayThrow: false,
+    });
+  }
+  assert.deepEqual(source.navigation.expressionEffects(uncertainUnary), {
+    invokes: true,
+    mutates: false,
+    suspends: false,
+    mayThrow: true,
+  });
+  for (const node of [
+    byKind("KindArrayLiteralExpression"),
+    byKind("KindTemplateExpression"),
+    byKind("KindObjectLiteralExpression"),
+  ]) {
+    assert.equal(source.navigation.expressionEffects(node).invokes, true);
+    assert.equal(source.navigation.expressionEffects(node).mayThrow, true);
+  }
+  assert.deepEqual(source.navigation.expressionEffects(byOperator("KindEqualsEqualsEqualsToken")), {
+    invokes: false,
+    mutates: false,
+    suspends: false,
+    mayThrow: false,
+  });
 });
 
 test("target source semantics retain authored, contextual, and flow-selected union evidence", async () => {

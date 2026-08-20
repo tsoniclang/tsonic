@@ -100,6 +100,7 @@ export function referenceQueryNode(ast: AstReader, node: Node): Node | undefined
     ast.is.IsIdentifier(node) ||
     ast.is.IsPrivateIdentifier(node) ||
     ast.is.IsPropertyAccessExpression(node) ||
+    ast.is.IsElementAccessExpression(node) ||
     ast.is.IsQualifiedName(node)
   ) {
     return node;

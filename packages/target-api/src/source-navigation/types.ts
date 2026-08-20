@@ -43,6 +43,18 @@ export type SourceProjectMemberImplementationResult =
       readonly reason: string;
     };
 
+export type SourceProjectMemberContractsResult =
+  | {
+      readonly kind: "resolved";
+      readonly implementationDeclaration: Node;
+      readonly contracts: readonly Node[];
+    }
+  | {
+      readonly kind: "unresolved";
+      readonly declaration: Node;
+      readonly reason: string;
+    };
+
 export type SourceCallableImplementationResult =
   SourceProjectMemberImplementationResult;
 
@@ -68,6 +80,7 @@ export interface SourceExpressionEffects {
 
 export interface SourceDeclarationUse {
   readonly reference: Node;
+  readonly memberReceiver?: Node;
   readonly kind: "direct-call" | "first-class" | "source-linkage" | "type-only";
   readonly role:
     | "call-target"
@@ -228,6 +241,9 @@ export interface SourceProgramNavigation {
     classDeclaration: Node,
     contractMemberDeclaration: Node,
   ): SourceProjectMemberImplementationResult;
+  memberContracts(
+    implementationDeclaration: Node,
+  ): SourceProjectMemberContractsResult;
   callableImplementation(
     contractDeclaration: Node,
   ): SourceCallableImplementationResult;

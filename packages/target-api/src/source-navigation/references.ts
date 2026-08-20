@@ -15,6 +15,7 @@ import type {
 import {
   aliasedSymbol,
   primaryDeclaration,
+  referenceQueryNode,
   resolvedSymbolAtReferenceNode,
   semanticTypeForNode,
   symbolAtReferenceNode,
@@ -161,6 +162,21 @@ export function createSourceReferenceNavigation(
       return undefined;
     }
     const queries = source.getSourceFileQueries(sourceFile);
+    const selectedAccess = selectedAccessDeclarationReference(
+      ast,
+      queries.checker,
+      node,
+      isProjectDeclaration,
+    );
+    const queryNode = referenceQueryNode(ast, node);
+    if (queryNode !== undefined &&
+      (ast.is.IsPropertyAccessExpression(queryNode) ||
+        ast.is.IsElementAccessExpression(queryNode))) {
+      if (nodeKey !== undefined) {
+        sourceReferenceCache.set(nodeKey, selectedAccess ?? null);
+      }
+      return selectedAccess;
+    }
     const directSymbol = symbolAtReferenceNode(
       ast,
       queries.checker,
@@ -221,6 +237,31 @@ export function createSourceReferenceNavigation(
     declarationFor,
     isProjectDeclaration,
   });
+}
+
+function selectedAccessDeclarationReference(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  node: Node,
+  isProjectDeclaration: (declaration: Node | undefined) => boolean,
+): SourceDeclarationReference | undefined {
+  const access = referenceQueryNode(ast, node);
+  const selected = access !== undefined && ast.is.IsPropertyAccessExpression(access)
+    ? checker.getResolvedPropertyAccessInfo(access)
+    : access !== undefined && ast.is.IsElementAccessExpression(access)
+      ? checker.getResolvedElementAccessInfo(access)
+      : undefined;
+  const symbol = selected?.selectedSymbol;
+  const declaration = selected?.selectedDeclaration;
+  const sourceFile = ast.getSourceFile(declaration);
+  return symbol !== undefined && declaration !== undefined && sourceFile !== undefined
+    ? {
+        symbol,
+        declaration,
+        sourceFile,
+        project: isProjectDeclaration(declaration),
+      }
+    : undefined;
 }
 
 function projectDeclarationForType(
