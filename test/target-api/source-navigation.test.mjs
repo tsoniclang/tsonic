@@ -122,6 +122,13 @@ test("source navigation resolves exact class implementations for base and interf
       "export class SameSpelling {",
       "  read(): number { return 3; }",
       "}",
+      "declare const computedKey: unique symbol;",
+      "export class ComputedBase {",
+      "  [computedKey](): number { return 4; }",
+      "}",
+      "export class ComputedDerived extends ComputedBase {",
+      "  [computedKey](): number { return 5; }",
+      "}",
       "",
     ].join("\n"),
   });
@@ -135,6 +142,8 @@ test("source navigation resolves exact class implementations for base and interf
   const derived = namedDeclaration(ast, sourceFile, "Derived");
   const inherited = namedDeclaration(ast, sourceFile, "Inherited");
   const sameSpelling = namedDeclaration(ast, sourceFile, "SameSpelling");
+  const computedBase = namedDeclaration(ast, sourceFile, "ComputedBase");
+  const computedDerived = namedDeclaration(ast, sourceFile, "ComputedDerived");
   const readableValue = namedMember(ast, readable, "value");
   const readableRead = namedMember(ast, readable, "read");
   const baseShapeValue = namedMember(ast, baseShape, "value");
@@ -144,6 +153,9 @@ test("source navigation resolves exact class implementations for base and interf
   const baseRead = namedMember(ast, base, "read");
   const derivedValue = namedMember(ast, derived, "value");
   const derivedRead = namedMember(ast, derived, "read");
+  const sameSpellingRead = namedMember(ast, sameSpelling, "read");
+  const computedBaseMember = ast.members(computedBase)[0];
+  const computedDerivedMember = ast.members(computedDerived)[0];
 
   assert.strictEqual(
     navigation.memberImplementation(derived, baseRead).implementation?.declaration,
@@ -172,6 +184,44 @@ test("source navigation resolves exact class implementations for base and interf
   assert.deepEqual(
     navigation.memberImplementation(sameSpelling, baseRead),
     { kind: "unrelated" },
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(
+      computedBase,
+      computedBaseMember,
+    ).implementation?.declaration,
+    computedBaseMember,
+  );
+  assert.strictEqual(
+    navigation.memberImplementation(
+      computedDerived,
+      computedBaseMember,
+    ).implementation?.declaration,
+    computedDerivedMember,
+  );
+  assert.deepEqual(
+    navigation.memberContracts(derivedRead),
+    {
+      kind: "resolved",
+      implementationDeclaration: derivedRead,
+      contracts: [baseRead, readableRead],
+    },
+  );
+  assert.deepEqual(
+    navigation.memberContracts(derivedShapeRead),
+    {
+      kind: "resolved",
+      implementationDeclaration: derivedShapeRead,
+      contracts: [baseShapeRead],
+    },
+  );
+  assert.deepEqual(
+    navigation.memberContracts(sameSpellingRead),
+    {
+      kind: "resolved",
+      implementationDeclaration: sameSpellingRead,
+      contracts: [],
+    },
   );
 });
 
@@ -427,6 +477,224 @@ test("target source semantics classify value uses against their exact declaratio
     source.semantics.selectValueTypeRefinement(literal),
     { kind: "not-project-reference" },
   );
+});
+
+test("source navigation separates type-only references from runtime callable uses", async () => {
+  const checked = await checkedSource("type-only-declaration-uses", {
+    "src/index.ts": [
+      "function format(value: number): string { return String(value); }",
+      "type FormatParameters = Parameters<typeof format>;",
+      "export function call(values: FormatParameters): string {",
+      "  return format(values[0]);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const format = namedDeclaration(source.ast, sourceFile, "format");
+  const uses = source.navigation.declarationUses(format);
+  const summary = source.navigation.declarationUseSummary(format);
+
+  assert.deepEqual(uses.map((use) => use.kind).sort(), ["direct-call", "type-only"]);
+  assert.deepEqual(uses.map((use) => use.role).sort(), ["call-target", "type-only"]);
+  assert.equal(summary.directCallCount, 1);
+  assert.equal(summary.firstClassUseCount, 0);
+  assert.equal(summary.hasUnclassifiedValueUse, false);
+});
+
+test("source navigation separates class-member mutation from binding writes", async () => {
+  const checked = await checkedSource("class-member-use-summary", {
+    "src/index.ts": [
+      "class Counter {",
+      "  value = 0;",
+      "  constructor() { this.value = 1; }",
+      "  increment(): void { this.value += 1; }",
+      "}",
+      "const counter = new Counter();",
+      "counter.value = 3;",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const counter = namedDeclaration(source.ast, sourceFile, "Counter");
+  const value = namedMember(source.ast, counter, "value");
+  const summary = source.navigation.declarationUseSummary(value);
+
+  assert.equal(summary.bindingWritten, false);
+  assert.equal(summary.memberWritten, true);
+  assert.equal(summary.constructorInitialized, true);
+  assert.equal(summary.mutatedAfterInitialization, true);
+});
+
+test("source navigation exposes exact member receivers for declaration uses", async () => {
+  const checked = await checkedSource("class-member-receivers", {
+    "src/index.ts": [
+      "class Counter {",
+      "  value = 0;",
+      "  increment(): void { this.value += 1; }",
+      "  advance(): void { this.increment(); }",
+      "  advanceComputed(): void { this[\"increment\"](); }",
+      "}",
+      "const counter = new Counter();",
+      "counter.advance();",
+      "counter[\"advance\"]();",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const counter = namedDeclaration(source.ast, sourceFile, "Counter");
+  const increment = namedMember(source.ast, counter, "increment");
+  const advance = namedMember(source.ast, counter, "advance");
+  const incrementUses = source.navigation.declarationUses(increment).filter((use) =>
+    use.kind === "direct-call");
+  const advanceUses = source.navigation.declarationUses(advance).filter((use) =>
+    use.kind === "direct-call");
+
+  assert.deepEqual(
+    incrementUses.map((use) => source.ast.kindName(use.reference)).sort(),
+    ["KindElementAccessExpression", "KindPropertyAccessExpression"],
+  );
+  assert.deepEqual(
+    incrementUses.map((use) => source.ast.kindName(use.memberReceiver)),
+    ["KindThisKeyword", "KindThisKeyword"],
+  );
+  assert.deepEqual(
+    advanceUses.map((use) => source.ast.kindName(use.reference)).sort(),
+    ["KindElementAccessExpression", "KindPropertyAccessExpression"],
+  );
+  assert.deepEqual(
+    advanceUses.map((use) => source.ast.kindName(use.memberReceiver)),
+    ["KindIdentifier", "KindIdentifier"],
+  );
+  assert.deepEqual(
+    advanceUses.map((use) => source.ast.text(use.memberReceiver)),
+    ["counter", "counter"],
+  );
+  assert.deepEqual(
+    [...incrementUses, ...advanceUses].map((use) => use.role),
+    ["call-target", "call-target", "call-target", "call-target"],
+  );
+});
+
+test("source expression effects stop at function boundaries", async () => {
+  const checked = await checkedSource("function-expression-effects", {
+    "src/index.ts": [
+      "let count = 0;",
+      "function increment(): number { count += 1; return count; }",
+      "const callback = () => increment();",
+      "export const value = callback();",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const arrow = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsArrowFunction(node));
+  const invocation = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsCallExpression(node) &&
+    source.ast.text(source.ast.as.AsCallExpression(node)?.Expression) === "callback");
+
+  assert.deepEqual(source.navigation.expressionEffects(arrow), {
+    invokes: false,
+    mutates: false,
+    suspends: false,
+    mayThrow: false,
+  });
+  assert.deepEqual(source.navigation.expressionEffects(invocation), {
+    invokes: true,
+    mutates: false,
+    suspends: false,
+    mayThrow: true,
+  });
+});
+
+test("source expression effects retain coercion, iteration, and computed-key behavior", async () => {
+  const checked = await checkedSource("expression-effect-semantics", {
+    "src/index.ts": [
+      "declare const left: any;",
+      "declare const right: any;",
+      "declare const numberLeft: number;",
+      "declare const numberRight: number;",
+      "declare const values: any[];",
+      "export const coercion = left + right;",
+      "export const numeric = numberLeft + numberRight;",
+      "export const negated = -1;",
+      "export const uncertainUnary = -left;",
+      "export const spread = [...values];",
+      "export const template = `${left}`;",
+      "export const computed = { [left]: right };",
+      "export const strict = left === right;",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const byOperator = (operator) => requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsBinaryExpression(node) &&
+    source.ast.operatorKindName(node) === operator);
+  const byKind = (kind) => requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.kindName(node) === kind);
+
+  const coercion = requiredNode(source.ast, sourceFile, (node) => {
+    if (!source.ast.is.IsBinaryExpression(node) ||
+      source.ast.operatorKindName(node) !== "KindPlusToken") {
+      return false;
+    }
+    return source.ast.text(source.ast.as.AsBinaryExpression(node)?.Left) === "left";
+  });
+  assert.deepEqual(source.navigation.expressionEffects(coercion), {
+    invokes: true,
+    mutates: false,
+    suspends: false,
+    mayThrow: true,
+  });
+  const numeric = requiredNode(source.ast, sourceFile, (node) => {
+    if (!source.ast.is.IsBinaryExpression(node) ||
+      source.ast.operatorKindName(node) !== "KindPlusToken") {
+      return false;
+    }
+    return source.ast.text(source.ast.as.AsBinaryExpression(node)?.Left) === "numberLeft";
+  });
+  const primitiveUnary = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsPrefixUnaryExpression(node) &&
+    source.ast.operatorKindName(node) === "KindMinusToken" &&
+    source.ast.kindName(source.ast.as.AsPrefixUnaryExpression(node)?.Operand) ===
+      "KindNumericLiteral");
+  const uncertainUnary = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsPrefixUnaryExpression(node) &&
+    source.ast.operatorKindName(node) === "KindMinusToken" &&
+    source.ast.text(source.ast.as.AsPrefixUnaryExpression(node)?.Operand) === "left");
+  for (const node of [numeric, primitiveUnary]) {
+    assert.deepEqual(source.navigation.expressionEffects(node), {
+      invokes: false,
+      mutates: false,
+      suspends: false,
+      mayThrow: false,
+    });
+  }
+  assert.deepEqual(source.navigation.expressionEffects(uncertainUnary), {
+    invokes: true,
+    mutates: false,
+    suspends: false,
+    mayThrow: true,
+  });
+  for (const node of [
+    byKind("KindArrayLiteralExpression"),
+    byKind("KindTemplateExpression"),
+    byKind("KindObjectLiteralExpression"),
+  ]) {
+    assert.equal(source.navigation.expressionEffects(node).invokes, true);
+    assert.equal(source.navigation.expressionEffects(node).mayThrow, true);
+  }
+  assert.deepEqual(source.navigation.expressionEffects(byOperator("KindEqualsEqualsEqualsToken")), {
+    invokes: false,
+    mutates: false,
+    suspends: false,
+    mayThrow: false,
+  });
 });
 
 test("target source semantics retain authored, contextual, and flow-selected union evidence", async () => {

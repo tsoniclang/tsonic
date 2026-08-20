@@ -3,6 +3,11 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export type PackageJson = Readonly<Record<string, unknown>>;
 
+export interface CompilerSourceExport {
+  readonly specifier: string;
+  readonly sourceFile: string;
+}
+
 export function findInstalledPackageRoot(resolutionDirectory: string, packageName: string): string | undefined {
   const packageSegments = packageName.startsWith("@") ? packageName.split("/") : [packageName];
   let currentDirectory = resolve(resolutionDirectory);
@@ -62,7 +67,15 @@ export function hasCompilerSourceExport(
   packageJson: PackageJson,
   sourceFiles: readonly string[],
 ): boolean {
-  const availableSourcePaths = new Set(sourceFiles.flatMap((sourceFile) => {
+  return collectCompilerSourceExports(packageRoot, packageJson, sourceFiles).length > 0;
+}
+
+export function collectCompilerSourceExports(
+  packageRoot: string,
+  packageJson: PackageJson,
+  sourceFiles: readonly string[],
+): readonly CompilerSourceExport[] {
+  const availableSourcePaths = new Map(sourceFiles.flatMap((sourceFile) => {
     const packageRelativePath = relative(packageRoot, sourceFile);
     if (
       packageRelativePath === "" ||
@@ -71,13 +84,28 @@ export function hasCompilerSourceExport(
       packageRelativePath.startsWith("..\\") ||
       isAbsolute(packageRelativePath)
     ) {
-      return [];
+      return [] as [string, string][];
     }
-    return [`./${normalizePackagePath(packageRelativePath)}`];
+    return [[`./${normalizePackagePath(packageRelativePath)}`, normalizePackagePath(sourceFile)]];
   }));
-  return hasCompilerSourceTarget(packageJson.exports, availableSourcePaths) ||
-    hasCompilerSourceTarget(packageJson.main, availableSourcePaths) ||
-    hasCompilerSourceTarget(packageJson.module, availableSourcePaths);
+  const exports: CompilerSourceExport[] = [];
+  collectCompilerSourceExportTargets(packageJson.exports, ".", availableSourcePaths, exports);
+  collectCompilerSourceExportTargets(packageJson.main, ".", availableSourcePaths, exports);
+  collectCompilerSourceExportTargets(packageJson.module, ".", availableSourcePaths, exports);
+  const bySpecifier = new Map<string, CompilerSourceExport>();
+  for (const entry of exports) {
+    const existing = bySpecifier.get(entry.specifier);
+    if (existing !== undefined && existing.sourceFile !== entry.sourceFile) {
+      throw new Error(
+        `Compiler source export '${entry.specifier}' in '${normalizePackagePath(resolve(packageRoot))}' resolves to both '${existing.sourceFile}' and '${entry.sourceFile}'.`,
+      );
+    }
+    bySpecifier.set(entry.specifier, entry);
+  }
+  return Object.freeze([...bySpecifier.values()].sort((left, right) =>
+    left.specifier.localeCompare(right.specifier, "en") ||
+    left.sourceFile.localeCompare(right.sourceFile, "en")
+  ));
 }
 
 export function isCompilerSourceFile(name: string): boolean {
@@ -92,24 +120,40 @@ export function normalizePackagePath(path: string): string {
   return path.split("\\").join("/");
 }
 
-function hasCompilerSourceTarget(
+function collectCompilerSourceExportTargets(
   value: unknown,
-  availableSourcePaths: ReadonlySet<string>,
-): boolean {
+  specifier: string,
+  availableSourcePaths: ReadonlyMap<string, string>,
+  output: CompilerSourceExport[],
+): void {
   if (typeof value === "string") {
-    return compilerSourceTargetCandidates(value).some((candidate) =>
-      matchesAvailableSourcePath(candidate, availableSourcePaths)
+    appendCompilerSourceExportMatches(
+      specifier,
+      value,
+      availableSourcePaths,
+      output,
     );
+    return;
   }
   if (Array.isArray(value)) {
-    return value.some((entry) => hasCompilerSourceTarget(entry, availableSourcePaths));
+    for (const entry of value) {
+      collectCompilerSourceExportTargets(entry, specifier, availableSourcePaths, output);
+    }
+    return;
   }
   if (!isRecord(value)) {
-    return false;
+    return;
   }
-  return Object.values(value).some((entry) =>
-    hasCompilerSourceTarget(entry, availableSourcePaths)
-  );
+  const entries = Object.entries(value);
+  const hasSubpaths = entries.some(([key]) => key === "." || key.startsWith("./"));
+  for (const [key, entry] of entries) {
+    collectCompilerSourceExportTargets(
+      entry,
+      hasSubpaths ? key : specifier,
+      availableSourcePaths,
+      output,
+    );
+  }
 }
 
 function compilerSourceTargetCandidates(target: string): readonly string[] {
@@ -125,33 +169,45 @@ function compilerSourceTargetCandidates(target: string): readonly string[] {
   return [];
 }
 
-function matchesAvailableSourcePath(
-  candidate: string,
-  availableSourcePaths: ReadonlySet<string>,
-): boolean {
-  const normalized = normalizeExportTarget(candidate);
-  if (normalized === undefined) {
-    return false;
-  }
-  const wildcardIndex = normalized.indexOf("*");
-  if (wildcardIndex < 0) {
-    return availableSourcePaths.has(normalized);
-  }
-  if (normalized.indexOf("*", wildcardIndex + 1) >= 0) {
-    return false;
-  }
-  const prefix = normalized.slice(0, wildcardIndex);
-  const suffix = normalized.slice(wildcardIndex + 1);
-  for (const sourcePath of availableSourcePaths) {
-    if (
-      sourcePath.length >= prefix.length + suffix.length &&
-      sourcePath.startsWith(prefix) &&
-      sourcePath.endsWith(suffix)
-    ) {
-      return true;
+function appendCompilerSourceExportMatches(
+  specifier: string,
+  target: string,
+  availableSourcePaths: ReadonlyMap<string, string>,
+  output: CompilerSourceExport[],
+): void {
+  for (const candidate of compilerSourceTargetCandidates(target)) {
+    const normalized = normalizeExportTarget(candidate);
+    if (normalized === undefined) {
+      continue;
+    }
+    const wildcardIndex = normalized.indexOf("*");
+    if (wildcardIndex < 0) {
+      const sourceFile = availableSourcePaths.get(normalized);
+      if (sourceFile !== undefined && !specifier.includes("*")) {
+        output.push(Object.freeze({ specifier, sourceFile }));
+      }
+      continue;
+    }
+    if (normalized.indexOf("*", wildcardIndex + 1) >= 0 ||
+      specifier.split("*").length > 2) {
+      continue;
+    }
+    const prefix = normalized.slice(0, wildcardIndex);
+    const suffix = normalized.slice(wildcardIndex + 1);
+    for (const [sourcePath, sourceFile] of availableSourcePaths) {
+      if (sourcePath.length < prefix.length + suffix.length ||
+        !sourcePath.startsWith(prefix) || !sourcePath.endsWith(suffix)) {
+        continue;
+      }
+      const wildcard = sourcePath.slice(prefix.length, sourcePath.length - suffix.length);
+      output.push(Object.freeze({
+        specifier: specifier.includes("*")
+          ? specifier.replace("*", wildcard)
+          : specifier,
+        sourceFile,
+      }));
     }
   }
-  return false;
 }
 
 function normalizeExportTarget(target: string): string | undefined {

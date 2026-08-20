@@ -3,7 +3,6 @@ export type {
   TargetSelection,
   TargetSelectionOptions,
   TargetSurfaceId,
-  TargetTypescriptCompatibilityMode,
   TsonicProjectConfig,
 } from "../config.js";
 export {
@@ -24,5 +23,11 @@ export type {
   TsonicPlugin,
   TsonicTargetPlugin,
 } from "../target-contracts.js";
+export type {
+  TargetSourcePackage,
+  TargetSourcePackageComponent,
+  TargetSourcePackageExport,
+  TargetSourcePackageGraph,
+} from "../source-packages/model.js";
 export { createTargetRegistry } from "../registry.js";
 export type { TargetRegistry } from "../registry.js";

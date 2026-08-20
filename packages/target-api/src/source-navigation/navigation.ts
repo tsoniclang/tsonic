@@ -11,6 +11,9 @@ import {
   createSourceMemberImplementationNavigation,
 } from "./member-implementation.js";
 import {
+  createSourceMemberContractNavigation,
+} from "./member-contracts.js";
+import {
   createSourceCallableImplementationNavigation,
 } from "./callable-implementation.js";
 import {
@@ -24,6 +27,7 @@ import {
 } from "./constructors.js";
 import {
   sourceFileHasTopLevelAwait,
+  sourceProjectModuleExports,
   sourceProjectModuleDependencies,
   sourceProjectModuleReferences,
 } from "./modules.js";
@@ -36,6 +40,15 @@ import {
   sourceSymbolHasReferenceOutside,
   sourceSymbolReferencesWithin,
 } from "./references-usage.js";
+import { sourceExpressionResultUse } from "./expression-use.js";
+import { sourceExpressionEffects } from "./expression-effects.js";
+import { sourceDeclarationUses } from "./declaration-uses.js";
+import {
+  sourceDeclarationUseSummary,
+  sourceParameterUseSummary,
+} from "./declaration-use-summary.js";
+import { sourceCountedLoop } from "./counted-loops.js";
+import { sourceExpressionValueFlow } from "./value-flow.js";
 import type {
   SourceProgramNavigation,
 } from "./types.js";
@@ -74,6 +87,12 @@ export function createSourceProgramNavigation(
     references.isProjectDeclaration,
     heritage.declaredHeritagePath,
   );
+  const memberContracts = createSourceMemberContractNavigation(
+    source.ast,
+    references.isProjectDeclaration,
+    heritage.declaredHeritage,
+    memberImplementations.memberImplementation,
+  );
   const callableImplementations = createSourceCallableImplementationNavigation(
     source,
     references.sourceReferenceFor,
@@ -92,6 +111,54 @@ export function createSourceProgramNavigation(
     readonly ReturnType<typeof sourceProjectModuleReferences>[number][]
   >();
   const topLevelAwaitCache = new Map<string, boolean>();
+  const moduleExportCache = new Map<
+    string,
+    readonly ReturnType<typeof sourceProjectModuleExports>[number][]
+  >();
+  const declarationUsesCache = new WeakMap<Node, readonly ReturnType<
+    typeof sourceDeclarationUses
+  >[number][]>();
+  const declarationUseSummaryCache = new WeakMap<Node, ReturnType<
+    typeof sourceDeclarationUseSummary
+  >>();
+  const expressionValueFlowCache = new WeakMap<Node, ReturnType<
+    typeof sourceExpressionValueFlow
+  >>();
+  const expressionEffectsCache = new WeakMap<Node, ReturnType<
+    typeof sourceExpressionEffects
+  >>();
+
+  const declarationUses = (declaration: Node): ReturnType<
+    SourceProgramNavigation["declarationUses"]
+  > => {
+    const cached = declarationUsesCache.get(declaration);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const uses = sourceDeclarationUses(
+      source.ast,
+      declaration,
+      referenceIndex.referencesToDeclaration(declaration),
+    );
+    declarationUsesCache.set(declaration, uses);
+    return uses;
+  };
+
+  const declarationUseSummary = (declaration: Node): ReturnType<
+    SourceProgramNavigation["declarationUseSummary"]
+  > => {
+    const cached = declarationUseSummaryCache.get(declaration);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const summary = sourceDeclarationUseSummary(
+      source.ast,
+      declaration,
+      declarationUses(declaration),
+    );
+    declarationUseSummaryCache.set(declaration, summary);
+    return summary;
+  };
 
   const moduleDependencies = (
     sourceFile: SourceFile,
@@ -147,6 +214,22 @@ export function createSourceProgramNavigation(
     return references;
   };
 
+  const moduleExports = (
+    sourceFile: SourceFile,
+  ): ReturnType<SourceProgramNavigation["moduleExports"]> => {
+    const sourceFileKey = sourceFileIdentity(source.ast, sourceFile);
+    if (sourceFileKey === undefined) {
+      return Object.freeze([]);
+    }
+    const cached = moduleExportCache.get(sourceFileKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const exports = sourceProjectModuleExports(source, sourceFile);
+    moduleExportCache.set(sourceFileKey, exports);
+    return exports;
+  };
+
   const isProjectShape = (node: Node | undefined): boolean => {
     const declaration = references.declarationFor(node);
     return declaration !== undefined &&
@@ -173,9 +256,11 @@ export function createSourceProgramNavigation(
     declarationFor: references.declarationFor,
     moduleDependencies,
     moduleReferences,
+    moduleExports,
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
     memberImplementation: memberImplementations.memberImplementation,
+    memberContracts: memberContracts.memberContracts,
     callableImplementation: callableImplementations.callableImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,
@@ -197,12 +282,62 @@ export function createSourceProgramNavigation(
       );
     },
     referencesToDeclaration: referenceIndex.referencesToDeclaration,
+    declarationUses,
+    declarationUseSummary,
+    parameterUseSummary(parameter: Node) {
+      return sourceParameterUseSummary(
+        source.ast,
+        parameter,
+        declarationUses(parameter),
+      );
+    },
+    countedLoop(statement: Node) {
+      return sourceCountedLoop(
+        source.ast,
+        statement,
+        references.sourceReferenceFor,
+        (symbol, root) => sourceBindingWritesWithin(
+          source,
+          symbol,
+          root,
+          references.sourceReferenceFor,
+        ),
+      );
+    },
+    expressionValueFlow(expression: Node) {
+      const cached = expressionValueFlowCache.get(expression);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const summary = sourceExpressionValueFlow(
+        source.ast,
+        expression,
+        references.sourceReferenceFor,
+        declarationUses,
+        declarationUseSummary,
+      );
+      expressionValueFlowCache.set(expression, summary);
+      return summary;
+    },
+    expressionResultUse(expression: Node) {
+      return sourceExpressionResultUse(source.ast, expression);
+    },
+    expressionEffects(expression: Node) {
+      const cached = expressionEffectsCache.get(expression);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const effects = sourceExpressionEffects(source, expression);
+      expressionEffectsCache.set(expression, effects);
+      return effects;
+    },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
         source,
         sourceFiles,
         symbol,
         excludedNode,
+        references.sourceReferenceFor,
       );
     },
     isProjectShape,
@@ -249,16 +384,25 @@ export type {
   SourceClassConstructorParameter,
   SourceClassConstructorResult,
   SourceClassConstructorSignature,
+  SourceCountedLoop,
   SourceCallableImplementationResult,
   SourceDeclarationReference,
+  SourceDeclarationUse,
+  SourceDeclarationUseSummary,
+  SourceExpressionEffects,
+  SourceExpressionValueFlowSummary,
   SourceDeclaredHeritageEdge,
   SourceDeclaredHeritageResult,
   SourceHeritagePathResult,
   SourceProgramNavigation,
+  SourceParameterUseSummary,
   SourceProjectMemberDispatch,
+  SourceProjectMemberContractsResult,
   SourceProjectMemberImplementationResult,
   SourceProjectModuleDependency,
+  SourceProjectModuleExport,
   SourceProjectReference,
+  SourceValueEscapeKind,
 } from "./types.js";
 export {
   sourceFileIdentity,

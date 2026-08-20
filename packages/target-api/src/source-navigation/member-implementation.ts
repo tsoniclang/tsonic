@@ -117,25 +117,24 @@ function resolveMemberImplementation(
     });
   }
 
+  const checker = source.getSourceFileQueries(typeReference.sourceFile).checker;
   const memberNameNode = ast.name(contractMemberDeclaration);
-  const memberName = memberNameNode !== undefined &&
-      (
-        ast.is.IsIdentifier(memberNameNode) ||
-        ast.is.IsStringLiteral(memberNameNode) ||
-        ast.is.IsNumericLiteral(memberNameNode)
-      )
-    ? ast.text(memberNameNode)
-    : undefined;
-  if (memberName === undefined) {
+  const contractSymbol = checker.getSymbolAtLocation(memberNameNode);
+  if (
+    contractSymbol === undefined ||
+    !checker.getSymbolDeclarations(contractSymbol).includes(contractMemberDeclaration)
+  ) {
     return Object.freeze({
       kind: "unresolved",
-      reason: "The project member contract has no exact checker-queryable property name.",
+      reason: "The checked source program did not expose the exact project member contract symbol.",
     });
   }
 
-  const checker = source.getSourceFileQueries(typeReference.sourceFile).checker;
   const selectedType = checker.getDeclaredTypeOfSymbol(typeReference.symbol);
-  const implementationSymbol = checker.getPropertyOfType(selectedType, memberName);
+  const implementationSymbol = checker.getPropertyOfType(
+    selectedType,
+    checker.getSymbolName(contractSymbol),
+  );
   const implementationDeclaration = selectCallableImplementationDeclaration(
     ast,
     checker,

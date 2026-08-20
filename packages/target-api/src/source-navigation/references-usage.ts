@@ -12,7 +12,6 @@ import type {
 import {
   aliasedSymbol,
   referenceQueryNode,
-  symbolAtReferenceNode,
 } from "./syntax.js";
 import {
   sourceNodesEqual,
@@ -113,7 +112,18 @@ export function createSourceDeclarationReferenceIndex(
   let referencesByDeclaration: ReadonlyMap<string, readonly Node[]> | undefined;
 
   const build = (): ReadonlyMap<string, readonly Node[]> => {
-    const pending = new Map<string, Node[]>();
+    const pending = new Map<string, Map<string, Node>>();
+    const record = (declaration: Node | undefined, reference: Node): void => {
+      const declarationIdentity = sourceNodeIdentity(source.ast, declaration);
+      const referenceIdentity = sourceNodeIdentity(source.ast, reference);
+      if (declarationIdentity === undefined || referenceIdentity === undefined ||
+        sourceNodesEqual(source.ast, source.ast.name(declaration), reference)) {
+        return;
+      }
+      const references = pending.get(declarationIdentity) ?? new Map<string, Node>();
+      references.set(referenceIdentity, reference);
+      pending.set(declarationIdentity, references);
+    };
     const visit = (node: Node | undefined): void => {
       if (node === undefined) {
         return;
@@ -121,16 +131,19 @@ export function createSourceDeclarationReferenceIndex(
       const queryNode = referenceQueryNode(source.ast, node);
       if (queryNode !== undefined && sourceNodesEqual(source.ast, queryNode, node)) {
         const selected = sourceReferenceFor(node);
-        const declaration = selected?.declaration;
-        const declarationIdentity = sourceNodeIdentity(source.ast, declaration);
-        if (
-          declaration !== undefined &&
-          declarationIdentity !== undefined &&
-          !sourceNodesEqual(source.ast, source.ast.name(declaration), node)
-        ) {
-          const references = pending.get(declarationIdentity) ?? [];
-          references.push(node);
-          pending.set(declarationIdentity, references);
+        record(selected?.declaration, node);
+        if (source.ast.is.IsPropertyAccessExpression(node) ||
+          source.ast.is.IsElementAccessExpression(node)) {
+          const sourceFile = source.ast.getSourceFile(node);
+          const checker = sourceFile === undefined
+            ? undefined
+            : source.getSourceFileQueries(sourceFile).checker;
+          const access = checker === undefined
+            ? undefined
+            : source.ast.is.IsPropertyAccessExpression(node)
+              ? checker.getResolvedPropertyAccessInfo(node)
+              : checker.getResolvedElementAccessInfo(node);
+          record(access?.selectedDeclaration, node);
         }
       }
       source.ast.forEachChild(node, visit);
@@ -141,7 +154,7 @@ export function createSourceDeclarationReferenceIndex(
     return new Map(
       [...pending.entries()].map(([identity, references]) => [
         identity,
-        Object.freeze(references),
+        Object.freeze([...references.values()]),
       ]),
     );
   };
@@ -162,6 +175,9 @@ export function sourceSymbolHasReferenceOutside(
   sourceFiles: readonly SourceFile[],
   symbol: Symbol,
   excludedNode: Node,
+  sourceReferenceFor: (
+    node: Node | undefined,
+  ) => SourceDeclarationReference | undefined,
 ): boolean {
   let found = false;
   const excludedIdentity = sourceNodeIdentity(source.ast, excludedNode);
@@ -175,11 +191,7 @@ export function sourceSymbolHasReferenceOutside(
     const sourceFile = source.ast.getSourceFile(node);
     if (sourceFile !== undefined) {
       const checker = source.getSourceFileQueries(sourceFile).checker;
-      const direct = symbolAtReferenceNode(
-        source.ast,
-        checker,
-        node,
-      );
+      const direct = sourceReferenceFor(node)?.symbol;
       if (
         sourceSymbolsEqual(source.ast, checker, direct, symbol) ||
         sourceSymbolsEqual(

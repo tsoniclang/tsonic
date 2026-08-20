@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
-  capabilityCompatRuntimeCarriers,
+  capabilityClosedRuntimeCarriers,
   capabilityLedger,
   capabilityOwners,
   capabilityStatuses,
@@ -114,7 +114,7 @@ function capabilityEntry({
         laneClassification: laneClassification ?? {
           patternKind: "validation-test-pattern",
           possibleLanes: ["static-native", "hard-reject"],
-          strictNative: {
+          canonical: {
             lane: "static-native",
           },
           staticNative: {
@@ -443,8 +443,8 @@ test("capability coverage report proves old inventory coverage by inventory", ()
     total: 73,
     ported: 55,
     deferred: 14,
-    "replaced-by-stronger-test": 2,
-    "invalid-stale-architecture": 2,
+    "replaced-by-stronger-test": 3,
+    "invalid-stale-architecture": 1,
   });
   assertOldInventoryCoverage(inventoryCoverageByName.get("old-product-unit"), oldProductUnitPortInventory, {
     total: 109,
@@ -550,8 +550,8 @@ test("capability coverage report summarizes lane classification coverage", () =>
 
   assert.equal(report.rules.laneClassificationIsLedgerEnforced, true);
   assert.equal(report.laneClassificationCoverage.rules.allLedgerEntriesWithLaneClassificationAreTracked, true);
-  assert.equal(report.laneClassificationCoverage.rules.compatRuntimeCarriersMustBeClosed, true);
-  assert.deepEqual(report.laneClassificationCoverage.rules.allowedCompatRuntimeCarriers, [...capabilityCompatRuntimeCarriers]);
+  assert.equal(report.laneClassificationCoverage.rules.closedRuntimeCarriersMustBeClosed, true);
+  assert.deepEqual(report.laneClassificationCoverage.rules.allowedClosedRuntimeCarriers, [...capabilityClosedRuntimeCarriers]);
   assert.equal(report.laneClassificationCoverage.summary.total, trackedLedgerEntries.length);
   assert.equal(report.laneClassificationCoverage.proofHoles.length, report.laneClassificationCoverage.summary.withProofHoles);
 
@@ -565,14 +565,14 @@ test("capability coverage report summarizes lane classification coverage", () =>
 test("capability coverage report mirrors lane classifications and reports proof holes", () => {
   const validLaneClassification = {
     patternKind: "dynamic-get",
-    possibleLanes: ["static-native", "compat-runtime", "hard-reject"],
-    strictNative: {
+    possibleLanes: ["static-native", "closed-runtime", "hard-reject"],
+    canonical: {
       lane: "hard-reject",
-      reason: "Dynamic get requires compatibility mode.",
+      reason: "Dynamic get requires exact closed operation facts.",
     },
-    compat: {
-      lane: "compat-runtime",
-      requiredFacts: ["runtime.dynamic.carrier", "compat.any.dynamic-get"],
+    closedRuntime: {
+      lane: "closed-runtime",
+      requiredFacts: ["runtime.dynamic.carrier", "dynamic-value.any.dynamic-get"],
       runtimeCarrier: "TsValue",
       operation: "GetProperty",
     },
@@ -582,14 +582,14 @@ test("capability coverage report mirrors lane classifications and reports proof 
     },
     hardReject: {
       lane: "hard-reject",
-      reasons: ["strict-native-selected", "missing-runtime-carrier-fact"],
+      reasons: ["missing-runtime-carrier-fact"],
     },
   };
   const invalidLaneClassification = {
     patternKind: "",
-    possibleLanes: ["compat-runtime", "runtime-reflection"],
-    compat: {
-      lane: "compat-runtime",
+    possibleLanes: ["closed-runtime", "runtime-reflection"],
+    closedRuntime: {
+      lane: "closed-runtime",
       operation: "CallProperty",
     },
     hardReject: {
@@ -599,7 +599,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
   const report = buildCapabilityCoverageReport({
     ledgerEntries: [
       capabilityEntry({
-        capabilityId: "compat.any.dynamic-get",
+        capabilityId: "dynamic-value.any.dynamic-get",
         status: "not-started",
         laneClassification: validLaneClassification,
       }),
@@ -609,7 +609,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
         includeLaneClassification: false,
       }),
       capabilityEntry({
-        capabilityId: "compat.any.dynamic-call",
+        capabilityId: "dynamic-value.any.dynamic-call",
         status: "blocked",
         laneClassification: invalidLaneClassification,
         blockers: ["Requires dynamic carrier operation metadata."],
@@ -627,7 +627,7 @@ test("capability coverage report mirrors lane classifications and reports proof 
   assert.equal(report.laneClassificationCoverage.summary.missingLaneClassification, 1);
   assert.equal(report.laneClassificationCoverage.summary.invalidLaneClassification, 1);
 
-  const validCoverage = laneCoverageById.get("compat.any.dynamic-get");
+  const validCoverage = laneCoverageById.get("dynamic-value.any.dynamic-get");
   assert.equal(validCoverage.classificationStatus, "covered");
   assert.deepEqual(validCoverage.laneClassification, validLaneClassification);
   assert.deepEqual(validCoverage.possibleLanes, validLaneClassification.possibleLanes);
@@ -637,18 +637,18 @@ test("capability coverage report mirrors lane classifications and reports proof 
   assert.equal(missingCoverage.classificationStatus, "missing");
   assert.deepEqual(missingCoverage.proofHoles, ["laneClassification must be an object"]);
 
-  const invalidCoverage = laneCoverageById.get("compat.any.dynamic-call");
+  const invalidCoverage = laneCoverageById.get("dynamic-value.any.dynamic-call");
   assert.equal(invalidCoverage.classificationStatus, "invalid");
   assert.deepEqual(invalidCoverage.invalidPossibleLanes, ["runtime-reflection"]);
   assert.ok(invalidCoverage.proofHoles.includes("laneClassification.patternKind must be a non-empty string"));
-  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.possibleLanes must contain only static-native, compat-runtime, hard-reject"));
-  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.strictNative must be an object"));
-  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.compat.requiredFacts must be a non-empty array"));
-  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.possibleLanes must contain only static-native, closed-runtime, hard-reject"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.canonical must be an object"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.closedRuntime.requiredFacts must be a non-empty array"));
+  assert.ok(invalidCoverage.proofHoles.includes("laneClassification.closedRuntime.runtimeCarrier must be a non-empty string when lane is closed-runtime"));
   assert.ok(invalidCoverage.proofHoles.includes("laneClassification.hardReject.reasons must be a non-empty array"));
 
   assert.deepEqual(
     report.laneClassificationCoverage.proofHoles.map((entry) => entry.capabilityId),
-    ["operation.iteration.for-in.keys", "compat.any.dynamic-call"],
+    ["operation.iteration.for-in.keys", "dynamic-value.any.dynamic-call"],
   );
 });

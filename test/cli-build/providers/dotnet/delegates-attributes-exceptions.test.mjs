@@ -409,7 +409,7 @@ test("CLI rejects unsupported explicit attribute target specifiers from finalize
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
 });
 
-test("CLI rejects throw statements until provider exception facts are finalized", async () => {
+test("CLI emits arbitrary TypeScript throw values through the closed thrown-value carrier", async () => {
   const projectDirectory = resolve(tempRoot, "throw-requires-provider-facts");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -435,9 +435,16 @@ test("CLI rejects throw statements until provider exception facts are finalized"
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Throw statements require finalized TSTS\/provider exception-carrier facts/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(
+    generatedSource,
+    /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\(Tsonic\.CSharp\.Js\.TsValue\.from\(\(int\)1\)\);/u,
+  );
+  assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection/u);
+  const project = resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj");
+  const dotnet = run("dotnet", ["build", project, "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
 test("CLI emits provider-backed C# exception throws", async () => {
@@ -512,7 +519,10 @@ test("CLI emits provider-backed C# catch variables", async () => {
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /catch \(System\.Exception error\)/);
+  assert.match(
+    generatedSource,
+    /catch \(System\.Exception __tsonic_catch\d+\)[\s\S]*Tsonic\.CSharp\.Js\.TsValue error = Tsonic\.CSharp\.Js\.TsThrownValueException\.toValue\(__tsonic_catch\d+\);/u,
+  );
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCatchVariable.csproj"), "--nologo", "--v:minimal"]);
@@ -604,7 +614,10 @@ test("CLI runs provider-backed exception throw, catch, and finally semantics", a
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /throw new System\.Exception\("boom"\);/);
-  assert.match(generatedSource, /catch \(System\.Exception error\)/);
+  assert.match(
+    generatedSource,
+    /catch \(System\.Exception __tsonic_catch\d+\)[\s\S]*Tsonic\.CSharp\.Js\.TsValue error = Tsonic\.CSharp\.Js\.TsThrownValueException\.toValue\(__tsonic_catch\d+\);/u,
+  );
   assert.match(generatedSource, /return "boom";/);
   assert.match(generatedSource, /finally/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

@@ -304,7 +304,7 @@ test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI finalizes interface-backed JSON shapes and compat typeof checks after all object shapes are known", async () => {
+test("CLI finalizes interface-backed JSON shapes and dynamic-property typeof checks after all object shapes are known", async () => {
   const projectDirectory = resolve(tempRoot, "json-interface-shape-finalization");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -317,7 +317,6 @@ test("CLI finalizes interface-backed JSON shapes and compat typeof checks after 
         options: {
           namespace: "Smoke.Generated",
           assemblyName: "SmokeGeneratedJsonInterfaceShapeFinalization",
-          typescriptCompatibility: "compat",
         },
       }],
     }, null, 2),
@@ -358,7 +357,7 @@ test("CLI finalizes interface-backed JSON shapes and compat typeof checks after 
   assert.equal(generatedSource.match(new RegExp(`new ${generatedShape[1]}`, "gu"))?.length, 2);
   assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; set; \}\s*string title \{ get; set; \}\s*bool completed \{ get; set; \}\s*\}/u);
   assert.equal(generatedShapes.match(/void __tsonicWriteJson\(/gu)?.length, 1);
-  assert.match(generatedSource, /TsValue\.ApplyCompatTypeof\(value\.ReadCompatSlot\("title"\)\) != "string"/u);
+  assert.match(generatedSource, /TsValue\.ApplyDynamicTypeof\(value\.ReadDynamicSlot\("title"\)\) != "string"/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedJsonInterfaceShapeFinalization.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

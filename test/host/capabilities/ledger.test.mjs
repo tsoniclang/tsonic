@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  capabilityCompatRuntimeCarriers,
+  capabilityClosedRuntimeCarriers,
   capabilitySurfaceEvidenceGateNames,
   coreIntrinsicCoverage,
   capabilityLaneNames,
@@ -74,7 +74,7 @@ test("capability ledger does not describe the retired target-operation fact life
     [],
   );
 });
-const capabilityCompatRuntimeCarrierSet = new Set(capabilityCompatRuntimeCarriers);
+const capabilityClosedRuntimeCarrierSet = new Set(capabilityClosedRuntimeCarriers);
 
 
 
@@ -117,7 +117,7 @@ function assertValidLaneClassification(entry) {
   for (const lane of classification.possibleLanes) {
     assert.equal(capabilityLaneSet.has(lane), true, `${entry.capabilityId} has unknown lane ${lane}`);
   }
-  assertValidLaneBehavior(entry, "strictNative", classification.strictNative);
+  assertValidLaneBehavior(entry, "canonical", classification.canonical);
   if (classification.possibleLanes.includes("static-native")) {
     assertValidLaneBehavior(entry, "staticNative", classification.staticNative);
     assert.ok(
@@ -125,8 +125,8 @@ function assertValidLaneClassification(entry) {
       `${entry.capabilityId} static-native lane must require facts`,
     );
   }
-  if (classification.possibleLanes.includes("compat-runtime")) {
-    assertValidLaneBehavior(entry, "compat", classification.compat);
+  if (classification.possibleLanes.includes("closed-runtime")) {
+    assertValidLaneBehavior(entry, "closedRuntime", classification.closedRuntime);
   }
   assertValidLaneBehavior(entry, "hardReject", classification.hardReject);
   assert.equal(classification.hardReject.lane, "hard-reject", `${entry.capabilityId} hardReject.lane must be hard-reject`);
@@ -200,7 +200,7 @@ function capabilityEntry({
     laneClassification: {
       patternKind: "validation-test-pattern",
       possibleLanes: ["static-native", "hard-reject"],
-      strictNative: {
+      canonical: {
         lane: "static-native",
       },
       staticNative: {
@@ -271,49 +271,49 @@ test("incomplete and blocked capabilities have ledger-enforced lane classificati
       `${entry.capabilityId} must define a fail-closed lane`,
     );
     assert.equal(
-      typeof entry.laneClassification.strictNative,
+      typeof entry.laneClassification.canonical,
       "object",
-      `${entry.capabilityId} must define strict-native behavior`,
+      `${entry.capabilityId} must define canonical behavior`,
     );
   }
 });
-test("compat-runtime lane classifications name closed carriers and required facts", () => {
+test("closed-runtime lane classifications name closed carriers and required facts", () => {
   for (const entry of capabilityLedger) {
     const classification = entry.laneClassification;
-    if (!classification.possibleLanes.includes("compat-runtime")) {
+    if (!classification.possibleLanes.includes("closed-runtime")) {
       continue;
     }
 
-    assert.equal(typeof classification.compat, "object", `${entry.capabilityId} has compat-runtime without compat behavior`);
-    assert.equal(classification.compat.lane, "compat-runtime", `${entry.capabilityId} compat behavior must use compat-runtime lane`);
-    assert.equal(typeof classification.compat.runtimeCarrier, "string", `${entry.capabilityId} compat behavior must name a runtime carrier`);
-    assert.notEqual(classification.compat.runtimeCarrier.length, 0, `${entry.capabilityId} compat runtime carrier must be non-empty`);
-    assert.ok(Array.isArray(classification.compat.requiredFacts), `${entry.capabilityId} compat behavior must name required facts`);
-    assert.ok(classification.compat.requiredFacts.length > 0, `${entry.capabilityId} compat behavior must require facts`);
-    assert.doesNotMatch(classification.compat.runtimeCarrier, /QuickJS|Reflection|dynamic/u, `${entry.capabilityId} names a banned compat mechanism`);
+    assert.equal(typeof classification.closedRuntime, "object", `${entry.capabilityId} has closed-runtime without closedRuntime behavior`);
+    assert.equal(classification.closedRuntime.lane, "closed-runtime", `${entry.capabilityId} closedRuntime behavior must use closed-runtime lane`);
+    assert.equal(typeof classification.closedRuntime.runtimeCarrier, "string", `${entry.capabilityId} closedRuntime behavior must name a runtime carrier`);
+    assert.notEqual(classification.closedRuntime.runtimeCarrier.length, 0, `${entry.capabilityId} closedRuntime runtime carrier must be non-empty`);
+    assert.ok(Array.isArray(classification.closedRuntime.requiredFacts), `${entry.capabilityId} closedRuntime behavior must name required facts`);
+    assert.ok(classification.closedRuntime.requiredFacts.length > 0, `${entry.capabilityId} closedRuntime behavior must require facts`);
+    assert.doesNotMatch(classification.closedRuntime.runtimeCarrier, /QuickJS|Reflection|dynamic/u, `${entry.capabilityId} names a banned closedRuntime mechanism`);
     assert.equal(
-      capabilityCompatRuntimeCarrierSet.has(classification.compat.runtimeCarrier),
+      capabilityClosedRuntimeCarrierSet.has(classification.closedRuntime.runtimeCarrier),
       true,
-      `${entry.capabilityId} names non-canonical compat carrier ${classification.compat.runtimeCarrier}`,
+      `${entry.capabilityId} names non-canonical closedRuntime carrier ${classification.closedRuntime.runtimeCarrier}`,
     );
   }
 });
-test("Map and Set ledger row distinguishes native and compat runtime lanes", () => {
+test("Map and Set ledger row selects the closed SameValueZero runtime lane", () => {
   const entry = capabilityLedger.find((candidate) => candidate.capabilityId === "surface.js.map-set");
   assert.notEqual(entry, undefined);
 
   const classification = entry.laneClassification;
-  assert.deepEqual(classification.possibleLanes, ["static-native", "compat-runtime", "hard-reject"]);
-  assert.equal(classification.compat.runtimeCarrier, "SelectedSurfaceRuntime");
-  assert.ok(classification.staticNative.requiredFacts.includes("selected static-native Map/Set lane"));
-  assert.ok(classification.staticNative.requiredFacts.includes("provider equality semantics evidence"));
-  assert.ok(classification.compat.requiredFacts.includes("closed JS Map/Set runtime carrier"));
-  assert.ok(classification.compat.requiredFacts.includes("JS SameValueZero equality metadata"));
-  assert.ok(classification.hardReject.reasons.includes("clr-equality-not-full-js-compat"));
+  assert.deepEqual(classification.possibleLanes, ["closed-runtime", "hard-reject"]);
+  assert.equal(classification.canonical.lane, "closed-runtime");
+  assert.equal(classification.closedRuntime.runtimeCarrier, "SelectedSurfaceRuntime");
+  assert.ok(classification.closedRuntime.requiredFacts.includes("selected Map/Set operation fact"));
+  assert.ok(classification.closedRuntime.requiredFacts.includes("closed JS Map/Set runtime carrier"));
+  assert.ok(classification.closedRuntime.requiredFacts.includes("JS SameValueZero equality metadata"));
+  assert.ok(classification.hardReject.reasons.includes("missing-same-value-zero-semantics"));
   assert.ok(classification.hardReject.reasons.includes("unsupported-selected-map-set-operation"));
   assert.equal(entry.status, "complete");
   assert.deepEqual(entry.blockers, []);
-  assert.match(entry.notes, /Dictionary\/HashSet carrier is selected by the normal JS surface/u);
+  assert.match(entry.notes, /no Dictionary\/HashSet carrier is selected by the JS surface/u);
   assert.match(entry.notes, /Dictionary\/HashSet substitution/u);
 });
 test("capability ledger validator rejects incomplete Map and Set lane evidence", () => {
@@ -324,32 +324,26 @@ test("capability ledger validator rejects incomplete Map and Set lane evidence",
     ...entry,
     laneClassification: {
       ...entry.laneClassification,
-      staticNative: {
-        ...entry.laneClassification.staticNative,
-        requiredFacts: entry.laneClassification.staticNative.requiredFacts
-          .filter((fact) => fact !== "provider equality semantics evidence"),
-      },
-      compat: {
-        ...entry.laneClassification.compat,
+      closedRuntime: {
+        ...entry.laneClassification.closedRuntime,
         runtimeCarrier: "TsObject",
-        requiredFacts: entry.laneClassification.compat.requiredFacts
+        requiredFacts: entry.laneClassification.closedRuntime.requiredFacts
           .filter((fact) => fact !== "JS SameValueZero equality metadata"),
       },
       hardReject: {
         ...entry.laneClassification.hardReject,
         reasons: entry.laneClassification.hardReject.reasons
-          .filter((reason) => reason !== "clr-equality-not-full-js-compat"),
+          .filter((reason) => reason !== "missing-same-value-zero-semantics"),
       },
     },
   });
 
-  assert.ok(errors.includes("surface.js.map-set laneClassification.staticNative.requiredFacts must include provider equality semantics evidence"));
-  assert.ok(errors.includes("surface.js.map-set laneClassification.compat.requiredFacts must include JS SameValueZero equality metadata"));
-  assert.ok(errors.includes("surface.js.map-set laneClassification.compat.runtimeCarrier must be SelectedSurfaceRuntime"));
-  assert.ok(errors.includes("surface.js.map-set laneClassification.hardReject.reasons must include clr-equality-not-full-js-compat"));
+  assert.ok(errors.includes("surface.js.map-set laneClassification.closedRuntime.requiredFacts must include JS SameValueZero equality metadata"));
+  assert.ok(errors.includes("surface.js.map-set laneClassification.closedRuntime.runtimeCarrier must be SelectedSurfaceRuntime"));
+  assert.ok(errors.includes("surface.js.map-set laneClassification.hardReject.reasons must include missing-same-value-zero-semantics"));
 });
 test("capability ledger validator rejects missing or malformed lane classification", () => {
-  const sample = capabilityLedger.find((entry) => entry.laneClassification.possibleLanes.includes("compat-runtime"));
+  const sample = capabilityLedger.find((entry) => entry.laneClassification.possibleLanes.includes("closed-runtime"));
   assert.notEqual(sample, undefined);
 
   assert.deepEqual(
@@ -387,13 +381,13 @@ test("capability ledger validator rejects missing or malformed lane classificati
       ...sample,
       laneClassification: {
         ...sample.laneClassification,
-        compat: {
-          ...sample.laneClassification.compat,
+        closedRuntime: {
+          ...sample.laneClassification.closedRuntime,
           lane: "static-native",
         },
       },
     }),
-    ["laneClassification.compat.lane must be compat-runtime"],
+    ["laneClassification.closedRuntime.lane must be closed-runtime"],
   );
 
   assert.deepEqual(
@@ -401,16 +395,16 @@ test("capability ledger validator rejects missing or malformed lane classificati
       ...sample,
       laneClassification: {
         ...sample.laneClassification,
-        compat: {
-          ...sample.laneClassification.compat,
+        closedRuntime: {
+          ...sample.laneClassification.closedRuntime,
           runtimeCarrier: "",
           requiredFacts: [],
         },
       },
     }),
     [
-      "laneClassification.compat.requiredFacts must be a non-empty array",
-      "laneClassification.compat.runtimeCarrier must be a non-empty string when lane is compat-runtime",
+      "laneClassification.closedRuntime.requiredFacts must be a non-empty array",
+      "laneClassification.closedRuntime.runtimeCarrier must be a non-empty string when lane is closed-runtime",
     ],
   );
 
@@ -419,14 +413,14 @@ test("capability ledger validator rejects missing or malformed lane classificati
       ...sample,
       laneClassification: {
         ...sample.laneClassification,
-        compat: {
-          ...sample.laneClassification.compat,
+        closedRuntime: {
+          ...sample.laneClassification.closedRuntime,
           runtimeCarrier: "OpenRuntimeObject",
         },
       },
     }),
     [
-      `laneClassification.compat.runtimeCarrier must be one of ${capabilityCompatRuntimeCarriers.join(", ")}`,
+      `laneClassification.closedRuntime.runtimeCarrier must be one of ${capabilityClosedRuntimeCarriers.join(", ")}`,
     ],
   );
 });
@@ -493,11 +487,11 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "surface.js.date",
     "surface.node.process",
     "surface.node.fs",
-    "compat.any.dynamic-get",
-    "compat.any.dynamic-set",
-    "compat.any.dynamic-call",
-    "compat.unknown.no-dynamic-access",
-    "compat.object.no-dynamic-access",
+    "dynamic-value.any.dynamic-get",
+    "dynamic-value.any.dynamic-set",
+    "dynamic-value.any.dynamic-call",
+    "dynamic-value.unknown.no-dynamic-access",
+    "dynamic-value.object.no-dynamic-access",
     "runtime.union.carrier",
     "runtime.undefined.carrier",
     "runtime.dynamic.carrier",
@@ -512,7 +506,7 @@ test("capability ledger includes active plan minimum and rereview expansion ids"
     "diagnostic.missing-target-fact",
     "diagnostic.unsupported-target-operation",
     "diagnostic.unsupported-selected-surface-operation",
-    "diagnostic.strict-mode-slow-op",
+    "diagnostic.unsupported-dynamic-operation",
     "target.shared.operation-contract",
     "architecture.native-compilable.esm-only",
     "architecture.native-compilable.no-unapproved-deps",
@@ -598,7 +592,7 @@ test("core intrinsic child capabilities define portable source contracts", () =>
     assert.ok(entry.providerFacts.includes("sourceCoreModuleIdentityFact"), intrinsic.capabilityId);
     assert.ok(entry.providerFacts.includes("selectedTargetIntrinsicContractFact"), intrinsic.capabilityId);
     assert.equal(entry.laneClassification.possibleLanes.includes("hard-reject"), true, intrinsic.capabilityId);
-    assert.equal(entry.laneClassification.possibleLanes.includes("compat-runtime"), false, intrinsic.capabilityId);
+    assert.equal(entry.laneClassification.possibleLanes.includes("closed-runtime"), false, intrinsic.capabilityId);
     assert.equal(entry.laneClassification.hardReject.reasons.includes("unsupported-target-intrinsic"), true, intrinsic.capabilityId);
     assert.ok(entry.sourceExamples.join("\n").includes(intrinsic.exportName), `${intrinsic.capabilityId} examples must name the export`);
     if (entry.status === "complete") {

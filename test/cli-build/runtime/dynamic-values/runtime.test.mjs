@@ -8,9 +8,9 @@ async function readGeneratedProject(projectDirectory, assemblyName) {
   return readFile(csharpProjectPath(projectDirectory, assemblyName), "utf8");
 }
 
-test("CLI emits closed compat runtime operations for explicit TypeScript any without selecting the JS surface", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-operations");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyOperations";
+test("CLI emits closed dynamic-value operations for explicit TypeScript any without selecting the JS surface", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-any-operations");
+  const assemblyName = "SmokeGeneratedDynamicValuesAnyOperations";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -22,7 +22,6 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
-            typescriptCompatibility: "compat",
           },
         },
       ],
@@ -64,6 +63,12 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
       "",
       "export function equalValue(value: any): boolean {",
       "  return value === 2;",
+      "}",
+      "",
+      "class Marker {}",
+      "",
+      "export function instanceOfMarker(value: any): boolean {",
+      "  return value instanceof Marker;",
       "}",
       "",
       "export function notValue(value: any): boolean {",
@@ -109,21 +114,22 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.TsValue readName\(Tsonic\.CSharp\.Js\.TsValue value\)/);
-  assert.match(generatedSource, /return value\.ReadCompatSlot\("name"\);/);
-  assert.match(generatedSource, /value\.WriteCompatSlot\("name", "Ada"\);/);
-  assert.match(generatedSource, /return value\.ReadCompatElement\(key\);/);
-  assert.match(generatedSource, /value\.WriteCompatElement\(key, "Grace"\);/);
-  assert.match(generatedSource, /return value\.InvokeCompat\("Ada", 1\);/);
-  assert.match(generatedSource, /return value\.InvokeCompatSlot\("create", false, false, \(\) => new object\?\[\] \{ "Ada" \}\);/);
-  assert.match(generatedSource, /return value\.ConstructCompat\("Ada"\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinary\(value, "\+", 2\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatBinaryBoolean\(value, "===", 2\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatUnaryBoolean\(value, "!"\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatTypeof\(value\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(Tsonic\.CSharp\.Js\.TsValue\.ApplyCompatVoid\(value\.ReadCompatSlot\("name"\)\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
-  assert.match(generatedSource, /double result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
-  assert.match(generatedSource, /result = Tsonic\.CSharp\.Js\.TsValue\.CastCompat<double>\(value\);/);
+  assert.match(generatedSource, /return value\.ReadDynamicSlot\("name"\);/);
+  assert.match(generatedSource, /value\.WriteDynamicSlot\("name", "Ada"\);/);
+  assert.match(generatedSource, /return value\.ReadDynamicElement\(key\);/);
+  assert.match(generatedSource, /value\.WriteDynamicElement\(key, "Grace"\);/);
+  assert.match(generatedSource, /return value\.InvokeDynamic\("Ada", 1\);/);
+  assert.match(generatedSource, /return value\.InvokeDynamicSlot\("create", false, false, \(\) => new object\?\[\] \{ "Ada" \}\);/);
+  assert.match(generatedSource, /return value\.ConstructDynamic\("Ada"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicBinary\(value, "\+", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicBinaryBoolean\(value, "===", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicUnaryBoolean\(value, "!"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicTypeof\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicVoid\(value\.ReadDynamicSlot\("name"\)\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.CastDynamic<double>\(value\);/);
+  assert.match(generatedSource, /double result = Tsonic\.CSharp\.Js\.TsValue\.CastDynamic<double>\(value\);/);
+  assert.match(generatedSource, /result = Tsonic\.CSharp\.Js\.TsValue\.CastDynamic<double>\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(value\);/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
@@ -131,9 +137,9 @@ test("CLI emits closed compat runtime operations for explicit TypeScript any wit
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI hard-rejects explicit any object destructuring without closed extraction facts in compat mode", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-object-destructuring-reject");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyObjectDestructuringReject";
+test("CLI hard-rejects explicit any object destructuring without closed extraction facts ", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-any-object-destructuring-reject");
+  const assemblyName = "SmokeGeneratedDynamicValuesAnyObjectDestructuringReject";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -145,7 +151,6 @@ test("CLI hard-rejects explicit any object destructuring without closed extracti
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
-            typescriptCompatibility: "compat",
           },
         },
       ],
@@ -166,9 +171,9 @@ test("CLI hard-rejects explicit any object destructuring without closed extracti
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
-test("CLI hard-rejects explicit any object spread without closed object-shape facts in compat mode", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-object-spread-reject");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyObjectSpreadReject";
+test("CLI hard-rejects explicit any object spread without closed object-shape facts ", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-any-object-spread-reject");
+  const assemblyName = "SmokeGeneratedDynamicValuesAnyObjectSpreadReject";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -180,7 +185,6 @@ test("CLI hard-rejects explicit any object spread without closed object-shape fa
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
-            typescriptCompatibility: "compat",
           },
         },
       ],
@@ -202,9 +206,9 @@ test("CLI hard-rejects explicit any object spread without closed object-shape fa
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
-test("CLI hard-rejects explicit any array spread without closed array carrier facts in compat mode", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-array-spread-reject");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyArraySpreadReject";
+test("CLI hard-rejects explicit any array spread without closed array carrier facts ", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-any-array-spread-reject");
+  const assemblyName = "SmokeGeneratedDynamicValuesAnyArraySpreadReject";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -216,7 +220,6 @@ test("CLI hard-rejects explicit any array spread without closed array carrier fa
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
-            typescriptCompatibility: "compat",
           },
         },
       ],
@@ -238,9 +241,9 @@ test("CLI hard-rejects explicit any array spread without closed array carrier fa
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
-test("CLI hard-rejects unsupported explicit any operators in compat mode", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-operator-reject");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyOperatorReject";
+test("CLI hard-rejects unsupported explicit any operators ", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-any-operator-reject");
+  const assemblyName = "SmokeGeneratedDynamicValuesAnyOperatorReject";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -252,7 +255,6 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
-            typescriptCompatibility: "compat",
           },
         },
       ],
@@ -278,12 +280,6 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
       "  return value **= 2;",
       "}",
       "",
-      "class Marker {}",
-      "",
-      "export function instance(value: any): boolean {",
-      "  return value instanceof Marker;",
-      "}",
-      "",
       "function consume(value: any): void {",
       "  void value;",
       "}",
@@ -306,87 +302,14 @@ test("CLI hard-rejects unsupported explicit any operators in compat mode", async
   assert.match(build.stdout + build.stderr, /operator '\+='/u);
   assert.match(build.stdout + build.stderr, /operator '\*\*'/u);
   assert.match(build.stdout + build.stderr, /operator '\*\*='/u);
-  assert.match(build.stdout + build.stderr, /operator 'instanceof'/u);
   assert.match(build.stdout + build.stderr, /operator ','/u);
   assert.match(build.stdout + build.stderr, /C# delete requires an exact selected JS Array element access/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 
-test("CLI strict-native rejects explicit TypeScript any operations before C# artifact emission", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-strict-reject");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyStrictReject";
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName,
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "export function readName(value: any): any {",
-      "  return value.name;",
-      "}",
-      "",
-      "export function callValue(value: any): any {",
-      "  return value();",
-      "}",
-      "",
-      "export function typeOfValue(value: any): string {",
-      "  return typeof value;",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /strict-native mode|any cannot trickle|CSHARP_OPAQUE_ANY_UNSUPPORTED/u);
-  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
-});
-
-test("CLI strict-native rejects TypeScript any typed-boundary returns before C# artifact emission", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-any-typed-boundary-strict-reject");
-  const assemblyName = "SmokeGeneratedCompatRuntimeAnyTypedBoundaryStrictReject";
-  await writeProject(projectDirectory, {
-    "tsonic.json": JSON.stringify({
-      entryPoint: "index.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [
-        {
-          id: "csharp",
-          options: {
-            namespace: "Smoke.Generated",
-            assemblyName,
-          },
-        },
-      ],
-    }, null, 2),
-    "src/index.ts": [
-      "export function typedReturn(value: any): number {",
-      "  return value;",
-      "}",
-      "",
-    ].join("\n"),
-  });
-
-  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.notEqual(build.status, 0);
-  assert.match(build.stdout + build.stderr, /TypeScript any boundary|opaque any runtime carrier|any cannot trickle/u);
-  assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
-});
-
-test("CLI compat mode wraps non-exception thrown values with closed runtime carriers", async () => {
-  const projectDirectory = resolve(tempRoot, "compat-runtime-throw-catch");
-  const assemblyName = "SmokeGeneratedCompatRuntimeThrowCatch";
+test("CLI wraps non-exception thrown values with closed runtime carriers", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-throw-catch");
+  const assemblyName = "SmokeGeneratedDynamicValuesThrowCatch";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -399,7 +322,6 @@ test("CLI compat mode wraps non-exception thrown values with closed runtime carr
             namespace: "Smoke.Generated",
             assemblyName,
             outputType: "Exe",
-            typescriptCompatibility: "compat",
           },
         },
       ],
@@ -420,7 +342,7 @@ test("CLI compat mode wraps non-exception thrown values with closed runtime carr
       "  return cleanup;",
       "}",
       "",
-      "Console.WriteLine(`compat throw: ${guarded()}`);",
+      "Console.WriteLine(`thrown value: ${guarded()}`);",
       "",
     ].join("\n"),
   });
@@ -433,13 +355,13 @@ test("CLI compat mode wraps non-exception thrown values with closed runtime carr
   assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\("boom"\);/);
+  assert.match(generatedSource, /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\(Tsonic\.CSharp\.Js\.TsValue\.from\("boom"\)\);/);
   assert.match(generatedSource, /catch\s*\{/);
   assert.doesNotMatch(generatedSource, /TsThrownValueException\.toValue/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [
-    "compat throw: 11",
+    "thrown value: 11",
     "",
   ].join("\n"));
 });

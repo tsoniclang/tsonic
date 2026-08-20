@@ -201,13 +201,13 @@ const oldProductUnitStaleProofByOldPath = new Map([
   ], [
     "backend.fail-closed-facts",
     "carrier.object-shape",
-    "compat.any.dynamic-get",
-    "compat.object.no-dynamic-access",
+    "dynamic-value.any.dynamic-get",
+    "dynamic-value.object.no-dynamic-access",
     "expression.object-literal",
     "tsts.consumer-queries",
     "tsts.parse-bind-check",
   ],
-  "Old validator object/any tests encoded frontend-era dynamic compatibility assumptions. Current proof is TSTS-owned checking plus explicit object-shape and compat carrier capabilities; backend.fail-closed-facts and compat.object.no-dynamic-access prevent object/any fallback unless compat.any.dynamic-get is an explicit capability."),
+  "Old validator object/any tests encoded frontend-era dynamic-value assumptions. Current proof is TSTS-owned checking plus explicit object-shape and dynamic-value carrier capabilities; backend.fail-closed-facts and dynamic-value.object.no-dynamic-access prevent object/any fallback unless dynamic-value.any.dynamic-get is an explicit capability."),
   ...reviewedOldProductUnitStaleMappings([
     "packages/frontend/src/validator-cases/generic-validation.test.ts",
     "packages/frontend/src/validator-maximus-cases/generic-function-values.test.ts",
@@ -335,7 +335,7 @@ const oldProductUnitPortedProofByOldPath = new Map([
     ]),
     newPath: "../tsonic-csharp/test/statement-planner.test.mjs",
     reason:
-      "Ported to current statement planner and CLI proof: statements emit Roslyn-compatible C# AST from finalized facts, including throw/catch/finally via provider exception facts and closed compat thrown-value carriers, with fail-closed diagnostics for missing or unsupported target facts.",
+      "Ported to current statement planner and CLI proof: statements emit Roslyn-compatible C# AST from finalized facts, including throw/catch/finally via provider exception facts and closed thrown-value carriers, with fail-closed diagnostics for missing or unsupported target facts.",
   })],
 ]);
 
@@ -547,19 +547,18 @@ const oldProductUnitLedgerEvidenceCapabilityIdsByOldPath = new Map([
     "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
   ], [
     "carrier.any-tsvalue",
-    "compat.any.call-construct",
-    "compat.any.dynamic-call",
-    "compat.any.dynamic-set",
-    "compat.any.operators",
-    "compat.any.property",
-    "compat.any.typed-boundary-cast",
-    "compat.mode.compat",
-    "compat.mode.strict-native",
-    "compat.prototype-mutation",
-    "compat.proxy-eval-function-with",
-    "diagnostic.dynamic-strict-mode",
+    "dynamic-value.any.call-construct",
+    "dynamic-value.any.dynamic-call",
+    "dynamic-value.any.dynamic-set",
+    "dynamic-value.any.operators",
+    "dynamic-value.any.property",
+    "dynamic-value.any.typed-boundary-cast",
+    "dynamic-value.canonical",
+    "dynamic-value.prototype-mutation",
+    "dynamic-value.proxy-eval-function-with",
+    "diagnostic.dynamic-operation-facts",
     "diagnostic.missing-target-fact",
-    "diagnostic.strict-mode-slow-op",
+    "diagnostic.unsupported-dynamic-operation",
     "runtime.dynamic.carrier",
   ]),
   ...oldProductUnitLedgerEvidenceCapabilityMapping([
@@ -888,7 +887,7 @@ function oldProductUnitCapabilityIdsFor(oldPath) {
     ids.add("runtime.csharp.js");
   }
   if (oldPath.includes("any") || oldPath.includes("object-literal")) {
-    ids.add("compat.any.dynamic-get");
+    ids.add("dynamic-value.any.dynamic-get");
     ids.add("carrier.object-shape");
   }
   if (oldPath.includes("generic")) {
