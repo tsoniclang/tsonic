@@ -177,6 +177,7 @@ test("shared packages expose only audience-owned public entrypoints", async () =
     manifest: targetApiManifest,
     expectedEntrypoints: [
       ".",
+      "./analysis",
       "./artifacts",
       "./package.json",
       "./provider",
@@ -184,6 +185,7 @@ test("shared packages expose only audience-owned public entrypoints", async () =
     ],
     sourceTextByEntrypoint: new Map(await Promise.all([
       "index",
+      "analysis",
       "artifacts",
       "provider",
       "source",
@@ -198,12 +200,20 @@ test("shared packages expose only audience-owned public entrypoints", async () =
       ["packages/target-api/src/public/index.ts", [
         "SourceProgramNavigation",
         "TargetArtifactContractGraph",
+        "TargetContractProgram",
         "TargetDiagnostic",
         "TargetProviderContext",
+        "TargetSourceSyntaxProgram",
+        "TargetUseSiteRef",
       ]],
       ["packages/target-api/src/public/artifacts.ts", [
         "SourceProgramNavigation",
         "TargetProviderContext",
+      ]],
+      ["packages/target-api/src/public/analysis.ts", [
+        "TargetPack",
+        "TargetProviderPackage",
+        "TargetToolchain",
       ]],
       ["packages/target-api/src/public/provider.ts", [
         "SourceProgramNavigation",

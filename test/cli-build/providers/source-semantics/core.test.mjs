@@ -429,7 +429,7 @@ test("CLI rejects broad object assertions without finalized carrier facts", asyn
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST index\.ts:3:35: C# type policy could not resolve source node kind 'KindObjectKeyword' to a closed target type\./u);
-  assert.match(build.stderr, /C# conversion requires closed source and target representations\./u);
+  assert.match(build.stderr, /C# type policy could not resolve source node kind 'KindObjectKeyword' to a closed target type\./u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {

@@ -33,7 +33,9 @@ import {
 } from "./modules.js";
 import {
   createSourceReferenceNavigation,
+  projectDeclarationForType,
 } from "./references.js";
+import { semanticTypeForNode } from "./syntax.js";
 import {
   createSourceDeclarationReferenceIndex,
   sourceBindingWritesWithin,
@@ -231,7 +233,7 @@ export function createSourceProgramNavigation(
   };
 
   const isProjectShape = (node: Node | undefined): boolean => {
-    const declaration = references.declarationFor(node);
+    const declaration = projectTypeDeclaration(node);
     return declaration !== undefined &&
       (
         source.ast.is.IsClassDeclaration(declaration) ||
@@ -242,11 +244,25 @@ export function createSourceProgramNavigation(
   };
 
   const isProjectConstructibleObject = (node: Node | undefined): boolean => {
-    const declaration = references.referenceFor(node)?.declaration ??
-      references.declarationFor(node);
+    const declaration = projectTypeDeclaration(node);
     return declaration !== undefined &&
       source.ast.is.IsClassDeclaration(declaration) &&
       acceptsNoConstructorArguments(source, declaration);
+  };
+
+  const projectTypeDeclaration = (node: Node | undefined): Node | undefined => {
+    const sourceFile = node === undefined ? undefined : source.ast.getSourceFile(node);
+    if (node === undefined || sourceFile === undefined || sourceFile.IsDeclarationFile) {
+      return undefined;
+    }
+    const queries = source.getSourceFileQueries(sourceFile);
+    return projectDeclarationForType(
+      source.ast,
+      queries.checker,
+      queries.typeShape,
+      semanticTypeForNode(source.ast, queries.checker, node),
+      references.isProjectDeclaration,
+    );
   };
 
   return Object.freeze({
@@ -327,7 +343,11 @@ export function createSourceProgramNavigation(
       if (cached !== undefined) {
         return cached;
       }
-      const effects = sourceExpressionEffects(source, expression);
+      const effects = sourceExpressionEffects(
+        source,
+        expression,
+        expressionEffectsCache,
+      );
       expressionEffectsCache.set(expression, effects);
       return effects;
     },
@@ -412,3 +432,4 @@ export {
   sourceSymbolIdentity,
   sourceSymbolsEqual,
 } from "./identity.js";
+export { sourceBindingWriteAtReference } from "./references-usage.js";

@@ -70,7 +70,7 @@ test("shared Tsonic product imports conform to the declared architecture", () =>
 
 test("shared packages expose only deliberate audience entrypoints", () => {
   const expectedEntrypoints = new Map([
-    ["target-api", [".", "./artifacts", "./package.json", "./provider", "./source"]],
+    ["target-api", [".", "./analysis", "./artifacts", "./package.json", "./provider", "./source"]],
     ["source-core", [".", "./extension", "./facts", "./package.json"]],
     ["host", ["."]],
   ]);

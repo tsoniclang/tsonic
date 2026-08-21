@@ -74,74 +74,97 @@ const functionKinds = new Set([
 export function sourceExpressionEffects(
   source: CheckedSourceProgram,
   expression: Node,
+  cache: WeakMap<Node, SourceExpressionEffects> = new WeakMap(),
 ): SourceExpressionEffects {
+  const cached = cache.get(expression);
+  if (cached !== undefined) {
+    return cached;
+  }
   const { ast } = source;
+  const kind = ast.kindName(expression);
+  if (functionKinds.has(kind ?? "")) {
+    const effects = frozenEffects(false, false, false, false);
+    cache.set(expression, effects);
+    return effects;
+  }
   let invokes = false;
   let mutates = false;
   let suspends = false;
   let mayThrow = false;
-  const visit = (node: Node | undefined): void => {
-    if (node === undefined) {
-      return;
-    }
-    const kind = ast.kindName(node);
-    if (functionKinds.has(kind ?? "")) {
-      return;
-    }
-    if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node) ||
-      kind === "KindTaggedTemplateExpression") {
-      invokes = true;
-      mayThrow = true;
-    }
-    if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-      invokes = true;
-      mayThrow = true;
-    }
-    if (ast.is.IsBinaryExpression(node)) {
-      const operator = ast.operatorKindName(node) ?? "";
-      if (assignmentOperators.has(operator)) {
-        mutates = true;
-        mayThrow = true;
-      }
-      const binary = ast.as.AsBinaryExpression(node);
-      if (coerciveBinaryOperators.has(operator) &&
-        !operandsAreDefinitelyPrimitive(source, [binary?.Left, binary?.Right])) {
-        invokes = true;
-        mayThrow = true;
-      }
-    }
-    if (ast.is.IsPrefixUnaryExpression(node) || ast.is.IsPostfixUnaryExpression(node)) {
-      const operator = ast.operatorKindName(node);
-      if (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken") {
-        mutates = true;
-        mayThrow = true;
-      }
-      const unary = ast.is.IsPrefixUnaryExpression(node)
-        ? ast.as.AsPrefixUnaryExpression(node)
-        : undefined;
-      if (operator !== "KindPlusPlusToken" && operator !== "KindMinusMinusToken" &&
-        coerciveUnaryOperators.has(operator ?? "") &&
-        !operandsAreDefinitelyPrimitive(source, [unary?.Operand])) {
-        invokes = true;
-        mayThrow = true;
-      }
-    }
-    if (ast.is.IsSpreadElement(node) || ast.is.IsSpreadAssignment(node) ||
-      kind === "KindComputedPropertyName" || kind === "KindTemplateExpression") {
-      invokes = true;
-      mayThrow = true;
-    }
-    if (ast.is.IsDeleteExpression(node)) {
+  if (ast.is.IsCallExpression(expression) || ast.is.IsNewExpression(expression) ||
+    kind === "KindTaggedTemplateExpression") {
+    invokes = true;
+    mayThrow = true;
+  }
+  if (ast.is.IsPropertyAccessExpression(expression) ||
+    ast.is.IsElementAccessExpression(expression)) {
+    invokes = true;
+    mayThrow = true;
+  }
+  if (ast.is.IsBinaryExpression(expression)) {
+    const operator = ast.operatorKindName(expression) ?? "";
+    if (assignmentOperators.has(operator)) {
       mutates = true;
       mayThrow = true;
     }
-    if (ast.is.IsAwaitExpression(node) || ast.is.IsYieldExpression(node)) {
-      suspends = true;
+    const binary = ast.as.AsBinaryExpression(expression);
+    if (coerciveBinaryOperators.has(operator) &&
+      !operandsAreDefinitelyPrimitive(source, [binary?.Left, binary?.Right])) {
+      invokes = true;
       mayThrow = true;
     }
-    ast.forEachChild(node, visit);
-  };
-  visit(expression);
+  }
+  if (ast.is.IsPrefixUnaryExpression(expression) ||
+    ast.is.IsPostfixUnaryExpression(expression)) {
+    const operator = ast.operatorKindName(expression);
+    if (operator === "KindPlusPlusToken" || operator === "KindMinusMinusToken") {
+      mutates = true;
+      mayThrow = true;
+    }
+    const unary = ast.is.IsPrefixUnaryExpression(expression)
+      ? ast.as.AsPrefixUnaryExpression(expression)
+      : undefined;
+    if (operator !== "KindPlusPlusToken" && operator !== "KindMinusMinusToken" &&
+      coerciveUnaryOperators.has(operator ?? "") &&
+      !operandsAreDefinitelyPrimitive(source, [unary?.Operand])) {
+      invokes = true;
+      mayThrow = true;
+    }
+  }
+  if (ast.is.IsSpreadElement(expression) || ast.is.IsSpreadAssignment(expression) ||
+    kind === "KindComputedPropertyName" || kind === "KindTemplateExpression") {
+    invokes = true;
+    mayThrow = true;
+  }
+  if (ast.is.IsDeleteExpression(expression)) {
+    mutates = true;
+    mayThrow = true;
+  }
+  if (ast.is.IsAwaitExpression(expression) || ast.is.IsYieldExpression(expression)) {
+    suspends = true;
+    mayThrow = true;
+  }
+  ast.forEachChild(expression, (child) => {
+    if (child === undefined) {
+      return;
+    }
+    const childEffects = sourceExpressionEffects(source, child, cache);
+    invokes ||= childEffects.invokes;
+    mutates ||= childEffects.mutates;
+    suspends ||= childEffects.suspends;
+    mayThrow ||= childEffects.mayThrow;
+  });
+  const effects = frozenEffects(invokes, mutates, suspends, mayThrow);
+  cache.set(expression, effects);
+  return effects;
+}
+
+function frozenEffects(
+  invokes: boolean,
+  mutates: boolean,
+  suspends: boolean,
+  mayThrow: boolean,
+): SourceExpressionEffects {
   return Object.freeze({ invokes, mutates, suspends, mayThrow });
 }
 

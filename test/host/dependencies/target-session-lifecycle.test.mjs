@@ -57,11 +57,12 @@ test("source and runtime rejection close the session before later phases", async
   ]);
 
   const runtimeEvents = [];
-  const shared = createFakeArtifact("asset", "runtime/shared.txt", "shared");
+  const providerArtifact = createFakeArtifact("asset", "runtime/shared.txt", "provider");
+  const surfaceArtifact = createFakeArtifact("asset", "runtime/shared.txt", "surface");
   const runtimePack = createFakeTargetPack(runtimeEvents, {
     traceLifecycle: true,
-    providerArtifacts: [shared],
-    surfaces: [createFakeSurface("js", { events: runtimeEvents, artifacts: [shared] })],
+    providerArtifacts: [providerArtifact],
+    surfaces: [createFakeSurface("js", { events: runtimeEvents, artifacts: [surfaceArtifact] })],
   });
   const runtimeResult = await compileFakeProject(
     "session-lifecycle-runtime-rejection",
