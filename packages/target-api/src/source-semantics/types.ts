@@ -3,11 +3,19 @@ import type {
   ExtensionFactSubject,
   Node,
   ReadonlySourceFactResolver,
+  ResolvedSourceElementAccessInfo,
+  ResolvedSourceGeneratorInfo,
+  ResolvedSourceIterationInfo,
+  ResolvedSourceObjectLiteralElementInfo,
+  ResolvedSourcePropertyAccessInfo,
+  ResolvedSourceResourceManagementInfo,
+  ResolvedSourceStorageInfo,
+  ResolvedSourceWellKnownSymbolInfo,
+  ResolvedSourceYieldInfo,
+  Signature,
   SourceFile,
   Symbol,
-  TypeCheckerQueries,
   TypeSignatureParameterInfo,
-  TypeShapeQueries,
   TypeTupleElementInfo,
   Type,
 } from "@tsonic/tsts";
@@ -35,49 +43,112 @@ import type {
   SourceCallParameterSlot,
 } from "./call-parameter-slots.js";
 
-export type SourceFileSemantics = Readonly<
-  & { readonly sourceFile: SourceFile }
-  & {
-    getEffectiveTypeArguments(type: Type): readonly Type[] | undefined;
-    getAuthoredTypeFactSubjects(
-      node: Node,
-    ): readonly ExtensionFactSubject[];
-    getAuthoredTypeFactNodes(node: Node): readonly Node[];
-    getDeclaredValueType(declaration: Node): Type | undefined;
-    selectCallResult(
-      source: ResolvedSourceCallInfo,
-    ): SourceCallResultSelection | undefined;
-    selectCallParameterSlots(
-      source: ResolvedSourceCallInfo,
-    ): readonly SourceCallParameterSlot[] | undefined;
-    selectAuthoredType(
-      authoredTypeNode: Node,
-      selectedType: Type,
-    ): SourceAuthoredTypeSelection;
-    selectContextualValueType(node: Node): SourceContextualValueTypeSelection;
-    selectContextualTupleLiteral(
-      node: Node,
-      presentElementCount: number,
-    ): SourceContextualTupleLiteralSelection;
-    getSelectedFactSubjects(
-      symbol: Symbol | undefined,
-      declaration: Node | undefined,
-    ): readonly ExtensionFactSubject[];
-    getTypeFactSubjects(type: Type): readonly ExtensionFactSubject[];
-    selectTypeRefinement(
-      declaredType: Type,
-      selectedType: Type,
-    ): SourceTypeRefinement;
-    getTypeRelationship(left: Type, right: Type): SourceTypeRelationship;
-    selectStandardTypeTransformation(
-      authoredTypeNode: Node,
-      selectedType: Type,
-    ): SourceStandardTypeTransformation | undefined;
-    selectCallableType(type: Type): SourceCallableTypeEvidence | undefined;
-  }
-  & TypeCheckerQueries
-  & TypeShapeQueries
->;
+export interface SourceOperationEvidenceQueries {
+  call(node: Node): ResolvedSourceCallInfo | undefined;
+  propertyAccess(node: Node): ResolvedSourcePropertyAccessInfo | undefined;
+  elementAccess(node: Node): ResolvedSourceElementAccessInfo | undefined;
+  iteration(node: Node): ResolvedSourceIterationInfo | undefined;
+  objectLiteralElement(node: Node): ResolvedSourceObjectLiteralElementInfo | undefined;
+  storage(node: Node): ResolvedSourceStorageInfo | undefined;
+  generator(node: Node): ResolvedSourceGeneratorInfo | undefined;
+  yield(node: Node): ResolvedSourceYieldInfo | undefined;
+  wellKnownSymbol(node: Node): ResolvedSourceWellKnownSymbolInfo | undefined;
+  resourceManagement(node: Node): ResolvedSourceResourceManagementInfo | undefined;
+  callResult(source: ResolvedSourceCallInfo): SourceCallResultSelection | undefined;
+  callParameterSlots(source: ResolvedSourceCallInfo): readonly SourceCallParameterSlot[] | undefined;
+}
+
+export interface SourceFinalTypeQueries {
+  expressionType(node: Node): Type | undefined;
+  authoredType(node: Node): Type | undefined;
+  contextualType(node: Node): Type | undefined;
+  typeOfSymbol(symbol: Symbol | undefined): Type | undefined;
+  declaredSymbolType(symbol: Symbol | undefined): Type | undefined;
+  writeSymbolType(symbol: Symbol | undefined): Type | undefined;
+  effectiveTypeArguments(type: Type): readonly Type[] | undefined;
+  typeArguments(type: Type): readonly Type[];
+  substitutionBaseType(type: Type): Type | undefined;
+  typeReferenceTarget(type: Type): Type | undefined;
+  tupleElementTypes(type: Type): readonly Type[];
+  tupleElementInfos(type: Type): readonly TypeTupleElementInfo[];
+  unionOrIntersectionTypes(type: Type): readonly Type[];
+  propertyInfos(type: Type): readonly import("@tsonic/tsts").TypePropertyInfo[];
+  indexInfos(type: Type): readonly import("@tsonic/tsts").TypeIndexInfo[];
+  callSignatures(type: Type): readonly Signature[];
+  constructSignatures(type: Type): readonly Signature[];
+  returnType(signature: Signature): Type | undefined;
+  signatureParameterInfos(signature: Signature): readonly TypeSignatureParameterInfo[];
+  signatureThisParameterInfo(
+    signature: Signature,
+  ): import("@tsonic/tsts").TypeSignatureThisParameterInfo | undefined;
+  apparentType(type: Type): Type | undefined;
+  widenedType(type: Type): Type | undefined;
+  withoutMissingOrUndefined(type: Type): Type | undefined;
+  constantValue(node: Node): unknown;
+  isAny(type: Type): boolean;
+  isUnknown(type: Type): boolean;
+  isNever(type: Type): boolean;
+  isVoidLike(type: Type): boolean;
+  isNullish(type: Type): boolean;
+  isStringLike(type: Type): boolean;
+  isNumberLike(type: Type): boolean;
+  isBooleanLike(type: Type): boolean;
+  isBigIntLike(type: Type): boolean;
+  isUnion(type: Type): boolean;
+  isIntersection(type: Type): boolean;
+  isTypeReference(type: Type): boolean;
+  isTuple(type: Type): boolean;
+  isArrayLike(type: Type): boolean;
+  isIdentical(left: Type, right: Type): boolean;
+  couldContainTypeVariables(type: Type): boolean;
+  authoredSelection(
+    authoredTypeNode: Node,
+    selectedType: Type,
+  ): SourceAuthoredTypeSelection;
+  contextualValueSelection(node: Node): SourceContextualValueTypeSelection;
+  contextualTupleSelection(
+    node: Node,
+    presentElementCount: number,
+  ): SourceContextualTupleLiteralSelection;
+  refinement(declaredType: Type, selectedType: Type): SourceTypeRefinement;
+  relationship(left: Type, right: Type): SourceTypeRelationship;
+  standardTransformation(
+    authoredTypeNode: Node,
+    selectedType: Type,
+  ): SourceStandardTypeTransformation | undefined;
+  callable(type: Type): SourceCallableTypeEvidence | undefined;
+}
+
+export interface SourceSelectedDeclarationQueries {
+  declaredValueType(declaration: Node): Type | undefined;
+  declaredType(declaration: Node): Type | undefined;
+  typeSymbol(type: Type): Symbol | undefined;
+  typeAliasSymbol(type: Type): Symbol | undefined;
+  symbolName(symbol: Symbol): string;
+  symbolDeclarations(symbol: Symbol): readonly Node[];
+  primarySymbolDeclaration(symbol: Symbol): Node | undefined;
+  rootSymbols(symbol: Symbol): readonly Symbol[];
+  signatureDeclaration(signature: Signature): Node | undefined;
+  signatureParameters(signature: Signature): readonly Symbol[];
+}
+
+export interface SourceFactSubjectQueries {
+  authoredTypeSubjects(node: Node): readonly ExtensionFactSubject[];
+  authoredTypeNodes(node: Node): readonly Node[];
+  selectedSubjects(
+    symbol: Symbol | undefined,
+    declaration: Node | undefined,
+  ): readonly ExtensionFactSubject[];
+  typeSubjects(type: Type): readonly ExtensionFactSubject[];
+}
+
+export interface SourceFileSemantics {
+  readonly sourceFile: SourceFile;
+  readonly operations: SourceOperationEvidenceQueries;
+  readonly types: SourceFinalTypeQueries;
+  readonly declarations: SourceSelectedDeclarationQueries;
+  readonly facts: SourceFactSubjectQueries;
+}
 
 export interface SourceTypeComponentEvidence {
   readonly selectedType: Type;

@@ -37,11 +37,11 @@ test("authored type selection retains implicit optional nullish evidence", () =>
     source.ast.is.IsIdentifier(node) &&
     source.ast.text(node) === "value" &&
     source.ast.parent(node) !== parameter);
-  const selectedType = semantics.getTypeAtLocation(selectedValue);
+  const selectedType = semantics.types.expressionType(selectedValue);
 
   assert.notEqual(parameterType, undefined);
   assert.notEqual(selectedType, undefined);
-  const selection = semantics.selectAuthoredType(
+  const selection = semantics.types.authoredSelection(
     parameterType,
     selectedType,
   );
@@ -49,7 +49,7 @@ test("authored type selection retains implicit optional nullish evidence", () =>
   assert.deepEqual(selection.nodes, [parameterType]);
   assert.equal(selection.selectedNullishTypes.length, 1);
   assert.equal(
-    semantics.isNullish(selection.selectedNullishTypes[0]),
+    semantics.types.isNullish(selection.selectedNullishTypes[0]),
     true,
   );
 });

@@ -405,6 +405,7 @@ export type {
   SourceValueEscapeKind,
 } from "./types.js";
 export {
+  projectSourceNodeIdentity,
   sourceFileIdentity,
   sourceNodeIdentity,
   sourceNodesEqual,

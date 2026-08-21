@@ -1,12 +1,20 @@
 export type {
   TargetArtifact,
   TargetArtifactKind,
+  TargetCompileOutput,
   TargetCompileResult,
+  TargetCompilationStages,
   TargetDiagnostic,
   TargetDiagnosticSourceSpan,
   TargetRuntimeContributions,
   TargetRuntimeReference,
+  TargetStageResult,
   TargetSourceFile,
+} from "../artifacts.js";
+export {
+  rejectedTargetStage,
+  resolvedTargetStage,
+  runTargetCompilationStages,
 } from "../artifacts.js";
 export {
   createTargetArtifactContractGraph,

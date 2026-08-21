@@ -19,7 +19,7 @@ export function sourcePropertyTypeEvidenceNodes(
     semantics,
     property.type,
     property.rootSymbols.flatMap((symbol) =>
-      semantics.getSymbolDeclarations(symbol).filter(
+      semantics.declarations.symbolDeclarations(symbol).filter(
         (declaration): declaration is Node => declaration !== undefined,
       )
     ),
@@ -45,11 +45,11 @@ export function sourceTransformedTypeFactEvidenceNodes(
   authoredRoot: Node,
   selectedType: Type,
 ): readonly Node[] {
-  const candidates = semantics.getAuthoredTypeFactNodes(authoredRoot).filter(
+  const candidates = semantics.facts.authoredTypeNodes(authoredRoot).filter(
     (node) => sourceTypeNodeIsExactCandidate(ast, node),
   );
   return Object.freeze(candidates.filter((node) => {
-    const selection = semantics.selectAuthoredType(node, selectedType);
+    const selection = semantics.types.authoredSelection(node, selectedType);
     return selection.kind === "authored-members" &&
       selection.nodes.length === 1 && selection.nodes[0] === node &&
       selection.selectedNullishTypes.length === 0;
@@ -81,7 +81,7 @@ function exactTypeEvidenceNodes(
   });
   const unique = [...new Set(candidates)];
   return Object.freeze(unique.filter((node) => {
-    const selection = semantics.selectAuthoredType(node, selectedType);
+    const selection = semantics.types.authoredSelection(node, selectedType);
     return selection.kind === "authored-members";
   }));
 }

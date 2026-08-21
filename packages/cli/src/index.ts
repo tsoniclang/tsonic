@@ -81,13 +81,19 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
   });
   const diagnostics = buildResult.diagnostics.filter((diagnostic) => diagnostic.category === "error");
   if (diagnostics.length === 0) {
+    const targets = buildResult.targets.map((target) => {
+      if (target.compileResult.kind !== "resolved") {
+        throw new Error(`Target '${target.target.id}' rejected without an error diagnostic.`);
+      }
+      return {
+        targetId: target.target.id,
+        artifacts: target.compileResult.value.artifacts,
+      };
+    });
     await publishBuildOutput({
       ...outputOptions,
       expectedTargetIds: config.targets.map((target) => target.id),
-      targets: buildResult.targets.map((target) => ({
-        targetId: target.target.id,
-        artifacts: target.compileResult.artifacts,
-      })),
+      targets,
     });
   }
   return {
@@ -96,7 +102,10 @@ async function runBuild(args: readonly string[], currentDirectory: string): Prom
       `Project: ${projectPath}`,
       `Entry: ${config.entryPoint}`,
       `Targets: ${buildResult.targets.map((target) => target.target.id).join(", ")}`,
-      `Artifacts: ${buildResult.targets.reduce((count, target) => count + target.compileResult.artifacts.length, 0)}`,
+      `Artifacts: ${buildResult.targets.reduce(
+        (count, target) => count + (target.compileResult.kind === "resolved" ? target.compileResult.value.artifacts.length : 0),
+        0,
+      )}`,
       "",
     ].join("\n"),
     ...(buildResult.diagnostics.length > 0

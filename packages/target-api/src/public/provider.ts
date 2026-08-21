@@ -17,15 +17,18 @@ export type {
   TargetCapabilityImplementation,
   TargetCapabilityRuntimeContext,
   TargetCapabilityRuntimeContributionContext,
-  TargetProvider,
-  TargetProviderContext,
+  TargetCompositionContext,
+  TargetProviderDescriptor,
   TargetProviderModuleOwnership,
-  TargetProviderSourceProfileContext,
+  SelectedTargetCapabilityContributions,
   TargetRuntimeContributionContext,
+  TargetSurfaceCompositionContext,
   TargetSourceCompilerContributions,
   TargetSurfaceImplementation,
-  TargetSurfaceSourceCompilerContext,
-  TargetSurfaceSourceProfileContext,
   TsonicTargetCapabilityPlugin,
-} from "../target-contracts.js";
+} from "../target/composition.js";
+export type {
+  TargetCompilationSession,
+  TargetCompilationSessionContext,
+} from "../target/compilation.js";
 export { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utilities.js";

@@ -11,18 +11,32 @@ export {
   isValidTargetSurfaceId,
 } from "../config.js";
 export type {
-  TargetBackend,
-  TargetBackendContext,
+  TargetCompilationSession,
+  TargetCompilationSessionContext,
   TargetCompilationPaths,
   TargetCompileInput,
+} from "../target/compilation.js";
+export type {
   TargetPack,
+  TsonicPlugin,
+  TsonicTargetPlugin,
+} from "../target/pack.js";
+export type {
+  SelectedTargetCapabilityContributions,
+  TargetCompositionContext,
+  TargetProviderDescriptor,
+  TargetSourceCompilerContributions,
+  TargetSurfaceImplementation,
+} from "../target/composition.js";
+export type {
+  TargetSourceProfileContributions,
+} from "../source-profile.js";
+export type {
   TargetToolchain,
   TargetToolchainContext,
   TargetToolchainInput,
   TargetToolchainResult,
-  TsonicPlugin,
-  TsonicTargetPlugin,
-} from "../target-contracts.js";
+} from "../target/toolchain.js";
 export type {
   TargetSourcePackage,
   TargetSourcePackageComponent,

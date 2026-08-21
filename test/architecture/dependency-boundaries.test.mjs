@@ -455,7 +455,7 @@ test("architecture validator rejects catch-all semantic directories and APIs", (
 });
 
 test("target compile API supplies checked source without a target-carrier facade", async () => {
-  const text = await readFile(join(repoRoot, "packages/target-api/src/target-contracts.ts"), "utf8");
+  const text = await readFile(join(repoRoot, "packages/target-api/src/target/compilation.ts"), "utf8");
 
   assert.match(text, /export interface TargetCompileInput \{[\s\S]*readonly source: TargetSourceProgram;/u);
   assert.doesNotMatch(text, /\bTargetCarrier(?:Resolution|Resolved|Missing)\b/u);
@@ -469,25 +469,35 @@ test("target compile API supplies checked source without a target-carrier facade
   assert.doesNotMatch(text, /resolveDeclarationReturnCarrier\([^)]*\):\s*TargetTypeRef\s*\|\s*undefined/u);
 });
 
-test("target pack API exposes explicit provider surface backend runtime and toolchain modules", async () => {
-  const text = await readFile(join(repoRoot, "packages/target-api/src/target-contracts.ts"), "utf8");
+test("target pack API exposes one required provider surface session and toolchain lifecycle", async () => {
+  const compositionText = await readFile(join(repoRoot, "packages/target-api/src/target/composition.ts"), "utf8");
+  const compilationText = await readFile(join(repoRoot, "packages/target-api/src/target/compilation.ts"), "utf8");
+  const packText = await readFile(join(repoRoot, "packages/target-api/src/target/pack.ts"), "utf8");
+  const toolchainText = await readFile(join(repoRoot, "packages/target-api/src/target/toolchain.ts"), "utf8");
 
-  assert.match(text, /export interface TargetProvider\b/u);
-  assert.match(text, /export interface TargetSurfaceImplementation\b/u);
-  assert.match(text, /export interface TargetBackend\b/u);
-  assert.match(text, /export interface TargetToolchain\b/u);
-  assert.match(text, /export interface TargetRuntimeContributionContext\b/u);
-  assert.match(text, /readonly provider\?: TargetProvider;/u);
-  assert.match(text, /readonly surfaces\?: readonly TargetSurfaceImplementation\[\];/u);
-  assert.match(text, /createBackend\(context: TargetBackendContext\): TargetBackend;/u);
-  assert.match(text, /createToolchain\(context: TargetToolchainContext\): TargetToolchain;/u);
+  assert.match(compositionText, /export interface TargetProviderDescriptor\b/u);
+  assert.match(compositionText, /export interface TargetSurfaceImplementation\b/u);
+  assert.match(compositionText, /export interface TargetRuntimeContributionContext\b/u);
+  assert.match(compilationText, /export interface TargetCompilationSession\b/u);
+  assert.match(toolchainText, /export interface TargetToolchain\b/u);
+  assert.match(packText, /readonly provider: TargetProviderDescriptor;/u);
+  assert.match(packText, /readonly surfaces: readonly TargetSurfaceImplementation\[\];/u);
+  assert.match(packText, /createCompilationSession\([\s\S]*context: TargetCompilationSessionContext,[\s\S]*\): TargetCompilationSession;/u);
+  assert.match(packText, /createToolchain\(context: TargetToolchainContext\): TargetToolchain;/u);
+  assert.doesNotMatch(
+    `${compositionText}\n${compilationText}\n${packText}\n${toolchainText}`,
+    /\bTargetBackend(?:Context)?\b|\bcreateBackend\b/u,
+  );
 });
 
 test("CLI publishes only complete successful builds through the staged output boundary", async () => {
   const cliText = await readFile(join(repoRoot, "packages/cli/src/index.ts"), "utf8");
   const publicationText = await readFile(join(repoRoot, "packages/cli/src/output-publication.ts"), "utf8");
 
-  assert.match(cliText, /if \(diagnostics\.length === 0\) \{\s*await publishBuildOutput\(/u);
+  assert.match(
+    cliText,
+    /if \(diagnostics\.length === 0\) \{[\s\S]*target\.compileResult\.kind !== "resolved"[\s\S]*await publishBuildOutput\(/u,
+  );
   assert.doesNotMatch(cliText, /\bwriteBuildArtifacts\b/u);
   assert.doesNotMatch(cliText, /rm\(targetRoot/u);
   assert.match(publicationText, /const stageRoot = await mkdtemp\(scratch\.stagePrefix\);/u);

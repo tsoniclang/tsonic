@@ -1,6 +1,5 @@
 import type {
   TargetCompilationPaths,
-  TargetPack,
   TargetSelection,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
@@ -14,16 +13,17 @@ import type {
   TargetRuntimeContributions,
   TargetRuntimeReference,
 } from "@tsonic/target-api/artifacts";
-import { requireTargetProvider } from "./extensions.js";
 
 export interface CollectTargetRuntimeContributionsOptions {
   readonly project: TsonicProjectConfig;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
-  readonly targetPack: TargetPack;
+  readonly targetPackId: string;
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly runtimeActivatedCapabilities?: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
+  readonly targetContributions: TargetRuntimeContributions;
 }
 
 export interface CollectedTargetRuntimeContributions {
@@ -33,28 +33,24 @@ export interface CollectedTargetRuntimeContributions {
 }
 
 export function collectTargetRuntimeContributions(options: CollectTargetRuntimeContributionsOptions): CollectedTargetRuntimeContributions {
-  const provider = requireTargetProvider(options.targetPack, options.target);
   const context = {
     project: options.project,
+    projectDirectory: options.projectDirectory,
     target: options.target,
-    selectedCapabilities: options.selectedCapabilities,
-    selectedSurfaces: options.selectedSurfaces,
+    selectedCapabilityIds: Object.freeze(options.selectedCapabilities.map((capability) => capability.id)),
+    selectedSurfaceIds: Object.freeze(options.selectedSurfaces.map((surface) => surface.id)),
     paths: options.paths,
-  };
-  const capabilityContext = {
-    ...context,
-    targetPack: options.targetPack,
   };
   return mergeRuntimeContributions(
     [
-      provider.runtimeContributions?.(context),
+      options.targetContributions,
       ...(options.runtimeActivatedCapabilities ?? options.selectedCapabilities).map((capability) => capability.runtimeContributions?.({
-        ...capabilityContext,
+        ...context,
         capability,
       })),
       ...options.selectedSurfaces.map((surface) => surface.runtimeContributions(context)),
     ],
-    options.targetPack.id,
+    options.targetPackId,
   );
 }
 

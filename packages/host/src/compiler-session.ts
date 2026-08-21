@@ -4,110 +4,63 @@ import type {
   ProgramOptions,
 } from "@tsonic/tsts";
 import type {
-  TargetCompileInput,
-  TargetCompilationPaths,
   TargetPack,
   TargetSelection,
+  TargetSourceCompilerContributions,
   TargetSourcePackageGraph,
+  TargetSurfaceImplementation,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import type {
   TargetCapabilityImplementation,
-  TargetProviderContext,
-  TargetSurfaceImplementation,
 } from "@tsonic/target-api/provider";
-import type {
-  TargetCompileResult,
-  TargetRuntimeReference,
-} from "@tsonic/target-api/artifacts";
-import { createTargetSourceProgram } from "@tsonic/target-api/source";
 import {
   createTargetSourceCompilerComposition,
   getTargetRequiredProviderModules,
 } from "./target/extensions.js";
-export {
-  collectTstsDiagnostics,
-} from "./diagnostics.js";
-export {
-  collectTargetRuntimeContributions,
-} from "./target/runtime-contributions.js";
-export type {
-  CollectedTargetRuntimeContributions,
-  CollectTargetRuntimeContributionsOptions,
-} from "./target/runtime-contributions.js";
-export {
-  createTargetSourceCompilerComposition,
-  getSelectedSurfaceImplementations,
-  getSelectedTargetCapabilities,
-  getTargetRequiredProviderModules,
-} from "./target/extensions.js";
-export type {
-  CreateTargetSourceCompilerCompositionOptions,
-  TargetSourceCompilerComposition,
-} from "./target/extensions.js";
 
-export interface TsonicSemanticSession {
-  readonly source: CheckedSourceProgram;
-  readonly sourcePackages: TargetSourcePackageGraph;
-  readonly targetContext: TargetProviderContext;
-}
-
-export interface CreateTsonicSemanticSessionOptions {
+export interface CheckTargetSourceOptions {
   readonly programOptions: ProgramOptions;
   readonly sourcePackages: TargetSourcePackageGraph;
   readonly project: TsonicProjectConfig;
   readonly projectDirectory: string;
   readonly target: TargetSelection;
   readonly targetPack: TargetPack;
-  readonly selectedCapabilities?: readonly TargetCapabilityImplementation[];
-  readonly selectedSurfaces?: readonly TargetSurfaceImplementation[];
+  readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
+  readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+  readonly targetContributions: TargetSourceCompilerContributions;
 }
 
-export function createTsonicSemanticSession(options: CreateTsonicSemanticSessionOptions): TsonicSemanticSession {
-  const composition = createTargetSourceCompilerComposition(options);
-  const targetContext = Object.freeze({
+export interface CheckedTargetSource {
+  readonly source: CheckedSourceProgram;
+  readonly sourcePackages: TargetSourcePackageGraph;
+}
+
+export function checkTargetSource(
+  options: CheckTargetSourceOptions,
+): CheckedTargetSource {
+  const composition = createTargetSourceCompilerComposition({
     project: options.project,
     projectDirectory: options.projectDirectory,
     target: options.target,
     targetPack: options.targetPack,
-    selectedCapabilities: composition.selectedCapabilities,
-    selectedSurfaces: composition.selectedSurfaces,
+    selectedCapabilities: options.selectedCapabilities,
+    selectedSurfaces: options.selectedSurfaces,
+    targetContributions: options.targetContributions,
   });
   const compiler = createCompilerSession({
     programOptions: options.programOptions,
     extensionHostOptions: {
       extensions: composition.extensions,
       requiredProviderModules: getTargetRequiredProviderModules(
-        options.targetPack,
         options.target,
-        composition.selectedCapabilities,
+        options.targetPack.provider,
+        options.selectedCapabilities,
       ),
     },
   });
-  return {
+  return Object.freeze({
     source: compiler.checkSource(),
     sourcePackages: options.sourcePackages,
-    targetContext,
-  };
-}
-
-export function compileTargetFromSemanticSession(
-  session: TsonicSemanticSession,
-  paths: TargetCompilationPaths,
-  runtimeReferences: readonly TargetRuntimeReference[] = [],
-): TargetCompileResult {
-  const {
-    project,
-    target,
-    targetPack,
-  } = session.targetContext;
-  const input: TargetCompileInput = {
-    source: createTargetSourceProgram(session.source),
-    sourcePackages: session.sourcePackages,
-    project,
-    target,
-    runtimeReferences,
-    paths,
-  };
-  return targetPack.createBackend(session.targetContext).compile(input);
+  });
 }

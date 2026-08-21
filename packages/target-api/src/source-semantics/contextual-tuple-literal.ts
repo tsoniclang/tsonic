@@ -4,11 +4,11 @@ import type {
 } from "@tsonic/tsts";
 import type {
   SourceContextualTupleLiteralSelection,
-  SourceFileSemantics,
+  SourceFinalTypeQueries,
 } from "./types.js";
 
 export function selectSourceContextualTupleLiteral(
-  semantics: SourceFileSemantics,
+  types: SourceFinalTypeQueries,
   node: Node,
   presentElementCount: number,
 ): SourceContextualTupleLiteralSelection {
@@ -17,11 +17,11 @@ export function selectSourceContextualTupleLiteral(
       "Contextual tuple-literal selection requires a non-negative safe present-element count.",
     );
   }
-  const contextual = semantics.selectContextualValueType(node);
-  if (contextual.kind !== "selected" || !semantics.isTuple(contextual.type)) {
+  const contextual = types.contextualValueSelection(node);
+  if (contextual.kind !== "selected" || !types.isTuple(contextual.type)) {
     return { kind: "unavailable" };
   }
-  const elements = semantics.getTupleElementInfos(contextual.type);
+  const elements = types.tupleElementInfos(contextual.type);
   if (
     presentElementCount > elements.length ||
     elements.some((element) =>

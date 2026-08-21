@@ -66,7 +66,7 @@ export function selectSourceObjectLiteralAccessors(
     if (expectedKind === undefined) {
       continue;
     }
-    const selected = semantics.getResolvedObjectLiteralElementInfo(element);
+    const selected = semantics.operations.objectLiteralElement(element);
     if (selected === undefined || selected.objectLiteral !== objectLiteral ||
       selected.element !== element || selected.elementKind !== expectedKind ||
       selected.sourceElementSymbol === undefined ||
@@ -77,8 +77,8 @@ export function selectSourceObjectLiteralAccessors(
         reason: "Object-literal accessor has no exact checker-selected element identity.",
       };
     }
-    const sourceName = semantics.getSymbolName(selected.sourceElementSymbol);
-    const selectedName = semantics.getSymbolName(selected.sourceSelectedSymbol);
+    const sourceName = semantics.declarations.symbolName(selected.sourceElementSymbol);
+    const selectedName = semantics.declarations.symbolName(selected.sourceSelectedSymbol);
     if (sourceName.length === 0 || selectedName !== sourceName) {
       return {
         kind: "rejected",

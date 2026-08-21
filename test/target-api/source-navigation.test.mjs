@@ -7,6 +7,7 @@ import {
 import {
   createSourceProgramNavigation,
   createTargetSourceProgram,
+  projectSourceNodeIdentity,
   sourceTypeSyntaxIsCompositional,
 } from "../../packages/target-api/dist/public/source.js";
 import {
@@ -23,6 +24,57 @@ import {
   projectSourceFile,
   requiredNode,
 } from "../fixtures/source-navigation.mjs";
+
+test("project source-node identities are stable across checkout roots and compiler path forms", () => {
+  const node = {};
+  const sourceFile = {};
+  const astFor = (fileName, path = fileName) => ({
+    getSourceFile(candidate) {
+      return candidate === node ? sourceFile : undefined;
+    },
+    getFileName(candidate) {
+      return candidate === sourceFile ? fileName : undefined;
+    },
+    getPath(candidate) {
+      return candidate === sourceFile ? path : undefined;
+    },
+    kind(candidate) {
+      return candidate === node ? 80 : undefined;
+    },
+    pos(candidate) {
+      return candidate === node ? 12 : -1;
+    },
+    end(candidate) {
+      return candidate === node ? 24 : -1;
+    },
+  });
+  const expected = "src/index.ts\0" + "80\0" + "12\0" + "24";
+
+  assert.equal(
+    projectSourceNodeIdentity(
+      astFor("/first/project/src/index.ts", "src/index.ts"),
+      node,
+      "/first/project",
+    ),
+    expected,
+  );
+  assert.equal(
+    projectSourceNodeIdentity(
+      astFor("/second/project/src/index.ts"),
+      node,
+      "/second/project",
+    ),
+    expected,
+  );
+  assert.equal(
+    projectSourceNodeIdentity(
+      astFor("/outside/index.ts"),
+      node,
+      "/project",
+    ),
+    undefined,
+  );
+});
 
 test("source navigation resolves project references, shapes, constructors, and dispatch", async () => {
   const source = await checkedSource("project-navigation", {
@@ -293,10 +345,10 @@ test("target source semantics answer checked-source questions without exposing r
   assert.equal("typeShape" in first, false);
   assert.equal("getSourceFileQueries" in source, false);
   assert.equal(
-    first.getResolvedCallInfo(call)?.sourceSelectedSignatureKind,
+    first.operations.call(call)?.sourceSelectedSignatureKind,
     "resolved",
   );
-  assert.equal(first.isStringLike(first.getTypeAtLocation(call)), true);
+  assert.equal(first.types.isStringLike(first.types.expressionType(call)), true);
 });
 
 test("authored type fact subjects include exact imported semantic provenance", async () => {
@@ -306,14 +358,14 @@ test("authored type fact subjects include exact imported semantic provenance", a
       "export function read(value: int32): int32 { return value; }",
       "",
     ].join("\n"),
-  });
+  }, { sourceCore: true });
   const source = createTargetSourceProgram(checked);
   const sourceFile = projectSourceFile(source, "src/index.ts");
   const typeReference = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsTypeReferenceNode(node) &&
     source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) === "int32");
   const subjects = source.semantics.forNode(typeReference)
-    .getAuthoredTypeFactSubjects(typeReference);
+    .facts.authoredTypeSubjects(typeReference);
   const primitiveFacts = subjects
     .map((subject) => source.sourceFacts.getFact(subject, sourcePrimitiveFactKey))
     .filter((fact) => fact !== undefined);
@@ -337,16 +389,15 @@ test("target source semantics preserve selected signature return syntax", async 
   const semantics = source.semantics.forFile(sourceFile);
   const call = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsCallExpression(node));
-  const resolved = semantics.getResolvedCallInfo(call);
+  const resolved = semantics.operations.call(call);
 
   assert.notEqual(resolved, undefined);
-  const result = semantics.selectCallResult(resolved);
+  const result = semantics.operations.callResult(resolved);
   assert.notEqual(result, undefined);
   assert.equal(
-    semantics.typeToString(result.selectedReturnType),
-    "U",
+    semantics.types.isIdentical(result.selectedReturnType, result.resultType),
+    true,
   );
-  assert.equal(semantics.typeToString(result.resultType), "U");
   assert.equal(
     source.ast.kindName(result.authoredTypeNode),
     "KindTypeReference",
@@ -374,8 +425,8 @@ test("target source semantics expand exact selected symbols to their declaration
   const semantics = source.semantics.forFile(sourceFile);
   const property = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsPropertyAccessExpression(node));
-  const selected = semantics.getResolvedPropertyAccessInfo(property);
-  const subjects = semantics.getSelectedFactSubjects(
+  const selected = semantics.operations.propertyAccess(property);
+  const subjects = semantics.facts.selectedSubjects(
     selected?.selectedSymbol,
     selected?.selectedDeclaration,
   );
@@ -413,14 +464,32 @@ test("target source semantics expose checker-owned declared value types", async 
   const mutable = namedVariable(source.ast, sourceFile, "mutable");
   const immutable = namedVariable(source.ast, sourceFile, "immutable");
 
-  assert.equal(
-    semantics.typeToString(semantics.getDeclaredValueType(mutable)),
-    "number",
-  );
-  assert.equal(
-    semantics.typeToString(semantics.getDeclaredValueType(immutable)),
-    "0",
-  );
+  const mutableType = semantics.declarations.declaredValueType(mutable);
+  const immutableType = semantics.declarations.declaredValueType(immutable);
+  assert.equal(semantics.types.isNumberLike(mutableType), true);
+  assert.equal(semantics.types.isNumberLike(immutableType), true);
+  assert.equal(semantics.types.isIdentical(mutableType, immutableType), false);
+});
+
+test("target source semantics expose checker-owned declared type identities", async () => {
+  const checked = await checkedSource("declared-type-identities", {
+    "src/index.ts": [
+      "export type Shape =",
+      "  | { kind: \"circle\"; radius: number }",
+      "  | { kind: \"square\"; size: number };",
+      "",
+    ].join("\n"),
+  });
+  const source = createTargetSourceProgram(checked);
+  const sourceFile = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(sourceFile);
+  const declaration = requiredNode(source.ast, sourceFile, (node) =>
+    source.ast.is.IsTypeAliasDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "Shape");
+
+  const declaredType = semantics.declarations.declaredType(declaration);
+  assert.equal(semantics.types.isUnion(declaredType), true);
+  assert.equal(semantics.types.unionOrIntersectionTypes(declaredType).length, 2);
 });
 
 test("target source semantics classify value uses against their exact declarations", async () => {
@@ -456,11 +525,8 @@ test("target source semantics classify value uses against their exact declaratio
     source.ast.is.IsParameterDeclaration(narrowed.reference.declaration),
     true,
   );
-  assert.equal(
-    semantics.typeToString(narrowed.declaredType),
-    "string | undefined",
-  );
-  assert.equal(semantics.typeToString(narrowed.selectedType), "string");
+  assert.equal(semantics.types.isUnion(narrowed.declaredType), true);
+  assert.equal(semantics.types.isStringLike(narrowed.selectedType), true);
   assert.equal(narrowed.refinement.kind, "members");
 
   const exact = source.semantics.selectValueTypeRefinement(returnedError);
@@ -469,8 +535,8 @@ test("target source semantics classify value uses against their exact declaratio
     source.ast.is.IsVariableDeclaration(exact.reference.declaration),
     true,
   );
-  assert.equal(semantics.typeToString(exact.declaredType), "unknown");
-  assert.equal(semantics.typeToString(exact.selectedType), "unknown");
+  assert.equal(semantics.types.isUnknown(exact.declaredType), true);
+  assert.equal(semantics.types.isUnknown(exact.selectedType), true);
   assert.equal(exact.refinement.kind, "exact");
 
   assert.deepEqual(
@@ -721,51 +787,51 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   const authoredType = source.ast.as.AsFunctionDeclaration(declaration)?.Type;
   const call = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsCallExpression(node));
-  const sourceResult = semantics.getResolvedCallInfo(call)?.sourceResultType;
-  const authoredSemanticType = semantics.getTypeFromTypeNode(authoredType);
+  const sourceResult = semantics.operations.call(call)?.sourceResultType;
+  const authoredSemanticType = semantics.types.authoredType(authoredType);
   const narrowedValue = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsIdentifier(node) &&
     source.ast.text(node) === "value" &&
-    semantics.typeToString(semantics.getTypeAtLocation(node)) === "string");
-  const narrowedType = semantics.getTypeAtLocation(narrowedValue);
+    semantics.types.isStringLike(semantics.types.expressionType(node)));
+  const narrowedType = semantics.types.expressionType(narrowedValue);
   const payloadObject = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsObjectLiteralExpression(node) &&
-    semantics.selectContextualValueType(node).kind === "selected");
+    semantics.types.contextualValueSelection(node).kind === "selected");
   const eitherObject = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsObjectLiteralExpression(node) &&
-    semantics.selectContextualValueType(node).kind === "ambiguous");
+    semantics.types.contextualValueSelection(node).kind === "ambiguous");
 
   assert.notEqual(authoredType, undefined);
   assert.notEqual(sourceResult, undefined);
   assert.notEqual(authoredSemanticType, undefined);
   assert.notEqual(narrowedType, undefined);
   assert.deepEqual(
-    semantics.selectAuthoredType(authoredType, sourceResult),
+    semantics.types.authoredSelection(authoredType, sourceResult),
     {
       kind: "authored-members",
       nodes: [authoredType],
       selectedNullishTypes: [],
     },
   );
-  const narrowed = semantics.selectAuthoredType(authoredType, narrowedType);
+  const narrowed = semantics.types.authoredSelection(authoredType, narrowedType);
   assert.equal(narrowed.kind, "authored-members");
   assert.equal(narrowed.nodes.length, 1);
   assert.deepEqual(narrowed.selectedNullishTypes, []);
   assert.equal(source.ast.kindName(narrowed.nodes[0]), "KindStringKeyword");
-  const semanticRefinement = semantics.selectTypeRefinement(
+  const semanticRefinement = semantics.types.refinement(
     authoredSemanticType,
     narrowedType,
   );
   assert.equal(semanticRefinement.kind, "members");
   assert.equal(semanticRefinement.types.length, 1);
-  assert.equal(semantics.isStringLike(semanticRefinement.types[0]), true);
-  const contextualPayload = semantics.selectContextualValueType(payloadObject);
+  assert.equal(semantics.types.isStringLike(semanticRefinement.types[0]), true);
+  const contextualPayload = semantics.types.contextualValueSelection(payloadObject);
   assert.equal(contextualPayload.kind, "selected");
-  assert.equal(semantics.typeToString(contextualPayload.type), "Payload");
-  const contextualEither = semantics.selectContextualValueType(eitherObject);
+  assert.equal(sourceTypeSymbolName(semantics, contextualPayload.type), "Payload");
+  const contextualEither = semantics.types.contextualValueSelection(eitherObject);
   assert.equal(contextualEither.kind, "ambiguous");
   assert.deepEqual(
-    contextualEither.types.map((type) => semantics.typeToString(type)),
+    contextualEither.types.map((type) => sourceTypeSymbolName(semantics, type)),
     ["Left", "Right"],
   );
 });
@@ -785,21 +851,21 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
   const semantics = source.semantics.forFile(sourceFile);
   const boxTypeNode = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsTypeReferenceNode(node) &&
-    semantics.typeToString(semantics.getTypeFromTypeNode(node)) ===
-      "Box<string>");
-  const boxType = semantics.getTypeFromTypeNode(boxTypeNode);
-  const arguments_ = semantics.getEffectiveTypeArguments(boxType);
+    source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) === "Box" &&
+    source.ast.kindName(source.ast.typeArguments(node)[0]) === "KindStringKeyword");
+  const boxType = semantics.types.authoredType(boxTypeNode);
+  const arguments_ = semantics.types.effectiveTypeArguments(boxType);
   const numberBoxTypeNode = requiredNode(source.ast, sourceFile, (node) =>
     source.ast.is.IsTypeReferenceNode(node) &&
-    semantics.typeToString(semantics.getTypeFromTypeNode(node)) ===
-      "Box<number>");
-  const numberBoxType = semantics.getTypeFromTypeNode(numberBoxTypeNode);
-  const boxFactSubjects = semantics.getTypeFactSubjects(boxType);
+    source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) === "Box" &&
+    source.ast.kindName(source.ast.typeArguments(node)[0]) === "KindNumberKeyword");
+  const numberBoxType = semantics.types.authoredType(numberBoxTypeNode);
+  const boxFactSubjects = semantics.facts.typeSubjects(boxType);
 
   assert.equal(arguments_?.length, 1);
   assert.equal(boxFactSubjects.includes(boxType), true);
   assert.equal(
-    boxFactSubjects.includes(semantics.getTypeSymbol(boxType)),
+    boxFactSubjects.includes(semantics.declarations.typeSymbol(boxType)),
     true,
   );
   assert.equal(
@@ -810,14 +876,14 @@ test("effective type arguments ignore non-type declarations on shared symbols", 
     )),
     true,
   );
-  assert.equal(semantics.isStringLike(arguments_?.[0]), true);
-  assert.equal(semantics.getTypeRelationship(boxType, boxType), "identical");
+  assert.equal(semantics.types.isStringLike(arguments_?.[0]), true);
+  assert.equal(semantics.types.relationship(boxType, boxType), "identical");
   assert.equal(
-    semantics.getTypeRelationship(boxType, numberBoxType),
+    semantics.types.relationship(boxType, numberBoxType),
     "same-declaration",
   );
   assert.equal(
-    semantics.getTypeRelationship(boxType, arguments_[0]),
+    semantics.types.relationship(boxType, arguments_[0]),
     "unrelated",
   );
 });
@@ -838,14 +904,13 @@ test("effective type arguments follow the instantiated generic target through a 
     source.ast.is.IsTypeReferenceNode(node) &&
     source.ast.text(source.ast.as.AsTypeReferenceNode(node)?.TypeName) ===
       "TextBox");
-  const aliasType = semantics.getTypeFromTypeNode(aliasReference);
-  const arguments_ = semantics.getEffectiveTypeArguments(aliasType);
+  const aliasType = semantics.types.authoredType(aliasReference);
+  const arguments_ = semantics.types.effectiveTypeArguments(aliasType);
 
-  assert.equal(semantics.typeToString(aliasType), "TextBox");
-  assert.equal(semantics.getSymbolName(semantics.getTypeAliasSymbol(aliasType)), "TextBox");
-  assert.equal(semantics.getSymbolName(semantics.getTypeSymbol(aliasType)), "Box");
+  assert.equal(semantics.declarations.symbolName(semantics.declarations.typeAliasSymbol(aliasType)), "TextBox");
+  assert.equal(semantics.declarations.symbolName(semantics.declarations.typeSymbol(aliasType)), "Box");
   assert.equal(arguments_?.length, 1);
-  assert.equal(semantics.isStringLike(arguments_?.[0]), true);
+  assert.equal(semantics.types.isStringLike(arguments_?.[0]), true);
 });
 
 test("source type syntax distinguishes compositional forms from checker transforms", async () => {
@@ -903,3 +968,11 @@ test("host finalizes target source-node diagnostics through the shared AST", asy
   assert.equal(diagnostics[0].sourceSpan?.column > 0, true);
   assert.equal(diagnostics[0].sourceSpan?.fileName.endsWith("src/index.ts"), true);
 });
+
+function sourceTypeSymbolName(semantics, type) {
+  const symbol = semantics.declarations.typeAliasSymbol(type) ??
+    semantics.declarations.typeSymbol(type);
+  return symbol === undefined
+    ? undefined
+    : semantics.declarations.symbolName(symbol);
+}

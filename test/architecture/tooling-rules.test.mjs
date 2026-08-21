@@ -12,13 +12,71 @@ import {
 import {
   evaluatePublicExportInventory,
 } from "./tooling/public-export-inventory.mjs";
+import {
+  canonicalTargetForbiddenDirectories,
+  canonicalTargetLayerPolicies,
+  canonicalTargetSourceRules,
+  targetLayerNames,
+} from "./tooling/target-layer-contract.mjs";
+
+test("canonical target layer contract is complete and discriminating", () => {
+  assert.deepEqual(
+    canonicalTargetLayerPolicies.map((policy) => policy.source),
+    targetLayerNames,
+  );
+  assert.equal(new Set(targetLayerNames).size, targetLayerNames.length);
+  assert.equal(canonicalTargetForbiddenDirectories.includes("compat"), true);
+  assert.equal(canonicalTargetForbiddenDirectories.includes("legacy"), true);
+  const mutation = evaluateArchitecture({
+    sourceFiles: new Map([
+      ["src/policy/rule.ts", "export {};"],
+      ["src/backend/planner/plan.ts", "export {};"],
+    ]),
+    edges: [{
+      source: "src/policy/rule.ts",
+      target: "src/backend/planner/plan.ts",
+      kind: "relative",
+      unresolved: false,
+      specifier: "../backend/planner/plan.js",
+    }],
+    classifications: new Map([
+      ["src/policy/rule.ts", "policy"],
+      ["src/backend/planner/plan.ts", "planner"],
+    ]),
+    layerPolicies: canonicalTargetLayerPolicies,
+  });
+  assert.deepEqual(mutation.findings.map((finding) => finding.ruleId), [
+    "ARCH-POLICY-001",
+  ]);
+  const sourceRuleMutations = [
+    ["ARCH-TARGET-SESSION-001", "src/backend/compile.ts", "createBackend(context);"],
+    ["ARCH-TARGET-SOURCE-001", "src/policy/types.ts", "checker.getSymbolAtLocation(node);"],
+    ["ARCH-TARGET-SOURCE-002", "src/analysis/program.ts", "interface Queries extends TypeCheckerQueries {}"],
+    ["ARCH-TARGET-CONTEXT-001", "src/backend/planner/context.ts", "interface RustPlanningContext extends RustTargetProgram {}"],
+    ["ARCH-TARGET-CONTEXT-002", "src/backend/planner/context.ts", "const context = { ...input, ...program };"],
+    ["ARCH-TARGET-CAPABILITY-001", "src/compilation/session.ts", "capability.createTargetContributions?.(context);"],
+    ["ARCH-TARGET-PROVIDER-001", "src/backend/planner/program.ts", "const provider = createReflectionProvider();"],
+    ["ARCH-TARGET-EMISSION-001", "src/backend/emission/materialize.ts", "function materialize(input: TargetCompileInput) {}"],
+    ["ARCH-TARGET-SESSION-002", "src/descriptor/target-pack.ts", "const sessions = new WeakMap<object, object>();"],
+    ["ARCH-TARGET-IDENTITY-001", "src/policy/storage.ts", "const identity = outputIdentity.artifactPath;"],
+    ["ARCH-TARGET-LAYOUT-001", "src/backend/project-model/model.ts", "export {};"],
+  ];
+  for (const [ruleId, file, source] of sourceRuleMutations) {
+    assert.equal(
+      canonicalTargetSourceRules.some((rule) =>
+        rule.ruleId === ruleId && rule.matches(file, source)),
+      true,
+      `${ruleId} did not reject its mutation`,
+    );
+  }
+});
 
 test("architecture layer rules reject every forbidden dependency direction", () => {
   const cases = [
-    ["ARCH-PROVIDER-001", "provider", "printer"],
+    ["ARCH-PROVIDER-001", "provider-implementation", "printer"],
     ["ARCH-POLICY-001", "policy", "planner"],
     ["ARCH-ANALYSIS-001", "analysis", "planner"],
-    ["ARCH-PLANNER-001", "planner", "provider-worker"],
+    ["ARCH-PLANNER-001", "planner", "provider-implementation"],
     ["ARCH-PRINTER-001", "printer", "policy"],
     ["ARCH-TOOLCHAIN-001", "toolchain", "analysis"],
   ];

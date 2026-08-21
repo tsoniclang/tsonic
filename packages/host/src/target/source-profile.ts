@@ -3,8 +3,8 @@ import {
   tsonicSourceProfileVirtualDirectory,
 } from "@tsonic/target-api/provider";
 import type {
-  TargetPack,
   TargetSelection,
+  TargetSourceProfileContributions,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
 import type {
@@ -31,10 +31,12 @@ export interface CollectedTargetSourceProfile {
 export interface CollectTargetSourceProfileOptions {
   readonly project: TsonicProjectConfig;
   readonly projectRoot: string;
+  readonly projectDirectory: string;
   readonly target: TargetSelection;
-  readonly targetPack: TargetPack;
+  readonly targetPackId: string;
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
+  readonly targetContributions: TargetSourceProfileContributions;
 }
 
 export function collectTargetSourceProfileContributions(options: CollectTargetSourceProfileOptions): CollectedTargetSourceProfile {
@@ -43,39 +45,32 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
   const seenPaths = new Map<string, string>();
   const bundledLibraries = new Set<string>();
   let installedDeclarations: TargetSourceDeclarationPolicy["installedDeclarations"];
-  const provider = options.targetPack.provider;
-  if (provider !== undefined) {
-    const contribution = provider.sourceProfileContributions?.({
-      project: options.project,
-      target: options.target,
-      targetPack: options.targetPack,
-      selectedCapabilities: options.selectedCapabilities,
-      selectedSurfaces: options.selectedSurfaces,
-    });
-    appendDeclarations({
-      files,
-      diagnostics,
-      seenPaths,
-      projectRoot: options.projectRoot,
-      ownerId: provider.id,
-      source: provider.id,
-      declarations: contribution?.declarations ?? [],
-    });
-    installedDeclarations = appendDeclarationPolicy({
-      bundledLibraries,
-      diagnostics,
-      installedDeclarations,
-      ownerId: provider.id,
-      policy: contribution?.declarationPolicy,
-    });
-  }
+  appendDeclarations({
+    files,
+    diagnostics,
+    seenPaths,
+    projectRoot: options.projectRoot,
+    ownerId: options.targetPackId,
+    source: options.targetPackId,
+    declarations: options.targetContributions.declarations ?? [],
+  });
+  installedDeclarations = appendDeclarationPolicy({
+    bundledLibraries,
+    diagnostics,
+    installedDeclarations,
+    ownerId: options.targetPackId,
+    policy: options.targetContributions.declarationPolicy,
+  });
+  const compositionContext = {
+    project: options.project,
+    projectDirectory: options.projectDirectory,
+    target: options.target,
+    selectedCapabilityIds: Object.freeze(options.selectedCapabilities.map((capability) => capability.id)),
+    selectedSurfaceIds: Object.freeze(options.selectedSurfaces.map((surface) => surface.id)),
+  };
   for (const capability of options.selectedCapabilities) {
     const contribution = capability.sourceProfileContributions?.({
-      project: options.project,
-      target: options.target,
-      targetPack: options.targetPack,
-      selectedCapabilities: options.selectedCapabilities,
-      selectedSurfaces: options.selectedSurfaces,
+      ...compositionContext,
       capability,
     });
     appendDeclarations({
@@ -97,11 +92,7 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
   }
   for (const surface of options.selectedSurfaces) {
     const contribution = surface.sourceProfileContributions?.({
-      project: options.project,
-      target: options.target,
-      targetPack: options.targetPack,
-      selectedCapabilities: options.selectedCapabilities,
-      selectedSurfaces: options.selectedSurfaces,
+      ...compositionContext,
       surface,
     });
     appendDeclarations({
@@ -110,14 +101,14 @@ export function collectTargetSourceProfileContributions(options: CollectTargetSo
       seenPaths,
       projectRoot: options.projectRoot,
       ownerId: surface.id,
-      source: `${options.targetPack.id}:${surface.id}`,
+      source: `${options.targetPackId}:${surface.id}`,
       declarations: contribution?.declarations ?? [],
     });
     installedDeclarations = appendDeclarationPolicy({
       bundledLibraries,
       diagnostics,
       installedDeclarations,
-      ownerId: `${options.targetPack.id}:${surface.id}`,
+      ownerId: `${options.targetPackId}:${surface.id}`,
       policy: contribution?.declarationPolicy,
     });
   }

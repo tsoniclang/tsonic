@@ -10,7 +10,7 @@ import {
 } from "./contextual-tuple-literal.js";
 import type {
   SourceContextualValueTypeSelection,
-  SourceFileSemantics,
+  SourceFinalTypeQueries,
 } from "./types.js";
 
 test("contextual tuple literals retain exact trailing optional omissions", () => {
@@ -118,13 +118,13 @@ function sourceSemantics(
   selection: SourceContextualValueTypeSelection,
   tupleType: Type,
   elements: readonly TypeTupleElementInfo[],
-): SourceFileSemantics {
+): SourceFinalTypeQueries {
   return {
-    selectContextualValueType: () => selection,
+    contextualValueSelection: () => selection,
     isTuple: (candidate: Type) => candidate === tupleType,
-    getTupleElementInfos: (candidate: Type) =>
+    tupleElementInfos: (candidate: Type) =>
       candidate === tupleType ? elements : [],
-  } as unknown as SourceFileSemantics;
+  } as unknown as SourceFinalTypeQueries;
 }
 
 function node(): Node {
