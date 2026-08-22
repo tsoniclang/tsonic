@@ -103,7 +103,7 @@ test("CLI rejects other open-carrier node:util operations without fallback", asy
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects open-object node:url format operations without fallback", async () => {
+test("CLI rejects structurally selected node:url format arguments without a closed target carrier", async () => {
   const projectDirectory = resolve(tempRoot, "nodejs-url-format-unsupported");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -130,8 +130,8 @@ test("CLI rejects open-object node:url format operations without fallback", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:url' export 'format'/);
-  assert.match(build.stderr, /node:url|format|selected target signature fact|target binding/);
+  assert.match(build.stderr, /CSHARP_TARGET_CALL_NOT_CLOSED/);
+  assert.match(build.stderr, /LegacyUrlObject|exact target parameter|implicit conversion/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
