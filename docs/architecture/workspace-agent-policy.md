@@ -17,6 +17,9 @@ policy.
   semantics.
 - Keep changes focused. Do not repair unrelated failures, but report them
   precisely.
+- Modify only repositories and product scopes the maintainer assigned to the
+  task. Read-only inspection may establish a contract; it does not grant change
+  ownership.
 
 ## Repository Safety
 
@@ -173,8 +176,9 @@ policy.
 ## Policy Placement
 
 - This file is the sole owner of workspace-wide policy.
-- Child `AGENTS.md` files maintained by this workstream contain only repository-
-  specific deltas. Separately owned repositories retain their existing local
-  policy until their owners migrate it.
-- In migrated scopes, `CLAUDE.md` imports its same-scope `AGENTS.md`; it does not
+- Top-level child `AGENTS.md` files contain only repository-specific deltas and
+  reference this policy explicitly.
+- `CLAUDE.md` imports this policy and its same-scope `AGENTS.md`; it does not
   duplicate policy prose.
+- Vendored and submodule policy files remain owned by their upstream projects;
+  do not rewrite them as workspace policy copies.
