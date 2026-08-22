@@ -32,6 +32,7 @@ const auditRows = Object.freeze([
   row("packages/host/src/plugins/discovery.ts", "plugin manifest validation", "provider-declaration-production", "Allowed object-shape validation of installed plugin metadata.", "Plugin discovery contract tests plus this occurrence-level inventory."),
   row("packages/host/src/project-config.ts", "project config validation", "provider-declaration-production", "Allowed object-shape validation of user project config.", "Project-config negative tests plus this occurrence-level inventory."),
   row("packages/host/src/package-contract.ts", "package dependency validation", "provider-declaration-production", "Allowed object-shape validation of package dependency fields; it does not inspect compiler nodes or select semantic identity.", "Package/declaration policy tests plus this occurrence-level inventory."),
+  row("packages/host/src/target/runtime-contributions.ts", "runtime contribution structural equality", "provider-declaration-production", "Allowed deterministic structural comparison of target-owned runtime artifact and reference contracts; it does not inspect source syntax or reconstruct selected semantic identity.", "Runtime-contribution conflict/canonicalization tests plus this occurrence-level inventory."),
 ]);
 
 test("host selected-evidence audit inventory covers every current host risk-pattern file", () => {

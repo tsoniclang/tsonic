@@ -15,6 +15,10 @@
       "types": "./dist/public/artifacts.d.ts",
       "default": "./dist/public/artifacts.js"
     },
+    "./analysis": {
+      "types": "./dist/public/analysis.d.ts",
+      "default": "./dist/public/analysis.js"
+    },
     "./provider": {
       "types": "./dist/public/provider.d.ts",
       "default": "./dist/public/provider.js"

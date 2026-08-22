@@ -26,7 +26,7 @@ test("host omits surface runtime artifacts when no surface is selected", async (
   ]);
   assert.equal(events.includes("surface-runtime:js"), false);
 });
-test("host reports duplicate runtime artifacts as target diagnostics before target compilation", async () => {
+test("host reports conflicting runtime artifacts as target diagnostics before target compilation", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     providerArtifacts: [
@@ -58,12 +58,40 @@ test("host reports duplicate runtime artifacts as target diagnostics before targ
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
   assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(result.diagnostics[0].message, "duplicate target runtime artifact 'runtime/shared.txt'");
+  assert.equal(result.diagnostics[0].message, "conflicting target runtime artifact 'runtime/shared.txt'");
   assert.equal(targetArtifacts(result.targets[0]).length, 0);
   assert.equal(events.includes("compile:demo"), false);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });
-test("host reports duplicate runtime references as target diagnostics before target compilation", async () => {
+test("host canonicalizes byte-identical runtime artifacts before target compilation", async () => {
+  const events = [];
+  const shared = createFakeArtifact("asset", "runtime/shared.txt", "shared");
+  const targetPack = createFakeTargetPack(events, {
+    providerArtifacts: [shared],
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        artifacts: [{ ...shared }],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("identical-runtime-artifacts", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(targetArtifacts(result.targets[0]).map((artifact) => artifact.path), [
+    "runtime/shared.txt",
+    "src/App.demo",
+  ]);
+  assert.equal(events.includes("compile:demo"), true);
+});
+test("host canonicalizes identical runtime references before target compilation", async () => {
   const events = [];
   const targetPack = createFakeTargetPack(events, {
     providerReferences: [
@@ -91,12 +119,78 @@ test("host reports duplicate runtime references as target diagnostics before tar
     "provider:demo:surfaces=js",
     "provider-runtime:demo",
     "surface-runtime:js",
+    "compile:demo",
+    "toolchain:demo:artifacts=src/App.demo",
   ]);
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(targetArtifacts(result.targets[0]).map((artifact) => artifact.path), [
+    "src/App.demo",
+  ]);
+  assert.equal(events.includes("compile:demo"), true);
+  assert.equal(events.some((event) => event.startsWith("toolchain:")), true);
+});
+test("host canonicalizes absent and empty runtime-reference attributes", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerReferences: [
+      createFakeReference("project", "../runtime/Runtime.csproj"),
+    ],
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        references: [{
+          ...createFakeReference("project", "../runtime/Runtime.csproj"),
+          attributes: {},
+        }],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("empty-runtime-reference-attributes", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
+  assert.deepEqual(result.diagnostics, []);
+  assert.equal(events.includes("compile:demo"), true);
+});
+test("host rejects conflicting runtime reference contracts before target compilation", async () => {
+  const events = [];
+  const targetPack = createFakeTargetPack(events, {
+    providerReferences: [{
+      ...createFakeReference("project", "../runtime/Runtime.csproj"),
+      attributes: { Private: "true" },
+    }],
+    compileArtifacts: [
+      createFakeArtifact("source", "src/App.demo", "compile"),
+    ],
+    surfaces: [
+      createFakeSurface("js", {
+        events,
+        references: [{
+          ...createFakeReference("project", "../runtime/Runtime.csproj"),
+          attributes: { Private: "false" },
+        }],
+      }),
+    ],
+  });
+
+  const result = await compileFakeProject("conflicting-runtime-references", targetPack, {
+    id: "demo",
+    surfaces: ["js"],
+  });
+
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].code, "TARGET_RUNTIME");
   assert.equal(result.diagnostics[0].category, "error");
-  assert.equal(result.diagnostics[0].message, "duplicate target runtime reference 'project:../runtime/Runtime.csproj'");
-  assert.equal(targetArtifacts(result.targets[0]).length, 0);
+  assert.equal(
+    result.diagnostics[0].message,
+    "conflicting target runtime reference 'project:../runtime/Runtime.csproj'",
+  );
+  assert.deepEqual(targetArtifacts(result.targets[0]), []);
   assert.equal(events.includes("compile:demo"), false);
   assert.equal(events.some((event) => event.startsWith("toolchain:")), false);
 });

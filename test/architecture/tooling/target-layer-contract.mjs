@@ -33,7 +33,7 @@ const allowedTargetLayerDependencies = Object.freeze({
   analysis: ["source", "provider-model", "target-model", "policy"],
   "target-ast": ["target-model"],
   "artifact-model": ["target-model", "target-ast"],
-  planner: ["analysis", "source", "provider-model", "target-model", "policy", "target-ast", "artifact-model"],
+  planner: ["analysis", "target-model", "target-ast", "artifact-model"],
   emission: ["artifact-model", "printer"],
   "backend-entrypoint": ["analysis", "planner", "emission"],
   printer: ["target-ast", "artifact-model"],
@@ -118,6 +118,30 @@ export const canonicalTargetSourceRules = Object.freeze([
       file.startsWith("src/policy/") || file.startsWith("src/analysis/")
     ) && /\b(?:artifactPath|outputIdentit(?:y|ies))\b/u.test(source),
     "Source semantics and target analysis cannot derive identity from physical output placement.",
+  ),
+  sourceRule(
+    "ARCH-TARGET-PLANNER-002",
+    (file, source) => file.startsWith("src/backend/planner/") &&
+      /\b(?:TargetCompileInput|TargetCompilationSessionContext)\b|\.source\.semantics\b|\bselect(?:Csharp|Rust)[A-Z][A-Za-z0-9_]*\s*\(|\bcreate(?:Csharp|Rust)ScopedPlanningContext\s*\(/u.test(source),
+    "Target planners consume syntax and sealed target classifications; they cannot retain compilation input, source semantics, or target semantic selectors.",
+  ),
+  sourceRule(
+    "ARCH-TARGET-ANALYSIS-002",
+    (file, source) => file.startsWith("src/analysis/") &&
+      /from\s+["'](?:\.\.\/)+(?:backend\/(?:planner|target-ast|emission)|print)\//u.test(source),
+    "Target analysis cannot depend on target AST construction, planning, materialization, or printing.",
+  ),
+  sourceRule(
+    "ARCH-TARGET-MODEL-001",
+    (file, source) => file.startsWith("src/target-model/") &&
+      /from\s+["'](?:\.\.\/)+(?:analysis|policy|providers|source|backend)\//u.test(source),
+    "Target-model vocabulary is closed data and pure operations; it cannot depend on source, provider, policy, analysis, or backend layers.",
+  ),
+  sourceRule(
+    "ARCH-TARGET-PRINTER-002",
+    (file, source) => file.startsWith("src/print/") &&
+      /from\s+["'](?:\.\.\/)+(?:analysis|policy|providers|source|backend\/planner)\//u.test(source),
+    "Target printers consume target AST and artifact models only; they cannot recover semantics from earlier stages.",
   ),
   sourceRule(
     "ARCH-TARGET-LAYOUT-001",

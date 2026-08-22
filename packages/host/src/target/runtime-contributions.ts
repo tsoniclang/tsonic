@@ -12,6 +12,7 @@ import type {
   TargetDiagnostic,
   TargetRuntimeContributions,
   TargetRuntimeReference,
+  TargetSourceFile,
 } from "@tsonic/target-api/artifacts";
 
 export interface CollectTargetRuntimeContributionsOptions {
@@ -61,36 +62,83 @@ function mergeRuntimeContributions(
   const artifacts: TargetArtifact[] = [];
   const references: TargetRuntimeReference[] = [];
   const diagnostics: TargetDiagnostic[] = [];
-  const artifactPaths = new Set<string>();
-  const referenceKeys = new Set<string>();
+  const artifactsByPath = new Map<string, TargetArtifact>();
+  const referencesByKey = new Map<string, TargetRuntimeReference>();
   for (const contribution of contributions) {
     for (const artifact of contribution?.artifacts ?? []) {
-      if (artifactPaths.has(artifact.path)) {
+      const existing = artifactsByPath.get(artifact.path);
+      if (existing !== undefined) {
+        if (targetRuntimeArtifactEquals(existing, artifact)) {
+          continue;
+        }
         diagnostics.push({
           code: "TARGET_RUNTIME",
           category: "error",
-          message: `duplicate target runtime artifact '${artifact.path}'`,
+          message: `conflicting target runtime artifact '${artifact.path}'`,
           source,
         });
         continue;
       }
-      artifactPaths.add(artifact.path);
+      artifactsByPath.set(artifact.path, artifact);
       artifacts.push(artifact);
     }
     for (const reference of contribution?.references ?? []) {
       const key = `${reference.kind}:${reference.include}`;
-      if (referenceKeys.has(key)) {
+      const existing = referencesByKey.get(key);
+      if (existing !== undefined) {
+        if (targetRuntimeReferenceEquals(existing, reference)) {
+          continue;
+        }
         diagnostics.push({
           code: "TARGET_RUNTIME",
           category: "error",
-          message: `duplicate target runtime reference '${reference.kind}:${reference.include}'`,
+          message: `conflicting target runtime reference '${reference.kind}:${reference.include}'`,
           source,
         });
         continue;
       }
-      referenceKeys.add(key);
+      referencesByKey.set(key, reference);
       references.push(reference);
     }
   }
   return { artifacts, references, diagnostics };
+}
+
+function targetRuntimeArtifactEquals(
+  left: TargetArtifact,
+  right: TargetArtifact,
+): boolean {
+  return left.kind === right.kind &&
+    left.path === right.path &&
+    left.text === right.text &&
+    targetSourceLanguage(left) === targetSourceLanguage(right);
+}
+
+function targetSourceLanguage(artifact: TargetArtifact): string | undefined {
+  return artifact.kind === "source"
+    ? (artifact as Partial<TargetSourceFile>).language
+    : undefined;
+}
+
+function targetRuntimeReferenceEquals(
+  left: TargetRuntimeReference,
+  right: TargetRuntimeReference,
+): boolean {
+  return left.kind === right.kind &&
+    left.include === right.include &&
+    left.version === right.version &&
+    stringRecordsEqual(left.attributes, right.attributes);
+}
+
+function stringRecordsEqual(
+  left: Readonly<Record<string, string>> | undefined,
+  right: Readonly<Record<string, string>> | undefined,
+): boolean {
+  const leftRecord = left ?? {};
+  const rightRecord = right ?? {};
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) =>
+      key === rightKeys[index] && leftRecord[key] === rightRecord[key]);
 }

@@ -79,6 +79,14 @@ export function createSourceReferenceNavigation(
       }
       return undefined;
     }
+    const selected = sourceReferenceFor(node);
+    if (selected !== undefined) {
+      const declaration = selected.project ? selected.declaration : undefined;
+      if (nodeKey !== undefined) {
+        declarationCache.set(nodeKey, declaration ?? null);
+      }
+      return declaration;
+    }
     const queries = source.getSourceFileQueries(sourceFile);
     const type = semanticTypeForNode(ast, queries.checker, node);
     const declaration = projectDeclarationForType(
@@ -264,7 +272,7 @@ function selectedAccessDeclarationReference(
     : undefined;
 }
 
-function projectDeclarationForType(
+export function projectDeclarationForType(
   ast: AstReader,
   checker: TypeCheckerQueries,
   types: TypeShapeQueries,

@@ -160,6 +160,39 @@ export function ObjectLiteralProperty_Value(
     : undefined;
 }
 
+export type ObjectLiteralPropertySourceNameResult =
+  | {
+      readonly kind: "resolved";
+      readonly name: string;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly reason:
+        | "missing-name"
+        | "unsupported-name-kind"
+        | "non-finite-numeric-literal";
+    };
+
+export function ObjectLiteralProperty_SourceName(
+  ast: AstReader,
+  node: Node | undefined,
+): ObjectLiteralPropertySourceNameResult {
+  const name = node === undefined ? undefined : ast.name(node);
+  if (name === undefined) {
+    return { kind: "rejected", reason: "missing-name" };
+  }
+  if (ast.is.IsIdentifier(name) || ast.is.IsStringLiteral(name)) {
+    return { kind: "resolved", name: ast.text(name) };
+  }
+  if (!ast.is.IsNumericLiteral(name)) {
+    return { kind: "rejected", reason: "unsupported-name-kind" };
+  }
+  const value = Number(ast.text(name).split("_").join(""));
+  return Number.isFinite(value)
+    ? { kind: "resolved", name: String(value) }
+    : { kind: "rejected", reason: "non-finite-numeric-literal" };
+}
+
 export function BindingElement_PropertyName(ast: AstReader, node: Node | undefined): Node | undefined {
   return node === undefined || !ast.is.IsBindingElement(node)
     ? undefined

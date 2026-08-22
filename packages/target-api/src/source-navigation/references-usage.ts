@@ -59,7 +59,7 @@ export function sourceBindingWritesWithin(
     root,
     sourceReferenceFor,
   )
-    .map((reference) => bindingWriteAtReference(source.ast, reference))
+    .map((reference) => sourceBindingWriteAtReference(source.ast, reference))
     .filter((write): write is SourceBindingWrite => write !== undefined);
   return Object.freeze(writes);
 }
@@ -216,7 +216,7 @@ export function sourceSymbolHasReferenceOutside(
   return false;
 }
 
-function bindingWriteAtReference(
+export function sourceBindingWriteAtReference(
   ast: AstReader,
   reference: Node,
 ): SourceBindingWrite | undefined {

@@ -22,7 +22,8 @@ export function sourceDeclarationUseSummary(
 ): SourceDeclarationUseSummary {
   const captured = uses.some((use) => use.captured);
   const declarationOwner = ast.parent(declaration);
-  const declaredClassMember = ast.is.IsClassDeclaration(declarationOwner);
+  const declaredClassMember = declarationOwner !== undefined &&
+    ast.is.IsClassDeclaration(declarationOwner);
   const exported = ast.hasModifierKind(declaration, "export") ||
     uses.some((use) => use.role === "source-linkage" &&
       sourceLinkageKind(ast, use.reference) === "export");
@@ -84,7 +85,7 @@ function sourceMemberWriteIsConstructorInitialization(
   reference: Node,
 ): boolean {
   const owner = ast.parent(declaration);
-  if (!ast.is.IsClassDeclaration(owner)) {
+  if (owner === undefined || !ast.is.IsClassDeclaration(owner)) {
     return false;
   }
   let current: Node | undefined = reference;

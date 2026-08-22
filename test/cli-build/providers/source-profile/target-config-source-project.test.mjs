@@ -339,7 +339,7 @@ test("CLI rejects invalid C# target namespace segments", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# target option 'namespace' must be a dot-separated C# identifier path/);
+  assert.match(build.stderr, /C# target namespace must be a dot-separated C# identifier path/);
 });
 test("CLI rejects non-string C# target namespace option", async () => {
   const projectDirectory = resolve(tempRoot, "csharp-invalid-namespace-type");
@@ -396,7 +396,7 @@ test("CLI rejects invalid C# target assembly name", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# target option 'assemblyName' must be a file-safe \.NET assembly name/);
+  assert.match(build.stderr, /C# target assemblyName must be a file-safe \.NET assembly name/);
 });
 test("CLI does not emit target artifacts when TSTS rejects the source program", async () => {
   const projectDirectory = resolve(tempRoot, "tsts-diagnostic-stop");
