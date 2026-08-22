@@ -97,9 +97,11 @@ Final verification (REQUIRED before merge/publish):
 
 Policy:
 
-- Filtered runs are for iteration only; they must never be used as the final gate.
+- Filtered runs are for iteration only; they must never be used as the sole final gate.
 - `--no-unit` / `run-e2e.sh` are for iteration only; final verification must include unit + golden tests.
 - If a change is substantial (emitter/type system/CLI/runtime behavior), run the full suite even during development.
+- Expectation-only reruns are the narrow exception: when a completed full run has exactly one failure, inspection proves the expectation is stale, and the only subsequent edit changes that expectation with no product, build, configuration, fixture-input, or semantic change, run only the owning focused test. Certify the result as the preceding full run plus the focused corrected test; do not repeat the expensive full suite.
+- If the expectation change reflects or approves different product behavior, language semantics, generated output, fixtures, or toolchain policy, it is not expectation-only and still requires the normal full final gate.
 - Never change code, tests, fixtures, or expectations merely to make tests pass.
 - If a test fails, fix the root cause in product/compiler/runtime behavior rather than weakening coverage or encoding the current bug into the expected output.
 
