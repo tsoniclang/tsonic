@@ -1,34 +1,31 @@
 import type {
-  AstReader,
   CheckedSourceProgram,
   Node,
   SourceFile,
   Symbol,
-  Type,
-  TypeCheckerQueries,
-  TypeShapeQueries,
 } from "@tsonic/tsts";
+import {
+  createSourceDeclarationReferenceIndex,
+} from "./reference-index.js";
+import {
+  projectDeclarationForType,
+} from "./reference-selection.js";
+import {
+  semanticTypeForNode,
+} from "./syntax.js";
 import type {
   SourceDeclarationReference,
   SourceProjectReference,
+  SourceReferenceIndexStatistics,
 } from "./types.js";
-import {
-  aliasedSymbol,
-  primaryDeclaration,
-  referenceQueryNode,
-  resolvedSymbolAtReferenceNode,
-  semanticTypeForNode,
-  symbolAtReferenceNode,
-} from "./syntax.js";
-import {
-  sourceFileIdentity,
-  sourceNodeIdentity,
-} from "./identity.js";
 
 export interface SourceReferenceNavigation {
+  readonly referenceIndexStatistics: SourceReferenceIndexStatistics;
   sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;
+  referencesToDeclaration(declaration: Node | undefined): readonly Node[];
+  referencesForSymbol(symbol: Symbol): readonly Node[];
   isProjectDeclaration(node: Node | undefined): boolean;
 }
 
@@ -36,411 +33,129 @@ export function createSourceReferenceNavigation(
   source: CheckedSourceProgram,
   sourceFiles: readonly SourceFile[],
 ): SourceReferenceNavigation {
-  const ast = source.ast;
-  const sourceFileSet = new Set(
-    sourceFiles.map((sourceFile) => sourceFileIdentity(ast, sourceFile)!),
-  );
-  const referenceCache = new Map<string, SourceProjectReference | null>();
-  const sourceReferenceCache = new Map<
-    string,
-    SourceDeclarationReference | null
+  const { ast } = source;
+  const sourceFileSet = new Set(sourceFiles);
+  const projectDeclarationsByNode = new WeakMap<Node, Node>();
+  const projectReferencesByDeclaration = new WeakMap<
+    Node,
+    WeakMap<Symbol, SourceProjectReference>
   >();
-  const declarationCache = new Map<string, Node | null>();
 
   const isProjectSourceFile = (
     sourceFile: SourceFile | undefined,
   ): sourceFile is SourceFile =>
     sourceFile !== undefined &&
     !sourceFile.IsDeclarationFile &&
-    sourceFileSet.has(sourceFileIdentity(ast, sourceFile) ?? "");
+    sourceFileSet.has(sourceFile);
 
-  const isProjectDeclaration = (declaration: Node | undefined): boolean => {
-    const declarationFile = declaration === undefined
-      ? undefined
-      : ast.getSourceFile(declaration);
-    return isProjectSourceFile(declarationFile);
-  };
+  const isProjectDeclaration = (declaration: Node | undefined): boolean =>
+    declaration !== undefined &&
+    isProjectSourceFile(ast.getSourceFile(declaration));
+
+  const referenceIndex = createSourceDeclarationReferenceIndex(
+    source,
+    sourceFiles,
+    isProjectDeclaration,
+  );
 
   const declarationFor = (node: Node | undefined): Node | undefined => {
-    if (node === undefined) {
+    if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
       return undefined;
     }
-    const nodeKey = sourceNodeIdentity(ast, node);
-    const cached = nodeKey === undefined
-      ? undefined
-      : declarationCache.get(nodeKey);
+    const selected = referenceIndex.sourceReferenceFor(node);
+    if (selected !== undefined) {
+      return selected.project ? selected.declaration : undefined;
+    }
+    const cached = projectDeclarationsByNode.get(node);
     if (cached !== undefined) {
-      return cached ?? undefined;
+      return cached;
     }
     const sourceFile = ast.getSourceFile(node);
-    if (!isProjectSourceFile(sourceFile)) {
-      if (nodeKey !== undefined) {
-        declarationCache.set(nodeKey, null);
-      }
+    if (sourceFile === undefined) {
       return undefined;
     }
-    const selected = sourceReferenceFor(node);
-    if (selected !== undefined) {
-      const declaration = selected.project ? selected.declaration : undefined;
-      if (nodeKey !== undefined) {
-        declarationCache.set(nodeKey, declaration ?? null);
-      }
-      return declaration;
-    }
     const queries = source.getSourceFileQueries(sourceFile);
-    const type = semanticTypeForNode(ast, queries.checker, node);
     const declaration = projectDeclarationForType(
-      ast,
       queries.checker,
       queries.typeShape,
-      type,
+      semanticTypeForNode(ast, queries.checker, node),
       isProjectDeclaration,
     );
-    if (nodeKey !== undefined) {
-      declarationCache.set(nodeKey, declaration ?? null);
+    if (declaration !== undefined) {
+      projectDeclarationsByNode.set(node, declaration);
     }
     return declaration;
   };
 
-  const referenceFor = (node: Node | undefined): SourceProjectReference | undefined => {
-    if (node === undefined) {
+  const referenceFor = (
+    node: Node | undefined,
+  ): SourceProjectReference | undefined => {
+    if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
       return undefined;
     }
-    const nodeKey = sourceNodeIdentity(ast, node);
-    const cached = nodeKey === undefined
-      ? undefined
-      : referenceCache.get(nodeKey);
-    if (cached !== undefined) {
-      return cached ?? undefined;
-    }
-    const sourceFile = ast.getSourceFile(node);
-    if (!isProjectSourceFile(sourceFile)) {
-      if (nodeKey !== undefined) {
-        referenceCache.set(nodeKey, null);
-      }
-      return undefined;
-    }
-    const selected = sourceReferenceFor(node);
-    if (selected?.project === true) {
-      const reference = {
-        symbol: selected.symbol,
-        declaration: selected.declaration,
-        sourceFile: selected.sourceFile,
-      };
-      if (nodeKey !== undefined) {
-        referenceCache.set(nodeKey, reference);
-      }
-      return reference;
+    const selected = referenceIndex.sourceReferenceFor(node);
+    if (selected !== undefined) {
+      return selected.project && selected.symbol !== undefined
+        ? projectReferenceForDeclaration(
+            selected.symbol,
+            selected.declaration,
+            selected.sourceFile,
+            projectReferencesByDeclaration,
+          )
+        : undefined;
     }
     const declaration = declarationFor(node);
+    if (declaration === undefined) {
+      return undefined;
+    }
     const declarationFile = ast.getSourceFile(declaration);
-    const symbol = declaration === undefined
-      ? undefined
-      : source.getSourceFileQueries(declarationFile ?? sourceFile).checker
-        .getSymbolAtLocation(declaration);
-    const reference = declaration !== undefined &&
-      declarationFile !== undefined &&
-      symbol !== undefined
-      ? { symbol, declaration, sourceFile: declarationFile }
-      : undefined;
-    if (nodeKey !== undefined) {
-      referenceCache.set(nodeKey, reference ?? null);
-    }
-    return reference;
-  };
-
-  const sourceReferenceFor = (
-    node: Node | undefined,
-  ): SourceDeclarationReference | undefined => {
-    if (node === undefined) {
+    if (!isProjectSourceFile(declarationFile)) {
       return undefined;
     }
-    const nodeKey = sourceNodeIdentity(ast, node);
-    const cached = nodeKey === undefined
+    const symbol = source.getSourceFileQueries(declarationFile).checker
+      .getSymbolAtLocation(declaration);
+    return symbol === undefined
       ? undefined
-      : sourceReferenceCache.get(nodeKey);
-    if (cached !== undefined) {
-      return cached ?? undefined;
-    }
-    const sourceFile = ast.getSourceFile(node);
-    if (!isProjectSourceFile(sourceFile)) {
-      if (nodeKey !== undefined) {
-        sourceReferenceCache.set(nodeKey, null);
-      }
-      return undefined;
-    }
-    const queries = source.getSourceFileQueries(sourceFile);
-    const selectedAccess = selectedAccessDeclarationReference(
-      ast,
-      queries.checker,
-      node,
-      isProjectDeclaration,
-    );
-    const queryNode = referenceQueryNode(ast, node);
-    if (queryNode !== undefined &&
-      (ast.is.IsPropertyAccessExpression(queryNode) ||
-        ast.is.IsElementAccessExpression(queryNode))) {
-      if (nodeKey !== undefined) {
-        sourceReferenceCache.set(nodeKey, selectedAccess ?? null);
-      }
-      return selectedAccess;
-    }
-    const directSymbol = symbolAtReferenceNode(
-      ast,
-      queries.checker,
-      node,
-    );
-    const imported = importedDeclarationReference(
-      ast,
-      queries.checker,
-      directSymbol,
-      isProjectDeclaration,
-    );
-    if (imported !== undefined) {
-      if (nodeKey !== undefined) {
-        sourceReferenceCache.set(nodeKey, imported);
-      }
-      return imported;
-    }
-    const resolvedSymbol = resolvedSymbolAtReferenceNode(
-      ast,
-      queries.checker,
-      node,
-    );
-    const parent = ast.parent(node);
-    const selectedSymbols = parent !== undefined &&
-        ast.is.IsShorthandPropertyAssignment(parent)
-      ? [resolvedSymbol, directSymbol]
-      : [directSymbol, resolvedSymbol];
-    const symbols = selectedSymbols.flatMap((symbol) =>
-      symbol === undefined
-        ? []
-        : [
-            aliasedSymbol(ast, queries.checker, symbol),
-            symbol,
-          ]);
-    for (const symbol of symbols) {
-      const reference = declarationReferenceForSymbol(
-        ast,
-        queries.checker,
-        symbol,
-        isProjectDeclaration,
-      );
-      if (reference !== undefined) {
-        if (nodeKey !== undefined) {
-          sourceReferenceCache.set(nodeKey, reference);
-        }
-        return reference;
-      }
-    }
-    if (nodeKey !== undefined) {
-      sourceReferenceCache.set(nodeKey, null);
-    }
-    return undefined;
+      : projectReferenceForDeclaration(
+          symbol,
+          declaration,
+          declarationFile,
+          projectReferencesByDeclaration,
+        );
   };
 
   return Object.freeze({
-    sourceReferenceFor,
+    referenceIndexStatistics: referenceIndex.statistics,
+    sourceReferenceFor: referenceIndex.sourceReferenceFor,
     referenceFor,
     declarationFor,
+    referencesToDeclaration: referenceIndex.referencesToDeclaration,
+    referencesForSymbol: referenceIndex.referencesForSymbol,
     isProjectDeclaration,
   });
 }
 
-function selectedAccessDeclarationReference(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  node: Node,
-  isProjectDeclaration: (declaration: Node | undefined) => boolean,
-): SourceDeclarationReference | undefined {
-  const access = referenceQueryNode(ast, node);
-  const selected = access !== undefined && ast.is.IsPropertyAccessExpression(access)
-    ? checker.getResolvedPropertyAccessInfo(access)
-    : access !== undefined && ast.is.IsElementAccessExpression(access)
-      ? checker.getResolvedElementAccessInfo(access)
-      : undefined;
-  const symbol = selected?.selectedSymbol;
-  const declaration = selected?.selectedDeclaration;
-  const sourceFile = ast.getSourceFile(declaration);
-  return symbol !== undefined && declaration !== undefined && sourceFile !== undefined
-    ? {
-        symbol,
-        declaration,
-        sourceFile,
-        project: isProjectDeclaration(declaration),
-      }
-    : undefined;
-}
-
-export function projectDeclarationForType(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  types: TypeShapeQueries,
-  type: Type | undefined,
-  isProjectDeclaration: (declaration: Node | undefined) => boolean,
-): Node | undefined {
-  const direct = primaryDeclaration(checker, checker.getTypeSymbol(type));
-  if (isProjectDeclaration(direct)) {
-    return direct;
+function projectReferenceForDeclaration(
+  symbol: Symbol,
+  declaration: Node,
+  sourceFile: SourceFile,
+  cache: WeakMap<Node, WeakMap<Symbol, SourceProjectReference>>,
+): SourceProjectReference {
+  let referencesBySymbol = cache.get(declaration);
+  if (referencesBySymbol === undefined) {
+    referencesBySymbol = new WeakMap();
+    cache.set(declaration, referencesBySymbol);
   }
-  if (type === undefined || !types.isUnion(type)) {
-    return undefined;
-  }
-  const nonNullish = types.getUnionOrIntersectionTypes(type)
-    .filter((candidate) => !types.isNullish(candidate));
-  return nonNullish.length === 1
-    ? projectDeclarationForType(
-        ast,
-        checker,
-        types,
-        nonNullish[0],
-        isProjectDeclaration,
-      )
-    : undefined;
-}
-
-function declarationReferenceForSymbol(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  symbol: Symbol | undefined,
-  isProjectDeclaration: (declaration: Node | undefined) => boolean,
-): SourceDeclarationReference | undefined {
-  const declaration = primaryDeclaration(checker, symbol);
-  const sourceFile = ast.getSourceFile(declaration);
-  return symbol !== undefined &&
-    declaration !== undefined &&
-    sourceFile !== undefined
-    ? {
-        symbol,
-        declaration,
-        sourceFile,
-        project: isProjectDeclaration(declaration),
-      }
-    : undefined;
-}
-
-function importedDeclarationReference(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  symbol: Symbol | undefined,
-  isProjectDeclaration: (declaration: Node | undefined) => boolean,
-): SourceDeclarationReference | undefined {
-  if (symbol === undefined) {
-    return undefined;
-  }
-  for (const declaration of checker.getSymbolDeclarations(symbol)) {
-    const imported = importedModuleExport(
-      ast,
-      checker,
-      declaration,
-    );
-    if (imported === undefined) {
-      continue;
-    }
-    const alias = aliasedSymbol(
-      ast,
-      checker,
-      imported.symbol,
-    );
-    const candidates = ast.is.IsExportAssignment(
-      primaryDeclaration(checker, imported.symbol),
-    )
-      ? [imported.symbol, alias]
-      : [alias, imported.symbol];
-    for (const candidate of candidates) {
-      const reference = declarationReferenceForSymbol(
-        ast,
-        checker,
-        candidate,
-        isProjectDeclaration,
+  const existing = referencesBySymbol.get(symbol);
+  if (existing !== undefined) {
+    if (existing.sourceFile !== sourceFile) {
+      throw new Error(
+        "One project declaration-symbol pair produced conflicting source-file evidence.",
       );
-      if (reference !== undefined) {
-        return reference;
-      }
     }
+    return existing;
   }
-  return undefined;
-}
-
-function importedModuleExport(
-  ast: AstReader,
-  checker: TypeCheckerQueries,
-  declaration: Node | undefined,
-): { readonly symbol: Symbol; readonly sourceFile: SourceFile } | undefined {
-  const binding = normalizeImportBinding(ast, declaration);
-  if (binding === undefined) {
-    return undefined;
-  }
-  const exportName = importedExportName(ast, binding);
-  const importDeclaration = findImportDeclaration(ast, binding);
-  if (
-    exportName === undefined ||
-    importDeclaration === undefined ||
-    !ast.is.IsImportDeclaration(importDeclaration)
-  ) {
-    return undefined;
-  }
-  const moduleSpecifier = ast.as.AsImportDeclaration(importDeclaration)
-    ?.ModuleSpecifier;
-  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier);
-  const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(
-    moduleSymbol,
-    false,
-  );
-  const exported = checker.getExportsOfModule(
-    resolvedModuleSymbol ?? moduleSymbol,
-  ).find((candidate) =>
-    candidate !== undefined && checker.getSymbolName(candidate) === exportName);
-  const exportedSourceFile = ast.getSourceFile(
-    primaryDeclaration(checker, exported),
-  );
-  return exported !== undefined && exportedSourceFile !== undefined
-    ? { symbol: exported, sourceFile: exportedSourceFile }
-    : undefined;
-}
-
-function normalizeImportBinding(
-  ast: AstReader,
-  declaration: Node | undefined,
-): Node | undefined {
-  if (
-    ast.is.IsImportClause(declaration) ||
-    ast.is.IsImportSpecifier(declaration)
-  ) {
-    return declaration;
-  }
-  const parent = ast.parent(declaration);
-  return ast.is.IsImportClause(parent) || ast.is.IsImportSpecifier(parent)
-    ? parent
-    : undefined;
-}
-
-function importedExportName(
-  ast: AstReader,
-  binding: Node,
-): string | undefined {
-  if (ast.is.IsImportClause(binding)) {
-    return ast.as.AsImportClause(binding)?.name === undefined
-      ? undefined
-      : "default";
-  }
-  if (ast.is.IsImportSpecifier(binding)) {
-    const specifier = ast.as.AsImportSpecifier(binding);
-    return ast.text(specifier?.PropertyName ?? ast.name(binding));
-  }
-  return undefined;
-}
-
-function findImportDeclaration(
-  ast: AstReader,
-  node: Node,
-): Node | undefined {
-  let current = ast.parent(node);
-  while (current !== undefined) {
-    if (ast.is.IsImportDeclaration(current)) {
-      return current;
-    }
-    current = ast.parent(current);
-  }
-  return undefined;
+  const reference = Object.freeze({ symbol, declaration, sourceFile });
+  referencesBySymbol.set(symbol, reference);
+  return reference;
 }

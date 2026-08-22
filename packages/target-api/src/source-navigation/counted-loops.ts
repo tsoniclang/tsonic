@@ -4,7 +4,6 @@ import type {
   SourceCountedLoop,
   SourceDeclarationReference,
 } from "./types.js";
-import { sourceNodesEqual } from "./identity.js";
 
 export function sourceCountedLoop(
   ast: AstReader,
@@ -42,7 +41,8 @@ export function sourceCountedLoop(
   const selectedCounter = sourceReferenceFor(counterReference);
   if (counterReference === undefined || bound === undefined ||
     selectedCounter === undefined ||
-    !sourceNodesEqual(ast, selectedCounter.declaration, counterDeclaration) ||
+    selectedCounter.symbol === undefined ||
+    selectedCounter.declaration !== counterDeclaration ||
     sourceContainsDeclarationReference(
       ast,
       bound,
@@ -58,11 +58,7 @@ export function sourceCountedLoop(
       : undefined;
   if (incrementOperand === undefined ||
     ast.operatorKindName(incrementor) !== "KindPlusPlusToken" ||
-    !sourceNodesEqual(
-      ast,
-      sourceReferenceFor(incrementOperand)?.declaration,
-      counterDeclaration,
-    ) ||
+    sourceReferenceFor(incrementOperand)?.declaration !== counterDeclaration ||
     bindingWritesWithin(selectedCounter.symbol, body).length !== 0) {
     return undefined;
   }
@@ -91,7 +87,7 @@ function sourceContainsDeclarationReference(
       return;
     }
     const selected = sourceReferenceFor(node);
-    if (sourceNodesEqual(ast, selected?.declaration, declaration)) {
+    if (selected?.declaration === declaration) {
       found = true;
       return;
     }

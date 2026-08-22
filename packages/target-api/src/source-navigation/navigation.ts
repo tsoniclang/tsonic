@@ -33,11 +33,10 @@ import {
 } from "./modules.js";
 import {
   createSourceReferenceNavigation,
-  projectDeclarationForType,
 } from "./references.js";
+import { projectDeclarationForType } from "./reference-selection.js";
 import { semanticTypeForNode } from "./syntax.js";
 import {
-  createSourceDeclarationReferenceIndex,
   sourceBindingWritesWithin,
   sourceSymbolHasReferenceOutside,
   sourceSymbolReferencesWithin,
@@ -68,11 +67,6 @@ export function createSourceProgramNavigation(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
   const references = createSourceReferenceNavigation(source, sourceFiles);
-  const referenceIndex = createSourceDeclarationReferenceIndex(
-    source,
-    sourceFiles,
-    references.sourceReferenceFor,
-  );
   const dispatch = createSourceMemberDispatchNavigation(
     source,
     sourceFiles,
@@ -140,7 +134,7 @@ export function createSourceProgramNavigation(
     const uses = sourceDeclarationUses(
       source.ast,
       declaration,
-      referenceIndex.referencesToDeclaration(declaration),
+      references.referencesToDeclaration(declaration),
     );
     declarationUsesCache.set(declaration, uses);
     return uses;
@@ -257,7 +251,6 @@ export function createSourceProgramNavigation(
     }
     const queries = source.getSourceFileQueries(sourceFile);
     return projectDeclarationForType(
-      source.ast,
       queries.checker,
       queries.typeShape,
       semanticTypeForNode(source.ast, queries.checker, node),
@@ -267,6 +260,7 @@ export function createSourceProgramNavigation(
 
   return Object.freeze({
     sourceFiles,
+    referenceIndexStatistics: references.referenceIndexStatistics,
     sourceReferenceFor: references.sourceReferenceFor,
     referenceFor: references.referenceFor,
     declarationFor: references.declarationFor,
@@ -283,21 +277,21 @@ export function createSourceProgramNavigation(
     declaredHeritagePath: heritage.declaredHeritagePath,
     bindingWritesWithin(symbol: Symbol, root: Node) {
       return sourceBindingWritesWithin(
-        source,
+        source.ast,
         symbol,
         root,
-        references.sourceReferenceFor,
+        references.referencesForSymbol,
       );
     },
     referencesWithin(symbol: Symbol, root: Node) {
       return sourceSymbolReferencesWithin(
-        source,
+        source.ast,
         symbol,
         root,
-        references.sourceReferenceFor,
+        references.referencesForSymbol,
       );
     },
-    referencesToDeclaration: referenceIndex.referencesToDeclaration,
+    referencesToDeclaration: references.referencesToDeclaration,
     declarationUses,
     declarationUseSummary,
     parameterUseSummary(parameter: Node) {
@@ -313,10 +307,10 @@ export function createSourceProgramNavigation(
         statement,
         references.sourceReferenceFor,
         (symbol, root) => sourceBindingWritesWithin(
-          source,
+          source.ast,
           symbol,
           root,
-          references.sourceReferenceFor,
+          references.referencesForSymbol,
         ),
       );
     },
@@ -353,11 +347,10 @@ export function createSourceProgramNavigation(
     },
     hasReferenceOutside(symbol: Symbol, excludedNode: Node) {
       return sourceSymbolHasReferenceOutside(
-        source,
-        sourceFiles,
+        source.ast,
         symbol,
         excludedNode,
-        references.sourceReferenceFor,
+        references.referencesForSymbol,
       );
     },
     isProjectShape,
@@ -422,6 +415,7 @@ export type {
   SourceProjectModuleDependency,
   SourceProjectModuleExport,
   SourceProjectReference,
+  SourceReferenceIndexStatistics,
   SourceValueEscapeKind,
 } from "./types.js";
 export {

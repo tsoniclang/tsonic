@@ -9,7 +9,6 @@ import type {
 } from "../source-semantics/types.js";
 import {
   sourceBindingWriteAtReference,
-  sourceNodesEqual,
 } from "../source-navigation/index.js";
 import type {
   SourceBindingWrite,
@@ -50,7 +49,6 @@ export interface TargetPlanningSourceNavigation {
 export function snapshotTargetPlanningSourceNavigation(
   source: TargetSourceProgram,
 ): TargetPlanningSourceNavigation {
-  const sourceReferences = new WeakMap<Node, SourceDeclarationReference>();
   const projectReferences = new WeakMap<Node, SourceProjectReference>();
   const declarations = new WeakMap<Node, Node>();
   const memberDispatch = new WeakMap<Node, SourceProjectMemberDispatch>();
@@ -80,10 +78,9 @@ export function snapshotTargetPlanningSourceNavigation(
     if (isReferenceQueryCandidate(source.ast, node)) {
       const sourceReference = source.navigation.sourceReferenceFor(node);
       if (sourceReference !== undefined) {
-        sourceReferences.set(node, sourceReference);
         rememberDeclaration(sourceReference.declaration);
         const write = sourceBindingWriteAtReference(source.ast, node);
-        if (write !== undefined) {
+        if (write !== undefined && sourceReference.symbol !== undefined) {
           const writes = writesBySymbol.get(sourceReference.symbol) ?? [];
           writes.push(write);
           writesBySymbol.set(sourceReference.symbol, writes);
@@ -151,7 +148,7 @@ export function snapshotTargetPlanningSourceNavigation(
   const noExports: readonly SourceProjectModuleExport[] = Object.freeze([]);
   const snapshot: TargetPlanningSourceNavigation = {
     sourceFiles: Object.freeze([...source.navigation.sourceFiles]),
-    sourceReferenceFor: (node) => node === undefined ? undefined : sourceReferences.get(node),
+    sourceReferenceFor: source.navigation.sourceReferenceFor,
     referenceFor: (node) => node === undefined ? undefined : projectReferences.get(node),
     declarationFor: (node) => node === undefined ? undefined : declarations.get(node),
     moduleDependencies: (sourceFile) => moduleDependencies.get(sourceFile) ?? noDependencies,
@@ -217,7 +214,7 @@ function isReferenceQueryCandidate(ast: AstReader, node: Node): boolean {
 function sourceNodeIsWithin(ast: AstReader, node: Node, root: Node): boolean {
   let current: Node | undefined = node;
   while (current !== undefined) {
-    if (sourceNodesEqual(ast, current, root)) return true;
+    if (current === root) return true;
     current = ast.parent(current);
   }
   return false;

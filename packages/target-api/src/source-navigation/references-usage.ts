@@ -1,25 +1,11 @@
 import type {
   AstReader,
-  CheckedSourceProgram,
   Node,
-  SourceFile,
   Symbol,
 } from "@tsonic/tsts";
 import type {
-  SourceDeclarationReference,
   SourceBindingWrite,
 } from "./types.js";
-import {
-  aliasedSymbol,
-  referenceQueryNode,
-} from "./syntax.js";
-import {
-  sourceNodesEqual,
-  sourceNodeIdentity,
-  sourceSymbolsEqual,
-} from "./identity.js";
-
-const noSourceReferences: readonly Node[] = Object.freeze([]);
 
 const assignmentOperatorKinds = new Set([
   "KindEqualsToken",
@@ -46,174 +32,38 @@ const updateOperatorKinds = new Set([
 ]);
 
 export function sourceBindingWritesWithin(
-  source: CheckedSourceProgram,
+  ast: AstReader,
   symbol: Symbol,
   root: Node,
-  sourceReferenceFor: (
-    node: Node | undefined,
-  ) => SourceDeclarationReference | undefined,
+  referencesForSymbol: (symbol: Symbol) => readonly Node[],
 ): readonly SourceBindingWrite[] {
-  const writes = sourceSymbolReferencesWithin(
-    source,
-    symbol,
-    root,
-    sourceReferenceFor,
-  )
-    .map((reference) => sourceBindingWriteAtReference(source.ast, reference))
-    .filter((write): write is SourceBindingWrite => write !== undefined);
-  return Object.freeze(writes);
+  return Object.freeze(
+    sourceSymbolReferencesWithin(ast, symbol, root, referencesForSymbol)
+      .map((reference) => sourceBindingWriteAtReference(ast, reference))
+      .filter((write): write is SourceBindingWrite => write !== undefined),
+  );
 }
 
 export function sourceSymbolReferencesWithin(
-  source: CheckedSourceProgram,
+  ast: AstReader,
   symbol: Symbol,
   root: Node,
-  sourceReferenceFor: (
-    node: Node | undefined,
-  ) => SourceDeclarationReference | undefined,
+  referencesForSymbol: (symbol: Symbol) => readonly Node[],
 ): readonly Node[] {
-  const sourceFile = source.ast.getSourceFile(root);
-  if (sourceFile === undefined) {
-    return Object.freeze([]);
-  }
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const references: Node[] = [];
-  const visit = (node: Node | undefined): void => {
-    if (node === undefined) {
-      return;
-    }
-    const queryNode = referenceQueryNode(source.ast, node);
-    const selected = queryNode !== undefined &&
-        sourceNodesEqual(source.ast, queryNode, node)
-      ? sourceReferenceFor(node)
-      : undefined;
-    if (
-      selected !== undefined &&
-      sourceSymbolsEqual(source.ast, checker, selected.symbol, symbol) &&
-      !sourceNodesEqual(source.ast, source.ast.name(selected.declaration), node)
-    ) {
-      references.push(node);
-    }
-    source.ast.forEachChild(node, visit);
-  };
-  visit(root);
-  return Object.freeze(references);
-}
-
-export function createSourceDeclarationReferenceIndex(
-  source: CheckedSourceProgram,
-  sourceFiles: readonly SourceFile[],
-  sourceReferenceFor: (
-    node: Node | undefined,
-  ) => SourceDeclarationReference | undefined,
-): {
-  referencesToDeclaration(declaration: Node): readonly Node[];
-} {
-  let referencesByDeclaration: ReadonlyMap<string, readonly Node[]> | undefined;
-
-  const build = (): ReadonlyMap<string, readonly Node[]> => {
-    const pending = new Map<string, Map<string, Node>>();
-    const record = (declaration: Node | undefined, reference: Node): void => {
-      const declarationIdentity = sourceNodeIdentity(source.ast, declaration);
-      const referenceIdentity = sourceNodeIdentity(source.ast, reference);
-      if (declarationIdentity === undefined || referenceIdentity === undefined ||
-        sourceNodesEqual(source.ast, source.ast.name(declaration), reference)) {
-        return;
-      }
-      const references = pending.get(declarationIdentity) ?? new Map<string, Node>();
-      references.set(referenceIdentity, reference);
-      pending.set(declarationIdentity, references);
-    };
-    const visit = (node: Node | undefined): void => {
-      if (node === undefined) {
-        return;
-      }
-      const queryNode = referenceQueryNode(source.ast, node);
-      if (queryNode !== undefined && sourceNodesEqual(source.ast, queryNode, node)) {
-        const selected = sourceReferenceFor(node);
-        record(selected?.declaration, node);
-        if (source.ast.is.IsPropertyAccessExpression(node) ||
-          source.ast.is.IsElementAccessExpression(node)) {
-          const sourceFile = source.ast.getSourceFile(node);
-          const checker = sourceFile === undefined
-            ? undefined
-            : source.getSourceFileQueries(sourceFile).checker;
-          const access = checker === undefined
-            ? undefined
-            : source.ast.is.IsPropertyAccessExpression(node)
-              ? checker.getResolvedPropertyAccessInfo(node)
-              : checker.getResolvedElementAccessInfo(node);
-          record(access?.selectedDeclaration, node);
-        }
-      }
-      source.ast.forEachChild(node, visit);
-    };
-    for (const sourceFile of sourceFiles) {
-      visit(sourceFile);
-    }
-    return new Map(
-      [...pending.entries()].map(([identity, references]) => [
-        identity,
-        Object.freeze([...references.values()]),
-      ]),
-    );
-  };
-
-  return Object.freeze({
-    referencesToDeclaration(declaration: Node): readonly Node[] {
-      referencesByDeclaration ??= build();
-      const identity = sourceNodeIdentity(source.ast, declaration);
-      return identity === undefined
-        ? noSourceReferences
-        : referencesByDeclaration.get(identity) ?? noSourceReferences;
-    },
-  });
+  return Object.freeze(
+    referencesForSymbol(symbol).filter((reference) =>
+      sourceNodeIsWithin(ast, reference, root)),
+  );
 }
 
 export function sourceSymbolHasReferenceOutside(
-  source: CheckedSourceProgram,
-  sourceFiles: readonly SourceFile[],
+  ast: AstReader,
   symbol: Symbol,
   excludedNode: Node,
-  sourceReferenceFor: (
-    node: Node | undefined,
-  ) => SourceDeclarationReference | undefined,
+  referencesForSymbol: (symbol: Symbol) => readonly Node[],
 ): boolean {
-  let found = false;
-  const excludedIdentity = sourceNodeIdentity(source.ast, excludedNode);
-  const visit = (node: Node | undefined): void => {
-    if (node === undefined || found) {
-      return;
-    }
-    if (sourceNodeIdentity(source.ast, node) === excludedIdentity) {
-      return;
-    }
-    const sourceFile = source.ast.getSourceFile(node);
-    if (sourceFile !== undefined) {
-      const checker = source.getSourceFileQueries(sourceFile).checker;
-      const direct = sourceReferenceFor(node)?.symbol;
-      if (
-        sourceSymbolsEqual(source.ast, checker, direct, symbol) ||
-        sourceSymbolsEqual(
-          source.ast,
-          checker,
-          aliasedSymbol(source.ast, checker, direct),
-          symbol,
-        )
-      ) {
-        found = true;
-        return;
-      }
-    }
-    source.ast.forEachChild(node, visit);
-  };
-  for (const sourceFile of sourceFiles) {
-    visit(sourceFile);
-    if (found) {
-      return true;
-    }
-  }
-  return false;
+  return referencesForSymbol(symbol).some((reference) =>
+    !sourceNodeIsWithin(ast, reference, excludedNode));
 }
 
 export function sourceBindingWriteAtReference(
@@ -229,7 +79,7 @@ export function sourceBindingWriteAtReference(
     if (ast.is.IsBinaryExpression(parent)) {
       const binary = ast.as.AsBinaryExpression(parent);
       if (
-        sourceNodesEqual(ast, binary?.Left, current) &&
+        binary?.Left === current &&
         assignmentOperatorKinds.has(ast.operatorKindName(parent) ?? "")
       ) {
         return bindingWrite(reference, parent, "assignment");
@@ -238,21 +88,21 @@ export function sourceBindingWriteAtReference(
     }
     if (ast.is.IsPrefixUnaryExpression(parent)) {
       const unary = ast.as.AsPrefixUnaryExpression(parent);
-      return sourceNodesEqual(ast, unary?.Operand, current) &&
+      return unary?.Operand === current &&
         updateOperatorKinds.has(ast.operatorKindName(parent) ?? "")
         ? bindingWrite(reference, parent, "update")
         : undefined;
     }
     if (ast.is.IsPostfixUnaryExpression(parent)) {
       const unary = ast.as.AsPostfixUnaryExpression(parent);
-      return sourceNodesEqual(ast, unary?.Operand, current) &&
+      return unary?.Operand === current &&
         updateOperatorKinds.has(ast.operatorKindName(parent) ?? "")
         ? bindingWrite(reference, parent, "update")
         : undefined;
     }
     if (ast.is.IsForInStatement(parent) || ast.is.IsForOfStatement(parent)) {
       const statement = ast.as.AsForInOrOfStatement(parent);
-      return sourceNodesEqual(ast, statement?.Initializer, current)
+      return statement?.Initializer === current
         ? bindingWrite(reference, parent, "iteration")
         : undefined;
     }
@@ -261,6 +111,21 @@ export function sourceBindingWriteAtReference(
     }
     current = parent;
   }
+}
+
+function sourceNodeIsWithin(
+  ast: AstReader,
+  node: Node,
+  root: Node,
+): boolean {
+  let current: Node | undefined = node;
+  while (current !== undefined) {
+    if (current === root) {
+      return true;
+    }
+    current = ast.parent(current);
+  }
+  return false;
 }
 
 function bindingWrite(
@@ -277,37 +142,37 @@ function isTransparentAssignmentTargetContainer(
   child: Node,
 ): boolean {
   if (ast.is.IsParenthesizedExpression(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsParenthesizedExpression(parent)?.Expression, child);
+    return ast.as.AsParenthesizedExpression(parent)?.Expression === child;
   }
   if (ast.is.IsAsExpression(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsAsExpression(parent)?.Expression, child);
+    return ast.as.AsAsExpression(parent)?.Expression === child;
   }
   if (ast.is.IsTypeAssertion(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsTypeAssertion(parent)?.Expression, child);
+    return ast.as.AsTypeAssertion(parent)?.Expression === child;
   }
   if (ast.is.IsNonNullExpression(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsNonNullExpression(parent)?.Expression, child);
+    return ast.as.AsNonNullExpression(parent)?.Expression === child;
   }
   if (ast.is.IsSatisfiesExpression(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsSatisfiesExpression(parent)?.Expression, child);
+    return ast.as.AsSatisfiesExpression(parent)?.Expression === child;
   }
   if (ast.is.IsSpreadElement(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsSpreadElement(parent)?.Expression, child);
+    return ast.as.AsSpreadElement(parent)?.Expression === child;
   }
   if (ast.is.IsSpreadAssignment(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsSpreadAssignment(parent)?.Expression, child);
+    return ast.as.AsSpreadAssignment(parent)?.Expression === child;
   }
   if (ast.is.IsPropertyAssignment(parent)) {
-    return sourceNodesEqual(ast, ast.as.AsPropertyAssignment(parent)?.Initializer, child);
+    return ast.as.AsPropertyAssignment(parent)?.Initializer === child;
   }
   if (ast.is.IsShorthandPropertyAssignment(parent)) {
-    return sourceNodesEqual(ast, ast.name(parent), child);
+    return ast.name(parent) === child;
   }
   if (ast.is.IsArrayLiteralExpression(parent)) {
-    return ast.elements(parent).some((element) => sourceNodesEqual(ast, element, child));
+    return ast.elements(parent).some((element) => element === child);
   }
   if (ast.is.IsObjectLiteralExpression(parent)) {
-    return ast.properties(parent).some((property) => sourceNodesEqual(ast, property, child));
+    return ast.properties(parent).some((property) => property === child);
   }
   return false;
 }

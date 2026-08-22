@@ -160,7 +160,7 @@ test("CLI rejects unsupported Node provider-package modules without fallback", a
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI rejects unsupported historical NodeJS alias imports without fallback", async () => {
+test("CLI rejects remaining unsupported historical NodeJS alias imports without fallback", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-nodejs-historical-alias-imports");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -214,7 +214,6 @@ test("CLI rejects unsupported historical NodeJS alias imports without fallback",
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   for (const moduleSpecifier of [
-    "node:child_process",
     "node:dgram",
     "node:dns",
     "node:events",
@@ -228,7 +227,7 @@ test("CLI rejects unsupported historical NodeJS alias imports without fallback",
     assert.match(build.stderr, new RegExp(moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
-  assert.match(build.stderr, /Cannot find name 'node:child_process'/);
+  assert.doesNotMatch(build.stderr, /Cannot find name 'node:child_process'/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
