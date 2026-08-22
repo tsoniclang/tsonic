@@ -439,7 +439,7 @@ test("CLI emits arbitrary TypeScript throw values through the closed thrown-valu
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(
     generatedSource,
-    /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\(Tsonic\.CSharp\.Js\.TsValue\.from\(\(int\)1\)\);/u,
+    /throw Tsonic\.CSharp\.Runtime\.TsThrownValueException\.from\(Tsonic\.CSharp\.Runtime\.TsValue\.from\(\(int\)1\)\);/u,
   );
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection/u);
   const project = resolve(projectDirectory, "out/csharp/SmokeGeneratedThrowFacts.csproj");
@@ -521,7 +521,7 @@ test("CLI emits provider-backed C# catch variables", async () => {
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(
     generatedSource,
-    /catch \(System\.Exception __tsonic_catch\d+\)[\s\S]*Tsonic\.CSharp\.Js\.TsValue error = Tsonic\.CSharp\.Js\.TsThrownValueException\.toValue\(__tsonic_catch\d+\);/u,
+    /catch \(System\.Exception __tsonic_catch\d+\)[\s\S]*Tsonic\.CSharp\.Runtime\.TsValue error = Tsonic\.CSharp\.Runtime\.TsThrownValueException\.toValue\(__tsonic_catch\d+\);/u,
   );
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -616,7 +616,7 @@ test("CLI runs provider-backed exception throw, catch, and finally semantics", a
   assert.match(generatedSource, /throw new System\.Exception\("boom"\);/);
   assert.match(
     generatedSource,
-    /catch \(System\.Exception __tsonic_catch\d+\)[\s\S]*Tsonic\.CSharp\.Js\.TsValue error = Tsonic\.CSharp\.Js\.TsThrownValueException\.toValue\(__tsonic_catch\d+\);/u,
+    /catch \(System\.Exception __tsonic_catch\d+\)[\s\S]*Tsonic\.CSharp\.Runtime\.TsValue error = Tsonic\.CSharp\.Runtime\.TsThrownValueException\.toValue\(__tsonic_catch\d+\);/u,
   );
   assert.match(generatedSource, /return "boom";/);
   assert.match(generatedSource, /finally/);

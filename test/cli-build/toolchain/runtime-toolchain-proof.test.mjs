@@ -66,7 +66,7 @@ test("CLI emits configured C# library projects with closed base runtime referenc
   const generatedProjectPath = resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`);
   const generatedProject = await readFile(generatedProjectPath, "utf8");
   assert.match(generatedProject, /<OutputType>Library<\/OutputType>/);
-  assertRuntimeReferences(generatedProject, { runtime: true, js: true, nodejs: false });
+  assertRuntimeReferences(generatedProject, { runtime: true, js: false, nodejs: false });
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/generated/TsonicEntrypoint.cs")), false);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -174,7 +174,6 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
       targets: [
         {
           id: "csharp",
-          surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
             assemblyName,
@@ -188,11 +187,6 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
       "export function tenantPath(tenantId: string): string {",
       "  return join(\"uploads\", tenantId, \"events.json\");",
       "}",
-      "",
-      "export function positive(value: number): number {",
-      "  return Math.abs(value);",
-      "}",
-      "",
     ].join("\n"),
   });
 
@@ -206,7 +200,6 @@ test("CLI emits NodeJS runtime references with transitive JS runtime only when N
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.join\("uploads", tenantId, "events\.json"\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Math\.abs\(value\);/);
   assert.doesNotMatch(generatedSource, /return join\(/);
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
 
@@ -290,7 +283,7 @@ test("CLI generated C# executable publishes and runs through NativeAOT", async (
   const generatedProject = await readFile(generatedProjectPath, "utf8");
   assert.match(generatedProject, /<OutputType>Exe<\/OutputType>/);
   assert.match(generatedProject, /<PublishAot>true<\/PublishAot>/);
-  assertRuntimeReferences(generatedProject, { runtime: true, js: true, nodejs: false });
+  assertRuntimeReferences(generatedProject, { runtime: true, js: false, nodejs: false });
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
 
   const publishDirectory = resolve(projectDirectory, "nativeaot-publish");

@@ -306,7 +306,7 @@ test("CLI emits C# pointer and function-pointer types from source marker facts",
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedPointers.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI emits any and unknown through the closed JS-value carrier", async () => {
+test("CLI emits any and unknown through the closed TypeScript-value carrier", async () => {
   const projectDirectory = resolve(tempRoot, "reject-any-unknown");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -335,11 +335,11 @@ test("CLI emits any and unknown through the closed JS-value carrier", async () =
   );
   assert.match(
     generatedSource,
-    /Tsonic\.CSharp\.Js\.TsValue leakUnknown\(Tsonic\.CSharp\.Js\.TsValue value\)/u,
+    /Tsonic\.CSharp\.Runtime\.TsValue leakUnknown\(Tsonic\.CSharp\.Runtime\.TsValue value\)/u,
   );
   assert.match(
     generatedSource,
-    /Tsonic\.CSharp\.Js\.TsValue leakAny\(Tsonic\.CSharp\.Js\.TsValue value\)/u,
+    /Tsonic\.CSharp\.Runtime\.TsValue leakAny\(Tsonic\.CSharp\.Runtime\.TsValue value\)/u,
   );
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|\bobject\b/u);
   const project = resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj");
