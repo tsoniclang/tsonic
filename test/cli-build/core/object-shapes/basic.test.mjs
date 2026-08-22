@@ -577,7 +577,7 @@ test("CLI emits nested Record object literals through explicit Dictionary carrie
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedRecordNestedObject.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI runs nested object literals through the canonical broad JS-value carrier", async () => {
+test("CLI runs nested object literals through the canonical broad TypeScript-value carrier", async () => {
   const projectDirectory = resolve(tempRoot, "unknown-object-shape");
   const assemblyName = "SmokeGeneratedUnknownObjectShape";
   await writeProject(projectDirectory, {
@@ -612,7 +612,7 @@ test("CLI runs nested object literals through the canonical broad JS-value carri
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Js\.TsValue\.from\(\(int\)1\), "child", Tsonic\.CSharp\.Js\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Js\.TsValue\.from\("ready"\)\)\)/u);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("value", Tsonic\.CSharp\.Runtime\.TsValue\.from\(\(int\)1\), "child", Tsonic\.CSharp\.Runtime\.TsValue\.CreateDynamicObject\("label", Tsonic\.CSharp\.Runtime\.TsValue\.from\("ready"\)\)\)/u);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetProperty|GetMethod|__TsonicShape_/u);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);

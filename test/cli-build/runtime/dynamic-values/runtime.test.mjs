@@ -1,4 +1,4 @@
-import { assert, assertInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -109,11 +109,12 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.TsValue readName\(Tsonic\.CSharp\.Js\.TsValue value\)/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.TsValue readName\(Tsonic\.CSharp\.Runtime\.TsValue value\)/);
   assert.match(generatedSource, /return value\.ReadDynamicSlot\("name"\);/);
   assert.match(generatedSource, /value\.WriteDynamicSlot\("name", "Ada"\);/);
   assert.match(generatedSource, /return value\.ReadDynamicElement\(key\);/);
@@ -121,16 +122,16 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.match(generatedSource, /return value\.InvokeDynamic\("Ada", 1\);/);
   assert.match(generatedSource, /return value\.InvokeDynamicSlot\("create", false, false, \(\) => new object\?\[\] \{ "Ada" \}\);/);
   assert.match(generatedSource, /return value\.ConstructDynamic\("Ada"\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicBinary\(value, "\+", 2\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicBinaryBoolean\(value, "===", 2\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicUnaryBoolean\(value, "!"\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicTypeof\(value\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(Tsonic\.CSharp\.Js\.TsValue\.ApplyDynamicVoid\(value\.ReadDynamicSlot\("name"\)\)\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.CastDynamic<double>\(value\);/);
-  assert.match(generatedSource, /double result = Tsonic\.CSharp\.Js\.TsValue\.CastDynamic<double>\(value\);/);
-  assert.match(generatedSource, /result = Tsonic\.CSharp\.Js\.TsValue\.CastDynamic<double>\(value\);/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.TsValue\.from\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicBinary\(value, "\+", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicBinaryBoolean\(value, "===", 2\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicUnaryBoolean\(value, "!"\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicTypeof\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.from\(Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicVoid\(value\.ReadDynamicSlot\("name"\)\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
+  assert.match(generatedSource, /double result = Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
+  assert.match(generatedSource, /result = Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.from\(value\);/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
@@ -351,11 +352,12 @@ test("CLI wraps non-exception thrown values with closed runtime carriers", async
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /throw Tsonic\.CSharp\.Js\.TsThrownValueException\.from\(Tsonic\.CSharp\.Js\.TsValue\.from\("boom"\)\);/);
+  assert.match(generatedSource, /throw Tsonic\.CSharp\.Runtime\.TsThrownValueException\.from\(Tsonic\.CSharp\.Runtime\.TsValue\.from\("boom"\)\);/);
   assert.match(generatedSource, /catch\s*\{/);
   assert.doesNotMatch(generatedSource, /TsThrownValueException\.toValue/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
