@@ -5,10 +5,6 @@ import type {
   Type,
   TypeCheckerQueries,
 } from "@tsonic/tsts";
-import {
-  sourceNodesEqual,
-} from "./identity.js";
-
 export function semanticTypeForNode(
   ast: AstReader,
   checker: TypeCheckerQueries,
@@ -92,7 +88,7 @@ export function referenceQueryNode(ast: AstReader, node: Node): Node | undefined
   if (
     parent !== undefined &&
     ast.is.IsPropertyAccessExpression(parent) &&
-    sourceNodesEqual(ast, ast.name(parent), node)
+    ast.name(parent) === node
   ) {
     return parent;
   }

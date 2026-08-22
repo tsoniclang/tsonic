@@ -65,10 +65,22 @@ export interface SourceBindingWrite {
 }
 
 export interface SourceDeclarationReference {
-  readonly symbol: Symbol;
+  readonly symbol?: Symbol;
   readonly declaration: Node;
   readonly sourceFile: SourceFile;
   readonly project: boolean;
+}
+
+export interface SourceReferenceIndexStatistics {
+  readonly constructionPasses: 1;
+  readonly sourceFiles: number;
+  readonly nodesVisited: number;
+  readonly referenceCandidates: number;
+  readonly selectedReferences: number;
+  readonly selectedDeclarations: number;
+  readonly reverseEdges: number;
+  readonly indexedSymbols: number;
+  readonly moduleExportsExamined: number;
 }
 
 export interface SourceExpressionEffects {
@@ -229,6 +241,7 @@ export type SourceHeritagePathResult =
 
 export interface SourceProgramNavigation {
   readonly sourceFiles: readonly SourceFile[];
+  readonly referenceIndexStatistics: SourceReferenceIndexStatistics;
   sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referenceFor(node: Node | undefined): SourceProjectReference | undefined;
   declarationFor(node: Node | undefined): Node | undefined;

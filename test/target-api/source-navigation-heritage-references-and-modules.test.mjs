@@ -492,6 +492,8 @@ test("source navigation never queries declaration-provider files as project sour
       kind: (node) => node?.Kind,
       pos: (node) => node?.Pos,
       end: (node) => node?.End,
+      children: () => [],
+      parent: () => undefined,
       statements: () => [],
       forEachChild: () => undefined,
       is: new Proxy({}, { get: () => () => false }),
