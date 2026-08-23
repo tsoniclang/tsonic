@@ -113,9 +113,16 @@ export function providerTypeMarkerDeclaration(
   exportName: string,
   marker: SourceTypeMarkerKind,
 ): ProviderExportDeclaration {
-  return marker === "fixed-array"
-    ? fixedArrayTypeMarkerDeclaration(exportName)
-    : pointerTypeMarkerDeclaration(exportName, marker);
+  switch (marker) {
+    case "fixed-array":
+      return fixedArrayTypeMarkerDeclaration(exportName);
+    case "pointer":
+    case "function-pointer":
+    case "raw-pointer":
+      return pointerTypeMarkerDeclaration(exportName, marker);
+    case "js-string":
+      return unsupportedProviderMarkerDeclaration(marker);
+  }
 }
 
 export function providerCallMarkerDeclaration(
@@ -153,7 +160,17 @@ export function providerCallMarkerDeclaration(
       return pointerCallMarkerDeclaration(exportName, marker, typeParameter);
     case "attribute":
       return attributeCallMarkerDeclaration(exportName, typeParameter);
+    case "js-string":
+      return unsupportedProviderMarkerDeclaration(marker);
   }
+}
+
+function unsupportedProviderMarkerDeclaration(
+  marker: SourceCallMarkerKind | SourceTypeMarkerKind,
+): never {
+  throw new Error(
+    `Source marker '${marker}' requires its owning source-profile package to provide an exact declaration model.`,
+  );
 }
 
 function sourceValueMarkerDeclaration(

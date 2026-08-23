@@ -21,5 +21,9 @@
   "engines": {
     "node": ">=22.18.0"
   },
+  "dependencies": {
+    "@tsonic/source-core": "0.0.1",
+    "@tsonic/tsts": "0.0.0"
+  },
   "license": "MIT"
 }

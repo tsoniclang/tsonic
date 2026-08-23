@@ -3,11 +3,14 @@ import test from "node:test";
 
 import {
   createCompilerSessionFromFiles,
+  createSourceSemanticsExtension,
   getBundledLibraryClosure,
 } from "@tsonic/tsts";
 import {
+  createJsSourceSemanticsExtension,
   jsRegExpSourceProfileDeclarations,
   jsRegExpSourceProfileIdentity,
+  jsSourceSemanticsModules,
   jsRegExpTypeLibraryContract,
 } from "../../packages/js-source-profile/dist/index.js";
 
@@ -87,8 +90,16 @@ declare var Symbol: SymbolConstructor;
 test("canonical JS RegExp profile type-checks the complete declaration contract", () => {
   const diagnostics = checkFiles({
     "/src/profile.d.ts": `${minimalProfileFoundation}\n${jsRegExpSourceProfileDeclarations}`,
-    "/src/index.ts": contractExercise,
-  }, ["/src/profile.d.ts", "/src/index.ts"]);
+    "/src/index.ts": `${contractExercise}\n${String.raw`
+      import { jsstr } from "@tsonic/js/lang.js";
+      const exactEscaped: string = RegExp.escape(jsstr("😀").charAt(0));
+    `}`,
+  }, ["/src/profile.d.ts", "/src/index.ts"], {
+    extensions: [
+      createSourceSemanticsExtension({ modules: jsSourceSemanticsModules() }),
+      createJsSourceSemanticsExtension(),
+    ],
+  });
   assert.deepEqual(diagnostics, []);
 });
 
@@ -120,7 +131,7 @@ test("canonical profile identities are immutable and legacy RegExp APIs stay exc
   assert.doesNotMatch(jsRegExpSourceProfileDeclarations, /\b(?:lastMatch|lastParen|leftContext|rightContext)\s*:/u);
 });
 
-function checkFiles(files, rootFiles) {
+function checkFiles(files, rootFiles, extensionHostOptions = undefined) {
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files,
@@ -132,6 +143,7 @@ function checkFiles(files, rootFiles) {
       strict: true,
       target: "esnext",
     },
+    extensionHostOptions,
   });
   return session.checkSource().diagnostics.map((diagnostic) => ({
     code: diagnostic.code,

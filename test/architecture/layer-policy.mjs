@@ -9,7 +9,7 @@ export const sharedLayerRules = Object.freeze([
 export const sharedLayerPolicies = Object.freeze([
   policy("target-api", [], "ARCH-SHARED-001", "The shared target API is the lowest Tsonic host contract and cannot depend on higher shared packages."),
   policy("source-core", ["target-api"], "ARCH-SHARED-001", "Portable source-core semantics may depend on the shared target API only."),
-  policy("js-source-profile", [], "ARCH-SHARED-001", "Canonical JavaScript source declarations and identities are target-independent and cannot depend on host or target packages."),
+  policy("js-source-profile", ["source-core"], "ARCH-SHARED-001", "Canonical JavaScript source declarations and identities may consume shared source-core services but cannot depend on host or target packages."),
   policy("host", ["target-api", "source-core"], "ARCH-SHARED-001", "Host orchestration may consume shared contracts and source-core, not the CLI."),
   policy("cli", ["target-api", "source-core", "host"], "ARCH-SHARED-001", "The CLI composes host services but cannot become a lower-layer dependency."),
 ]);
