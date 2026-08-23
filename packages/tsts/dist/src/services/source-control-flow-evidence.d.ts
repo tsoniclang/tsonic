@@ -32,7 +32,7 @@ export interface ResolvedSourceYieldInfo {
         readonly mechanism: ExtensionForOfIterationMechanism | ExtensionForAwaitOfIterationMechanism;
     };
 }
-export type ResolvedWellKnownSymbolKind = "iterator" | "async-iterator" | "dispose" | "async-dispose";
+export type ResolvedWellKnownSymbolKind = "has-instance" | "is-concat-spreadable" | "iterator" | "async-iterator" | "match" | "match-all" | "replace" | "search" | "species" | "split" | "to-primitive" | "to-string-tag" | "unscopables" | "dispose" | "async-dispose";
 export interface ResolvedSourceWellKnownSymbolInfo {
     readonly kind: ResolvedWellKnownSymbolKind;
     readonly expression: Node;

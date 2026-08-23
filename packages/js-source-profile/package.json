@@ -1,0 +1,25 @@
+{
+  "name": "@tsonic/js-source-profile",
+  "version": "0.0.1",
+  "description": "Canonical JavaScript source-profile declarations and identities for Tsonic targets",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
+    "test": "node --test \"dist/**/*.test.js\"",
+    "typecheck": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false --noEmit"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "license": "MIT"
+}

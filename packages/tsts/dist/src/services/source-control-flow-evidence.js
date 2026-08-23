@@ -241,8 +241,19 @@ function resolveResourceAcquisition(checker, declaration) {
     };
 }
 const wellKnownSymbolProperties = Object.freeze([
+    ["has-instance", "hasInstance"],
+    ["is-concat-spreadable", "isConcatSpreadable"],
     ["iterator", "iterator"],
     ["async-iterator", "asyncIterator"],
+    ["match", "match"],
+    ["match-all", "matchAll"],
+    ["replace", "replace"],
+    ["search", "search"],
+    ["species", "species"],
+    ["split", "split"],
+    ["to-primitive", "toPrimitive"],
+    ["to-string-tag", "toStringTag"],
+    ["unscopables", "unscopables"],
     ["dispose", "dispose"],
     ["async-dispose", "asyncDispose"],
 ]);
