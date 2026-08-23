@@ -29,6 +29,7 @@ const repositoryRoot = resolve(new URL("../..", import.meta.url).pathname);
 const productPrefixes = Object.freeze([
   "packages/cli/src/",
   "packages/host/src/",
+  "packages/js-source-profile/src/",
   "packages/source-core/src/",
   "packages/target-api/src/",
 ]);
@@ -72,6 +73,7 @@ test("shared packages expose only deliberate audience entrypoints", () => {
   const expectedEntrypoints = new Map([
     ["target-api", [".", "./analysis", "./artifacts", "./package.json", "./provider", "./source"]],
     ["source-core", [".", "./extension", "./facts", "./package.json"]],
+    ["js-source-profile", [".", "./package.json"]],
     ["host", ["."]],
   ]);
   for (const [packageName, expected] of expectedEntrypoints) {
@@ -123,6 +125,7 @@ test("shared tests mirror explicit product and infrastructure domains", () => {
     "cli-build",
     "host",
     "infrastructure",
+    "js-source-profile",
     "source-core",
     "target-api",
   ];

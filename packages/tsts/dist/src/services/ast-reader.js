@@ -44,6 +44,7 @@ export function createAstReader() {
         hasModifierKind: (node, kind) => node !== undefined && HasModifier(node, modifierFlagForKind(kind)) === true,
         variableDeclarationKind,
         isConstAssertion: (node) => node !== undefined && IsConstAssertion(node) === true,
+        regularExpressionLiteral,
         heritageElements: (node, kind) => GetHeritageElements(node, kind === "extends" ? KindExtendsKeyword : KindImplementsKeyword) ?? [],
         extendsHeritageElements: (node) => GetHeritageElements(node, KindExtendsKeyword) ?? [],
         implementsHeritageElements: (node) => GetHeritageElements(node, KindImplementsKeyword) ?? [],
@@ -81,6 +82,20 @@ export function createAstReader() {
         as: casts,
     };
     return Object.freeze(reader);
+}
+function regularExpressionLiteral(node) {
+    if (node === undefined || !predicates.IsRegularExpressionLiteral(node)) {
+        return undefined;
+    }
+    const text = Node_Text(node);
+    const closingSlash = text.lastIndexOf("/");
+    if (!text.startsWith("/") || closingSlash <= 0) {
+        return undefined;
+    }
+    return Object.freeze({
+        pattern: text.slice(1, closingSlash),
+        flags: text.slice(closingSlash + 1),
+    });
 }
 function authoredRange(node) {
     if (node === undefined || NodeIsSynthesized(node)) {

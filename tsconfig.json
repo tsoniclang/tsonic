@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/source-core" },
     { "path": "./packages/target-api" },
+    { "path": "./packages/js-source-profile" },
     { "path": "./packages/host" },
     { "path": "./packages/cli" }
   ]

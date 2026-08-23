@@ -61,6 +61,7 @@ const commands = Object.freeze([
 
 const requiredArtifacts = Object.freeze([
   ["tsonic.sourceCoreDist", resolve(repos.tsonic, "packages/source-core/dist")],
+  ["tsonic.jsSourceProfileDist", resolve(repos.tsonic, "packages/js-source-profile/dist")],
   ["tsonic.targetApiDist", resolve(repos.tsonic, "packages/target-api/dist")],
   ["tsonic.hostDist", resolve(repos.tsonic, "packages/host/dist")],
   ["tsonic.cliDist", resolve(repos.tsonic, "packages/cli/dist")],

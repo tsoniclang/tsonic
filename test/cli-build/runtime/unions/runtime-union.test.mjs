@@ -163,8 +163,8 @@ test("CLI emits object-shape runtime-union declarations and member projections f
   assert.equal(shapeDeclarations.length, 2);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<__TsonicShape_[A-Za-z0-9_]+, __TsonicShape_[A-Za-z0-9_]+> shape/);
   assert.match(generatedSource, /if \(shape\.Match\(__tsonic_union_arm1 => __tsonic_union_arm1\.kind, __tsonic_union_arm2 => __tsonic_union_arm2\.kind\) == "circle"\)/);
-  assert.match(generatedSource, /return \$"circle:\{shape\.As1\(\)\.radius\}";/);
-  assert.match(generatedSource, /return \$"square:\{shape\.As2\(\)\.size\}";/);
+  assert.match(generatedSource, /return \$"circle:\{shape\.As2\(\)\.radius\}";/);
+  assert.match(generatedSource, /return \$"square:\{shape\.As1\(\)\.size\}";/);
   assert.match(generatedShapes, /public required string kind;/);
   assert.match(generatedShapes, /public required double radius;/);
   assert.match(generatedShapes, /public required double size;/);

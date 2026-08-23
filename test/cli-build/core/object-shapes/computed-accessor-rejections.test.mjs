@@ -47,7 +47,7 @@ test("CLI rejects computed and accessor object literal members before shape fall
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Object-shape object initializers require identifier, string-literal, or numeric-literal property names/);
+  assert.match(build.stderr, /Computed object-shape members require exact selected well-known-symbol evidence/);
   assert.match(build.stderr, /Object literal property must match one finalized object-shape source contract member/);
   assert.match(build.stderr, /cannot satisfy the selected writable property contract without an exact setter/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);

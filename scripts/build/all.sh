@@ -19,6 +19,7 @@ fi
 PACKAGES=(
   "packages/source-core"
   "packages/target-api"
+  "packages/js-source-profile"
   "packages/host"
   "packages/cli"
 )
