@@ -1015,12 +1015,14 @@ const sourceCallMarkerKinds = new Set([
     "bind-raw-pointer",
     "equal-raw-pointer",
     "hash-raw-pointer",
+    "js-string",
 ]);
 const sourceTypeMarkerKinds = new Set([
     "pointer",
     "function-pointer",
     "raw-pointer",
     "fixed-array",
+    "js-string",
 ]);
 const pointerMutabilities = new Set(["readonly", "readwrite", "unspecified"]);
 const flowStates = new Set(["moved", "borrowed-shared", "borrowed-mut"]);

@@ -61,8 +61,8 @@ test("CLI emits RegExp literals through provider-backed JS runtime carriers", as
   assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedRegExpLiteralCarrier"), "True:True:True:a.b:s\n");
 });
 
-test("CLI rejects statically unsupported RegExp literals before C# artifact emission", async () => {
-  const projectDirectory = resolve(tempRoot, "regexp-literal-unsupported-static");
+test("CLI emits modern RegExp grammar and result metadata", async () => {
+  const projectDirectory = resolve(tempRoot, "regexp-modern-result-metadata");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -74,25 +74,34 @@ test("CLI rejects statically unsupported RegExp literals before C# artifact emis
           surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedUnsupportedRegExpLiteral",
+            assemblyName: "SmokeGeneratedModernRegExp",
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
-      "export function unsupported(value: string): boolean {",
-      "  return /(?<name>a)/.test(value) || /abc/u.test(value);",
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function describe(value: string): string {",
+      "  const result = /(?<name>a)/du.exec(value);",
+      "  const name = result?.groups?.name ?? \"\";",
+      "  const start = result?.indices?.[0]?.[0] ?? -1;",
+      "  const astral = /./u.test(\"😀\");",
+      "  return `${name}:${start}:${astral}`;",
       "}",
+      "",
+      "Console.WriteLine(describe(\"a\"));",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.notEqual(build.status, 0, build.stdout + build.stderr);
-  assert.match(build.stderr, /CSHARP_JS_REGEXP_UNSUPPORTED/);
-  assert.match(build.stderr, /Named capture groups are not in the proven subset/);
-  assert.match(build.stderr, /RegExp flag 'u' requires ECMAScript Unicode-mode pattern semantics/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedUnsupportedRegExpLiteral.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.RegExp\("\(\?<name>a\)", "du"\)/u);
+  assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
+  assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedModernRegExp"), "a:0:True\n");
 });
 
 test("CLI emits Date calls through provider-backed JS runtime carriers", async () => {
@@ -261,7 +270,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
       "  return value.localeCompare(other);",
       "}",
       "",
-      "export function patternIndex(value: string, pattern: string): int32 {",
+      "export function patternIndex(value: string, pattern: string): number {",
       "  return value.search(pattern);",
       "}",
       "",
@@ -369,7 +378,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.doesNotMatch(generatedSource, /\.Trim(Start|End)?\(\)|\.ToLower\(\)|\.ToUpper\(\)/);
   assert.match(generatedSource, /public static int localeOrder\(string value, string other\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.localeCompare\(value, other\);/);
-  assert.match(generatedSource, /public static int patternIndex\(string value, string pattern\)/);
+  assert.match(generatedSource, /public static double patternIndex\(string value, string pattern\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.search\(value, pattern\);/);
   assert.match(generatedSource, /public static bool wellFormed\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.isWellFormed\(value\);/);
@@ -413,7 +422,7 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI hard-rejects selected JS string exactness lanes without closed runtime facts", async () => {
+test("CLI hard-rejects String.raw without a closed template-raw carrier", async () => {
   const projectDirectory = resolve(tempRoot, "js-string-exactness-rejections");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -432,18 +441,8 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
       ],
     }, null, 2),
     "src/index.ts": [
-      "declare const template: TemplateStringsArray;",
-      "",
-      "export function matched(value: string, pattern: RegExp): void {",
-      "  value.match(pattern);",
-      "}",
-      "",
       "export function raw(value: string): string {",
-      "  return String.raw(template, value);",
-      "}",
-      "",
-      "export function all(value: string, pattern: RegExp): void {",
-      "  value.matchAll(pattern);",
+      "  return String.raw(undefined!, value);",
       "}",
       "",
     ].join("\n"),
@@ -451,13 +450,8 @@ test("CLI hard-rejects selected JS string exactness lanes without closed runtime
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /String\.match requires an exact RegExp match-result carrier/);
   assert.match(build.stderr, /String\.raw requires a closed template-raw carrier/);
-  assert.match(build.stderr, /String\.matchAll requires an exact RegExp match-result carrier/);
-  assert.match(build.stderr, /Selected source identity: js\.String\.match\.member/);
   assert.match(build.stderr, /Selected source identity: js\.StringConstructor\.raw\.member/);
-  assert.match(build.stderr, /Selected source identity: js\.String\.matchAll\.member/);
-  assert.match(build.stderr, /RegExp match-result carrier that is not represented by the current JS source-profile runtime/);
   assert.match(build.stderr, /template-raw carrier and is not represented by the current JS source-profile runtime/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedStringExactnessRejections.csproj")), false);
 });

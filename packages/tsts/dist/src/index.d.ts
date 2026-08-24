@@ -12,7 +12,7 @@ export type { TranspileCompilerOptions, TranspileCompilerOptionValue, TranspileO
 export type { ResolvedSourceCallInfo, ResolvedSourceElementAccessInfo, ResolvedSourceIterationInfo, ResolvedSourceGeneratorInfo, ResolvedSourceObjectLiteralElementInfo, ResolvedSourceObjectLiteralElementKind, ResolvedSourcePropertyAccessInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceStorageInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, TypeCheckerQueries, } from "./services/type-checker.js";
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryClosure, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export type { BundledLibrarySource, CompilerFileSystem, CompilerHostOptions, CompilerTraceCallback, InMemoryFileSystemOptions } from "./services/embedding-host.js";
-export type { AstAuthoredRange, AstModifierKind, AstReader, AstVariableDeclarationKind } from "./services/ast-reader.js";
+export type { AstAuthoredRange, AstModifierKind, AstReader, AstRegularExpressionLiteralSyntax, AstVariableDeclarationKind, } from "./services/ast-reader.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
 export type { CompilerDiagnosticKind, CompilerSession, CompilerSessionOptions, InMemoryCompilerSessionOptions } from "./services/compiler-session.js";
 export type { TypeIndexInfo, TypePropertyInfo, TypeSignatureParameterInfo, TypeSignatureThisParameterInfo, TypeShapeQueries, TypeTupleElementInfo, } from "./services/type-shape.js";
