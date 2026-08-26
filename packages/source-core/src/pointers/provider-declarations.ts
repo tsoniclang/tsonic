@@ -13,12 +13,14 @@ export interface SourceNativePointerProviderNames {
   readonly loadExport: string;
   readonly storeExport: string;
   readonly offsetExport: string;
+  readonly offsetBytesExport: string;
 }
 
 export const sourceNativePointerSignatureIds = Object.freeze({
   load: "loadNativePointer<T>(pointer)",
   store: "storeNativePointer<T>(pointer,value)",
   offset: "offsetNativePointer<T>(pointer,elementOffset)",
+  offsetBytes: "offsetNativePointerBytes<T>(pointer,byteOffset)",
 });
 
 export const tsonicCoreNativePointerProviderNames: SourceNativePointerProviderNames = Object.freeze({
@@ -27,6 +29,7 @@ export const tsonicCoreNativePointerProviderNames: SourceNativePointerProviderNa
   loadExport: "loadNativePointer",
   storeExport: "storeNativePointer",
   offsetExport: "offsetNativePointer",
+  offsetBytesExport: "offsetNativePointerBytes",
 });
 
 export function nativePointerProviderDeclaration(
@@ -86,6 +89,18 @@ export function nativePointerOperationProviderDeclarations(
         { name: "pointer", type: pointer },
         {
           name: "elementOffset",
+          type: { kind: "source-primitive", name: "native-int" },
+        },
+      ],
+      pointer,
+    ),
+    nativePointerOperationDeclaration(
+      names.offsetBytesExport,
+      sourceNativePointerSignatureIds.offsetBytes,
+      [
+        { name: "pointer", type: pointer },
+        {
+          name: "byteOffset",
           type: { kind: "source-primitive", name: "native-int" },
         },
       ],

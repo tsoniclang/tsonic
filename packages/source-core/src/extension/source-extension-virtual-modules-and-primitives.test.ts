@@ -48,6 +48,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     "loadNativePointer",
     "storeNativePointer",
     "offsetNativePointer",
+    "offsetNativePointerBytes",
     "unsafeContext",
     "safety",
     ...expectedSourceCoreLangIntrinsics.map((entry) => entry.exportName),

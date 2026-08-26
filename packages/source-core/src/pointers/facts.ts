@@ -30,6 +30,11 @@ export type TsonicNativePointerOperationFact =
       readonly operation: "offset";
       readonly offsetExpression: Node;
       readonly offsetType: Type;
+    }
+  | TsonicNativePointerOperationBase & {
+      readonly operation: "offset-bytes";
+      readonly offsetExpression: Node;
+      readonly offsetType: Type;
     };
 
 export const tsonicNativePointerOperationFactKey =
@@ -58,7 +63,8 @@ function nativePointerOperationFactsEqual(
     return left.valueExpression === right.valueExpression &&
       left.valueType === right.valueType;
   }
-  if (left.operation === "offset" && right.operation === "offset") {
+  if ((left.operation === "offset" || left.operation === "offset-bytes") &&
+    right.operation === left.operation) {
     return left.offsetExpression === right.offsetExpression &&
       left.offsetType === right.offsetType;
   }

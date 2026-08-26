@@ -52,6 +52,7 @@ test("source-core publishes one exact neutral native-pointer and safety surface"
   assert.equal(lang.exports.filter((entry) => entry.name === "loadNativePointer").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "storeNativePointer").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "offsetNativePointer").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "offsetNativePointerBytes").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "__TsonicSafetyBuilder").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "__TsonicSafetyMemberBuilder").length, 1);
 });
@@ -62,6 +63,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
     import {
       loadNativePointer as load,
       offsetNativePointer,
+      offsetNativePointerBytes,
       storeNativePointer,
     } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
@@ -71,7 +73,9 @@ test("native pointer operations retain exact selected pointee and operand eviden
     const first = load(pointer);
     storeNativePointer(pointer, first + 1);
     const next = offsetNativePointer(pointer, offset);
+    const nextByte = offsetNativePointerBytes(pointer, offset);
     const second = core.loadNativePointer(next);
+    const third = core.loadNativePointer(nextByte);
   `);
 
   const loadFact = fact(
@@ -100,6 +104,15 @@ test("native pointer operations retain exact selected pointee and operand eviden
   assert.equal(offsetFact?.operation, "offset");
   assert.ok(offsetFact?.offsetExpression !== undefined);
   assert.equal(offsetFact?.pointeeType, loadFact?.pointeeType);
+
+  const byteOffsetFact = fact(
+    checked,
+    call(checked.ast, sourceFile, "offsetNativePointerBytes"),
+    tsonicNativePointerOperationFactKey,
+  );
+  assert.equal(byteOffsetFact?.operation, "offset-bytes");
+  assert.ok(byteOffsetFact?.offsetExpression !== undefined);
+  assert.equal(byteOffsetFact?.pointeeType, loadFact?.pointeeType);
 
   const namespacedLoad = fact(
     checked,

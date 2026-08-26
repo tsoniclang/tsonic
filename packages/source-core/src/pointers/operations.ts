@@ -38,6 +38,12 @@ export function analyzeNativePointerOperations(
     selector(contract, contract.names.loadExport, sourceNativePointerSignatureIds.load, "load"),
     selector(contract, contract.names.storeExport, sourceNativePointerSignatureIds.store, "store"),
     selector(contract, contract.names.offsetExport, sourceNativePointerSignatureIds.offset, "offset"),
+    selector(
+      contract,
+      contract.names.offsetBytesExport,
+      sourceNativePointerSignatureIds.offsetBytes,
+      "offset-bytes",
+    ),
   ] as const);
   forEachSelectedProviderSourceCall(context, (selected, sourceContext): void => {
     const matched = selectors.find((candidate) =>
@@ -113,7 +119,8 @@ function analyzeSelectedOperation(
               valueType: value.type,
             };
       }
-      case "offset": {
+      case "offset":
+      case "offset-bytes": {
         const offset = selected.selection.sourceArguments[1];
         return offset === undefined
           ? undefined
