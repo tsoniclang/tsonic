@@ -28,6 +28,9 @@ export async function checkedSource(name, files, fixtureOptions = {}) {
     rootDir: "src",
     outDir: "out",
     targets: [{ id: "demo" }],
+    ...(fixtureOptions.rootFiles === undefined
+      ? {}
+      : { rootFiles: fixtureOptions.rootFiles }),
   };
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify(projectConfig, null, 2),

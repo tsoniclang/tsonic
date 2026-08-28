@@ -417,6 +417,45 @@ test("source navigation classifies runtime import and export dependencies exactl
   );
 });
 
+test("shared source navigation resolves exact authored project-module literals", async () => {
+  const source = await checkedSource("authored-module-literal", {
+    "src/index.ts": [
+      "declare function startWorker(path: string): void;",
+      "startWorker('./worker.js');",
+      "startWorker('./missing.js');",
+      "",
+    ].join("\n"),
+    "src/worker.ts": "export const workerValue = 1;\n",
+  }, { rootFiles: ["index.ts", "worker.ts"] });
+  const navigation = createSourceProgramNavigation(source);
+  const entry = projectSourceFile(source, "src/index.ts");
+  const worker = projectSourceFile(source, "src/worker.ts");
+  const literals = [];
+  const visit = (node) => {
+    if (source.ast.is.IsStringLiteral(node)) {
+      literals.push(node);
+    }
+    source.ast.forEachChild(node, (child) => {
+      if (child !== undefined) visit(child);
+    });
+  };
+  visit(entry);
+  const workerSpecifier = literals.find((literal) =>
+    source.ast.text(literal) === "./worker.js");
+  const missingSpecifier = literals.find((literal) =>
+    source.ast.text(literal) === "./missing.js");
+  assert.ok(workerSpecifier !== undefined);
+  assert.ok(missingSpecifier !== undefined);
+
+  const resolution = navigation.moduleSpecifierResolution(workerSpecifier);
+  assert.equal(resolution.kind, "project");
+  assert.ok(resolution.sourceFile === worker);
+  assert.equal(
+    navigation.moduleSpecifierResolution(missingSpecifier).kind,
+    "unresolved",
+  );
+});
+
 test("source navigation classifies top-level await without entering function bodies", async () => {
   const source = await checkedSource("module-top-level-await", {
     "src/entry.ts": [

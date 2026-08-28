@@ -125,12 +125,7 @@ export function sourceProjectModuleSpecifierResolution(
   if (sourceFile === undefined) {
     return Object.freeze({ kind: "unresolved", moduleSpecifier });
   }
-  const checker = source.getSourceFileQueries(sourceFile).checker;
-  const resolvedSourceFile = resolvedModuleSourceFile(
-    source.ast,
-    checker,
-    moduleSpecifier,
-  );
+  const resolvedSourceFile = source.resolveModuleSourceFile(moduleSpecifier);
   if (resolvedSourceFile === undefined) {
     return Object.freeze({ kind: "unresolved", moduleSpecifier });
   }
