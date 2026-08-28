@@ -322,7 +322,7 @@ interface Date {
   setUTCMonth(month: number, date?: number): number;
   setUTCFullYear(year: number, month?: number, date?: number): number;
   toUTCString(): string;
-  toJSON(): string;
+  toJSON(): string | null;
 }
 
 interface Console {
