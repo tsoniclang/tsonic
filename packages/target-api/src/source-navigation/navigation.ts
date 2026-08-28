@@ -30,6 +30,7 @@ import {
   sourceProjectModuleExports,
   sourceProjectModuleDependencies,
   sourceProjectModuleReferences,
+  sourceProjectModuleSpecifierResolution,
 } from "./modules.js";
 import {
   createSourceReferenceNavigation,
@@ -210,6 +211,11 @@ export function createSourceProgramNavigation(
     return references;
   };
 
+  const moduleSpecifierResolution = (
+    moduleSpecifier: Node,
+  ): ReturnType<SourceProgramNavigation["moduleSpecifierResolution"]> =>
+    sourceProjectModuleSpecifierResolution(source, sourceFileSet, moduleSpecifier);
+
   const moduleExports = (
     sourceFile: SourceFile,
   ): ReturnType<SourceProgramNavigation["moduleExports"]> => {
@@ -266,6 +272,7 @@ export function createSourceProgramNavigation(
     declarationFor: references.declarationFor,
     moduleDependencies,
     moduleReferences,
+    moduleSpecifierResolution,
     moduleExports,
     moduleHasTopLevelAwait,
     memberDispatch: dispatch.memberDispatch,
@@ -414,6 +421,7 @@ export type {
   SourceProjectMemberImplementationResult,
   SourceProjectModuleDependency,
   SourceProjectModuleExport,
+  SourceProjectModuleSpecifierResolution,
   SourceProjectReference,
   SourceReferenceIndexStatistics,
   SourceValueEscapeKind,

@@ -2,6 +2,8 @@ export {
   jsRegExpObjectDeclarations,
   jsRegExpResultDeclarations,
   jsRegExpSourceProfileDeclarations,
+  jsStandardSourceProfileDeclarations,
+  jsCapabilitySourceProfileDeclarations,
   jsRegExpSymbolDeclarations,
   jsStringRegExpDeclarations,
 } from "./declarations/composition.js";
