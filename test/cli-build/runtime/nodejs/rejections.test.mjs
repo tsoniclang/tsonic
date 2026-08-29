@@ -176,35 +176,12 @@ test("CLI rejects remaining unsupported historical NodeJS alias imports without 
       ],
     }, null, 2),
     "src/index.ts": [
-      "import * as assert from \"node:assert\";",
-      "import * as buffer from \"node:buffer\";",
-      "import * as child_process from \"node:child_process\";",
       "import * as dgram from \"node:dgram\";",
-      "import * as dns from \"node:dns\";",
-      "import * as events from \"node:events\";",
-      "import * as http from \"node:http\";",
-      "import type { IncomingMessage, ServerResponse } from \"node:http\";",
-      "import * as net from \"node:net\";",
-      "import * as process from \"node:process\";",
       "import * as querystring from \"node:querystring\";",
-      "import * as readline from \"node:readline\";",
-      "import * as stream from \"node:stream\";",
-      "import * as timers from \"node:timers\";",
-      "import * as tls from \"node:tls\";",
-      "import * as url from \"node:url\";",
-      "import * as util from \"node:util\";",
-      "import * as zlib from \"node:zlib\";",
-      "import { join } from \"node:path\";",
-      "",
-      "export type Handler = (req: IncomingMessage, res: ServerResponse) => void;",
       "",
       "export function loaded(): number {",
-      "  void assert;",
-      "  void buffer;",
-      "  void process;",
-      "  void url;",
-      "  void util;",
-      "  void join;",
+      "  void dgram;",
+      "  void querystring;",
       "  return 1;",
       "}",
       "",
@@ -215,19 +192,11 @@ test("CLI rejects remaining unsupported historical NodeJS alias imports without 
   assert.equal(build.status, 1);
   for (const moduleSpecifier of [
     "node:dgram",
-    "node:dns",
-    "node:events",
-    "node:net",
     "node:querystring",
-    "node:readline",
-    "node:stream",
-    "node:tls",
-    "node:zlib",
   ]) {
     assert.match(build.stderr, new RegExp(moduleSpecifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(build.stderr, /TSTS_DIAGNOSTIC/);
-  assert.doesNotMatch(build.stderr, /Cannot find name 'node:child_process'/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
@@ -445,7 +414,7 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
       "writeFileSync(filePath, \"hello\", \"utf8\");",
       "const text = readFileSync(filePath, \"utf8\");",
       "const directoryPath = path.join(runtimeRoot, \"tsonic-slice8-node-provider-runtime-dir\");",
-      "mkdirSync(directoryPath, true);",
+      "mkdirSync(directoryPath, { recursive: true });",
       "const firstPath = path.join(directoryPath, \"first.txt\");",
       "const secondPath = path.join(directoryPath, \"second.txt\");",
       "writeFileSync(firstPath, \"a\", \"utf8\");",
@@ -462,7 +431,7 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
       "truncateSync(descriptorPath, 1);",
       "const descriptorText = readFileSync(descriptorPath, \"utf8\");",
       "const emptyDir = path.join(directoryPath, \"empty\");",
-      "mkdirSync(emptyDir, true);",
+      "mkdirSync(emptyDir, { recursive: true });",
       "rmdirSync(emptyDir, true);",
       "const linkPath = path.join(directoryPath, \"descriptor-link.txt\");",
       "symlinkSync(descriptorPath, linkPath);",
@@ -485,8 +454,8 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
       "const fsSyncText = `${readFileSync(firstPath, \"utf8\")}:${existsSync(renamedPath) ? \"renamed\" : \"missing\"}:${directoryListText}`;",
       "Console.WriteLine(`${path.basename(roundTrip)}|${text}|${bytes.toString()}|${hash.length}|${randomUUID().length}|${existsText}|${kindText}|${osText}|${toUSVString(\"ok\")}|${urlText}|${fsSyncText}|${descriptorText}:${copiedDescriptorText}:${linkText}`);",
       "unlinkSync(filePath);",
-      "rmSync(copyDirectoryPath, true);",
-      "rmSync(directoryPath, true);",
+      "rmSync(copyDirectoryPath, { recursive: true, force: true });",
+      "rmSync(directoryPath, { recursive: true, force: true });",
       "",
     ].join("\n"),
   });
@@ -502,7 +471,7 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(filePath, "hello", "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.readFileSync\(filePath, "utf8"\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.mkdirSync\(directoryPath, true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.mkdirSync\(directoryPath, new Tsonic\.CSharp\.Node\.MakeDirectoryOptions\s*\{[\s\S]*?recursive = true[\s\S]*?\}\);/u);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.appendFileSync\(firstPath, "b", "utf8"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.copyFileSync\(firstPath, secondPath\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.renameSync\(secondPath, renamedPath\);/);
@@ -525,7 +494,7 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
   assert.match(generatedSource, /parsed\.search = "\?answer=42";/);
   assert.match(generatedSource, /parsed\.searchParams\.delete\("answer"\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.unlinkSync\(filePath\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmSync\(directoryPath, true\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.rmSync\(directoryPath, new Tsonic\.CSharp\.Node\.RmOptions\s*\{[\s\S]*?recursive = true[\s\S]*?force = true[\s\S]*?\}\);/u);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|MethodInfo\.Invoke|Assembly\.Load/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

@@ -19,6 +19,21 @@ export interface SourceProjectModuleDependency {
   readonly kind: "import" | "export";
 }
 
+export type SourceProjectModuleSpecifierResolution =
+  | {
+      readonly kind: "project";
+      readonly sourceFile: SourceFile;
+      readonly moduleSpecifier: Node;
+    }
+  | {
+      readonly kind: "non-project";
+      readonly moduleSpecifier: Node;
+    }
+  | {
+      readonly kind: "unresolved";
+      readonly moduleSpecifier: Node;
+    };
+
 export interface SourceProjectModuleExport {
   readonly exportName: string;
   readonly symbol: Symbol;
@@ -247,6 +262,9 @@ export interface SourceProgramNavigation {
   declarationFor(node: Node | undefined): Node | undefined;
   moduleDependencies(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
   moduleReferences(sourceFile: SourceFile): readonly SourceProjectModuleDependency[];
+  moduleSpecifierResolution(
+    moduleSpecifier: Node,
+  ): SourceProjectModuleSpecifierResolution;
   moduleExports(sourceFile: SourceFile): readonly SourceProjectModuleExport[];
   moduleHasTopLevelAwait(sourceFile: SourceFile): boolean;
   memberDispatch(node: Node | undefined): SourceProjectMemberDispatch | undefined;

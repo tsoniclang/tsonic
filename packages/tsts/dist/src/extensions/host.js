@@ -1519,12 +1519,16 @@ export class ProviderRegistry {
             return this.#cacheDeclarationLoadOutcome(requestKey, { kind: "rejected", diagnostic });
         }
         const declarationModel = freezeProviderDeclarationModel(graphValidation.model);
-        if (!isValidProviderDeclarationModel(declarationModel, resolution)) {
+        const declarationValidation = validateProviderDeclarationModel(declarationModel, resolution);
+        if (declarationValidation !== undefined) {
             const diagnostic = createHostDiagnostic({
                 extensionCode: "INVALID_PROVIDER_DECLARATION_MODEL",
                 numericCode: ExtensionHostDiagnosticCode.invalidProviderDeclaration,
                 message: `Provider '${owner.provider.identity.id}' returned an invalid declaration model for '${specifier}'.`,
-                evidence: [{ message: "Declaration model", details: declarationModel }],
+                evidence: [{
+                        message: "Declaration model rejection",
+                        details: declarationValidation,
+                    }],
                 identity: encodeIdentityTuple(["invalid-provider-declaration", owner.provider.identity.id, specifier]),
             });
             this.#diagnostics.append(diagnostic);
@@ -5335,18 +5339,59 @@ function snapshotProviderModuleResolution(value, specifier) {
         };
     }
 }
-function isValidProviderDeclarationModel(value, resolution) {
+function validateProviderDeclarationModel(value, resolution) {
     const context = createProviderDeclarationValidationContext(value);
-    return value.moduleSpecifier === resolution.moduleSpecifier
-        && value.providerModuleId === resolution.providerModuleId
-        && (value.imports ?? []).every(isValidProviderImportDeclaration)
-        && Array.isArray(value.exports)
-        && value.exports.every(isValidProviderExportDeclaration)
-        && value.exports.every(hasValidProviderExportTypeParameterScope)
-        && value.exports.every((declaration) => hasValidProviderReferenceBindingsForExport(declaration, context))
-        && value.exports.every((declaration) => hasValidProviderValueHeritageReferences(declaration, context))
-        && isValidProviderTypeFamilyDeclarations(value.moduleSpecifier, value.exports, value.imports ?? [])
-        && hasUniqueProviderCallableIdentities(value);
+    if (value.moduleSpecifier !== resolution.moduleSpecifier) {
+        return { reason: "module-specifier-mismatch", path: "moduleSpecifier" };
+    }
+    if (value.providerModuleId !== resolution.providerModuleId) {
+        return {
+            reason: "provider-module-identity-mismatch",
+            path: "providerModuleId",
+        };
+    }
+    const invalidImportIndex = (value.imports ?? []).findIndex((declaration) => !isValidProviderImportDeclaration(declaration));
+    if (invalidImportIndex >= 0) {
+        return {
+            reason: "invalid-import-declaration",
+            path: `imports[${invalidImportIndex}]`,
+        };
+    }
+    const invalidExportIndex = value.exports.findIndex((declaration) => !isValidProviderExportDeclaration(declaration));
+    if (invalidExportIndex >= 0) {
+        return {
+            reason: "invalid-export-declaration",
+            path: `exports[${invalidExportIndex}]`,
+        };
+    }
+    const invalidScopeIndex = value.exports.findIndex((declaration) => !hasValidProviderExportTypeParameterScope(declaration));
+    if (invalidScopeIndex >= 0) {
+        return {
+            reason: "invalid-export-type-parameter-scope",
+            path: `exports[${invalidScopeIndex}]`,
+        };
+    }
+    const invalidReferenceIndex = value.exports.findIndex((declaration) => !hasValidProviderReferenceBindingsForExport(declaration, context));
+    if (invalidReferenceIndex >= 0) {
+        return {
+            reason: "invalid-provider-reference-binding",
+            path: `exports[${invalidReferenceIndex}]`,
+        };
+    }
+    const invalidHeritageIndex = value.exports.findIndex((declaration) => !hasValidProviderValueHeritageReferences(declaration, context));
+    if (invalidHeritageIndex >= 0) {
+        return {
+            reason: "invalid-value-heritage-reference",
+            path: `exports[${invalidHeritageIndex}]`,
+        };
+    }
+    if (!isValidProviderTypeFamilyDeclarations(value.moduleSpecifier, value.exports, value.imports ?? [])) {
+        return { reason: "invalid-type-family-contract", path: "exports" };
+    }
+    if (!hasUniqueProviderCallableIdentities(value)) {
+        return { reason: "duplicate-callable-identity", path: "exports" };
+    }
+    return undefined;
 }
 function createProviderDeclarationValidationContext(model) {
     const sameModuleProviderRefNames = new Set();
@@ -5805,17 +5850,19 @@ function hasValidProviderTypeParameterDeclarations(typeParameters, parentScope) 
         }
         names.add(parameter.name);
     }
-    const scope = new Set(parentScope);
+    const constraintScope = new Set(parentScope);
+    for (const name of names) {
+        constraintScope.add(name);
+    }
+    const defaultScope = new Set(parentScope);
     for (const parameter of typeParameters) {
-        const constraintScope = new Set(scope);
-        constraintScope.add(parameter.name);
         if ((parameter.constraints ?? []).some((constraint) => !hasValidProviderTypeExpressionScope(constraint, constraintScope))) {
             return false;
         }
-        if (parameter.defaultType !== undefined && !hasValidProviderTypeExpressionScope(parameter.defaultType, scope)) {
+        if (parameter.defaultType !== undefined && !hasValidProviderTypeExpressionScope(parameter.defaultType, defaultScope)) {
             return false;
         }
-        scope.add(parameter.name);
+        defaultScope.add(parameter.name);
     }
     return true;
 }

@@ -14,6 +14,7 @@ import {
 import type {
   SourceProjectModuleDependency,
   SourceProjectModuleExport,
+  SourceProjectModuleSpecifierResolution,
 } from "./types.js";
 import {
   aliasedSymbol,
@@ -115,6 +116,30 @@ export function sourceProjectModuleReferences(
   return Object.freeze(dependencies);
 }
 
+export function sourceProjectModuleSpecifierResolution(
+  source: CheckedSourceProgram,
+  sourceFiles: ReadonlySet<string>,
+  moduleSpecifier: Node,
+): SourceProjectModuleSpecifierResolution {
+  const sourceFile = source.ast.getSourceFile(moduleSpecifier);
+  if (sourceFile === undefined) {
+    return Object.freeze({ kind: "unresolved", moduleSpecifier });
+  }
+  const resolvedSourceFile = source.resolveModuleSourceFile(moduleSpecifier);
+  if (resolvedSourceFile === undefined) {
+    return Object.freeze({ kind: "unresolved", moduleSpecifier });
+  }
+  const identity = sourceFileIdentity(source.ast, resolvedSourceFile);
+  return !resolvedSourceFile.IsDeclarationFile &&
+      identity !== undefined && sourceFiles.has(identity)
+    ? Object.freeze({
+        kind: "project",
+        sourceFile: resolvedSourceFile,
+        moduleSpecifier,
+      })
+    : Object.freeze({ kind: "non-project", moduleSpecifier });
+}
+
 export function sourceFileHasTopLevelAwait(
   ast: AstReader,
   sourceFile: SourceFile,
@@ -177,15 +202,7 @@ function resolveProjectDependency(
   kind: "import" | "export",
   sourceFiles: ReadonlySet<string>,
 ): SourceProjectModuleDependency | undefined {
-  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier);
-  const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(
-    moduleSymbol,
-    false,
-  ) ?? moduleSymbol;
-  const resolvedSourceFile = ast.getSourceFile(
-    primaryDeclaration(checker, resolvedModuleSymbol) ??
-      primaryDeclaration(checker, moduleSymbol),
-  );
+  const resolvedSourceFile = resolvedModuleSourceFile(ast, checker, moduleSpecifier);
   return resolvedSourceFile !== undefined &&
     !resolvedSourceFile.IsDeclarationFile &&
     sourceFiles.has(sourceFileIdentity(ast, resolvedSourceFile) ?? "")
@@ -196,4 +213,20 @@ function resolveProjectDependency(
         kind,
       }
     : undefined;
+}
+
+function resolvedModuleSourceFile(
+  ast: AstReader,
+  checker: TypeCheckerQueries,
+  moduleSpecifier: Node,
+): SourceFile | undefined {
+  const moduleSymbol = checker.getModuleSymbolFromSpecifier(moduleSpecifier);
+  const resolvedModuleSymbol = checker.getResolvedExternalModuleSymbol(
+    moduleSymbol,
+    false,
+  ) ?? moduleSymbol;
+  return ast.getSourceFile(
+    primaryDeclaration(checker, resolvedModuleSymbol) ??
+      primaryDeclaration(checker, moduleSymbol),
+  );
 }

@@ -4,7 +4,6 @@ import {
   assertInstalledAssemblyReference,
   assertNoRuntimeProjectReference,
   cliPath,
-  existsSync,
   readFile,
   resolve,
   runGeneratedCsharpRunner,
@@ -138,9 +137,9 @@ test("CLI maps selected JS Promise construction and all to Task-backed runtime o
   assert.equal(output, "3:5\n");
 });
 
-test("CLI rejects selected JS Promise operations without closed runtime metadata", async () => {
-  const projectDirectory = resolve(tempRoot, "js-promise-unsupported-operation");
-  const assemblyName = "SmokeGeneratedPromiseUnsupported";
+test("CLI maps selected JS Promise.resolve through closed runtime metadata", async () => {
+  const projectDirectory = resolve(tempRoot, "js-promise-resolve-operation");
+  const assemblyName = "SmokeGeneratedPromiseResolve";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -164,10 +163,27 @@ test("CLI rejects selected JS Promise operations without closed runtime metadata
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.notEqual(build.status, 0);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedText = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(
-    build.stdout + build.stderr,
-    /ERROR tsonic-csharp:TS9101002 index\.ts:2:10: Promise\.resolve requires a closed Promise\/Task carrier relation that has not yet been declared by the JS source profile\.\n  evidence: Selected source identity: js\.PromiseConstructor\.resolve\.member\.\n  evidence: No target fallback, name recovery, or dynamic invocation is permitted\./u,
+    generatedText,
+    /return Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.Resolve\(value\);/u,
   );
-  assert.equal(existsSync(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`)), false);
+  await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
+
+  const output = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Threading.Tasks;",
+    "",
+    "public static class Program",
+    "{",
+    "    public static async Task Main()",
+    "    {",
+    "        Console.WriteLine(await Smoke.Generated.Index.resolved(7));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(output, "7\n");
 });

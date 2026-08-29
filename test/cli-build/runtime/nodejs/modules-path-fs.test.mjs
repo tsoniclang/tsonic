@@ -293,7 +293,7 @@ test("CLI emits fs promises operations from selected Node provider-package facts
       "",
       "export async function runFileRoundTrip(root: string): Promise<string> {",
       "  const directory = root + \"/promises\";",
-      "  await mkdir(directory, true);",
+      "  await mkdir(directory, { recursive: true });",
       "  const source = directory + \"/source.txt\";",
       "  const binary = directory + \"/binary.bin\";",
       "  const renamed = directory + \"/renamed.txt\";",
@@ -315,9 +315,9 @@ test("CLI emits fs promises operations from selected Node provider-package facts
       "  const kind = (await stat(copied)).isFile() ? \"file\" : \"other\";",
       "  await unlink(binary);",
       "  await unlink(renamed);",
-      "  await rm(copied, false);",
-      "  await rm(copiedDirect, false);",
-      "  await rm(directory, true);",
+      "  await rm(copied);",
+      "  await rm(copiedDirect);",
+      "  await rm(directory, { recursive: true, force: true });",
       "  return `${text}:${bytes.length}:${binaryBytes.length}:${entries.length}:${kind}:${truncatedText}`;",
       "}",
       "",
@@ -336,7 +336,7 @@ test("CLI emits fs promises operations from selected Node provider-package facts
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.appendFile\(binary, Tsonic\.CSharp\.Node\.Buffer\.from\("!", "utf8"\)\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.stat\(path\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.unlink\(path\);/);
-  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, true\);/);
+  assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.mkdir\(directory, new Tsonic\.CSharp\.Node\.MakeDirectoryOptions\s*\{[\s\S]*?recursive = true[\s\S]*?\}\);/u);
   assert.match(generatedSource, /string\[\] entries = await Tsonic\.CSharp\.Node\.fs_promises\.readdir\(directory\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.copyFile\(renamed, copiedDirect\);/);
   assert.match(generatedSource, /await Tsonic\.CSharp\.Node\.fs_promises\.truncate\(copiedDirect, 2L\);/);
@@ -586,15 +586,11 @@ test("CLI rejects unsupported selected Node fs provider-package operations witho
       ],
     }, null, 2),
     "src/index.ts": [
-      "import fs, { createReadStream, readFile, watch, watchFile, writeFile } from \"node:fs\";",
+      "import { readFile, writeFile } from \"node:fs\";",
       "",
       "export function unsupportedFs(path: string): void {",
       "  readFile(path, {}, () => {});",
       "  writeFile(path, \"x\", {}, () => {});",
-      "  watch(path, {}, () => {});",
-      "  watchFile(path, () => {});",
-      "  createReadStream(path);",
-      "  fs.watchFile(path, () => {});",
       "}",
       "",
     ].join("\n"),
@@ -606,14 +602,55 @@ test("CLI rejects unsupported selected Node fs provider-package operations witho
   assert.match(build.stderr, /node:fs\.readFile/);
   assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'writeFile'/);
   assert.match(build.stderr, /node:fs\.writeFile/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watch'/);
-  assert.match(build.stderr, /node:fs\.watch/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'watchFile'/);
-  assert.match(build.stderr, /node:fs\.watchFile/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:fs' export 'createReadStream'/);
-  assert.match(build.stderr, /node:fs\.createReadStream/);
-  assert.doesNotMatch(build.stderr, /readFile is not a function|writeFile is not a function|watch is not a function|createReadStream is not a function/);
-  assert.doesNotMatch(build.stderr, /watchFile is not a function/);
+  assert.doesNotMatch(build.stderr, /readFile is not a function|writeFile is not a function/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+});
+
+test("CLI emits supported Node fs watchers and read streams from selected provider facts", async () => {
+  const projectDirectory = resolve(tempRoot, "nodejs-supported-fs-watch-stream-operations");
+  const assemblyName = "SmokeGeneratedNodeFsWatchStreams";
+  await writeProject(projectDirectory, {
+    "package.json": targetCsharpNodejsPackageJson(projectDirectory),
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{
+        id: "csharp",
+        surfaces: ["js"],
+        options: {
+          namespace: "Smoke.Generated",
+          assemblyName,
+        },
+      }],
+    }, null, 2),
+    "src/index.ts": [
+      "import { createReadStream, unwatchFile, watch, watchFile } from \"node:fs\";",
+      "",
+      "export function observe(path: string): void {",
+      "  const watcher = watch(path, () => {});",
+      "  watcher.close();",
+      "  const statWatcher = watchFile(path, () => {});",
+      "  statWatcher.close();",
+      "  unwatchFile(path);",
+      "  createReadStream(path);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.watch\(path,/u);
+  assert.match(generatedSource, /\(Action\)\(\(\) =>/u);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.watchFile\(path,/u);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.unwatchFile\(path\);/u);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.createReadStream\(path\);/u);
+  assert.doesNotMatch(generatedSource, /__unsupported|System\.Reflection|\bdynamic\b/u);
+
+  const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });

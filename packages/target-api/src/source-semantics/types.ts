@@ -94,6 +94,7 @@ export interface SourceFinalTypeQueries {
   isNumberLike(type: Type): boolean;
   isBooleanLike(type: Type): boolean;
   isBigIntLike(type: Type): boolean;
+  isSymbolLike(type: Type): boolean;
   isUnion(type: Type): boolean;
   isIntersection(type: Type): boolean;
   isTypeReference(type: Type): boolean;
