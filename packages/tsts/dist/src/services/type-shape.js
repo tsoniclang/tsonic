@@ -10,7 +10,7 @@ import { signatureHasRestParameter, } from "../internal/checker/checker/state.js
 import { Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, Checker_GetRootSymbols, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBooleanLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsStringLike, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
+import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBooleanLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsStringLike, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
@@ -28,6 +28,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isNumberLike: (type) => hasFlags(type, TypeFlagsNumberLike),
         isBooleanLike: (type) => hasFlags(type, TypeFlagsBooleanLike),
         isBigIntLike: (type) => hasFlags(type, TypeFlagsBigIntLike),
+        isSymbolLike: (type) => hasFlags(type, TypeFlagsESSymbolLike),
         isUnion: (type) => hasFlags(type, TypeFlagsUnion),
         isIntersection: (type) => hasFlags(type, TypeFlagsIntersection),
         isTypeReference: (type) => type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0,

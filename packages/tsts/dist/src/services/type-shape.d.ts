@@ -53,6 +53,7 @@ export interface TypeShapeQueries {
     readonly isNumberLike: (type: GoPtr<Type>) => boolean;
     readonly isBooleanLike: (type: GoPtr<Type>) => boolean;
     readonly isBigIntLike: (type: GoPtr<Type>) => boolean;
+    readonly isSymbolLike: (type: GoPtr<Type>) => boolean;
     readonly isUnion: (type: GoPtr<Type>) => boolean;
     readonly isIntersection: (type: GoPtr<Type>) => boolean;
     readonly isTypeReference: (type: GoPtr<Type>) => boolean;

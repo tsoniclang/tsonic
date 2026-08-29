@@ -192,6 +192,7 @@ export function createTargetSourceProgram(
       isNumberLike: queries.typeShape.isNumberLike,
       isBooleanLike: queries.typeShape.isBooleanLike,
       isBigIntLike: queries.typeShape.isBigIntLike,
+      isSymbolLike: queries.typeShape.isSymbolLike,
       isUnion: queries.typeShape.isUnion,
       isIntersection: queries.typeShape.isIntersection,
       isTypeReference: queries.typeShape.isTypeReference,
