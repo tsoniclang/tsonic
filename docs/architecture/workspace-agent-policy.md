@@ -30,9 +30,12 @@ policy.
   change `.gitignore` in its own reviewed commit; never bypass it per file.
 - Keep meaningful work committed and pushed on the one active branch before
   changing repositories or tasks. Never leave hidden or dangling work.
-- Do not create a branch without explicit maintainer approval. Before branching,
-  run the repository's branch-hygiene check when one exists and resolve every
-  branch ahead of `main` except the one active PR branch.
+- Do not create a branch before the maintainer approves the task. Approval to
+  start a task includes permission to create the necessary task branches in
+  every assigned repository; do not ask again for branch permission during that
+  task. Before branching, run the repository's branch-hygiene check when one
+  exists and resolve every branch ahead of `main` except the one active PR
+  branch.
 - Never announce a PR from a dirty worktree. Verify `git status --porcelain` is
   empty and the branch is synchronized with its upstream.
 - Once a PR is opened, keep its commits intentional; do not add unrelated work
