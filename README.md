@@ -2,6 +2,9 @@
 
 Tsonic is being rebuilt as a source-to-source compiler from TypeScript to target-native source projects.
 
+The complete C# and Rust manuals, references, architecture, and certification
+documentation live in [`docs/`](docs/README.md).
+
 The active architecture is:
 
 - TSTS owns TypeScript parsing, binding, checking, flow, narrowing, contextual typing, generic inference, overload resolution, and extension facts.
@@ -127,6 +130,7 @@ either define their own exact operation or reject it without matching the
 public marker spelling.
 
 Target-flavoured aliases remain in their target modules. C# owns
-`out`/`ref`/`inref`, `defaultof`, `ptr`, and `fnptr` in
-`@tsonic/csharp/lang.js`; Rust owns `borrow`, `borrowMut`, and `move` in
-`@tsonic/rust/lang.js`. Those aliases are not neutral-core exports.
+`out`/`ref`/`inref`, `defaultof`, `ptr`, and `fnptr`; Rust owns explicit
+`Ref`/`Mut` lifetime-bearing types and `ref`/`mut`/`load`/`store` operations.
+Neutral `sharedBorrow`, `mutableBorrow`, and `move` remain
+`@tsonic/core/lang.js` exports.
