@@ -19,32 +19,33 @@ provider authoring, and certification. Package repositories may summarize
 their local build commands, but they must link here rather than maintain a
 second product contract.
 
-## Start here
+## Table of Contents
 
-- [Install and build a first project](manual/get-started.md)
-- [Configure projects and output](manual/projects.md)
-- [Choose an application or library](manual/applications-and-libraries.md)
-- [Organize packages and workspaces](manual/packages-and-workspaces.md)
+### Manual
+
+- [Manual overview](manual/README.md)
+- [Get started](manual/get-started.md)
+- [Compiler model](manual/compiler-model.md)
+- [Projects](manual/projects.md)
+- [Applications and libraries](manual/applications-and-libraries.md)
+- [Packages and workspaces](manual/packages-and-workspaces.md)
 - [Build, test, and deploy](manual/build-test-deploy.md)
-- [Understand the compiler model](manual/compiler-model.md)
-- [Use neutral source semantics](manual/source-semantics.md)
-- [Choose source profiles and capabilities](manual/surfaces-and-capabilities.md)
-- [Choose a target](manual/targets/README.md)
-- [Troubleshoot a build](manual/troubleshooting.md)
+- [Source semantics](manual/source-semantics.md)
+- [Surfaces and capabilities](manual/surfaces-and-capabilities.md)
+- [Targets](manual/targets/README.md)
+- [C# manual](manual/targets/csharp/README.md)
+- [C# source profile](manual/targets/csharp/source-profile.md)
+- [C# interop and safety](manual/targets/csharp/interop-and-safety.md)
+- [C# projects and output](manual/targets/csharp/projects-and-output.md)
+- [Rust manual](manual/targets/rust/README.md)
+- [Rust source profile](manual/targets/rust/source-profile.md)
+- [Rust ownership and safety](manual/targets/rust/ownership-and-safety.md)
+- [Rust projects and output](manual/targets/rust/projects-and-output.md)
+- [Troubleshooting](manual/troubleshooting.md)
 
-## Target manuals
+### Reference
 
-- [C# target](manual/targets/csharp/README.md)
-- [Rust target](manual/targets/rust/README.md)
-
-The target manuals use the same structure where the targets have the same
-responsibility: configuration, source profile, native APIs, interop and
-safety, projects and output, providers, and support boundaries. Target-native
-concepts remain target-native. C# documents assemblies, attributes, and
-NativeAOT; Rust documents foundations, ownership, lifetimes, traits, and Cargo.
-
-## Reference
-
+- [Reference overview](reference/README.md)
 - [CLI](reference/cli.md)
 - [`tsonic.json`](reference/project-config.md)
 - [Toolchains and platforms](reference/toolchains.md)
@@ -55,16 +56,46 @@ NativeAOT; Rust documents foundations, ownership, lifetimes, traits, and Cargo.
 - [Diagnostics](reference/diagnostics.md)
 - [Package catalog](reference/package-catalog.md)
 - [C# reference](reference/targets/csharp/README.md)
+- [C# configuration](reference/targets/csharp/configuration.md)
+- [C# source modules](reference/targets/csharp/source-modules.md)
+- [C# type mapping](reference/targets/csharp/type-mapping.md)
+- [C# native APIs](reference/targets/csharp/native-apis.md)
+- [C# JavaScript surface](reference/targets/csharp/javascript-surface.md)
+- [C# Node capability](reference/targets/csharp/node-capability.md)
+- [C# provider API](reference/targets/csharp/provider-api.md)
+- [C# language support](reference/targets/csharp/language-support.md)
+- [C# support inventory](reference/targets/csharp/support-inventory.md)
+- [C# limitations](reference/targets/csharp/limitations.md)
 - [Rust reference](reference/targets/rust/README.md)
+- [Rust configuration](reference/targets/rust/configuration.md)
+- [Rust source modules](reference/targets/rust/source-modules.md)
+- [Rust type mapping](reference/targets/rust/type-mapping.md)
+- [Rust ownership and lifetimes](reference/targets/rust/ownership-and-lifetimes.md)
+- [Rust native APIs](reference/targets/rust/native-apis.md)
+- [Rust JavaScript surface](reference/targets/rust/javascript-surface.md)
+- [Rust Node capability](reference/targets/rust/node-capability.md)
+- [Rust provider API](reference/targets/rust/provider-api.md)
+- [Rust language support](reference/targets/rust/language-support.md)
+- [Rust support inventory](reference/targets/rust/support-inventory.md)
+- [Rust limitations](reference/targets/rust/limitations.md)
 
-## Architecture and validation
+### Architecture
 
-- [Architecture](architecture/README.md)
+- [Architecture overview](architecture/README.md)
 - [Compilation lifecycle](architecture/compilation-lifecycle.md)
 - [Target-pack contract](architecture/target-pack-contract.md)
 - [Provider and runtime ownership](architecture/provider-and-runtime-ownership.md)
-- [Validation](validation/README.md)
+- [Workspace policy](architecture/workspace-agent-policy.md)
+
+### Validation
+
+- [Validation overview](validation/README.md)
 - [Documentation drift policy](validation/documentation-drift.md)
+
+The target manuals use the same structure where the targets have the same
+responsibility. Target-native concepts remain target-native. C# documents
+assemblies, attributes, and NativeAOT. Rust documents foundations, ownership,
+lifetimes, traits, and Cargo.
 
 ## Documentation rules
 
