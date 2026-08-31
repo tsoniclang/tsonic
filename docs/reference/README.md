@@ -7,6 +7,8 @@ The reference documents exact current contracts. It complements the guided
 
 - [CLI](cli.md)
 - [`tsonic.json`](project-config.md)
+- [Toolchains and platforms](toolchains.md)
+- [Tsonic limitations](limitations.md)
 - [Neutral source types and markers](source-core.md)
 - [JavaScript source profile](javascript-source-profile.md)
 - [Node capability](node-capability.md)

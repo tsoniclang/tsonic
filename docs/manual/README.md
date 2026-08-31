@@ -1,20 +1,29 @@
 # Tsonic manual
 
-The manual explains how to author TypeScript that becomes native source code.
-It is task-oriented and uses complete examples. Exact option and API catalogs
-live in the [reference](../reference/README.md).
+Tsonic compiles TypeScript into native source projects. The manual starts with
+a complete program, then explains the few choices that affect what gets built.
 
-## Reading order
+## Start here
 
-1. [Get started](get-started.md).
-2. Read the [compiler model](compiler-model.md).
-3. Learn [projects and output ownership](projects.md).
-4. Learn [neutral source semantics](source-semantics.md).
-5. Select [surfaces and capabilities](surfaces-and-capabilities.md).
-6. Continue with the [C#](targets/csharp/README.md) or
-   [Rust](targets/rust/README.md) target manual.
+1. [Build your first program](get-started.md).
+2. Learn [how projects and configuration work](projects.md).
+3. Choose between an [application and a library](applications-and-libraries.md).
+4. Organize [packages and workspaces](packages-and-workspaces.md).
+5. [Build, test, and deploy](build-test-deploy.md) with the native toolchain.
 
-Most ordinary TypeScript needs no target marker:
+Then read the parts that apply to your code:
+
+- [Compiler model](compiler-model.md)
+- [Source semantics](source-semantics.md)
+- [Surfaces and capabilities](surfaces-and-capabilities.md)
+- [C# target](targets/csharp/README.md)
+- [Rust target](targets/rust/README.md)
+- [Troubleshooting](troubleshooting.md)
+
+The [reference](../reference/README.md) contains exact option, marker, API, and
+limitation contracts.
+
+Most TypeScript needs no Tsonic-specific syntax:
 
 ```ts
 export function greet(name: string): string {
@@ -22,6 +31,6 @@ export function greet(name: string): string {
 }
 ```
 
-Markers are used only when the source must express a semantic choice that
-ordinary TypeScript does not encode, such as an exact integer width, a mutable
-storage location, a native pointer operation, or a target safety boundary.
+Use a marker only when ordinary TypeScript cannot state an important native
+distinction, such as an exact integer width, a writable location, a native
+pointer, or a Rust lifetime.

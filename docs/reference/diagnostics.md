@@ -42,3 +42,19 @@ revision exists internally for rollback.
 Tsonic reports target-toolchain failures with the target owner. Native compiler
 output remains the authoritative explanation for invalid generated target code
 or native project configuration.
+
+## Reading a diagnostic
+
+Work from left to right:
+
+1. **Owner:** which compiler, extension, target, or capability rejected.
+2. **Code:** the stable diagnostic family to search for.
+3. **Source span:** the authored location when one exists.
+4. **Message:** the rejected contract.
+5. **Evidence:** exact selected identities or policy facts used by the owner.
+
+Do not fix a target diagnostic by changing unrelated TypeScript spelling. For
+example, a missing provider relation requires the provider or target contract
+to be corrected; renaming the method cannot create semantic identity.
+
+See the task-oriented [troubleshooting guide](../manual/troubleshooting.md).

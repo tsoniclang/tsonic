@@ -8,12 +8,17 @@ The documentation checker validates:
 
 - required manual, reference, target, architecture, and validation pages;
 - all relative Markdown links;
+- balanced fenced examples and valid JSON examples;
 - navigation entries;
 - shared project-config fields and defaults;
 - neutral source primitive, type-marker, call-marker, pointer, safety, and
   attribute exports;
 - symmetric C# and Rust target-reference structure;
 - exact C# and Rust target option names;
+- C# application startup and Rust binary-entry rules;
+- C# target-owned MSBuild property names;
+- generated-project and user-owned-project ownership boundaries;
+- CLI exit codes and transactional publication behavior;
 - current target virtual-module prefixes;
 - prohibited retired architecture terminology;
 - support evidence paths where a committed matrix cites a proof.

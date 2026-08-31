@@ -39,6 +39,23 @@ This discovers the project's installed plugins and prints one tab-separated
 `target-id` and plugin id per available target. Discovery errors cause a
 nonzero exit.
 
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Help, target discovery, or build completed successfully |
+| `1` | Invalid configuration, plugin failure, compiler diagnostic, target rejection, publication failure, or toolchain failure |
+| `2` | Unknown CLI command |
+
+`tsonic build` may print project information even when diagnostics are also
+present. Treat the exit code as the build result.
+
+## Output publication
+
+The CLI recovers any interrupted output transaction before compiling. It
+publishes the complete output tree only when every selected target resolves
+without an error. A failure leaves the previous successful output in place.
+
 ## Unsupported commands
 
 There are no `init`, `run`, `add`, or `restore` commands. Project creation,

@@ -5,6 +5,7 @@ import test from "node:test";
 
 const repositoryRoot = resolve(new URL("../..", import.meta.url).pathname);
 const documentationRoot = resolve(repositoryRoot, "docs");
+const workspaceRoot = resolve(repositoryRoot, "..");
 
 const sharedTargetReferencePages = Object.freeze([
   "README.md",
@@ -52,6 +53,24 @@ test("every relative documentation link resolves", () => {
         existsSync(resolve(dirname(path), localPath)),
         true,
         `${normalize(relative(repositoryRoot, path))}: unresolved link '${destination}'`,
+      );
+    }
+  }
+});
+
+test("documentation examples have balanced fences and valid JSON", () => {
+  for (const path of collectMarkdownFiles(documentationRoot)) {
+    const source = readFileSync(path, "utf8");
+    const fences = [...source.matchAll(/^```/gmu)];
+    assert.equal(
+      fences.length % 2,
+      0,
+      `${normalize(relative(repositoryRoot, path))}: unbalanced fenced block`,
+    );
+    for (const match of source.matchAll(/^```json\s*\n([\s\S]*?)^```\s*$/gmu)) {
+      assert.doesNotThrow(
+        () => JSON.parse(match[1]),
+        `${normalize(relative(repositoryRoot, path))}: invalid JSON example`,
       );
     }
   }
@@ -118,6 +137,84 @@ test("neutral source exports are represented in the canonical reference", () => 
   }
 });
 
+test("target option references match the target parsers", () => {
+  const targets = [{
+    name: "C#",
+    source: resolve(workspaceRoot, "tsonic-csharp/src/options/csharp-target-options.ts"),
+    listName: "supportedCsharpTargetOptionKeys",
+    reference: resolve(documentationRoot, "reference/targets/csharp/configuration.md"),
+  }, {
+    name: "Rust",
+    source: resolve(workspaceRoot, "tsonic-rust/src/options/rust-target-options.ts"),
+    listName: "supportedRustTargetOptionKeys",
+    reference: resolve(documentationRoot, "reference/targets/rust/configuration.md"),
+  }];
+
+  for (const target of targets) {
+    const source = readFileSync(target.source, "utf8");
+    const expected = extractFrozenStringList(source, target.listName).sort();
+    const reference = readFileSync(target.reference, "utf8");
+    const firstSection = reference.split(/^## /mu, 1)[0];
+    const actual = [...firstSection.matchAll(/^\| `([^`]+)` \|/gmu)]
+      .map((match) => match[1])
+      .sort();
+    assert.deepEqual(actual, expected, `${target.name} option reference drifted`);
+  }
+});
+
+test("C# target-owned project properties use their documented controls", () => {
+  const source = readFileSync(
+    resolve(workspaceRoot, "tsonic-csharp/src/analysis/project/classification.ts"),
+    "utf8",
+  );
+  const reference = readFileSync(
+    resolve(documentationRoot, "reference/targets/csharp/configuration.md"),
+    "utf8",
+  );
+  for (const property of extractStringSet(source, "targetOwnedProjectProperties")) {
+    assert.ok(reference.includes("`" + property + "`"), property);
+  }
+});
+
+test("application entry and native project ownership are explicit", () => {
+  const applications = readFileSync(
+    resolve(documentationRoot, "manual/applications-and-libraries.md"),
+    "utf8",
+  );
+  const projects = readFileSync(resolve(documentationRoot, "manual/projects.md"), "utf8");
+  const csharp = readFileSync(
+    resolve(documentationRoot, "manual/targets/csharp/projects-and-output.md"),
+    "utf8",
+  );
+  const rust = readFileSync(
+    resolve(documentationRoot, "manual/targets/rust/projects-and-output.md"),
+    "utf8",
+  );
+
+  assert.match(applications, /exported function named `main` is an\s+ordinary function/u);
+  assert.match(csharp, /`TsonicEntrypoint\.Main`/u);
+  assert.match(csharp, /`Microsoft\.NET\.Sdk`/u);
+  assert.match(rust, /export function main\(\): void/u);
+  assert.match(rust, /Promise<void>/u);
+  assert.match(rust, /`core` and `alloc` generated outputs are\s+libraries/u);
+  assert.match(projects, /never edits the project you\s+named/u);
+  assert.match(projects, /There is no generic override bag/u);
+  assert.doesNotMatch(
+    rust,
+    /cargo build --manifest-path out\/rust\/Cargo\.toml --locked/u,
+    "the first documented Cargo build cannot require a lockfile that does not exist",
+  );
+});
+
+test("CLI outcomes and publication are documented", () => {
+  const reference = readFileSync(resolve(documentationRoot, "reference/cli.md"), "utf8");
+  for (const code of ["0", "1", "2"]) {
+    assert.match(reference, new RegExp("^\\| `" + code + "` \\|", "mu"));
+  }
+  assert.match(reference, /publishes the complete output tree only when every selected target/u);
+  assert.match(reference, /previous successful output in place/u);
+});
+
 function collectMarkdownFiles(root) {
   const files = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -141,6 +238,24 @@ function extractObjectStringValues(source, objectName) {
   const match = source.match(new RegExp(`${objectName}[^=]*= Object\\.freeze\\(\\{([\\s\\S]*?)\\}\\);`, "u"));
   assert.ok(match?.[1] !== undefined, `source object '${objectName}' was not found`);
   return [...match[1].matchAll(/:\s*"([^"]+)"/gu)].map((entry) => entry[1]);
+}
+
+function extractFrozenStringList(source, listName) {
+  const match = source.match(new RegExp(
+    `const ${listName} = Object\\.freeze\\(\\[([\\s\\S]*?)\\]\\);`,
+    "u",
+  ));
+  assert.ok(match?.[1] !== undefined, `source list '${listName}' was not found`);
+  return [...match[1].matchAll(/"([^"]+)"/gu)].map((entry) => entry[1]);
+}
+
+function extractStringSet(source, setName) {
+  const match = source.match(new RegExp(
+    `const ${setName} = new Set\\(\\[([\\s\\S]*?)\\]\\);`,
+    "u",
+  ));
+  assert.ok(match?.[1] !== undefined, `source set '${setName}' was not found`);
+  return [...match[1].matchAll(/"([^"]+)"/gu)].map((entry) => entry[1]);
 }
 
 function normalize(path) {

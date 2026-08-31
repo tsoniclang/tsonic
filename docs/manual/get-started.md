@@ -1,76 +1,125 @@
 # Get started
 
+This guide builds one C# program and one Rust program. Each starts from an
+empty directory.
+
 ## Requirements
 
-- Node.js 22 or newer;
-- the target-native toolchain: .NET 10 SDK for C#, or a current supported Rust
-  toolchain for Rust;
-- a project-local installation of `@tsonic/cli` and the selected target pack.
+- Node.js 22.18 or newer
+- npm
+- .NET 10 SDK for C#
+- `cargo`, `rustc`, and `rustdoc` for Rust
 
-## C# project
+Tsonic generates source code. `dotnet` or Cargo performs the native build.
 
-Install the host and C# target:
+## Build a C# application
 
-```sh
-npm install --save-dev @tsonic/cli @tsonic/target-csharp
+Create this directory:
+
+```text
+hello-csharp/
+├── package.json
+├── tsonic.json
+└── src/
+    └── App.ts
 ```
 
-Create `src/index.ts`:
+Create `package.json`:
+
+```json
+{
+  "name": "hello-csharp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsonic build --project tsonic.json",
+    "run": "dotnet run --project out/csharp/HelloCsharp.csproj"
+  },
+  "devDependencies": {
+    "@tsonic/cli": "0.0.1",
+    "@tsonic/target-csharp": "0.0.1"
+  }
+}
+```
+
+Create `src/App.ts`:
 
 ```ts
 import { Console } from "@tsonic/dotnet/System.js";
-import type { int } from "@tsonic/csharp/types.js";
 
-export function add(left: int, right: int): int {
-  const result = left + right;
-  Console.WriteLine(result);
-  return result;
+function message(name: string): string {
+  return `Hello, ${name}!`;
 }
+
+Console.WriteLine(message("C#"));
 ```
 
 Create `tsonic.json`:
 
 ```json
 {
-  "entryPoint": "index.ts",
+  "entryPoint": "App.ts",
   "rootDir": "src",
   "outDir": "out",
-  "targets": [
-    {
-      "id": "csharp",
-      "options": {
-        "namespace": "Example.Generated",
-        "outputType": "Exe"
-      }
+  "targets": [{
+    "id": "csharp",
+    "options": {
+      "assemblyName": "HelloCsharp",
+      "namespace": "Hello.Generated",
+      "outputType": "Exe"
     }
-  ]
+  }]
 }
 ```
 
-Build the generated project:
+Install, compile, and run:
 
 ```sh
-npx tsonic build --project tsonic.json
-dotnet run --project out/csharp/TsonicGenerated.csproj
+npm install
+npm run build
+npm run run
 ```
 
-Continue with the [C# target manual](targets/csharp/README.md).
+Output:
 
-## Rust project
-
-Install the host and Rust target:
-
-```sh
-npm install --save-dev @tsonic/cli @tsonic/target-rust
+```text
+Hello, C#!
 ```
 
-Create `src/index.ts`:
+The generated C# entrypoint runs the TypeScript entry module. Top-level code is
+therefore the C# application entry. An exported function named `main` has no
+special meaning unless your source calls it.
+
+## Build a Rust application
+
+Create the same three-file layout in `hello-rust/`.
+
+Create `package.json`:
+
+```json
+{
+  "name": "hello-rust",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsonic build --project tsonic.json",
+    "run": "cargo run --manifest-path out/rust/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tsonic/cli": "0.0.1",
+    "@tsonic/target-rust": "0.0.1"
+  }
+}
+```
+
+Create `src/App.ts`:
 
 ```ts
-import type { int32 } from "@tsonic/core/types.js";
-
-export function add(left: int32, right: int32): int32 {
-  return left + right;
+export function main(): void {
+  const answer = 40 + 2;
+  if (answer !== 42) {
+    throw new Error("unexpected answer");
+  }
 }
 ```
 
@@ -78,46 +127,76 @@ Create `tsonic.json`:
 
 ```json
 {
-  "entryPoint": "index.ts",
+  "entryPoint": "App.ts",
   "rootDir": "src",
   "outDir": "out",
-  "targets": [
-    {
-      "id": "rust",
-      "options": {
-        "crateName": "example_generated",
-        "outputType": "lib"
-      }
+  "targets": [{
+    "id": "rust",
+    "options": {
+      "crateName": "hello_rust",
+      "edition": "2024",
+      "outputType": "bin"
     }
-  ]
+  }]
 }
 ```
 
-Build the generated project:
+Install, compile, and run:
 
 ```sh
-npx tsonic build --project tsonic.json
-cargo check --manifest-path out/rust/Cargo.toml
+npm install
+npm run build
+npm run run
 ```
 
-Continue with the [Rust target manual](targets/rust/README.md).
+A generated Rust binary requires the entry module to export `main(): void`.
+Tsonic creates native Rust `main` and calls that exported function after module
+initialization.
 
-## Plugin discovery
+## Use JavaScript APIs
 
-Tsonic discovers target and capability plugins from the project package's
-installed dependencies and development dependencies. A target name in
-`tsonic.json` is not sufficient by itself: the corresponding plugin package
-must be installed. Capability packages are installed only when their APIs are
-used.
+Add `"surfaces": ["js"]` to a target when the source uses JavaScript globals
+and built-ins:
 
-For example, this import requires the target-specific Node capability package:
+```json
+{
+  "id": "rust",
+  "surfaces": ["js"],
+  "options": {
+    "crateName": "hello_rust",
+    "outputType": "bin"
+  }
+}
+```
+
+```ts
+export function main(): void {
+  console.log([1, 2, 3].map((value) => value * 2).join(","));
+}
+```
+
+## Use Node APIs
+
+Node is an installed capability, not a source surface:
+
+```sh
+# Choose the package for the selected target.
+npm install --save-dev @tsonic/csharp-nodejs
+npm install --save-dev @tsonic/rust-nodejs
+```
 
 ```ts
 import { readFileSync } from "node:fs";
+
+const text = readFileSync("message.txt", "utf8");
 ```
 
-- C#: install `@tsonic/csharp-nodejs`.
-- Rust: install `@tsonic/rust-nodejs`.
+Installing a Node capability does not enable JavaScript globals. Select the JS
+surface separately only when the program uses it.
 
-Installing Node does not select JavaScript globals. Source profiles and
-capabilities are independent choices.
+## Next
+
+- [Projects and configuration](projects.md)
+- [Applications and libraries](applications-and-libraries.md)
+- [C# target manual](targets/csharp/README.md)
+- [Rust target manual](targets/rust/README.md)

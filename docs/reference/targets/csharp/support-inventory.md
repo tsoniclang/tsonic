@@ -35,6 +35,24 @@ provider relations.
 The inventory is metadata-shaped: Tsonic does not maintain a hand-written
 allowlist of BCL type names.
 
+### Check one .NET API
+
+Import the exact namespace and let the selected framework/assembly metadata
+answer the question:
+
+```ts
+import { File } from "@tsonic/dotnet/System.IO.js";
+
+export function read(path: string): string {
+  return File.ReadAllText(path);
+}
+```
+
+If the type, overload, conversion, or assembly relation is unavailable, the
+build fails at the import or provider boundary. The documentation therefore
+lists supported metadata *families* rather than copying the evolving .NET API
+catalog.
+
 ## JavaScript families
 
 - arrays, strings, numbers, Math, maps, sets, dates, JSON, RegExp, promises,
@@ -62,3 +80,6 @@ allowlist of BCL type names.
 - open object graphs or dynamic calls that require CLR reflection;
 - target-specific generator or pointer combinations outside the approved
   native/runtime protocols.
+
+For exact configuration and rejection rules, see
+[configuration](configuration.md) and [limitations](limitations.md).

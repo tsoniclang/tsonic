@@ -14,6 +14,24 @@ guessing or forbidden runtime machinery.
 - native metadata shapes the .NET provider cannot express legally in its
   TypeScript declaration model.
 
+## Application and library boundaries
+
+An exported function named `main` is not a C# entrypoint by convention:
+
+```ts
+export function main(): void {}
+```
+
+For executable output, call it from top-level code. The generated
+`TsonicEntrypoint.Main` runs the entry module.
+
+C# library module initialization must be synchronous. Top-level `await` in a
+library entry graph is rejected because a CLR module initializer cannot await.
+
+Runtime ESM cycles are accepted only when the closed module plan preserves
+ordering and initialization state. A cycle that needs JavaScript temporal dead
+zones or unresolved live bindings is rejected.
+
 ## Storage and pointer boundaries
 
 Address formation requires exact stable storage identity. Provider/project
@@ -31,6 +49,16 @@ The target uses native C# iterator syntax when it preserves TypeScript
 behavior. C# placements that forbid `yield`, or generator contracts that cannot
 be represented by the approved native/runtime protocol, reject. Tsonic does not
 reimplement the C# compiler's general state-machine transformation.
+
+For example, C# does not permit `yield return` in `catch`, `finally`, or a
+`try` that has a `catch`. Tsonic reports the unsupported placement rather than
+emitting a hand-written state machine with different behavior.
+
+## Generated project boundary
+
+Generated projects use `Microsoft.NET.Sdk`. Web, desktop, test, MAUI, and
+custom SDK projects must be user-owned. Tsonic emits source for them but does
+not synthesize or rewrite their native project graph.
 
 ## Provider boundaries
 

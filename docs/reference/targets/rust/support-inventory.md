@@ -56,6 +56,26 @@ provider declarations.
 - JSON replacer callbacks and arbitrary `toJSON` dispatch;
 - projection or logging of unbounded arbitrary/cyclic object graphs.
 
+## Check one Rust API
+
+Import the exact native module and let rustdoc from the selected toolchain or
+Cargo dependency answer the question:
+
+```ts
+import { HashMap } from "@tsonic/rust/std/collections.js";
+import type { int32 } from "@tsonic/core/types.js";
+
+export function make(): HashMap<string, int32> {
+  return new HashMap<string, int32>();
+}
+```
+
+For a third-party crate, replace the standard-library prefix with
+`@tsonic/rust/crates/<direct-dependency-alias>/*`. Missing items, unsupported
+signatures, foundation violations, and unresolved ownership reject at the
+provider or analysis boundary. The documentation therefore lists metadata and
+operation families rather than copying the evolving Rust API catalog.
+
 ## Rust target limits
 
 - locale-sensitive string behavior requires one explicit ICU/data contract;
@@ -66,3 +86,6 @@ provider declarations.
 - `Object.assign` cannot change the static layout of an existing Rust value;
 - runtime-added fields, open nominal inspection, and unproved cyclic identity
   remain outside the finite carrier model.
+
+For exact configuration and rejection rules, see
+[configuration](configuration.md) and [limitations](limitations.md).

@@ -22,11 +22,15 @@ second product contract.
 ## Start here
 
 - [Install and build a first project](manual/get-started.md)
-- [Understand the compiler model](manual/compiler-model.md)
 - [Configure projects and output](manual/projects.md)
+- [Choose an application or library](manual/applications-and-libraries.md)
+- [Organize packages and workspaces](manual/packages-and-workspaces.md)
+- [Build, test, and deploy](manual/build-test-deploy.md)
+- [Understand the compiler model](manual/compiler-model.md)
 - [Use neutral source semantics](manual/source-semantics.md)
 - [Choose source profiles and capabilities](manual/surfaces-and-capabilities.md)
 - [Choose a target](manual/targets/README.md)
+- [Troubleshoot a build](manual/troubleshooting.md)
 
 ## Target manuals
 
@@ -43,6 +47,8 @@ NativeAOT; Rust documents foundations, ownership, lifetimes, traits, and Cargo.
 
 - [CLI](reference/cli.md)
 - [`tsonic.json`](reference/project-config.md)
+- [Toolchains and platforms](reference/toolchains.md)
+- [Shared limitations](reference/limitations.md)
 - [Neutral types and markers](reference/source-core.md)
 - [JavaScript source profile](reference/javascript-source-profile.md)
 - [Node capability](reference/node-capability.md)

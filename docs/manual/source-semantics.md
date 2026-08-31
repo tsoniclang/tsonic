@@ -13,6 +13,40 @@ export function rename(user: User, name: string): User {
 }
 ```
 
+## Inheritance and overrides
+
+Write normal TypeScript inheritance:
+
+```ts
+class Message {
+  text = "base";
+
+  render(): string {
+    return this.text;
+  }
+}
+
+class EmphaticMessage extends Message {
+  text = "important";
+
+  render(): string {
+    return `${super.render()}!`;
+  }
+}
+
+export function show(message: Message): string {
+  return message.render();
+}
+```
+
+The checked source program records that the derived members override base
+members and that `message.render()` is virtual dispatch. C# emits the required
+`virtual` and `override` members. Rust emits its equivalent closed dispatch
+model. Source code does not add a C#- or Rust-specific override marker.
+
+Target-native inheritance is also evidence-driven. Extending a provider type
+is accepted only when that provider exposes an exact legal base contract.
+
 Tsonic source modules add types and operations only where JavaScript and
 TypeScript do not express a required native distinction.
 

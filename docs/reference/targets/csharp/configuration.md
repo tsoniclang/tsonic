@@ -22,6 +22,22 @@ are rejected.
 `memorySafetyRules: "preview"` requires
 `languageDialect: "csharp15-preview"`.
 
+## Generated and user-owned projects
+
+| Option | Generated project | User-owned project |
+| --- | --- | --- |
+| `assemblyName`, `namespace`, `outputType` | controls emitted C# and project identity | still controls emitted C# semantics where applicable |
+| `languageDialect`, `memorySafetyRules` | controls accepted/emitted C# | same |
+| `targetFramework` | emits `TargetFramework` and selects the framework reference pack | selects the framework reference pack; the `.csproj` must agree |
+| `references` | emits project references; framework/assembly entries also feed reflection | not written to the `.csproj`; framework/assembly entries may feed reflection |
+| `properties`, `implicitUsings`, `nullable`, `publishAot` | emitted into the generated project | not written to the user project |
+| `providerReferences` | reflection input only | reflection input only |
+| `projectFile` | absent | selects the existing `.csproj` |
+
+Tsonic never edits a user-owned project. Configuration that belongs to that
+project—SDK selection, item inclusion, package restore, target RID, signing,
+and deployment—must be written in the `.csproj`.
+
 ## `references`
 
 | Field | Entry shape |
@@ -51,3 +67,36 @@ booleans. These target-owned properties cannot be overridden through
 
 `AllowUnsafeBlocks`, `Features`, `ImplicitUsings`, `LangVersion`, `Nullable`,
 `OutputType`, `PublishAot`, and `TargetFramework`.
+
+Use the dedicated option instead. For example, set `publishAot`, not
+`properties.PublishAot`. The target may also enable `AllowUnsafeBlocks` when
+the sealed program contains an explicitly authorized unsafe requirement; a
+free-form property cannot bypass that analysis.
+
+## Complete generated example
+
+```json
+{
+  "id": "csharp",
+  "surfaces": ["js"],
+  "options": {
+    "assemblyName": "Acme.Tool",
+    "namespace": "Acme.Generated",
+    "outputType": "Exe",
+    "targetFramework": "net10.0",
+    "languageDialect": "csharp14",
+    "nullable": true,
+    "references": {
+      "frameworks": ["Microsoft.AspNetCore.App"],
+      "packages": [{
+        "include": "Microsoft.Extensions.Logging.Abstractions",
+        "version": "10.0.0"
+      }]
+    },
+    "properties": {
+      "RuntimeIdentifier": "linux-x64",
+      "SelfContained": true
+    }
+  }
+}
+```
