@@ -1,0 +1,35 @@
+{
+  "manual": [
+    "manual/README.md",
+    "manual/get-started.md",
+    "manual/compiler-model.md",
+    "manual/projects.md",
+    "manual/source-semantics.md",
+    "manual/surfaces-and-capabilities.md",
+    "manual/targets/README.md",
+    "manual/targets/csharp/README.md",
+    "manual/targets/rust/README.md"
+  ],
+  "reference": [
+    "reference/README.md",
+    "reference/cli.md",
+    "reference/project-config.md",
+    "reference/source-core.md",
+    "reference/javascript-source-profile.md",
+    "reference/node-capability.md",
+    "reference/diagnostics.md",
+    "reference/package-catalog.md",
+    "reference/targets/csharp/README.md",
+    "reference/targets/rust/README.md"
+  ],
+  "architecture": [
+    "architecture/README.md",
+    "architecture/compilation-lifecycle.md",
+    "architecture/target-pack-contract.md",
+    "architecture/provider-and-runtime-ownership.md"
+  ],
+  "validation": [
+    "validation/README.md",
+    "validation/documentation-drift.md"
+  ]
+}
