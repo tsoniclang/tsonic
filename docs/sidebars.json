@@ -34,6 +34,7 @@
     "reference/targets/csharp/node-capability.md",
     "reference/targets/csharp/provider-api.md",
     "reference/targets/csharp/language-support.md",
+    "reference/targets/csharp/support-inventory.md",
     "reference/targets/csharp/limitations.md",
     "reference/targets/rust/README.md",
     "reference/targets/rust/configuration.md",
@@ -45,6 +46,7 @@
     "reference/targets/rust/node-capability.md",
     "reference/targets/rust/provider-api.md",
     "reference/targets/rust/language-support.md",
+    "reference/targets/rust/support-inventory.md",
     "reference/targets/rust/limitations.md"
   ],
   "architecture": [

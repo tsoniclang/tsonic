@@ -20,3 +20,5 @@ C# profile may import `node:path` while using `System.Console`.
 
 Unavailable APIs reject at provider selection. They are not forwarded to an
 embedded Node process.
+
+See the detailed [support inventory](support-inventory.md).

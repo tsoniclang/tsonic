@@ -22,3 +22,5 @@ Node support is independent of the JS surface. A native Rust profile may
 import `node:path` without activating JavaScript globals. Unavailable Node
 operations reject at provider selection and are never forwarded to a Node
 process.
+
+See the detailed [support inventory](support-inventory.md).

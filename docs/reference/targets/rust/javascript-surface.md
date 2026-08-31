@@ -22,3 +22,5 @@ only where selected; native Rust strings remain the default carrier.
 The JS surface does not add an embedded JavaScript engine or open reflection.
 Each accepted operation has one static Rust lowering or one closed runtime
 contract. Unsupported dynamic behavior rejects.
+
+See the detailed [support inventory](support-inventory.md).
