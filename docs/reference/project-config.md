@@ -32,7 +32,6 @@ instead.
 
 ```json
 {
-  "$schema": "https://tsonic.org/schema/project/v1.json",
   "entryPoint": "index.ts",
   "rootFiles": ["index.ts", "startup.ts"],
   "rootDir": "src",
@@ -57,6 +56,10 @@ instead.
   ]
 }
 ```
+
+`$schema` is accepted so editors can associate a schema chosen by the user or
+workspace. Tsonic does not currently publish a canonical schema URL, so the
+example deliberately omits one.
 
 See the exact [C# options](targets/csharp/configuration.md) and
 [Rust options](targets/rust/configuration.md).

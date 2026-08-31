@@ -8,7 +8,13 @@
     "manual/surfaces-and-capabilities.md",
     "manual/targets/README.md",
     "manual/targets/csharp/README.md",
-    "manual/targets/rust/README.md"
+    "manual/targets/csharp/source-profile.md",
+    "manual/targets/csharp/interop-and-safety.md",
+    "manual/targets/csharp/projects-and-output.md",
+    "manual/targets/rust/README.md",
+    "manual/targets/rust/source-profile.md",
+    "manual/targets/rust/ownership-and-safety.md",
+    "manual/targets/rust/projects-and-output.md"
   ],
   "reference": [
     "reference/README.md",
@@ -20,7 +26,26 @@
     "reference/diagnostics.md",
     "reference/package-catalog.md",
     "reference/targets/csharp/README.md",
-    "reference/targets/rust/README.md"
+    "reference/targets/csharp/configuration.md",
+    "reference/targets/csharp/source-modules.md",
+    "reference/targets/csharp/type-mapping.md",
+    "reference/targets/csharp/native-apis.md",
+    "reference/targets/csharp/javascript-surface.md",
+    "reference/targets/csharp/node-capability.md",
+    "reference/targets/csharp/provider-api.md",
+    "reference/targets/csharp/language-support.md",
+    "reference/targets/csharp/limitations.md",
+    "reference/targets/rust/README.md",
+    "reference/targets/rust/configuration.md",
+    "reference/targets/rust/source-modules.md",
+    "reference/targets/rust/type-mapping.md",
+    "reference/targets/rust/ownership-and-lifetimes.md",
+    "reference/targets/rust/native-apis.md",
+    "reference/targets/rust/javascript-surface.md",
+    "reference/targets/rust/node-capability.md",
+    "reference/targets/rust/provider-api.md",
+    "reference/targets/rust/language-support.md",
+    "reference/targets/rust/limitations.md"
   ],
   "architecture": [
     "architecture/README.md",
