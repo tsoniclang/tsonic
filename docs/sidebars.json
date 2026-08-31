@@ -53,7 +53,8 @@
     "architecture/README.md",
     "architecture/compilation-lifecycle.md",
     "architecture/target-pack-contract.md",
-    "architecture/provider-and-runtime-ownership.md"
+    "architecture/provider-and-runtime-ownership.md",
+    "architecture/workspace-agent-policy.md"
   ],
   "validation": [
     "validation/README.md",
