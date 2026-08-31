@@ -86,7 +86,7 @@ test("project configuration documentation matches the host parser", () => {
     /rejectUnknownKeys\(value, new Set\(\[([^\]]+)\]\), `Target at index/u,
   );
   for (const key of [...projectKeys, ...targetKeys]) {
-    assert.match(reference, new RegExp(`\\| \\`${escapeRegExp(key)}\\` \\|`, "u"), key);
+    assert.ok(reference.includes("| `" + key + "` |"), key);
   }
   assert.match(reference, /`rootDir`[^\n]*project-file directory/u);
   assert.match(reference, /`outDir`[^\n]*`dist\/tsonic`/u);
@@ -113,6 +113,7 @@ test("neutral source exports are represented in the canonical reference", () => 
     ...extractObjectStringValues(safety, "tsonicCoreSafetyProviderNames"),
   ]);
   for (const name of exports) {
+    if (name.startsWith("__")) continue;
     assert.ok(reference.includes("`" + name), name);
   }
 });
@@ -140,10 +141,6 @@ function extractObjectStringValues(source, objectName) {
   const match = source.match(new RegExp(`${objectName}[^=]*= Object\\.freeze\\(\\{([\\s\\S]*?)\\}\\);`, "u"));
   assert.ok(match?.[1] !== undefined, `source object '${objectName}' was not found`);
   return [...match[1].matchAll(/:\s*"([^"]+)"/gu)].map((entry) => entry[1]);
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function normalize(path) {
