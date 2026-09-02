@@ -7,14 +7,14 @@ represented faithfully by the approved static C# architecture.
 | --- | --- |
 | Modules | ESM imports/exports, side-effect imports, source packages, module initialization, default exports |
 | Declarations | Functions, classes, interfaces, enums, aliases, generics, overload implementations, inheritance, constructors, statics |
-| Values | Primitives, arrays, tuples, structural object shapes, discriminated unions, nullable values, closed `any`/`unknown` |
+| Values | Primitives, arrays, tuples, structural object shapes, discriminated unions, nullable values, and finite broad values through the closed `TsValue` carrier |
 | Calls | Source and provider overloads, generics, optional/rest parameters, callbacks, constructors, parameter modes, conversions |
 | Expressions | Arithmetic, comparisons, boolean logic, optional chains, nullish coalescing, properties, elements, assignments, spreads, assertions |
 | Control flow | Blocks, branches, switch, loops, labels, exceptions, `finally`, async/await |
 | Iteration | Arrays, strings, provider iterables, `for...of`, `for await...of` |
 | Generators | Sync, async, bidirectional `next(value)`, completion, throw/return, delegation where representable |
 | Resources | `using`, `await using`, lexical cleanup and exceptional cleanup |
-| TypeScript types | Mapped/utility types needed by closed source shapes, `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, callable utilities, `Awaited` |
+| TypeScript types | The complete pinned utility family: object and union transformations, callable and constructor projections, `Awaited`, inference/context utilities, and string-literal transformations |
 | Native interop | .NET virtual declarations, attributes, byrefs, delegates, tasks, pointers, function pointers, explicit safety |
 | JS surface | Closed implemented JavaScript operation families |
 | Node | Installed C# Node capability inventory |

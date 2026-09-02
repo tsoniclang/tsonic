@@ -137,6 +137,23 @@ test("neutral source exports are represented in the canonical reference", () => 
   }
 });
 
+test("the pinned TypeScript utility inventory is represented in the canonical reference", () => {
+  const source = readFileSync(
+    resolve(repositoryRoot, "packages/target-api/src/typescript-no-lib-utilities.ts"),
+    "utf8",
+  );
+  const reference = readFileSync(
+    resolve(documentationRoot, "reference/typescript-types.md"),
+    "utf8",
+  );
+  const names = [...source.matchAll(/^(?:type|interface)\s+([A-Za-z_$][\w$]*)/gmu)]
+    .map((match) => match[1]);
+  assert.ok(names.length > 0, "the pinned utility declaration inventory is empty");
+  for (const name of names) {
+    assert.ok(reference.includes("`" + name + "`"), name);
+  }
+});
+
 test("target option references match the target parsers", () => {
   const targets = [{
     name: "C#",

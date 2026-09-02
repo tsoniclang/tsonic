@@ -26,6 +26,7 @@
     "reference/project-config.md",
     "reference/toolchains.md",
     "reference/limitations.md",
+    "reference/typescript-types.md",
     "reference/source-core.md",
     "reference/javascript-source-profile.md",
     "reference/node-capability.md",

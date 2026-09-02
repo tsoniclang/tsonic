@@ -29,8 +29,8 @@ provider declarations.
 - **Date:** constructors, now/parse/UTC, identity, ISO/UTC/JSON output, UTC
   getters, and UTC setters with JavaScript overflow and TimeClip rules.
 - **Object and JSON:** closed structural keys/values/entries, own-property
-  tests, selected spread/assignment shapes, and JSON parse/stringify over
-  finite broad-value graphs.
+  tests, selected spread/assignment shapes, JSON parse/stringify over finite
+  broad-value graphs, replacer callbacks, and selected `toJSON` methods.
 - **Execution:** console methods, promises, async/await, callbacks, errors,
   generators, resource management, timers, tuples, fixed arrays, records,
   generics, and selected typed-array families.
@@ -49,12 +49,12 @@ provider declarations.
 - canonical `node:*` and supported bare aliases joined to one provider
   identity.
 
-## Shared hard rejections
+## Closed-world rejections
 
 - `eval`, embedded engines, open reflection, and arbitrary dynamic member
   access;
-- JSON replacer callbacks and arbitrary `toJSON` dispatch;
-- projection or logging of unbounded arbitrary/cyclic object graphs.
+- arbitrary `toJSON` dispatch when no exact selected method contract exists;
+- projection or logging of unbounded arbitrary or cyclic object graphs.
 
 ## Check one Rust API
 

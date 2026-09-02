@@ -21,6 +21,21 @@ policy.
   task. Read-only inspection may establish a contract; it does not grant change
   ownership.
 
+### Necessity Ledger
+
+- Every product change set must maintain a task-local necessity ledger under
+  `.analysis/` from design through certification.
+- Each independent change class records the concrete user-visible need, the
+  owning architectural layer, why the existing contract is insufficient, the
+  smallest complete mechanism, explicit exclusions, affected product paths,
+  and its proof gate. An accepted entry ends with: “So yes, really, really
+  needed.”
+- Every product-code, schema, configuration, fixture, and behavioral-test
+  change must map to an accepted ledger entry. Remove changes that cannot be
+  mapped; passing tests do not establish necessity.
+- Final certification includes a complete diff-to-ledger reconciliation and
+  reports both necessity and verification independently.
+
 ## Repository Safety
 
 - Never force-push or delete remote branches or tags. Push branches and let the

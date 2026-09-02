@@ -3,9 +3,11 @@
 Select with `surfaces: ["js"]`. The target composes the shared JavaScript source
 profile and references `@tsonic/csharp-js`.
 
-Implemented families include arrays, strings, maps, sets, dates, JSON, regular
-expressions, promises, timers, typed arrays, number/math operations, and
-console APIs covered by the selected operation tables and runtime proofs.
+Implemented families include arrays, strings, maps, sets, dates, JSON with
+replacer callbacks and selected `toJSON`, regular expressions, promises,
+`Intl`, symbols, weak collections, timers, numeric typed arrays, number/math
+operations, and console APIs covered by the selected operation tables and
+runtime proofs.
 
 ```ts
 const expression = /(?<name>[a-z]+)/giu;

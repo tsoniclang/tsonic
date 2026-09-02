@@ -60,7 +60,7 @@ test("CLI rejects default node:util format operations without fallback", async (
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'format' member '<export>'/u);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:util' export 'default' member 'node:util\.default\.format'/u);
   assert.match(build.stderr, /node:util\.format\(System\.Object,System\.Object\[\]\)/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);

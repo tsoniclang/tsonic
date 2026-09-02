@@ -4,10 +4,11 @@ Select with `surfaces: ["js"]`. The target composes the shared JavaScript
 source profile and activates `@tsonic/rust-js` only when selected operations
 require it.
 
-Implemented closed families include arrays, strings, maps, sets, dates, JSON,
-regular expressions, promises, timers, numeric/math operations, console APIs,
-object-shape operations, and typed values covered by the operation inventory
-and runtime proofs.
+Implemented closed families include arrays, strings, maps, sets, dates, JSON
+with replacer callbacks and selected `toJSON`, regular expressions, promises,
+`Intl`, symbols, weak collections, timers, numeric/math operations, console
+APIs, object-shape operations, and numeric typed arrays covered by the
+operation inventory and runtime proofs.
 
 ```ts
 const expression = /(?<name>[a-z]+)/giu;

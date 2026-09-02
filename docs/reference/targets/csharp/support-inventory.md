@@ -18,7 +18,8 @@ provider relations.
   selected conversions;
 - blocks, branches, switch, loops, exceptions, cleanup, async/await,
   synchronous/asynchronous iteration, generators, and resource management;
-- mapped and utility types used to produce closed callable and object shapes.
+- all pinned TypeScript utility types when their resolved callable, tuple,
+  string-literal, union, or object shape has a closed C# representation.
 
 ## .NET families
 
@@ -55,9 +56,10 @@ catalog.
 
 ## JavaScript families
 
-- arrays, strings, numbers, Math, maps, sets, dates, JSON, RegExp, promises,
-  console, timers, selected typed arrays, closed object-shape operations, and
-  explicit `JsString` UTF-16 behavior;
+- arrays, strings, numbers, Math, maps, sets, dates, JSON including replacer
+  callbacks and selected `toJSON`, RegExp, promises, `Intl`, symbols, weak
+  collections, console, timers, numeric typed arrays, closed object-shape
+  operations, and explicit `JsString` UTF-16 behavior;
 - exact overloads and operations supplied by the selected JavaScript source
   profile and C# operation tables;
 - no embedded JavaScript engine, open reflection, or best-effort dispatch.

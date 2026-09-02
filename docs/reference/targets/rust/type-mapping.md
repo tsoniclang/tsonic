@@ -19,9 +19,37 @@ TypeScript display names.
 | `Pointer<T>` | `tsonic_rust_runtime::Location<T>` |
 | `NativePointer<T>`, `constPtr<T>`, `mutPtr<T>` | native raw pointer with exact mutability |
 | closed structural object | generated Rust record/enum/trait representation selected by layout policy |
-| closed `any` / `unknown` use | finite broad-value carrier only for proved operations |
+| producer-owned broad value | finite `tsonic_rust_js::JsValue` carrier for proved operations |
 
 Provider-backed values retain exact crate, module, item, generic, lifetime,
 const, associated-type, ABI, safety, fallibility, and foundation identities.
 No source type is silently boxed merely to make an unsupported operation
 compile.
+
+## Broad values
+
+An `any` or `unknown` annotation does not select a general Rust carrier:
+
+```ts
+export function keep(value: unknown): unknown {
+  return value;
+}
+```
+
+This is rejected when the parameter must cross the Rust ABI without a concrete
+carrier. Narrowing it first is ordinary TypeScript and produces a concrete
+target type:
+
+```ts
+export function text(value: unknown): string {
+  return typeof value === "string" ? value : "not text";
+}
+```
+
+An approved producer can select a finite broad carrier. Under the JavaScript
+surface, for example, `JSON.parse` produces `JsValue`; a matching JSON or JS
+operation may consume that value. This is exact producer evidence, not a
+spelling-based conversion from arbitrary `any`.
+
+See [TypeScript types and utilities](../../typescript-types.md) for the pinned
+utility inventory and the target-neutral `any` and `unknown` rules.

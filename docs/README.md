@@ -50,6 +50,7 @@ second product contract.
 - [`tsonic.json`](reference/project-config.md)
 - [Toolchains and platforms](reference/toolchains.md)
 - [Shared limitations](reference/limitations.md)
+- [TypeScript types and utilities](reference/typescript-types.md)
 - [Neutral types and markers](reference/source-core.md)
 - [JavaScript source profile](reference/javascript-source-profile.md)
 - [Node capability](reference/node-capability.md)
