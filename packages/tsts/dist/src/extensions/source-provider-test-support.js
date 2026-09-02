@@ -43,6 +43,8 @@ export function sourceProviderExtension(models, options = {}) {
                 moduleSpecifier: specifier,
                 virtualFileName: `/provider/${model.providerModuleId.replaceAll(".", "/")}.d.ts`,
                 providerModuleId: model.providerModuleId,
+                ...(options.packageName === undefined ? {} : { packageName: options.packageName }),
+                ...(options.packageVersion === undefined ? {} : { packageVersion: options.packageVersion }),
             };
         },
         getDeclarationModel(resolution, request) {

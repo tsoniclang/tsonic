@@ -934,7 +934,7 @@ export function fileLoader_getDefaultLibFilePriority(receiver, a) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::method::fileLoader.loadSourceFileMetaData","kind":"method","status":"implemented","sigHash":"52b29481881acea04f31c6031f028ef2d8dd0bb77e94245bbfa6d3738f7b12a2","bodyHash":"0b67c7e4d0c687b4e8b65171f738960dc56d8b732b97620160aaeac15581a66c"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Provider virtual modules have no package.json scope; physical files still use the exact TS-Go metadata path."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Provider virtual declaration models render ECMAScript modules without a physical package.json scope; physical files still use the exact TS-Go metadata path."}
  *
  * Go source:
  * func (p *fileLoader) loadSourceFileMetaData(fileName string) ast.SourceFileMetaData {
@@ -965,7 +965,7 @@ export function fileLoader_loadSourceFileMetaData(receiver, fileName) {
         return {
             PackageJsonType: "",
             PackageJsonDirectory: "",
-            ImpliedNodeFormat: ResolutionModeCommonJS,
+            ImpliedNodeFormat: ResolutionModeESM,
         };
     }
     const packageJsonScope = Resolver_GetPackageScopeForPath(receiver.resolver, GetDirectoryPath(fileName));
