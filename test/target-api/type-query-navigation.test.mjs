@@ -7,6 +7,7 @@ import {
 import {
   isTypeSyntaxNode,
   referenceQueryNode,
+  semanticTypeForNode,
 } from "../../packages/target-api/dist/source-navigation/syntax.js";
 import {
   checkedSource,
@@ -36,6 +37,7 @@ test("source navigation resolves exact authored type-query expressions", async (
   const indexFile = projectSourceFile(checked, "src/index.ts");
   const apiFile = projectSourceFile(checked, "src/api.ts");
   const navigation = createSourceProgramNavigation(checked);
+  const checker = checked.getSourceFileQueries(indexFile).checker;
   const queries = allNodes(ast, indexFile, (node) => ast.is.IsTypeQueryNode(node));
   const rootQuery = requiredSelection(
     queries,
@@ -76,10 +78,15 @@ test("source navigation resolves exact authored type-query expressions", async (
     isWithinNamedFunction(ast, node, "nested"));
   const importedStorage = requiredNode(ast, apiFile, (node) =>
     ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "storage");
+  const rootStorageInitializer = ast.as.AsVariableDeclaration(rootStorage)?.Initializer;
 
   for (const query of queries) {
     assert.equal(isTypeSyntaxNode(ast, query), true);
     assert.equal(referenceQueryNode(ast, query), ast.as.AsTypeQueryNode(query)?.ExprName);
+    assert.equal(
+      semanticTypeForNode(ast, checker, query),
+      checker.getTypeFromTypeNode(query),
+    );
   }
   assert.equal(
     navigation.sourceReferenceFor(rootQuery)?.declaration,
@@ -97,6 +104,8 @@ test("source navigation resolves exact authored type-query expressions", async (
     navigation.sourceReferenceFor(rootQuery)?.declaration,
     navigation.sourceReferenceFor(nestedQuery)?.declaration,
   );
+  assert.equal(navigation.declarationFor(rootQuery), rootStorageInitializer);
+  assert.notEqual(navigation.declarationFor(rootQuery), rootStorage);
 });
 
 function allNodes(ast, root, predicate) {
