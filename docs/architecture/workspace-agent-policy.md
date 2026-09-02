@@ -21,6 +21,21 @@ policy.
   task. Read-only inspection may establish a contract; it does not grant change
   ownership.
 
+### Necessity Ledger
+
+- Every product change set must maintain a task-local necessity ledger under
+  `.analysis/` from design through certification.
+- Each independent change class records the concrete user-visible need, the
+  owning architectural layer, why the existing contract is insufficient, the
+  smallest complete mechanism, explicit exclusions, affected product paths,
+  and its proof gate. An accepted entry ends with: “So yes, really, really
+  needed.”
+- Every product-code, schema, configuration, fixture, and behavioral-test
+  change must map to an accepted ledger entry. Remove changes that cannot be
+  mapped; passing tests do not establish necessity.
+- Final certification includes a complete diff-to-ledger reconciliation and
+  reports both necessity and verification independently.
+
 ## Repository Safety
 
 - Never force-push or delete remote branches or tags. Push branches and let the
@@ -30,9 +45,12 @@ policy.
   change `.gitignore` in its own reviewed commit; never bypass it per file.
 - Keep meaningful work committed and pushed on the one active branch before
   changing repositories or tasks. Never leave hidden or dangling work.
-- Do not create a branch without explicit maintainer approval. Before branching,
-  run the repository's branch-hygiene check when one exists and resolve every
-  branch ahead of `main` except the one active PR branch.
+- Do not create a branch before the maintainer approves the task. Approval to
+  start a task includes permission to create the necessary task branches in
+  every assigned repository; do not ask again for branch permission during that
+  task. Before branching, run the repository's branch-hygiene check when one
+  exists and resolve every branch ahead of `main` except the one active PR
+  branch.
 - Never announce a PR from a dirty worktree. Verify `git status --porcelain` is
   empty and the branch is synchronized with its upstream.
 - Once a PR is opened, keep its commits intentional; do not add unrelated work
