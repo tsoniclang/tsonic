@@ -62,7 +62,8 @@ export function primaryDeclaration(
 }
 
 export function isTypeSyntaxNode(ast: AstReader, node: Node): boolean {
-  return ast.is.IsKeywordTypeNode(node) ||
+  return ast.is.IsTypeQueryNode(node) ||
+    ast.is.IsKeywordTypeNode(node) ||
     ast.is.IsTypeReferenceNode(node) ||
     ast.is.IsUnionTypeNode(node) ||
     ast.is.IsIntersectionTypeNode(node) ||
@@ -84,6 +85,9 @@ export function isTypeSyntaxNode(ast: AstReader, node: Node): boolean {
 }
 
 export function referenceQueryNode(ast: AstReader, node: Node): Node | undefined {
+  if (ast.is.IsTypeQueryNode(node)) {
+    return ast.as.AsTypeQueryNode(node)?.ExprName;
+  }
   const parent = ast.parent(node);
   if (
     parent !== undefined &&

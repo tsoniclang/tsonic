@@ -57,12 +57,18 @@ export function createSourceReferenceNavigation(
     sourceFiles,
     isProjectDeclaration,
   );
+  const directSemanticReferenceFor = (
+    node: Node,
+  ): SourceDeclarationReference | undefined =>
+    ast.is.IsTypeQueryNode(node)
+      ? undefined
+      : referenceIndex.sourceReferenceFor(node);
 
   const declarationFor = (node: Node | undefined): Node | undefined => {
     if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
       return undefined;
     }
-    const selected = referenceIndex.sourceReferenceFor(node);
+    const selected = directSemanticReferenceFor(node);
     if (selected !== undefined) {
       return selected.project ? selected.declaration : undefined;
     }
@@ -93,7 +99,7 @@ export function createSourceReferenceNavigation(
     if (node === undefined || !isProjectSourceFile(ast.getSourceFile(node))) {
       return undefined;
     }
-    const selected = referenceIndex.sourceReferenceFor(node);
+    const selected = directSemanticReferenceFor(node);
     if (selected !== undefined) {
       return selected.project && selected.symbol !== undefined
         ? projectReferenceForDeclaration(

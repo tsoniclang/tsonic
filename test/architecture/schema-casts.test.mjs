@@ -22,7 +22,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/navigation.ts": 1,
   "packages/target-api/src/source-navigation/reference-selection.ts": 3,
   "packages/target-api/src/source-navigation/references-usage.ts": 12,
-  "packages/target-api/src/source-navigation/syntax.ts": 2,
+  "packages/target-api/src/source-navigation/syntax.ts": 3,
   "packages/target-api/src/source-navigation/value-flow.ts": 8,
   "packages/target-api/src/source-semantics/authored-type-facts.ts": 2,
   "packages/target-api/src/source-semantics/authored-type-selection.ts": 1,
