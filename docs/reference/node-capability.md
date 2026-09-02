@@ -12,6 +12,7 @@ Authored source uses standard module specifiers:
 ```ts
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 
 const root = join(process.cwd(), ".generated");
 mkdirSync(root, { recursive: true });

@@ -11,11 +11,19 @@ Unsupported examples include:
 
 ```ts
 eval(sourceText);
+new Function("return 1");
+new Proxy(target, handler);
 value[unknownRuntimeName]();
 ```
 
 Use explicit functions, finite tagged unions, typed records, or provider APIs
 whose members are known during compilation.
+
+This same boundary excludes arbitrary runtime-created class identity, open
+generic `instanceof`, callable objects without a selected call contract, and
+shape-changing mutation of an unknown object. An equivalent static program is
+supported only when it preserves observable identity, evaluation order, and
+callbacks; Tsonic does not silently rewrite one program into another.
 
 ## No hidden compiler configuration
 
@@ -41,6 +49,27 @@ JavaScript live-binding or temporal-dead-zone behavior may be rejected.
 
 Break a runtime cycle by moving shared types or constants into a leaf module,
 or by passing dependencies explicitly.
+
+## JavaScript platform breadth
+
+The `js` surface is a closed implementation of selected JavaScript families,
+not every ECMAScript and Web platform API. Neither target currently exposes
+these families:
+
+```ts
+const weak = new WeakRef(value);
+const registry = new FinalizationRegistry(cleanup);
+const shared = new SharedArrayBuffer(16);
+Atomics.add(new Int32Array(shared), 0, 1);
+const big = new BigInt64Array(4);
+const keys = Reflect.ownKeys(value);
+const module = await WebAssembly.instantiate(bytes);
+```
+
+These require observable lifetime, finalization, shared-memory, atomic,
+big-integer binary, reflection, or virtual-machine contracts that are not in
+the current source profiles. Their absence does not affect ordinary native
+strings, arrays, threads, or provider APIs.
 
 ## Native metadata boundaries
 

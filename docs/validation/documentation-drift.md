@@ -10,6 +10,7 @@ The documentation checker validates:
 - all relative Markdown links;
 - balanced fenced examples and valid JSON examples;
 - navigation entries;
+- the pinned TypeScript utility-type inventory;
 - shared project-config fields and defaults;
 - neutral source primitive, type-marker, call-marker, pointer, safety, and
   attribute exports;

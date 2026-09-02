@@ -50,6 +50,26 @@ is accepted only when that provider exposes an exact legal base contract.
 Tsonic source modules add types and operations only where JavaScript and
 TypeScript do not express a required native distinction.
 
+## Type transformations
+
+Standard utility types are checked as TypeScript and then erase:
+
+```ts
+interface User {
+  id: string;
+  name: string;
+  active?: boolean;
+}
+
+type Patch = Partial<User>;
+type NameOnly = Pick<User, "name">;
+```
+
+The target receives the resolved shape, not a request to implement a native
+type named `Partial` or `Pick`. The complete pinned inventory and the distinct
+`any` and `unknown` target contracts are in
+[TypeScript types and utilities](../reference/typescript-types.md).
+
 ## Exact primitives
 
 ```ts

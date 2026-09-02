@@ -29,6 +29,6 @@
 | `fnptr<TArgs, TReturn>` | Native C# function-pointer type |
 | `unsafe()` / `unsafe(expression)` | C#-flavoured explicit unsafe context |
 | `safety<T>()` | C#-flavoured declaration safety builder |
-| `Array2<T>` … `Array8<T>` | Exact CLR rectangular-array contracts |
+| `array2<T>` … `array32<T>` | Exact CLR rectangular-array contracts for ranks 2 through 32 |
 
 These modules are compiler-owned virtual declarations, not npm packages.
