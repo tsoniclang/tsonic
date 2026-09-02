@@ -140,7 +140,10 @@ test("CLI rejects unsupported process stream properties without fallback", async
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
   for (const memberName of ["stdin", "stdout", "stderr"]) {
-    assert.match(build.stderr, new RegExp(`hard-rejected selected property 'node:process' export '${memberName}'`));
+    assert.match(
+      build.stderr,
+      new RegExp(`hard-rejected selected property 'node:process' export 'default' member 'node:process\\.default\\.${memberName}'`),
+    );
     assert.match(build.stderr, new RegExp(`unsupported:Tsonic\\.CSharp\\.Node\\.process\\.${memberName}`));
   }
   assert.match(build.stderr, /TS9100203/u);
@@ -175,7 +178,7 @@ test("CLI rejects unsupported process nextTick without fallback", async () => {
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'nextTick' member '<export>'/u);
+  assert.match(build.stderr, /hard-rejected selected call 'node:process' export 'default' member 'node:process\.default\.nextTick'/u);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.process\.nextTick\(Function,System\.Object\[\]\)/);
   assert.match(build.stderr, /TS9100203/u);
   assert.doesNotMatch(build.stderr, /CSHARP_NODEJS_PROPERTY_NOT_MAPPED|could not map checked .* to a target property/);
@@ -617,7 +620,7 @@ test("CLI rejects unsupported selected Node crypto and os provider-package opera
   assert.match(build.stderr, /node:os\.getPriority/);
   assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected call 'node:os' export 'setPriority'/);
   assert.match(build.stderr, /node:os\.setPriority/);
-  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'constants'/);
+  assert.match(build.stderr, /C# NodeJS provider package hard-rejected selected property 'node:os' export 'default' member 'node:os\.default\.constants'/);
   assert.match(build.stderr, /unsupported:Tsonic\.CSharp\.Node\.os\.constants/);
   assert.doesNotMatch(build.stderr, /createCipheriv is not a function|cpus is not a function|constants is undefined/);
   assert.doesNotMatch(build.stderr, /Reflection|dynamic|GetMethod|GetProperty/);
