@@ -11,6 +11,8 @@ export declare function sourceProviderExtension(models: ReadonlyMap<string, Prov
     readonly extensionId?: string;
     readonly providerId?: string;
     readonly declarationMaterialization?: SourceDeclarationProvider["declarationMaterialization"];
+    readonly packageName?: string;
+    readonly packageVersion?: string;
     readonly onContext?: (specifier: string, context: ProviderModuleContext) => void;
     readonly getDeclarationModel?: (resolution: ProviderModuleResolution, model: ProviderDeclarationModel, request: ProviderDeclarationRequest) => ProviderDeclarationModel | ExtensionDiagnostic;
 }): CompilerExtension;
