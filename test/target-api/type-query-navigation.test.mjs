@@ -39,12 +39,28 @@ test("source navigation resolves exact authored type-query expressions", async (
   const queries = allNodes(ast, indexFile, (node) => ast.is.IsTypeQueryNode(node));
   const rootQuery = requiredSelection(
     queries,
-    (node) => !isWithinNamedFunction(ast, node, "nested") &&
-      ast.text(referenceQueryNode(ast, node)) === "storage",
+    (node) => {
+      const reference = referenceQueryNode(ast, node);
+      return !isWithinNamedFunction(ast, node, "nested") &&
+        reference !== undefined &&
+        ast.is.IsIdentifier(reference) &&
+        ast.text(reference) === "storage";
+    },
   );
   const importedQuery = requiredSelection(
     queries,
-    (node) => ast.text(referenceQueryNode(ast, node)) === "api.storage",
+    (node) => {
+      const reference = referenceQueryNode(ast, node);
+      if (reference === undefined || !ast.is.IsQualifiedName(reference)) {
+        return false;
+      }
+      const qualified = ast.as.AsQualifiedName(reference);
+      return qualified?.Left !== undefined &&
+        qualified.Right !== undefined &&
+        ast.is.IsIdentifier(qualified.Left) &&
+        ast.text(qualified.Left) === "api" &&
+        ast.text(qualified.Right) === "storage";
+    },
   );
   const nestedQuery = requiredSelection(
     queries,
