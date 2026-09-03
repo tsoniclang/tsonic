@@ -30,8 +30,11 @@ ASP.NET, desktop, mobile, test, or custom SDK project into a generated
 
 ## Rust
 
-The Rust target requires `cargo`, `rustc`, and `rustdoc` from one coherent
-toolchain. Native validation commonly also uses `rustfmt` and Clippy.
+The Rust target requires `cargo`, `rustc`, `rustdoc`, and `rustfmt` from one
+coherent toolchain. Tsonic runs `rustfmt` over every generated Rust source file
+before publishing the output. Missing or failed formatting rejects the target
+compilation; Tsonic does not publish an unformatted fallback. Clippy is used by
+the native validation gates.
 
 Tsonic records the exact `rustc -vV` identity and consumes rustdoc JSON from
 that toolchain. An unsupported rustdoc schema is rejected. The project does not

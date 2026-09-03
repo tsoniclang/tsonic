@@ -30,6 +30,11 @@ Generated manifests contain only closed dependencies contributed by the
 selected target, source surface, and activated capabilities. An installed but
 unused capability contributes no crate.
 
+Tsonic formats every generated `.rs` artifact with the selected edition's
+`rustfmt` before it publishes the output set. This includes generated source
+for a user-owned Cargo project, but never changes Rust source authored by the
+user. A missing formatter or a formatting failure rejects publication.
+
 `outputType: "bin"` requires an exported entry function:
 
 ```ts
@@ -124,8 +129,8 @@ npx tsonic build -p tsonic.json
 cargo build --manifest-path out/rust/Cargo.toml
 ```
 
-Tsonic's toolchain stage reports the generated artifact set; Cargo performs
-the native compile, test, run, and publish operations.
+Tsonic's toolchain stage reports the formatted generated artifact set; Cargo
+performs the native compile, test, run, and publish operations.
 
 After the first build creates `Cargo.lock`, reproducible commands can add
 `--locked`:
