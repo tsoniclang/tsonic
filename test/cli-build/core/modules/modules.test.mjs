@@ -597,8 +597,10 @@ test("CLI emits default function imports and default re-exports from TSTS module
   assert.doesNotMatch(generatedSource, /(?:Service|Barrel)\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(generatedSource, /directCompute|Barrel\.compute|__unsupported/);
 
-  const barrelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8");
-  assert.doesNotMatch(barrelSource, /Service\.__tsonic_module_init\(\);|compute|__unsupported/);
+  await assert.rejects(
+    readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8"),
+    { code: "ENOENT" },
+  );
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultFunctionReExport.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
