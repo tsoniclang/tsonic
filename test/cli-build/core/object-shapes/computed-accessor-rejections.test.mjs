@@ -81,8 +81,8 @@ test("CLI emits object-shape spread from finalized provider object-shape facts",
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ clone\(__TsonicShape_[A-Za-z0-9_]+ input, double value\)/);
-  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = input\.label,\s*\};/);
+  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} clone\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} input, double value\)/);
+  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = input\.label,\s*\};/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeSpread.csproj"), "--nologo", "--v:minimal"]);
@@ -127,9 +127,9 @@ test("CLI runs nested object rest destructuring from finalized object-shape fact
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.address;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = __tsonic_param\d+\.address;/);
   assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Paris:75001:FR\n");
@@ -163,8 +163,8 @@ test("CLI emits object-shape spread from finalized subset facts plus explicit me
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ expand\(__TsonicShape_[A-Za-z0-9_]+ input, double value\)/);
-  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = input\.label,\s*value = value,\s*active = true,\s*\};/);
+  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} expand\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} input, double value\)/);
+  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*label = input\.label,\s*value = value,\s*active = true,\s*\};/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapePartialSpread.csproj"), "--nologo", "--v:minimal"]);

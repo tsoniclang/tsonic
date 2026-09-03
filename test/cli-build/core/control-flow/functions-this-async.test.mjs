@@ -160,7 +160,7 @@ test("CLI emits object-literal lexical this through a receiver-bound generated s
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const source = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const shapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  assert.match(shapes, /public required Func<__TsonicShape_[a-f0-9]{64}, double> __tsonic_shape_method_/u);
+  assert.match(shapes, /public required Func<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}, double> __tsonic_shape_method_/u);
   assert.match(shapes, /return __tsonic_shape_method_\w+\(this\);/u);
   assert.equal((source.match(/__tsonic_shape_method_\w+ =/gu) ?? []).length, 2);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectLiteralThis.csproj"), "--nologo", "--v:minimal"]);

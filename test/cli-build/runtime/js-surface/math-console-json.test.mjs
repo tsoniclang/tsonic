@@ -351,9 +351,9 @@ test("CLI finalizes interface-backed JSON shapes and dynamic-property typeof che
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  const generatedShape = generatedShapes.match(/public class (__TsonicShape_[A-Za-z0-9_]+) : Todo, Tsonic\.CSharp\.Js\.IJsonValue/u);
+  const generatedShape = generatedShapes.match(/public class (TodoShape_[a-f0-9]{12}) : Todo, Tsonic\.CSharp\.Js\.IJsonValue/u);
   assert.notEqual(generatedShape, null, generatedShapes);
-  assert.equal(generatedShapes.match(/public class __TsonicShape_[A-Za-z0-9_]+ : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
+  assert.equal(generatedShapes.match(/public class TodoShape_[a-f0-9]{12} : Todo, Tsonic\.CSharp\.Js\.IJsonValue/gu)?.length, 1);
   assert.equal(generatedSource.match(new RegExp(`new ${generatedShape[1]}`, "gu"))?.length, 2);
   assert.match(generatedSource, /public interface Todo : Tsonic\.CSharp\.Js\.IJsonValue\s*\{\s*double id \{ get; set; \}\s*string title \{ get; set; \}\s*bool completed \{ get; set; \}\s*\}/u);
   assert.equal(generatedShapes.match(/void __tsonicWriteJson\(/gu)?.length, 1);

@@ -74,15 +74,15 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedShapes, /public required double value;/);
   assert.match(generatedShapes, /public required string label;/);
-  assert.match(generatedSource, /public static double fromParameter\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param0\)/);
+  assert.match(generatedSource, /public static double fromParameter\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param0\)/);
   assert.match(generatedSource, /double value = __tsonic_param0\.value;/);
-  assert.match(generatedSource, /public static __TsonicShape_[A-Za-z0-9_]+ create\(double value\)/);
-  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = "ok",\s*\};/);
-  assert.match(generatedSource, /public static double fromLocal\(__TsonicShape_[A-Za-z0-9_]+ input\)/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} create\(double value\)/);
+  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = "ok",\s*\};/);
+  assert.match(generatedSource, /public static double fromLocal\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} input\)/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = input;/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -127,7 +127,7 @@ test("CLI emits object rest destructuring from finalized TSTS rest binding shape
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_destructure\d+\.label,\s*active = __tsonic_destructure\d+\.active,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*label = __tsonic_destructure\d+\.label,\s*active = __tsonic_destructure\d+\.active,\s*\};/);
   assert.match(generatedSource, /string activeLabel = rest\.active \? "yes" : "no";/);
   assert.match(generatedSource, /return \$"\{value\}:\{rest\.label\}:\{activeLabel\}";/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
@@ -176,10 +176,10 @@ test("CLI emits nested object rest destructuring from finalized TSTS rest bindin
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_destructure\d+\.address;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = __tsonic_destructure\d+\.address;/);
   assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /city = __tsonic_destructure\d+\.city,\s*\};/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid|dynamic|System\.Reflection/i);
 
@@ -224,7 +224,7 @@ test("CLI emits parameter object rest destructuring with finalized rest member f
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_param\d+\.label,\s*active = __tsonic_param\d+\.active,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*label = __tsonic_param\d+\.label,\s*active = __tsonic_param\d+\.active,\s*\};/);
   assert.match(generatedSource, /string activeLabel = rest\.active \? "yes" : "no";/);
   assert.match(generatedSource, /return \$"\{value\}:\{rest\.label\}:\{activeLabel\}";/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid|dynamic|System\.Reflection/i);
@@ -281,8 +281,8 @@ test("CLI runs object parameter rename rest nested and callable destructuring fr
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static string inspect\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+\)/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /public static string inspect\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param\d+\)/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /int count = __tsonic_destructure\d+\.count;/);
   assert.match(generatedSource, /int renamed = __tsonic_param\d+\.value;/);
   assert.match(generatedSource, /__tsonic_shape_method_\d+_run = __tsonic_param\d+\.__tsonic_shape_method_\d+_run/);

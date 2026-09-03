@@ -1346,7 +1346,7 @@ function slice6WholeProgramClosureEvidence() {
       backendContract:
         "Backend output flows through structured C# AST/project artifacts and diagnostics; semantic C# strings, runtime reflection, and fallback helper guessing are rejected by architecture tests and generated-output scans.",
       notes:
-        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. Slice 8 declaration runtime proof adds generated class, accessor property, static member, enum, interface, and __TsonicShape_Receipt_* declarations in one non-Node executable and scans the generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
+        "Reviewed Slice 6 proof: generated source includes class, enum, static member, module initializer, object-shape, console runtime, and SDK project artifacts, then dotnet build/run proves the artifacts are consumable. Slice 8 declaration runtime proof adds generated class, accessor property, static member, enum, interface, and ReceiptShape_* declarations in one non-Node executable and scans the generated C# for dynamic, System.Reflection, GetProperty/GetMethod, MethodInfo.Invoke, MakeGenericMethod, Activator.CreateInstance, and Assembly.Load. Existing Roslyn/printer tests reject invalid/foreign syntax nodes and prove the printer boundary consumes structured AST rather than semantic string shortcuts.",
     }),
     ...slice6EvidenceForRows(slice6WholeProgramToolchainRows, {
       tstsDecision:
@@ -7489,7 +7489,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: object literals receive expression-local generated adapter carriers such as __TsonicShape_Marker_* from finalized object-shape facts, including inline parameters, generic type-parameter object literals, nested structural literals, method-valued object literals, Record dictionary literals, rest/spread object-shape facts, and fail-closed computed/accessor/generic-method shapes. Imported interface annotations remain storage/type facts on the declared variable and TypeReferenceNode, so the object literal does not overwrite the interface carrier or create a dual runtimeCarrier path.",
+      "Reviewed proof: object literals receive expression-local generated adapter carriers such as MarkerShape_* from finalized object-shape facts, including inline parameters, generic type-parameter object literals, nested structural literals, method-valued object literals, Record dictionary literals, rest/spread object-shape facts, and fail-closed computed/accessor/generic-method shapes. Imported interface annotations remain storage/type facts on the declared variable and TypeReferenceNode, so the object literal does not overwrite the interface carrier or create a dual runtimeCarrier path.",
   }),
   "expression.call": Object.freeze({
     positiveTests: Object.freeze([

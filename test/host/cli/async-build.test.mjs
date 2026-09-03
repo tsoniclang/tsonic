@@ -298,11 +298,11 @@ test("CLI emits and executes async structural object returns from finalized Prom
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.doesNotMatch(generatedSource, /public class __TsonicShape_/);
-  assert.match(generatedObjectShapes, /public class __TsonicShape_/);
-  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<__TsonicShape_[A-Za-z0-9_]+> make\(int value\)/);
-  assert.match(generatedSource, /return new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ box = await make\(7\);/);
+  assert.doesNotMatch(generatedSource, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
+  assert.match(generatedObjectShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}> make\(int value\)/);
+  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} box = await make\(7\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
