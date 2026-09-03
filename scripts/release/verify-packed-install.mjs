@@ -22,6 +22,10 @@ const wave = validateWaveManifests();
 const scratchRoot = mkdtempSync(resolve(ensureScratchRoot(), "packed-install-"));
 const tarballRoot = resolve(scratchRoot, "tarballs");
 mkdirSync(tarballRoot);
+writeFileSync(resolve(scratchRoot, "package.json"), `${JSON.stringify({
+  name: "tsonic-packed-install-root",
+  private: true,
+}, null, 2)}\n`);
 
 const packed = wave.packages.map((entry) => pack(entry));
 const registry = await startRegistry(packed);
