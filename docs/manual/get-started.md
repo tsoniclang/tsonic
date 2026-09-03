@@ -5,12 +5,45 @@ empty directory.
 
 ## Requirements
 
-- Node.js 22.18 or newer
-- npm
-- .NET 10 SDK for C#
-- `cargo`, `rustc`, and `rustdoc` for Rust
+Install [Node.js 22.18 or newer](https://nodejs.org/en/download). The official
+Node installer includes npm. Confirm both commands resolve from the same
+terminal:
 
-Tsonic generates source code. `dotnet` or Cargo performs the native build.
+```sh
+node --version
+npm --version
+```
+
+For C#, install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
+Install the SDK, not only the runtime. Microsoft also publishes
+[platform-specific installation instructions](https://learn.microsoft.com/en-us/dotnet/core/install/).
+
+```sh
+dotnet --version
+dotnet --list-sdks
+```
+
+The selected SDK must be `10.0.x`.
+
+For Rust, install Rust through [rustup](https://www.rust-lang.org/tools/install),
+then install the formatter from the same toolchain:
+
+```sh
+rustup toolchain install stable
+rustup default stable
+rustup component add rustfmt
+rustup show active-toolchain
+rustc --version
+cargo --version
+rustdoc --version
+rustfmt --version
+```
+
+Clippy is optional for the first build. Install it with
+`rustup component add clippy` before running the manual's lint commands.
+
+Tsonic does not install or update native SDKs. It generates source code;
+`dotnet` or Cargo performs the native build.
 
 ## Build a C# application
 
@@ -18,11 +51,23 @@ Create this directory:
 
 ```text
 hello-csharp/
+├── .gitignore
 ├── package.json
 ├── tsonic.json
 └── src/
     └── App.ts
 ```
+
+Create `.gitignore`:
+
+```gitignore
+node_modules/
+out/
+.tsonic/
+```
+
+Commit the generated `package-lock.json`; do not commit compiler output or
+cache state.
 
 Create `package.json`:
 
@@ -36,8 +81,8 @@ Create `package.json`:
     "run": "dotnet run --project out/csharp/HelloCsharp.csproj"
   },
   "devDependencies": {
-    "@tsonic/cli": "0.0.1",
-    "@tsonic/target-csharp": "0.0.1"
+    "@tsonic/cli": "^0.1.0",
+    "@tsonic/target-csharp": "^0.1.0"
   }
 }
 ```
@@ -76,6 +121,7 @@ Install, compile, and run:
 
 ```sh
 npm install
+npx --no-install tsonic targets --project tsonic.json
 npm run build
 npm run run
 ```
@@ -92,7 +138,7 @@ special meaning unless your source calls it.
 
 ## Build a Rust application
 
-Create the same three-file layout in `hello-rust/`.
+Create the same layout in `hello-rust/`.
 
 Create `package.json`:
 
@@ -106,8 +152,8 @@ Create `package.json`:
     "run": "cargo run --manifest-path out/rust/Cargo.toml"
   },
   "devDependencies": {
-    "@tsonic/cli": "0.0.1",
-    "@tsonic/target-rust": "0.0.1"
+    "@tsonic/cli": "^0.1.0",
+    "@tsonic/target-rust": "^0.1.0"
   }
 }
 ```
@@ -145,6 +191,7 @@ Install, compile, and run:
 
 ```sh
 npm install
+npx --no-install tsonic targets --project tsonic.json
 npm run build
 npm run run
 ```
@@ -180,9 +227,11 @@ export function main(): void {
 Node is an installed capability, not a source surface:
 
 ```sh
-# Choose the package for the selected target.
-npm install --save-dev @tsonic/csharp-nodejs
-npm install --save-dev @tsonic/rust-nodejs
+# C# project
+npm install --save-dev @tsonic/csharp-nodejs@^0.1.0
+
+# Rust project
+npm install --save-dev @tsonic/rust-nodejs@^0.1.0
 ```
 
 ```ts

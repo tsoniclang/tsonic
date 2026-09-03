@@ -4,7 +4,10 @@ import type {
   TargetSelection,
   TsonicProjectConfig,
 } from "@tsonic/target-api";
-import { isPathStrictlyWithin } from "./path-relation.js";
+import {
+  isPathStrictlyWithin,
+  isPathWithinOrEqual,
+} from "./path-relation.js";
 
 export interface ProjectPathOptions {
   readonly projectFilePath: string;
@@ -18,6 +21,7 @@ export interface ProjectPaths {
   readonly entryPointPath: string;
   readonly rootFilePaths: readonly string[];
   readonly outputRoot: string;
+  readonly cacheRoot: string;
 }
 
 export function resolveProjectPaths(options: ProjectPathOptions): ProjectPaths {
@@ -28,6 +32,8 @@ export function resolveProjectPaths(options: ProjectPathOptions): ProjectPaths {
   requireProjectSourcePath(projectRoot, entryPointPath, "entryPoint");
   const rootFilePaths = resolveRootFilePaths(projectRoot, entryPointPath, options.project.rootFiles);
   const outputRoot = resolve(projectDirectory, options.project.outDir ?? "dist/tsonic");
+  const cacheRoot = resolve(projectDirectory, options.project.cacheDir ?? ".tsonic/cache");
+  requireDisjointCompilerRoots(outputRoot, cacheRoot);
   return {
     projectFilePath,
     projectDirectory,
@@ -35,6 +41,7 @@ export function resolveProjectPaths(options: ProjectPathOptions): ProjectPaths {
     entryPointPath,
     rootFilePaths,
     outputRoot,
+    cacheRoot,
   };
 }
 
@@ -77,5 +84,15 @@ export function getTargetCompilationPaths(paths: ProjectPaths, target: TargetSel
     projectRoot: paths.projectRoot,
     outputRoot: paths.outputRoot,
     targetOutputRoot: resolve(paths.outputRoot, target.id),
+    cacheRoot: paths.cacheRoot,
   };
+}
+
+function requireDisjointCompilerRoots(outputRoot: string, cacheRoot: string): void {
+  if (
+    isPathWithinOrEqual(outputRoot, cacheRoot) ||
+    isPathWithinOrEqual(cacheRoot, outputRoot)
+  ) {
+    throw new Error("Project config outDir and cacheDir must resolve to disjoint paths.");
+  }
 }

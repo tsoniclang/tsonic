@@ -75,6 +75,23 @@ opts into a closed construction policy and every authored field resolves to
 exact readable/writable native member rows. Default completion is legal only
 when the provider explicitly supplies that construction contract.
 
+## Generic parameter boundaries
+
+Provider operation rows preserve whether a Rust type parameter accepts
+unsized arguments:
+
+```ts
+genericParameters: [
+  { kind: "type", sourceName: "Q", maybeSized: true },
+]
+```
+
+`maybeSized: true` represents an exact Rust `Q: ?Sized` declaration. Omit the
+field for an ordinary type parameter, whose Rust contract includes the implicit
+`Sized` bound. This distinction lets a borrowed native string use `str` only
+when the selected Rust API permits it; it is not inferred from a method name or
+argument spelling.
+
 ## Evaluation and errors
 
 Provider operations are observable by default. `evaluation: "pure"` is legal

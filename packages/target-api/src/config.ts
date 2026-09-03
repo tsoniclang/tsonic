@@ -15,6 +15,7 @@ export interface TsonicProjectConfig {
   readonly rootFiles?: readonly string[];
   readonly rootDir?: string;
   readonly outDir?: string;
+  readonly cacheDir?: string;
   readonly targets: readonly TargetSelection[];
 }
 

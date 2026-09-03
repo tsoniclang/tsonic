@@ -9,7 +9,16 @@ Tsonic generates native source. Target toolchains build that source.
 | Node.js | 22.18 or newer |
 | npm | Installs project-local targets and capabilities |
 
-The CLI does not download toolchains or install plugins.
+Install Node from the [official download page](https://nodejs.org/en/download)
+and verify:
+
+```sh
+node --version
+npm --version
+```
+
+The CLI does not download toolchains or install plugins. Install the CLI and
+one target in each project; do not depend on a global Tsonic installation.
 
 ## C#
 
@@ -23,6 +32,15 @@ The CLI does not download toolchains or install plugins.
 
 The selected SDK must contain the reference pack for `targetFramework`.
 Framework and assembly provider inputs are snapshotted for one compilation.
+
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0),
+using Microsoft's [platform instructions](https://learn.microsoft.com/en-us/dotnet/core/install/)
+when needed. Confirm that a `10.0.x` SDK is listed:
+
+```sh
+dotnet --version
+dotnet --list-sdks
+```
 
 Use a user-owned project for another SDK shape. Tsonic does not change an
 ASP.NET, desktop, mobile, test, or custom SDK project into a generated
@@ -41,8 +59,25 @@ that toolchain. An unsupported rustdoc schema is rejected. The project does not
 promise that every historical or future Rust release has the same rustdoc JSON
 contract.
 
-Install cross targets with `rustup` or the equivalent toolchain manager. Cargo
-owns target triples and linkers.
+Install Rust with [rustup](https://www.rust-lang.org/tools/install). A normal
+hosted installation can be prepared and checked with:
+
+```sh
+rustup toolchain install stable
+rustup default stable
+rustup component add rustfmt
+rustup show active-toolchain
+rustc --version
+cargo --version
+rustdoc --version
+rustfmt --version
+```
+
+Clippy is optional unless you run `cargo clippy`. Install it from the same
+toolchain with `rustup component add clippy`.
+
+Install cross targets with `rustup target add <triple>`. Cargo owns target
+triples and linkers.
 
 ## Platform support
 

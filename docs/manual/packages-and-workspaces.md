@@ -60,8 +60,8 @@ target points to the real `.ts` source file.
     "@acme/domain": "workspace:*"
   },
   "devDependencies": {
-    "@tsonic/cli": "0.0.1",
-    "@tsonic/target-rust": "0.0.1"
+    "@tsonic/cli": "^0.1.0",
+    "@tsonic/target-rust": "^0.1.0"
   }
 }
 ```

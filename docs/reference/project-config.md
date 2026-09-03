@@ -13,9 +13,14 @@ not a `tsconfig.json`, and fields such as `compilerOptions`, `baseUrl`, `paths`,
 | `rootFiles` | No | nonempty distinct string array | `[entryPoint]` | Additional final `.ts`/`.mts` roots; must include `entryPoint` after resolution |
 | `rootDir` | No | nonempty string | project-file directory | Root for source resolution |
 | `outDir` | No | nonempty string | `dist/tsonic` | Compiler-owned publication root |
+| `cacheDir` | No | nonempty string | `.tsonic/cache` | Disposable compiler and target-tool cache; must not overlap `outDir` |
 | `targets` | Yes | nonempty target array | none | One entry per unique target id |
 
 Every resolved root file must remain strictly inside the resolved project root.
+`cacheDir` is resolved from the project-file directory. Tsonic and target packs
+write cache data beneath it instead of modifying installed packages. It must be
+disjoint from `outDir` so atomic publication never includes or deletes cache
+state.
 
 ## Target fields
 

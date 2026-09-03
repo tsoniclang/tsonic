@@ -3,6 +3,35 @@
 Start with the first diagnostic owner and code. Tsonic does not hide an error
 by emitting partial target code.
 
+## A required command is missing
+
+Check the host tools first:
+
+```sh
+node --version
+npm --version
+```
+
+For C#, `dotnet --list-sdks` must include a `10.0.x` SDK. Installing only a
+.NET runtime is insufficient. Use the
+[official .NET installer](https://dotnet.microsoft.com/en-us/download/dotnet/10.0)
+or Microsoft's [platform instructions](https://learn.microsoft.com/en-us/dotnet/core/install/).
+
+For Rust, the required commands must resolve from one rustup toolchain:
+
+```sh
+rustup show active-toolchain
+rustc --version
+cargo --version
+rustdoc --version
+rustfmt --version
+```
+
+Use the [official rustup installer](https://www.rust-lang.org/tools/install),
+then run `rustup component add rustfmt`. Tsonic does not substitute a different
+formatter, compiler, or metadata producer when one is missing. If an optional
+`cargo clippy` command is unavailable, run `rustup component add clippy`.
+
 ## Target not found
 
 ```text
@@ -12,7 +41,7 @@ Target 'rust' is not installed
 Install the target in the package containing `tsonic.json`:
 
 ```sh
-npm install --save-dev @tsonic/target-rust
+npm install --save-dev @tsonic/target-rust@^0.1.0
 ```
 
 Tsonic discovers plugins from installed direct `dependencies`,
@@ -22,8 +51,22 @@ does not install the package.
 Check discovery:
 
 ```sh
-npx tsonic targets --project tsonic.json
+npx --no-install tsonic targets --project tsonic.json
 ```
+
+## Cache directory is not writable
+
+Targets never write inside installed packages. Their compiler-tool state goes
+under `.tsonic/cache` beside `tsonic.json` by default. Select another writable
+path when needed:
+
+```json
+{
+  "cacheDir": "../cache/example-tsonic"
+}
+```
+
+`cacheDir` cannot be equal to, inside, or contain `outDir`.
 
 ## A global or built-in is missing
 
@@ -66,12 +109,17 @@ The function must be exported and return `void`.
 
 ## Cargo rejects `--locked`
 
-Run one command without `--locked`, or create the lockfile explicitly:
+Generate source, then run one command without `--locked`, or create the
+lockfile explicitly:
 
 ```sh
 cargo generate-lockfile --manifest-path out/rust/Cargo.toml
 cargo build --manifest-path out/rust/Cargo.toml --locked
 ```
+
+The lockfile is inside compiler-owned `outDir`; the next successful
+`tsonic build` replaces it. Use a user-owned Cargo project when the lockfile
+must be retained in version control.
 
 ## A .NET type imports but does not link
 

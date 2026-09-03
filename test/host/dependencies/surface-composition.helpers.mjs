@@ -319,6 +319,7 @@ export function fakePaths(projectDirectory) {
     projectRoot: projectDirectory,
     outputRoot: resolve(projectDirectory, "out"),
     targetOutputRoot: resolve(projectDirectory, "out/demo"),
+    cacheRoot: resolve(projectDirectory, ".tsonic/cache"),
   };
 }
 

@@ -5,6 +5,7 @@ import test from "node:test";
 import { createCompilerSession, formatDiagnostics } from "@tsonic/tsts";
 import {
   createProgramOptionsForProject,
+  getTargetCompilationPaths,
   parseTsonicProjectConfig,
   resolveProjectPaths,
 } from "../../../packages/host/dist/index.js";
@@ -145,6 +146,46 @@ test("project config validates root-file syntax without comparing unresolved spe
       targets: [{ id: "csharp" }],
     }),
     /root file 'index\.ts' is declared more than once/u,
+  );
+});
+
+test("project cache paths are explicit, configurable, and disjoint from output", () => {
+  const projectFilePath = resolve(tempRoot, "cache-paths/tsonic.json");
+  const defaults = resolveProjectPaths({
+    project: {
+      entryPoint: "index.ts",
+      targets: [{ id: "rust" }],
+    },
+    projectFilePath,
+  });
+  assert.equal(defaults.cacheRoot, resolve(tempRoot, "cache-paths/.tsonic/cache"));
+  assert.equal(
+    getTargetCompilationPaths(defaults, { id: "rust" }).cacheRoot,
+    defaults.cacheRoot,
+  );
+
+  const configured = parseTsonicProjectConfig({
+    entryPoint: "index.ts",
+    cacheDir: "build-cache",
+    targets: [{ id: "csharp" }],
+  });
+  assert.equal(configured.cacheDir, "build-cache");
+  assert.equal(
+    resolveProjectPaths({ project: configured, projectFilePath }).cacheRoot,
+    resolve(tempRoot, "cache-paths/build-cache"),
+  );
+
+  assert.throws(
+    () => resolveProjectPaths({
+      project: {
+        entryPoint: "index.ts",
+        outDir: "generated",
+        cacheDir: "generated/cache",
+        targets: [{ id: "rust" }],
+      },
+      projectFilePath,
+    }),
+    /outDir and cacheDir must resolve to disjoint paths/u,
   );
 });
 

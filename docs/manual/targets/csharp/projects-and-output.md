@@ -138,7 +138,7 @@ Tsonic's toolchain stage records generated artifacts; the .NET SDK performs the
 actual compile or publish:
 
 ```sh
-npx tsonic build -p tsonic.json
+npx --no-install tsonic build -p tsonic.json
 dotnet build out/csharp/Example.App.csproj
 dotnet publish out/csharp/Example.App.csproj -c Release
 ```
