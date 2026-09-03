@@ -113,6 +113,16 @@ function validatePlugin(packageName: string, plugin: TsonicPlugin): TargetDiagno
   if (plugin.kind === "target" && typeof plugin.createTargetPack !== "function") {
     return pluginDiagnostic(packageName, "Tsonic target plugin must provide createTargetPack().");
   }
+  if (
+    plugin.kind === "target" &&
+    plugin.createStarterProject !== undefined &&
+    typeof plugin.createStarterProject !== "function"
+  ) {
+    return pluginDiagnostic(
+      packageName,
+      "Tsonic target plugin createStarterProject must be a function when provided.",
+    );
+  }
   if (plugin.kind === "target-capability") {
     if (typeof plugin.displayName !== "string" || plugin.displayName.length === 0) {
       return pluginDiagnostic(packageName, "Tsonic target capability plugin must provide displayName.");
@@ -138,6 +148,7 @@ const targetPluginProperties = new Set([
   "id",
   "targetId",
   "createTargetPack",
+  "createStarterProject",
 ]);
 
 const targetCapabilityPluginProperties = new Set([

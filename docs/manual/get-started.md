@@ -1,164 +1,79 @@
 # Get started
 
-This guide builds one C# program and one Rust program. Each starts from an
-empty directory.
+Create, compile, and run a C# or Rust application from an empty directory.
 
 ## Requirements
 
 Install [Node.js 22.18 or newer](https://nodejs.org/en/download). The official
-Node installer includes npm. Confirm both commands resolve from the same
-terminal:
+installer includes npm.
 
 ```sh
 node --version
 npm --version
 ```
 
-For C#, install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
-Install the SDK, not only the runtime. Microsoft also publishes
-[platform-specific installation instructions](https://learn.microsoft.com/en-us/dotnet/core/install/).
+For C#, install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0),
+not only the runtime.
 
 ```sh
 dotnet --version
 dotnet --list-sdks
 ```
 
-The selected SDK must be `10.0.x`.
-
-For Rust, install Rust through [rustup](https://www.rust-lang.org/tools/install),
-then install the formatter from the same toolchain:
+For Rust, use the [official rustup installer](https://www.rust-lang.org/tools/install),
+then install `rustfmt` in the active toolchain.
 
 ```sh
 rustup toolchain install stable
 rustup default stable
 rustup component add rustfmt
-rustup show active-toolchain
-rustc --version
-cargo --version
-rustdoc --version
-rustfmt --version
 ```
 
-Clippy is optional for the first build. Install it with
-`rustup component add clippy` before running the manual's lint commands.
+The project creator checks the selected native toolchain before publishing the
+new project directory. If a requirement is missing, it reports the failed
+command and the official installation route. It never installs or changes a
+native SDK.
 
-Tsonic does not install or update native SDKs. It generates source code;
-`dotnet` or Cargo performs the native build.
+## Create a C# application
 
-## Build a C# application
+```sh
+npm create tsonic@latest hello-csharp -- --target csharp
+cd hello-csharp
+npm start
+```
 
-Create this directory:
+The first command installs the project-local CLI and C# target and creates:
 
 ```text
 hello-csharp/
 ├── .gitignore
 ├── package.json
+├── package-lock.json
 ├── tsonic.json
 └── src/
     └── App.ts
 ```
 
-Create `.gitignore`:
-
-```gitignore
-node_modules/
-out/
-.tsonic/
-```
-
-Commit the generated `package-lock.json`; do not commit compiler output or
-cache state.
-
-Create `package.json`:
-
-```json
-{
-  "name": "hello-csharp",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "tsonic build --project tsonic.json",
-    "run": "dotnet run --project out/csharp/HelloCsharp.csproj"
-  },
-  "devDependencies": {
-    "@tsonic/cli": "^0.1.0",
-    "@tsonic/target-csharp": "^0.1.0"
-  }
-}
-```
-
-Create `src/App.ts`:
+The starter source uses the native C# profile:
 
 ```ts
 import { Console } from "@tsonic/dotnet/System.js";
 
-function message(name: string): string {
-  return `Hello, ${name}!`;
-}
-
-Console.WriteLine(message("C#"));
+Console.WriteLine("Hello from hello-csharp!");
 ```
 
-Create `tsonic.json`:
+`npm start` runs Tsonic and then `dotnet run`. Generated C# and its `.csproj`
+are under `out/csharp/`.
 
-```json
-{
-  "entryPoint": "App.ts",
-  "rootDir": "src",
-  "outDir": "out",
-  "targets": [{
-    "id": "csharp",
-    "options": {
-      "assemblyName": "HelloCsharp",
-      "namespace": "Hello.Generated",
-      "outputType": "Exe"
-    }
-  }]
-}
-```
-
-Install, compile, and run:
+## Create a Rust application
 
 ```sh
-npm install
-npx --no-install tsonic targets --project tsonic.json
-npm run build
-npm run run
+npm create tsonic@latest hello-rust -- --target rust
+cd hello-rust
+npm start
 ```
 
-Output:
-
-```text
-Hello, C#!
-```
-
-The generated C# entrypoint runs the TypeScript entry module. Top-level code is
-therefore the C# application entry. An exported function named `main` has no
-special meaning unless your source calls it.
-
-## Build a Rust application
-
-Create the same layout in `hello-rust/`.
-
-Create `package.json`:
-
-```json
-{
-  "name": "hello-rust",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "tsonic build --project tsonic.json",
-    "run": "cargo run --manifest-path out/rust/Cargo.toml"
-  },
-  "devDependencies": {
-    "@tsonic/cli": "^0.1.0",
-    "@tsonic/target-rust": "^0.1.0"
-  }
-}
-```
-
-Create `src/App.ts`:
+The starter exports the Rust binary entry:
 
 ```ts
 export function main(): void {
@@ -169,52 +84,36 @@ export function main(): void {
 }
 ```
 
-Create `tsonic.json`:
+`npm start` runs Tsonic and then Cargo. Generated Rust and `Cargo.toml` are
+under `out/rust/`.
 
-```json
-{
-  "entryPoint": "App.ts",
-  "rootDir": "src",
-  "outDir": "out",
-  "targets": [{
-    "id": "rust",
-    "options": {
-      "crateName": "hello_rust",
-      "edition": "2024",
-      "outputType": "bin"
-    }
-  }]
-}
-```
+## Project commands
 
-Install, compile, and run:
+Every created project contains the same three scripts:
 
 ```sh
-npm install
-npx --no-install tsonic targets --project tsonic.json
 npm run build
-npm run run
+npm run check
+npm start
 ```
 
-A generated Rust binary requires the entry module to export `main(): void`.
-Tsonic creates native Rust `main` and calls that exported function after module
-initialization.
+- `build` generates the target-native source project.
+- `check` generates it and runs the target's native build check.
+- `start` generates it and runs the native application.
 
-## Use JavaScript APIs
+Commit `package.json`, `package-lock.json`, `tsonic.json`, and authored source.
+The generated `.gitignore` excludes `node_modules/`, `out/`, and `.tsonic/`.
 
-Add `"surfaces": ["js"]` to a target when the source uses JavaScript globals
-and built-ins:
+## Select the JavaScript surface
 
-```json
-{
-  "id": "rust",
-  "surfaces": ["js"],
-  "options": {
-    "crateName": "hello_rust",
-    "outputType": "bin"
-  }
-}
+Select a source surface while creating the project:
+
+```sh
+npm create tsonic@latest hello-js -- --target rust --surface js
 ```
+
+The resulting `tsonic.json` contains `"surfaces": ["js"]`. JavaScript globals
+and built-ins are then available:
 
 ```ts
 export function main(): void {
@@ -222,17 +121,21 @@ export function main(): void {
 }
 ```
 
-## Use Node APIs
+The JS surface is explicit. Selecting a target does not enable it implicitly.
 
-Node is an installed capability, not a source surface:
+## Add Node APIs
+
+Node is an installed target capability. Add the package matching the project:
 
 ```sh
-# C# project
+# C#
 npm install --save-dev @tsonic/csharp-nodejs@^0.1.0
 
-# Rust project
+# Rust
 npm install --save-dev @tsonic/rust-nodejs@^0.1.0
 ```
+
+Use standard Node module specifiers:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -240,12 +143,12 @@ import { readFileSync } from "node:fs";
 const text = readFileSync("message.txt", "utf8");
 ```
 
-Installing a Node capability does not enable JavaScript globals. Select the JS
-surface separately only when the program uses it.
+An imported `node:*` module activates only that installed capability module.
+Installing Node support does not enable the JavaScript surface.
 
-## Next
+## Existing and advanced projects
 
-- [Projects and configuration](projects.md)
-- [Applications and libraries](applications-and-libraries.md)
-- [C# target manual](targets/csharp/README.md)
-- [Rust target manual](targets/rust/README.md)
+The creator is the default path for a new application. For multiple targets,
+workspaces, libraries, or user-owned `.csproj` and `Cargo.toml` files, continue
+with [projects and configuration](projects.md) and
+[applications and libraries](applications-and-libraries.md).

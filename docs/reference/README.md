@@ -6,6 +6,7 @@ The reference documents exact current contracts. It complements the guided
 ## Shared reference
 
 - [CLI](cli.md)
+- [Project creator](project-creator.md)
 - [`tsonic.json`](project-config.md)
 - [Toolchains and platforms](toolchains.md)
 - [Tsonic limitations](limitations.md)

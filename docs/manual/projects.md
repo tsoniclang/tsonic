@@ -3,6 +3,15 @@
 A Tsonic project is an npm package containing `package.json`, `tsonic.json`,
 and TypeScript source files.
 
+Create the complete default layout rather than assembling these files by hand:
+
+```sh
+npm create tsonic@latest my-app -- --target csharp
+```
+
+Use `--target rust` for Rust. The rest of this page explains the files that the
+creator produced and the controls used by advanced projects.
+
 ```text
 my-app/
 ├── package.json

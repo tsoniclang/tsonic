@@ -12,9 +12,9 @@ test("npm release wave is public, exact, and dependency ordered", () => {
   const wave = validateWaveManifests();
 
   assert.equal(wave.version, "0.1.0");
-  assert.equal(wave.packages.length, 14);
-  assert.equal(new Set(wave.packages.map(({ name }) => name)).size, 14);
-  assert.equal(wave.packages.at(-1)?.name, "@tsonic/cli");
+  assert.equal(wave.packages.length, 15);
+  assert.equal(new Set(wave.packages.map(({ name }) => name)).size, 15);
+  assert.equal(wave.packages.at(-1)?.name, "create-tsonic");
   assert.equal(
     wave.packages.find(({ name }) => name === "@tsonic/tsts")?.manifest.private,
     undefined,
@@ -22,6 +22,10 @@ test("npm release wave is public, exact, and dependency ordered", () => {
   assert.deepEqual(
     wave.packages.find(({ name }) => name === "@tsonic/cli")?.manifest.files,
     ["dist", "!dist/**/*.tsbuildinfo", "README.md"],
+  );
+  assert.deepEqual(
+    wave.packages.find(({ name }) => name === "create-tsonic")?.manifest.bin,
+    { "create-tsonic": "./dist/src/index.js" },
   );
   assert.deepEqual(
     wave.packages.find(({ name }) => name === "@tsonic/target-rust")
@@ -43,7 +47,7 @@ test("the required publisher validates without publishing from a feature branch"
   });
 
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /Verified 14 release packages at 0\.1\.0/u);
+  assert.match(result.stdout, /Verified 15 release packages at 0\.1\.0/u);
   assert.doesNotMatch(
     readFileSync(resolve(hostRoot, "scripts/release/publish-npm.mjs"), "utf8"),
     /--dangerously|--skip-tests|npm publish.*packageRoot/u,

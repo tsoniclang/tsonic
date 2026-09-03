@@ -5,9 +5,16 @@ Tsonic compiles TypeScript into target-native source projects.
 The complete C# and Rust manuals, references, architecture, and certification
 documentation live in [`docs/`](docs/README.md).
 
-Start with the [installation and first-project guide](docs/manual/get-started.md).
-It covers the supported Node.js version, the .NET and Rust toolchains, local
-package installation, target discovery, source generation, and native builds.
+Start with one command:
+
+```sh
+npm create tsonic@latest hello -- --target csharp
+```
+
+Use `--target rust` for Rust. The
+[installation and first-project guide](docs/manual/get-started.md) covers native
+toolchain requirements, the generated project, JavaScript surfaces, Node
+capabilities, source generation, and native builds.
 
 The active architecture is:
 
@@ -28,7 +35,7 @@ TypeScript source
   -> Target toolchain owns build/publish/native output
 ```
 
-## Example
+## Existing projects
 
 `tsonic.json`:
 

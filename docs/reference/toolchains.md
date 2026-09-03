@@ -17,8 +17,9 @@ node --version
 npm --version
 ```
 
-The CLI does not download toolchains or install plugins. Install the CLI and
-one target in each project; do not depend on a global Tsonic installation.
+The project creator installs the CLI and one target locally. Neither the
+creator nor the CLI downloads native toolchains. Do not depend on a global
+Tsonic installation.
 
 ## C#
 

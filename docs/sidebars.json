@@ -23,6 +23,7 @@
   "reference": [
     "reference/README.md",
     "reference/cli.md",
+    "reference/project-creator.md",
     "reference/project-config.md",
     "reference/toolchains.md",
     "reference/limitations.md",

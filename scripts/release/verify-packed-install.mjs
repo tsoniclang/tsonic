@@ -165,113 +165,119 @@ function notFound(response) {
 }
 
 async function verifyCsharp(registryOrigin) {
-  const root = resolve(scratchRoot, "hello-csharp");
-  writeProject(root, {
-    "package.json": JSON.stringify({
-      name: "tsonic-install-proof-csharp",
-      private: true,
-      type: "module",
-      devDependencies: {
-        "@tsonic/cli": wave.version,
-        "@tsonic/target-csharp": wave.version,
-      },
-    }, null, 2),
-    "tsonic.json": JSON.stringify({
-      entryPoint: "App.ts",
-      rootDir: "src",
-      outDir: "out",
-      targets: [{
-        id: "csharp",
-        options: {
-          assemblyName: "HelloCsharp",
-          namespace: "Hello.Generated",
-          outputType: "Exe",
-        },
-      }],
-    }, null, 2),
-    "src/App.ts": [
-      'import { Console } from "@tsonic/dotnet/System.js";',
-      "",
-      "function message(name: string): string {",
-      "  return `Hello, ${name}!`;",
-      "}",
-      "",
-      'Console.WriteLine(message("C#"));',
-      "",
-    ].join("\n"),
-  });
-  await install(root, registryOrigin);
+  const root = await createProject("hello-csharp", "csharp", registryOrigin);
+  assertCreatedPackage(root, "@tsonic/target-csharp");
+  const config = readJson(resolve(root, "tsonic.json"));
+  if (config.targets?.[0]?.options?.assemblyName !== "HelloCsharp") {
+    throw new Error("Packed C# creator did not preserve its target-owned assembly name.");
+  }
   assertTarget(root, "csharp");
   const installedPackages = installedTsonicTreeDigest(root);
-  runLocalTsonic(root);
   const output = run(
-    "dotnet",
-    ["run", "--project", "out/csharp/HelloCsharp.csproj", "--nologo"],
+    "npm",
+    ["start", "--silent"],
     { cwd: root, capture: true },
   );
-  if (normalizeLines(output) !== "Hello, C#!\n") {
+  if (!normalizeLines(output).endsWith("Hello from hello-csharp!\n")) {
     throw new Error(`Packed C# install produced unexpected output: ${JSON.stringify(output)}.`);
+  }
+  writeFileSync(resolve(root, "src/App.ts"), [
+    'import { Console } from "@tsonic/dotnet/System.js";',
+    "",
+    "function message(name: string): string {",
+    "  return `Hello, ${name}!`;",
+    "}",
+    "",
+    'Console.WriteLine(message("C#"));',
+    "",
+  ].join("\n"));
+  const richerOutput = run(
+    "npm",
+    ["start", "--silent"],
+    { cwd: root, capture: true },
+  );
+  if (!normalizeLines(richerOutput).endsWith("Hello, C#!\n")) {
+    throw new Error(`Packed C# install produced unexpected output: ${JSON.stringify(richerOutput)}.`);
   }
   assertCacheDirectory(root, ".tsonic/cache/csharp/dotnet-type-provider-tool", "C#");
   assertInstalledPackagesUnchanged(root, installedPackages, "C#");
 }
 
 async function verifyRust(registryOrigin) {
-  const root = resolve(scratchRoot, "hello-rust");
-  writeProject(root, {
-    "package.json": JSON.stringify({
-      name: "tsonic-install-proof-rust",
-      private: true,
-      type: "module",
-      devDependencies: {
-        "@tsonic/cli": wave.version,
-        "@tsonic/target-rust": wave.version,
-      },
-    }, null, 2),
-    "tsonic.json": JSON.stringify({
-      entryPoint: "App.ts",
-      rootDir: "src",
-      outDir: "out",
-      cacheDir: ".cache/tsonic",
-      targets: [{
-        id: "rust",
-        surfaces: ["js"],
-        options: {
-          crateName: "hello_rust",
-          edition: "2024",
-          outputType: "bin",
-        },
-      }],
-    }, null, 2),
-    "src/App.ts": [
-      'import type { int32 } from "@tsonic/core/types.js";',
-      'import { HashMap } from "@tsonic/rust/std/collections.js";',
-      "",
-      "export function main(): void {",
-      "  const values = new HashMap<string, int32>();",
-      '  values.insert("answer", 42);',
-      '  if ((values.get("answer") ?? 0) !== 42) {',
-      '    throw new Error("missing answer");',
-      "  }",
-      '  console.log([1, 2, 3].map((value) => value * 2).join(","));',
-      "}",
-      "",
-    ].join("\n"),
-  });
-  await install(root, registryOrigin);
+  const root = await createProject("hello-rust", "rust", registryOrigin);
+  assertCreatedPackage(root, "@tsonic/target-rust");
+  const config = readJson(resolve(root, "tsonic.json"));
+  if (config.targets?.[0]?.options?.crateName !== "hello_rust") {
+    throw new Error("Packed Rust creator did not preserve its target-owned crate name.");
+  }
   assertTarget(root, "rust");
   const installedPackages = installedTsonicTreeDigest(root);
-  runLocalTsonic(root);
-  const output = run(
-    "cargo",
-    ["run", "--manifest-path", "out/rust/Cargo.toml", "--quiet"],
+  run("npm", ["start", "--silent"], { cwd: root, capture: true });
+  assertCacheDirectory(root, ".tsonic/cache/rust/compiler-provider", "Rust");
+  writeFileSync(resolve(root, "tsonic.json"), `${JSON.stringify({
+    ...config,
+    cacheDir: ".cache/tsonic",
+    targets: [{
+      ...config.targets[0],
+      surfaces: ["js"],
+    }],
+  }, null, 2)}\n`);
+  writeFileSync(resolve(root, "src/App.ts"), [
+    'import type { int32 } from "@tsonic/core/types.js";',
+    'import { HashMap } from "@tsonic/rust/std/collections.js";',
+    "",
+    "export function main(): void {",
+    "  const values = new HashMap<string, int32>();",
+    '  values.insert("answer", 42);',
+    '  if ((values.get("answer") ?? 0) !== 42) {',
+    '    throw new Error("missing answer");',
+    "  }",
+    '  console.log([1, 2, 3].map((value) => value * 2).join(","));',
+    "}",
+    "",
+  ].join("\n"));
+  const richerOutput = run(
+    "npm",
+    ["start", "--silent"],
     { cwd: root, capture: true },
   );
-  if (normalizeLines(output) !== "2,4,6\n") {
-    throw new Error(`Packed Rust install produced unexpected output: ${JSON.stringify(output)}.`);
+  if (!normalizeLines(richerOutput).endsWith("2,4,6\n")) {
+    throw new Error(`Packed Rust install produced unexpected output: ${JSON.stringify(richerOutput)}.`);
   }
   assertCacheDirectory(root, ".cache/tsonic/rust/compiler-provider", "Rust");
   assertInstalledPackagesUnchanged(root, installedPackages, "Rust");
+}
+
+async function createProject(name, targetId, registryOrigin) {
+  await runAsync(
+    "npm",
+    ["create", `tsonic@${wave.version}`, name, "--", "--target", targetId],
+    scratchRoot,
+    {
+      ...process.env,
+      npm_config_audit: "false",
+      npm_config_fund: "false",
+      npm_config_registry: registryOrigin,
+      npm_config_yes: "true",
+    },
+  );
+  return resolve(scratchRoot, name);
+}
+
+function assertCreatedPackage(root, targetPackageName) {
+  const manifest = readJson(resolve(root, "package.json"));
+  if (manifest.devDependencies?.["@tsonic/cli"] !== wave.version ||
+      manifest.devDependencies?.[targetPackageName] !== wave.version ||
+      typeof manifest.scripts?.build !== "string" ||
+      typeof manifest.scripts?.check !== "string" ||
+      typeof manifest.scripts?.start !== "string") {
+    throw new Error(`Packed creator produced an invalid project manifest at '${root}'.`);
+  }
+  for (const path of ["package-lock.json", "tsonic.json", ".gitignore", "src/App.ts"]) {
+    if (!existsSync(resolve(root, path))) {
+      throw new Error(`Packed creator omitted '${path}' from '${root}'.`);
+    }
+  }
 }
 
 function assertCacheDirectory(root, relativePath, target) {
@@ -319,22 +325,6 @@ function appendDirectoryDigest(hash, directory, relativeDirectory) {
   }
 }
 
-async function install(root, registryOrigin) {
-  await runAsync(
-    "npm",
-    [
-      "install",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      "--registry",
-      registryOrigin,
-    ],
-    root,
-  );
-  run("npm", ["ls", "--all"], { cwd: root, capture: true });
-}
-
 function assertTarget(root, targetId) {
   const output = run(
     "npx",
@@ -346,27 +336,15 @@ function assertTarget(root, targetId) {
   }
 }
 
-function runLocalTsonic(root) {
-  run(
-    "npx",
-    ["--no-install", "tsonic", "build", "--project", "tsonic.json"],
-    { cwd: root, capture: true },
-  );
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function writeProject(root, files) {
-  for (const [relativePath, content] of Object.entries(files)) {
-    const path = resolve(root, relativePath);
-    mkdirSync(resolve(path, ".."), { recursive: true });
-    writeFileSync(path, content.endsWith("\n") ? content : `${content}\n`);
-  }
-}
-
-function runAsync(command, args, cwd) {
+function runAsync(command, args, cwd, env = process.env) {
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

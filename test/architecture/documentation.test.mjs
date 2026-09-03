@@ -256,10 +256,14 @@ test("onboarding uses supported local packages and official native toolchains", 
   assert.match(gettingStarted, /https:\/\/nodejs\.org\/en\/download/u);
   assert.match(gettingStarted, /https:\/\/dotnet\.microsoft\.com\/en-us\/download\/dotnet\/10\.0/u);
   assert.match(gettingStarted, /https:\/\/www\.rust-lang\.org\/tools\/install/u);
-  assert.match(gettingStarted, /"@tsonic\/cli": "\^0\.1\.0"/u);
-  assert.match(gettingStarted, /"@tsonic\/target-csharp": "\^0\.1\.0"/u);
-  assert.match(gettingStarted, /"@tsonic\/target-rust": "\^0\.1\.0"/u);
-  assert.match(gettingStarted, /npx --no-install tsonic targets/u);
+  assert.match(gettingStarted, /npm create tsonic@latest hello-csharp -- --target csharp/u);
+  assert.match(gettingStarted, /npm create tsonic@latest hello-rust -- --target rust/u);
+  assert.match(gettingStarted, /npm run build/u);
+  assert.match(gettingStarted, /npm run check/u);
+  assert.match(gettingStarted, /npm start/u);
+  assert.match(gettingStarted, /--surface js/u);
+  assert.match(gettingStarted, /@tsonic\/csharp-nodejs@\^0\.1\.0/u);
+  assert.match(gettingStarted, /@tsonic\/rust-nodejs@\^0\.1\.0/u);
   assert.match(toolchains, /Node\.js \| 22\.18 or newer/u);
   assert.match(toolchains, /\.NET 10 SDK/u);
   assert.match(toolchains, /rustup component add rustfmt/u);

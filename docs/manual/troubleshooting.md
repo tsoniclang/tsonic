@@ -5,6 +5,10 @@ by emitting partial target code.
 
 ## A required command is missing
 
+`create-tsonic` checks the selected target before publishing the project. Its
+diagnostic names the failed command and links to the official installer. If a
+toolchain was changed after creation, run the same checks manually.
+
 Check the host tools first:
 
 ```sh
@@ -53,6 +57,9 @@ Check discovery:
 ```sh
 npx --no-install tsonic targets --project tsonic.json
 ```
+
+For a new project, prefer `npm create tsonic@latest <directory> -- --target
+rust`; the creator installs and validates the target as one transaction.
 
 ## Cache directory is not writable
 

@@ -1,0 +1,26 @@
+{
+  "name": "create-tsonic",
+  "version": "0.1.0",
+  "description": "Create a ready-to-run Tsonic project",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/create-tsonic"
+  },
+  "type": "module",
+  "bin": {
+    "create-tsonic": "./dist/src/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false && node scripts/mark-bin-executable.mjs"
+  }
+}

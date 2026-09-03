@@ -1,6 +1,11 @@
 # `@tsonic/cli`
 
-Project-local command-line interface for Tsonic.
+Project-local command-line interface for Tsonic. For a new project, use the
+standard creator instead of assembling the project by hand:
+
+```sh
+npm create tsonic@latest hello -- --target csharp
+```
 
 Install the CLI with one target pack:
 
@@ -23,5 +28,5 @@ Tsonic requires Node.js 22.18 or newer. Generated C# requires the .NET 10
 SDK. Generated Rust requires a rustup toolchain containing Cargo, rustc,
 rustdoc, and rustfmt.
 
-The complete installation and first-project guide is in the
+The complete creation, installation, and first-project guide is in the
 [Tsonic manual](https://github.com/tsoniclang/tsonic/blob/main/docs/manual/get-started.md).

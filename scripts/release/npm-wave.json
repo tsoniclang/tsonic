@@ -14,7 +14,8 @@
     { "name": "@tsonic/host", "repository": "tsonic", "directory": "packages/host" },
     { "name": "@tsonic/csharp-nodejs", "repository": "csharp-nodejs", "directory": "." },
     { "name": "@tsonic/rust-nodejs", "repository": "rust-nodejs", "directory": "." },
-    { "name": "@tsonic/cli", "repository": "tsonic", "directory": "packages/cli" }
+    { "name": "@tsonic/cli", "repository": "tsonic", "directory": "packages/cli" },
+    { "name": "create-tsonic", "repository": "tsonic", "directory": "packages/create-tsonic" }
   ],
   "certification": [
     { "repository": "tsonic", "command": ["bash", "test/scripts/run-all.sh"] },
