@@ -54,7 +54,9 @@ test("npm release wave is public, exact, and dependency ordered", () => {
 
 test("the required publisher validates without publishing from a feature branch", () => {
   const script = resolve(hostRoot, "scripts/publish-npm.sh");
+  const statusScript = resolve(hostRoot, "scripts/release-status.sh");
   assert.equal(statSync(script).mode & 0o111, 0o111);
+  assert.equal(statSync(statusScript).mode & 0o111, 0o111);
   const result = spawnSync(script, ["--verify-only"], {
     cwd: hostRoot,
     encoding: "utf8",
@@ -93,6 +95,38 @@ test("the required publisher validates without publishing from a feature branch"
       publisherSource.indexOf('"dist-tag",'),
     "every exact artifact must be verified before the latest-tag promotion",
   );
+  const publicInstallIndex = publisherSource.indexOf(
+    '"scripts/release/verify-public-install.mjs", "--version", wave.version',
+  );
+  const promotionIndex = publisherSource.indexOf(
+    "for (const entry of awaitingPromotion)",
+  );
+  assert.notEqual(publicInstallIndex, -1);
+  assert.notEqual(promotionIndex, -1);
+  assert.ok(
+    publicInstallIndex < promotionIndex,
+    "the exact public install must pass before the latest-tag promotion",
+  );
+
+  const publicInstallSource = readFileSync(
+    resolve(hostRoot, "scripts/release/verify-public-install.mjs"),
+    "utf8",
+  );
+  assert.match(publicInstallSource, /npm_config_registry: npmRegistry/u);
+  assert.match(publicInstallSource, /name: "tsonic-public-install-root"/u);
+  assert.match(publicInstallSource, /delete environment\[name\]/u);
+  assert.match(publicInstallSource, /"TSONICLANG_WORKSPACE_ROOT"/u);
+  assert.match(publicInstallSource, /"TSONIC_ROOT"/u);
+  assert.match(publicInstallSource, /\["ls", "--all"\]/u);
+  assert.match(publicInstallSource, /lstatSync\(installedPath\)\.isSymbolicLink/u);
+  assert.doesNotMatch(publicInstallSource, /npm link|workspace:\*|file:\.\./u);
+
+  const packedInstallSource = readFileSync(
+    resolve(hostRoot, "scripts/release/verify-packed-install.mjs"),
+    "utf8",
+  );
+  assert.match(packedInstallSource, /const totalFileCount = packed\.reduce/u);
+  assert.match(publisherSource, /packed\.totalFileCount/u);
 });
 
 test("npm release access is explicit and fails before unauthenticated publication", () => {

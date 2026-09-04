@@ -66,6 +66,7 @@
   ],
   "validation": [
     "validation/README.md",
-    "validation/documentation-drift.md"
+    "validation/documentation-drift.md",
+    "validation/releasing.md"
   ]
 }

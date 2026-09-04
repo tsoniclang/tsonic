@@ -92,6 +92,7 @@ second product contract.
 
 - [Validation overview](validation/README.md)
 - [Documentation drift policy](validation/documentation-drift.md)
+- [npm release procedure](validation/releasing.md)
 
 The target manuals use the same structure where the targets have the same
 responsibility. Target-native concepts remain target-native. C# documents
