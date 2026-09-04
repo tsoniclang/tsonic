@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Tsonic source-to-source compiler command line interface",
   "license": "MIT",
@@ -24,7 +24,7 @@
     "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false && node scripts/mark-bin-executable.mjs"
   },
   "dependencies": {
-    "@tsonic/host": "0.1.0",
-    "@tsonic/target-api": "0.1.0"
+    "@tsonic/host": "0.1.1",
+    "@tsonic/target-api": "0.1.1"
   }
 }

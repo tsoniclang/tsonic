@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/tsts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript-native TypeScript compiler targeting TS-Go contracts",
   "license": "MIT",
   "repository": {
