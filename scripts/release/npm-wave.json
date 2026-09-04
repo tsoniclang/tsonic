@@ -19,13 +19,9 @@
   ],
   "certification": [
     { "repository": "tsonic", "command": ["bash", "test/scripts/run-all.sh"] },
-    { "repository": "tsonic-csharp", "command": ["npm", "test"] },
     { "repository": "tsonic-rust", "command": ["npm", "test"] },
-    { "repository": "csharp-runtime", "command": ["dotnet", "test", "Tsonic.CSharp.Runtime.sln", "--nologo"] },
-    { "repository": "csharp-js", "command": ["dotnet", "test", "Tsonic.CSharp.Js.sln", "--nologo"] },
     { "repository": "rust-runtime", "command": ["npm", "test"] },
     { "repository": "rust-js", "command": ["npm", "test"] },
-    { "repository": "csharp-nodejs", "command": ["npm", "test"] },
     { "repository": "rust-nodejs", "command": ["npm", "test"] }
   ]
 }

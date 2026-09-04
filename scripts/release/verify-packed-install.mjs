@@ -205,6 +205,19 @@ async function verifyCsharp(registryOrigin) {
   }
   assertCacheDirectory(root, ".tsonic/cache/csharp/dotnet-type-provider-tool", "C#");
   assertInstalledPackagesUnchanged(root, installedPackages, "C#");
+
+  await installCapability(root, "@tsonic/csharp-nodejs", registryOrigin);
+  const installedNodePackages = installedTsonicTreeDigest(root);
+  writeFileSync(resolve(root, "message.txt"), "C# Node capability\n");
+  writeFileSync(resolve(root, "src/App.ts"), [
+    'import { ok } from "node:assert";',
+    'import { readFileSync } from "node:fs";',
+    "",
+    'ok(readFileSync("message.txt", "utf8") === "C# Node capability\\n");',
+    "",
+  ].join("\n"));
+  run("npm", ["start", "--silent"], { cwd: root, capture: true });
+  assertInstalledPackagesUnchanged(root, installedNodePackages, "C# Node");
 }
 
 async function verifyRust(registryOrigin) {
@@ -250,6 +263,25 @@ async function verifyRust(registryOrigin) {
   }
   assertCacheDirectory(root, ".cache/tsonic/rust/compiler-provider", "Rust");
   assertInstalledPackagesUnchanged(root, installedPackages, "Rust");
+
+  await installCapability(root, "@tsonic/rust-nodejs", registryOrigin);
+  const installedNodePackages = installedTsonicTreeDigest(root);
+  writeFileSync(resolve(root, "tsonic.json"), `${JSON.stringify({
+    ...config,
+    cacheDir: ".cache/tsonic",
+  }, null, 2)}\n`);
+  writeFileSync(resolve(root, "message.txt"), "Rust Node capability\n");
+  writeFileSync(resolve(root, "src/App.ts"), [
+    'import { ok } from "node:assert";',
+    'import { readFileSync } from "node:fs";',
+    "",
+    "export function main(): void {",
+    '  ok(readFileSync("message.txt", "utf8") === "Rust Node capability\\n");',
+    "}",
+    "",
+  ].join("\n"));
+  run("npm", ["start", "--silent"], { cwd: root, capture: true });
+  assertInstalledPackagesUnchanged(root, installedNodePackages, "Rust Node");
 }
 
 async function createProject(name, targetId, registryOrigin) {
@@ -281,6 +313,30 @@ function assertCreatedPackage(root, targetPackageName) {
     if (!existsSync(resolve(root, path))) {
       throw new Error(`Packed creator omitted '${path}' from '${root}'.`);
     }
+  }
+}
+
+async function installCapability(root, packageName, registryOrigin) {
+  await runAsync(
+    "npm",
+    [
+      "install",
+      "--save-dev",
+      "--save-exact",
+      `${packageName}@${wave.version}`,
+      "--registry",
+      registryOrigin,
+      "--no-audit",
+      "--no-fund",
+    ],
+    root,
+  );
+  const manifest = readJson(resolve(root, "package.json"));
+  if (manifest.devDependencies?.[packageName] !== wave.version) {
+    throw new Error(`Packed project did not record capability '${packageName}'.`);
+  }
+  if (!existsSync(resolve(root, "node_modules", ...packageName.split("/")))) {
+    throw new Error(`Packed project did not install capability '${packageName}'.`);
   }
 }
 

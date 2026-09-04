@@ -7,14 +7,28 @@ import {
   hostRoot,
   validateWaveManifests,
 } from "../../scripts/release/npm-wave.mjs";
+import {
+  npmRegistry,
+  npmView,
+  requireNpmAuthentication,
+} from "../../scripts/release/npm-registry.mjs";
 
 test("npm release wave is public, exact, and dependency ordered", () => {
   const wave = validateWaveManifests();
 
-  assert.equal(wave.version, "0.1.0");
+  assert.match(wave.version, /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u);
   assert.equal(wave.packages.length, 15);
   assert.equal(new Set(wave.packages.map(({ name }) => name)).size, 15);
+  assert.equal(wave.layout.workspaceRoot, resolve(hostRoot, ".."));
+  assert.equal(
+    wave.layout.repositoryRoots.get("tsonic-csharp"),
+    resolve(hostRoot, "../tsonic-csharp"),
+  );
   assert.equal(wave.packages.at(-1)?.name, "create-tsonic");
+  assert.deepEqual(
+    wave.certification.map(({ repository }) => repository),
+    ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"],
+  );
   assert.equal(
     wave.packages.find(({ name }) => name === "@tsonic/tsts")?.manifest.private,
     undefined,
@@ -31,9 +45,9 @@ test("npm release wave is public, exact, and dependency ordered", () => {
     wave.packages.find(({ name }) => name === "@tsonic/target-rust")
       ?.manifest.dependencies,
     {
-      "@tsonic/js-source-profile": "0.1.0",
-      "@tsonic/rust-runtime": "0.1.0",
-      "@tsonic/rust-js": "0.1.0",
+      "@tsonic/js-source-profile": wave.version,
+      "@tsonic/rust-runtime": wave.version,
+      "@tsonic/rust-js": wave.version,
     },
   );
 });
@@ -47,9 +61,72 @@ test("the required publisher validates without publishing from a feature branch"
   });
 
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /Verified 15 release packages at 0\.1\.0/u);
+  assert.match(result.stdout, /Verified 15 release packages at [0-9]+\.[0-9]+\.[0-9]+/u);
+  const publisherSource = readFileSync(
+    resolve(hostRoot, "scripts/release/publish-npm.mjs"),
+    "utf8",
+  );
   assert.doesNotMatch(
-    readFileSync(resolve(hostRoot, "scripts/release/publish-npm.mjs"), "utf8"),
+    publisherSource,
     /--dangerously|--skip-tests|npm publish.*packageRoot/u,
   );
+  const authenticationIndex = publisherSource.indexOf(
+    "const npmUsername = requireNpmAuthentication();",
+  );
+  const certificationIndex = publisherSource.indexOf("certifyWave(wave)");
+  assert.notEqual(authenticationIndex, -1);
+  assert.notEqual(certificationIndex, -1);
+  assert.ok(
+    authenticationIndex < certificationIndex,
+    "npm authentication must be checked before expensive certification",
+  );
+  assert.match(publisherSource, /const stagingTag = "tsonic-wave"/u);
+  assert.match(publisherSource, /"--tag",\s*stagingTag/u);
+  assert.match(
+    publisherSource,
+    /"dist-tag",\s*"add",\s*`\$\{entry\.name\}@\$\{wave\.version\}`,\s*"latest"/u,
+  );
+  assert.match(publisherSource, /"--registry",\s*npmRegistry/u);
+  assert.match(publisherSource, /scripts\/check-branch-hygiene\.sh/u);
+  assert.ok(
+    publisherSource.indexOf("verifyPublishedIntegrity(entry.name") <
+      publisherSource.indexOf('"dist-tag",'),
+    "every exact artifact must be verified before the latest-tag promotion",
+  );
+});
+
+test("npm release access is explicit and fails before unauthenticated publication", () => {
+  const calls = [];
+  const username = requireNpmAuthentication((args) => {
+    calls.push(args);
+    return { status: 0, stdout: "release-owner\n", stderr: "" };
+  });
+  assert.equal(username, "release-owner");
+  assert.deepEqual(calls, [["whoami", "--registry", npmRegistry]]);
+
+  assert.throws(
+    () => requireNpmAuthentication(() => ({
+      status: 1,
+      stdout: "",
+      stderr: "npm error code E401",
+    })),
+    /npm authentication is required before release certification/u,
+  );
+});
+
+test("npm registry reads use the canonical public registry", () => {
+  const calls = [];
+  const value = npmView("@tsonic/cli", "version", undefined, (args) => {
+    calls.push(args);
+    return { status: 0, stdout: '"0.1.0"\n', stderr: "" };
+  });
+  assert.equal(value, "0.1.0");
+  assert.deepEqual(calls, [[
+    "view",
+    "@tsonic/cli",
+    "version",
+    "--json",
+    "--registry",
+    npmRegistry,
+  ]]);
 });

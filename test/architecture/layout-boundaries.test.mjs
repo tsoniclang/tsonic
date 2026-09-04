@@ -15,6 +15,7 @@ import {
   evaluateTestSuiteOwnership,
 } from "./tooling/test-inventory.mjs";
 import { createParallelSuiteDefinition } from "../scripts/suite-definition.mjs";
+import { testRepositoryRoots } from "../scripts/workspace-layout.mjs";
 import {
   sharedAllowedImplementationIndexes,
   sharedForbiddenDirectories,
@@ -86,13 +87,7 @@ test("shared packages expose only deliberate audience entrypoints", () => {
 });
 
 test("parallel suite ownership is recursive and one-to-one", () => {
-  const repos = {
-    tsonic: repositoryRoot,
-    tsonicCsharp: resolve(repositoryRoot, "../tsonic-csharp"),
-    csharpJs: resolve(repositoryRoot, "../csharp-js"),
-    csharpNodejs: resolve(repositoryRoot, "../csharp-nodejs"),
-    csharpRuntime: resolve(repositoryRoot, "../csharp-runtime"),
-  };
+  const repos = testRepositoryRoots;
   const definition = createParallelSuiteDefinition(repos);
   const findings = [];
   for (const testRoot of definition.testRoots) {

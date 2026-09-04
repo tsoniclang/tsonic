@@ -76,7 +76,9 @@ export async function createTsonicProject(
   const projectName = basename(destination);
   requireProjectName(projectName);
   const targetPackageName = `@tsonic/target-${options.targetId}`;
-  const version = await readCreatorVersion();
+  const creator = await readCreatorMetadata();
+  requireSupportedNodeVersion(process.versions.node, creator.minimumNodeVersion);
+  const version = creator.version;
   const parent = dirname(destination);
   await mkdir(parent, { recursive: true });
   const staging = resolve(parent, `.${projectName}.tsonic-create-${process.pid}-${randomUUID()}`);
@@ -137,7 +139,10 @@ export async function createTsonicProject(
   };
 }
 
-async function readCreatorVersion(): Promise<string> {
+async function readCreatorMetadata(): Promise<{
+  readonly version: string;
+  readonly minimumNodeVersion: string;
+}> {
   const packagePath = resolve(
     dirname(fileURLToPath(import.meta.url)),
     "../../package.json",
@@ -147,7 +152,49 @@ async function readCreatorVersion(): Promise<string> {
       !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(value.version)) {
     throw new Error("create-tsonic package version is invalid.");
   }
-  return value.version;
+  const nodeRange = isRecord(value.engines) ? value.engines.node : undefined;
+  const minimumNodeVersion = typeof nodeRange === "string"
+    ? /^>=(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.exec(nodeRange)?.[0].slice(2)
+    : undefined;
+  if (minimumNodeVersion === undefined) {
+    throw new Error("create-tsonic package Node.js engine requirement is invalid.");
+  }
+  return Object.freeze({ version: value.version, minimumNodeVersion });
+}
+
+export function requireSupportedNodeVersion(actual: string, minimum: string): void {
+  const actualVersion = parseVersion(actual, "running Node.js");
+  const minimumVersion = parseVersion(minimum, "minimum Node.js");
+  for (let index = 0; index < minimumVersion.parts.length; index += 1) {
+    if (actualVersion.parts[index] > minimumVersion.parts[index]) return;
+    if (actualVersion.parts[index] < minimumVersion.parts[index]) {
+      rejectUnsupportedNodeVersion(actual, minimum);
+    }
+  }
+  if (actualVersion.prerelease) {
+    rejectUnsupportedNodeVersion(actual, minimum);
+  }
+}
+
+function parseVersion(value: string, subject: string): {
+  readonly parts: readonly number[];
+  readonly prerelease: boolean;
+} {
+  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.exec(value);
+  if (match === null) {
+    throw new Error(`${subject} version '${value}' is invalid.`);
+  }
+  return Object.freeze({
+    parts: Object.freeze(match.slice(1, 4).map(Number)),
+    prerelease: match[4] !== undefined,
+  });
+}
+
+function rejectUnsupportedNodeVersion(actual: string, minimum: string): never {
+  throw new Error([
+    `Node.js ${minimum} or newer is required; found ${actual}.`,
+    "Install a supported Node.js release from https://nodejs.org/en/download.",
+  ].join("\n"));
 }
 
 function installDependencies(projectDirectory: string): void {

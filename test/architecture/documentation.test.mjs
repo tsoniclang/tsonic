@@ -1,18 +1,12 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import test from "node:test";
+import { testWorkspaceRoot } from "../scripts/workspace-layout.mjs";
 
 const repositoryRoot = resolve(new URL("../..", import.meta.url).pathname);
 const documentationRoot = resolve(repositoryRoot, "docs");
-const workspaceRoot = process.env.TSONICLANG_WORKSPACE_ROOT ?? dirname(dirname(
-  execFileSync(
-    "git",
-    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { cwd: repositoryRoot, encoding: "utf8" },
-  ).trim(),
-));
+const workspaceRoot = testWorkspaceRoot;
 
 const sharedTargetReferencePages = Object.freeze([
   "README.md",

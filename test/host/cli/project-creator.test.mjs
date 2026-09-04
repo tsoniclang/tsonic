@@ -6,6 +6,7 @@ import test from "node:test";
 
 const repoRoot = resolve(import.meta.dirname, "../../..");
 const creator = resolve(repoRoot, "packages/create-tsonic/dist/src/index.js");
+const creatorVersion = readJson(resolve(repoRoot, "packages/create-tsonic/package.json")).version;
 const fixtureRoot = resolve(repoRoot, ".temp/test-fixtures/project-creator");
 
 test("project creator publishes a complete target-owned starter atomically", () => {
@@ -25,8 +26,8 @@ test("project creator publishes a complete target-owned starter atomically", () 
       check: "npm run build && native-check",
     },
     devDependencies: {
-      "@tsonic/cli": "0.1.0",
-      "@tsonic/target-fixture": "0.1.0",
+      "@tsonic/cli": creatorVersion,
+      "@tsonic/target-fixture": creatorVersion,
     },
   });
   assert.deepEqual(readJson(resolve(projectRoot, "tsonic.json")), {
@@ -38,6 +39,23 @@ test("project creator publishes a complete target-owned starter atomically", () 
   assert.equal(readFileSync(resolve(projectRoot, "src/App.ts"), "utf8"), "export {};\n");
   assert.equal(readFileSync(resolve(projectRoot, ".gitignore"), "utf8"), "node_modules/\nout/\n.tsonic/\n");
   assert.equal(stagingDirectories(runRoot, "hello-fixture").length, 0);
+});
+
+test("project creator enforces its declared Node.js floor", async () => {
+  const { requireSupportedNodeVersion } = await import(
+    "../../../packages/create-tsonic/dist/src/scaffold.js"
+  );
+  assert.doesNotThrow(() => requireSupportedNodeVersion("22.18.0", "22.18.0"));
+  assert.doesNotThrow(() => requireSupportedNodeVersion("22.18.0+build.1", "22.18.0"));
+  assert.doesNotThrow(() => requireSupportedNodeVersion("23.0.0", "22.18.0"));
+  assert.throws(
+    () => requireSupportedNodeVersion("22.17.9", "22.18.0"),
+    /Node\.js 22\.18\.0 or newer is required; found 22\.17\.9/u,
+  );
+  assert.throws(
+    () => requireSupportedNodeVersion("22.18.0-rc.1", "22.18.0"),
+    /Node\.js 22\.18\.0 or newer is required; found 22\.18\.0-rc\.1/u,
+  );
 });
 
 test("project creator preserves explicit source surfaces", () => {

@@ -2,15 +2,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-
-const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
-const repos = Object.freeze({
-  tsonic: tsonicRoot,
-  tsonicCsharp: resolve(tsonicRoot, "../tsonic-csharp"),
-  csharpJs: resolve(tsonicRoot, "../csharp-js"),
-  csharpNodejs: resolve(tsonicRoot, "../csharp-nodejs"),
-  csharpRuntime: resolve(tsonicRoot, "../csharp-runtime"),
-});
+import {
+  testRepositoryRoots as repos,
+} from "./workspace-layout.mjs";
 
 const commands = Object.freeze([
   {
