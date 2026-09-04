@@ -1,11 +1,17 @@
 {
   "name": "@tsonic/source-core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Target-neutral Tsonic source semantics for TSTS",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/source-core"
+  },
   "type": "module",
   "main": "./dist/public/index.js",
   "types": "./dist/public/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "!dist/**/*.tsbuildinfo"],
   "exports": {
     ".": {
       "types": "./dist/public/index.d.ts",
@@ -27,9 +33,9 @@
     "test": "node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
-    "@tsonic/tsts": "0.0.0"
+    "@tsonic/tsts": "0.1.0"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.18.0"
   }
 }

@@ -3,6 +3,15 @@
 A Tsonic project is an npm package containing `package.json`, `tsonic.json`,
 and TypeScript source files.
 
+Create the complete default layout rather than assembling these files by hand:
+
+```sh
+npm create tsonic@latest my-app -- --target csharp
+```
+
+Use `--target rust` for Rust. The rest of this page explains the files that the
+creator produced and the controls used by advanced projects.
+
 ```text
 my-app/
 ├── package.json
@@ -28,8 +37,8 @@ Use ESM:
     "build": "tsonic build --project tsonic.json"
   },
   "devDependencies": {
-    "@tsonic/cli": "0.0.1",
-    "@tsonic/target-csharp": "0.0.1"
+    "@tsonic/cli": "^0.1.0",
+    "@tsonic/target-csharp": "^0.1.0"
   }
 }
 ```
@@ -60,6 +69,9 @@ Node ESM rules.
 - `rootFiles` defaults to the entrypoint and must include it when supplied.
 - Imported dependencies are followed through the checked ESM graph.
 - `outDir` is resolved from the project directory, not from `rootDir`.
+- Target tools keep disposable state under `cacheDir`, which defaults to
+  `.tsonic/cache` beside `tsonic.json`. Set it when that location is not
+  writable. It cannot overlap `outDir`.
 
 Tsonic does not read a `tsconfig.json`. Fields such as `compilerOptions`,
 `paths`, `baseUrl`, `extends`, and TypeScript project references are rejected

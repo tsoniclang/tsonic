@@ -182,7 +182,7 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   assert.match(modelSource, /public ScoreCard\(string label, double points\) : base\(label\)/);
   assert.match(modelSource, /return base\.baseScore\(\) \+ this\.points \+ ScoreCard\.bonus;/);
   const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  const shapeName = /public class (__TsonicShape_[a-f0-9]{64}) : Receipt/u.exec(shapeSource)?.[1];
+  const shapeName = /public class (ReceiptShape_[a-f0-9]{12}) : Receipt/u.exec(shapeSource)?.[1];
   assert.ok(shapeName);
   assert.match(shapeSource, /public required string label\s*\{\s*get;\s*set;\s*\}[\s\S]*public required double points\s*\{\s*get;\s*set;\s*\}[\s\S]*public required Rank rank\s*\{\s*get;\s*set;\s*\}/u);
   assert.match(modelSource, new RegExp(`return new ${shapeName}[\\s\\S]*label = (?:card|\\(\\(Entity\\)card\\))\\.title,[\\s\\S]*points = points,[\\s\\S]*rank = (?:Model\\.)?classify\\(points\\)`));

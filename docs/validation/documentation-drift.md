@@ -21,6 +21,7 @@ The documentation checker validates:
 - generated-project and user-owned-project ownership boundaries;
 - CLI exit codes and transactional publication behavior;
 - current target virtual-module prefixes;
+- single-command project creation and target-owned starter boundaries;
 - prohibited retired architecture terminology;
 - support evidence paths where a committed matrix cites a proof.
 

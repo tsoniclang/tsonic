@@ -407,8 +407,8 @@ test("CLI does not run type-only module dependencies during initialization", asy
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /State\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(indexSource, /Types\.__tsonic_module_init\(\);/);
-  assert.match(indexSource, /marker = new __TsonicShape_[a-f0-9]+/);
-  assert.match(indexSource, /named = new __TsonicShape_[a-f0-9]+/);
+  assert.match(indexSource, /marker = new MarkerShape_[a-f0-9]{12}/);
+  assert.match(indexSource, /named = new NamedShape_[a-f0-9]{12}/);
 
   const typesSource = await readFile(resolve(projectDirectory, "out/csharp/src/Types.cs"), "utf8");
   assert.match(typesSource, /State\.append\("types;"\);/);
@@ -594,12 +594,13 @@ test("CLI emits default function imports and default re-exports from TSTS module
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Service\.compute\(1\) \+ Service\.compute\(2\);/);
-  assert.match(generatedSource, /Service\.__tsonic_module_init\(\);[\s\S]*Barrel\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(generatedSource, /(?:Service|Barrel)\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(generatedSource, /directCompute|Barrel\.compute|__unsupported/);
 
-  const barrelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8");
-  assert.match(barrelSource, /Service\.__tsonic_module_init\(\);/);
-  assert.doesNotMatch(barrelSource, /compute|__unsupported/);
+  await assert.rejects(
+    readFile(resolve(projectDirectory, "out/csharp/src/Barrel.cs"), "utf8"),
+    { code: "ENOENT" },
+  );
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultFunctionReExport.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

@@ -6,7 +6,7 @@ toolchain owns compilation, tests, packaging, and deployment.
 ## Generate source
 
 ```sh
-npx tsonic build --project tsonic.json
+npx --no-install tsonic build --project tsonic.json
 ```
 
 The command checks the TypeScript program, compiles every selected target, and
@@ -57,20 +57,28 @@ or other project structures that are not a plain `Microsoft.NET.Sdk` project.
 
 ## Rust
 
-The first Cargo command creates `Cargo.lock` when needed:
+The first Cargo command after each Tsonic generation creates `Cargo.lock` when
+needed:
 
 ```sh
 cargo build --manifest-path out/rust/Cargo.toml
 cargo run --manifest-path out/rust/Cargo.toml
 ```
 
-After the lockfile exists, reproducible commands may use `--locked`:
+After that lockfile exists, commands against the current generated tree may use
+`--locked`:
 
 ```sh
 cargo fmt --manifest-path out/rust/Cargo.toml --all --check
 cargo clippy --manifest-path out/rust/Cargo.toml --all-targets --locked -- -D warnings
 cargo test --manifest-path out/rust/Cargo.toml --locked
 ```
+
+`outDir` is compiler-owned. Another successful `tsonic build` replaces the
+whole generated tree, including a lockfile created there by Cargo. Run one
+unlocked Cargo command again after regeneration. If a lockfile must survive
+source generation and be committed, use a user-owned `Cargo.toml`; Tsonic
+then emits source into that native project without owning its lockfile.
 
 Cross-compile a hosted Rust application with the normal Cargo target option:
 

@@ -204,9 +204,7 @@ test("CLI runs recovered NodeJS module graph fixture through provider-package fa
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Pathing\.__tsonic_module_init\(\);/);
-  assert.match(generatedSource, /SystemInfo\.__tsonic_module_init\(\);/);
-  assert.match(generatedSource, /FileState\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(generatedSource, /(?:Pathing|SystemInfo|FileState)\.__tsonic_module_init\(\);/);
   assert.match(generatedSource, /main\(\);/);
   assert.doesNotMatch(generatedSource, /\bdynamic\b|System\.Reflection|GetMethod|GetProperty|__unsupported/);
 

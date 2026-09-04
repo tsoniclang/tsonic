@@ -22,6 +22,15 @@ export type {
   TsonicTargetPlugin,
 } from "../target/pack.js";
 export type {
+  TargetStarterFile,
+  TargetStarterProject,
+  TargetStarterProjectContext,
+  TargetStarterRequirement,
+  TargetStarterRequirementCheck,
+  TargetStarterSelection,
+  TargetStarterScripts,
+} from "../target/starter.js";
+export type {
   SelectedTargetCapabilityContributions,
   TargetCompositionContext,
   TargetProviderDescriptor,

@@ -1,6 +1,13 @@
 # CLI reference
 
-The `tsonic` executable currently exposes two commands.
+The project-local `tsonic` executable exposes two commands. New-project
+creation is a separate standard npm initializer:
+
+```sh
+npm create tsonic@latest hello -- --target csharp
+```
+
+See the [project creator contract](project-creator.md).
 
 ## `tsonic build`
 
@@ -58,6 +65,7 @@ without an error. A failure leaves the previous successful output in place.
 
 ## Unsupported commands
 
-There are no `init`, `run`, `add`, or `restore` commands. Project creation,
-native execution, package installation, and native dependency restoration
-remain owned by npm and the target-native toolchain.
+There are no `init`, `run`, `add`, or `restore` subcommands. `create-tsonic`
+owns new-project creation and npm installation. Created projects expose native
+execution through their `npm start` script; restoration and execution remain
+owned by npm and the target-native toolchain.

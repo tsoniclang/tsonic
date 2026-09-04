@@ -65,6 +65,7 @@ const requiredArtifacts = Object.freeze([
   ["tsonic.targetApiDist", resolve(repos.tsonic, "packages/target-api/dist")],
   ["tsonic.hostDist", resolve(repos.tsonic, "packages/host/dist")],
   ["tsonic.cliDist", resolve(repos.tsonic, "packages/cli/dist")],
+  ["tsonic.createTsonicDist", resolve(repos.tsonic, "packages/create-tsonic/dist")],
   ["tsonic.tstsBundledLibs", resolve(repos.tsonic, "packages/tsts/dist/src/internal/bundled/libs")],
   ["tsonicCsharp.dist", resolve(repos.tsonicCsharp, "dist")],
   ["csharpJs.runtimeDll", resolve(repos.csharpJs, "runtimes/net10.0/Tsonic.CSharp.Js.dll")],

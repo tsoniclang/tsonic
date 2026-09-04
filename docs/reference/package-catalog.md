@@ -4,6 +4,7 @@
 
 | Package | Responsibility |
 | --- | --- |
+| `create-tsonic` | Atomic single-command project creator |
 | `@tsonic/cli` | `tsonic` command-line entry point |
 | `@tsonic/host` | Project orchestration and plugin composition |
 | `@tsonic/target-api` | Public target, provider, artifact, and source-navigation contracts |

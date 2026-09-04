@@ -23,6 +23,7 @@ export function parseTsonicProjectConfig(value: unknown): TsonicProjectConfig {
     ...(rootFiles !== undefined ? { rootFiles } : {}),
     ...(readOptionalString(value, "rootDir") !== undefined ? { rootDir: readOptionalString(value, "rootDir") } : {}),
     ...(readOptionalString(value, "outDir") !== undefined ? { outDir: readOptionalString(value, "outDir") } : {}),
+    ...(readOptionalString(value, "cacheDir") !== undefined ? { cacheDir: readOptionalString(value, "cacheDir") } : {}),
     targets: readTargets(value.targets),
   };
 }
@@ -60,7 +61,7 @@ function readTargets(value: unknown): readonly TargetSelection[] {
 
 function rejectUnknownProjectConfigKeys(value: Readonly<Record<string, unknown>>): void {
   rejectUnsupportedCompilerConfigKeys(value);
-  rejectUnknownKeys(value, new Set(["$schema", "entryPoint", "rootFiles", "rootDir", "outDir", "targets"]), "Project config");
+  rejectUnknownKeys(value, new Set(["$schema", "entryPoint", "rootFiles", "rootDir", "outDir", "cacheDir", "targets"]), "Project config");
 }
 
 function rejectUnsupportedCompilerConfigKeys(value: Readonly<Record<string, unknown>>): void {

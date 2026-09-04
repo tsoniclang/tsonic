@@ -1,11 +1,16 @@
 {
   "name": "@tsonic/js-source-profile",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Canonical JavaScript source-profile declarations and identities for Tsonic targets",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/js-source-profile"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": ["dist", "!dist/**/*.tsbuildinfo", "README.md"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,8 +27,8 @@
     "node": ">=22.18.0"
   },
   "dependencies": {
-    "@tsonic/source-core": "0.0.1",
-    "@tsonic/tsts": "0.0.0"
+    "@tsonic/source-core": "0.1.0",
+    "@tsonic/tsts": "0.1.0"
   },
   "license": "MIT"
 }

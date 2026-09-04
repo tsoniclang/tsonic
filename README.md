@@ -1,9 +1,20 @@
 # Tsonic
 
-Tsonic is being rebuilt as a source-to-source compiler from TypeScript to target-native source projects.
+Tsonic compiles TypeScript into target-native source projects.
 
 The complete C# and Rust manuals, references, architecture, and certification
 documentation live in [`docs/`](docs/README.md).
+
+Start with one command:
+
+```sh
+npm create tsonic@latest hello -- --target csharp
+```
+
+Use `--target rust` for Rust. The
+[installation and first-project guide](docs/manual/get-started.md) covers native
+toolchain requirements, the generated project, JavaScript surfaces, Node
+capabilities, source generation, and native builds.
 
 The active architecture is:
 
@@ -24,7 +35,7 @@ TypeScript source
   -> Target toolchain owns build/publish/native output
 ```
 
-## Example
+## Existing projects
 
 `tsonic.json`:
 
@@ -64,7 +75,7 @@ export function add(left: int, right: int): int {
 Build:
 
 ```sh
-tsonic build --project tsonic.json
+npx --no-install tsonic build --project tsonic.json
 dotnet build out/csharp/ExampleGenerated.csproj
 ```
 

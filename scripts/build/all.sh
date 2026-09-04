@@ -22,6 +22,7 @@ PACKAGES=(
   "packages/js-source-profile"
   "packages/host"
   "packages/cli"
+  "packages/create-tsonic"
 )
 
 for pkg in "${PACKAGES[@]}"; do

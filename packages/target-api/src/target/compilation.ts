@@ -25,6 +25,7 @@ export interface TargetCompilationPaths {
   readonly projectRoot: string;
   readonly outputRoot: string;
   readonly targetOutputRoot: string;
+  readonly cacheRoot: string;
 }
 
 export interface TargetCompileInput {

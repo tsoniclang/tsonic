@@ -125,16 +125,20 @@ Tsonic owns the source and target semantic contract.
 ## Native build
 
 ```sh
-npx tsonic build -p tsonic.json
+npx --no-install tsonic build -p tsonic.json
 cargo build --manifest-path out/rust/Cargo.toml
 ```
 
 Tsonic's toolchain stage reports the formatted generated artifact set; Cargo
 performs the native compile, test, run, and publish operations.
 
-After the first build creates `Cargo.lock`, reproducible commands can add
-`--locked`:
+After the first Cargo command creates `Cargo.lock`, commands against that
+generated tree can add `--locked`:
 
 ```sh
 cargo test --manifest-path out/rust/Cargo.toml --locked
 ```
+
+A later `tsonic build` atomically replaces compiler-owned `outDir`, including
+that generated lockfile. Run an unlocked Cargo command after regeneration.
+Keep a durable, committed lockfile in a user-owned Cargo project.

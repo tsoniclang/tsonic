@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import test from "node:test";
 
 const repositoryRoot = resolve(new URL("../..", import.meta.url).pathname);
 const documentationRoot = resolve(repositoryRoot, "docs");
-const workspaceRoot = resolve(repositoryRoot, "..");
+const workspaceRoot = process.env.TSONICLANG_WORKSPACE_ROOT ?? dirname(dirname(
+  execFileSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  ).trim(),
+));
 
 const sharedTargetReferencePages = Object.freeze([
   "README.md",
@@ -109,6 +116,7 @@ test("project configuration documentation matches the host parser", () => {
   }
   assert.match(reference, /`rootDir`[^\n]*project-file directory/u);
   assert.match(reference, /`outDir`[^\n]*`dist\/tsonic`/u);
+  assert.match(reference, /`cacheDir`[^\n]*`\.tsonic\/cache`/u);
 });
 
 test("neutral source exports are represented in the canonical reference", () => {
@@ -230,6 +238,41 @@ test("CLI outcomes and publication are documented", () => {
   }
   assert.match(reference, /publishes the complete output tree only when every selected target/u);
   assert.match(reference, /previous successful output in place/u);
+});
+
+test("onboarding uses supported local packages and official native toolchains", () => {
+  const gettingStarted = readFileSync(
+    resolve(documentationRoot, "manual/get-started.md"),
+    "utf8",
+  );
+  const toolchains = readFileSync(
+    resolve(documentationRoot, "reference/toolchains.md"),
+    "utf8",
+  );
+  const documentation = collectMarkdownFiles(documentationRoot)
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+
+  assert.match(gettingStarted, /https:\/\/nodejs\.org\/en\/download/u);
+  assert.match(gettingStarted, /https:\/\/dotnet\.microsoft\.com\/en-us\/download\/dotnet\/10\.0/u);
+  assert.match(gettingStarted, /https:\/\/www\.rust-lang\.org\/tools\/install/u);
+  assert.match(gettingStarted, /npm create tsonic@latest hello-csharp -- --target csharp/u);
+  assert.match(gettingStarted, /npm create tsonic@latest hello-rust -- --target rust/u);
+  assert.match(gettingStarted, /npm run build/u);
+  assert.match(gettingStarted, /npm run check/u);
+  assert.match(gettingStarted, /npm start/u);
+  assert.match(gettingStarted, /--surface js/u);
+  assert.match(gettingStarted, /@tsonic\/csharp-nodejs@\^0\.1\.0/u);
+  assert.match(gettingStarted, /@tsonic\/rust-nodejs@\^0\.1\.0/u);
+  assert.match(toolchains, /Node\.js \| 22\.18 or newer/u);
+  assert.match(toolchains, /\.NET 10 SDK/u);
+  assert.match(toolchains, /rustup component add rustfmt/u);
+  assert.match(toolchains, /rustup component add clippy/u);
+  assert.doesNotMatch(
+    documentation,
+    /\bnpx tsonic\b/u,
+    "documentation must not let npx download an unselected CLI when the local install is missing",
+  );
 });
 
 function collectMarkdownFiles(root) {

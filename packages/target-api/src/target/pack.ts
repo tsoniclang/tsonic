@@ -11,6 +11,10 @@ import type {
   TargetToolchain,
   TargetToolchainContext,
 } from "./toolchain.js";
+import type {
+  TargetStarterProject,
+  TargetStarterProjectContext,
+} from "./starter.js";
 
 export type TsonicPlugin =
   | TsonicTargetPlugin
@@ -21,6 +25,9 @@ export interface TsonicTargetPlugin {
   readonly id: string;
   readonly targetId: string;
   createTargetPack(): TargetPack;
+  createStarterProject?(
+    context: TargetStarterProjectContext,
+  ): TargetStarterProject;
 }
 
 export interface TargetPack {
