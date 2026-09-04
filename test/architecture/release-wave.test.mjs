@@ -11,6 +11,8 @@ import {
   npmRegistry,
   npmView,
   requireNpmAuthentication,
+  waitForNpmViewPresence,
+  waitForNpmViewValue,
 } from "../../scripts/release/npm-registry.mjs";
 
 test("npm release wave is public, exact, and dependency ordered", () => {
@@ -82,30 +84,24 @@ test("the required publisher validates without publishing from a feature branch"
     authenticationIndex < certificationIndex,
     "npm authentication must be checked before expensive certification",
   );
-  assert.match(publisherSource, /const stagingTag = "tsonic-wave"/u);
-  assert.match(publisherSource, /"--tag",\s*stagingTag/u);
+  assert.doesNotMatch(publisherSource, /tsonic-wave/u);
+  assert.match(publisherSource, /"--tag",\s*"latest"/u);
   assert.match(
     publisherSource,
     /"dist-tag",\s*"add",\s*`\$\{entry\.name\}@\$\{wave\.version\}`,\s*"latest"/u,
   );
   assert.match(publisherSource, /"--registry",\s*npmRegistry/u);
   assert.match(publisherSource, /scripts\/check-branch-hygiene\.sh/u);
-  assert.ok(
-    publisherSource.indexOf("verifyPublishedIntegrity(entry.name") <
-      publisherSource.indexOf('"dist-tag",'),
-    "every exact artifact must be verified before the latest-tag promotion",
-  );
-  const publicInstallIndex = publisherSource.indexOf(
+  assert.match(publisherSource, /waitForNpmViewPresence/u);
+  const publicInstallIndex = publisherSource.lastIndexOf(
     '"scripts/release/verify-public-install.mjs", "--version", wave.version',
   );
-  const promotionIndex = publisherSource.indexOf(
-    "for (const entry of awaitingPromotion)",
-  );
+  const publicationIndex = publisherSource.indexOf('"publish",');
   assert.notEqual(publicInstallIndex, -1);
-  assert.notEqual(promotionIndex, -1);
+  assert.notEqual(publicationIndex, -1);
   assert.ok(
-    publicInstallIndex < promotionIndex,
-    "the exact public install must pass before the latest-tag promotion",
+    publicationIndex < publicInstallIndex,
+    "the public install must exercise already-published registry artifacts",
   );
 
   const publicInstallSource = readFileSync(
@@ -113,6 +109,8 @@ test("the required publisher validates without publishing from a feature branch"
     "utf8",
   );
   assert.match(publicInstallSource, /npm_config_registry: npmRegistry/u);
+  assert.match(publicInstallSource, /"tsonic@latest"/u);
+  assert.match(publicInstallSource, /`\$\{options\.capabilityPackage\}@latest`/u);
   assert.match(publicInstallSource, /name: "tsonic-public-install-root"/u);
   assert.match(publicInstallSource, /delete environment\[name\]/u);
   assert.match(publicInstallSource, /"TSONICLANG_WORKSPACE_ROOT"/u);
@@ -163,4 +161,51 @@ test("npm registry reads use the canonical public registry", () => {
     "--registry",
     npmRegistry,
   ]]);
+});
+
+test("npm registry convergence waits for delayed metadata and tags", () => {
+  const integrityValues = [undefined, undefined, "sha512-exact"];
+  const integrityPauses = [];
+  assert.equal(
+    waitForNpmViewPresence("package", "dist.integrity", "1.2.3", {
+      attempts: 3,
+      delayMilliseconds: 7,
+      npmView: () => integrityValues.shift(),
+      pause: (milliseconds) => integrityPauses.push(milliseconds),
+    }),
+    "sha512-exact",
+  );
+  assert.deepEqual(integrityPauses, [7, 7]);
+
+  const tagValues = ["1.2.2", undefined, "1.2.3"];
+  assert.equal(
+    waitForNpmViewValue("package", "dist-tags.latest", "1.2.3", {
+      attempts: 3,
+      delayMilliseconds: 1,
+      npmView: () => tagValues.shift(),
+      pause() {},
+    }),
+    "1.2.3",
+  );
+});
+
+test("npm registry convergence fails closed after its deadline", () => {
+  assert.throws(
+    () => waitForNpmViewPresence("package", "dist.integrity", "1.2.3", {
+      attempts: 2,
+      delayMilliseconds: 1,
+      npmView: () => undefined,
+      pause() {},
+    }),
+    /did not expose 'dist\.integrity'/u,
+  );
+  assert.throws(
+    () => waitForNpmViewValue("package", "dist-tags.latest", "1.2.3", {
+      attempts: 2,
+      delayMilliseconds: 1,
+      npmView: () => "1.2.2",
+      pause() {},
+    }),
+    /observed '1\.2\.2'/u,
+  );
 });

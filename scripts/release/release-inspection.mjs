@@ -1,6 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { relative } from "node:path";
-import { npmView } from "./npm-registry.mjs";
+import {
+  npmView,
+  waitForNpmViewPresence,
+} from "./npm-registry.mjs";
 import { run } from "./npm-wave.mjs";
 import { compareSemver } from "./release-state.mjs";
 
@@ -11,7 +14,7 @@ export function inspectRegistry(packages, options = {}) {
   const write = options.write ?? ((value) => process.stdout.write(value));
   return packages.map((entry) => {
     const publishedVersion = view(entry.name, "dist-tags.latest");
-    const versionIntegrity = view(
+    let versionIntegrity = view(
       entry.name,
       "dist.integrity",
       entry.manifest.version,
@@ -24,8 +27,13 @@ export function inspectRegistry(packages, options = {}) {
           ? "ahead"
           : "equal";
     if (relation === "equal" && versionIntegrity === undefined) {
-      throw new Error(
-        `npm latest tag for '${entry.name}' names ${entry.manifest.version}, but that version has no artifact.`,
+      const waitForMetadata = options.waitForNpmViewPresence ??
+        waitForNpmViewPresence;
+      versionIntegrity = waitForMetadata(
+        entry.name,
+        "dist.integrity",
+        entry.manifest.version,
+        { npmView: view },
       );
     }
     const drift = versionIntegrity !== undefined &&

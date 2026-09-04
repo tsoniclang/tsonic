@@ -62,6 +62,8 @@ test("release checklist identifies the exact maintainer action", () => {
     15,
   );
   assert.match(publish, /current wave requires publication or promotion/u);
+  assert.match(publish, /short-lived read\/write granular token/u);
+  assert.match(publish, /identity only/u);
   assert.match(publish, /exact public-registry C#, Rust, and Node execution/u);
 
   const patch = formatReleaseChecklist(
@@ -108,6 +110,33 @@ test("registry inspection uses one shared content-drift decision", () => {
     ["package", "dist.integrity", version],
     ["package", "content", version],
   ]);
+});
+
+test("registry inspection accepts delayed metadata only through bounded convergence", () => {
+  const waits = [];
+  const [state] = inspectRegistry([{
+    name: "package",
+    manifest: { version },
+  }], {
+    npmView(name, field) {
+      return field === "dist-tags.latest" ? version : undefined;
+    },
+    waitForNpmViewPresence(name, field, selectedVersion, options) {
+      waits.push([name, field, selectedVersion, options.npmView("package", field)]);
+      return "sha512-converged";
+    },
+    packageChangedSinceVersion() {
+      return false;
+    },
+    write() {},
+  });
+  assert.equal(state.versionIntegrity, "sha512-converged");
+  assert.deepEqual(waits, [[
+    "package",
+    "dist.integrity",
+    version,
+    undefined,
+  ]]);
 });
 
 test("root package drift uses a valid repository pathspec", () => {

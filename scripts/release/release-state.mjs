@@ -61,11 +61,11 @@ export function formatReleaseChecklist(action, packageCount) {
     `Artifacts not yet published at the exact version: ${String(action.pending.length)}.`,
     `Packages not yet exposed through \`latest\`: ${String(action.awaitingPromotion.length)}.`,
     "",
-    "- [ ] Authenticate with `npm login --registry https://registry.npmjs.org/`.",
-    "- [ ] Confirm `npm whoami --registry https://registry.npmjs.org/`.",
+    "- [ ] Authenticate with interactive 2FA or a short-lived read/write granular token with bypass 2FA.",
+    "- [ ] Confirm `npm whoami --registry https://registry.npmjs.org/` (identity only; this does not prove publish authorization).",
     "- [ ] Run `./scripts/publish-npm.sh` from a coherent clean `main` workspace.",
     "- [ ] Require complete source, target, runtime, and packed-install certification.",
-    "- [ ] Require exact public-registry C#, Rust, and Node execution before `latest` promotion.",
+    "- [ ] Require exact public-registry C#, Rust, and Node execution after direct publication.",
     "- [ ] Confirm `./scripts/release-status.sh` reports `Status: current`.",
   );
   return `${lines.join("\n")}\n`;
