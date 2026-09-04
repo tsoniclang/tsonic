@@ -269,6 +269,19 @@ test("onboarding uses supported local packages and official native toolchains", 
   );
 });
 
+test("release documentation requires source-free public installation", () => {
+  const releasing = readFileSync(
+    resolve(documentationRoot, "validation/releasing.md"),
+    "utf8",
+  );
+  assert.match(releasing, /\.\/scripts\/release-status\.sh/u);
+  assert.match(releasing, /\.\/scripts\/publish-npm\.sh/u);
+  assert.match(releasing, /does not need a Tsonic source checkout/u);
+  assert.match(releasing, /public npm, builds and runs both/u);
+  assert.match(releasing, /before changing `latest`/u);
+  assert.match(releasing, /Do not call a release complete while any item is unproved/u);
+});
+
 function collectMarkdownFiles(root) {
   const files = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {

@@ -46,12 +46,14 @@ for (const entry of packed) {
   aggregateHash.update("\n");
 }
 const aggregateSha256 = aggregateHash.digest("hex");
+const totalFileCount = packed.reduce((count, entry) => count + entry.fileCount, 0);
 if (process.env.TSONIC_NPM_PACK_RESULT !== undefined) {
   writeFileSync(
     process.env.TSONIC_NPM_PACK_RESULT,
     `${JSON.stringify({
       version: wave.version,
       aggregateSha256,
+      totalFileCount,
       packages: packed.map(({ name, version, tarballPath, integrity, fileCount }) => ({
         name,
         version,
@@ -63,7 +65,7 @@ if (process.env.TSONIC_NPM_PACK_RESULT !== undefined) {
   );
 }
 process.stdout.write(
-  `Packed install verified: ${packed.length} packages, aggregate SHA-256 ${aggregateSha256}\n`,
+  `Packed install verified: ${packed.length} packages, ${totalFileCount} files, aggregate SHA-256 ${aggregateSha256}\n`,
 );
 
 function ensureScratchRoot() {

@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
@@ -11,6 +10,11 @@ import {
   npmView,
   requireNpmAuthentication,
 } from "./npm-registry.mjs";
+import { inspectRegistry } from "./release-inspection.mjs";
+import {
+  classifyReleaseState,
+  incrementPatch,
+} from "./release-state.mjs";
 
 const mode = readMode(process.argv.slice(2));
 const wave = validateWaveManifests();
@@ -25,21 +29,17 @@ if (mode === "verify-only") {
 
 verifyRepositories(wave);
 const registryState = inspectRegistry(wave.packages);
-const bumpReason = registryState.find(({ relation, drift }) =>
-  relation === "ahead" || drift);
-if (bumpReason !== undefined) {
+const releaseAction = classifyReleaseState(wave.version, registryState);
+if (releaseAction.kind === "prepare-patch") {
   prepareReleaseBranches(wave, registryState);
   process.exit(0);
 }
 
-const pending = registryState.filter(({ versionIntegrity }) =>
-  versionIntegrity === undefined);
-const awaitingPromotion = registryState.filter(({ relation }) =>
-  relation !== "equal");
-if (pending.length === 0 && awaitingPromotion.length === 0) {
+if (releaseAction.kind === "current") {
   process.stdout.write(`Every package in npm wave ${wave.version} is already published.\n`);
   process.exit(0);
 }
+const { pending, awaitingPromotion } = releaseAction;
 
 const npmUsername = requireNpmAuthentication();
 process.stdout.write(`Publishing as npm user '${npmUsername}'.\n`);
@@ -62,7 +62,8 @@ run(
 );
 verifyRepositories(wave, { fetch: false });
 const packed = JSON.parse(readFileSync(packageResultPath, "utf8"));
-if (packed.version !== wave.version || !Array.isArray(packed.packages)) {
+if (packed.version !== wave.version || !Array.isArray(packed.packages) ||
+    !Number.isSafeInteger(packed.totalFileCount) || packed.totalFileCount < 1) {
   throw new Error("Packed-install certification did not produce the expected release record.");
 }
 const packedByName = new Map(packed.packages.map((entry) => [entry.name, entry]));
@@ -106,6 +107,11 @@ for (const entry of wave.packages) {
   }
   verifyPublishedIntegrity(entry.name, wave.version, artifact.integrity);
 }
+run(
+  process.execPath,
+  ["scripts/release/verify-public-install.mjs", "--version", wave.version],
+  { cwd: hostRoot },
+);
 for (const entry of awaitingPromotion) {
   run(
     "npm",
@@ -128,7 +134,7 @@ for (const entry of wave.packages) {
   verifyPublishedRelease(entry.name, wave.version, artifact.integrity, "latest");
 }
 process.stdout.write(
-  `Published ${pending.length} packages and promoted ${awaitingPromotion.length} latest tags at ${wave.version}; certified aggregate SHA-256 ${packed.aggregateSha256}.\n`,
+  `Published ${pending.length} packages and promoted ${awaitingPromotion.length} latest tags at ${wave.version}; certified ${packed.packages.length} packages, ${packed.totalFileCount} files, aggregate SHA-256 ${packed.aggregateSha256}.\n`,
 );
 
 function readMode(args) {
@@ -168,67 +174,6 @@ function verifyRepositories(selectedWave, options = { fetch: true }) {
       throw new Error(`Release repository '${name}' is not identical to origin/main.`);
     }
   }
-}
-
-function inspectRegistry(packages) {
-  return packages.map((entry) => {
-    const publishedVersion = npmView(entry.name, "dist-tags.latest");
-    const versionIntegrity = npmView(
-      entry.name,
-      "dist.integrity",
-      entry.manifest.version,
-    );
-    const relation = publishedVersion === undefined
-      ? "missing"
-      : compareSemver(publishedVersion, entry.manifest.version) < 0
-        ? "behind"
-        : compareSemver(publishedVersion, entry.manifest.version) > 0
-          ? "ahead"
-          : "equal";
-    if (relation === "equal" && versionIntegrity === undefined) {
-      throw new Error(
-        `npm latest tag for '${entry.name}' names ${entry.manifest.version}, but that version has no artifact.`,
-      );
-    }
-    const drift = versionIntegrity !== undefined &&
-      packageChangedSinceVersion(entry, entry.manifest.version);
-    process.stdout.write(
-      `${entry.name}: local=${entry.manifest.version} npm-latest=${publishedVersion ?? "<missing>"} exact=${versionIntegrity === undefined ? "missing" : "published"}${drift ? " content=changed" : ""}\n`,
-    );
-    return Object.freeze({
-      ...entry,
-      publishedVersion,
-      versionIntegrity,
-      relation,
-      drift,
-    });
-  });
-}
-
-function packageChangedSinceVersion(entry, version) {
-  const packagePath = relative(entry.repositoryRoot, entry.path);
-  const commits = run(
-    "git",
-    [
-      "log",
-      "--format=%H",
-      "-G",
-      `"version"[[:space:]]*:[[:space:]]*"${version.replaceAll(".", "\\.")}"`,
-      "--",
-      packagePath,
-    ],
-    { cwd: entry.repositoryRoot, capture: true },
-  ).trim().split("\n").filter(Boolean);
-  const versionCommit = commits[0];
-  if (versionCommit === undefined) return true;
-  const changed = spawnSync(
-    "git",
-    ["diff", "--quiet", versionCommit, "--", relative(entry.repositoryRoot, entry.packageRoot)],
-    { cwd: entry.repositoryRoot },
-  );
-  if (changed.status === 0) return false;
-  if (changed.status === 1) return true;
-  throw new Error(`Could not inspect content drift for '${entry.name}'.`);
 }
 
 function prepareReleaseBranches(selectedWave, registryState) {
@@ -356,28 +301,6 @@ function verifyPublishedRelease(name, version, expectedIntegrity, tag) {
   throw new Error(
     `Published package '${name}@${version}' is not exposed through the '${tag}' tag.`,
   );
-}
-
-function compareSemver(left, right) {
-  const leftParts = parseSemver(left);
-  const rightParts = parseSemver(right);
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] < rightParts[index] ? -1 : 1;
-    }
-  }
-  return 0;
-}
-
-function parseSemver(value) {
-  const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u.exec(value);
-  if (match === null) throw new Error(`Unsupported release version '${value}'.`);
-  return match.slice(1).map(Number);
-}
-
-function incrementPatch(value) {
-  const [major, minor, patch] = parseSemver(value);
-  return `${major}.${minor}.${patch + 1}`;
 }
 
 function readJson(path) {
