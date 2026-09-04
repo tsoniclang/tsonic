@@ -14,6 +14,7 @@ import {
 import { inspectRegistry } from "./release-inspection.mjs";
 import {
   classifyReleaseState,
+  compareSemver,
   incrementPatch,
 } from "./release-state.mjs";
 
