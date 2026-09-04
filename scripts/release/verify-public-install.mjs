@@ -149,7 +149,7 @@ function verifyTarget(options) {
     "npm",
     [
       "create",
-      `tsonic@${options.version}`,
+      "tsonic@latest",
       options.name,
       "--",
       "--target",
@@ -172,7 +172,7 @@ function verifyTarget(options) {
       "install",
       "--save-dev",
       "--save-exact",
-      `${options.capabilityPackage}@${options.version}`,
+      `${options.capabilityPackage}@latest`,
       "--registry",
       npmRegistry,
       "--no-audit",

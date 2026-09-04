@@ -7,8 +7,9 @@ import {
 } from "./npm-wave.mjs";
 import {
   npmRegistry,
-  npmView,
   requireNpmAuthentication,
+  waitForNpmViewPresence,
+  waitForNpmViewValue,
 } from "./npm-registry.mjs";
 import { inspectRegistry } from "./release-inspection.mjs";
 import {
@@ -18,8 +19,6 @@ import {
 
 const mode = readMode(process.argv.slice(2));
 const wave = validateWaveManifests();
-const stagingTag = "tsonic-wave";
-
 if (mode === "verify-only") {
   process.stdout.write(
     `Verified ${wave.packages.length} release packages at ${wave.version}.\n`,
@@ -36,10 +35,20 @@ if (releaseAction.kind === "prepare-patch") {
 }
 
 if (releaseAction.kind === "current") {
-  process.stdout.write(`Every package in npm wave ${wave.version} is already published.\n`);
+  run(
+    process.execPath,
+    ["scripts/release/verify-public-install.mjs", "--version", wave.version],
+    { cwd: hostRoot },
+  );
+  process.stdout.write(
+    `Every package in npm wave ${wave.version} is published and its public install is verified.\n`,
+  );
   process.exit(0);
 }
 const { pending, awaitingPromotion } = releaseAction;
+const pendingNames = new Set(pending.map(({ name }) => name));
+const recoveryPromotions = awaitingPromotion.filter(({ name }) =>
+  !pendingNames.has(name));
 
 const npmUsername = requireNpmAuthentication();
 process.stdout.write(`Publishing as npm user '${npmUsername}'.\n`);
@@ -92,13 +101,12 @@ for (const entry of pending) {
       "--access",
       "public",
       "--tag",
-      stagingTag,
+      "latest",
       "--registry",
       npmRegistry,
     ],
     { cwd: hostRoot },
   );
-  verifyPublishedRelease(entry.name, wave.version, artifact.integrity, stagingTag);
 }
 for (const entry of wave.packages) {
   const artifact = packedByName.get(entry.name);
@@ -107,12 +115,7 @@ for (const entry of wave.packages) {
   }
   verifyPublishedIntegrity(entry.name, wave.version, artifact.integrity);
 }
-run(
-  process.execPath,
-  ["scripts/release/verify-public-install.mjs", "--version", wave.version],
-  { cwd: hostRoot },
-);
-for (const entry of awaitingPromotion) {
+for (const entry of recoveryPromotions) {
   run(
     "npm",
     [
@@ -133,8 +136,13 @@ for (const entry of wave.packages) {
   }
   verifyPublishedRelease(entry.name, wave.version, artifact.integrity, "latest");
 }
+run(
+  process.execPath,
+  ["scripts/release/verify-public-install.mjs", "--version", wave.version],
+  { cwd: hostRoot },
+);
 process.stdout.write(
-  `Published ${pending.length} packages and promoted ${awaitingPromotion.length} latest tags at ${wave.version}; certified ${packed.packages.length} packages, ${packed.totalFileCount} files, aggregate SHA-256 ${packed.aggregateSha256}.\n`,
+  `Published ${pending.length} packages and recovered ${recoveryPromotions.length} existing latest tags at ${wave.version}; certified ${packed.packages.length} packages, ${packed.totalFileCount} files, aggregate SHA-256 ${packed.aggregateSha256}.\n`,
 );
 
 function readMode(args) {
@@ -278,13 +286,12 @@ function certifyWave(selectedWave) {
 }
 
 function verifyPublishedIntegrity(name, version, expectedIntegrity) {
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const actualIntegrity = npmView(name, "dist.integrity", version);
-    if (actualIntegrity === expectedIntegrity) return;
-    if (attempt < 15) {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
-    }
-  }
+  const actualIntegrity = waitForNpmViewPresence(
+    name,
+    "dist.integrity",
+    version,
+  );
+  if (actualIntegrity === expectedIntegrity) return;
   throw new Error(
     `Published package '${name}@${version}' does not match its certified artifact.`,
   );
@@ -292,15 +299,7 @@ function verifyPublishedIntegrity(name, version, expectedIntegrity) {
 
 function verifyPublishedRelease(name, version, expectedIntegrity, tag) {
   verifyPublishedIntegrity(name, version, expectedIntegrity);
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    if (npmView(name, `dist-tags.${tag}`) === version) return;
-    if (attempt < 15) {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
-    }
-  }
-  throw new Error(
-    `Published package '${name}@${version}' is not exposed through the '${tag}' tag.`,
-  );
+  waitForNpmViewValue(name, `dist-tags.${tag}`, version);
 }
 
 function readJson(path) {

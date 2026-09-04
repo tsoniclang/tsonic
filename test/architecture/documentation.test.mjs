@@ -277,8 +277,8 @@ test("release documentation requires source-free public installation", () => {
   assert.match(releasing, /\.\/scripts\/release-status\.sh/u);
   assert.match(releasing, /\.\/scripts\/publish-npm\.sh/u);
   assert.match(releasing, /does not need a Tsonic source checkout/u);
-  assert.match(releasing, /public npm, builds and runs both/u);
-  assert.match(releasing, /before changing `latest`/u);
+  assert.match(releasing, /npm create tsonic@latest/u);
+  assert.match(releasing, /proofs pass before any public artifact is\npublished/u);
   assert.match(releasing, /Do not call a release complete while any item is unproved/u);
 });
 
