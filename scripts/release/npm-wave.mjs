@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +15,16 @@ export function loadNpmWave() {
       !Array.isArray(manifest.certification)) {
     throw new Error("The npm release-wave manifest has an unsupported shape.");
   }
+  for (const entry of manifest.packages) {
+    requireManifestEntry(entry, "package", ["directory", "name", "repository"]);
+  }
+  for (const entry of manifest.certification) {
+    requireManifestEntry(entry, "certification", ["command", "repository"]);
+    if (!Array.isArray(entry.command) || entry.command.length === 0 ||
+        !entry.command.every((part) => typeof part === "string" && part.length > 0)) {
+      throw new Error("Every npm certification entry requires a non-empty string command.");
+    }
+  }
   return Object.freeze({
     packages: Object.freeze(manifest.packages.map((entry) => Object.freeze(entry))),
     certification: Object.freeze(
@@ -27,8 +37,17 @@ export function loadNpmWave() {
 }
 
 export function resolveWaveLayout(wave = loadNpmWave()) {
-  const workspaceRoot = process.env.TSONICLANG_WORKSPACE_ROOT ??
-    canonicalWorkspaceRoot();
+  const configuredWorkspaceRoot = process.env.TSONICLANG_WORKSPACE_ROOT;
+  if (configuredWorkspaceRoot !== undefined && !isAbsolute(configuredWorkspaceRoot)) {
+    throw new Error("TSONICLANG_WORKSPACE_ROOT must be an absolute path.");
+  }
+  const workspaceRoot = resolve(configuredWorkspaceRoot ?? dirname(hostRoot));
+  const expectedHostRoot = resolve(workspaceRoot, "tsonic");
+  if (hostRoot !== expectedHostRoot) {
+    throw new Error(
+      `The host checkout '${hostRoot}' is not the tsonic repository in release workspace '${workspaceRoot}'.`,
+    );
+  }
   const repositoryRoots = new Map([["tsonic", hostRoot]]);
   for (const entry of [...wave.packages, ...wave.certification]) {
     if (!repositoryRoots.has(entry.repository)) {
@@ -72,6 +91,12 @@ export function validateWaveManifests(layout = resolveWaveLayout()) {
   const names = new Set(layout.packages.map(({ name }) => name));
   if (names.size !== layout.packages.length) {
     throw new Error("Every release-wave package must have one unique package name.");
+  }
+  const certificationRepositories = new Set(
+    layout.certification.map(({ repository }) => repository),
+  );
+  if (certificationRepositories.size !== layout.certification.length) {
+    throw new Error("Every release-wave certification repository must be unique.");
   }
   const packages = layout.packages.map((entry) => Object.freeze({
     ...entry,
@@ -119,7 +144,12 @@ export function validateWaveManifests(layout = resolveWaveLayout()) {
     }
     publishedBefore.add(entry.name);
   }
-  return Object.freeze({ version, packages: Object.freeze(packages), layout });
+  return Object.freeze({
+    version,
+    packages: Object.freeze(packages),
+    certification: layout.certification,
+    layout,
+  });
 }
 
 export function run(command, args, options = {}) {
@@ -131,31 +161,48 @@ export function run(command, args, options = {}) {
   });
 }
 
-function canonicalWorkspaceRoot() {
-  const commonDirectory = run(
-    "git",
-    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { cwd: hostRoot, capture: true },
-  ).trim();
-  return dirname(dirname(commonDirectory));
-}
-
 function requireInsideWorkspace(path, workspaceRoot, repository) {
-  if (path === undefined ||
-      (path !== workspaceRoot && !path.startsWith(`${workspaceRoot}/`))) {
+  if (path === undefined || !isWithin(path, workspaceRoot)) {
     throw new Error(`Repository '${repository}' resolves outside the Tsonic workspace.`);
   }
   return path;
 }
 
 function requireInsideRepository(path, repositoryRoot, name) {
-  if (path !== repositoryRoot && !path.startsWith(`${repositoryRoot}/`)) {
+  if (!isWithin(path, repositoryRoot)) {
     throw new Error(`Package '${name}' resolves outside repository '${repositoryRoot}'.`);
   }
   return path;
 }
 
+function isWithin(path, root) {
+  const relativePath = relative(root, path);
+  return relativePath === "" ||
+    (!isAbsolute(relativePath) &&
+      relativePath !== ".." &&
+      !relativePath.startsWith(`..${sep}`));
+}
+
 function isStableSemver(value) {
   return typeof value === "string" &&
     /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(value);
+}
+
+function requireManifestEntry(value, subject, expectedKeys) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`Every npm release-wave ${subject} entry must be an object.`);
+  }
+  const actualKeys = Object.keys(value).sort();
+  const sortedExpectedKeys = [...expectedKeys].sort();
+  if (actualKeys.length !== sortedExpectedKeys.length ||
+      actualKeys.some((key, index) => key !== sortedExpectedKeys[index])) {
+    throw new Error(
+      `Every npm release-wave ${subject} entry must contain exactly: ${sortedExpectedKeys.join(", ")}.`,
+    );
+  }
+  for (const key of expectedKeys.filter((entryKey) => entryKey !== "command")) {
+    if (typeof value[key] !== "string" || value[key].length === 0) {
+      throw new Error(`Every npm release-wave ${subject} entry requires '${key}'.`);
+    }
+  }
 }

@@ -37,6 +37,10 @@ repository deltas.
 ## Publishing
 
 - Publish from `main` only through `./scripts/publish-npm.sh`.
+- Run the publisher from one coherent sibling workspace. The host must be on
+  `main`; every package repository must equal `origin/main`, with detached
+  linked worktrees permitted when their shared `main` branch is checked out
+  elsewhere.
 - If local versions equal npm, the script prepares a release bump branch; merge
   that branch before publishing.
 - If local versions are ahead, the script runs the complete build and test gate

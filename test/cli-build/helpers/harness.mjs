@@ -4,8 +4,9 @@ import { mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { testRepositoryRoots } from "../../scripts/workspace-layout.mjs";
 
-const repoRoot = process.cwd();
+const repoRoot = testRepositoryRoots.tsonic;
 const cliPath = resolve(repoRoot, "packages/cli/dist/src/index.js");
 const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build", `${Date.now()}-${process.pid}`);
 const bannedGeneratedRuntimeSemantics = [
@@ -214,16 +215,16 @@ async function linkInstalledTsonicPackages(projectDirectory, files) {
 
 function installedPackageRepositoryPath(packageName) {
   if (packageName === "@tsonic/target-csharp") {
-    return resolve(repoRoot, "../tsonic-csharp");
+    return testRepositoryRoots.tsonicCsharp;
   }
   if (packageName === "@tsonic/csharp-runtime") {
-    return resolve(repoRoot, "../csharp-runtime");
+    return testRepositoryRoots.csharpRuntime;
   }
   if (packageName === "@tsonic/csharp-js") {
-    return resolve(repoRoot, "../csharp-js");
+    return testRepositoryRoots.csharpJs;
   }
   if (packageName === "@tsonic/csharp-nodejs") {
-    return resolve(repoRoot, "../csharp-nodejs");
+    return testRepositoryRoots.csharpNodejs;
   }
   return undefined;
 }
@@ -244,6 +245,7 @@ export {
   existsSync,
   readFile,
   repoRoot,
+  testRepositoryRoots,
   resolve,
   run,
   runGeneratedCsharpRunner,

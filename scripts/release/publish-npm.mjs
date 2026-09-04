@@ -6,9 +6,15 @@ import {
   run,
   validateWaveManifests,
 } from "./npm-wave.mjs";
+import {
+  npmRegistry,
+  npmView,
+  requireNpmAuthentication,
+} from "./npm-registry.mjs";
 
 const mode = readMode(process.argv.slice(2));
 const wave = validateWaveManifests();
+const stagingTag = "tsonic-wave";
 
 if (mode === "verify-only") {
   process.stdout.write(
@@ -20,20 +26,25 @@ if (mode === "verify-only") {
 verifyRepositories(wave);
 const registryState = inspectRegistry(wave.packages);
 const bumpReason = registryState.find(({ relation, drift }) =>
-  relation === "ahead" || (relation === "equal" && drift));
+  relation === "ahead" || drift);
 if (bumpReason !== undefined) {
   prepareReleaseBranches(wave, registryState);
   process.exit(0);
 }
 
-const pending = registryState.filter(({ relation }) =>
-  relation === "missing" || relation === "behind");
-if (pending.length === 0) {
+const pending = registryState.filter(({ versionIntegrity }) =>
+  versionIntegrity === undefined);
+const awaitingPromotion = registryState.filter(({ relation }) =>
+  relation !== "equal");
+if (pending.length === 0 && awaitingPromotion.length === 0) {
   process.stdout.write(`Every package in npm wave ${wave.version} is already published.\n`);
   process.exit(0);
 }
 
+const npmUsername = requireNpmAuthentication();
+process.stdout.write(`Publishing as npm user '${npmUsername}'.\n`);
 certifyWave(wave);
+verifyRepositories(wave, { fetch: false });
 const packageResultPath = resolve(
   ensureReleaseScratch(),
   `packed-wave-${wave.version}-${String(process.pid)}.json`,
@@ -49,18 +60,19 @@ run(
     },
   },
 );
+verifyRepositories(wave, { fetch: false });
 const packed = JSON.parse(readFileSync(packageResultPath, "utf8"));
 if (packed.version !== wave.version || !Array.isArray(packed.packages)) {
   throw new Error("Packed-install certification did not produce the expected release record.");
 }
 const packedByName = new Map(packed.packages.map((entry) => [entry.name, entry]));
-for (const entry of registryState.filter(({ relation }) => relation === "equal")) {
+for (const entry of registryState.filter(({ versionIntegrity }) =>
+  versionIntegrity !== undefined)) {
   const artifact = packedByName.get(entry.name);
   if (artifact === undefined) {
     throw new Error(`Certified release artifact '${entry.name}' is missing.`);
   }
-  const publishedIntegrity = npmView(entry.name, "dist.integrity", wave.version);
-  if (publishedIntegrity !== artifact.integrity) {
+  if (entry.versionIntegrity !== artifact.integrity) {
     throw new Error(
       `Published package '${entry.name}@${wave.version}' differs from the certified release artifact; prepare a new version before continuing the wave.`,
     );
@@ -71,11 +83,52 @@ for (const entry of pending) {
   if (artifact === undefined) {
     throw new Error(`Certified release artifact '${entry.name}' is missing.`);
   }
-  run("npm", ["publish", artifact.tarballPath, "--access", "public"], { cwd: hostRoot });
+  run(
+    "npm",
+    [
+      "publish",
+      artifact.tarballPath,
+      "--access",
+      "public",
+      "--tag",
+      stagingTag,
+      "--registry",
+      npmRegistry,
+    ],
+    { cwd: hostRoot },
+  );
+  verifyPublishedRelease(entry.name, wave.version, artifact.integrity, stagingTag);
+}
+for (const entry of wave.packages) {
+  const artifact = packedByName.get(entry.name);
+  if (artifact === undefined) {
+    throw new Error(`Certified release artifact '${entry.name}' is missing.`);
+  }
   verifyPublishedIntegrity(entry.name, wave.version, artifact.integrity);
 }
+for (const entry of awaitingPromotion) {
+  run(
+    "npm",
+    [
+      "dist-tag",
+      "add",
+      `${entry.name}@${wave.version}`,
+      "latest",
+      "--registry",
+      npmRegistry,
+    ],
+    { cwd: hostRoot },
+  );
+}
+for (const entry of wave.packages) {
+  const artifact = packedByName.get(entry.name);
+  if (artifact === undefined) {
+    throw new Error(`Certified release artifact '${entry.name}' is missing.`);
+  }
+  verifyPublishedRelease(entry.name, wave.version, artifact.integrity, "latest");
+}
 process.stdout.write(
-  `Published ${pending.length} packages at ${wave.version}; certified aggregate SHA-256 ${packed.aggregateSha256}.\n`,
+  `Published ${pending.length} packages and promoted ${awaitingPromotion.length} latest tags at ${wave.version}; certified aggregate SHA-256 ${packed.aggregateSha256}.\n`,
 );
 
 function readMode(args) {
@@ -84,20 +137,28 @@ function readMode(args) {
   throw new Error("Usage: ./scripts/publish-npm.sh [--verify-only]");
 }
 
-function verifyRepositories(selectedWave) {
+function verifyRepositories(selectedWave, options = { fetch: true }) {
   const repositories = [...selectedWave.layout.repositoryRoots.entries()];
   for (const [name, root] of repositories) {
+    const hygieneScript = resolve(root, "scripts/check-branch-hygiene.sh");
+    if (options.fetch !== false && fileExists(hygieneScript)) {
+      run("bash", [hygieneScript], { cwd: root });
+    }
     const branch = run("git", ["branch", "--show-current"], {
       cwd: root,
       capture: true,
     }).trim();
-    if (branch !== "main") {
-      throw new Error(`Release repository '${name}' is on '${branch}', expected 'main'.`);
+    if (branch !== "main" && !(name !== "tsonic" && branch === "")) {
+      throw new Error(
+        `Release repository '${name}' is on '${branch || "a detached commit"}', expected main${name === "tsonic" ? "" : " or an exact detached origin/main"}.`,
+      );
     }
     if (run("git", ["status", "--porcelain"], { cwd: root, capture: true }).trim() !== "") {
       throw new Error(`Release repository '${name}' has uncommitted tracked or untracked files.`);
     }
-    run("git", ["fetch", "origin", "main"], { cwd: root });
+    if (options.fetch !== false) {
+      run("git", ["fetch", "origin", "main"], { cwd: root });
+    }
     const local = run("git", ["rev-parse", "HEAD"], { cwd: root, capture: true }).trim();
     const upstream = run("git", ["rev-parse", "origin/main"], {
       cwd: root,
@@ -111,7 +172,12 @@ function verifyRepositories(selectedWave) {
 
 function inspectRegistry(packages) {
   return packages.map((entry) => {
-    const publishedVersion = npmView(entry.name, "version");
+    const publishedVersion = npmView(entry.name, "dist-tags.latest");
+    const versionIntegrity = npmView(
+      entry.name,
+      "dist.integrity",
+      entry.manifest.version,
+    );
     const relation = publishedVersion === undefined
       ? "missing"
       : compareSemver(publishedVersion, entry.manifest.version) < 0
@@ -119,32 +185,24 @@ function inspectRegistry(packages) {
         : compareSemver(publishedVersion, entry.manifest.version) > 0
           ? "ahead"
           : "equal";
-    const drift = relation === "equal" &&
+    if (relation === "equal" && versionIntegrity === undefined) {
+      throw new Error(
+        `npm latest tag for '${entry.name}' names ${entry.manifest.version}, but that version has no artifact.`,
+      );
+    }
+    const drift = versionIntegrity !== undefined &&
       packageChangedSinceVersion(entry, entry.manifest.version);
     process.stdout.write(
-      `${entry.name}: local=${entry.manifest.version} npm=${publishedVersion ?? "<missing>"}${drift ? " content=changed" : ""}\n`,
+      `${entry.name}: local=${entry.manifest.version} npm-latest=${publishedVersion ?? "<missing>"} exact=${versionIntegrity === undefined ? "missing" : "published"}${drift ? " content=changed" : ""}\n`,
     );
-    return Object.freeze({ ...entry, publishedVersion, relation, drift });
+    return Object.freeze({
+      ...entry,
+      publishedVersion,
+      versionIntegrity,
+      relation,
+      drift,
+    });
   });
-}
-
-function npmView(name, field, version) {
-  const selector = version === undefined ? name : `${name}@${version}`;
-  const result = spawnSync("npm", ["view", selector, field, "--json"], {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  if (result.status !== 0) {
-    const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-    if (/E404|not found/iu.test(combined)) return undefined;
-    throw new Error(`npm view failed for '${selector}':\n${combined}`);
-  }
-  const value = JSON.parse(result.stdout);
-  if (typeof value === "string") return value;
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-    return value.at(-1);
-  }
-  throw new Error(`npm returned no scalar '${field}' value for '${selector}'.`);
 }
 
 function packageChangedSinceVersion(entry, version) {
@@ -263,19 +321,41 @@ function certifyWave(selectedWave) {
     const root = selectedWave.layout.repositoryRoots.get(entry.repository);
     const [command, ...args] = entry.command;
     process.stdout.write(`Certifying ${entry.repository}: ${entry.command.join(" ")}\n`);
-    run(command, args, { cwd: root });
+    run(command, args, {
+      cwd: root,
+      env: {
+        ...process.env,
+        TSONICLANG_WORKSPACE_ROOT: selectedWave.layout.workspaceRoot,
+        TSONIC_ROOT: hostRoot,
+      },
+    });
   }
 }
 
-function verifyPublishedIntegrity(name, version, expected) {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const actual = npmView(name, "dist.integrity", version);
-    if (actual === expected) return;
-    if (attempt < 5) {
+function verifyPublishedIntegrity(name, version, expectedIntegrity) {
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const actualIntegrity = npmView(name, "dist.integrity", version);
+    if (actualIntegrity === expectedIntegrity) return;
+    if (attempt < 15) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
     }
   }
-  throw new Error(`Published package '${name}@${version}' does not match its certified artifact.`);
+  throw new Error(
+    `Published package '${name}@${version}' does not match its certified artifact.`,
+  );
+}
+
+function verifyPublishedRelease(name, version, expectedIntegrity, tag) {
+  verifyPublishedIntegrity(name, version, expectedIntegrity);
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    if (npmView(name, `dist-tags.${tag}`) === version) return;
+    if (attempt < 15) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2_000);
+    }
+  }
+  throw new Error(
+    `Published package '${name}@${version}' is not exposed through the '${tag}' tag.`,
+  );
 }
 
 function compareSemver(left, right) {

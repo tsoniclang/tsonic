@@ -38,6 +38,7 @@ test("vendored TSTS artifact exposes only the approved public entrypoints", asyn
 
 test("vendored TSTS artifact contains dist output and no source-project tooling", async () => {
   const packageRoot = resolve(repoRoot, "packages/tsts");
+  const workspaceManifest = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));
   const manifest = JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8"));
 
   assert.deepEqual(manifest.exports, {
@@ -57,7 +58,7 @@ test("vendored TSTS artifact contains dist output and no source-project tooling"
   });
   assert.equal(manifest.scripts, undefined);
   assert.equal(manifest.private, undefined);
-  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.version, workspaceManifest.version);
   assert.equal(manifest.engines.node, ">=22.18.0");
 
   await access(resolve(packageRoot, "dist/src/index.js"));

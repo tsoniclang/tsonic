@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { testWorkspaceRoot } from "../../scripts/workspace-layout.mjs";
 import {
   capabilityClosedRuntimeCarriers,
   capabilitySurfaceEvidenceGateNames,
@@ -40,13 +41,15 @@ const capabilityStatusSet = new Set(capabilityStatuses);
 const capabilityOwnerSet = new Set(capabilityOwners);
 const capabilityLaneSet = new Set(capabilityLaneNames);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const canonicalTsonicRoot = resolve(testWorkspaceRoot, "tsonic");
 
 test("capability ledger proof paths resolve to current executable evidence", () => {
   const missing = [];
   for (const entry of capabilityLedger) {
     for (const field of ["positiveTests", "negativeTests"]) {
       for (const proof of entry[field]) {
-        if (!existsSync(resolve(repositoryRoot, proof))) {
+        const proofRoot = proof.startsWith("../") ? canonicalTsonicRoot : repositoryRoot;
+        if (!existsSync(resolve(proofRoot, proof))) {
           missing.push(`${entry.capabilityId}:${field}:${proof}`);
         }
       }

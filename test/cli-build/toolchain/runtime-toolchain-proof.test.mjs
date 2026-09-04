@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../helpers/harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, testRepositoryRoots, writeProject } from "../helpers/harness.mjs";
 
 const bannedGeneratedRuntimeSemantics = [
   /\bdynamic\b/u,
@@ -17,9 +17,9 @@ const bannedGeneratedRuntimeSemantics = [
 
 test("C# runtime packages do not contain reflection or dynamic language semantics", async () => {
   const runtimeSourceDirectories = [
-    resolve("../csharp-runtime/src"),
-    resolve("../csharp-js/src"),
-    resolve("../csharp-nodejs/csharp/src"),
+    resolve(testRepositoryRoots.csharpRuntime, "src"),
+    resolve(testRepositoryRoots.csharpJs, "src"),
+    resolve(testRepositoryRoots.csharpNodejs, "csharp/src"),
   ];
   const files = (await Promise.all(runtimeSourceDirectories.map((directory) =>
     collectFiles(directory, (fileName) => fileName.endsWith(".cs"))
