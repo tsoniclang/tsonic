@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/target-api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Target pack contracts for the Tsonic source-to-source compiler",
   "license": "MIT",
   "repository": {
@@ -11,7 +11,10 @@
   "type": "module",
   "main": "./dist/public/index.js",
   "types": "./dist/public/index.d.ts",
-  "files": ["dist", "!dist/**/*.tsbuildinfo"],
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo"
+  ],
   "exports": {
     ".": {
       "types": "./dist/public/index.d.ts",
@@ -41,7 +44,7 @@
     "test": "node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
-    "@tsonic/tsts": "0.1.0"
+    "@tsonic/tsts": "0.1.1"
   },
   "engines": {
     "node": ">=22.18.0"
