@@ -45,6 +45,9 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     materialization: { kind: "complete" },
   }));
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => !name.startsWith("__Tsonic")), [
+    "toRawPointer", "reinterpretRawPointer", "offsetRawPointer",
+    "rawPointerToAddressInteger", "addressIntegerToRawPointer", "memoryLayout", "memoryField",
+    "sizeOf", "alignOf", "strideOf", "fieldOffsetOf", "keepAlive",
     "loadNativePointer",
     "storeNativePointer",
     "offsetNativePointer",
@@ -61,6 +64,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     materialization: { kind: "complete" },
   }), tsonicCoreTypesModule);
   assert.deepEqual(typesDeclarationModel.exports.map((entry) => entry.name), [
+    "DataLayout", "MemoryLayout", "MemoryFieldLayout",
     "NativePointer",
     ...expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName),
     ...expectedSourceCoreTypeMarkers.map((entry) => entry.exportName),

@@ -28,7 +28,7 @@ than silently widening them.
 | Export | Meaning |
 | --- | --- |
 | `Pointer<T>` | Typed mutable storage location |
-| `RawPointer` | Opaque raw-pointer identity without a pointee type |
+| `RawPointer` | Untyped address carrier; not an arbitrary object's identity |
 | `FunctionPointer<TArgs, TReturn>` | Exact native function-pointer signature |
 | `FixedArray<T, N>` | Fixed-length array; `N` must be one non-negative safe-integer literal type |
 | `NativePointer<T>` | Target-native typed pointer used by explicit native-pointer operations |
@@ -106,13 +106,14 @@ the exact projection contract; targets do not infer them from `F` and `T`.
 
 | Export | Meaning |
 | --- | --- |
-| `bindRawPointer(identity)` | Bind an opaque object identity as `RawPointer` |
 | `equalRawPointer(left, right)` | Compare raw-pointer identities, including `undefined` |
 | `hashRawPointer(pointer)` | Hash raw-pointer identity, including `undefined` |
 
 Raw-pointer identity does not authorize dereference or pointer arithmetic.
-Those require a typed native-pointer conversion supplied by a target/provider
-contract.
+An arbitrary object is not a memory address. Raw addresses require an exact
+provider contract or a layout-backed typed-location conversion. The shared
+memory contract describes those operations; each target must prove its storage,
+layout, lifetime and safety requirements before emitting them.
 
 ### Native-pointer operations
 

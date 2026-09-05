@@ -27,8 +27,9 @@ export function selectInlineSourceMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
   syntax: "element" | "property" = "property",
+  argumentIndex = 0,
 ): SelectedInlineSourceMemberResult {
-  const inlineFunction = selected.selection.sourceArguments[0]?.expression;
+  const inlineFunction = selected.selection.sourceArguments[argumentIndex]?.expression;
   if (
     inlineFunction === undefined ||
     (!context.ast.is.IsArrowFunction(inlineFunction) &&

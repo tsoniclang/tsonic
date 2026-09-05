@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "packages": [
     { "name": "@tsonic/tsts", "repository": "tsonic", "directory": "packages/tsts" },
-    { "name": "@tsonic/source-core", "repository": "tsonic", "directory": "packages/source-core" },
     { "name": "@tsonic/target-api", "repository": "tsonic", "directory": "packages/target-api" },
+    { "name": "@tsonic/source-core", "repository": "tsonic", "directory": "packages/source-core" },
     { "name": "@tsonic/js-source-profile", "repository": "tsonic", "directory": "packages/js-source-profile" },
     { "name": "@tsonic/csharp-runtime", "repository": "csharp-runtime", "directory": "." },
     { "name": "@tsonic/rust-runtime", "repository": "rust-runtime", "directory": "." },

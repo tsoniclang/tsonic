@@ -2,6 +2,7 @@ import type {
   CompilerExtension,
   SourceSemanticsModule,
 } from "@tsonic/tsts";
+import type { TsonicDataLayoutRegistration } from "./data-layout.js";
 import type {
   TargetRuntimeContributions,
 } from "../artifacts.js";
@@ -28,6 +29,7 @@ export interface TargetCompositionContext {
 export interface TargetSourceCompilerContributions {
   readonly semanticsModules?: readonly SourceSemanticsModule[];
   readonly extensions?: readonly CompilerExtension[];
+  readonly dataLayouts?: readonly TsonicDataLayoutRegistration[];
 }
 
 export interface TargetProviderModuleOwnership {
