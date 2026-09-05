@@ -175,10 +175,10 @@ function isDirectCompileTimeCondition(
     return false;
   }
   if (context.ast.is.IsIfStatement(parent)) {
-    return context.ast.as.AsIfStatement(parent).Expression === expression;
+    return context.ast.as.AsIfStatement(parent)?.Expression === expression;
   }
   return context.ast.is.IsConditionalExpression(parent) &&
-    context.ast.as.AsConditionalExpression(parent).Condition === expression;
+    context.ast.as.AsConditionalExpression(parent)?.Condition === expression;
 }
 
 function isDirectCompileTimeIterable(
@@ -189,7 +189,7 @@ function isDirectCompileTimeIterable(
   const parent = context.ast.parent(expression);
   return parent !== undefined &&
     context.ast.is.IsForOfStatement(parent) &&
-    context.ast.as.AsForInOrOfStatement(parent).Expression === expression;
+    context.ast.as.AsForInOrOfStatement(parent)?.Expression === expression;
 }
 
 function outerParenthesizedExpression(
@@ -199,7 +199,7 @@ function outerParenthesizedExpression(
   let current = expression;
   let parent = context.ast.parent(current);
   while (parent !== undefined && context.ast.is.IsParenthesizedExpression(parent)) {
-    const inner = context.ast.as.AsParenthesizedExpression(parent).Expression;
+    const inner = context.ast.as.AsParenthesizedExpression(parent)?.Expression;
     if (inner !== current) {
       break;
     }

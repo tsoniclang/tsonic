@@ -436,6 +436,9 @@ export function expressionText(ast: AstReader, node: Node | undefined): string {
   if (node === undefined) {
     return "";
   }
+  if (ast.is.IsParenthesizedExpression(node)) {
+    return expressionText(ast, ast.as.AsParenthesizedExpression(node)?.Expression);
+  }
   if (ast.is.IsPropertyAccessExpression(node)) {
     const access = ast.as.AsPropertyAccessExpression(node);
     const receiver = expressionText(ast, access?.Expression);

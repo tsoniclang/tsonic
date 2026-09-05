@@ -33,10 +33,11 @@ test("source-core records exact compile-time facts for direct, aliased, namespac
 
   const value = getSourceFact(session, callExpression(session, sourceFile, "compile", 0), tsonicCompileTimeFactKey);
   assert.equal(value?.kind, "value");
-  const type = getSourceFact(session, callExpression(session, sourceFile, "compile", 1), tsonicCompileTimeFactKey);
+  const typeCall = callExpression(session, sourceFile, "compile", 1);
+  const type = getSourceFact(session, typeCall, tsonicCompileTimeFactKey);
   assert.equal(type?.kind, "type");
   if (type?.kind === "type") {
-    assert.equal(sourceAst(session).text(type.explicitTypeNode), "16");
+    assert.equal(type.explicitTypeNode, sourceAst(session).typeArguments(typeCall)[0]);
   }
   assert.equal(
     getSourceFact(session, callExpression(session, sourceFile, "core.comptime"), tsonicCompileTimeFactKey)?.kind,
