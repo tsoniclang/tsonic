@@ -1,5 +1,14 @@
 export { analyzeNativePointerOperations } from "../pointers/operations.js";
 export type { NativePointerOperationAnalysisContract } from "../pointers/operations.js";
+export {
+  forEachSelectedProviderSourceCall,
+  selectedProviderCallMatches,
+} from "../analysis/source-call.js";
+export type {
+  ProviderSourceCallSelector,
+  SelectedProviderSourceCall,
+} from "../analysis/source-call.js";
+export type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 export { analyzeSafetyBuilderCalls } from "../safety/builder-analysis.js";
 export type { SafetyBuilderAnalysisContract } from "../safety/builder-analysis.js";
 export { analyzeUnsafeContextCalls } from "../safety/unsafe-context-analysis.js";

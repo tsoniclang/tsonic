@@ -86,6 +86,48 @@ attribute<Controller>()
 
 The selected provider owns the target attribute identity and legal values.
 
+### Compile-time intent
+
+| Export | Meaning |
+| --- | --- |
+| `comptime(expression)` | Require target compile-time evaluation of the exact expression |
+| `comptime<T>()` | Project an exact selected compile-time parameter or literal type into value position |
+| `comptimeIf(condition)` | Require compile-time selection of the directly enclosing `if` or conditional expression |
+| `unroll(iterable)` | Require compile-time expansion of the directly enclosing `for...of` loop |
+
+```ts
+import { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+
+const enabled = comptime(true);
+if (comptimeIf(enabled)) {
+  for (const value of unroll([1, 2, 3])) {
+    consume(value);
+  }
+}
+```
+
+These calls record target-neutral intent and exact selected source evidence;
+source-core does not evaluate the expression or choose target syntax. Targets
+must prove that the selected operation is representable in their compile-time
+domain. An ordinary runtime type is not automatically a valid `comptime<T>()`
+parameter. Compile-time intent does not imply copying, ownership transfer,
+runtime materialization, or target-independent support for arbitrary evaluation.
+
+Import aliases, namespace imports, and parentheses preserve intrinsic identity.
+Same-spelled local functions do not become intrinsics. Core intrinsics must be
+imported directly from their owning virtual module, not re-exported through a
+local barrel.
+
+`const decision = comptimeIf(true)` and `const values = unroll([1, 2])` are
+invalid placements. So are `if (comptimeIf(true) && flag)` and
+`for (const key in unroll(object))`: the marker must select the exact owning
+condition or for-of iterable, with parentheses permitted.
+
+Targets read `tsonicCompileTimeFactKey` through the public
+`@tsonic/source-core/facts` entrypoint. Its `value`, `type`, `condition`, and
+`iteration` variants retain the exact operand/type and result-type identities;
+targets must not rediscover the request from the callee's spelling.
+
 ### Typed-location operations
 
 | Export | Meaning |

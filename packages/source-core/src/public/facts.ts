@@ -41,6 +41,8 @@ export type {
 } from "../safety/facts.js";
 export { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 export type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
+export { tsonicCompileTimeFactKey } from "../compile-time/facts.js";
+export type { TsonicCompileTimeFact } from "../compile-time/facts.js";
 export {
   tsonicFixedArrayProviderIds,
   tsonicFixedArrayProviderMember,

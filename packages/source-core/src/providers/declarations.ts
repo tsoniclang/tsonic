@@ -14,6 +14,9 @@ import {
   tsonicAttributeBuilderSignatureIds,
 } from "../attributes/provider-declarations.js";
 import {
+  compileTimeProviderDeclarations,
+} from "../compile-time/declarations.js";
+import {
   fixedArrayTypeMarkerDeclaration,
 } from "../fixed-arrays/provider-declarations.js";
 import {
@@ -71,6 +74,7 @@ function sourceSemanticsHelperDeclarations(
     return [
       attributeBuilderDeclaration(),
       attributeMemberBuilderDeclaration(),
+      ...compileTimeProviderDeclarations(),
       ...nativePointerOperationProviderDeclarations(
         tsonicCoreNativePointerProviderNames,
       ),
