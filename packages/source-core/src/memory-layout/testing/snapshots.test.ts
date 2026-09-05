@@ -54,6 +54,34 @@ test("zero-sized layouts and aligned strides remain expressible", () => {
   assert.equal(snapshotMemoryLayout({ ...layoutFixture(), byteSize: 0, stride: 0, fields: [] }).byteSize, 0);
 });
 
+test("layout field arrays reject accessors and custom traversal without executing them", () => {
+  const source = layoutFixture();
+  let executions = 0;
+  const accessor = Object.defineProperty([...source.fields], "0", {
+    get() { executions += 1; return source.fields[0]; },
+  });
+  assert.throws(() => snapshotMemoryLayout({ ...source, fields: accessor }), /own data property/u);
+  const customMap = Object.assign([...source.fields], {
+    map() { executions += 1; return source.fields; },
+  });
+  assert.throws(() => snapshotMemoryLayout({ ...source, fields: customMap }), /extra fields/u);
+  assert.throws(() => snapshotMemoryLayout({ ...source, fields: new Array(1) }), /own data property/u);
+  assert.equal(executions, 0);
+});
+
+test("ABI registration arrays reject accessor entries and custom iterators without executing them", () => {
+  let executions = 0;
+  const accessor = Object.defineProperty([memoryTestRegistration], "0", {
+    get() { executions += 1; return memoryTestRegistration; },
+  });
+  assert.throws(() => captureDataLayoutRegistrations(accessor), /own data property/u);
+  const iterable = Object.assign([memoryTestRegistration], {
+    *[Symbol.iterator]() { executions += 1; yield memoryTestRegistration; },
+  });
+  assert.throws(() => captureDataLayoutRegistrations(iterable), /extra fields/u);
+  assert.equal(executions, 0);
+});
+
 test("layout registration snapshots are mutation-proof and compare all ABI fields", () => {
   const registration = { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, descriptor: { ...memoryTestRegistration.descriptor } };
   const entries = captureDataLayoutRegistrations([registration, registration]);

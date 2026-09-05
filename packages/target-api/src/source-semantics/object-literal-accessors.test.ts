@@ -155,9 +155,13 @@ function ast(
 
 function semantics(infos: ReadonlyMap<Node, object>) {
   return {
-    getResolvedObjectLiteralElementInfo: (element: Node) => infos.get(element),
-    getSymbolName: (value: Symbol | undefined) =>
-      (value as { readonly name?: string } | undefined)?.name ?? "",
+    operations: {
+      objectLiteralElement: (element: Node) => infos.get(element),
+    },
+    declarations: {
+      symbolName: (value: Symbol | undefined) =>
+        (value as { readonly name?: string } | undefined)?.name ?? "",
+    },
   } as never;
 }
 

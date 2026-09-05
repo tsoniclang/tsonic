@@ -7,7 +7,7 @@ export type {
   TsonicDataLayoutRegistration,
 } from "@tsonic/target-api/provider";
 import { tsonicCoreSourceExtensionId } from "../identity.js";
-import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual } from "./snapshots.js";
+import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "./snapshots.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
 
 export interface TsonicDataLayoutFact extends TsonicDataLayoutDescriptor {
@@ -100,11 +100,10 @@ export function snapshotMemoryLayout(value: TsonicMemoryLayoutFact): TsonicMemor
   for (const subject of [result.call, result.sourceType, result.dataLayoutExpression]) opaqueSubject(subject);
   if (result.explicitTypeNode !== undefined) opaqueSubject(result.explicitTypeNode);
   const dataLayout = snapshotDataLayout(result.dataLayout);
-  if (!Array.isArray(result.fields)) throw new Error("Memory fields must be an array.");
-  const fields = result.fields.map(snapshotMemoryField);
+  const fields = snapshotDataArray(result.fields, snapshotMemoryField);
   const error = memoryLayoutDimensionsError({ ...result, dataLayout, fields });
   if (error !== undefined) throw new Error(error);
-  return Object.freeze({ ...result, dataLayout, fields: Object.freeze(fields) });
+  return Object.freeze({ ...result, dataLayout, fields });
 }
 
 export const tsonicDataLayoutFactKey = defineExtensionFactKey<TsonicDataLayoutFact>({

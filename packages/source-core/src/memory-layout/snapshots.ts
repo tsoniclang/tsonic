@@ -30,6 +30,26 @@ export function opaqueSubject(value: object): void {
   }
 }
 
+export function snapshotDataArray<T>(value: readonly T[], snapshot: (entry: T) => T): readonly T[] {
+  if (!Array.isArray(value)) throw new Error("Memory evidence requires a data array.");
+  const length = Object.getOwnPropertyDescriptor(value, "length")?.value as number;
+  const result: T[] = [];
+  for (const key of Reflect.ownKeys(value)) {
+    if (key === "length") continue;
+    if (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/u.test(key) || Number(key) >= length) {
+      throw new Error("Memory evidence arrays cannot contain extra fields.");
+    }
+  }
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw new Error("Memory evidence arrays require every entry as an own data property.");
+    }
+    result.push(snapshot(descriptor.value as T));
+  }
+  return Object.freeze(result);
+}
+
 export function nonEmptyText(value: string): void {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error("Memory evidence requires a non-empty identity.");

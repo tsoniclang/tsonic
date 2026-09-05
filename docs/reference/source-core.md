@@ -32,6 +32,9 @@ than silently widening them.
 | `FunctionPointer<TArgs, TReturn>` | Exact native function-pointer signature |
 | `FixedArray<T, N>` | Fixed-length array; `N` must be one non-negative safe-integer literal type |
 | `NativePointer<T>` | Target-native typed pointer used by explicit native-pointer operations |
+| `DataLayout` | Provider-selected ABI identity and immutable descriptor |
+| `MemoryLayout<T>` | Exact size, alignment, stride and selected field layout for `T` |
+| `MemoryFieldLayout<T>` | One selected field's offset and alignment |
 
 `Pointer<T>` and `NativePointer<T>` are different contracts. The first is a
 safe closed location abstraction. The second requests the target's native
@@ -114,6 +117,59 @@ An arbitrary object is not a memory address. Raw addresses require an exact
 provider contract or a layout-backed typed-location conversion. The shared
 memory contract describes those operations; each target must prove its storage,
 layout, lifetime and safety requirements before emitting them.
+
+### Layout and raw-memory source contracts
+
+These declarations and their immutable source facts are implemented. C# and
+Rust do **not yet implement their native lowering**. A checked source fact is
+not proof that a target can emit the operation. Use the existing native-pointer
+operations for supported target-native pointer APIs.
+
+| Export | Source contract |
+| --- | --- |
+| `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe exact storage using a registered ABI token and constant dimensions |
+| `memoryField<T, TField>(select, offset, alignment)` | Select a non-optional declared field without executing the selector |
+| `sizeOf(layout)` | Observe the selected byte size |
+| `alignOf(layout)` | Observe the selected byte alignment |
+| `strideOf(layout)` | Observe the selected element stride |
+| `fieldOffsetOf(layout, select)` | Observe the offset of one exact selected field |
+| `toRawPointer(pointer, layout)` | Request the address of the same typed storage, retaining its required owner |
+| `reinterpretRawPointer(raw, layout)` | Interpret an address as the canonical `Pointer<T>`, not `NativePointer<T>` |
+| `offsetRawPointer(raw, byteOffset, abi)` | Offset in bytes using an exact integer domain |
+| `rawPointerToAddressInteger(raw, abi)` | Convert an address to `nativeUint`, without retaining ownership |
+| `addressIntegerToRawPointer(address, abi)` | Recover an address from `nativeUint`, without manufacturing ownership |
+| `keepAlive(value)` | Require reachability through this call, not pinning |
+
+For example, the source contract expresses a raw-backed location as follows.
+This is not yet a working C# or Rust application:
+
+```ts
+import { reinterpretRawPointer, storePointer, unsafeContext } from "@tsonic/core/lang.js";
+import type { MemoryLayout, RawPointer, uint32 } from "@tsonic/core/types.js";
+
+function write(raw: RawPointer | undefined, layout: MemoryLayout<uint32>): void {
+  unsafeContext();
+  const pointer = reinterpretRawPointer(raw, layout);
+  if (pointer !== undefined) storePointer(pointer, 7);
+}
+```
+
+The target must preserve writes to the original storage. Copying its value
+into a new location is not an implementation of this contract.
+
+An ABI provider supplies the token declaration and a `dataLayouts`
+contribution containing its exact provider identity, version, fingerprint,
+byte order and address width. Source-core validates the registration and owns
+the resulting facts. The build machine's architecture is not an ABI token.
+Layout dimensions must be non-negative safe integers; alignment is a positive
+power of two. Native field extents and storage compatibility still require
+target proof.
+
+Byte offsets accept exact signed and unsigned integer markers, including
+bigint-backed widths. Unmarked in-range integer constants are also accepted.
+An arbitrary `number` or `bigint` variable is not an integer-domain proof.
+Optional pointer conversions preserve `undefined`; address conversion maps
+it to zero, and integer zero maps back to `undefined`.
 
 ### Native-pointer operations
 
