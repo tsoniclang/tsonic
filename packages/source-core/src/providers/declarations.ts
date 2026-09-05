@@ -15,6 +15,9 @@ import {
 } from "../attributes/provider-declarations.js";
 import { memoryOperationDeclarations, memoryTypeDeclarations } from "../memory-layout/declarations.js";
 import {
+  compileTimeProviderDeclarations,
+} from "../compile-time/declarations.js";
+import {
   fixedArrayTypeMarkerDeclaration,
 } from "../fixed-arrays/provider-declarations.js";
 import {
@@ -73,6 +76,7 @@ function sourceSemanticsHelperDeclarations(
       attributeBuilderDeclaration(),
       attributeMemberBuilderDeclaration(),
       ...memoryOperationDeclarations(),
+      ...compileTimeProviderDeclarations(),
       ...nativePointerOperationProviderDeclarations(
         tsonicCoreNativePointerProviderNames,
       ),

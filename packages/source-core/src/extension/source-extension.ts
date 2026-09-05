@@ -12,6 +12,12 @@ import type {
   SourceAnalysisFactAccess,
 } from "@tsonic/tsts";
 import {
+  analyzeTsonicCompileTimeOperations,
+} from "../compile-time/analysis.js";
+import {
+  tsonicCompileTimeProviderNames,
+} from "../compile-time/declarations.js";
+import {
   analyzeTsonicAttributeBuilders,
 } from "../attributes/analysis.js";
 import {
@@ -81,6 +87,7 @@ export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensi
     },
     analyzeSource(context): void {
       analyzeTsonicMemoryOperations(context, dataLayouts);
+      analyzeTsonicCompileTimeOperations(context);
       analyzeNativePointerOperations(context, {
         providerId: tsonicCoreVirtualModulesProviderId,
         providerVersion: tsonicCoreProviderVersion,
@@ -179,6 +186,7 @@ const sourceCoreExportNamesByModule = new Map(
             tsonicCoreSafetyProviderNames.unsafeContextExport,
             tsonicCoreSafetyProviderNames.safetyExport,
             ...Object.keys(tsonicMemorySignatureIds),
+            ...Object.values(tsonicCompileTimeProviderNames),
           ]
         : []),
     ]),
