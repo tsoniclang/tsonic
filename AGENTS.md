@@ -36,7 +36,12 @@ repository deltas.
 
 ## Publishing
 
+- Inspect the read-only release decision with `./scripts/release-status.sh`.
 - Publish from `main` only through `./scripts/publish-npm.sh`.
+- Run the publisher from one coherent sibling workspace. The host must be on
+  `main`; every package repository must equal `origin/main`, with detached
+  linked worktrees permitted when their shared `main` branch is checked out
+  elsewhere.
 - If local versions equal npm, the script prepares a release bump branch; merge
   that branch before publishing.
 - If local versions are ahead, the script runs the complete build and test gate
@@ -47,3 +52,6 @@ repository deltas.
   drift since that package's last version-bump commit.
 - A wave publish includes every affected npm and NuGet package; do not omit
   runtime packages implicitly.
+- Stage exact npm artifacts before changing `latest`. Promote only after fresh
+  public-registry C#, Rust, and Node-capability projects install and execute
+  without a source checkout, local links, workspace roots, or global Tsonic.

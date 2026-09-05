@@ -4,6 +4,7 @@ export const sharedLayerRules = Object.freeze([
   prefix("packages/js-source-profile/src/", "js-source-profile"),
   prefix("packages/host/src/", "host"),
   prefix("packages/cli/src/", "cli"),
+  prefix("packages/create-tsonic/src/", "project-creator"),
 ]);
 
 export const sharedLayerPolicies = Object.freeze([
@@ -12,6 +13,7 @@ export const sharedLayerPolicies = Object.freeze([
   policy("js-source-profile", ["source-core"], "ARCH-SHARED-001", "Canonical JavaScript source declarations and identities may consume shared source-core services but cannot depend on host or target packages."),
   policy("host", ["target-api", "source-core"], "ARCH-SHARED-001", "Host orchestration may consume shared contracts and source-core, not the CLI."),
   policy("cli", ["target-api", "source-core", "host"], "ARCH-SHARED-001", "The CLI composes host services but cannot become a lower-layer dependency."),
+  policy("project-creator", [], "ARCH-SHARED-001", "The generic project creator may load an installed target contract dynamically but cannot statically depend on host or target implementation packages."),
 ]);
 
 export const sharedPackageLayers = Object.freeze([
@@ -40,6 +42,11 @@ export const sharedForbiddenPackages = Object.freeze([
 })));
 
 export const sharedRootPolicies = Object.freeze([
+  root("packages/create-tsonic/src/", [
+    "packages/create-tsonic/src/index.ts",
+    "packages/create-tsonic/src/run.ts",
+    "packages/create-tsonic/src/scaffold.ts",
+  ]),
   root("packages/cli/src/", [
     "packages/cli/src/index.ts",
     "packages/cli/src/output-publication.ts",
@@ -76,6 +83,7 @@ export const sharedRootPolicies = Object.freeze([
 
 export const sharedAllowedImplementationIndexes = new Set([
   "packages/cli/src/index.ts",
+  "packages/create-tsonic/src/index.ts",
   "packages/js-source-profile/src/index.ts",
 ]);
 

@@ -13,6 +13,7 @@ import {
   tsonicAttributeBuilderMemberIds,
   tsonicAttributeBuilderSignatureIds,
 } from "../attributes/provider-declarations.js";
+import { memoryOperationDeclarations, memoryTypeDeclarations } from "../memory-layout/declarations.js";
 import {
   compileTimeProviderDeclarations,
 } from "../compile-time/declarations.js";
@@ -74,6 +75,7 @@ function sourceSemanticsHelperDeclarations(
     return [
       attributeBuilderDeclaration(),
       attributeMemberBuilderDeclaration(),
+      ...memoryOperationDeclarations(),
       ...compileTimeProviderDeclarations(),
       ...nativePointerOperationProviderDeclarations(
         tsonicCoreNativePointerProviderNames,
@@ -84,6 +86,7 @@ function sourceSemanticsHelperDeclarations(
   }
   return moduleSpecifier === tsonicCoreTypesModule
     ? [
+        ...memoryTypeDeclarations(),
         nativePointerProviderDeclaration(
           tsonicCoreNativePointerProviderNames.nativePointerExport,
         ),
@@ -158,12 +161,12 @@ export function providerCallMarkerDeclaration(
     case "hash-pointer":
     case "bind-pointer":
     case "project-pointer":
-    case "bind-raw-pointer":
     case "equal-raw-pointer":
     case "hash-raw-pointer":
       return pointerCallMarkerDeclaration(exportName, marker, typeParameter);
     case "attribute":
       return attributeCallMarkerDeclaration(exportName, typeParameter);
+    case "bind-raw-pointer":
     case "js-string":
       return unsupportedProviderMarkerDeclaration(marker);
   }

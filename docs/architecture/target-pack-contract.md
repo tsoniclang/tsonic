@@ -9,6 +9,7 @@ printing, and toolchain integration.
 ```text
 Target pack
 ├── descriptor and strict options
+├── immutable starter-project descriptor
 ├── source profile and surfaces
 ├── compilation session
 ├── analysis and target facts
@@ -28,6 +29,18 @@ C# and Rust retain this shape. Their inner algorithms differ:
 
 Those are different facts inside the same architectural phase, not different
 architectures.
+
+## Starter boundary
+
+An official target may expose one pure starter-project function from its
+plugin. Given an already-validated project name, it returns target options,
+build/start/check scripts, authored starter files, and declarative native
+toolchain checks. The generic creator validates the complete result before it
+writes anything into the requested destination.
+
+The host does not choose source, native commands, SDK versions, assembly names,
+or crate names for a target. Starter creation does not run target analysis and
+does not create a second compilation path.
 
 ## Planning boundary
 

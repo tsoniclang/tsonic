@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/monorepo",
-  "version": "0.0.1",
+  "version": "0.1.1",
   "description": "Source-to-source compiler from TypeScript to target-native projects",
   "type": "module",
   "private": true,
@@ -20,7 +20,8 @@
     "packages/target-api",
     "packages/js-source-profile",
     "packages/host",
-    "packages/cli"
+    "packages/cli",
+    "packages/create-tsonic"
   ],
   "devDependencies": {
     "@types/node": "25.9.1",

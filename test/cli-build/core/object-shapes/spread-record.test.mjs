@@ -72,12 +72,12 @@ test("CLI runs object rest defaults with nested object spread from finalized fac
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static string rewrite\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+, double value\)/);
+  assert.match(generatedSource, /public static string rewrite\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param\d+, double value\)/);
   assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "missing";/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ child = __tsonic_param\d+\.child;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*note = __tsonic_param\d+\.note,\s*extra = __tsonic_param\d+\.extra,\s*\};/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ updatedChild = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*id = child\.id,\s*value = value,\s*\};/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ output = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*note = rest\.note,\s*extra = rest\.extra,\s*label = label,\s*child = new __TsonicShape_[A-Za-z0-9_]+[\s\S]*id = updatedChild\.id,\s*value = updatedChild\.value,/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} child = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*note = __tsonic_param\d+\.note,\s*extra = __tsonic_param\d+\.extra,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} updatedChild = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = child\.id,\s*value = value,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} output = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*note = rest\.note,\s*extra = rest\.extra,\s*label = label,\s*child = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}[\s\S]*id = updatedChild\.id,\s*value = updatedChild\.value,/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [

@@ -38,6 +38,7 @@ test("vendored TSTS artifact exposes only the approved public entrypoints", asyn
 
 test("vendored TSTS artifact contains dist output and no source-project tooling", async () => {
   const packageRoot = resolve(repoRoot, "packages/tsts");
+  const workspaceManifest = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));
   const manifest = JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8"));
 
   assert.deepEqual(manifest.exports, {
@@ -56,6 +57,9 @@ test("vendored TSTS artifact contains dist output and no source-project tooling"
     "./package.json": "./package.json",
   });
   assert.equal(manifest.scripts, undefined);
+  assert.equal(manifest.private, undefined);
+  assert.equal(manifest.version, workspaceManifest.version);
+  assert.equal(manifest.engines.node, ">=22.18.0");
 
   await access(resolve(packageRoot, "dist/src/index.js"));
   await access(resolve(packageRoot, "dist/src/index.d.ts"));
@@ -66,6 +70,19 @@ test("vendored TSTS artifact contains dist output and no source-project tooling"
   await assertMissing(resolve(packageRoot, "tools"));
   await assertMissing(resolve(packageRoot, "tsconfig.json"));
   await assertMissing(resolve(packageRoot, "tsonic.json"));
+});
+
+test("published packages exclude incremental compiler state", async () => {
+  for (const directory of ["source-core", "target-api", "js-source-profile", "host", "cli"]) {
+    const manifest = JSON.parse(await readFile(
+      resolve(repoRoot, "packages", directory, "package.json"),
+      "utf8",
+    ));
+    assert.ok(
+      manifest.files.includes("!dist/**/*.tsbuildinfo"),
+      `${directory} must exclude incremental compiler state from its npm artifact`,
+    );
+  }
 });
 
 async function assertMissing(path) {

@@ -32,6 +32,9 @@ export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvi
               { exportedName: "Pointer", kind: "type" },
               { exportedName: "RawPointer", kind: "type" },
               { exportedName: "NativePointer", kind: "type" },
+              { exportedName: "DataLayout", kind: "type" },
+              { exportedName: "MemoryLayout", kind: "type" },
+              { exportedName: "MemoryFieldLayout", kind: "type" },
             ],
             typeOnly: true,
           }]

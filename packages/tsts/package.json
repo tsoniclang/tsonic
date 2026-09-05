@@ -1,8 +1,13 @@
 {
   "name": "@tsonic/tsts",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.1",
   "description": "TypeScript-native TypeScript compiler targeting TS-Go contracts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/tsts"
+  },
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
@@ -23,6 +28,9 @@
   },
   "bin": {
     "tsts": "./dist/src/cli/index.js"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   },
   "files": [
     "dist/src/**/*.js",

@@ -134,13 +134,13 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
   assert.match(generatedSource, /int\[\] __tsonic_destructure\d+ = values;/);
   assert.match(generatedSource, /first = __tsonic_destructure\d+\[0\];/);
   assert.match(generatedSource, /second = __tsonic_destructure\d+\[1\];/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = input;/);
   assert.match(generatedSource, /value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
   assert.match(generatedSource, /\(\(System\.Func<int\[\]>\)\(\(\) =>/);
-  assert.match(generatedSource, /\(\(System\.Func<__TsonicShape_[A-Za-z0-9_]+>\)\(\(\) =>/);
-  assert.match(generatedSource, /rest = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*label = __tsonic_destructure\d+\.label,\s*\};/);
-  assert.match(generatedSource, /restAddress = new __TsonicShape_[A-Za-z0-9_]+\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
+  assert.match(generatedSource, /\(\(System\.Func<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}>\)\(\(\) =>/);
+  assert.match(generatedSource, /rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*label = __tsonic_destructure\d+\.label,\s*\};/);
+  assert.match(generatedSource, /restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "5|4:5|ok:7|expr:9:9|rest:11|Paris:75001:FR\n");
@@ -204,12 +204,12 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static string summarize\(__TsonicShape_[A-Za-z0-9_]+ __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /public static string summarize\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "fallback";/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ rest = new __TsonicShape_[A-Za-z0-9_]+/);
-  assert.match(generatedSource, /__TsonicShape_[A-Za-z0-9_]+ spread = new __TsonicShape_[A-Za-z0-9_]+/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} spread = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedSource, /label = label,/);
   assert.match(generatedSource, /total = value \+ rest\.count,/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> composed = new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ spread\.total \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<double>\(numbers\), new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ rest\.count \}\)\);/);
@@ -293,7 +293,7 @@ test("CLI runs utility-projected object shapes and Parameters tuple destructurin
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public class __TsonicShape_/);
+  assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedShapes, /public required int x;/);
   assert.match(generatedShapes, /public required string label;/);
   assert.doesNotMatch(generatedShapes, /public required int y;/);

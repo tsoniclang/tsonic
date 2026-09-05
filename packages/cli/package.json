@@ -1,16 +1,30 @@
 {
   "name": "@tsonic/cli",
-  "version": "0.0.1",
+  "version": "0.1.1",
   "type": "module",
-  "private": true,
+  "description": "Tsonic source-to-source compiler command line interface",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/cli"
+  },
   "bin": {
     "tsonic": "./dist/src/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.18.0"
   },
   "scripts": {
     "build": "../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false && node scripts/mark-bin-executable.mjs"
   },
   "dependencies": {
-    "@tsonic/host": "0.0.1",
-    "@tsonic/target-api": "0.0.1"
+    "@tsonic/host": "0.1.1",
+    "@tsonic/target-api": "0.1.1"
   }
 }

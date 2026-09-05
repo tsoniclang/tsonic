@@ -131,10 +131,11 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(indexSource, /Startup\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*Barrel\.__tsonic_module_init\(\);[\s\S]*GreeterModule\.__tsonic_module_init\(\);/);
+  assert.match(indexSource, /Startup\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*Barrel\.__tsonic_module_init\(\);/);
+  assert.doesNotMatch(indexSource, /GreeterModule\.__tsonic_module_init\(\);/);
   assert.match(indexSource, /public static User current\s*\{\s*get;\s*private set;\s*\} = default\(User\)!;/u);
   const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  const shapeName = /public class (__TsonicShape_[a-f0-9]{64})/u.exec(shapeSource)?.[1];
+  const shapeName = /public class ([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12})/u.exec(shapeSource)?.[1];
   assert.ok(shapeName);
   assert.match(shapeSource, new RegExp(`public class ${shapeName}[\\s\\S]*public required string name;`));
   assert.match(indexSource, new RegExp(`public static ${shapeName} named`));

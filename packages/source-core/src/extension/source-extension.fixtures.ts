@@ -105,7 +105,6 @@ export const expectedSourceCoreLangIntrinsics = [
   { kind: "call-marker", exportName: "hashPointer", marker: "hash-pointer" },
   { kind: "call-marker", exportName: "bindPointer", marker: "bind-pointer" },
   { kind: "call-marker", exportName: "projectPointer", marker: "project-pointer" },
-  { kind: "call-marker", exportName: "bindRawPointer", marker: "bind-raw-pointer" },
   { kind: "call-marker", exportName: "equalRawPointer", marker: "equal-raw-pointer" },
   { kind: "call-marker", exportName: "hashRawPointer", marker: "hash-raw-pointer" },
 ] as const;

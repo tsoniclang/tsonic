@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    { "name": "@tsonic/tsts", "repository": "tsonic", "directory": "packages/tsts" },
+    { "name": "@tsonic/target-api", "repository": "tsonic", "directory": "packages/target-api" },
+    { "name": "@tsonic/source-core", "repository": "tsonic", "directory": "packages/source-core" },
+    { "name": "@tsonic/js-source-profile", "repository": "tsonic", "directory": "packages/js-source-profile" },
+    { "name": "@tsonic/csharp-runtime", "repository": "csharp-runtime", "directory": "." },
+    { "name": "@tsonic/rust-runtime", "repository": "rust-runtime", "directory": "." },
+    { "name": "@tsonic/csharp-js", "repository": "csharp-js", "directory": "." },
+    { "name": "@tsonic/rust-js", "repository": "rust-js", "directory": "." },
+    { "name": "@tsonic/target-csharp", "repository": "tsonic-csharp", "directory": "." },
+    { "name": "@tsonic/target-rust", "repository": "tsonic-rust", "directory": "." },
+    { "name": "@tsonic/host", "repository": "tsonic", "directory": "packages/host" },
+    { "name": "@tsonic/csharp-nodejs", "repository": "csharp-nodejs", "directory": "." },
+    { "name": "@tsonic/rust-nodejs", "repository": "rust-nodejs", "directory": "." },
+    { "name": "@tsonic/cli", "repository": "tsonic", "directory": "packages/cli" },
+    { "name": "create-tsonic", "repository": "tsonic", "directory": "packages/create-tsonic" }
+  ],
+  "certification": [
+    { "repository": "tsonic", "command": ["bash", "test/scripts/run-all.sh"] },
+    { "repository": "tsonic-rust", "command": ["npm", "test"] },
+    { "repository": "rust-runtime", "command": ["npm", "test"] },
+    { "repository": "rust-js", "command": ["npm", "test"] },
+    { "repository": "rust-nodejs", "command": ["npm", "test"] }
+  ]
+}

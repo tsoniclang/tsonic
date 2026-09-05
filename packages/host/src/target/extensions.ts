@@ -112,7 +112,13 @@ export function createTargetSourceCompilerComposition(
   ]);
   const extensions = Object.freeze([
     createSourceSemanticsExtension({ modules: semanticsModules }),
-    createTsonicCoreSourceExtension(),
+    createTsonicCoreSourceExtension({
+      dataLayouts: [
+        ...(options.targetContributions.dataLayouts ?? []),
+        ...capabilityContributions.flatMap((contribution) => contribution.dataLayouts ?? []),
+        ...surfaceContributions.flatMap((contribution) => contribution.dataLayouts ?? []),
+      ],
+    }),
     ...(options.targetContributions.extensions ?? []),
     ...capabilityContributions.flatMap((contribution) => contribution.extensions ?? []),
     ...surfaceContributions.flatMap((contribution) => contribution.extensions ?? []),

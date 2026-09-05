@@ -2,15 +2,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-
-const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
-const repos = Object.freeze({
-  tsonic: tsonicRoot,
-  tsonicCsharp: resolve(tsonicRoot, "../tsonic-csharp"),
-  csharpJs: resolve(tsonicRoot, "../csharp-js"),
-  csharpNodejs: resolve(tsonicRoot, "../csharp-nodejs"),
-  csharpRuntime: resolve(tsonicRoot, "../csharp-runtime"),
-});
+import {
+  testRepositoryRoots as repos,
+} from "./workspace-layout.mjs";
 
 const commands = Object.freeze([
   {
@@ -65,6 +59,7 @@ const requiredArtifacts = Object.freeze([
   ["tsonic.targetApiDist", resolve(repos.tsonic, "packages/target-api/dist")],
   ["tsonic.hostDist", resolve(repos.tsonic, "packages/host/dist")],
   ["tsonic.cliDist", resolve(repos.tsonic, "packages/cli/dist")],
+  ["tsonic.createTsonicDist", resolve(repos.tsonic, "packages/create-tsonic/dist")],
   ["tsonic.tstsBundledLibs", resolve(repos.tsonic, "packages/tsts/dist/src/internal/bundled/libs")],
   ["tsonicCsharp.dist", resolve(repos.tsonicCsharp, "dist")],
   ["csharpJs.runtimeDll", resolve(repos.csharpJs, "runtimes/net10.0/Tsonic.CSharp.Js.dll")],

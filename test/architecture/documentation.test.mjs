@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import test from "node:test";
+import { testWorkspaceRoot } from "../scripts/workspace-layout.mjs";
+import { tsonicCoreSourceSemanticsModules } from "@tsonic/source-core";
+import { providerExportDeclarationsForSourceModule } from "@tsonic/source-core/extension";
 
 const repositoryRoot = resolve(new URL("../..", import.meta.url).pathname);
 const documentationRoot = resolve(repositoryRoot, "docs");
-const workspaceRoot = resolve(repositoryRoot, "..");
+const workspaceRoot = testWorkspaceRoot;
 
 const sharedTargetReferencePages = Object.freeze([
   "README.md",
@@ -109,32 +112,23 @@ test("project configuration documentation matches the host parser", () => {
   }
   assert.match(reference, /`rootDir`[^\n]*project-file directory/u);
   assert.match(reference, /`outDir`[^\n]*`dist\/tsonic`/u);
+  assert.match(reference, /`cacheDir`[^\n]*`\.tsonic\/cache`/u);
 });
 
 test("neutral source exports are represented in the canonical reference", () => {
-  const modules = readFileSync(
-    resolve(repositoryRoot, "packages/source-core/src/extension/source-modules.ts"),
-    "utf8",
-  );
-  const nativePointers = readFileSync(
-    resolve(repositoryRoot, "packages/source-core/src/pointers/provider-declarations.ts"),
-    "utf8",
-  );
-  const safety = readFileSync(
-    resolve(repositoryRoot, "packages/source-core/src/safety/declarations.ts"),
-    "utf8",
-  );
   const reference = readFileSync(resolve(documentationRoot, "reference/source-core.md"), "utf8");
-  const exports = new Set([
-    ...[...modules.matchAll(/sourcePrimitive\("([^"]+)"/gu)].map((match) => match[1]),
-    ...[...modules.matchAll(/exportName:\s*"([^"]+)"/gu)].map((match) => match[1]),
-    ...extractObjectStringValues(nativePointers, "tsonicCoreNativePointerProviderNames"),
-    ...extractObjectStringValues(safety, "tsonicCoreSafetyProviderNames"),
-  ]);
-  for (const name of exports) {
-    if (name.startsWith("__")) continue;
-    assert.ok(reference.includes("`" + name), name);
-  }
+  const exports = tsonicCoreSourceSemanticsModules()
+    .flatMap(providerExportDeclarationsForSourceModule)
+    .map((declaration) => declaration.name)
+    .filter((name) => !name.startsWith("__"));
+  assert.ok(exports.length > 0);
+  const missing = (text) => exports.filter((name) =>
+    !["`", "(", "<"].some((suffix) => text.includes("`" + name + suffix)));
+  assert.deepEqual(missing(reference), []);
+  assert.deepEqual(
+    missing(reference.replaceAll("`reinterpretRawPointer", "`removedExport")),
+    ["reinterpretRawPointer"],
+  );
 });
 
 test("the pinned TypeScript utility inventory is represented in the canonical reference", () => {
@@ -232,6 +226,54 @@ test("CLI outcomes and publication are documented", () => {
   assert.match(reference, /previous successful output in place/u);
 });
 
+test("onboarding uses supported local packages and official native toolchains", () => {
+  const gettingStarted = readFileSync(
+    resolve(documentationRoot, "manual/get-started.md"),
+    "utf8",
+  );
+  const toolchains = readFileSync(
+    resolve(documentationRoot, "reference/toolchains.md"),
+    "utf8",
+  );
+  const documentation = collectMarkdownFiles(documentationRoot)
+    .map((path) => readFileSync(path, "utf8"))
+    .join("\n");
+
+  assert.match(gettingStarted, /https:\/\/nodejs\.org\/en\/download/u);
+  assert.match(gettingStarted, /https:\/\/dotnet\.microsoft\.com\/en-us\/download\/dotnet\/10\.0/u);
+  assert.match(gettingStarted, /https:\/\/www\.rust-lang\.org\/tools\/install/u);
+  assert.match(gettingStarted, /npm create tsonic@latest hello-csharp -- --target csharp/u);
+  assert.match(gettingStarted, /npm create tsonic@latest hello-rust -- --target rust/u);
+  assert.match(gettingStarted, /npm run build/u);
+  assert.match(gettingStarted, /npm run check/u);
+  assert.match(gettingStarted, /npm start/u);
+  assert.match(gettingStarted, /--surface js/u);
+  assert.match(gettingStarted, /@tsonic\/csharp-nodejs@\^0\.1\.0/u);
+  assert.match(gettingStarted, /@tsonic\/rust-nodejs@\^0\.1\.0/u);
+  assert.match(toolchains, /Node\.js \| 22\.18 or newer/u);
+  assert.match(toolchains, /\.NET 10 SDK/u);
+  assert.match(toolchains, /rustup component add rustfmt/u);
+  assert.match(toolchains, /rustup component add clippy/u);
+  assert.doesNotMatch(
+    documentation,
+    /\bnpx tsonic\b/u,
+    "documentation must not let npx download an unselected CLI when the local install is missing",
+  );
+});
+
+test("release documentation requires source-free public installation", () => {
+  const releasing = readFileSync(
+    resolve(documentationRoot, "validation/releasing.md"),
+    "utf8",
+  );
+  assert.match(releasing, /\.\/scripts\/release-status\.sh/u);
+  assert.match(releasing, /\.\/scripts\/publish-npm\.sh/u);
+  assert.match(releasing, /does not need a Tsonic source checkout/u);
+  assert.match(releasing, /npm create tsonic@latest/u);
+  assert.match(releasing, /proofs pass before any public artifact is\npublished/u);
+  assert.match(releasing, /Do not call a release complete while any item is unproved/u);
+});
+
 function collectMarkdownFiles(root) {
   const files = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -249,12 +291,6 @@ function extractQuotedList(source, pattern) {
   const match = source.match(pattern);
   assert.ok(match?.[1] !== undefined, `source list did not match ${pattern}`);
   return [...match[1].matchAll(/"([^"]+)"/gu)].map((entry) => entry[1]);
-}
-
-function extractObjectStringValues(source, objectName) {
-  const match = source.match(new RegExp(`${objectName}[^=]*= Object\\.freeze\\(\\{([\\s\\S]*?)\\}\\);`, "u"));
-  assert.ok(match?.[1] !== undefined, `source object '${objectName}' was not found`);
-  return [...match[1].matchAll(/:\s*"([^"]+)"/gu)].map((entry) => entry[1]);
 }
 
 function extractFrozenStringList(source, listName) {

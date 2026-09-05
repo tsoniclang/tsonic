@@ -32,3 +32,10 @@ and a negative program proving dereference without `unsafeContext` is rejected.
 Generated target code must be deterministic, native-toolchain valid, and free
 of semantic fallback. Humanization is accepted only when it preserves
 correctness and has no material runtime-performance regression.
+
+## Release certification
+
+The [npm release procedure](releasing.md) owns package-impact decisions,
+coordinated versioning, public-registry installation, interruption recovery,
+and the maintainer completion checklist. A private package test is necessary
+but does not replace the final source-free public npm proof.

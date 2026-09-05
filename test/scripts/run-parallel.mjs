@@ -11,8 +11,11 @@ import {
   aggregateTestCounts,
   parseTestCounts,
 } from "./parallel-test-counts.mjs";
+import {
+  testRepositoryRoots as repos,
+  tsonicRoot,
+} from "./workspace-layout.mjs";
 
-const tsonicRoot = resolve(new URL("../..", import.meta.url).pathname);
 const options = parseArgs(process.argv.slice(2));
 const runId = `parallel-${timestamp()}-${process.pid}`;
 const runRoot = resolve(tsonicRoot, ".temp/test-runs/parallel-runs", runId);
@@ -27,13 +30,6 @@ const env = {
   NUGET_PACKAGES: process.env.NUGET_PACKAGES ?? resolve(tsonicRoot, ".temp/test-runs/nuget/packages"),
 };
 
-const repos = {
-  tsonic: tsonicRoot,
-  tsonicCsharp: resolve(tsonicRoot, "../tsonic-csharp"),
-  csharpJs: resolve(tsonicRoot, "../csharp-js"),
-  csharpNodejs: resolve(tsonicRoot, "../csharp-nodejs"),
-  csharpRuntime: resolve(tsonicRoot, "../csharp-runtime"),
-};
 const suiteDefinition = createParallelSuiteDefinition(repos);
 
 const allShards = buildShards();

@@ -17,11 +17,12 @@ if [[ ! -d "./node_modules" ]]; then
 fi
 
 PACKAGES=(
-  "packages/source-core"
   "packages/target-api"
+  "packages/source-core"
   "packages/js-source-profile"
   "packages/host"
   "packages/cli"
+  "packages/create-tsonic"
 )
 
 for pkg in "${PACKAGES[@]}"; do
