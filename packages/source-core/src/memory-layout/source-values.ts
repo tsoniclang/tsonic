@@ -96,8 +96,33 @@ export function exactIntegerConstant(
   expression: Node,
   context: TsonicSourceFileAnalysisContext,
 ): { readonly value: bigint; readonly runtimeBase: "number" | "bigint" } | undefined {
-  const origin = immutableValueOrigin(expression, context);
-  if (origin === undefined) return undefined;
+  const visited = new Set<Node>();
+  let current: Node | undefined = expression;
+  let sign = 1n;
+  let permitsBigInt = true;
+  while (current !== undefined) {
+    const origin = immutableValueOrigin(current, context);
+    if (origin === undefined || visited.has(origin)) return undefined;
+    visited.add(origin);
+    if (context.ast.is.IsPrefixUnaryExpression(origin)) {
+      const operator = context.ast.operatorKindName(origin);
+      if (operator !== "KindMinusToken" && operator !== "KindPlusToken") return undefined;
+      if (operator === "KindMinusToken") sign = -sign;
+      else permitsBigInt = false;
+      current = context.ast.as.AsPrefixUnaryExpression(origin)?.Operand;
+      continue;
+    }
+    const constant = integerLeafConstant(origin, context);
+    return constant === undefined || (!permitsBigInt && constant.runtimeBase === "bigint")
+      ? undefined : { value: sign * constant.value, runtimeBase: constant.runtimeBase };
+  }
+  return undefined;
+}
+
+function integerLeafConstant(
+  origin: Node,
+  context: TsonicSourceFileAnalysisContext,
+): { readonly value: bigint; readonly runtimeBase: "number" | "bigint" } | undefined {
   if (context.ast.is.IsNumericLiteral(origin)) {
     const value = Number(context.ast.text(origin).split("_").join(""));
     return Number.isSafeInteger(value) ? { value: BigInt(value), runtimeBase: "number" } : undefined;
@@ -106,14 +131,6 @@ export function exactIntegerConstant(
     const text = context.ast.text(origin).split("_").join("");
     if (!/^(?:[0-9]+|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+)n$/u.test(text)) return undefined;
     return { value: BigInt(text.slice(0, -1)), runtimeBase: "bigint" };
-  }
-  if (context.ast.is.IsPrefixUnaryExpression(origin)) {
-    const operator = context.ast.operatorKindName(origin);
-    const operand = context.ast.as.AsPrefixUnaryExpression(origin)?.Operand;
-    if (operand === undefined || (operator !== "KindMinusToken" && operator !== "KindPlusToken")) return undefined;
-    const constant = exactIntegerConstant(operand, context);
-    return constant === undefined || (operator === "KindPlusToken" && constant.runtimeBase === "bigint")
-      ? undefined : { ...constant, value: operator === "KindMinusToken" ? -constant.value : constant.value };
   }
   const constant = context.checker.getConstantValue(origin);
   return typeof constant === "number" && Number.isSafeInteger(constant)

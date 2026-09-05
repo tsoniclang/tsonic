@@ -146,3 +146,21 @@ test("an authored plain-number domain is not reinterpreted through its integer i
   assert.ok(checked.extensionDiagnostics.some((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN"));
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer")), undefined);
 });
+
+for (const declarations of [
+  "const size: number = -size;",
+  "const size: number = +(-size);",
+  "const size: number = -other; const other: number = size;",
+]) {
+  test(`cyclic unary layout constants fail without an extension crash: ${declarations}`, () => {
+    const checked = memorySession(memoryTestPrelude + declarations + "memoryLayout<uint32>(abi, size, 4, 4);");
+    assert.ok(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_LAYOUT_NOT_PROVEN"));
+    assert.equal(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "OBSERVATION_HOOK_FAILED"), false);
+    assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1)), undefined);
+  });
+}
+
+test("nested unary layout constants retain their exact sign", () => {
+  const checked = cleanMemorySession("const negative = -4; const positive = -(+negative); memoryLayout<uint32>(abi, positive, 4, 4);");
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1))?.byteSize, 4);
+});
