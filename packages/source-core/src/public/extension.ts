@@ -29,3 +29,6 @@ export type {
   SourceSemanticsProviderDiagnosticIdentity,
   SourceSemanticsVirtualModuleProviderOptions,
 } from "../extension/semantics-virtual-modules.js";
+export type { TsonicCoreSourceExtensionOptions } from "../extension/source-extension.js";
+export { memoryOperationDeclarations, memoryTypeDeclarations, tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "../memory-layout/declarations.js";
+export type { TsonicDataLayoutRegistration } from "../memory-layout/facts.js";

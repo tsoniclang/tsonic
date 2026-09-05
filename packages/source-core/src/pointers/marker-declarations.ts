@@ -20,7 +20,6 @@ export const tsonicPointerMarkerSignatureIds = Object.freeze({
   bindPointer: "bindPointer<T>(identity,read,write)",
   projectPointer: "projectPointer<F,T>(pointer,fromSource,toSource)",
   projectOptionalPointer: "projectPointer<F,T>(pointer?,fromSource,toSource)",
-  bindRawPointer: "bindRawPointer(identity)",
   equalRawPointer: "equalRawPointer(left,right)",
   hashRawPointer: "hashRawPointer(pointer)",
 });
@@ -71,14 +70,12 @@ export function pointerCallMarkerDeclaration(
     | "hash-pointer"
     | "bind-pointer"
     | "project-pointer"
-    | "bind-raw-pointer"
     | "equal-raw-pointer"
     | "hash-raw-pointer"
   >,
   pointee: ProviderTypeExpression,
 ): ProviderExportDeclaration {
   switch (marker) {
-    case "bind-raw-pointer":
     case "equal-raw-pointer":
     case "hash-raw-pointer":
       return rawPointerOperationDeclaration(exportName, marker);
@@ -89,7 +86,7 @@ export function pointerCallMarkerDeclaration(
 
 function rawPointerOperationDeclaration(
   exportName: string,
-  marker: Extract<SourceCallMarkerKind, "bind-raw-pointer" | "equal-raw-pointer" | "hash-raw-pointer">,
+  marker: Extract<SourceCallMarkerKind, "equal-raw-pointer" | "hash-raw-pointer">,
 ): ProviderExportDeclaration {
   const rawPointer: ProviderTypeExpression = {
     kind: "provider-ref",
@@ -101,12 +98,6 @@ function rawPointerOperationDeclaration(
     types: [rawPointer, { kind: "undefined" }],
   };
   switch (marker) {
-    case "bind-raw-pointer":
-      return functionDeclaration(exportName, {
-        id: tsonicPointerMarkerSignatureIds.bindRawPointer,
-        parameters: [{ name: "identity", type: { kind: "object" } }],
-        returnType: rawPointer,
-      });
     case "equal-raw-pointer":
       return functionDeclaration(exportName, {
         id: tsonicPointerMarkerSignatureIds.equalRawPointer,

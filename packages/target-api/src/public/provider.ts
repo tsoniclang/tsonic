@@ -1,4 +1,9 @@
 export { getStaticModuleReference } from "../module-reference.js";
+export type {
+  TsonicDataLayoutDescriptor,
+  TsonicDataLayoutIdentity,
+  TsonicDataLayoutRegistration,
+} from "../target/data-layout.js";
 export type { StaticModuleReference } from "../module-reference.js";
 export {
   isTsonicSourceProfileDeclarationPath,

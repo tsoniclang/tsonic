@@ -56,7 +56,17 @@ import {
   createTsonicCoreVirtualModulesProvider,
 } from "./virtual-modules.js";
 
-export function createTsonicCoreSourceExtension(): CompilerExtension {
+import { analyzeTsonicMemoryOperations } from "../memory-layout/analysis.js";
+import { tsonicMemorySignatureIds, tsonicMemoryTypeExports } from "../memory-layout/declarations.js";
+import type { TsonicDataLayoutRegistration } from "../memory-layout/facts.js";
+import { captureDataLayoutRegistrations } from "../memory-layout/registrations.js";
+
+export interface TsonicCoreSourceExtensionOptions {
+  readonly dataLayouts?: readonly TsonicDataLayoutRegistration[];
+}
+
+export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensionOptions = {}): CompilerExtension {
+  const dataLayouts = captureDataLayoutRegistrations(options.dataLayouts ?? []);
   return {
     identity: {
       id: tsonicCoreSourceExtensionId,
@@ -70,6 +80,7 @@ export function createTsonicCoreSourceExtension(): CompilerExtension {
       context.registerSourceDeclarationProvider(createTsonicCoreVirtualModulesProvider());
     },
     analyzeSource(context): void {
+      analyzeTsonicMemoryOperations(context, dataLayouts);
       analyzeNativePointerOperations(context, {
         providerId: tsonicCoreVirtualModulesProviderId,
         providerVersion: tsonicCoreProviderVersion,
@@ -159,7 +170,7 @@ const sourceCoreExportNamesByModule = new Map(
     new Set([
       ...module.exports.map((entry) => entry.exportName),
       ...(module.moduleSpecifier === tsonicCoreTypesModule
-        ? [tsonicCoreNativePointerProviderNames.nativePointerExport]
+        ? [tsonicCoreNativePointerProviderNames.nativePointerExport, ...tsonicMemoryTypeExports]
         : module.moduleSpecifier === tsonicCoreLangModule
         ? [
             tsonicCoreNativePointerProviderNames.loadExport,
@@ -167,6 +178,7 @@ const sourceCoreExportNamesByModule = new Map(
             tsonicCoreNativePointerProviderNames.offsetExport,
             tsonicCoreSafetyProviderNames.unsafeContextExport,
             tsonicCoreSafetyProviderNames.safetyExport,
+            ...Object.keys(tsonicMemorySignatureIds),
           ]
         : []),
     ]),

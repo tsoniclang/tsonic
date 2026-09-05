@@ -46,3 +46,18 @@ export {
   tsonicFixedArrayProviderMember,
 } from "../fixed-arrays/provider.js";
 export type { TsonicFixedArrayProviderMember } from "../fixed-arrays/provider.js";
+export {
+  tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey,
+  tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey,
+} from "../memory-layout/facts.js";
+export type {
+  TsonicDataLayoutDescriptor, TsonicDataLayoutFact, TsonicDataLayoutIdentity,
+  TsonicDataLayoutRegistration, TsonicMemoryFieldLayoutFact,
+  TsonicMemoryLayoutFact, TsonicMemoryLayoutQueryFact,
+} from "../memory-layout/facts.js";
+export { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
+export type { TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
+export {
+  readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
+  readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
+} from "../memory-layout/readers.js";
