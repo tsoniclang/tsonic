@@ -3,7 +3,7 @@ import {
   dataLayoutsEqual, snapshotDataLayout, snapshotDataLayoutDescriptor, snapshotDataLayoutIdentity,
 } from "./facts.js";
 import type { TsonicDataLayoutFact, TsonicDataLayoutRegistration } from "./facts.js";
-import { exactRecord } from "./snapshots.js";
+import { exactRecord, snapshotDataArray } from "./snapshots.js";
 
 export function dataLayoutIdentityKey(identity: ProviderDeclarationIdentity): string {
   return JSON.stringify([
@@ -15,9 +15,8 @@ export function dataLayoutIdentityKey(identity: ProviderDeclarationIdentity): st
 export function captureDataLayoutRegistrations(
   registrations: readonly TsonicDataLayoutRegistration[],
 ): ReadonlyMap<string, TsonicDataLayoutFact> {
-  if (!Array.isArray(registrations)) throw new Error("Data-layout registrations must be an array.");
   const results = new Map<string, TsonicDataLayoutFact>();
-  for (const registration of registrations) {
+  for (const registration of snapshotDataArray(registrations, (value) => value)) {
     const record = exactRecord(registration, ["providerDeclaration", "descriptor"]);
     const providerDeclaration = snapshotDataLayoutIdentity(record.providerDeclaration);
     const descriptor = snapshotDataLayoutDescriptor(record.descriptor);
