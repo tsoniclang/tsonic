@@ -147,6 +147,56 @@ test("an authored plain-number domain is not reinterpreted through its integer i
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer")), undefined);
 });
 
+test("typed byte-offset constants cannot hide invalid values behind erasing wrappers", () => {
+  const offsets = [
+    "1.5 as uint32", "1e309 satisfies uint32", "<uint32>(4294967296)",
+    "(-1 as uint32)!", "18446744073709551616n as uint64",
+  ];
+  const checked = memorySession(memoryTestPrelude + offsets.map((offset) =>
+    `offsetRawPointer(raw, (${offset}), abi);`).join("\n"));
+  assert.equal(checked.diagnostics.filter((entry) => entry !== undefined).length, 0);
+  assert.equal(checked.extensionDiagnostics.length, offsets.length);
+  assert.ok(checked.extensionDiagnostics.every((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN"));
+  for (const index of offsets.keys()) {
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer", index)), undefined);
+  }
+});
+
+test("erasing wrappers preserve valid layout constants and signed byte offsets", () => {
+  const checked = cleanMemorySession(`
+    import type { int64 } from "@tsonic/core/types.js";
+    memoryLayout<uint32>(abi, (4 as nativeUint), (4 satisfies nativeUint), (<nativeUint>4)!);
+    offsetRawPointer(raw, (-4n as int64), abi);
+    offsetRawPointer(raw, ((4 as uint32) satisfies uint32)!, abi);
+  `);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1))?.byteSize, 4);
+  const signed = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer"));
+  const unsigned = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer", 1));
+  assert.ok(signed?.operation === "byte-offset" && unsigned?.operation === "byte-offset");
+  assert.equal(signed.offsetSignedness, "signed");
+  assert.equal(signed.offsetWidth, 64);
+  assert.equal(unsigned.offsetSignedness, "unsigned");
+  assert.equal(unsigned.offsetWidth, 32);
+});
+
+test("satisfies and non-null assertions cannot replace an authored numeric domain", () => {
+  const checked = memorySession(memoryTestPrelude + `
+    const integer: uint32 = 4;
+    const widened: number = integer;
+    offsetRawPointer(raw, (widened satisfies uint32)!, abi);
+    addressIntegerToRawPointer<uint32>((widened satisfies uint32)!, abi);
+  `, { registrations: [{ ...memoryTestRegistration, descriptor: {
+    ...memoryTestRegistration.descriptor, fingerprint: "test-abi-le32", addressWidth: 32,
+  } }] });
+  assert.equal(checked.diagnostics.filter((entry) => entry !== undefined).length, 0);
+  assert.deepEqual(checked.extensionDiagnostics.map((entry) => entry.extensionCode).sort(), [
+    "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN", "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN",
+  ]);
+  for (const name of ["offsetRawPointer", "addressIntegerToRawPointer"]) {
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name)), undefined);
+  }
+});
+
 for (const declarations of [
   "const size: number = -size;",
   "const size: number = +(-size);",

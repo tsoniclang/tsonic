@@ -111,6 +111,46 @@ test("address domains survive parameters, fields, returns, selected producers an
   assert.equal(memoryCalls(checked, "addressIntegerToRawPointer").length, 5);
 });
 
+for (const width of [32, 64] as const) {
+  const marker = `uint${width}`;
+  const wrappers = [
+    (value: string) => `(${value} as ${marker})`,
+    (value: string) => `(${value} satisfies ${marker})`,
+    (value: string) => `(<${marker}>(${value}))`,
+    (value: string) => `(${value})!`,
+  ];
+  for (const valid of [true, false]) {
+    test(`${width}-bit address bounds ${valid ? "accept" : "reject"} constants through erasing wrappers`, () => {
+      const values = width === 32
+        ? valid ? ["0", "4294967295"] : ["-1", "1.5", "1e309", "4294967296"]
+        : valid ? ["0n", "9007199254740993n", "18446744073709551615n"] : ["-1n", "18446744073709551616n"];
+      const expressions = values.flatMap((value) => wrappers.map((wrap) => wrap(value)));
+      const source = expressions.map((expression) => `addressIntegerToRawPointer<${marker}>(${expression}, abi);`).join("\n");
+      const checked = addressSession(source + `
+        const original = ${expressions[expressions.length - 1]};
+        const alias = original;
+        addressIntegerToRawPointer<${marker}>(((alias as ${marker}) satisfies ${marker})!, abi);
+      `, width);
+      assert.equal(checked.diagnostics.filter((entry) => entry !== undefined).length, 0);
+      const calls = memoryCalls(checked, "addressIntegerToRawPointer");
+      assert.equal(calls.length, expressions.length + 1);
+      if (valid) assertClean(checked);
+      else {
+        assert.equal(checked.extensionDiagnostics.length, calls.length);
+        assert.ok(checked.extensionDiagnostics.every((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN"));
+      }
+      for (const call of calls) {
+        const fact = readTsonicRawMemoryOperation(checked.sourceFacts, call);
+        if (valid) {
+          assert.ok(fact?.operation === "address-integer-to-raw");
+          assert.equal(fact.addressWidth, width);
+          assert.ok(fact.addressExpression === checked.ast.arguments(call)[0]);
+        } else assert.equal(fact, undefined);
+      }
+    });
+  }
+}
+
 for (const [width, source] of [
   [32, "addressIntegerToRawPointer<uint32>(-1, abi);"],
   [32, "addressIntegerToRawPointer<uint32>(1.5, abi);"],

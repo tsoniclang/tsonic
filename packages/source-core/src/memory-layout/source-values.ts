@@ -80,6 +80,14 @@ function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFi
       expression = context.ast.as.AsParenthesizedExpression(expression)?.Expression;
       continue;
     }
+    if (context.ast.is.IsNonNullExpression(expression)) {
+      expression = context.ast.as.AsNonNullExpression(expression)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsSatisfiesExpression(expression)) {
+      expression = context.ast.as.AsSatisfiesExpression(expression)?.Expression;
+      continue;
+    }
     const storage = context.checker.getResolvedStorageInfo(expression);
     const declaration = storage?.declaration;
     const annotation = context.ast.typeNode(declaration);
@@ -120,6 +128,22 @@ export function classifyIntegerConstant(
     const origin = immutableValueOrigin(current, context);
     if (origin === undefined || visited.has(origin)) return { kind: "unavailable" };
     visited.add(origin);
+    if (context.ast.is.IsAsExpression(origin)) {
+      current = context.ast.as.AsAsExpression(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsSatisfiesExpression(origin)) {
+      current = context.ast.as.AsSatisfiesExpression(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsTypeAssertion(origin)) {
+      current = context.ast.as.AsTypeAssertion(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsNonNullExpression(origin)) {
+      current = context.ast.as.AsNonNullExpression(origin)?.Expression;
+      continue;
+    }
     if (context.ast.is.IsPrefixUnaryExpression(origin)) {
       const operator = context.ast.operatorKindName(origin);
       if (operator !== "KindMinusToken" && operator !== "KindPlusToken") return { kind: "unavailable" };

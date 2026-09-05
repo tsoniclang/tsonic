@@ -1,7 +1,7 @@
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import type { TsonicDataLayoutFact } from "../../memory-layout/facts.js";
 import type { MemorySourceAnalysis } from "../../memory-layout/analysis-context.js";
-import { exactIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "../../memory-layout/source-values.js";
+import { classifyIntegerConstant, selectedPrimitive, selectedValueAnnotation } from "../../memory-layout/source-values.js";
 import type { SelectedMemoryValue } from "../../memory-layout/source-values.js";
 
 export interface RawOffsetInteger {
@@ -16,6 +16,8 @@ export function selectedRawOffsetInteger(
   context: TsonicSourceFileAnalysisContext,
   analysis: MemorySourceAnalysis,
 ): RawOffsetInteger | undefined {
+  const constant = classifyIntegerConstant(value.expression, context);
+  if (constant.kind === "invalid") return undefined;
   const primitive = selectedPrimitive(value, context, analysis);
   if (primitive !== undefined) {
     const integer = ((): RawOffsetInteger | undefined => {
@@ -38,15 +40,16 @@ export function selectedRawOffsetInteger(
       }
     })();
     if (integer === undefined) return undefined;
-    const constant = exactIntegerConstant(value.expression, context);
-    return constant !== undefined && !integerFits(constant.value, integer) ? undefined : integer;
+    return constant.kind === "available" && (
+      constant.runtimeBase !== integer.runtimeBase || !integerFits(constant.value, integer)
+    ) ? undefined : integer;
   }
   if (selectedValueAnnotation(value, context) !== undefined) return undefined;
-  const constant = exactIntegerConstant(value.expression, context);
+  if (constant.kind !== "available") return undefined;
   const integer: RawOffsetInteger = {
-    runtimeBase: constant?.runtimeBase ?? "number", signedness: "signed", width: dataLayout.addressWidth,
+    runtimeBase: constant.runtimeBase, signedness: "signed", width: dataLayout.addressWidth,
   };
-  return constant !== undefined && integerFits(constant.value, integer) ? integer : undefined;
+  return integerFits(constant.value, integer) ? integer : undefined;
 }
 
 function integerFits(value: bigint, integer: RawOffsetInteger): boolean {
