@@ -3,6 +3,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import test from "node:test";
 import { testWorkspaceRoot } from "../scripts/workspace-layout.mjs";
+import { tsonicCoreSourceSemanticsModules } from "@tsonic/source-core";
+import { providerExportDeclarationsForSourceModule } from "@tsonic/source-core/extension";
 
 const repositoryRoot = resolve(new URL("../..", import.meta.url).pathname);
 const documentationRoot = resolve(repositoryRoot, "docs");
@@ -114,29 +116,19 @@ test("project configuration documentation matches the host parser", () => {
 });
 
 test("neutral source exports are represented in the canonical reference", () => {
-  const modules = readFileSync(
-    resolve(repositoryRoot, "packages/source-core/src/extension/source-modules.ts"),
-    "utf8",
-  );
-  const nativePointers = readFileSync(
-    resolve(repositoryRoot, "packages/source-core/src/pointers/provider-declarations.ts"),
-    "utf8",
-  );
-  const safety = readFileSync(
-    resolve(repositoryRoot, "packages/source-core/src/safety/declarations.ts"),
-    "utf8",
-  );
   const reference = readFileSync(resolve(documentationRoot, "reference/source-core.md"), "utf8");
-  const exports = new Set([
-    ...[...modules.matchAll(/sourcePrimitive\("([^"]+)"/gu)].map((match) => match[1]),
-    ...[...modules.matchAll(/exportName:\s*"([^"]+)"/gu)].map((match) => match[1]),
-    ...extractObjectStringValues(nativePointers, "tsonicCoreNativePointerProviderNames"),
-    ...extractObjectStringValues(safety, "tsonicCoreSafetyProviderNames"),
-  ]);
-  for (const name of exports) {
-    if (name.startsWith("__")) continue;
-    assert.ok(reference.includes("`" + name), name);
-  }
+  const exports = tsonicCoreSourceSemanticsModules()
+    .flatMap(providerExportDeclarationsForSourceModule)
+    .map((declaration) => declaration.name)
+    .filter((name) => !name.startsWith("__"));
+  assert.ok(exports.length > 0);
+  const missing = (text) => exports.filter((name) =>
+    !["`", "(", "<"].some((suffix) => text.includes("`" + name + suffix)));
+  assert.deepEqual(missing(reference), []);
+  assert.deepEqual(
+    missing(reference.replaceAll("`reinterpretRawPointer", "`removedExport")),
+    ["reinterpretRawPointer"],
+  );
 });
 
 test("the pinned TypeScript utility inventory is represented in the canonical reference", () => {
@@ -299,12 +291,6 @@ function extractQuotedList(source, pattern) {
   const match = source.match(pattern);
   assert.ok(match?.[1] !== undefined, `source list did not match ${pattern}`);
   return [...match[1].matchAll(/"([^"]+)"/gu)].map((entry) => entry[1]);
-}
-
-function extractObjectStringValues(source, objectName) {
-  const match = source.match(new RegExp(`${objectName}[^=]*= Object\\.freeze\\(\\{([\\s\\S]*?)\\}\\);`, "u"));
-  assert.ok(match?.[1] !== undefined, `source object '${objectName}' was not found`);
-  return [...match[1].matchAll(/:\s*"([^"]+)"/gu)].map((entry) => entry[1]);
 }
 
 function extractFrozenStringList(source, listName) {
