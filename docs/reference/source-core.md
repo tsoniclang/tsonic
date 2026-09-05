@@ -178,8 +178,8 @@ operations for supported target-native pointer APIs.
 | `toRawPointer(pointer, layout)` | Request the address of the same typed storage, retaining its required owner |
 | `reinterpretRawPointer(raw, layout)` | Interpret an address as the canonical `Pointer<T>`, not `NativePointer<T>` |
 | `offsetRawPointer(raw, byteOffset, abi)` | Offset in bytes using an exact integer domain |
-| `rawPointerToAddressInteger(raw, abi)` | Convert an address to `nativeUint`, without retaining ownership |
-| `addressIntegerToRawPointer(address, abi)` | Recover an address from `nativeUint`, without manufacturing ownership |
+| `rawPointerToAddressInteger<TAddress>(raw, abi)` | Convert to an explicitly selected `uint32` or `uint64`, without retaining ownership |
+| `addressIntegerToRawPointer<TAddress>(address, abi)` | Recover an address from the exact unsigned domain, without manufacturing ownership; the type argument may be inferred from the operand |
 | `keepAlive(value)` | Require reachability through this call, not pinning |
 
 For example, the source contract expresses a raw-backed location as follows.
@@ -212,6 +212,28 @@ bigint-backed widths. Unmarked in-range integer constants are also accepted.
 An arbitrary `number` or `bigint` variable is not an integer-domain proof.
 Optional pointer conversions preserve `undefined`; address conversion maps
 it to zero, and integer zero maps back to `undefined`.
+
+Address integers use `uint32` (`number`) for a 32-bit ABI and `uint64`
+(`bigint`) for a 64-bit ABI. They do not use the number-backed `nativeUint`.
+For example, with a registered 64-bit `abi` token:
+
+```ts
+const address: uint64 = 9007199254740993n;
+const raw = addressIntegerToRawPointer(address, abi);
+const exact: uint64 = rawPointerToAddressInteger<uint64>(raw, abi);
+```
+
+This is a source-contract example, not yet a supported native program. Both
+operations retain the exact unsigned width and number/bigint representation.
+Raw-to-integer requires the explicit type argument; the destination annotation
+does not select it. Integer-to-raw can infer it from an exactly annotated
+operand, or accept an explicit argument with an integral constant, such as
+`addressIntegerToRawPointer<uint64>(9007199254740993n, abi)`.
+Signed types, plain `number`/`bigint` variables, mismatched ABI widths and known
+out-of-range constants are rejected. Targets must range-check values that
+are not proven constant and must never convert 64-bit address bits through
+`number`. An integer contains address bits only: converting it back does not
+establish live storage, alignment, pinning or ownership.
 
 ### Native-pointer operations
 

@@ -1,7 +1,8 @@
-import { providerVirtualDeclarationFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
+import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import type { Node, ResolvedSourceCallInfo, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import { readSourceFact } from "../analysis/source-call.js";
+import { readSourcePrimitiveAnnotation } from "../analysis/source-primitive.js";
 import { dataLayoutIdentityKey } from "./registrations.js";
 import { tsonicDataLayoutFactKey } from "./facts.js";
 import type { TsonicDataLayoutFact } from "./facts.js";
@@ -45,12 +46,14 @@ export function selectedPrimitive(
 ): SourcePrimitiveFact | undefined {
   const source = selectedValueSource(value, context);
   if (source === undefined) return undefined;
-  if (source.annotation !== undefined) return readSourceFact(context, source.annotation, sourcePrimitiveFactKey);
+  if (source.annotation !== undefined) return readSourcePrimitiveAnnotation(context, source.annotation);
   const operation = analysis.rawOperation(source.expression, context);
   if (operation?.operation === "raw-to-address-integer") {
-    return { kind: "native-uint", runtimeBase: "number", signed: false };
+    return operation.addressWidth === 32
+      ? { kind: "uint32", width: 32, runtimeBase: "number", signed: false }
+      : { kind: "uint64", width: 64, runtimeBase: "bigint", signed: false };
   }
-  return readSourceFact(context, selectedCallReturnAnnotation(source.expression, context), sourcePrimitiveFactKey);
+  return readSourcePrimitiveAnnotation(context, selectedCallReturnAnnotation(source.expression, context));
 }
 
 export function selectedValueAnnotation(value: SelectedMemoryValue, context: TsonicSourceFileAnalysisContext): Node | undefined {
@@ -96,45 +99,62 @@ export function exactIntegerConstant(
   expression: Node,
   context: TsonicSourceFileAnalysisContext,
 ): { readonly value: bigint; readonly runtimeBase: "number" | "bigint" } | undefined {
+  const constant = classifyIntegerConstant(expression, context);
+  return constant.kind === "available" ? constant : undefined;
+}
+
+export type IntegerConstant =
+  | { readonly kind: "available"; readonly value: bigint; readonly runtimeBase: "number" | "bigint" }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "unavailable" };
+
+export function classifyIntegerConstant(
+  expression: Node,
+  context: TsonicSourceFileAnalysisContext,
+): IntegerConstant {
   const visited = new Set<Node>();
   let current: Node | undefined = expression;
   let sign = 1n;
   let permitsBigInt = true;
   while (current !== undefined) {
     const origin = immutableValueOrigin(current, context);
-    if (origin === undefined || visited.has(origin)) return undefined;
+    if (origin === undefined || visited.has(origin)) return { kind: "unavailable" };
     visited.add(origin);
     if (context.ast.is.IsPrefixUnaryExpression(origin)) {
       const operator = context.ast.operatorKindName(origin);
-      if (operator !== "KindMinusToken" && operator !== "KindPlusToken") return undefined;
+      if (operator !== "KindMinusToken" && operator !== "KindPlusToken") return { kind: "unavailable" };
       if (operator === "KindMinusToken") sign = -sign;
       else permitsBigInt = false;
       current = context.ast.as.AsPrefixUnaryExpression(origin)?.Operand;
       continue;
     }
     const constant = integerLeafConstant(origin, context);
-    return constant === undefined || (!permitsBigInt && constant.runtimeBase === "bigint")
-      ? undefined : { value: sign * constant.value, runtimeBase: constant.runtimeBase };
+    if (constant.kind !== "available") return constant;
+    return !permitsBigInt && constant.runtimeBase === "bigint"
+      ? { kind: "invalid" }
+      : { ...constant, value: sign * constant.value };
   }
-  return undefined;
+  return { kind: "unavailable" };
 }
 
 function integerLeafConstant(
   origin: Node,
   context: TsonicSourceFileAnalysisContext,
-): { readonly value: bigint; readonly runtimeBase: "number" | "bigint" } | undefined {
+): IntegerConstant {
   if (context.ast.is.IsNumericLiteral(origin)) {
     const value = Number(context.ast.text(origin).split("_").join(""));
-    return Number.isSafeInteger(value) ? { value: BigInt(value), runtimeBase: "number" } : undefined;
+    return Number.isSafeInteger(value)
+      ? { kind: "available", value: BigInt(value), runtimeBase: "number" } : { kind: "invalid" };
   }
   if (context.ast.is.IsBigIntLiteral(origin)) {
     const text = context.ast.text(origin).split("_").join("");
-    if (!/^(?:[0-9]+|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+)n$/u.test(text)) return undefined;
-    return { value: BigInt(text.slice(0, -1)), runtimeBase: "bigint" };
+    if (!/^(?:[0-9]+|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+)n$/u.test(text)) return { kind: "invalid" };
+    return { kind: "available", value: BigInt(text.slice(0, -1)), runtimeBase: "bigint" };
   }
   const constant = context.checker.getConstantValue(origin);
-  return typeof constant === "number" && Number.isSafeInteger(constant)
-    ? { value: BigInt(constant), runtimeBase: "number" } : undefined;
+  if (typeof constant !== "number") return { kind: "unavailable" };
+  return Number.isSafeInteger(constant)
+    ? { kind: "available", value: BigInt(constant), runtimeBase: "number" } : { kind: "invalid" };
 }
 
 export function exactLayoutSize(expression: Node, context: TsonicSourceFileAnalysisContext): number | undefined {

@@ -146,7 +146,7 @@ for (const [declaration, expression] of [
 
 test("integer conversions and keepAlive retain independent exact operands", () => {
   const checked = cleanMemorySession(`
-    const address: nativeUint = rawPointerToAddressInteger(raw, abi);
+    const address: uint64 = rawPointerToAddressInteger<uint64>(raw, abi);
     const restored = addressIntegerToRawPointer(address, abi);
     keepAlive(ordinary);
   `);

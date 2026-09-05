@@ -5,8 +5,8 @@ export const tsonicMemorySignatureIds = Object.freeze({
   toRawPointer: "toRawPointer<T>(pointer,layout)",
   reinterpretRawPointer: "reinterpretRawPointer<T>(pointer,layout)",
   offsetRawPointer: "offsetRawPointer<TOffset>(pointer,byteOffset,dataLayout)",
-  rawPointerToAddressInteger: "rawPointerToAddressInteger(pointer,dataLayout)",
-  addressIntegerToRawPointer: "addressIntegerToRawPointer(address,dataLayout)",
+  rawPointerToAddressInteger: "rawPointerToAddressInteger<TAddress>(pointer,dataLayout)",
+  addressIntegerToRawPointer: "addressIntegerToRawPointer<TAddress>(address,dataLayout)",
   memoryLayout: "memoryLayout<T>(dataLayout,byteSize,byteAlignment,stride,...fields)",
   memoryField: "memoryField<T,TField>(select,byteOffset,byteAlignment)",
   sizeOf: "sizeOf<T>(layout)",
@@ -49,6 +49,9 @@ export function memoryOperationDeclarations(): readonly ProviderExportDeclaratio
   const layout = reference("MemoryLayout", [pointee]);
   const dataLayout = { name: "dataLayout", type: reference("DataLayout") };
   const generic = [{ name: "T" }];
+  const address: ProviderTypeExpression = { kind: "type-parameter", name: "TAddress" };
+  const addressParameters = [{ name: "TAddress", constraints: [{ kind: "union" as const,
+    types: [{ kind: "number" as const }, { kind: "bigint" as const }] }] }];
   const selector = (id: string): ProviderParameterDeclaration => ({
     name: "select", type: { kind: "function", id, parameters: [{ name: "value", type: pointee }], returnType: field },
   });
@@ -67,8 +70,8 @@ export function memoryOperationDeclarations(): readonly ProviderExportDeclaratio
     declaration("offsetRawPointer", [
       { name: "pointer", type: raw }, { name: "byteOffset", type: { kind: "type-parameter", name: "TOffset" } }, dataLayout,
     ], raw, [{ name: "TOffset", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] }]),
-    declaration("rawPointerToAddressInteger", [{ name: "pointer", type: raw }, dataLayout], nativeUint),
-    declaration("addressIntegerToRawPointer", [{ name: "address", type: nativeUint }, dataLayout], raw),
+    declaration("rawPointerToAddressInteger", [{ name: "pointer", type: raw }, dataLayout], address, addressParameters),
+    declaration("addressIntegerToRawPointer", [{ name: "address", type: address }, dataLayout], raw, addressParameters),
     declaration("memoryLayout", [dataLayout,
       ...["byteSize", "byteAlignment", "stride"].map((name) => ({ name, type: nativeUint })),
       { name: "fields", rest: true, type: { kind: "array", elementType: reference("MemoryFieldLayout", [pointee]) } },

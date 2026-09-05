@@ -1,6 +1,7 @@
 import type { MemorySourceAnalysis, MemorySourceCall } from "../../memory-layout/analysis-context.js";
 import { memoryDiagnostic, publishMemoryFact } from "../../memory-layout/analysis-context.js";
-import { selectedDataLayout, selectedPrimitive } from "../../memory-layout/source-values.js";
+import { selectedDataLayout } from "../../memory-layout/source-values.js";
+import { selectedAddressIntegerDomain } from "./address-integers.js";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "./facts.js";
 import { selectedRawOffsetInteger } from "./integers.js";
 
@@ -50,15 +51,15 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       ...raw, operation: "byte-offset", offsetExpression: offset.expression, offsetType: offset.type,
       offsetRuntimeBase: integer.runtimeBase, offsetSignedness: integer.signedness, offsetWidth: integer.width,
     });
-  } else if (name === "rawPointerToAddressInteger") {
-    publishMemoryFact(call, tsonicRawMemoryOperationFactKey, { ...raw, operation: "raw-to-address-integer" });
-  } else if (name === "addressIntegerToRawPointer") {
-    if (selectedPrimitive(operand, context, analysis)?.kind !== "native-uint") {
-      memoryDiagnostic(call, "ADDRESS_INTEGER_NOT_PROVEN", "An address integer requires the exact nativeUint source domain.");
+  } else if (name === "rawPointerToAddressInteger" || name === "addressIntegerToRawPointer") {
+    const domain = selectedAddressIntegerDomain(call, dataLayout, analysis);
+    if (domain === undefined) {
+      memoryDiagnostic(call, "ADDRESS_INTEGER_NOT_PROVEN", "Address conversions require uint32/number for a 32-bit ABI or uint64/bigint for a 64-bit ABI and an in-range unsigned value. Raw-to-integer requires an explicit address type argument; inverse conversion requires an exact operand domain or an explicitly typed integral constant.");
       return;
     }
-    publishMemoryFact(call, tsonicRawMemoryOperationFactKey, {
-      ...base, operation: "address-integer-to-raw", addressExpression: operand.expression,
+    publishMemoryFact(call, tsonicRawMemoryOperationFactKey, name === "rawPointerToAddressInteger"
+      ? { ...raw, ...domain, operation: "raw-to-address-integer" }
+      : { ...base, ...domain, operation: "address-integer-to-raw", addressExpression: operand.expression,
       addressType: operand.type, dataLayoutExpression: dataLayoutOperand.expression,
     });
   }

@@ -58,7 +58,7 @@ export type {
   TsonicMemoryLayoutFact, TsonicMemoryLayoutQueryFact,
 } from "../memory-layout/facts.js";
 export { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
-export type { TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
+export type { TsonicAddressIntegerDomain, TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
 export {
   readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,

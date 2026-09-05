@@ -95,12 +95,12 @@ test("integer offsets retain domains through parameters, fields, returns and imm
   }
 });
 
-test("inferred address conversion results retain their exact native unsigned domain", () => {
+test("inferred address conversion results retain their exact fixed-width unsigned domain", () => {
   const checked = cleanMemorySession(`
-    const address = rawPointerToAddressInteger(raw, abi);
+    const address = rawPointerToAddressInteger<uint64>(raw, abi);
     const copy = address;
     addressIntegerToRawPointer(copy, abi);
-    addressIntegerToRawPointer(rawPointerToAddressInteger(raw, abi), abi);
+    addressIntegerToRawPointer(rawPointerToAddressInteger<uint64>(raw, abi), abi);
   `);
   for (const index of [0, 1]) {
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "addressIntegerToRawPointer", index))?.operation, "address-integer-to-raw");
