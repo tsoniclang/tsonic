@@ -1,5 +1,18 @@
+import { fieldFactKey } from "@tsonic/tsts";
 import type { Node } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
+
+export function isMemoryFieldDeclaration(
+  declaration: Node,
+  context: TsonicSourceFileAnalysisContext,
+): boolean {
+  const { ast } = context;
+  if (ast.questionToken(declaration) !== undefined) return false;
+  return ast.is.IsPropertyDeclaration(declaration) ||
+    ast.is.IsPropertySignatureDeclaration(declaration) ||
+    (ast.is.IsPropertyAssignment(declaration) &&
+      context.facts.get(declaration, fieldFactKey) !== undefined);
+}
 
 export function isMemoryFieldSelector(node: Node, context: TsonicSourceFileAnalysisContext): boolean {
   const { ast } = context;

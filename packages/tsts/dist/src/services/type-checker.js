@@ -15,7 +15,7 @@ import { Checker_getResolvedSourceIterationInfo } from "../internal/checker/chec
 import { Checker_GetConstantValue, Checker_GetExportsOfModule, Checker_GetRootSymbols, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ContextFlagsNone, SignatureKindCall, SignatureKindConstruct } from "../internal/checker/types.js";
-import { resolveSourceGeneratorInfo, resolveSourceResourceManagementInfo, resolveSourceWellKnownSymbolInfo, resolveSourceYieldInfo, } from "./source-control-flow-evidence.js";
+import { resolveSourceCallableCompletionInfo, resolveSourceGeneratorInfo, resolveSourceResourceManagementInfo, resolveSourceWellKnownSymbolInfo, resolveSourceYieldInfo, } from "./source-control-flow-evidence.js";
 export function createTypeCheckerQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-checker queries require one source file from the compiler program.");
@@ -26,6 +26,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     const iterationInfos = new WeakMap();
     const objectLiteralElementInfos = new WeakMap();
     const storageInfos = new WeakMap();
+    const callableCompletionInfos = new WeakMap();
     const generatorInfos = new WeakMap();
     const yieldInfos = new WeakMap();
     const wellKnownSymbolInfos = new WeakMap();
@@ -58,6 +59,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node))),
         getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
+        getResolvedCallableCompletionInfo: (node) => memoizeResolvedNodeQuery(callableCompletionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceCallableCompletionInfo(checker, node))),
         getResolvedGeneratorInfo: (node) => memoizeResolvedNodeQuery(generatorInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceGeneratorInfo(checker, node))),
         getResolvedYieldInfo: (node) => memoizeResolvedNodeQuery(yieldInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
             const declaration = GetContainingFunction(node);

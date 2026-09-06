@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pointerOperationFactKey } from "@tsonic/tsts";
+import { fieldFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "../facts.js";
@@ -85,6 +85,53 @@ test("layout fields infer their selector receiver from the enclosing layout", ()
   `);
   assert.ok(checked.sourceFacts.getFact(memoryCall(checked, "memoryField"), tsonicMemoryFieldLayoutFactKey));
 });
+
+test("value-shape layouts consume finalized fields selected through marker aliases and namespaces", () => {
+  const checked = cleanMemorySession(`
+    import { struct as valueShape, field as slot } from "@tsonic/core/lang.js";
+    import * as core from "@tsonic/core/lang.js";
+    const Header = valueShape({ first: slot<uint32>(), second: core.field<uint32>() });
+    type HeaderValue = typeof Header;
+    const header = memoryLayout<HeaderValue>(abi, 8, 4, 8,
+      memoryField((value: HeaderValue) => value.first, 0, 4),
+      memoryField((value: HeaderValue) => value.second, 4, 4));
+    fieldOffsetOf(header, value => value.first);
+    fieldOffsetOf(header, value => value.second);
+  `);
+  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1));
+  assert.ok(layout);
+  assert.equal(layout.fields.length, 2);
+  for (const [index, field] of layout.fields.entries()) {
+    assert.equal(checked.ast.kindName(field.selectedDeclaration), "KindPropertyAssignment");
+    assert.ok(checked.sourceFacts.getFact(field.selectedDeclaration, fieldFactKey));
+    const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldOffsetOf", index));
+    assert.equal(query?.selectedFieldDeclaration, field.selectedDeclaration);
+    assert.equal(field.byteOffset, index * 4);
+    assert.ok(Object.isFrozen(field));
+  }
+});
+
+for (const [label, declaration, receiver] of [
+  ["unmarked assignment", "const Shape = { value: 1 as uint32 };", "typeof Shape"],
+  ["same-spelled field function", "function field(): uint32 { return 1; } const Shape = { value: field() };", "typeof Shape"],
+  ["getter", "const Shape = { get value(): uint32 { return 1; } };", "typeof Shape"],
+  ["optional declaration", "interface Shape { value?: uint32 }", "Shape"],
+] as const) {
+  test(`physical-field selection rejects ${label} in builders and queries`, () => {
+    const checked = memorySession(memoryTestPrelude + `
+      ${declaration}
+      const shapeLayout = memoryLayout<${receiver}>(abi, 4, 4, 4);
+      memoryField((value: ${receiver}) => value.value, 0, 4);
+      fieldOffsetOf(shapeLayout, value => value.value);
+    `);
+    assert.equal(checked.diagnostics.filter(Boolean).length, 0);
+    assert.deepEqual(checked.extensionDiagnostics.map(diagnostic => diagnostic.extensionCode).sort(), [
+      "SOURCE_CORE_MEMORY_FIELD_NOT_PROVEN", "SOURCE_CORE_MEMORY_QUERY_FIELD_NOT_PROVEN",
+    ]);
+    assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "memoryField"), tsonicMemoryFieldLayoutFactKey), undefined);
+    assert.equal(readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldOffsetOf")), undefined);
+  });
+}
 
 test("layout aliases demand the exact initializer independent of source-file order", () => {
   const checked = memorySession(memoryTestPrelude + `

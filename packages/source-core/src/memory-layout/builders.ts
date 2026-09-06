@@ -4,7 +4,7 @@ import type { MemorySourceAnalysis, MemorySourceCall } from "./analysis-context.
 import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
 import { exactLayoutSize, selectedDataLayout } from "./source-values.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
-import { isMemoryFieldSelector } from "./selectors.js";
+import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./selectors.js";
 
 export function analyzeMemoryField(call: MemorySourceCall): void {
   const { selected, context } = call;
@@ -18,8 +18,7 @@ export function analyzeMemoryField(call: MemorySourceCall): void {
   const declaration = member.kind === "selected" ? member.selectedDeclaration : undefined;
   if (args.length !== 3 || sourceType === undefined || fieldType === undefined || args[0] === undefined ||
       member.kind !== "selected" || declaration === undefined || !isMemoryFieldSelector(args[0].expression, context) ||
-      (!context.ast.is.IsPropertyDeclaration(declaration) && !context.ast.is.IsPropertySignatureDeclaration(declaration)) ||
-      context.ast.questionToken(declaration) !== undefined || byteOffset === undefined || byteAlignment === undefined) {
+      !isMemoryFieldDeclaration(declaration, context) || byteOffset === undefined || byteAlignment === undefined) {
     memoryDiagnostic(call, "FIELD_NOT_PROVEN", "memoryField requires one selected non-optional physical field and exact non-negative integer layout constants.");
     return;
   }
@@ -85,8 +84,7 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
     const declaration = member.kind === "selected" ? member.selectedDeclaration : undefined;
     const selector = selected.selection.sourceArguments[1];
     if (declaration === undefined || selector === undefined || !isMemoryFieldSelector(selector.expression, context) ||
-        (!context.ast.is.IsPropertyDeclaration(declaration) && !context.ast.is.IsPropertySignatureDeclaration(declaration)) ||
-        context.ast.questionToken(declaration) !== undefined) {
+        !isMemoryFieldDeclaration(declaration, context)) {
       memoryDiagnostic(call, "QUERY_FIELD_NOT_PROVEN", "fieldOffsetOf requires one exact non-optional physical field selection.");
       return;
     }

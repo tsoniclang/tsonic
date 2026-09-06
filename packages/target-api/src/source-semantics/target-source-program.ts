@@ -83,6 +83,7 @@ export function createTargetSourceProgram(
       iteration: queries.checker.getResolvedIterationInfo,
       objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
       storage: queries.checker.getResolvedStorageInfo,
+      callableCompletion: queries.checker.getResolvedCallableCompletionInfo,
       generator: queries.checker.getResolvedGeneratorInfo,
       yield: queries.checker.getResolvedYieldInfo,
       wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,

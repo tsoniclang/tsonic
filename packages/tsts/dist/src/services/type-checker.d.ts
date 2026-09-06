@@ -6,8 +6,8 @@ import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
 import type { ContextFlags, ResolvedCallEvidence, Signature, Type } from "../internal/checker/types.js";
-export type { ResolvedSourceGeneratorInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, } from "./source-control-flow-evidence.js";
-import type { ResolvedSourceGeneratorInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo } from "./source-control-flow-evidence.js";
+export type { ResolvedSourceCallableCompletionInfo, ResolvedSourceGeneratorInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, } from "./source-control-flow-evidence.js";
+import type { ResolvedSourceCallableCompletionInfo, ResolvedSourceGeneratorInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo } from "./source-control-flow-evidence.js";
 export interface CreateTypeCheckerQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
@@ -65,6 +65,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedIterationInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIterationInfo>;
     readonly getResolvedObjectLiteralElementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceObjectLiteralElementInfo>;
     readonly getResolvedStorageInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceStorageInfo>;
+    readonly getResolvedCallableCompletionInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceCallableCompletionInfo>;
     readonly getResolvedGeneratorInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceGeneratorInfo>;
     readonly getResolvedYieldInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceYieldInfo>;
     readonly getResolvedWellKnownSymbolInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceWellKnownSymbolInfo>;

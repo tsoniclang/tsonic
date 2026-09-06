@@ -64,6 +64,8 @@ export {
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
 } from "../memory-layout/readers.js";
 export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
+export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";
+export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
 export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
