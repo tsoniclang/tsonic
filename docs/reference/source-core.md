@@ -165,8 +165,8 @@ layout, lifetime and safety requirements before emitting them.
 These declarations and their immutable source facts are implemented. C# and
 Rust support layout observations, exact address-integer conversions, byte
 offsets, raw identity, and `keepAlive`. Typed-storage conversion with
-`toRawPointer` and `reinterpretRawPointer` is not implemented yet. A checked
-source fact alone does not prove native storage or lifetime safety.
+`toRawPointer` and `reinterpretRawPointer` also works for closed scalar layouts.
+A checked source fact alone does not prove native storage or lifetime safety.
 
 | Export | Source contract |
 | --- | --- |
@@ -188,22 +188,43 @@ owner. Rust borrows the value without consuming or cloning it; the owner
 retains its native drop scope. Neither operation pins storage, reconstructs an
 owner from address bits, or grants an unsafe context.
 
-For example, the source contract expresses a raw-backed location as follows.
-This is not yet a working C# or Rust application:
+For example, given a registered little-endian, 64-bit ABI token exported by
+`example:abi`, both targets preserve this local's storage:
 
 ```ts
-import { reinterpretRawPointer, storePointer, unsafeContext } from "@tsonic/core/lang.js";
-import type { MemoryLayout, RawPointer, uint32 } from "@tsonic/core/types.js";
+import { abi } from "example:abi";
+import { memoryLayout, addressOf, toRawPointer, reinterpretRawPointer,
+  storePointer, unsafeContext } from "@tsonic/core/lang.js";
+import type { uint32 } from "@tsonic/core/types.js";
 
-function write(raw: RawPointer | undefined, layout: MemoryLayout<uint32>): void {
+const layout = memoryLayout<uint32>(abi, 4, 4, 4);
+function write(): uint32 {
   unsafeContext();
+  let value: uint32 = 1;
+  const raw = toRawPointer(addressOf(value), layout);
   const pointer = reinterpretRawPointer(raw, layout);
   if (pointer !== undefined) storePointer(pointer, 7);
+  return value; // 7
 }
 ```
 
-The target must preserve writes to the original storage. Copying its value
-into a new location is not an implementation of this contract.
+Analysis gives the demanded local stable native backing before emission. Every
+read and write uses that same storage. `allocatePointer` origins can receive the
+same backing. Undemanded locals and logical pointers keep their usual form.
+
+Current physical layouts support signed/unsigned 8-, 16-, 32-, 64- and 128-bit
+integers, native-width integers, and 32-/64-bit floats; C# also supports `float16`.
+Size must match the selected scalar, and the descriptor must have no fields.
+Physical operations check process address width, byte order, bounds of retained
+allocations, and the selected alignment. These checks do not make an external
+address valid: explicit unsafe code must ensure its storage remains initialized,
+writable and alive for every resulting alias.
+
+Records, field/element origins, parameter storage, pointer containers and open
+caller boundaries still lack complete native-backing proofs. Logical callback
+projections do not establish physical backing. C# also rejects passing a promoted
+local as managed `ref`/`out`. Rust pointer-returning functions should declare
+their exact return type; inference from a raw conversion alone is not yet closed.
 
 An ABI provider supplies the token declaration and a `dataLayouts`
 contribution containing its exact provider identity, version, fingerprint,

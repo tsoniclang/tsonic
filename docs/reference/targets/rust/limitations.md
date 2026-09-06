@@ -78,9 +78,13 @@ the selected address width must match the executing process. An address integer
 does not keep its former owner alive or authorize dereference. Layout
 observations use compile-time descriptors, not runtime provider objects.
 
-Accessor identity is not a native address. Layout-backed raw conversion still
-needs native storage classification; arbitrary conversion callbacks cannot
-establish a physical view of the same bytes.
+Accessor identity is not a native address. Closed scalar layouts support
+native-backed allocation and initialized block-local storage. Raw round trips
+preserve that storage. Fields, elements, parameters, records and pointer
+containers still require additional native-backing proofs; open caller
+boundaries reject. Arbitrary conversion callbacks cannot establish a physical
+view of the same bytes. Pointer-returning functions should declare their exact
+return type; inference from a raw conversion alone is not yet closed.
 
 A TypeScript assertion cannot manufacture a native conversion:
 

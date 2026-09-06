@@ -62,9 +62,12 @@ constructing a projection does not execute its callbacks.
 
 These accessor locations do not automatically have native addresses. A
 projection that changes the represented value cannot be treated as a raw
-view of the same bytes. Layout-backed raw conversion still needs native
-storage classification; it is not implemented by hashing an object or
-copying its value.
+view of the same bytes. Closed scalar layouts support native-backed allocation
+and initialized block-local storage. Raw round trips preserve that storage.
+Fields, elements, parameters, records and pointer containers still require
+additional native-backing proofs; open caller boundaries reject. A promoted
+native local cannot also be passed as a managed `ref`/`out` variable. No
+copy-in/copy-out conversion is inserted.
 
 Raw address equality, hashing, checked byte offsets, and exact 32/64-bit
 address-integer conversion are supported. Address width is checked against the
