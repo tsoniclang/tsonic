@@ -171,7 +171,7 @@ A checked source fact alone does not prove native storage or lifetime safety.
 | Export | Source contract |
 | --- | --- |
 | `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe exact storage using a registered ABI token and constant dimensions |
-| `memoryField<T, TField>(select, offset, alignment)` | Select a non-optional declared field without executing the selector |
+| `memoryField<T, TField>(select, offset, alignment, fieldLayout)` | Select a non-optional physical field and its exact child layout without executing the selector |
 | `sizeOf(layout)` | Observe the selected byte size |
 | `alignOf(layout)` | Observe the selected byte alignment |
 | `strideOf(layout)` | Observe the selected element stride |
@@ -187,6 +187,24 @@ A checked source fact alone does not prove native storage or lifetime safety.
 owner. Rust borrows the value without consuming or cloning it; the owner
 retains its native drop scope. Neither operation pins storage, reconstructs an
 owner from address bits, or grants an unsafe context.
+
+Every physical field explicitly selects its own layout. For example:
+
+```ts
+interface Header { count: uint32 }
+const word = memoryLayout<uint32>(abi, 4, 4, 4);
+const header = memoryLayout<Header>(abi, 8, 4, 8,
+  memoryField((value: Header) => value.count, 4, 4, word));
+```
+
+The child type must match the selected field type. Parent and child layouts
+must use the same registered ABI identity and fingerprint. Complete field
+extents must fit and cannot overlap; padding is allowed. Placement alignment
+is explicit, including packed placement. Nested layouts retain their selected
+child descriptors; Tsonic does not search for a layout with a matching name or
+type. The descriptor dependency graph must be acyclic and remain within the
+supported 128-level nesting and 131,072-value snapshot limits. These source
+checks do not by themselves establish a native record representation.
 
 For example, given a registered little-endian, 64-bit ABI token exported by
 `example:abi`, both targets preserve this local's storage:
@@ -232,6 +250,22 @@ Records, field/element origins, escaped pointer containers, collection-method
 mutations and open caller boundaries still lack complete native-backing proofs. Logical callback
 projections do not establish physical backing. C# also rejects passing a promoted
 local as managed `ref`/`out`.
+
+Native providers can return the canonical raw carrier with an explicit storage
+lease. C# runtime code calls `RawPointer.FromExternal(address, byteLength, owner)`;
+Rust runtime code calls the unsafe `RawPointer::from_external(address, byte_length,
+owner)`. These are native runtime APIs, not additional TypeScript markers. The
+provider's selected return contract must still identify `RawPointer` exactly.
+
+The owner must actually keep initialized, writable storage at a stable address
+until all aliases are released. For example, a C# provider exposing a managed
+array must retain a real pin, not merely the array. Rust providers must obey
+native aliasing and access rules. Tsonic does not infer either obligation.
+Offset aliases and typed views retain the same owner and bounds. Extracting
+address bits drops that relationship; converting the bits back cannot recover it.
+Retaining a descriptor handle and decoding a pointer field from physical bytes
+are separate operations; the latter still requires a complete descriptor and
+backing contract.
 
 Ordinary pointer-returning functions, methods and callbacks retain their exact
 pointee representation without an added return annotation. The empty branch

@@ -15,7 +15,10 @@ export function memoryLayoutDimensionsError(layout: {
   readonly byteAlignment: number;
   readonly stride: number;
   readonly dataLayout: { readonly addressWidth: 32 | 64 };
-  readonly fields: readonly (MemoryFieldDimensions & { readonly selectedDeclaration: object })[];
+  readonly fields: readonly (MemoryFieldDimensions & {
+    readonly selectedDeclaration: object;
+    readonly fieldLayout: { readonly byteSize: number };
+  })[];
 }): string | undefined {
   if (!isSize(layout.byteSize) || !isSize(layout.stride)) {
     return "Memory layout size and stride must be non-negative safe integers.";
@@ -34,9 +37,18 @@ export function memoryLayoutDimensionsError(layout: {
     if (fieldError !== undefined) return fieldError;
     if (declarations.has(field.selectedDeclaration)) return "Memory layout repeats a physical field.";
     declarations.add(field.selectedDeclaration);
-    if (field.byteOffset > layout.byteSize || field.byteAlignment > layout.byteAlignment ||
+    if (!isSize(field.fieldLayout.byteSize) || field.byteOffset > layout.byteSize - field.fieldLayout.byteSize ||
+        field.byteAlignment > layout.byteAlignment ||
         layout.byteAlignment % field.byteAlignment !== 0) {
       return "Memory field is outside the aggregate or violates aggregate alignment.";
+    }
+  }
+  const occupied = layout.fields.filter((field) => field.fieldLayout.byteSize !== 0)
+    .sort((left, right) => left.byteOffset - right.byteOffset);
+  for (let index = 1; index < occupied.length; index += 1) {
+    const previous = occupied[index - 1]!;
+    if (occupied[index]!.byteOffset - previous.byteOffset < previous.fieldLayout.byteSize) {
+      return "Memory layout contains overlapping physical fields.";
     }
   }
   return undefined;

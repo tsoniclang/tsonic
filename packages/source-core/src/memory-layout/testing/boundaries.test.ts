@@ -27,7 +27,7 @@ for (const dimensions of ["4, 0, 4", "4, 3, 6", "8, 4, 4", "4, 4, 6", "-1, 4, 4"
 test("invalid source fields do not poison unrelated valid memory facts", () => {
   const checked = memorySession(memoryTestPrelude + `
     interface Header { count: uint32; }
-    memoryField((header: Header) => header.count, 1, 4);
+    memoryField((header: Header) => header.count, 1, 4, uint32Layout);
     sizeOf(uint32Layout);
   `);
   assert.ok(checked.extensionDiagnostics.some((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_FIELD_DIMENSIONS_INVALID"));
@@ -38,9 +38,9 @@ test("invalid source fields do not poison unrelated valid memory facts", () => {
 test("duplicate and out-of-aggregate selected fields are rejected before publishing a layout", () => {
   const checked = memorySession(memoryTestPrelude + `
     interface Header { count: uint32; }
-    const field = memoryField((header: Header) => header.count, 0, 4);
+    const field = memoryField((header: Header) => header.count, 0, 4, uint32Layout);
     memoryLayout<Header>(abi, 4, 4, 4, field, field);
-    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 8, 4));
+    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 8, 4, uint32Layout));
   `);
   assert.equal(checked.extensionDiagnostics.filter((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_LAYOUT_DIMENSIONS_INVALID").length, 2);
   for (const index of [1, 2]) assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", index)), undefined);
@@ -58,7 +58,7 @@ for (const selector of [
       declare function makeHeader(): Header;
       declare const enabled: boolean;
       const layout = memoryLayout<Header>(abi, 4, 4, 4);
-      memoryField(${selector}, 0, 4);
+      memoryField(${selector}, 0, 4, uint32Layout);
       fieldOffsetOf(layout, ${selector});
     `);
     assert.ok(checked.extensionDiagnostics.some((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_FIELD_NOT_PROVEN"));
@@ -71,7 +71,7 @@ for (const selector of [
 test("a single returned field is an exact selector, not an executed callback", () => {
   const checked = cleanMemorySession(`
     interface Header { count: uint32; }
-    memoryLayout<Header>(abi, 4, 4, 4, memoryField(function (header) { return header.count; }, 0, 4));
+    memoryLayout<Header>(abi, 4, 4, 4, memoryField(function (header) { return header.count; }, 0, 4, uint32Layout));
   `);
   assert.ok(readTsonicMemoryFieldLayout(checked.sourceFacts, memoryCall(checked, "memoryField")));
 });

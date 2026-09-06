@@ -1,12 +1,12 @@
 import { selectInlineSourceMember } from "../analysis/selected-source-member.js";
 import { memoryDiagnostic, publishMemoryFact } from "./analysis-context.js";
 import type { MemorySourceAnalysis, MemorySourceCall } from "./analysis-context.js";
-import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
+import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
 import { exactLayoutSize, selectedDataLayout } from "./source-values.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
 import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./selectors.js";
 
-export function analyzeMemoryField(call: MemorySourceCall): void {
+export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
   const args = selected.selection.sourceArguments;
   const types = selected.selection.sourceSelectedMethodTypeArguments;
@@ -15,11 +15,17 @@ export function analyzeMemoryField(call: MemorySourceCall): void {
   const member = selectInlineSourceMember(selected, context);
   const byteOffset = args[1] === undefined ? undefined : exactLayoutSize(args[1].expression, context);
   const byteAlignment = args[2] === undefined ? undefined : exactLayoutSize(args[2].expression, context);
+  const fieldLayout = args[3] === undefined ? undefined : analysis.layout(args[3].expression, context);
   const declaration = member.kind === "selected" ? member.selectedDeclaration : undefined;
-  if (args.length !== 3 || sourceType === undefined || fieldType === undefined || args[0] === undefined ||
+  if (args.length !== 4 || sourceType === undefined || fieldType === undefined || args[0] === undefined ||
       member.kind !== "selected" || declaration === undefined || !isMemoryFieldSelector(args[0].expression, context) ||
       !isMemoryFieldDeclaration(declaration, context) || byteOffset === undefined || byteAlignment === undefined) {
     memoryDiagnostic(call, "FIELD_NOT_PROVEN", "memoryField requires one selected non-optional physical field and exact non-negative integer layout constants.");
+    return;
+  }
+  if (args[3] === undefined || fieldLayout === undefined ||
+      !context.typeShape.isTypeIdenticalTo(fieldType, fieldLayout.sourceType)) {
+    memoryDiagnostic(call, "FIELD_LAYOUT_NOT_PROVEN", "memoryField requires the exact selected child layout for its field type.");
     return;
   }
   const property = context.checker.getResolvedPropertyAccessInfo(member.expression as typeof declaration);
@@ -31,7 +37,7 @@ export function analyzeMemoryField(call: MemorySourceCall): void {
   publishMemoryFact(call, tsonicMemoryFieldLayoutFactKey, {
     call: selected.call, sourceType, selector: args[0].expression, selectedDeclaration: declaration,
     ...(property?.selectedSymbol === undefined ? {} : { selectedSymbol: property.selectedSymbol }),
-    fieldType, byteOffset, byteAlignment,
+    fieldType, byteOffset, byteAlignment, fieldLayoutExpression: args[3].expression, fieldLayout,
   });
 }
 
@@ -53,6 +59,10 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     memoryDiagnostic(call, "LAYOUT_FIELD_NOT_PROVEN", "Every layout field must retain an exact field fact for the same selected source type.");
     return;
   }
+  if (fields.some((field) => field !== undefined && !dataLayoutsEqual(field.fieldLayout.dataLayout, dataLayout))) {
+    memoryDiagnostic(call, "LAYOUT_FIELD_ABI_MISMATCH", "Every physical field must use the same exact ABI identity and descriptor as its containing layout.");
+    return;
+  }
   const fact = {
     call: selected.call, sourceType: pointee.selectedType,
     ...(pointee.explicitTypeNode === undefined ? {} : { explicitTypeNode: pointee.explicitTypeNode }),
@@ -62,6 +72,11 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
   const error = memoryLayoutDimensionsError(fact);
   if (error !== undefined) {
     memoryDiagnostic(call, "LAYOUT_DIMENSIONS_INVALID", error);
+    return;
+  }
+  const captureError = memoryLayoutCaptureLimitsError(fact.fields);
+  if (captureError !== undefined) {
+    memoryDiagnostic(call, "LAYOUT_CAPTURE_LIMIT", captureError);
     return;
   }
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);

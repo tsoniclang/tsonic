@@ -9,8 +9,8 @@ test("layout observations retain exact dimensions and field declaration identity
   const source = cleanMemorySession(`
     interface Header { tag: uint32; count: uint32 }
     const layout = memoryLayout<Header>(abi, 16, 8, 16,
-      memoryField((value: Header) => value.tag, 0, 4),
-      memoryField((value: Header) => value.count, 8, 4));
+      memoryField((value: Header) => value.tag, 0, 4, uint32Layout),
+      memoryField((value: Header) => value.count, 8, 4, uint32Layout));
     sizeOf(layout); alignOf(layout); strideOf(layout); fieldOffsetOf(layout, value => value.count);
   `);
   for (const [name, value] of [["sizeOf", 16], ["alignOf", 8], ["strideOf", 16], ["fieldOffsetOf", 8]] as const) {

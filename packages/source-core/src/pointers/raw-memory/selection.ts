@@ -1,8 +1,7 @@
 import type { AstReader, ExtensionFactSubject, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { TsonicRawMemoryOperationFact } from "./facts.js";
 import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
-import { readTsonicDataLayout, readTsonicMemoryLayout, readTsonicRawMemoryOperation } from "../../memory-layout/readers.js";
-import { dataLayoutsEqual } from "../../memory-layout/facts.js";
+import { isFinalizedMemoryLayout, readTsonicMemoryLayout, readTsonicRawMemoryOperation } from "../../memory-layout/readers.js";
 
 export type TsonicRawLocationSelection =
   | { readonly kind: "rejected"; readonly reason: string }
@@ -20,10 +19,8 @@ export function selectTsonicRawLocationOperation(
   const expression = operation.operation === "to-raw" ? operation.pointerExpression : operation.rawExpression;
   const arguments_ = ast.arguments(operation.call);
   const layout = readTsonicMemoryLayout(facts, operation.layoutExpression);
-  const abi = layout === undefined ? undefined : readTsonicDataLayout(facts, layout.dataLayoutExpression);
   if (operation.call !== subject || arguments_.length !== 2 || arguments_[0] !== expression ||
-    arguments_[1] !== operation.layoutExpression || layout === undefined || abi === undefined ||
-    !dataLayoutsEqual(abi, layout.dataLayout)) {
+    arguments_[1] !== operation.layoutExpression || layout === undefined || !isFinalizedMemoryLayout(facts, layout)) {
     return Object.freeze({ kind: "rejected" as const,
       reason: "Raw location conversion requires its exact selected operands and finalized layout/ABI identity." });
   }

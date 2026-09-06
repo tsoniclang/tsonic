@@ -44,7 +44,7 @@ test("memory metadata follows immutable aliases and exact query inputs", () => {
 test("memory field selectors are metadata but their query result is a runtime value", () => {
   const { checked, index, declaration, source } = inspect(`
     interface Header { count: uint32 }
-    const field = memoryField((value: Header) => value.count, 0, 4);
+    const field = memoryField((value: Header) => value.count, 0, 4, uint32Layout);
     const layout = memoryLayout<Header>(abi, 4, 4, 4, field);
     const offset = fieldOffsetOf(layout, value => value.count);
   `);

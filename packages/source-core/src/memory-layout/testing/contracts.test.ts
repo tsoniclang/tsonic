@@ -53,8 +53,8 @@ test("source memory descriptors retain explicit ABI, physical field identity and
   const checked = cleanMemorySession(`
     interface Header { tag: uint32; count: uint32; }
     const headerLayout = memoryLayout<Header>(abi, 12, 4, 12,
-      memoryField((header: Header) => header.tag, 0, 4),
-      memoryField((header: Header) => header.count, 8, 4));
+      memoryField((header: Header) => header.tag, 0, 4, uint32Layout),
+      memoryField((header: Header) => header.count, 8, 4, uint32Layout));
     sizeOf(headerLayout); alignOf(headerLayout); strideOf(headerLayout);
     fieldOffsetOf(headerLayout, header => header.count);
   `);
@@ -81,7 +81,7 @@ test("source memory descriptors retain explicit ABI, physical field identity and
 test("layout fields infer their selector receiver from the enclosing layout", () => {
   const checked = cleanMemorySession(`
     interface Header { count: uint32; }
-    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 0, 4));
+    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 0, 4, uint32Layout));
   `);
   assert.ok(checked.sourceFacts.getFact(memoryCall(checked, "memoryField"), tsonicMemoryFieldLayoutFactKey));
 });
@@ -93,8 +93,8 @@ test("value-shape layouts consume finalized fields selected through marker alias
     const Header = valueShape({ first: slot<uint32>(), second: core.field<uint32>() });
     type HeaderValue = typeof Header;
     const header = memoryLayout<HeaderValue>(abi, 8, 4, 8,
-      memoryField((value: HeaderValue) => value.first, 0, 4),
-      memoryField((value: HeaderValue) => value.second, 4, 4));
+      memoryField((value: HeaderValue) => value.first, 0, 4, uint32Layout),
+      memoryField((value: HeaderValue) => value.second, 4, 4, uint32Layout));
     fieldOffsetOf(header, value => value.first);
     fieldOffsetOf(header, value => value.second);
   `);
@@ -121,7 +121,8 @@ for (const [label, declaration, receiver] of [
     const checked = memorySession(memoryTestPrelude + `
       ${declaration}
       const shapeLayout = memoryLayout<${receiver}>(abi, 4, 4, 4);
-      memoryField((value: ${receiver}) => value.value, 0, 4);
+      memoryField((value: ${receiver}) => value.value, 0, 4,
+        memoryLayout<${label === "optional declaration" ? "uint32 | undefined" : "uint32"}>(abi, 4, 4, 4));
       fieldOffsetOf(shapeLayout, value => value.value);
     `);
     assert.equal(checked.diagnostics.filter(Boolean).length, 0);

@@ -8,7 +8,7 @@ import { memoryDiagnostic } from "./analysis-context.js";
 import type { MemorySourceAnalysis, MemorySourceCall } from "./analysis-context.js";
 import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./builders.js";
 import { tsonicMemorySignatureIds } from "./declarations.js";
-import { tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "./facts.js";
+import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "./facts.js";
 import type { TsonicDataLayoutFact } from "./facts.js";
 import { immutableValueOrigin } from "./source-values.js";
 
@@ -59,9 +59,13 @@ export function analyzeTsonicMemoryOperations(
       memoryDiagnostic(call, "LAYOUT_CYCLE", "Memory layout demands form a cycle without a finalized descriptor.");
       return;
     }
+    if (pending.size >= maximumMemoryLayoutDepth * 2) {
+      memoryDiagnostic(call, "LAYOUT_DEPTH_EXCEEDED", "Memory layout dependencies exceed the supported nesting depth.");
+      return;
+    }
     pending.add(node);
     switch (call.name) {
-      case "memoryField": analyzeMemoryField(call); break;
+      case "memoryField": analyzeMemoryField(call, analysis); break;
       case "memoryLayout": analyzeMemoryLayout(call, analysis); break;
       case "sizeOf": case "alignOf": case "strideOf": case "fieldOffsetOf":
         analyzeMemoryLayoutQuery(call, analysis); break;
