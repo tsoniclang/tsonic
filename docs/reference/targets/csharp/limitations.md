@@ -66,6 +66,12 @@ view of the same bytes. Layout-backed raw conversion still needs native
 storage classification; it is not implemented by hashing an object or
 copying its value.
 
+Raw address equality, hashing, checked byte offsets, and exact 32/64-bit
+address-integer conversion are supported. Address width is checked against the
+executing process. These operations do not dereference memory or prove that an
+integer denotes live storage. Layout observations use finalized compile-time
+descriptors; those descriptors cannot escape into ordinary runtime values.
+
 Native pointer access requires the exact pointer carrier, lexical safety
 context, declaration safety contract where applicable, and generated/user
 project permission. One control never implies another.

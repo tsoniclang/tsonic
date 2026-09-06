@@ -162,10 +162,11 @@ layout, lifetime and safety requirements before emitting them.
 
 ### Layout and raw-memory source contracts
 
-These declarations and their immutable source facts are implemented. Except
-for `keepAlive`, C# and Rust do **not yet implement their native lowering**. A checked source fact is
-not proof that a target can emit the operation. Use the existing native-pointer
-operations for supported target-native pointer APIs.
+These declarations and their immutable source facts are implemented. C# and
+Rust support layout observations, exact address-integer conversions, byte
+offsets, raw identity, and `keepAlive`. Typed-storage conversion with
+`toRawPointer` and `reinterpretRawPointer` is not implemented yet. A checked
+source fact alone does not prove native storage or lifetime safety.
 
 | Export | Source contract |
 | --- | --- |
@@ -212,6 +213,12 @@ Layout dimensions must be non-negative safe integers; alignment is a positive
 power of two. Native field extents and storage compatibility still require
 target proof.
 
+Layout builders and their immutable aliases are compile-time metadata, not
+runtime objects. The targets erase their declarations and replace observations
+with the selected native-unsigned constants. A descriptor cannot be returned
+from an ordinary function, put in a runtime container, or passed to an ordinary
+function. Field selectors are never executed to discover offsets.
+
 Byte offsets accept exact signed and unsigned integer markers, including
 bigint-backed widths. Unmarked in-range integer constants are also accepted.
 An arbitrary `number` or `bigint` variable is not an integer-domain proof.
@@ -228,8 +235,9 @@ const raw = addressIntegerToRawPointer(address, abi);
 const exact: uint64 = rawPointerToAddressInteger<uint64>(raw, abi);
 ```
 
-This is a source-contract example, not yet a supported native program. Both
-operations retain the exact unsigned width and number/bigint representation.
+This round trip works on both native targets with a registered ABI matching
+the executing process. Both operations retain the exact unsigned width and
+number/bigint representation.
 Raw-to-integer requires the explicit type argument; the destination annotation
 does not select it. Integer-to-raw can infer it from an exactly annotated
 operand, or accept an explicit argument with an integral constant, such as

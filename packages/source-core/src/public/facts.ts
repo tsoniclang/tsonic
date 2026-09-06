@@ -63,3 +63,11 @@ export {
   readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
 } from "../memory-layout/readers.js";
+export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
+export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
+export { resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
+export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
+export type {
+  TsonicPointerBackingOrigin, TsonicPointerBackingIssue,
+  TsonicPointerBackingResolution, TsonicPointerBackingQueries,
+} from "../pointers/backing/requirements.js";

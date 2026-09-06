@@ -72,6 +72,12 @@ identity, applies the selected conversions, and preserves optionality.
 Bindings and projections require infallible native callbacks with closed
 capture lifetimes; their stored callbacks must satisfy `'static`.
 
+Raw identity, checked byte offsets, and exact 32/64-bit address integers are
+supported using a closed raw carrier. They require the `alloc` foundation;
+the selected address width must match the executing process. An address integer
+does not keep its former owner alive or authorize dereference. Layout
+observations use compile-time descriptors, not runtime provider objects.
+
 Accessor identity is not a native address. Layout-backed raw conversion still
 needs native storage classification; arbitrary conversion callbacks cannot
 establish a physical view of the same bytes.
