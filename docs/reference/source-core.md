@@ -229,7 +229,7 @@ container's own elements or fields a physical address.
 Records, field/element origins, mutable or escaped pointer containers and open
 caller boundaries still lack complete native-backing proofs. Logical callback
 projections do not establish physical backing. C# also rejects passing a promoted
-local as managed `ref`/`out`. Rust pointer-returning functions should declare
+local as managed `ref`/`out`. In both targets, pointer-returning functions should declare
 their exact return type; inference from a raw conversion alone is not yet closed.
 
 An ABI provider supplies the token declaration and a `dataLayouts`
