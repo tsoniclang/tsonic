@@ -3,6 +3,8 @@ import type { Node, PointerOperationFact } from "@tsonic/tsts";
 import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
 import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
 import type { TsonicRawMemoryOperationFact } from "../raw-memory/facts.js";
+import { createPointerContainerQueries } from "./containers.js";
+import { pointerFlowCallableBoundary, pointerFlowOperand } from "./source-forms.js";
 
 export type TsonicPointerBackingOrigin =
   | Extract<PointerOperationFact, { readonly operation: "allocate" | "address-of" }>
@@ -42,6 +44,7 @@ export function createTsonicPointerBackingQueries(
   }
   const { ast, navigation, semantics, sourceFacts } = source;
   const cached = new WeakMap<Node, TsonicPointerBackingResolution>();
+  const containers = createPointerContainerQueries(source, options.maximumValues);
 
   return Object.freeze({ resolve });
 
@@ -118,7 +121,7 @@ export function createTsonicPointerBackingQueries(
         }
         continue;
       }
-      const transparent = transparentOperand(node);
+      const transparent = pointerFlowOperand(ast, node);
       if (transparent !== undefined) {
         edge(node, transparent);
         continue;
@@ -127,6 +130,18 @@ export function createTsonicPointerBackingQueries(
         const conditional = ast.as.AsConditionalExpression(node);
         edge(node, conditional?.WhenTrue);
         edge(node, conditional?.WhenFalse);
+        continue;
+      }
+      if (ast.is.IsElementAccessExpression(node) || ast.is.IsPropertyAccessExpression(node)) {
+        const container = containers.resolve(node);
+        if (container.kind === "unproven") reject(node, container.reason);
+        else {
+          for (const value of container.values) edge(node, value);
+          if (container.includesUndefined) {
+            includesUndefined = true;
+            terminals.add(node);
+          }
+        }
         continue;
       }
       if (ast.is.IsIdentifier(node)) {
@@ -225,8 +240,7 @@ export function createTsonicPointerBackingQueries(
               includesUndefined = true;
               terminals.add(node);
             } else edge(node, returned);
-          } else if (!ast.is.IsFunctionDeclaration(statement) && !ast.is.IsFunctionExpression(statement) &&
-            !ast.is.IsArrowFunction(statement) && !ast.is.IsClassDeclaration(statement)) {
+          } else if (!pointerFlowCallableBoundary(ast, statement)) {
             ast.forEachChild(statement, child => { if (child !== undefined) pending.push(child); });
           }
         }
@@ -264,21 +278,12 @@ export function createTsonicPointerBackingQueries(
     return result.kind === "resolved" ? result.implementation.declaration : undefined;
   }
 
-  function transparentOperand(node: Node): Node | undefined {
-    if (ast.is.IsParenthesizedExpression(node)) return ast.as.AsParenthesizedExpression(node)?.Expression;
-    if (ast.is.IsAsExpression(node)) return ast.as.AsAsExpression(node)?.Expression;
-    if (ast.is.IsTypeAssertion(node)) return ast.as.AsTypeAssertion(node)?.Expression;
-    if (ast.is.IsNonNullExpression(node)) return ast.as.AsNonNullExpression(node)?.Expression;
-    if (ast.is.IsSatisfiesExpression(node)) return ast.as.AsSatisfiesExpression(node)?.Expression;
-    return undefined;
-  }
-
   function callContainingTarget(reference: Node): Node | undefined {
     let target = reference;
     for (;;) {
       const parent = ast.parent(target);
       if (parent === undefined) return undefined;
-      if (transparentOperand(parent) === target) target = parent;
+      if (pointerFlowOperand(ast, parent) === target) target = parent;
       else return ast.is.IsCallExpression(parent) && ast.as.AsCallExpression(parent)?.Expression === target ? parent : undefined;
     }
   }

@@ -220,7 +220,13 @@ allocations, and the selected alignment. These checks do not make an external
 address valid: explicit unsafe code must ensure its storage remains initialized,
 writable and alive for every resulting alias.
 
-Records, field/element origins, parameter storage, pointer containers and open
+By-value function and method parameters can use the same backing. Returning
+their address retains the callee's parameter slot, not the caller's variable.
+Pointers stored in closed local arrays and data-property objects also retain
+their backing through unmodified local aliases. This does not give the
+container's own elements or fields a physical address.
+
+Records, field/element origins, mutable or escaped pointer containers and open
 caller boundaries still lack complete native-backing proofs. Logical callback
 projections do not establish physical backing. C# also rejects passing a promoted
 local as managed `ref`/`out`. Rust pointer-returning functions should declare

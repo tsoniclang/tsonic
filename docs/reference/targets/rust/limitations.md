@@ -79,10 +79,11 @@ does not keep its former owner alive or authorize dereference. Layout
 observations use compile-time descriptors, not runtime provider objects.
 
 Accessor identity is not a native address. Closed scalar layouts support
-native-backed allocation and initialized block-local storage. Raw round trips
-preserve that storage. Fields, elements, parameters, records and pointer
-containers still require additional native-backing proofs; open caller
-boundaries reject. Arbitrary conversion callbacks cannot establish a physical
+native-backed allocation and initialized block-local or by-value parameter
+storage. Raw round trips preserve that storage, including pointers held in
+closed local arrays and data-property objects. Field/element storage, records,
+mutable or escaped pointer containers and open caller boundaries still require
+additional proofs. Arbitrary conversion callbacks cannot establish a physical
 view of the same bytes. Pointer-returning functions should declare their exact
 return type; inference from a raw conversion alone is not yet closed.
 

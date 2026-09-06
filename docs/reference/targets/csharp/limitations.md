@@ -63,9 +63,10 @@ constructing a projection does not execute its callbacks.
 These accessor locations do not automatically have native addresses. A
 projection that changes the represented value cannot be treated as a raw
 view of the same bytes. Closed scalar layouts support native-backed allocation
-and initialized block-local storage. Raw round trips preserve that storage.
-Fields, elements, parameters, records and pointer containers still require
-additional native-backing proofs; open caller boundaries reject. A promoted
+and initialized block-local or by-value parameter storage. Raw round trips
+preserve that storage, including pointers held in closed local arrays and
+data-property objects. Field/element storage, records, mutable or escaped
+pointer containers and open caller boundaries still require additional proofs. A promoted
 native local cannot also be passed as a managed `ref`/`out` variable. No
 copy-in/copy-out conversion is inserted.
 

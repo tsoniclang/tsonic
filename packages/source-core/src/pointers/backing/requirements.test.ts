@@ -118,7 +118,6 @@ for (const [name, body, pattern] of [
   ["provider result", `declare function make(): Pointer<uint32>; toRawPointer(make(), uint32Layout);`, /implementation/u],
   ["open parameter", `function address(pointer: Pointer<uint32>) { return toRawPointer(pointer, uint32Layout); } address(allocatePointer<uint32>(1));`, /open caller/u],
   ["first-class call", `function pass(pointer: Pointer<uint32>) { return pointer; } const alias = pass; alias(allocatePointer<uint32>(2)); toRawPointer(pass(allocatePointer<uint32>(1)), uint32Layout);`, /first-class/u],
-  ["container read", `const pointers = [allocatePointer<uint32>(1)]; toRawPointer(pointers[0], uint32Layout);`, /storage-flow/u],
   ["unanchored recursion", `function recurse(): Pointer<uint32> { return recurse(); } toRawPointer(recurse(), uint32Layout);`, /cyclic/u],
 ] as const) {
   test(`pointer backing does not invent evidence for ${name}`, () => {
@@ -138,4 +137,117 @@ test("pointer backing budget exhaustion never returns a partial origin set", () 
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
   assert.ok(result.issues.some(issue => /budget exceeded/u.test(issue.reason)));
+});
+
+test("closed pointer arrays retain every possible element origin through local aliases", () => {
+  const result = inspect(`
+    const pointers: Pointer<uint32>[] = [allocatePointer<uint32>(1), allocatePointer<uint32>(2)];
+    const alias = pointers;
+    const again = (alias);
+    toRawPointer(again[0], uint32Layout);
+  `);
+  assert.equal(result.kind, "origins");
+  if (result.kind !== "origins") return;
+  assert.equal(result.origins.length, 2);
+  assert.equal(result.includesUndefined, true);
+});
+
+test("closed pointer object properties use selected identity rather than field spelling", () => {
+  const result = inspect(`
+    interface Holder { value: Pointer<uint32>; other: Pointer<uint32> }
+    const pointer = allocatePointer<uint32>(1);
+    const holder: Holder = { value: pointer, other: projectPointer<uint32, uint32>(pointer, item => item, item => item) };
+    const alias = holder;
+    toRawPointer(alias.value, uint32Layout);
+  `);
+  assert.equal(result.kind, "origins", result.kind === "unproven" ? result.issues.map(issue => issue.reason).join("\n") : "");
+  if (result.kind !== "origins") return;
+  assert.equal(result.origins.length, 1);
+  assert.equal(result.origins[0]!.operation, "allocate");
+});
+
+for (const [name, before, after] of [
+  ["element write", "", "pointers[0] = logical;"],
+  ["alias element write", "const alias = pointers;", "alias[0] = logical;"],
+  ["alias binding replacement", "let alias = pointers;", "alias = [logical];"],
+  ["container argument escape", "declare function mutate(values: Pointer<uint32>[]): void;", "mutate(pointers);"],
+  ["method mutation", "", "pointers.push(logical);"],
+  ["exported container", "", "export { pointers };"],
+] as const) {
+  test(`closed pointer container proof rejects ${name} even after a valid read`, () => {
+    const result = inspect(`
+      const original = allocatePointer<uint32>(1);
+      const logical = projectPointer<uint32, uint32>(original, item => item, item => item);
+      const pointers: Pointer<uint32>[] = [original];
+      ${before}
+      toRawPointer(pointers[0], uint32Layout);
+      ${after}
+    `);
+    assert.equal(result.kind, "unproven");
+    if (result.kind !== "unproven") return;
+    assert.ok(result.issues.some(issue => /container/u.test(issue.reason)));
+  });
+}
+
+test("a logical pointer in any array slot prevents a partial physical proof", () => {
+  const result = inspect(`
+    const original = allocatePointer<uint32>(1);
+    const pointers: Pointer<uint32>[] = [original, projectPointer<uint32, uint32>(original, item => item, item => item)];
+    toRawPointer(pointers[0], uint32Layout);
+  `);
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /logical pointer/u.test(issue.reason)));
+});
+
+test("selected function returns exclude nested getters methods and class expressions", () => {
+  const result = inspect(`
+    function make(): Pointer<uint32> {
+      const original = allocatePointer<uint32>(1);
+      const nested = {
+        get value() { return projectPointer<uint32, uint32>(original, item => item, item => item); },
+        method() { return projectPointer<uint32, uint32>(original, item => item, item => item); }
+      };
+      const Nested = class { method() { return projectPointer<uint32, uint32>(original, item => item, item => item); } };
+      return original;
+    }
+    toRawPointer(make(), uint32Layout);
+  `);
+  assert.equal(result.kind, "origins");
+  if (result.kind !== "origins") return;
+  assert.equal(result.origins.length, 1);
+});
+
+test("container property getters never masquerade as stored pointer fields", () => {
+  const result = inspect(`
+    const holder = { get value(): Pointer<uint32> { return allocatePointer<uint32>(1); } };
+    toRawPointer(holder.value, uint32Layout);
+  `);
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /data properties/u.test(issue.reason)));
+});
+
+test("closed pointer container inspection shares the finite proof budget", () => {
+  const result = inspect(`
+    const pointers: Pointer<uint32>[] = [allocatePointer<uint32>(1), allocatePointer<uint32>(2)];
+    const alias = pointers;
+    toRawPointer(alias[0], uint32Layout);
+  `, { budget: 3 });
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /budget exceeded/u.test(issue.reason)));
+});
+
+test("closed object pointer fields reject replacement through an alias", () => {
+  const result = inspect(`
+    const pointer = allocatePointer<uint32>(1);
+    const holder = { pointer };
+    const alias = holder;
+    toRawPointer(holder.pointer, uint32Layout);
+    alias.pointer = projectPointer<uint32, uint32>(pointer, item => item, item => item);
+  `);
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /mutation/u.test(issue.reason)));
 });
