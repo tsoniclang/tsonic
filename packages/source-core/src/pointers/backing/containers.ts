@@ -20,13 +20,18 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
   }
 
   function inspect(access: Node): PointerContainerValues {
-    const selection = selectedRead(access);
+    const selection = selectedAccess(access);
     const reject = (reason: string): PointerContainerValues => Object.freeze({ kind: "unproven", reason });
-    if (selection === undefined) return reject("Pointer container access has no exact selected read.");
+    if (selection === undefined || selection.accessMode !== "read") return reject("Pointer container access has no exact selected read.");
     const queue: Node[] = [selection.receiver.expression];
     const seen = new Set<Node>();
     const literals = new Set<Node>();
     const values = new Set<Node>();
+    const assignments: {
+      readonly access: Node;
+      readonly selected: ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo;
+      readonly value: Node;
+    }[] = [];
     let includesUndefined = selection.optionalChain;
     let inspected = 0;
     for (let cursor = 0; cursor < queue.length; cursor++) {
@@ -43,8 +48,8 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
       } else if (ast.is.IsVariableDeclaration(node)) {
         const initial = ast.as.AsVariableDeclaration(node)?.Initializer;
         const uses = navigation.declarationUseSummary(node);
-        if (initial === undefined || uses.bindingWritten || uses.exported || !ast.is.IsIdentifier(ast.name(node))) {
-          return reject("Pointer container bindings must have one unmodified non-exported origin.");
+        if (initial === undefined || uses.exported || !ast.is.IsIdentifier(ast.name(node))) {
+          return reject("Pointer container bindings require exact initialized non-exported origins.");
         }
         queue.push(initial);
         for (const use of uses.uses) {
@@ -56,9 +61,29 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
             queue.push(parent);
             continue;
           }
-          const read = parent === undefined ? undefined : selectedRead(parent);
-          if (read === undefined || read.receiver.expression !== value) {
+          const rebinding = parent !== undefined && ast.is.IsBinaryExpression(parent)
+            ? ast.as.AsBinaryExpression(parent) : undefined;
+          if (rebinding?.Left === value && ast.operatorKindName(parent!) === "KindEqualsToken" &&
+            rebinding.Right !== undefined) {
+            queue.push(rebinding.Right);
+            continue;
+          }
+          const selected = parent === undefined ? undefined : selectedAccess(parent);
+          if (selected === undefined || selected.receiver.expression !== value) {
             return reject("Pointer container escapes or has an unproved mutation through an exact alias.");
+          }
+          if (ast.is.IsDeleteExpression(ast.parent(parent))) {
+            return reject("Pointer container deletion is not a proved stored-value assignment.");
+          }
+          if (selected.accessMode !== "read") {
+            const assignment = ast.parent(parent);
+            const binary = assignment !== undefined && ast.is.IsBinaryExpression(assignment)
+              ? ast.as.AsBinaryExpression(assignment) : undefined;
+            if (binary?.Left !== parent || binary?.Right === undefined ||
+              ast.operatorKindName(assignment!) !== "KindEqualsToken") {
+              return reject("Pointer container mutation requires an exact simple assignment.");
+            }
+            assignments.push({ access: parent!, selected, value: binary.Right });
           }
         }
       } else if (ast.is.IsArrayLiteralExpression(node)) {
@@ -97,16 +122,35 @@ export function createPointerContainerQueries(source: TargetSourceProgram, maxim
       } else return reject("Pointer container requires a closed local literal origin.");
     }
     if (literals.size === 0) return reject("Pointer container aliases have no initialized literal origin.");
+    const array = [...literals].every(node => ast.is.IsArrayLiteralExpression(node));
+    for (const assignment of assignments) {
+      if ((array && ast.is.IsElementAccessExpression(access) && ast.is.IsElementAccessExpression(assignment.access)) ||
+        sameSelectedProperty(selection, assignment.selected)) {
+        values.add(assignment.value);
+      } else if (selection.receiver.type !== assignment.selected.receiver.type ||
+        (selection.selectedDeclaration === undefined && selection.selectedSymbol === undefined) ||
+        (assignment.selected.selectedDeclaration === undefined && assignment.selected.selectedSymbol === undefined)) {
+        return reject("Pointer container mutation has no exact field correspondence with the selected read.");
+      }
+    }
     return Object.freeze({ kind: "values", values: Object.freeze([...values]), includesUndefined });
   }
 
-  function selectedRead(node: Node): ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo | undefined {
+  function selectedAccess(node: Node): ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo | undefined {
     const element = ast.is.IsElementAccessExpression(node) ? ast.as.AsElementAccessExpression(node) : undefined;
     const property = ast.is.IsPropertyAccessExpression(node) ? ast.as.AsPropertyAccessExpression(node) : undefined;
     const selected = element !== undefined
       ? semantics.forNode(node).operations.elementAccess(node)
       : property !== undefined ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
     return selected?.expression === node && selected.receiver.expression === (element?.Expression ?? property?.Expression) &&
-      selected.accessMode === "read" && !selected.callCallee ? selected : undefined;
+      !selected.callCallee ? selected : undefined;
+  }
+
+  function sameSelectedProperty(
+    left: ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo,
+    right: ResolvedSourceElementAccessInfo | ResolvedSourcePropertyAccessInfo,
+  ): boolean {
+    return (left.selectedDeclaration !== undefined && left.selectedDeclaration === right.selectedDeclaration) ||
+      (left.selectedSymbol !== undefined && left.selectedSymbol === right.selectedSymbol);
   }
 }

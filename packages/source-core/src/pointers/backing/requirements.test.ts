@@ -166,13 +166,13 @@ test("closed pointer object properties use selected identity rather than field s
   assert.equal(result.origins[0]!.operation, "allocate");
 });
 
-for (const [name, before, after] of [
-  ["element write", "", "pointers[0] = logical;"],
-  ["alias element write", "const alias = pointers;", "alias[0] = logical;"],
-  ["alias binding replacement", "let alias = pointers;", "alias = [logical];"],
-  ["container argument escape", "declare function mutate(values: Pointer<uint32>[]): void;", "mutate(pointers);"],
-  ["method mutation", "", "pointers.push(logical);"],
-  ["exported container", "", "export { pointers };"],
+for (const [name, before, after, reason] of [
+  ["element write", "", "pointers[0] = logical;", /logical pointer/u],
+  ["alias element write", "const alias = pointers;", "alias[0] = logical;", /logical pointer/u],
+  ["alias binding replacement", "let alias = pointers;", "alias = [logical];", /logical pointer/u],
+  ["container argument escape", "declare function mutate(values: Pointer<uint32>[]): void;", "mutate(pointers);", /container/u],
+  ["method mutation", "", "pointers.push(logical);", /container/u],
+  ["exported container", "", "export { pointers };", /container/u],
 ] as const) {
   test(`closed pointer container proof rejects ${name} even after a valid read`, () => {
     const result = inspect(`
@@ -185,7 +185,7 @@ for (const [name, before, after] of [
     `);
     assert.equal(result.kind, "unproven");
     if (result.kind !== "unproven") return;
-    assert.ok(result.issues.some(issue => /container/u.test(issue.reason)));
+    assert.ok(result.issues.some(issue => reason.test(issue.reason)));
   });
 }
 
@@ -239,7 +239,7 @@ test("closed pointer container inspection shares the finite proof budget", () =>
   assert.ok(result.issues.some(issue => /budget exceeded/u.test(issue.reason)));
 });
 
-test("closed object pointer fields reject replacement through an alias", () => {
+test("closed object pointer fields reject a logical replacement through an alias", () => {
   const result = inspect(`
     const pointer = allocatePointer<uint32>(1);
     const holder = { pointer };
@@ -249,5 +249,80 @@ test("closed object pointer fields reject replacement through an alias", () => {
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
-  assert.ok(result.issues.some(issue => /mutation/u.test(issue.reason)));
+  assert.ok(result.issues.some(issue => /logical pointer/u.test(issue.reason)));
+});
+
+for (const [name, body, origins] of [
+  ["array writes", `
+    const values: Pointer<uint32>[] = [allocatePointer<uint32>(1)];
+    const alias = values;
+    alias[0] = allocatePointer<uint32>(2);
+    values[1] = allocatePointer<uint32>(3);
+    toRawPointer(values[0], uint32Layout);
+  `, 3],
+  ["array rebinding", `
+    let values: Pointer<uint32>[] = [allocatePointer<uint32>(1)];
+    values = [allocatePointer<uint32>(2)];
+    toRawPointer(values[0], uint32Layout);
+  `, 2],
+  ["object writes", `
+    interface Holder { value: Pointer<uint32> }
+    const holder: Holder = { value: allocatePointer<uint32>(1) };
+    const alias = holder;
+    alias.value = allocatePointer<uint32>(2);
+    toRawPointer(holder.value, uint32Layout);
+  `, 2],
+  ["object rebinding", `
+    interface Holder { value: Pointer<uint32> }
+    let holder: Holder = { value: allocatePointer<uint32>(1) };
+    holder = { value: allocatePointer<uint32>(2) };
+    toRawPointer(holder.value, uint32Layout);
+  `, 2],
+  ["selected computed field", `
+    interface Holder { value: Pointer<uint32>; other: Pointer<uint32> }
+    const pointer = allocatePointer<uint32>(1);
+    const holder: Holder = { value: pointer, other: pointer };
+    holder["value"] = allocatePointer<uint32>(2);
+    holder["other"] = projectPointer<uint32, uint32>(pointer, item => item, item => item);
+    toRawPointer(holder["value"], uint32Layout);
+  `, 2],
+  ["captured writes", `
+    const values: Pointer<uint32>[] = [allocatePointer<uint32>(1)];
+    function replace(): void { values[0] = allocatePointer<uint32>(2); }
+    replace();
+    toRawPointer(values[0], uint32Layout);
+  `, 2],
+] as const) {
+  test(`pointer containers retain every exact origin across ${name}`, () => {
+    const result = inspect(body);
+    assert.equal(result.kind, "origins", result.kind === "unproven" ? result.issues.map(issue => issue.reason).join("\n") : "");
+    if (result.kind !== "origins") return;
+    assert.equal(result.origins.length, origins);
+    assert.ok(result.origins.every(origin => origin.operation === "allocate"));
+  });
+}
+
+test("pointer container writes cannot hide behind a distinct asserted property declaration", () => {
+  const result = inspect(`
+    interface First { value: Pointer<uint32> }
+    interface Second { value: Pointer<uint32> }
+    const pointer = allocatePointer<uint32>(1);
+    const holder: First = { value: pointer };
+    const alias = holder as Second;
+    alias.value = projectPointer<uint32, uint32>(pointer, item => item, item => item);
+    toRawPointer(holder.value, uint32Layout);
+  `);
+  assert.equal(result.kind, "unproven");
+});
+
+test("pointer container deletes cannot be mistaken for read-only uses", () => {
+  const result = inspect(`
+    interface Holder { value?: Pointer<uint32> }
+    const holder: Holder = { value: allocatePointer<uint32>(1) };
+    delete holder.value;
+    toRawPointer(holder.value, uint32Layout);
+  `);
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /deletion/u.test(issue.reason)));
 });

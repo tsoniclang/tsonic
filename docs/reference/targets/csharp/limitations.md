@@ -65,10 +65,16 @@ projection that changes the represented value cannot be treated as a raw
 view of the same bytes. Closed scalar layouts support native-backed allocation
 and initialized block-local or by-value parameter storage. Raw round trips
 preserve that storage, including pointers held in closed local arrays and
-data-property objects. Field/element storage, records, mutable or escaped
-pointer containers and open caller boundaries still require additional proofs. A promoted
-native local cannot also be passed as a managed `ref`/`out` variable. No
-copy-in/copy-out conversion is inserted.
+data-property objects. Closed local containers can replace entries through simple
+assignments; analysis must prove every stored pointer's backing. Their own field
+or element storage does not thereby become addressable. Records, escaped
+containers, collection-method mutations and open caller boundaries still require
+additional proofs. A promoted native local cannot also be passed as a managed
+`ref`/`out` variable. No copy-in/copy-out conversion is inserted.
+
+Ordinary source functions, methods and callbacks retain exact pointer results,
+including optional results and selected generic parameter transport. This does
+not infer arbitrary pointer-producing generic bodies or external storage.
 
 Raw address equality, hashing, checked byte offsets, and exact 32/64-bit
 address-integer conversion are supported. Address width is checked against the

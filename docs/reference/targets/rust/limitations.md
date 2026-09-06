@@ -81,11 +81,16 @@ observations use compile-time descriptors, not runtime provider objects.
 Accessor identity is not a native address. Closed scalar layouts support
 native-backed allocation and initialized block-local or by-value parameter
 storage. Raw round trips preserve that storage, including pointers held in
-closed local arrays and data-property objects. Field/element storage, records,
-mutable or escaped pointer containers and open caller boundaries still require
-additional proofs. Arbitrary conversion callbacks cannot establish a physical
-view of the same bytes. Pointer-returning functions should declare their exact
-return type; inference from a raw conversion alone is not yet closed.
+closed local arrays and data-property objects. Closed local containers can
+replace entries through simple assignments; analysis must prove every stored
+pointer's backing. Their own field or element storage does not thereby become
+addressable. Records, escaped containers, collection-method mutations and open
+caller boundaries still require additional proofs. Arbitrary conversion
+callbacks cannot establish a physical view of the same bytes.
+
+Ordinary source functions, methods and callbacks retain exact pointer results,
+including optional results and selected generic parameter transport. This does
+not infer arbitrary pointer-producing generic bodies or external storage.
 
 A TypeScript assertion cannot manufacture a native conversion:
 

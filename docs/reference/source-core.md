@@ -223,14 +223,33 @@ writable and alive for every resulting alias.
 By-value function and method parameters can use the same backing. Returning
 their address retains the callee's parameter slot, not the caller's variable.
 Pointers stored in closed local arrays and data-property objects also retain
-their backing through unmodified local aliases. This does not give the
-container's own elements or fields a physical address.
+their backing through local aliases, binding replacement, and simple element
+or property assignments. Analysis checks every possible stored pointer; a
+logical projection cannot acquire native backing by being put in a container.
+This does not give the container's own elements or fields a physical address.
 
-Records, field/element origins, mutable or escaped pointer containers and open
-caller boundaries still lack complete native-backing proofs. Logical callback
+Records, field/element origins, escaped pointer containers, collection-method
+mutations and open caller boundaries still lack complete native-backing proofs. Logical callback
 projections do not establish physical backing. C# also rejects passing a promoted
-local as managed `ref`/`out`. In both targets, pointer-returning functions should declare
-their exact return type; inference from a raw conversion alone is not yet closed.
+local as managed `ref`/`out`.
+
+Ordinary pointer-returning functions, methods and callbacks retain their exact
+pointee representation without an added return annotation. The empty branch
+returns the target's undefined representation, not an allocated pointer:
+
+```ts
+function maybe(flag: boolean) {
+  if (flag) return allocatePointer<uint32>(1);
+}
+const present = maybe(true);
+const absent = maybe(false); // undefined
+```
+
+Selected generic helpers that return their pointer arguments also preserve
+the arguments' exact pointee evidence. This is not general inference through
+arbitrary generic bodies. For example, this return query does not close the
+pointee of an operation inside a generic body, such as `allocatePointer<T>(value)`.
+An unresolved `T` is not replaced with a guessed native scalar.
 
 An ABI provider supplies the token declaration and a `dataLayouts`
 contribution containing its exact provider identity, version, fingerprint,

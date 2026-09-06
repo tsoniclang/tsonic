@@ -31,6 +31,11 @@ for (const [label, source, count, nullable] of [
   ["annotated parameter", "function expose(pointer: Pointer<uint32> | undefined) { return pointer; }", 1, true],
   ["addressed parameter", "function expose(value: uint32) { return addressOf(value); }", 1, false],
   ["non-null narrowing", "function expose() { return reinterpretRawPointer(raw, uint32Layout)!; }", 1, false],
+  ["selected generic parameter", "function generic<T>(value: Pointer<T>) { return value; } function expose(value: Pointer<uint32>) { return generic(value); }", 1, false],
+  ["inferred generic allocation transport", "function generic<T>(value: Pointer<T>): Pointer<T> { return value; } function expose() { return generic(allocatePointer<uint32>(1)); }", 1, false],
+  ["explicit generic allocation transport", "function generic<T>(value: Pointer<T>): Pointer<T> { return value; } function expose() { return generic<uint32>(allocatePointer<uint32>(1)); }", 1, false],
+  ["nested generic transport", "function outer<T>(value: Pointer<T>): Pointer<T> { return inner(value); } function inner<T>(value: Pointer<T>): Pointer<T> { return value; } function expose() { return outer(allocatePointer<uint32>(1)); }", 1, false],
+  ["generic parameter replacement", "function generic<T>(value: Pointer<T>, next: Pointer<T>): Pointer<T> { value = next; return value; } function expose() { return generic(allocatePointer<uint32>(1), allocatePointer<uint32>(2)); }", 2, false],
 ] as const) {
   test(`pointer return evidence retains ${label}`, () => {
     const { checked, result } = inspect(source);
@@ -85,7 +90,7 @@ test("pointer return evidence excludes all nested callable and class return bodi
 
 for (const [label, source] of [
   ["unknown source result", "declare function external(): Pointer<uint32>; function expose() { return external(); }"],
-  ["unclosed generic result", "function generic<T>(value: Pointer<T>) { return value; } function expose(value: Pointer<uint32>) { return generic(value); }"],
+  ["external generic result", "declare function generic<T>(value: Pointer<T>): Pointer<T>; function expose(value: Pointer<uint32>) { return generic(value); }"],
   ["unrepresented return alternative", "function expose(flag: boolean) { return flag ? allocatePointer<uint32>(1) : 2; }"],
   ["unanchored alias cycle", "function expose() { let first; let second; first = second; second = first; return first; }"],
 ] as const) {
@@ -105,4 +110,31 @@ test("pointer return queries retain a compilation-owned immutable result", () =>
   assert.equal(queries.resolve(declaration), result);
   const separate = inspect("function expose() { return allocatePointer<uint32>(1); }");
   assert.notEqual(separate.result, result);
+});
+
+test("selected generic return contexts retain distinct exact source arguments", () => {
+  const { checked, result } = inspect(`
+    function generic<T>(value: Pointer<T>): Pointer<T> { return value; }
+    function expose(flag: boolean) {
+      return flag ? generic(allocatePointer<uint32>(1)) : generic(allocatePointer<int32>(2));
+    }
+  `);
+  assert.ok(result);
+  assert.deepEqual(result.pointees.map(value => checked.sourceFacts.getFact(value.typeNode, sourcePrimitiveFactKey)?.kind).sort(), ["int32", "uint32"]);
+});
+
+test("recursive generic return contexts cannot evade the finite query budget", () => {
+  const { result } = inspect(`
+    function generic<T>(value: Pointer<T>): Pointer<T> { return generic(value); }
+    function expose() { return generic(allocatePointer<uint32>(1)); }
+  `, 64);
+  assert.equal(result, undefined);
+});
+
+test("generic body operations cannot publish an unsubstituted pointee as a closed result", () => {
+  const { result } = inspect(`
+    function generic<T>(value: T) { return allocatePointer<T>(value); }
+    function expose(value: uint32) { return generic(value); }
+  `);
+  assert.equal(result, undefined);
 });
