@@ -64,9 +64,17 @@ commands, and `yield*` are supported when their selected protocol is closed.
 ## Places, conversions, and callable values
 
 Locations over locals, parameters, fields, array elements, and proven disjoint
-subfields work. An owned-root receiver location and the neutral
-`hashPointer`, `bindPointer`, and `projectPointer` operations do not yet have a
-Rust target contract.
+subfields work. An owned-root receiver location remains unsupported.
+
+`hashPointer` uses canonical location identity. `bindPointer` retains a closed
+reference owner, not just its identity token. `projectPointer` preserves
+identity, applies the selected conversions, and preserves optionality.
+Bindings and projections require infallible native callbacks with closed
+capture lifetimes; their stored callbacks must satisfy `'static`.
+
+Accessor identity is not a native address. Layout-backed raw conversion still
+needs native storage classification; arbitrary conversion callbacks cannot
+establish a physical view of the same bytes.
 
 A TypeScript assertion cannot manufacture a native conversion:
 

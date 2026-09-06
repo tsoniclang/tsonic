@@ -162,8 +162,8 @@ layout, lifetime and safety requirements before emitting them.
 
 ### Layout and raw-memory source contracts
 
-These declarations and their immutable source facts are implemented. C# and
-Rust do **not yet implement their native lowering**. A checked source fact is
+These declarations and their immutable source facts are implemented. Except
+for `keepAlive`, C# and Rust do **not yet implement their native lowering**. A checked source fact is
 not proof that a target can emit the operation. Use the existing native-pointer
 operations for supported target-native pointer APIs.
 
@@ -181,6 +181,11 @@ operations for supported target-native pointer APIs.
 | `rawPointerToAddressInteger<TAddress>(raw, abi)` | Convert to an explicitly selected `uint32` or `uint64`, without retaining ownership |
 | `addressIntegerToRawPointer<TAddress>(address, abi)` | Recover an address from the exact unsigned domain, without manufacturing ownership; the type argument may be inferred from the operand |
 | `keepAlive(value)` | Require reachability through this call, not pinning |
+
+`keepAlive(value)` emits `global::System.GC.KeepAlive(value)` for a C# reference
+owner. Rust borrows the value without consuming or cloning it; the owner
+retains its native drop scope. Neither operation pins storage, reconstructs an
+owner from address bits, or grants an unsafe context.
 
 For example, the source contract expresses a raw-backed location as follows.
 This is not yet a working C# or Rust application:

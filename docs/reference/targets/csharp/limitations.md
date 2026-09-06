@@ -54,9 +54,17 @@ for (const [key, value] of entries) {
 }
 ```
 
-The neutral `hashPointer`, `bindPointer`, and `projectPointer` operations also
-reject because C# has no approved target contract for those identities. Tsonic
-does not substitute wrapper-object hashes or copied values.
+`hashPointer` hashes canonical location identity, including `undefined`.
+`bindPointer` requires a closed reference identity and exact read/write
+callbacks. `projectPointer` preserves that identity and applies the selected
+conversions on reads and writes. Optional projections remain optional, and
+constructing a projection does not execute its callbacks.
+
+These accessor locations do not automatically have native addresses. A
+projection that changes the represented value cannot be treated as a raw
+view of the same bytes. Layout-backed raw conversion still needs native
+storage classification; it is not implemented by hashing an object or
+copying its value.
 
 Native pointer access requires the exact pointer carrier, lexical safety
 context, declaration safety contract where applicable, and generated/user
