@@ -11,6 +11,7 @@ import { authoredSourceTypeFactDependencies, authoredSourceTypeFactNodes } from 
 import { selectAuthoredSourceType } from "./authored-type-selection.js";
 import { selectSourceCallParameterSlots } from "./call-parameter-slots.js";
 import { selectSourceCallResult } from "./call-result-selection.js";
+import { selectSourceProviderSignature, type SourceProviderSignatureSelection } from "./provider-signature.js";
 import { selectSourceContextualTupleLiteral } from "./contextual-tuple-literal.js";
 import { selectSourceContextualValueType } from "./contextual-type-selection.js";
 import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
@@ -66,6 +67,15 @@ export function createTargetSourceProgram(
   const documents = createSourceProgramDocuments(source.ast, sourceFiles);
   const navigation = createSourceProgramNavigation(source);
   const cache = new WeakMap<SourceFile, SourceFileSemantics>();
+  const providerSignatures = new WeakMap<Node, SourceProviderSignatureSelection | null>();
+  const providerSignature = (declaration: Node | undefined): SourceProviderSignatureSelection | undefined => {
+    if (declaration === undefined) return undefined;
+    const existing = providerSignatures.get(declaration);
+    if (existing !== undefined) return existing ?? undefined;
+    const selected = selectSourceProviderSignature(source.sourceFacts, declaration);
+    providerSignatures.set(declaration, selected ?? null);
+    return selected;
+  };
 
   const forFile = (sourceFile: SourceFile): SourceFileSemantics => {
     if (!sourceFileSet.has(sourceFile)) {
@@ -89,7 +99,7 @@ export function createTargetSourceProgram(
       wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
       resourceManagement: queries.checker.getResolvedResourceManagementInfo,
       callResult(call: ResolvedSourceCallInfo) {
-        return selectSourceCallResult(source.ast, queries.checker, call);
+        return selectSourceCallResult(source.ast, queries.checker, call, providerSignature);
       },
       callParameterSlots(call: ResolvedSourceCallInfo) {
         return selectSourceCallParameterSlots(call, queries.typeShape);

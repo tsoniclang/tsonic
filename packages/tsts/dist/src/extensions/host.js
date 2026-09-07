@@ -2456,7 +2456,7 @@ export class ProviderRegistry {
         return metadata;
     }
     getVirtualDeclarationDocument(uriOrFileName) {
-        return this.#publicVirtualDocumentsByUri.get(uriOrFileName);
+        return this.#virtualDocumentsByUri.get(uriOrFileName);
     }
     getVirtualDeclarationDocuments() {
         return [...this.#publicVirtualDocumentsByUri.values()]

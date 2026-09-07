@@ -68,6 +68,8 @@ export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js
 export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
 export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
+export { selectTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
+export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
