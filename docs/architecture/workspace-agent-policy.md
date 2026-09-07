@@ -120,8 +120,8 @@ policy.
 
 ### One Current Architecture
 
-- Backward compatibility is absent unless the maintainer explicitly requests a
-  specific compatibility contract.
+- Every project is greenfield. Legacy paths, dual paths, and backward
+  compatibility are absolutely prohibited.
 - Never land bridge architecture, temporary product paths, dual readers,
   old-or-new schema handling, compatibility aliases, legacy fallback, or
   “clean it later” code.

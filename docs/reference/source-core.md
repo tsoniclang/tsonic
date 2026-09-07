@@ -163,14 +163,15 @@ layout, lifetime and safety requirements before emitting them.
 ### Layout and raw-memory source contracts
 
 These declarations and their immutable source facts are implemented. C# and
-Rust do **not yet implement their native lowering**. A checked source fact is
-not proof that a target can emit the operation. Use the existing native-pointer
-operations for supported target-native pointer APIs.
+Rust support layout observations, exact address-integer conversions, byte
+offsets, raw identity, and `keepAlive`. Typed-storage conversion with
+`toRawPointer` and `reinterpretRawPointer` also works for closed scalar layouts.
+A checked source fact alone does not prove native storage or lifetime safety.
 
 | Export | Source contract |
 | --- | --- |
 | `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe exact storage using a registered ABI token and constant dimensions |
-| `memoryField<T, TField>(select, offset, alignment)` | Select a non-optional declared field without executing the selector |
+| `memoryField<T, TField>(select, offset, alignment, fieldLayout)` | Select a non-optional physical field and its exact child layout without executing the selector |
 | `sizeOf(layout)` | Observe the selected byte size |
 | `alignOf(layout)` | Observe the selected byte alignment |
 | `strideOf(layout)` | Observe the selected element stride |
@@ -178,26 +179,157 @@ operations for supported target-native pointer APIs.
 | `toRawPointer(pointer, layout)` | Request the address of the same typed storage, retaining its required owner |
 | `reinterpretRawPointer(raw, layout)` | Interpret an address as the canonical `Pointer<T>`, not `NativePointer<T>` |
 | `offsetRawPointer(raw, byteOffset, abi)` | Offset in bytes using an exact integer domain |
-| `rawPointerToAddressInteger(raw, abi)` | Convert an address to `nativeUint`, without retaining ownership |
-| `addressIntegerToRawPointer(address, abi)` | Recover an address from `nativeUint`, without manufacturing ownership |
+| `rawPointerToAddressInteger<TAddress>(raw, abi)` | Convert to an explicitly selected `uint32` or `uint64`, without retaining ownership |
+| `addressIntegerToRawPointer<TAddress>(address, abi)` | Recover an address from the exact unsigned domain, without manufacturing ownership; the type argument may be inferred from the operand |
 | `keepAlive(value)` | Require reachability through this call, not pinning |
 
-For example, the source contract expresses a raw-backed location as follows.
-This is not yet a working C# or Rust application:
+`keepAlive(value)` emits `global::System.GC.KeepAlive(value)` for a C# reference
+owner. Rust borrows the value without consuming or cloning it; the owner
+retains its native drop scope. Neither operation pins storage, reconstructs an
+owner from address bits, or grants an unsafe context.
+
+Every physical field explicitly selects its own layout. For example:
 
 ```ts
-import { reinterpretRawPointer, storePointer, unsafeContext } from "@tsonic/core/lang.js";
-import type { MemoryLayout, RawPointer, uint32 } from "@tsonic/core/types.js";
+interface Header { count: uint32 }
+const word = memoryLayout<uint32>(abi, 4, 4, 4);
+const header = memoryLayout<Header>(abi, 8, 4, 8,
+  memoryField((value: Header) => value.count, 4, 4, word));
+```
 
-function write(raw: RawPointer | undefined, layout: MemoryLayout<uint32>): void {
+The child type must match the selected field type. Parent and child layouts
+must use the same registered ABI identity and fingerprint. Complete field
+extents must fit and cannot overlap; padding is allowed. Placement alignment
+is explicit, including packed placement. Nested layouts retain their selected
+child descriptors; Tsonic does not search for a layout with a matching name or
+type. The descriptor dependency graph must be acyclic and remain within the
+supported 128-level nesting and 131,072-value snapshot limits. These source
+checks do not by themselves establish a native record representation.
+
+For example, given a registered little-endian, 64-bit ABI token exported by
+`example:abi`, both targets preserve this local's storage:
+
+```ts
+import { abi } from "example:abi";
+import { memoryLayout, addressOf, toRawPointer, reinterpretRawPointer,
+  storePointer, unsafeContext } from "@tsonic/core/lang.js";
+import type { uint32 } from "@tsonic/core/types.js";
+
+const layout = memoryLayout<uint32>(abi, 4, 4, 4);
+function write(): uint32 {
   unsafeContext();
+  let value: uint32 = 1;
+  const raw = toRawPointer(addressOf(value), layout);
   const pointer = reinterpretRawPointer(raw, layout);
   if (pointer !== undefined) storePointer(pointer, 7);
+  return value; // 7
 }
 ```
 
-The target must preserve writes to the original storage. Copying its value
-into a new location is not an implementation of this contract.
+Analysis gives the demanded local stable native backing before emission. Every
+read and write uses that same storage. `allocatePointer` origins can receive the
+same backing. Undemanded locals and logical pointers keep their usual form.
+
+Current physical layouts support signed/unsigned 8-, 16-, 32-, 64- and 128-bit
+integers, native-width integers, and 32-/64-bit floats; C# also supports `float16`.
+Scalar size must match its selected representation and have no fields. A
+physical record requires a complete value-type contract: a source-defined C#
+`struct`, or a native provider's explicit complete field identities and value
+carrier. Ordinary reference objects cannot be decoded as value records. Record
+codecs read and write the selected scalar leaves at their declared offsets;
+they do not copy native struct padding or assume the process uses those offsets.
+Nested field placement can be packed independently of its standalone layout.
+Expanded codecs are limited to 131,072 value occurrences.
+Physical operations check process address width, byte order, bounds of retained
+allocations, and the selected alignment. These checks do not make an external
+address valid: explicit unsafe code must ensure its storage remains initialized,
+writable and alive for every resulting alias.
+
+By-value function and method parameters can use the same backing. Returning
+their address retains the callee's parameter slot, not the caller's variable.
+Pointers stored in closed local arrays and data-property objects also retain
+their backing through local aliases, binding replacement, and simple element
+or property assignments. Analysis checks every possible stored pointer; a
+logical projection cannot acquire native backing by being put in a container.
+Transporting a pointer is separate from addressing the container's own storage.
+
+Required mutable data fields of compiler-owned reference objects can also receive
+native backing. For example:
+
+```ts
+const cell: { value: uint32 } = { value: 7 };
+const alias = cell;
+const pointer = addressOf(cell.value);
+toRawPointer(pointer, layout);
+storePointer(pointer, 9);
+alias.value = 11;
+```
+
+Both assignments update the same physical field. Independently taking
+`addressOf(alias.value)` gives the same location. Reassigning `cell` to a new
+object does not retarget the old pointer. The retained location keeps its
+storage alive after the original local returns. This storage choice does not
+change the field's public value type or undemanded object shapes.
+
+Dense native arrays have the same retained-location behavior when analysis can
+close all local aliases and uses:
+
+```ts
+let values: uint32[] = [7, 8];
+const alias = values;
+const pointer = addressOf(values[0]);
+toRawPointer(pointer, layout);
+alias[0] = 11;
+values = [99];
+loadPointer(pointer); // 11, from the original allocation
+```
+
+The selected element stride determines the distance between adjacent locations.
+Ordinary element reads and writes use that allocation too. Bounds are checked.
+The current proof admits initialized block-local bindings, dense non-spread
+literals, local aliases, standalone binding replacements and element accesses.
+It rejects collection methods, property operations, resizing, deletion, captures
+and array escapes through calls, returns or other containers. It does not change
+undemanded arrays or substitute native arrays for JS-surface collections.
+
+Optional/accessor fields, arbitrary native object fields, escaped pointer
+containers and open caller boundaries still lack complete native-backing proofs.
+Logical callback projections do not establish physical backing. C# also rejects
+passing promoted locals, fields or elements as managed `ref`/`out`.
+
+Native providers can return the canonical raw carrier with an explicit storage
+lease. C# runtime code calls `RawPointer.FromExternal(address, byteLength, owner)`;
+Rust runtime code calls the unsafe `RawPointer::from_external(address, byte_length,
+owner)`. These are native runtime APIs, not additional TypeScript markers. The
+provider's selected return contract must still identify `RawPointer` exactly.
+
+The owner must actually keep initialized, writable storage at a stable address
+until all aliases are released. For example, a C# provider exposing a managed
+array must retain a real pin, not merely the array. Rust providers must obey
+native aliasing and access rules. Tsonic does not infer either obligation.
+Offset aliases and typed views retain the same owner and bounds. Extracting
+address bits drops that relationship; converting the bits back cannot recover it.
+Retaining a descriptor handle and decoding a pointer field from physical bytes
+are separate operations; the latter still requires a complete descriptor and
+backing contract.
+
+Ordinary pointer-returning functions, methods and callbacks retain their exact
+pointee representation without an added return annotation. The empty branch
+returns the target's undefined representation, not an allocated pointer:
+
+```ts
+function maybe(flag: boolean) {
+  if (flag) return allocatePointer<uint32>(1);
+}
+const present = maybe(true);
+const absent = maybe(false); // undefined
+```
+
+Selected generic helpers that return their pointer arguments also preserve
+the arguments' exact pointee evidence. This is not general inference through
+arbitrary generic bodies. For example, this return query does not close the
+pointee of an operation inside a generic body, such as `allocatePointer<T>(value)`.
+An unresolved `T` is not replaced with a guessed native scalar.
 
 An ABI provider supplies the token declaration and a `dataLayouts`
 contribution containing its exact provider identity, version, fingerprint,
@@ -207,11 +339,40 @@ Layout dimensions must be non-negative safe integers; alignment is a positive
 power of two. Native field extents and storage compatibility still require
 target proof.
 
+Layout builders and their immutable aliases are compile-time metadata, not
+runtime objects. The targets erase their declarations and replace observations
+with the selected native-unsigned constants. A descriptor cannot be returned
+from an ordinary function, put in a runtime container, or passed to an ordinary
+function. Field selectors are never executed to discover offsets.
+
 Byte offsets accept exact signed and unsigned integer markers, including
 bigint-backed widths. Unmarked in-range integer constants are also accepted.
 An arbitrary `number` or `bigint` variable is not an integer-domain proof.
 Optional pointer conversions preserve `undefined`; address conversion maps
 it to zero, and integer zero maps back to `undefined`.
+
+Address integers use `uint32` (`number`) for a 32-bit ABI and `uint64`
+(`bigint`) for a 64-bit ABI. They do not use the number-backed `nativeUint`.
+For example, with a registered 64-bit `abi` token:
+
+```ts
+const address: uint64 = 9007199254740993n;
+const raw = addressIntegerToRawPointer(address, abi);
+const exact: uint64 = rawPointerToAddressInteger<uint64>(raw, abi);
+```
+
+This round trip works on both native targets with a registered ABI matching
+the executing process. Both operations retain the exact unsigned width and
+number/bigint representation.
+Raw-to-integer requires the explicit type argument; the destination annotation
+does not select it. Integer-to-raw can infer it from an exactly annotated
+operand, or accept an explicit argument with an integral constant, such as
+`addressIntegerToRawPointer<uint64>(9007199254740993n, abi)`.
+Signed types, plain `number`/`bigint` variables, mismatched ABI widths and known
+out-of-range constants are rejected. Targets must range-check values that
+are not proven constant and must never convert 64-bit address bits through
+`number`. An integer contains address bits only: converting it back does not
+establish live storage, alignment, pinning or ownership.
 
 ### Native-pointer operations
 

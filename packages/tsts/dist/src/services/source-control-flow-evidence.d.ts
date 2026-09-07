@@ -4,6 +4,11 @@ import type { Symbol } from "../internal/ast/symbol.js";
 import type { Checker } from "../internal/checker/checker/state.js";
 import type { ExtensionForAwaitOfIterationMechanism, ExtensionForOfIterationMechanism } from "../internal/checker/checker/iteration-evidence.js";
 import type { Type } from "../internal/checker/types.js";
+export interface ResolvedSourceCallableCompletionInfo {
+    readonly declaration: Node;
+    readonly canFallThrough: boolean;
+}
+export declare function resolveSourceCallableCompletionInfo(checker: GoPtr<Checker>, declaration: GoPtr<Node>): GoPtr<ResolvedSourceCallableCompletionInfo>;
 export interface ResolvedSourceGeneratorInfo {
     readonly declaration: Node;
     readonly generatorKind: "sync" | "async";

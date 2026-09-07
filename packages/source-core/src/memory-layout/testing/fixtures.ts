@@ -16,7 +16,7 @@ export const memoryTestRegistration: TsonicDataLayoutRegistration = Object.freez
 
 export const memoryTestPrelude = `
 import { abi } from "test:abi";
-import type { Pointer, RawPointer, MemoryLayout, int32, uint32, nativeUint } from "@tsonic/core/types.js";
+import type { Pointer, RawPointer, MemoryLayout, int32, uint32, uint64, nativeUint } from "@tsonic/core/types.js";
 import { memoryLayout, memoryField, sizeOf, alignOf, strideOf, fieldOffsetOf,
   toRawPointer, reinterpretRawPointer, offsetRawPointer, rawPointerToAddressInteger,
   addressIntegerToRawPointer, keepAlive, loadPointer, storePointer } from "@tsonic/core/lang.js";

@@ -1,16 +1,26 @@
-import { Node_Expression, Node_Initializer, } from "../internal/ast/ast.js";
+import { Node_Body, Node_Expression, Node_Initializer, } from "../internal/ast/ast.js";
 import { FunctionFlagsAsync, FunctionFlagsGenerator, GetFunctionFlags, } from "../internal/ast/functionflags.js";
 import { NodeFlagsAwaitUsing, NodeFlagsBlockScoped, NodeFlagsUsing, } from "../internal/ast/generated/flags.js";
-import { IsComputedPropertyName, IsForOfStatement, IsVariableDeclaration, IsVariableDeclarationList, IsYieldExpression, } from "../internal/ast/generated/predicates.js";
+import { IsBlock, IsComputedPropertyName, IsForOfStatement, IsVariableDeclaration, IsVariableDeclarationList, IsYieldExpression, } from "../internal/ast/generated/predicates.js";
 import { AsYieldExpression } from "../internal/ast/generated/casts.js";
-import { GetContainingFunction, } from "../internal/ast/utilities.js";
+import { GetContainingFunction, IsFunctionLikeDeclaration, } from "../internal/ast/utilities.js";
 import { Checker_GetReturnTypeOfSignature, } from "../internal/checker/exports.js";
 import { Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getSignatureFromDeclaration, } from "../internal/checker/checker/signatures.js";
-import { Checker_checkExpressionCached, Checker_checkYieldExpression, Checker_getCombinedNodeFlagsCached, Checker_getResolvedSourceIterationInfo, } from "../internal/checker/checker/syntax-checking.js";
+import { Checker_checkExpressionCached, Checker_checkYieldExpression, Checker_getCombinedNodeFlagsCached, Checker_getResolvedSourceIterationInfo, Checker_functionHasImplicitReturn, } from "../internal/checker/checker/syntax-checking.js";
 import { Checker_checkYieldStarWithExtensionSelection, Checker_GetTypeAtLocation, Checker_getYieldedTypeOfYieldExpression, } from "../internal/checker/checker/types.js";
 import { Checker_getPropertyOfType, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_widenTypeForVariableLikeDeclaration, } from "../internal/checker/checker/symbols.js";
 import { TypeFlagsAny, TypeFlagsNever, TypeFlagsNull, TypeFlagsUndefined, TypeFlagsUnion, Type_Types, } from "../internal/checker/types.js";
 import { getPropertyNameFromType } from "../internal/checker/utilities.js";
+export function resolveSourceCallableCompletionInfo(checker, declaration) {
+    if (checker === undefined || declaration === undefined ||
+        !IsFunctionLikeDeclaration(declaration) || Node_Body(declaration) === undefined) {
+        return undefined;
+    }
+    return Object.freeze({
+        declaration,
+        canFallThrough: IsBlock(Node_Body(declaration)) && Checker_functionHasImplicitReturn(checker, declaration),
+    });
+}
 export function resolveSourceGeneratorInfo(checker, declaration) {
     if (checker === undefined || declaration === undefined) {
         return undefined;

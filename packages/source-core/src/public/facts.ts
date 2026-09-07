@@ -58,8 +58,27 @@ export type {
   TsonicMemoryLayoutFact, TsonicMemoryLayoutQueryFact,
 } from "../memory-layout/facts.js";
 export { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
-export type { TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
+export type { TsonicAddressIntegerDomain, TsonicKeepAliveFact, TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
 export {
   readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
+  countTsonicMemoryLayoutValues,
 } from "../memory-layout/readers.js";
+export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
+export { createTsonicClosedArrayStorageQueries } from "../pointers/backing/array-storage.js";
+export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
+export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";
+export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
+export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
+export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
+export { selectTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
+export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
+export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
+export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
+export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
+export { resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
+export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
+export type {
+  TsonicPointerBackingOrigin, TsonicPointerBackingIssue,
+  TsonicPointerBackingResolution, TsonicPointerBackingQueries,
+} from "../pointers/backing/requirements.js";

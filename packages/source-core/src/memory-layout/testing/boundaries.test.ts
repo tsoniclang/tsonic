@@ -27,7 +27,7 @@ for (const dimensions of ["4, 0, 4", "4, 3, 6", "8, 4, 4", "4, 4, 6", "-1, 4, 4"
 test("invalid source fields do not poison unrelated valid memory facts", () => {
   const checked = memorySession(memoryTestPrelude + `
     interface Header { count: uint32; }
-    memoryField((header: Header) => header.count, 1, 4);
+    memoryField((header: Header) => header.count, 1, 4, uint32Layout);
     sizeOf(uint32Layout);
   `);
   assert.ok(checked.extensionDiagnostics.some((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_FIELD_DIMENSIONS_INVALID"));
@@ -38,9 +38,9 @@ test("invalid source fields do not poison unrelated valid memory facts", () => {
 test("duplicate and out-of-aggregate selected fields are rejected before publishing a layout", () => {
   const checked = memorySession(memoryTestPrelude + `
     interface Header { count: uint32; }
-    const field = memoryField((header: Header) => header.count, 0, 4);
+    const field = memoryField((header: Header) => header.count, 0, 4, uint32Layout);
     memoryLayout<Header>(abi, 4, 4, 4, field, field);
-    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 8, 4));
+    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 8, 4, uint32Layout));
   `);
   assert.equal(checked.extensionDiagnostics.filter((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_LAYOUT_DIMENSIONS_INVALID").length, 2);
   for (const index of [1, 2]) assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", index)), undefined);
@@ -58,7 +58,7 @@ for (const selector of [
       declare function makeHeader(): Header;
       declare const enabled: boolean;
       const layout = memoryLayout<Header>(abi, 4, 4, 4);
-      memoryField(${selector}, 0, 4);
+      memoryField(${selector}, 0, 4, uint32Layout);
       fieldOffsetOf(layout, ${selector});
     `);
     assert.ok(checked.extensionDiagnostics.some((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_FIELD_NOT_PROVEN"));
@@ -71,7 +71,7 @@ for (const selector of [
 test("a single returned field is an exact selector, not an executed callback", () => {
   const checked = cleanMemorySession(`
     interface Header { count: uint32; }
-    memoryLayout<Header>(abi, 4, 4, 4, memoryField(function (header) { return header.count; }, 0, 4));
+    memoryLayout<Header>(abi, 4, 4, 4, memoryField(function (header) { return header.count; }, 0, 4, uint32Layout));
   `);
   assert.ok(readTsonicMemoryFieldLayout(checked.sourceFacts, memoryCall(checked, "memoryField")));
 });
@@ -95,12 +95,12 @@ test("integer offsets retain domains through parameters, fields, returns and imm
   }
 });
 
-test("inferred address conversion results retain their exact native unsigned domain", () => {
+test("inferred address conversion results retain their exact fixed-width unsigned domain", () => {
   const checked = cleanMemorySession(`
-    const address = rawPointerToAddressInteger(raw, abi);
+    const address = rawPointerToAddressInteger<uint64>(raw, abi);
     const copy = address;
     addressIntegerToRawPointer(copy, abi);
-    addressIntegerToRawPointer(rawPointerToAddressInteger(raw, abi), abi);
+    addressIntegerToRawPointer(rawPointerToAddressInteger<uint64>(raw, abi), abi);
   `);
   for (const index of [0, 1]) {
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "addressIntegerToRawPointer", index))?.operation, "address-integer-to-raw");
@@ -145,6 +145,56 @@ test("an authored plain-number domain is not reinterpreted through its integer i
   `);
   assert.ok(checked.extensionDiagnostics.some((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN"));
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer")), undefined);
+});
+
+test("typed byte-offset constants cannot hide invalid values behind erasing wrappers", () => {
+  const offsets = [
+    "1.5 as uint32", "1e309 satisfies uint32", "<uint32>(4294967296)",
+    "(-1 as uint32)!", "18446744073709551616n as uint64",
+  ];
+  const checked = memorySession(memoryTestPrelude + offsets.map((offset) =>
+    `offsetRawPointer(raw, (${offset}), abi);`).join("\n"));
+  assert.equal(checked.diagnostics.filter((entry) => entry !== undefined).length, 0);
+  assert.equal(checked.extensionDiagnostics.length, offsets.length);
+  assert.ok(checked.extensionDiagnostics.every((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN"));
+  for (const index of offsets.keys()) {
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer", index)), undefined);
+  }
+});
+
+test("erasing wrappers preserve valid layout constants and signed byte offsets", () => {
+  const checked = cleanMemorySession(`
+    import type { int64 } from "@tsonic/core/types.js";
+    memoryLayout<uint32>(abi, (4 as nativeUint), (4 satisfies nativeUint), (<nativeUint>4)!);
+    offsetRawPointer(raw, (-4n as int64), abi);
+    offsetRawPointer(raw, ((4 as uint32) satisfies uint32)!, abi);
+  `);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1))?.byteSize, 4);
+  const signed = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer"));
+  const unsigned = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer", 1));
+  assert.ok(signed?.operation === "byte-offset" && unsigned?.operation === "byte-offset");
+  assert.equal(signed.offsetSignedness, "signed");
+  assert.equal(signed.offsetWidth, 64);
+  assert.equal(unsigned.offsetSignedness, "unsigned");
+  assert.equal(unsigned.offsetWidth, 32);
+});
+
+test("satisfies and non-null assertions cannot replace an authored numeric domain", () => {
+  const checked = memorySession(memoryTestPrelude + `
+    const integer: uint32 = 4;
+    const widened: number = integer;
+    offsetRawPointer(raw, (widened satisfies uint32)!, abi);
+    addressIntegerToRawPointer<uint32>((widened satisfies uint32)!, abi);
+  `, { registrations: [{ ...memoryTestRegistration, descriptor: {
+    ...memoryTestRegistration.descriptor, fingerprint: "test-abi-le32", addressWidth: 32,
+  } }] });
+  assert.equal(checked.diagnostics.filter((entry) => entry !== undefined).length, 0);
+  assert.deepEqual(checked.extensionDiagnostics.map((entry) => entry.extensionCode).sort(), [
+    "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN", "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN",
+  ]);
+  for (const name of ["offsetRawPointer", "addressIntegerToRawPointer"]) {
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name)), undefined);
+  }
 });
 
 for (const declarations of [

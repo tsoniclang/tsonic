@@ -8,12 +8,18 @@ import { captureDataLayoutRegistrations } from "../registrations.js";
 import { memoryTestRegistration } from "./fixtures.js";
 
 function layoutFixture(): TsonicMemoryLayoutFact {
+  const fieldType = {} as Type;
+  const child: TsonicMemoryLayoutFact = {
+    call: {} as Node, sourceType: fieldType, dataLayoutExpression: {} as Node,
+    dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
+    byteSize: 4, byteAlignment: 4, stride: 4, fields: [],
+  };
   return {
     call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
     byteSize: 8, byteAlignment: 4, stride: 8,
     fields: [{ call: {} as Node, sourceType: {} as Type, selector: {} as Node, selectedDeclaration: {} as Node,
-      fieldType: {} as Type, byteOffset: 4, byteAlignment: 4 }],
+      fieldType, byteOffset: 4, byteAlignment: 4, fieldLayoutExpression: {} as Node, fieldLayout: child }],
   };
 }
 

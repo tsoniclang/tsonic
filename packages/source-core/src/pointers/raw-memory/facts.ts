@@ -8,6 +8,10 @@ interface RawMemoryBase {
   readonly resultType: Type;
 }
 
+export type TsonicAddressIntegerDomain =
+  | { readonly addressWidth: 32; readonly addressRuntimeBase: "number"; readonly addressSignedness: "unsigned" }
+  | { readonly addressWidth: 64; readonly addressRuntimeBase: "bigint"; readonly addressSignedness: "unsigned" };
+
 export type TsonicRawMemoryOperationFact = RawMemoryBase & (
   | {
       readonly operation: "to-raw";
@@ -37,18 +41,18 @@ export type TsonicRawMemoryOperationFact = RawMemoryBase & (
       readonly offsetWidth: 8 | 16 | 32 | 64 | 128;
       readonly dataLayoutExpression: Node;
     }
-  | {
+  | (TsonicAddressIntegerDomain & {
       readonly operation: "raw-to-address-integer";
       readonly rawExpression: Node;
       readonly rawType: Type;
       readonly dataLayoutExpression: Node;
-    }
-  | {
+    })
+  | (TsonicAddressIntegerDomain & {
       readonly operation: "address-integer-to-raw";
       readonly addressExpression: Node;
       readonly addressType: Type;
       readonly dataLayoutExpression: Node;
-    }
+    })
 );
 
 export interface TsonicKeepAliveFact extends RawMemoryBase {
@@ -67,15 +71,16 @@ function snapshotRawMemory<T extends TsonicRawMemoryOperationFact>(value: T): T 
       case "to-raw": return ["pointerExpression", "pointerType", "pointeeType", "layoutExpression", "layoutType"];
       case "reinterpret": return ["rawExpression", "rawType", "pointeeType", "layoutExpression", "layoutType"];
       case "byte-offset": return ["rawExpression", "rawType", "offsetExpression", "offsetType", "offsetRuntimeBase", "offsetSignedness", "offsetWidth", "dataLayoutExpression"];
-      case "raw-to-address-integer": return ["rawExpression", "rawType", "dataLayoutExpression"];
-      case "address-integer-to-raw": return ["addressExpression", "addressType", "dataLayoutExpression"];
+      case "raw-to-address-integer": return ["rawExpression", "rawType", "dataLayoutExpression", "addressWidth", "addressRuntimeBase", "addressSignedness"];
+      case "address-integer-to-raw": return ["addressExpression", "addressType", "dataLayoutExpression", "addressWidth", "addressRuntimeBase", "addressSignedness"];
       default: throw new Error("Unknown raw-memory operation.");
     }
   })();
   const result = exactRecord(value, [...base, ...fields] as (keyof T)[],
     discriminator.value === "reinterpret" ? ["explicitPointeeTypeNode"] as (keyof T)[] : []);
   for (const [key, subject] of Object.entries(result)) {
-    if (key !== "operation" && key !== "offsetRuntimeBase" && key !== "offsetSignedness" && key !== "offsetWidth" && subject !== undefined) {
+    if (key !== "operation" && key !== "offsetRuntimeBase" && key !== "offsetSignedness" && key !== "offsetWidth" &&
+        key !== "addressWidth" && key !== "addressRuntimeBase" && key !== "addressSignedness" && subject !== undefined) {
       opaqueSubject(subject);
     }
   }
@@ -84,6 +89,12 @@ function snapshotRawMemory<T extends TsonicRawMemoryOperationFact>(value: T): T 
     (result.offsetRuntimeBase !== "number" && result.offsetRuntimeBase !== "bigint") ||
     (result.offsetSignedness !== "signed" && result.offsetSignedness !== "unsigned")
   )) throw new Error("Raw byte offsets require exact integer evidence.");
+  if ((result.operation === "raw-to-address-integer" || result.operation === "address-integer-to-raw") && (
+    result.addressSignedness !== "unsigned" || !(
+      (result.addressWidth === 32 && result.addressRuntimeBase === "number") ||
+      (result.addressWidth === 64 && result.addressRuntimeBase === "bigint")
+    )
+  )) throw new Error("Address integers require an exact unsigned 32-bit number or 64-bit bigint domain.");
   return result;
 }
 

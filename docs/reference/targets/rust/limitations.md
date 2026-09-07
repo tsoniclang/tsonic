@@ -64,9 +64,44 @@ commands, and `yield*` are supported when their selected protocol is closed.
 ## Places, conversions, and callable values
 
 Locations over locals, parameters, fields, array elements, and proven disjoint
-subfields work. An owned-root receiver location and the neutral
-`hashPointer`, `bindPointer`, and `projectPointer` operations do not yet have a
-Rust target contract.
+subfields work. An owned-root receiver location remains unsupported.
+
+`hashPointer` uses canonical location identity. `bindPointer` retains a closed
+reference owner, not just its identity token. `projectPointer` preserves
+identity, applies the selected conversions, and preserves optionality.
+Bindings and projections require infallible native callbacks with closed
+capture lifetimes; their stored callbacks must satisfy `'static`.
+
+Raw identity, checked byte offsets, and exact 32/64-bit address integers are
+supported using a closed raw carrier. They require the `alloc` foundation;
+the selected address width must match the executing process. An address integer
+does not keep its former owner alive or authorize dereference. Layout
+observations use compile-time descriptors, not runtime provider objects.
+
+Accessor identity is not a native address. Closed scalar layouts support
+native-backed allocation and initialized block-local or by-value parameter
+storage. Raw round trips preserve that storage, including pointers held in
+closed local arrays and data-property objects. Closed local containers can
+replace entries through simple assignments; analysis must prove every stored
+pointer's backing.
+
+Physical record codecs require an explicit complete native-provider field
+contract and its exact `Copy` value carrier. Required mutable fields of
+compiler-owned reference objects can receive retained native storage. Dense
+native array elements can receive one strided allocation when all bindings,
+aliases and uses close locally. These refinements use owned Location handles,
+not Rust references into externally addressed mutable bytes. Replacing an object
+or array does not retarget an existing pointer.
+
+Escaped arrays, collection methods, optional/accessor fields and open caller
+boundaries still require additional proofs. Arbitrary conversion callbacks
+cannot establish a physical view of the same bytes. See
+[native storage boundaries](../../source-core.md) for the exact supported source
+forms and provider lease obligations.
+
+Ordinary source functions, methods and callbacks retain exact pointer results,
+including optional results and selected generic parameter transport. This does
+not infer arbitrary pointer-producing generic bodies or external storage.
 
 A TypeScript assertion cannot manufacture a native conversion:
 

@@ -54,9 +54,42 @@ for (const [key, value] of entries) {
 }
 ```
 
-The neutral `hashPointer`, `bindPointer`, and `projectPointer` operations also
-reject because C# has no approved target contract for those identities. Tsonic
-does not substitute wrapper-object hashes or copied values.
+`hashPointer` hashes canonical location identity, including `undefined`.
+`bindPointer` requires a closed reference identity and exact read/write
+callbacks. `projectPointer` preserves that identity and applies the selected
+conversions on reads and writes. Optional projections remain optional, and
+constructing a projection does not execute its callbacks.
+
+These accessor locations do not automatically have native addresses. A
+projection that changes the represented value cannot be treated as a raw
+view of the same bytes. Closed scalar layouts support native-backed allocation
+and initialized block-local or by-value parameter storage. Raw round trips
+preserve that storage, including pointers held in closed local arrays and
+data-property objects. Closed local containers can replace entries through simple
+assignments; analysis must prove every stored pointer's backing.
+
+Physical record codecs require a source-defined `struct` or an explicit complete
+native-provider value-field contract. Required mutable fields of compiler-owned
+reference objects can receive retained native storage. Dense native array
+elements can receive one strided allocation when all bindings, aliases and uses
+close locally. Ordinary writes and raw pointer writes reach the same storage;
+replacing the object or array does not retarget an existing pointer.
+
+Escaped arrays, collection methods, optional/accessor fields and open caller
+boundaries still require additional proofs. Promoted native locals, fields and
+elements cannot also be passed as managed `ref`/`out` storage. No copy-in/copy-out
+conversion is inserted. See [native storage boundaries](../../source-core.md)
+for the exact supported source forms and provider lease obligations.
+
+Ordinary source functions, methods and callbacks retain exact pointer results,
+including optional results and selected generic parameter transport. This does
+not infer arbitrary pointer-producing generic bodies or external storage.
+
+Raw address equality, hashing, checked byte offsets, and exact 32/64-bit
+address-integer conversion are supported. Address width is checked against the
+executing process. These operations do not dereference memory or prove that an
+integer denotes live storage. Layout observations use finalized compile-time
+descriptors; those descriptors cannot escape into ordinary runtime values.
 
 Native pointer access requires the exact pointer carrier, lexical safety
 context, declaration safety contract where applicable, and generated/user

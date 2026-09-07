@@ -3,6 +3,7 @@ import type {
   ExtensionFactSubject,
   Node,
   ReadonlySourceFactResolver,
+  ResolvedSourceCallableCompletionInfo,
   ResolvedSourceElementAccessInfo,
   ResolvedSourceGeneratorInfo,
   ResolvedSourceIterationInfo,
@@ -50,6 +51,7 @@ export interface SourceOperationEvidenceQueries {
   iteration(node: Node): ResolvedSourceIterationInfo | undefined;
   objectLiteralElement(node: Node): ResolvedSourceObjectLiteralElementInfo | undefined;
   storage(node: Node): ResolvedSourceStorageInfo | undefined;
+  callableCompletion(node: Node): ResolvedSourceCallableCompletionInfo | undefined;
   generator(node: Node): ResolvedSourceGeneratorInfo | undefined;
   yield(node: Node): ResolvedSourceYieldInfo | undefined;
   wellKnownSymbol(node: Node): ResolvedSourceWellKnownSymbolInfo | undefined;
