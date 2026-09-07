@@ -60,11 +60,23 @@ export function createTsonicPointerBackingDemands(source: TargetSourceProgram): 
 }
 
 function sameBackingLayout(left: TsonicMemoryLayoutFact, right: TsonicMemoryLayoutFact): boolean {
-  return left.sourceType === right.sourceType && dataLayoutsEqual(left.dataLayout, right.dataLayout) &&
-    left.byteSize === right.byteSize && left.byteAlignment === right.byteAlignment && left.stride === right.stride &&
-    left.fields.length === right.fields.length && left.fields.every((field, index) => {
-      const other = right.fields[index];
-      return other !== undefined && field.selectedDeclaration === other.selectedDeclaration &&
-        field.fieldType === other.fieldType && field.byteOffset === other.byteOffset && field.byteAlignment === other.byteAlignment;
-    });
+  const pending: [TsonicMemoryLayoutFact, TsonicMemoryLayoutFact][] = [[left, right]];
+  const compared = new Map<TsonicMemoryLayoutFact, Set<TsonicMemoryLayoutFact>>();
+  while (pending.length !== 0) {
+    const [current, other] = pending.pop()!;
+    if (current === other || compared.get(current)?.has(other)) continue;
+    if (current.sourceType !== other.sourceType || !dataLayoutsEqual(current.dataLayout, other.dataLayout) ||
+        current.byteSize !== other.byteSize || current.byteAlignment !== other.byteAlignment ||
+        current.stride !== other.stride || current.fields.length !== other.fields.length) return false;
+    const peers = compared.get(current) ?? new Set<TsonicMemoryLayoutFact>();
+    peers.add(other);
+    compared.set(current, peers);
+    for (const [index, field] of current.fields.entries()) {
+      const counterpart = other.fields[index]!;
+      if (field.selectedDeclaration !== counterpart.selectedDeclaration || field.fieldType !== counterpart.fieldType ||
+          field.byteOffset !== counterpart.byteOffset || field.byteAlignment !== counterpart.byteAlignment) return false;
+      pending.push([field.fieldLayout, counterpart.fieldLayout]);
+    }
+  }
+  return true;
 }

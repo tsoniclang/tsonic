@@ -19,6 +19,24 @@ export function readTsonicMemoryLayoutQuery(facts: ReadonlySourceFactResolver, s
   return facts.getFact(subject, tsonicMemoryLayoutQueryFactKey);
 }
 
+export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maximum: number): number | undefined {
+  if (!Number.isSafeInteger(maximum) || maximum < 1) return undefined;
+  const counts = new Map<TsonicMemoryLayoutFact, number | undefined>();
+  function count(layout: TsonicMemoryLayoutFact): number | undefined {
+    if (counts.has(layout)) return counts.get(layout);
+    counts.set(layout, undefined);
+    let total = 1;
+    for (const field of layout.fields) {
+      const child = count(field.fieldLayout);
+      if (child === undefined || child > maximum - total) return undefined;
+      total += child;
+    }
+    counts.set(layout, total);
+    return total;
+  }
+  return count(root);
+}
+
 export function isFinalizedMemoryLayout(facts: ReadonlySourceFactResolver, root: TsonicMemoryLayoutFact): boolean {
   const pending = [root];
   const visited = new Set<TsonicMemoryLayoutFact["call"]>();

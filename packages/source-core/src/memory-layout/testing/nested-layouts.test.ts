@@ -7,7 +7,7 @@ import {
   tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey,
 } from "../facts.js";
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../facts.js";
-import { readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
+import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
 import { cleanMemorySession, memoryCall, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
 
@@ -26,6 +26,18 @@ function field(child: TsonicMemoryLayoutFact, byteOffset = 0): TsonicMemoryField
     byteOffset, byteAlignment: child.byteAlignment,
   };
 }
+
+test("layout occurrence counts bound repeated DAG expansion without expanding it", () => {
+  const value = scalar();
+  const pair = { ...scalar(), byteSize: 8, stride: 8, fields: [field(value), field(value, 4)] };
+  assert.equal(countTsonicMemoryLayoutValues(pair, 3), 3);
+  assert.equal(countTsonicMemoryLayoutValues(pair, 2), undefined);
+  let layout = { ...scalar(), byteSize: 0, stride: 0 };
+  for (let depth = 0; depth < 100; depth += 1) {
+    layout = { ...scalar(), byteSize: 0, stride: 0, fields: [field(layout), field(layout)] };
+  }
+  assert.equal(countTsonicMemoryLayoutValues(layout, 131_072), undefined);
+});
 
 test("nested layouts retain the explicitly chosen child and its authored operand through aliases", () => {
   const checked = cleanMemorySession(`

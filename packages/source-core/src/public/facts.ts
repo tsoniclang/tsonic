@@ -62,6 +62,7 @@ export type { TsonicAddressIntegerDomain, TsonicKeepAliveFact, TsonicRawMemoryOp
 export {
   readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation, readTsonicKeepAlive,
+  countTsonicMemoryLayoutValues,
 } from "../memory-layout/readers.js";
 export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
 export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";

@@ -53,6 +53,24 @@ test("one origin cannot silently choose the first incompatible layout demand", (
   assert.ok(demands.issues().some(issue => issue.reason.includes("incompatible physical layout")));
 });
 
+test("one physical origin reconciles nested child layouts rather than only parent extents", () => {
+  for (const stride of [4, 8]) {
+    const { demands } = collect(`
+      interface RecordValue { value: uint32 }
+      const child = memoryLayout<uint32>(abi, 4, 4, ${stride});
+      const first = memoryLayout<RecordValue>(abi, 4, 4, 4,
+        memoryField((record: RecordValue) => record.value, 0, 4, uint32Layout));
+      const second = memoryLayout<RecordValue>(abi, 4, 4, 4,
+        memoryField((record: RecordValue) => record.value, 0, 4, child));
+      const pointer = allocatePointer<RecordValue>({ value: 1 });
+      toRawPointer(pointer, first);
+      toRawPointer(pointer, second);
+    `);
+    assert.equal(demands.issues().some(issue => issue.reason.includes("incompatible physical layout")), stride !== 4);
+    assert.equal(demands.entries().length, 1);
+  }
+});
+
 test("raw location selection retains inferred pointee evidence and rejects moved calls and stale ABI facts", () => {
   const { checked, source } = collect("const pointer = reinterpretRawPointer(undefined, uint32Layout);");
   const call = memoryCall(checked, "reinterpretRawPointer");

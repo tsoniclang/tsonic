@@ -232,7 +232,14 @@ same backing. Undemanded locals and logical pointers keep their usual form.
 
 Current physical layouts support signed/unsigned 8-, 16-, 32-, 64- and 128-bit
 integers, native-width integers, and 32-/64-bit floats; C# also supports `float16`.
-Size must match the selected scalar, and the descriptor must have no fields.
+Scalar size must match its selected representation and have no fields. A
+physical record requires a complete value-type contract: a source-defined C#
+`struct`, or a native provider's explicit complete field identities and value
+carrier. Ordinary reference objects cannot be decoded as value records. Record
+codecs read and write the selected scalar leaves at their declared offsets;
+they do not copy native struct padding or assume the process uses those offsets.
+Nested field placement can be packed independently of its standalone layout.
+Expanded codecs are limited to 131,072 value occurrences.
 Physical operations check process address width, byte order, bounds of retained
 allocations, and the selected alignment. These checks do not make an external
 address valid: explicit unsafe code must ensure its storage remains initialized,
@@ -244,12 +251,31 @@ Pointers stored in closed local arrays and data-property objects also retain
 their backing through local aliases, binding replacement, and simple element
 or property assignments. Analysis checks every possible stored pointer; a
 logical projection cannot acquire native backing by being put in a container.
-This does not give the container's own elements or fields a physical address.
+Transporting a pointer is separate from addressing the container's own storage.
 
-Records, field/element origins, escaped pointer containers, collection-method
-mutations and open caller boundaries still lack complete native-backing proofs. Logical callback
+Required mutable data fields of compiler-owned reference objects can also receive
+native backing. For example:
+
+```ts
+const cell: { value: uint32 } = { value: 7 };
+const alias = cell;
+const pointer = addressOf(cell.value);
+toRawPointer(pointer, layout);
+storePointer(pointer, 9);
+alias.value = 11;
+```
+
+Both assignments update the same physical field. Independently taking
+`addressOf(alias.value)` gives the same location. Reassigning `cell` to a new
+object does not retarget the old pointer. The retained location keeps its
+storage alive after the original local returns. This storage choice does not
+change the field's public value type or undemanded object shapes.
+
+Array-element origins, optional/accessor fields, arbitrary native object fields,
+escaped pointer containers, collection-method mutations and open caller
+boundaries still lack complete native-backing proofs. Logical callback
 projections do not establish physical backing. C# also rejects passing a promoted
-local as managed `ref`/`out`.
+local or field as managed `ref`/`out`.
 
 Native providers can return the canonical raw carrier with an explicit storage
 lease. C# runtime code calls `RawPointer.FromExternal(address, byteLength, owner)`;
