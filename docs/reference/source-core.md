@@ -271,11 +271,31 @@ object does not retarget the old pointer. The retained location keeps its
 storage alive after the original local returns. This storage choice does not
 change the field's public value type or undemanded object shapes.
 
-Array-element origins, optional/accessor fields, arbitrary native object fields,
-escaped pointer containers, collection-method mutations and open caller
-boundaries still lack complete native-backing proofs. Logical callback
-projections do not establish physical backing. C# also rejects passing a promoted
-local or field as managed `ref`/`out`.
+Dense native arrays have the same retained-location behavior when analysis can
+close all local aliases and uses:
+
+```ts
+let values: uint32[] = [7, 8];
+const alias = values;
+const pointer = addressOf(values[0]);
+toRawPointer(pointer, layout);
+alias[0] = 11;
+values = [99];
+loadPointer(pointer); // 11, from the original allocation
+```
+
+The selected element stride determines the distance between adjacent locations.
+Ordinary element reads and writes use that allocation too. Bounds are checked.
+The current proof admits initialized block-local bindings, dense non-spread
+literals, local aliases, standalone binding replacements and element accesses.
+It rejects collection methods, property operations, resizing, deletion, captures
+and array escapes through calls, returns or other containers. It does not change
+undemanded arrays or substitute native arrays for JS-surface collections.
+
+Optional/accessor fields, arbitrary native object fields, escaped pointer
+containers and open caller boundaries still lack complete native-backing proofs.
+Logical callback projections do not establish physical backing. C# also rejects
+passing promoted locals, fields or elements as managed `ref`/`out`.
 
 Native providers can return the canonical raw carrier with an explicit storage
 lease. C# runtime code calls `RawPointer.FromExternal(address, byteLength, owner)`;

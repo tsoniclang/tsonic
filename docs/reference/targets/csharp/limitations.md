@@ -66,11 +66,20 @@ view of the same bytes. Closed scalar layouts support native-backed allocation
 and initialized block-local or by-value parameter storage. Raw round trips
 preserve that storage, including pointers held in closed local arrays and
 data-property objects. Closed local containers can replace entries through simple
-assignments; analysis must prove every stored pointer's backing. Their own field
-or element storage does not thereby become addressable. Records, escaped
-containers, collection-method mutations and open caller boundaries still require
-additional proofs. A promoted native local cannot also be passed as a managed
-`ref`/`out` variable. No copy-in/copy-out conversion is inserted.
+assignments; analysis must prove every stored pointer's backing.
+
+Physical record codecs require a source-defined `struct` or an explicit complete
+native-provider value-field contract. Required mutable fields of compiler-owned
+reference objects can receive retained native storage. Dense native array
+elements can receive one strided allocation when all bindings, aliases and uses
+close locally. Ordinary writes and raw pointer writes reach the same storage;
+replacing the object or array does not retarget an existing pointer.
+
+Escaped arrays, collection methods, optional/accessor fields and open caller
+boundaries still require additional proofs. Promoted native locals, fields and
+elements cannot also be passed as managed `ref`/`out` storage. No copy-in/copy-out
+conversion is inserted. See [native storage boundaries](../../source-core.md)
+for the exact supported source forms and provider lease obligations.
 
 Ordinary source functions, methods and callbacks retain exact pointer results,
 including optional results and selected generic parameter transport. This does

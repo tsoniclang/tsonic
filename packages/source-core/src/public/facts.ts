@@ -65,6 +65,8 @@ export {
   countTsonicMemoryLayoutValues,
 } from "../memory-layout/readers.js";
 export { createTsonicPointerBackingQueries } from "../pointers/backing/requirements.js";
+export { createTsonicClosedArrayStorageQueries } from "../pointers/backing/array-storage.js";
+export type { TsonicClosedArrayStorage } from "../pointers/backing/array-storage.js";
 export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";

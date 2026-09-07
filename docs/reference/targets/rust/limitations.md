@@ -83,10 +83,21 @@ native-backed allocation and initialized block-local or by-value parameter
 storage. Raw round trips preserve that storage, including pointers held in
 closed local arrays and data-property objects. Closed local containers can
 replace entries through simple assignments; analysis must prove every stored
-pointer's backing. Their own field or element storage does not thereby become
-addressable. Records, escaped containers, collection-method mutations and open
-caller boundaries still require additional proofs. Arbitrary conversion
-callbacks cannot establish a physical view of the same bytes.
+pointer's backing.
+
+Physical record codecs require an explicit complete native-provider field
+contract and its exact `Copy` value carrier. Required mutable fields of
+compiler-owned reference objects can receive retained native storage. Dense
+native array elements can receive one strided allocation when all bindings,
+aliases and uses close locally. These refinements use owned Location handles,
+not Rust references into externally addressed mutable bytes. Replacing an object
+or array does not retarget an existing pointer.
+
+Escaped arrays, collection methods, optional/accessor fields and open caller
+boundaries still require additional proofs. Arbitrary conversion callbacks
+cannot establish a physical view of the same bytes. See
+[native storage boundaries](../../source-core.md) for the exact supported source
+forms and provider lease obligations.
 
 Ordinary source functions, methods and callbacks retain exact pointer results,
 including optional results and selected generic parameter transport. This does
