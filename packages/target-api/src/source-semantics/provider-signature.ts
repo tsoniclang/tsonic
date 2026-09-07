@@ -37,9 +37,9 @@ export function selectSourceProviderSignature(
       document.providerModuleId !== identity.providerModuleId) {
     return invalid("The selected provider callable does not match its retained declaration document.");
   }
-  const exports = document.declarationModel.exports.filter(value => value.id === identity.exportId);
-  if (exports.length !== 1) return invalid("The selected provider export identity is missing or ambiguous.");
-  const exported = exports[0]!;
+  const matchingExports = document.declarationModel.exports.filter(value => value.id === identity.exportId);
+  if (matchingExports.length !== 1) return invalid("The selected provider export identity is missing or ambiguous.");
+  const exported = matchingExports[0]!;
   const members = identity.memberId === undefined ? [] :
     (exported.members ?? []).filter(value => value.id === identity.memberId);
   if (identity.memberId !== undefined && (members.length !== 1 ||
