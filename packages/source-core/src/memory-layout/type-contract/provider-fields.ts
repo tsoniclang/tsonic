@@ -17,9 +17,9 @@ export function memoryProviderFieldType(
   if (document === undefined || document.provider.id !== identity.providerId ||
       document.provider.version !== identity.providerVersion || document.moduleSpecifier !== identity.moduleSpecifier ||
       document.providerModuleId !== identity.providerModuleId) return invalid;
-  const exports = document.declarationModel.exports.filter(value => value.id === identity.exportId);
-  if (exports.length !== 1) return invalid;
-  const members = exports[0]!.members?.filter(value => value.id === identity.memberId) ?? [];
+  const matchingExports = document.declarationModel.exports.filter(value => value.id === identity.exportId);
+  if (matchingExports.length !== 1) return invalid;
+  const members = matchingExports[0]!.members?.filter(value => value.id === identity.memberId) ?? [];
   if (members.length !== 1 || members[0]!.kind !== "property" ||
       identity.memberStatic !== undefined && identity.memberStatic !== (members[0]!.static === true)) return invalid;
   return { type: members[0]!.type };
