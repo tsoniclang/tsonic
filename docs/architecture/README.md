@@ -53,4 +53,5 @@ using different target facts and algorithms inside them.
 - [Compilation lifecycle](compilation-lifecycle.md)
 - [Target-pack contract](target-pack-contract.md)
 - [Provider and runtime ownership](provider-and-runtime-ownership.md)
+- [Memory type contracts](memory-type-contracts.md)
 - [Workspace agent policy](workspace-agent-policy.md)

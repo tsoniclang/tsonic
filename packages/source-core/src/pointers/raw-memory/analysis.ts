@@ -25,12 +25,17 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       memoryDiagnostic(call, "POINTEE_MISSING", "Raw conversion requires its exact resolved pointee and selected layout operand.");
       return;
     }
-    analysis.layout(layout.expression, context);
+    const descriptor = analysis.layout(layout.expression, context);
+    if (descriptor === undefined || !analysis.types.raw(call, descriptor)) {
+      memoryDiagnostic(call, "POINTEE_LAYOUT_NOT_PROVEN", "Raw conversion requires the same exact closed memory type and marker domain as its finalized layout.");
+      return;
+    }
     const typed = { ...base, pointeeType: pointee.selectedType, layoutExpression: layout.expression, layoutType: layout.type };
     publishMemoryFact(call, tsonicRawMemoryOperationFactKey, name === "toRawPointer"
       ? { ...typed, operation: "to-raw", pointerExpression: operand.expression, pointerType: operand.type }
       : { ...typed, operation: "reinterpret", rawExpression: operand.expression, rawType: operand.type,
           ...(pointee.explicitTypeNode === undefined ? {} : { explicitPointeeTypeNode: pointee.explicitTypeNode }) });
+    analysis.types.publish(call);
     return;
   }
   const dataLayoutOperand = args[name === "offsetRawPointer" ? 2 : 1];

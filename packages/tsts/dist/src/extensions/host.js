@@ -2847,7 +2847,7 @@ export class ExtensionHost {
                                 analyzeSource(Object.freeze({
                                     source: compiler,
                                     facts: createSourceAnalysisFactAccess(capabilities.facts, scope),
-                                    factResolver: createSourceAnalysisFactResolver(capabilities.factResolver, scope),
+                                    factResolver: createSourceAnalysisFactResolver(capabilities.factResolver, scope, name => this.providers.getVirtualDeclarationDocument(name)),
                                     diagnostics: createExtensionDiagnosticWriter(capabilities.diagnostics, scope),
                                 }));
                             }
@@ -3014,8 +3014,12 @@ function createSourceAnalysisFactAccess(facts, scope) {
     };
     return Object.freeze(access);
 }
-function createSourceAnalysisFactResolver(factResolver, scope) {
+function createSourceAnalysisFactResolver(factResolver, scope, getVirtualDeclarationDocument) {
     const resolver = {
+        getVirtualDeclarationDocument(name) {
+            assertExtensionCapabilityActive(scope);
+            return getVirtualDeclarationDocument(name);
+        },
         resolve(subject, key) {
             assertExtensionCapabilityActive(scope);
             return factResolver.resolve(subject, key);
