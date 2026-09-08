@@ -48,9 +48,42 @@ trait bounds, and supported projections when rustdoc supplies enough exact
 information. A signature outside that representable contract rejects at the
 provider boundary.
 
-## Snapshot invariants
+## Toolchain contract
 
-Provider caches are keyed by immutable content identity. A changed Cargo
-graph, toolchain, source crate, rustdoc artifact, feature set, or relevant
-environment produces a different snapshot. Mutation during one compilation
-fails closed; stale or corrupt cache data is never accepted as semantic input.
+Use Cargo, rustc, rustdoc and `rust-src` from the selected toolchain. Tsonic
+invokes rustdoc's JSON mode internally; it does not require an editor or
+rust-analyzer installation. Install the source component with
+`rustup component add rust-src`.
+
+The decoder supports rustdoc signature formats 57, 58, 59 and 60. These share
+the native signature schema consumed by the provider. Unrecognized format
+revisions fail at the provider boundary; a new Rust release is not assumed to
+preserve that schema merely because its major version is unchanged.
+
+## Snapshot and cache invariants
+
+The snapshot records Cargo dependency identities, selected features, package
+source digests and the actual compiler version. Dependency source is checked
+before and after module extraction. A source change during a compilation is
+rejected rather than combined with an earlier signature.
+
+Nested directories with a valid `CACHEDIR.TAG` are declared caches, not package
+source. Cargo tags its build directories, and the provider tags its own cache
+root before writing requests or metadata. An invalid tag does not exclude a
+directory. A selected Cargo package root is still read even if it has a tag.
+Generated native source outside declared caches remains part of the snapshot.
+Do not place required authored or generated input in a declared cache directory.
+
+For example, a dependency's generated `src/lib.rs` remains an input, while its
+tagged Cargo build directory may grow without changing the source digest.
+Changing `src/lib.rs` invalidates the snapshot; writing a new object file in
+the cache does not.
+
+Rustdoc artifacts have content-digest markers tied to the snapshot and
+dependency. Missing or corrupt artifacts are regenerated. The worker also
+retains parsed documents, bounded to eight entries and 64 MiB of serialized
+document weight. Reuse checks the artifact and marker identities and file
+versions, including size, inode, modification time and change time. This avoids
+repeated JSON parsing without skipping the native source checks. These cache
+limits are not a bound on the entire compiler process or the standard-library
+identity indexes.
