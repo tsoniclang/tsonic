@@ -30,6 +30,17 @@ JSON, and exposes only requested public declarations. `core` source cannot
 silently use `alloc` or `std`; an operation whose closed requirements exceed
 the selected foundation is rejected before source publication.
 
+Native imports require the selected toolchain's `rust-src` component:
+
+```sh
+rustup component add rust-src
+```
+
+The provider reads rustdoc signature formats 57–60 through one decoder. A
+different format is rejected rather than interpreted as a known schema. See
+the [native-provider reference](../../../reference/targets/rust/native-apis.md)
+for toolchain and cache rules.
+
 ## Third-party crates
 
 Third-party crates use a user-owned Cargo project. The import names a direct

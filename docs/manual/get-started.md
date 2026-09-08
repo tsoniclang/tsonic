@@ -21,12 +21,13 @@ dotnet --list-sdks
 ```
 
 For Rust, use the [official rustup installer](https://www.rust-lang.org/tools/install),
-then install `rustfmt` in the active toolchain.
+then install `rustfmt` and `rust-src` in the active toolchain. Native-library
+imports use `rust-src` to read the selected standard library's declarations.
 
 ```sh
 rustup toolchain install stable
 rustup default stable
-rustup component add rustfmt
+rustup component add rustfmt rust-src
 ```
 
 The project creator checks the selected native toolchain before publishing the
