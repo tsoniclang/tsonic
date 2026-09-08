@@ -53,6 +53,20 @@ if their ordinary TypeScript numeric carriers coincide. Alias substitution
 uses resolved declarations and type parameters, not names. Nullability,
 nested pointers and closed generic arguments participate in identity.
 
+For inferred pointer values, the same contract follows selected declarations,
+array index signatures, call arguments and returns. This recovers the static
+marker domain; it does not prove that storage is stable or that a pointer may
+escape. Existing target assignment, backing-storage and lifetime checks still
+apply.
+
+Provider fields use their retained declaration models. During source analysis,
+`context.factResolver.getVirtualDeclarationDocument(identity.artifactFileName)`
+reads the already-published immutable document. It does not query the provider
+again. For example, a provider's `source-primitive: uint32` field must agree
+with a `uint32` layout even though its virtual TypeScript annotation is
+`number`. The document's provider, version, module, export and member identity
+must match before that evidence can be used.
+
 This is a memory contract, not a second TypeScript type evaluator. Direct
 annotations, resolved aliases, unions, arrays and closed generic references
 retain their marker domains. A marker-bearing conditional or mapped type, or

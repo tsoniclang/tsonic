@@ -8,6 +8,7 @@ import {
 } from "../../public/facts.js";
 import { resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { assertMemoryDiagnostics, memoryCall, memoryCalls, memorySession } from "./fixtures.js";
+import { createSourceSemanticsVirtualModuleProvider } from "../../extension/semantics-virtual-modules.js";
 
 const prelude = `
 import { abi } from "test:abi";
@@ -109,6 +110,53 @@ test("allocated, returned and raw-backed pointer values retain exact pointees th
     assert.equal(selected.memoryType, expected);
   }
 });
+
+for (const [name, setup, expression] of [
+  ["numeric array index", "const values: Pointer<uint32>[] = [allocatePointer<uint32>(3)];", "values[0]"],
+  ["shorthand field", "const pointer = allocatePointer<uint32>(3); const holder = { pointer };", "holder.pointer"],
+  ["conditional mutable binding", "let pointer = allocatePointer<uint32>(3); pointer = allocatePointer<uint32>(4);", "true ? pointer : undefined"],
+  ["inferred default return", "function get(value: Pointer<uint32> = allocatePointer<uint32>(3)) { return value; }", "get()"],
+  ["generic return", "function identity<Value>(value: Pointer<Value>): Pointer<Value> { return value; }", "identity(allocatePointer<uint32>(3))"],
+] as const) {
+  for (const signed of [false, true]) {
+    test(`${name} preserves the pointee domain${signed ? " and rejects signed layout substitution" : ""}`, () => {
+      const checked = memorySession(prelude + `
+        const layout = memoryLayout<${signed ? "int32" : "uint32"}>(abi, 4, 4, 4);
+        ${setup} toRawPointer(${expression}, layout);
+      `);
+      assert.equal(checked.diagnostics.filter(Boolean).length, 0);
+      if (signed) {
+        assert.ok(checked.extensionDiagnostics.some(value => value.extensionCode === "SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN"));
+      } else {
+        assertMemoryDiagnostics(checked);
+        const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "toRawPointer"));
+        assert.ok(selected?.kind === "resolved");
+        assert.equal(selected.memoryType, identity(checked, memoryCall(checked, "memoryLayout")));
+      }
+    });
+  }
+}
+
+for (const primitive of ["uint32", "int32"] as const) {
+  test(`retained provider ${primitive} fields are not reduced to their number annotation`, () => {
+    const provider = createSourceSemanticsVirtualModuleProvider({
+      id: "test.memory-fields", version: "1", displayName: "Memory fields", virtualDirectory: "memory-fields",
+      modules: [{ moduleSpecifier: "test:fields", exports: [] }], evidenceMessage: "Exact memory field model",
+      exportsForModule: () => [{ id: "field-owner", name: "Header", kind: "interface", members: [
+        { id: "field-slot", name: "count", kind: "property", type: { kind: "source-primitive", name: primitive } },
+      ] }],
+    });
+    const checked = memorySession(prelude + `
+      import type { Header } from "test:fields";
+      const word = memoryLayout<uint32>(abi, 4, 4, 4);
+      memoryLayout<Header>(abi, 4, 4, 4, memoryField((value: Header) => value.count, 0, 4, word));
+    `, { extensions: [{ identity: { id: "test.memory-fields", version: "1" },
+      initialize(context) { context.registerSourceDeclarationProvider(provider); } }] });
+    assert.equal(checked.diagnostics.filter(Boolean).length, 0);
+    if (primitive === "uint32") assertMemoryDiagnostics(checked);
+    else assert.ok(checked.extensionDiagnostics.some(value => value.extensionCode === "SOURCE_CORE_MEMORY_FIELD_LAYOUT_NOT_PROVEN"));
+  });
+}
 
 test("closed generic array aliases preserve element markers without depending on their spelling", () => {
   const checked = clean(`

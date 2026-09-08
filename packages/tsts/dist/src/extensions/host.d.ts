@@ -180,6 +180,7 @@ export interface SourceAnalysisFactAccess extends ExtensionFactReader {
     readonly set: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]) => ExtensionFactWriteResult;
 }
 export interface SourceAnalysisFactResolver {
+    readonly getVirtualDeclarationDocument: (uriOrFileName: string) => ProviderVirtualDeclarationDocument | undefined;
     readonly resolve: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>) => T | undefined;
 }
 export interface SourceAnalysisContext {

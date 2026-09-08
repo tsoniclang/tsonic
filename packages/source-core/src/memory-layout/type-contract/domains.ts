@@ -2,6 +2,8 @@ import { pointerFactKey, rawPointerFactKey, sourcePrimitiveFactKey } from "@tson
 import type { Node, SourcePrimitiveFact, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
+import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
+import { memoryProviderFieldType } from "./provider-fields.js";
 
 export interface MemoryTypeDomain {
   readonly key: number;
@@ -34,6 +36,8 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
   const cache = new Map<Node, MemoryTypeDomain | undefined>();
   const closed = new Map<Type, boolean>();
   const referenceBindings = new Map<MemoryTypeDomain, ReadonlyMap<Symbol, MemoryTypeDomain>>();
+  const primitives = tsonicCoreSourceSemanticsModules().flatMap(module => module.exports)
+    .filter(value => value.kind === "source-primitive");
   let nextKey = 0;
 
   function typeParameters(declaration: Node): readonly (Node | undefined)[] {
@@ -132,6 +136,15 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
     if (active.has(node) || active.size >= 128) return undefined;
     active.add(node);
     try {
+      const provider = memoryProviderFieldType(context, node);
+      if (provider !== undefined) {
+        if (provider.type === undefined) return undefined;
+        if (provider.type.kind === "source-primitive") {
+          const model = provider.type;
+          const declared = primitives.find(value => value.primitive === model.name);
+          return declared === undefined ? undefined : primitive({ ...declared, kind: declared.primitive });
+        }
+      }
       const fact = readSourceFact(context, node, sourcePrimitiveFactKey);
       if (fact !== undefined) return primitive(fact);
       if (readSourceFact(context, node, rawPointerFactKey) !== undefined) return intern("raw-pointer", []);
