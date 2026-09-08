@@ -11,6 +11,7 @@ import { tsonicMemorySignatureIds } from "./declarations.js";
 import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "./facts.js";
 import type { TsonicDataLayoutFact } from "./facts.js";
 import { immutableValueOrigin } from "./source-values.js";
+import { createMemoryTypeContracts } from "./type-contract/analysis.js";
 
 const selectors = Object.entries(tsonicMemorySignatureIds).map(([name, signatureId]) => ({
   name: name as keyof typeof tsonicMemorySignatureIds,
@@ -33,7 +34,10 @@ export function analyzeTsonicMemoryOperations(
   });
   const pending = new Set<Node>();
   const completed = new Set<Node>();
+  const owner = calls.values().next().value;
+  if (owner === undefined) return;
   const analysis: MemorySourceAnalysis = {
+    types: createMemoryTypeContracts(context, owner.context),
     registrations,
     field: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldLayoutFactKey),
     layout: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryLayoutFactKey),

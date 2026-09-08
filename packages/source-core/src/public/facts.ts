@@ -71,6 +71,8 @@ export { createTsonicPointerReturnQueries } from "../pointers/return-evidence.js
 export type { TsonicPointerReturnEvidence, TsonicPointerReturnQueries } from "../pointers/return-evidence.js";
 export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selection.js";
 export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
+export { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../memory-layout/type-contract/facts.js";
+export type { TsonicMemoryTypeFact, TsonicMemoryTypeIdentity } from "../memory-layout/type-contract/facts.js";
 export { selectTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
 export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";

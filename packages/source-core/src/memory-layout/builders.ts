@@ -24,7 +24,7 @@ export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourc
     return;
   }
   if (args[3] === undefined || fieldLayout === undefined ||
-      !context.typeShape.isTypeIdenticalTo(fieldType, fieldLayout.sourceType)) {
+      !analysis.types.field(call, declaration, fieldLayout)) {
     memoryDiagnostic(call, "FIELD_LAYOUT_NOT_PROVEN", "memoryField requires the exact selected child layout for its field type.");
     return;
   }
@@ -39,6 +39,7 @@ export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourc
     ...(property?.selectedSymbol === undefined ? {} : { selectedSymbol: property.selectedSymbol }),
     fieldType, byteOffset, byteAlignment, fieldLayoutExpression: args[3].expression, fieldLayout,
   });
+  analysis.types.publish(call);
 }
 
 export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
@@ -54,8 +55,13 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     memoryDiagnostic(call, "LAYOUT_NOT_PROVEN", "memoryLayout requires an exact selected type, registered ABI token, and non-negative safe integer size, alignment and stride.");
     return;
   }
+  if (!analysis.types.layout(call)) {
+    memoryDiagnostic(call, "TYPE_NOT_PROVEN", "Memory layout requires an exact closed source memory type and selected marker domain.");
+    return;
+  }
   const fields = args.slice(4).map((value) => analysis.field(value.expression, context));
-  if (fields.some((field) => field === undefined || !context.typeShape.isTypeIdenticalTo(field.sourceType, pointee.selectedType))) {
+  if (fields.some((field) => field === undefined) ||
+      !analysis.types.aggregate(call, fields.filter(field => field !== undefined).map(field => field.call))) {
     memoryDiagnostic(call, "LAYOUT_FIELD_NOT_PROVEN", "Every layout field must retain an exact field fact for the same selected source type.");
     return;
   }
@@ -80,6 +86,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     return;
   }
   publishMemoryFact(call, tsonicMemoryLayoutFactKey, fact);
+  analysis.types.publish(call);
 }
 
 export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {

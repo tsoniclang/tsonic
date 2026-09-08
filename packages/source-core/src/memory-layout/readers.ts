@@ -2,6 +2,7 @@ import type { ExtensionFactSubject, ReadonlySourceFactResolver } from "@tsonic/t
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
 import { dataLayoutsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
 import type { TsonicMemoryLayoutFact } from "./facts.js";
+import { readTsonicMemoryType } from "./type-contract/facts.js";
 
 export function readTsonicDataLayout(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject | undefined) {
   return facts.getFact(subject, tsonicDataLayoutFactKey);
@@ -43,7 +44,8 @@ export function isFinalizedMemoryLayout(facts: ReadonlySourceFactResolver, root:
   while (pending.length !== 0) {
     const layout = pending.pop()!;
     const selected = readTsonicMemoryLayout(facts, layout.call);
-    if (selected === undefined || !memoryLayoutsEqual(layout, selected)) return false;
+    const type = readTsonicMemoryType(facts, layout.call);
+    if (selected === undefined || type === undefined || !memoryLayoutsEqual(layout, selected) || type.sourceType !== layout.sourceType) return false;
     if (visited.has(layout.call)) continue;
     visited.add(layout.call);
     const abi = readTsonicDataLayout(facts, layout.dataLayoutExpression);
@@ -51,7 +53,11 @@ export function isFinalizedMemoryLayout(facts: ReadonlySourceFactResolver, root:
     for (const field of layout.fields) {
       const selectedField = readTsonicMemoryFieldLayout(facts, field.call);
       const selectedChild = readTsonicMemoryLayout(facts, field.fieldLayoutExpression);
+      const fieldType = readTsonicMemoryType(facts, field.call);
+      const childType = readTsonicMemoryType(facts, field.fieldLayout.call);
       if (selectedField === undefined || selectedChild === undefined ||
+          fieldType === undefined || childType === undefined || fieldType.sourceType !== field.fieldType ||
+          fieldType.identity !== childType.identity ||
           !tsonicMemoryFieldLayoutFactKey.equals(field, selectedField) ||
           !memoryLayoutsEqual(field.fieldLayout, selectedChild)) return false;
       pending.push(field.fieldLayout);

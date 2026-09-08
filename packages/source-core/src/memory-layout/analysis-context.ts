@@ -5,6 +5,7 @@ import { tsonicCoreSourceExtensionId } from "../identity.js";
 import type { tsonicMemorySignatureIds } from "./declarations.js";
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./facts.js";
 import type { TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
+import type { MemoryTypeContracts } from "./type-contract/analysis.js";
 
 export interface MemorySourceCall {
   readonly selected: SelectedProviderSourceCall;
@@ -13,6 +14,7 @@ export interface MemorySourceCall {
 }
 
 export interface MemorySourceAnalysis {
+  readonly types: MemoryTypeContracts;
   readonly registrations: ReadonlyMap<string, TsonicDataLayoutFact>;
   readonly field: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryFieldLayoutFact | undefined;
   readonly layout: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryLayoutFact | undefined;
