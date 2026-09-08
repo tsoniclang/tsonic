@@ -158,6 +158,23 @@ for (const primitive of ["uint32", "int32"] as const) {
   });
 }
 
+for (const [expression, pointee] of [
+  ["toRawPointer(allocatePointer<uint32>(3), word)", "RawPointer | undefined"],
+  ["reinterpretRawPointer(raw, word)", "Pointer<uint32> | undefined"],
+] as const) {
+  test(`inferred allocations preserve the complete raw-operation result: ${pointee}`, () => {
+    const checked = clean(`
+      const word = memoryLayout<uint32>(abi, 4, 4, 4);
+      declare const raw: RawPointer | undefined;
+      const slot = allocatePointer(${expression});
+      const layout = memoryLayout<${pointee}>(abi, 8, 8, 8);
+      toRawPointer(slot, layout);
+    `);
+    const calls = memoryCalls(checked, "toRawPointer");
+    assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, calls[calls.length - 1]!)?.kind, "resolved");
+  });
+}
+
 test("closed generic array aliases preserve element markers without depending on their spelling", () => {
   const checked = clean(`
     type Items<Value> = Value[];

@@ -18,6 +18,7 @@ export interface MemoryTypeDomains {
   indexed(owner: MemoryTypeDomain, type: Type): MemoryTypeDomain | undefined;
   union(children: readonly MemoryTypeDomain[]): MemoryTypeDomain;
   pointer(pointee: MemoryTypeDomain): MemoryTypeDomain;
+  rawPointer(): MemoryTypeDomain;
   selected(type: Type): MemoryTypeDomain | undefined;
   isClosed(type: Type): boolean;
   pointee(domain: MemoryTypeDomain): MemoryTypeDomain | undefined;
@@ -252,6 +253,7 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
     },
     union: (children: readonly MemoryTypeDomain[]) => combine("union", children),
     pointer: (pointee: MemoryTypeDomain) => intern("pointer", ["readwrite", pointee], [pointee]),
+    rawPointer: () => intern("raw-pointer", []),
     pointee(domain: MemoryTypeDomain) {
       if (domain.kind === "pointer") return domain.children[0];
       if (domain.kind !== "union") return undefined;

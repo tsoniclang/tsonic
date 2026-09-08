@@ -13,7 +13,7 @@ interface ValueFrame {
 export function createMemoryValueDomains(
   context: TsonicSourceFileAnalysisContext,
   domains: MemoryTypeDomains,
-  rawPointee: (node: Node) => MemoryTypeDomain | undefined,
+  rawValue: (node: Node) => MemoryTypeDomain | undefined,
 ): (expression: Node) => MemoryTypeDomain | undefined {
   const { ast, checker, typeShape } = context;
 
@@ -138,8 +138,13 @@ export function createMemoryValueDomains(
             return pointer.operation === "address-of" || pointer.operation === "allocate" ||
               pointer.operation === "bind-pointer" || pointer.operation === "project-pointer" ? domains.pointer(pointee) : undefined;
           }
-          const raw = rawPointee(node);
-          if (raw !== undefined) return domains.pointer(raw);
+          const raw = rawValue(node);
+          if (raw !== undefined) {
+            const types = typeShape.isUnion(selected.sourceResultType)
+              ? typeShape.getUnionOrIntersectionTypes(selected.sourceResultType) : [selected.sourceResultType];
+            return unite([raw, ...types.filter(type => type !== undefined && typeShape.isNullish(type))
+              .map(type => type === undefined ? undefined : domains.selected(type))]);
+          }
           return returns(selected, frame);
         }
         if (ast.is.IsElementAccessExpression(node)) {

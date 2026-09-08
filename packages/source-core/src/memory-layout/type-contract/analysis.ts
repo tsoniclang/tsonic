@@ -10,6 +10,7 @@ import type { MemoryTypeDomain } from "./domains.js";
 import { bindMemoryTypeIdentity, createMemoryTypeIdentity, tsonicMemoryTypeFactKey } from "./facts.js";
 import type { TsonicMemoryTypeIdentity } from "./facts.js";
 import { createMemoryValueDomains } from "./values.js";
+import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 
 interface MemoryTypeSelection {
   readonly type: Type;
@@ -42,8 +43,14 @@ export function createMemoryTypeContracts(
   const byIdentity = new Map<TsonicMemoryTypeIdentity, MemoryTypeSelection>();
   const valueDomain = createMemoryValueDomains(context, domains, node => {
     demandRaw(node);
+    const operation = source.facts.get(node, tsonicRawMemoryOperationFactKey);
+    if (operation?.operation === "to-raw" || operation?.operation === "byte-offset" || operation?.operation === "address-integer-to-raw") {
+      return domains.rawPointer();
+    }
+    if (operation?.operation !== "reinterpret") return undefined;
     const contract = source.facts.get(node, tsonicMemoryTypeFactKey);
-    return contract === undefined ? undefined : byIdentity.get(contract.identity)?.domain;
+    const pointee = contract === undefined ? undefined : byIdentity.get(contract.identity)?.domain;
+    return pointee === undefined ? undefined : domains.pointer(pointee);
   });
 
   function intern(type: Type, domain: MemoryTypeDomain): MemoryTypeSelection {
