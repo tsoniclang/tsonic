@@ -8,7 +8,7 @@ export function memoryProviderFieldType(
   annotation: Node,
 ): { readonly type: ProviderTypeExpression | undefined } | undefined {
   const declaration = context.ast.parent(annotation);
-  if (!context.ast.is.IsPropertyDeclaration(declaration)) return undefined;
+  if (!context.ast.is.IsPropertySignatureDeclaration(declaration) && !context.ast.is.IsPropertyDeclaration(declaration)) return undefined;
   const identity = readSourceFact(context, declaration, providerVirtualDeclarationFactKey);
   if (identity === undefined) return undefined;
   const invalid = { type: undefined };
