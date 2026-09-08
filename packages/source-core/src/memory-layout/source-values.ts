@@ -67,7 +67,7 @@ function selectedCallReturnAnnotation(expression: Node, context: TsonicSourceFil
   return call === undefined ? undefined : context.ast.typeNode(context.checker.getSignatureDeclaration(call.selectedSignature));
 }
 
-export function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFileAnalysisContext): {
+function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFileAnalysisContext): {
   readonly expression: Node;
   readonly annotation?: Node;
 } | undefined {

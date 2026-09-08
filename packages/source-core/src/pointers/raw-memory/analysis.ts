@@ -26,7 +26,6 @@ export function analyzeRawMemoryCall(call: MemorySourceCall, analysis: MemorySou
       return;
     }
     const descriptor = analysis.layout(layout.expression, context);
-    if (name === "toRawPointer") analysis.rawOperation(operand.expression, context);
     if (descriptor === undefined || !analysis.types.raw(call, descriptor)) {
       memoryDiagnostic(call, "POINTEE_LAYOUT_NOT_PROVEN", "Raw conversion requires the same exact closed memory type and marker domain as its finalized layout.");
       return;

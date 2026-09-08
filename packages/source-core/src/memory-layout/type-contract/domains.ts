@@ -11,7 +11,11 @@ export interface MemoryTypeDomain {
 
 export interface MemoryTypeDomains {
   authored(node: Node): MemoryTypeDomain | undefined;
+  instantiated(node: Node, bindings: ReadonlyMap<Symbol, MemoryTypeDomain>): MemoryTypeDomain | undefined;
   member(node: Node, owner: MemoryTypeDomain): MemoryTypeDomain | undefined;
+  indexed(owner: MemoryTypeDomain, type: Type): MemoryTypeDomain | undefined;
+  union(children: readonly MemoryTypeDomain[]): MemoryTypeDomain;
+  pointer(pointee: MemoryTypeDomain): MemoryTypeDomain;
   selected(type: Type): MemoryTypeDomain | undefined;
   isClosed(type: Type): boolean;
   pointee(domain: MemoryTypeDomain): MemoryTypeDomain | undefined;
@@ -145,9 +149,11 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
         return children.some(child => child === undefined) ? undefined
           : combine(ast.is.IsUnionTypeNode(node) ? "union" : "intersection", children.filter(child => child !== undefined));
       }
-      if (ast.is.IsTypeReferenceNode(node)) {
-        const name = ast.as.AsTypeReferenceNode(node)?.TypeName;
-        const symbol = name === undefined ? undefined : resolveSymbol(name);
+      if (ast.is.IsTypeReferenceNode(node) || ast.is.IsImportTypeNode(node)) {
+        const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
+        const imported = ast.is.IsImportTypeNode(node) ? checker.getTypeFromTypeNode(node) : undefined;
+        const symbol = imported === undefined ? name === undefined ? undefined : resolveSymbol(name)
+          : checker.getTypeAliasSymbol(imported) ?? checker.getTypeSymbol(imported);
         if (symbol === undefined) return undefined;
         const bound = bindings.get(symbol);
         if (bound !== undefined) return bound;
@@ -176,6 +182,12 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
         }
         if (declarations.some(declaration => ast.is.IsTypeParameterDeclaration(declaration))) return undefined;
         const domain = intern("reference", [symbol, ...children], children);
+        for (const declaration of declarations) {
+          for (const [index, parameter] of typeParameters(declaration).entries()) {
+            const parameterSymbol = checker.getSymbolAtLocation(ast.name(parameter));
+            if (parameterSymbol !== undefined && children[index] !== undefined) substituted.set(parameterSymbol, children[index]!);
+          }
+        }
         referenceBindings.set(domain, substituted);
         return domain;
       }
@@ -183,7 +195,20 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
         const element = ast.as.AsArrayTypeNode(node)?.ElementType;
         const child = element === undefined ? undefined : visit(element, bindings);
         const symbol = checker.getTypeSymbol(checker.getTypeFromTypeNode(node));
-        return child === undefined || symbol === undefined ? undefined : intern("reference", [symbol, child], [child]);
+        if (child === undefined || symbol === undefined) return undefined;
+        const substituted = new Map<Symbol, MemoryTypeDomain>();
+        for (const declaration of checker.getSymbolDeclarations(symbol)) {
+          const parameters = declaration === undefined ? [] : typeParameters(declaration);
+          if (parameters.length === 0) continue;
+          if (parameters.length !== 1) return undefined;
+          const parameter = checker.getSymbolAtLocation(ast.name(parameters[0]));
+          if (parameter === undefined) return undefined;
+          substituted.set(parameter, child);
+        }
+        if (substituted.size === 0) return undefined;
+        const domain = intern("reference", [symbol, child], [child]);
+        referenceBindings.set(domain, substituted);
+        return domain;
       }
       if (!ast.is.IsKeywordTypeNode(node) && !ast.is.IsLiteralTypeNode(node) &&
           !ast.is.IsTypeQueryNode(node) && !(ast.is.IsTypeLiteralNode(node) && bindings.size === 0)) return undefined;
@@ -203,9 +228,17 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
     },
     selected,
     isClosed,
+    instantiated: (node: Node, bindings: ReadonlyMap<Symbol, MemoryTypeDomain>) => visit(node, bindings),
     member(node: Node, owner: MemoryTypeDomain) {
       return visit(node, referenceBindings.get(owner) ?? new Map());
     },
+    indexed(owner: MemoryTypeDomain, type: Type) {
+      const indexes = typeShape.getIndexInfos(type).filter(index => typeShape.isNumberLike(index.keyType));
+      const annotation = indexes.length === 1 ? ast.typeNode(indexes[0]?.declaration) : undefined;
+      return annotation === undefined ? undefined : visit(annotation, referenceBindings.get(owner) ?? new Map());
+    },
+    union: (children: readonly MemoryTypeDomain[]) => combine("union", children),
+    pointer: (pointee: MemoryTypeDomain) => intern("pointer", ["readwrite", pointee], [pointee]),
     pointee(domain: MemoryTypeDomain) {
       if (domain.kind === "pointer") return domain.children[0];
       if (domain.kind !== "union") return undefined;

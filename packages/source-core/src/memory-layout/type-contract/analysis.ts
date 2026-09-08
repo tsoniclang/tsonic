@@ -1,15 +1,15 @@
-import { fieldFactKey, pointerOperationFactKey } from "@tsonic/tsts";
+import { fieldFactKey } from "@tsonic/tsts";
 import type { Node, ResolvedSourceCallInfo, SourceAnalysisContext, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
 import type { MemorySourceCall } from "../analysis-context.js";
 import { publishMemoryFact } from "../analysis-context.js";
 import type { TsonicMemoryLayoutFact } from "../facts.js";
-import { immutableValueOrigin, selectedValueAnnotation, selectedValueSource } from "../source-values.js";
 import { createMemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./domains.js";
 import { bindMemoryTypeIdentity, createMemoryTypeIdentity, tsonicMemoryTypeFactKey } from "./facts.js";
 import type { TsonicMemoryTypeIdentity } from "./facts.js";
+import { createMemoryValueDomains } from "./values.js";
 
 interface MemoryTypeSelection {
   readonly type: Type;
@@ -25,7 +25,11 @@ export interface MemoryTypeContracts {
   publish(call: MemorySourceCall): void;
 }
 
-export function createMemoryTypeContracts(source: SourceAnalysisContext, owner: TsonicSourceFileAnalysisContext): MemoryTypeContracts {
+export function createMemoryTypeContracts(
+  source: SourceAnalysisContext,
+  owner: TsonicSourceFileAnalysisContext,
+  demandRaw: (expression: Node) => void,
+): MemoryTypeContracts {
   const queries = source.source.getSourceFileQueries(owner.sourceFile);
   const context: TsonicSourceFileAnalysisContext = { ...queries,
     facts: source.facts, factResolver: source.factResolver, diagnostics: source.diagnostics };
@@ -36,6 +40,11 @@ export function createMemoryTypeContracts(source: SourceAnalysisContext, owner: 
   const fields = new Map<Node, MemoryTypeSelection>();
   const selections = new Map<Node, { readonly selection: MemoryTypeSelection; readonly index: number }>();
   const byIdentity = new Map<TsonicMemoryTypeIdentity, MemoryTypeSelection>();
+  const valueDomain = createMemoryValueDomains(context, domains, node => {
+    demandRaw(node);
+    const contract = source.facts.get(node, tsonicMemoryTypeFactKey);
+    return contract === undefined ? undefined : byIdentity.get(contract.identity)?.domain;
+  });
 
   function intern(type: Type, domain: MemoryTypeDomain): MemoryTypeSelection {
     const entries = identities.get(domain) ?? [];
@@ -69,32 +78,8 @@ export function createMemoryTypeContracts(source: SourceAnalysisContext, owner: 
     const operand = canonical(call)?.sourceArguments[0];
     if (operand === undefined) return undefined;
     if (typeShape.isNullish(operand.type)) return nilDomain;
-    const value = selectedValueSource(operand, context);
-    if (value === undefined) return undefined;
-    const annotation = value.annotation;
-    if (annotation !== undefined) {
-      const domain = domains.authored(annotation);
-      return domain === undefined ? undefined : domains.pointee(domain);
-    }
-    const origin = immutableValueOrigin(value.expression, context);
-    if (origin === undefined) return undefined;
-    const operation = readSourceFact(context, origin, pointerOperationFactKey);
-    if (operation !== undefined && operation.call === origin) {
-      const node = operation.explicitPointeeTypeNode ?? (operation.operation === "address-of"
-        ? ast.typeNode(operation.storageDeclaration) : undefined);
-      if (node !== undefined) return domains.authored(node);
-      const selection = checker.getResolvedCallInfo(origin);
-      const initial = operation.operation === "allocate" ? selection?.sourceArguments[0] : undefined;
-      const initialNode = initial === undefined ? undefined : selectedValueAnnotation(initial, context);
-      if (initialNode !== undefined) return domains.authored(initialNode);
-      const type = selection?.sourceSelectedMethodTypeArguments?.[0]?.selectedType;
-      return type === undefined ? undefined : domains.selected(type);
-    }
-    const contract = source.facts.get(origin, tsonicMemoryTypeFactKey);
-    if (contract !== undefined) return byIdentity.get(contract.identity)?.domain;
-    const resultNode = selectedValueAnnotation(operand, context);
-    const resultDomain = resultNode === undefined ? undefined : domains.authored(resultNode);
-    return resultDomain === undefined ? undefined : domains.pointee(resultDomain);
+    const domain = valueDomain(operand.expression);
+    return domain === undefined ? undefined : domains.pointee(domain);
   }
 
   return Object.freeze({

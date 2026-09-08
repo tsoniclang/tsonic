@@ -37,7 +37,7 @@ export function analyzeTsonicMemoryOperations(
   const owner = calls.values().next().value;
   if (owner === undefined) return;
   const analysis: MemorySourceAnalysis = {
-    types: createMemoryTypeContracts(context, owner.context),
+    types: createMemoryTypeContracts(context, owner.context, expression => { analysis.rawOperation(expression, owner.context); }),
     registrations,
     field: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldLayoutFactKey),
     layout: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryLayoutFactKey),
