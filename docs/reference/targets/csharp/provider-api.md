@@ -1,8 +1,9 @@
 # C# provider API
 
-Provider packages import `@tsonic/target-csharp/provider`. The public contract
-contains:
+Provider packages import `@tsonic/target-csharp/provider` and compose their
+capability with `createCsharpProviderPackage`. The public contract contains:
 
+- package composition, module ownership and source-provider registration;
 - C# target type and member models;
 - target type factories and render shapes;
 - primitive, string, void, nullable, delegate, task, JS, and broad-value
@@ -50,15 +51,67 @@ A provider package normally contains:
 package/
 ├── package.json
 ├── src/
-│   ├── provider.ts        # virtual declarations and exact relations
-│   ├── operations.ts      # target members and conversions
-│   └── index.ts           # plugin entrypoint
+│   ├── index.ts           # plugin entrypoint
+│   └── provider/
+│       ├── package.ts     # capability composition
+│       └── modules/       # declarations and exact native mappings by module
 └── runtimes/net10.0/      # runtime assembly, when one is required
 ```
 
 The source model must be legal TypeScript declaration syntax. The target model
 contains C# identities and carriers. A relation joins them explicitly; shared
 spelling is never identity.
+
+## Package factory
+
+The plugin entry delegates to one package definition:
+
+```ts
+import { createCsharpProviderPackage } from "@tsonic/target-csharp/provider";
+import { counterPackage } from "./provider/package.js";
+
+export function createTsonicPlugin() {
+  return createCsharpProviderPackage(counterPackage);
+}
+```
+
+`CsharpProviderPackageDefinition` describes:
+
+| Fields | Responsibility |
+| --- | --- |
+| `id`, `displayName` | Installed capability identity |
+| `providerIdentity` | Exact source-provider identity and contract version |
+| `modules` | Canonical module specifiers, opaque provider module IDs and declaration producers |
+| `moduleSpecifiers` | Public specifiers, their canonical module and optional ownership diagnostic text |
+| `virtualDeclarationFileName` | Virtual source filename for a public specifier |
+| `moduleDiagnostic` | Unowned or missing-module diagnostic |
+| `resolutionEvidence`, `declarationEvidence` | Optional source-provider evidence |
+| `policy` | Existing exact C# type/member relations, rejections and execution-driver contribution |
+| `runtime` | Declared native artifact requirements |
+
+The factory snapshots package metadata and registers one source provider.
+It does not reflect native assemblies or infer target mappings. Those remain
+the producer's declared inputs, validated through the existing C# contracts.
+
+For example, a module can have a public alias without changing its native
+member identity:
+
+```ts
+const moduleSpecifiers = [
+  { moduleSpecifier: "@acme/counter", canonicalModuleSpecifier: "@acme/counter" },
+  { moduleSpecifier: "counter", canonicalModuleSpecifier: "@acme/counter" },
+];
+```
+
+Both imports request that canonical module's declarations. Self-references
+use the requested public spelling; provider module, export and signature IDs
+remain explicit. Cross-module declaration imports are collected from exact
+provider references, including value imports required by class inheritance.
+
+Each module's `getExports(selectedSurfaceIds)` receives the selected surfaces.
+The capability owns that selection's meaning. For example, C# Node includes
+`Stats.mtime: Date` only on the JS surface; the package factory contains no
+Node or `Date` special case. Runtime references remain a separate contribution.
 
 ## Compilation lifecycle
 

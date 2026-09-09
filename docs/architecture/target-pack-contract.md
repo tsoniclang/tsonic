@@ -30,6 +30,56 @@ C# and Rust retain this shape. Their inner algorithms differ:
 Those are different facts inside the same architectural phase, not different
 architectures.
 
+## Source layout
+
+Both target repositories use the same outer source directories:
+
+```text
+src/
+├── index.ts                 public plugin entry
+├── public/                  target and provider SDK exports
+├── descriptor/              plugin description and starter projects
+├── compilation/             per-build session and composition
+├── options/                 strict target option contracts
+├── source/                  native source profile and virtual declarations
+├── providers/               native metadata and packaged capabilities
+├── target-model/            closed native semantic vocabulary
+├── policy/                  native selection rules
+├── analysis/                classification and sealed target program
+├── backend/
+│   ├── compile.ts           stage coordination
+│   ├── target-ast/          native syntax nodes and structural operations
+│   ├── artifact-model/      complete output-plan contracts
+│   ├── planner/             syntax construction from sealed facts
+│   └── emission/            materialize complete output plans
+├── print/
+│   ├── source/              native source printer
+│   └── project/             native project printer
+└── toolchain/               native build handoff
+```
+
+Within a layer, group a responsibility in one subtree. For example,
+`backend/planner/objects/object-literals/` owns object-literal planning;
+the expression dispatcher calls it rather than owning a second implementation.
+File names and inner algorithms can differ where the native responsibilities
+differ. C# reflection member readers do not need Rust lifetime-reader twins.
+
+The shared layer contract in
+`test/architecture/tooling/target-layer-contract.mjs` defines allowed imports.
+Each target classifies its files against that contract. A legal import graph
+is necessary, but does not prove that an operation preserved its semantics.
+
+For example, this call selects an ordinary imported native method:
+
+```ts
+return probe.is_some() === false;
+```
+
+Rust must emit `!probe.is_some()`, not invent an `is_none()` call. A native
+Option presence test may use `is_none()`, but only when its exact Option
+identity has already been proved and retained in the target AST. The printer
+spells a selected operation; it does not recover identity from method names.
+
 ## Starter boundary
 
 An official target may expose one pure starter-project function from its
@@ -72,3 +122,24 @@ remain internally for rollback but cannot be emitted as successful output.
 The target may generate a native project or emit sources for a user-owned
 project. Open-ended native settings remain in `.csproj` or `Cargo.toml`; the
 generic host never grows target-specific configuration branches.
+
+## Proof alignment
+
+`pudding-csharp` and `rust-pudding` describe their checks in
+`scripts/verify/scenarios.json`. A shared scenario ID means the same declared
+bounded contract, not identical project contents or proof strength. Native-only
+and unpaired assertions
+remain explicit. For example, both suites check calculator addition, while
+an ASP.NET server and a Rust lifetime signature have separate contracts.
+
+From `pudding-csharp`, inspect those declarations without compiling projects:
+
+```sh
+node scripts/verify-all.mjs --scenarios --peer ../rust-pudding
+```
+
+This checks project coverage, source anchors and declared pairs. It does not
+run the assertions. The complete `bash scripts/verify-all.sh` gate writes
+`.tests/verify-*/scenarios.json` alongside its report. That artifact records
+source hashes and project execution results. A compiled library with no
+executed caller remains compile-only, even when its Cargo or .NET build passes.
