@@ -37,6 +37,30 @@ source spelling, overload-group names, and target text are not identity.
 Provider declarations are immutable snapshots. Recursive provider graphs may
 share canonical declarations, but contradictory declarations fail closed.
 
+## Packaged providers
+
+Both targets expose a package-composition factory through their provider SDK:
+
+| Target | Factory | Native relation data |
+| --- | --- | --- |
+| C# | `createCsharpProviderPackage` | C# type/member relations and policy contribution |
+| Rust | `createRustProviderPackage` | Rust type/operation rows and Cargo requirements |
+
+The target SDK owns reusable registration and declaration transport. The
+capability owns its modules, aliases, source declarations, native mappings and
+runtime artifacts. Node declarations live under `provider/modules/`; package
+composition lives in `provider/package.ts`. Neither the host nor the SDK
+branches on Node module names.
+
+For example, `statSync(path)` has a declared `Stats` result on both targets.
+The C# capability relates that result to its native `Stats` class; Rust relates
+it to its native carrier. The same ownership flow does not require identical
+native member schemas or identical runtime directory layouts.
+
+See the [C# provider API](../reference/targets/csharp/provider-api.md) and
+[Rust provider API](../reference/targets/rust/provider-api.md) for each factory's
+native contract.
+
 ## Runtime ownership
 
 Runtimes implement operations already selected by target analysis:

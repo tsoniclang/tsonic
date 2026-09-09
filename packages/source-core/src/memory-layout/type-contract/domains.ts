@@ -4,10 +4,11 @@ import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js"
 import { readSourceFact } from "../../analysis/source-call.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import { memoryProviderFieldType } from "./provider-fields.js";
+import { tsonicFixedArrayFactKey } from "../../fixed-arrays/facts.js";
 
 export interface MemoryTypeDomain {
   readonly key: number;
-  readonly kind: "source" | "nullish" | "primitive" | "pointer" | "raw-pointer" | "union" | "intersection" | "reference";
+  readonly kind: "source" | "nullish" | "primitive" | "pointer" | "raw-pointer" | "union" | "intersection" | "reference" | "fixed-array" | "extent";
   readonly children: readonly MemoryTypeDomain[];
 }
 
@@ -19,12 +20,13 @@ export interface MemoryTypeDomains {
   union(children: readonly MemoryTypeDomain[]): MemoryTypeDomain;
   pointer(pointee: MemoryTypeDomain): MemoryTypeDomain;
   rawPointer(): MemoryTypeDomain;
+  array(type: Type, element: MemoryTypeDomain, length: bigint, runtimeBase: "number" | "bigint"): MemoryTypeDomain | undefined;
   selected(type: Type): MemoryTypeDomain | undefined;
   isClosed(type: Type): boolean;
   pointee(domain: MemoryTypeDomain): MemoryTypeDomain | undefined;
 }
 
-type DomainPart = object | string | number | boolean;
+type DomainPart = object | string | number | bigint | boolean;
 interface DomainTrie {
   readonly children: Map<DomainPart, DomainTrie>;
   domain?: MemoryTypeDomain;
@@ -59,6 +61,26 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
 
   function primitive(fact: SourcePrimitiveFact): MemoryTypeDomain {
     return intern("primitive", [fact.kind, fact.runtimeBase, fact.width ?? "", fact.signed ?? ""]);
+  }
+
+  function array(type: Type, element: MemoryTypeDomain, length: bigint, runtimeBase: "number" | "bigint"): MemoryTypeDomain | undefined {
+    const symbol = checker.getTypeSymbol(type);
+    if (symbol === undefined) return undefined;
+    const extent = intern("extent", [length, runtimeBase]);
+    const domain = intern("fixed-array", [symbol, element, extent], [element, extent]);
+    const bindings = new Map<Symbol, MemoryTypeDomain>();
+    for (const declaration of checker.getSymbolDeclarations(symbol)) {
+      if (declaration === undefined) continue;
+      const parameters = typeParameters(declaration);
+      if (parameters.length !== 2) continue;
+      const elementParameter = checker.getSymbolAtLocation(ast.name(parameters[0]));
+      const extentParameter = checker.getSymbolAtLocation(ast.name(parameters[1]));
+      if (elementParameter !== undefined) bindings.set(elementParameter, element);
+      if (extentParameter !== undefined) bindings.set(extentParameter, extent);
+    }
+    if (bindings.size !== 2) return undefined;
+    referenceBindings.set(domain, bindings);
+    return domain;
   }
 
   function combine(kind: "union" | "intersection", children: readonly MemoryTypeDomain[]): MemoryTypeDomain {
@@ -154,6 +176,14 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
         const child = visit(pointer.pointee, bindings);
         return child === undefined ? undefined : intern("pointer", [pointer.mutability, child], [child]);
       }
+      const fixedArray = readSourceFact(context, node, tsonicFixedArrayFactKey);
+      if (fixedArray?.elementType !== undefined && ast.is.IsTypeReferenceNode(node)) {
+        const elementNode = fixedArray.elementType;
+        const child = visit(elementNode, bindings);
+        const type = checker.getTypeFromTypeNode(node);
+        return child === undefined || type === undefined ? undefined
+          : array(type, child, fixedArray.length, fixedArray.lengthRuntimeBase);
+      }
       if (ast.is.IsParenthesizedTypeNode(node)) {
         const inner = ast.as.AsParenthesizedTypeNode(node)?.Type;
         return inner === undefined ? undefined : visit(inner, bindings);
@@ -241,6 +271,7 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
       return domain;
     },
     selected,
+    array,
     isClosed,
     instantiated: (node: Node, bindings: ReadonlyMap<Symbol, MemoryTypeDomain>) => visit(node, bindings),
     member(node: Node, owner: MemoryTypeDomain) {

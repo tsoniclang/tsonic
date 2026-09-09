@@ -64,6 +64,21 @@ policy.
 - Keep ignored analysis, logs, generated output, build products, and local test
   state untracked.
 
+## Agent Delegation
+
+- Do not start parallel agents or delegate new work to subagents unless the
+  maintainer explicitly requests it. General task approval or an instruction
+  to continue does not authorize agent delegation.
+- The coordinating assistant retains full responsibility for integrating,
+  reviewing, correcting, and verifying all delegated work. Responsibility is
+  not transferred to a worker when a task is assigned or reported complete.
+- Inspect every worker's actual diff against scope, architecture, necessity
+  ledgers, and interacting changes before integration. Resolve conflicts and
+  defects rather than trusting completion summaries.
+- Certify the final integrated tree with the required verification gates.
+  Worker-local passing tests are supporting evidence, not a substitute for
+  integration review and testing. Report failures and unverified work plainly.
+
 ## Development and Verification
 
 - The repository's documented language rules and tests are canonical.
@@ -195,7 +210,8 @@ policy.
 
 - This file is the sole owner of workspace-wide policy.
 - Top-level child `AGENTS.md` files contain only repository-specific deltas and
-  reference this policy explicitly.
+  explicitly require reading and following this canonical policy. References
+  must resolve from the containing repository; missing references are defects.
 - `CLAUDE.md` imports this policy and its same-scope `AGENTS.md`; it does not
   duplicate policy prose.
 - Vendored and submodule policy files remain owned by their upstream projects;

@@ -19,6 +19,7 @@ import {
   readSourceFact,
   visitPostOrder,
 } from "../analysis/source-call.js";
+import { selectTsonicFixedArray } from "./selection.js";
 
 const fixedArrayEvidence = Object.freeze<readonly ExtensionEvidence[]>([{
   message: "source-core fixed-array type",
@@ -35,30 +36,29 @@ export function analyzeTsonicFixedArrayTypes(context: SourceAnalysisContext): vo
         return;
       }
       const typeArguments = sourceContext.ast.typeArguments(node);
-      if (typeArguments.length !== 2) {
-        return;
-      }
-      const elementType = typeArguments[0];
-      const lengthType = typeArguments[1];
-      if (elementType === undefined || lengthType === undefined) {
-        return;
-      }
-      const length = fixedArrayLength(lengthType, sourceContext.ast);
-      if (length === undefined) {
+      const sourceType = sourceContext.checker.getTypeFromTypeNode(node);
+      const selected = sourceType === undefined ? undefined : selectTsonicFixedArray(
+        sourceType,
+        sourceContext,
+        { getFact: (subject, key) => readSourceFact(sourceContext, subject, key) },
+        { authoredTypeNode: node },
+      );
+      if (selected?.kind !== "selected") {
+        const lengthType = typeArguments[1] ?? node;
         sourceContext.diagnostics.append({
           extensionId: tsonicCoreSourceExtensionId,
           extensionCode: "SOURCE_CORE_FIXED_ARRAY_LENGTH_NOT_LITERAL",
           numericCode: 9901160,
           publicCode: "TSONIC_SOURCE_CORE_9901160",
           category: "error",
-          message: "FixedArray<T, N> requires N to be one exact non-negative safe integer literal type.",
+          message: selected?.reason ?? "FixedArray requires its exact resolved provider type and type arguments.",
           nodeOrSpan: lengthType,
           evidence: fixedArrayEvidence,
           identity: fixedArrayDiagnosticIdentity(lengthType, sourceContext.ast),
         });
         return;
       }
-      const fact = Object.freeze({ elementType, length });
+      const fact = selected.fact;
       sourceContext.facts.set(node, tsonicFixedArrayFactKey, fact, fixedArrayEvidence);
       const typeName = sourceContext.ast.as.AsTypeReferenceNode(node)?.TypeName;
       if (typeName !== undefined) {
@@ -66,21 +66,6 @@ export function analyzeTsonicFixedArrayTypes(context: SourceAnalysisContext): vo
       }
     });
   });
-}
-
-function fixedArrayLength(
-  typeNode: Node,
-  ast: SourceAnalysisContext["source"]["ast"],
-): number | undefined {
-  if (!ast.is.IsLiteralTypeNode(typeNode)) {
-    return undefined;
-  }
-  const literal = ast.as.AsLiteralTypeNode(typeNode)?.Literal;
-  if (literal === undefined || !ast.is.IsNumericLiteral(literal)) {
-    return undefined;
-  }
-  const value = Number(ast.text(literal).split("_").join(""));
-  return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function fixedArrayDiagnosticIdentity(

@@ -18,6 +18,21 @@ export const tsonicFixedArrayProviderIds = Object.freeze({
 
 export type TsonicFixedArrayProviderMember = "index" | "length" | "iterator";
 
+export function isTsonicFixedArrayProviderType(
+  identity: ProviderDeclarationIdentity | undefined,
+): boolean {
+  return identity !== undefined &&
+    identity.providerId === tsonicCoreVirtualModulesProviderId &&
+    identity.providerVersion === tsonicCoreProviderVersion &&
+    identity.providerModuleId === tsonicCoreTypesModule &&
+    identity.moduleSpecifier === tsonicCoreTypesModule &&
+    identity.exportId === tsonicFixedArrayProviderIds.exportId &&
+    identity.exportName === tsonicFixedArrayProviderIds.exportId &&
+    identity.memberId === undefined && identity.memberName === undefined &&
+    identity.memberKey === undefined && identity.memberStatic === undefined &&
+    identity.signatureId === undefined;
+}
+
 export function tsonicFixedArrayProviderMember(
   identity: ProviderDeclarationIdentity | undefined,
 ): TsonicFixedArrayProviderMember | undefined {

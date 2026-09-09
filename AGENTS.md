@@ -1,7 +1,7 @@
 # Agent Notes (Tsonic Host)
 
-The workspace policy in `../AGENTS.md` applies. This file contains only host-
-repository deltas.
+Read and follow `docs/architecture/workspace-agent-policy.md` before any work.
+This file contains only host-repository deltas.
 
 ## Host Ownership
 

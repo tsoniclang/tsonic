@@ -44,9 +44,10 @@ A provider package normally contains:
 package/
 ├── package.json
 ├── src/
-│   ├── provider.ts       # virtual declarations and exact operation rows
-│   ├── types.ts          # target carriers and conversions
-│   └── index.ts          # plugin entrypoint
+│   ├── index.ts          # plugin entrypoint
+│   └── provider/
+│       ├── package.ts    # capability composition
+│       └── modules/      # declarations and exact native mappings by module
 └── crates/               # runtime crate, when one is required
 ```
 

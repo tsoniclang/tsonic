@@ -6,13 +6,14 @@ import {
   maximumMemoryLayoutDepth, snapshotMemoryField, snapshotMemoryLayout,
   tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey,
 } from "../facts.js";
-import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "../facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
-import { cleanMemorySession, memoryCall, memorySession, memoryTestPrelude, memoryTestRegistration } from "./fixtures.js";
+import { cleanMemorySession, memoryCall, memorySession, memoryTestPrelude, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 
-function scalar(): TsonicMemoryLayoutFact {
+function scalar(): TsonicValueMemoryLayoutFact {
   return {
+    kind: "value",
     call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: memoryTestRegistration.providerDeclaration, ...memoryTestRegistration.descriptor },
     byteSize: 4, byteAlignment: 4, stride: 4, fields: [],
@@ -54,10 +55,10 @@ test("nested layouts retain the explicitly chosen child and its authored operand
       core.memoryField((value: Outer) => value.left, 0, 4, alias),
       core.memoryField((value: Outer) => value.right, 8, 4, other));
   `);
-  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 3))!;
+  const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 3)));
   assert.ok(layout);
   assert.deepEqual(layout.fields.map(entry => entry.fieldLayout.byteSize), [4, 8]);
-  assert.deepEqual(layout.fields.map(entry => entry.fieldLayout.fields[0]?.byteOffset), [0, 4]);
+  assert.deepEqual(layout.fields.map(entry => valueMemoryLayout(entry.fieldLayout).fields[0]?.byteOffset), [0, 4]);
   for (const [index, entry] of layout.fields.entries()) {
     const call = memoryCall(checked, "memoryField", index);
     assert.equal(entry.fieldLayoutExpression, checked.ast.arguments(call)[3]);
@@ -117,7 +118,7 @@ test("packed field placement does not replace the selected child type alignment"
     memoryLayout<Packed>(abi, 5, 1, 5,
       memoryField((value: Packed) => value.count, 1, 1, uint32Layout));
   `);
-  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1))!;
+  const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1)));
   assert.equal(layout.fields[0]?.byteAlignment, 1);
   assert.equal(layout.fields[0]?.fieldLayout.byteAlignment, 4);
 });
@@ -130,7 +131,7 @@ test("consumers reject missing or stale selected children rather than trusting a
     sizeOf(header);
     reinterpretRawPointer(raw, header);
   `);
-  const parent = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1))!;
+  const parent = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1)));
   const child = parent.fields[0]!;
   const observation = memoryCall(checked, "sizeOf");
   const conversion = memoryCall(checked, "reinterpretRawPointer");
@@ -157,10 +158,10 @@ test("consumers reject missing or stale selected children rather than trusting a
 test("snapshot shares child DAGs, freezes nested metadata and compares every child identity", () => {
   const child = scalar();
   const parent = { ...scalar(), byteSize: 8, stride: 8, fields: [field(child), field(child, 4)] };
-  const captured = snapshotMemoryLayout(parent);
+  const captured = valueMemoryLayout(snapshotMemoryLayout(parent));
   assert.equal(captured.fields[0]?.fieldLayout, captured.fields[1]?.fieldLayout);
   assert.ok(!Object.isFrozen(child.call));
-  assert.ok(Object.isFrozen(captured.fields[0]?.fieldLayout.fields));
+  assert.ok(Object.isFrozen(valueMemoryLayout(captured.fields[0]?.fieldLayout).fields));
   const changed = { ...parent, fields: [parent.fields[0]!,
     { ...parent.fields[1]!, fieldLayout: { ...child, stride: 8 } }] };
   assert.ok(tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(parent)));
@@ -188,7 +189,7 @@ for (const mutate of [
 test("zero-sized fields occupy no bytes, including at the aggregate end", () => {
   const empty = { ...scalar(), byteSize: 0, stride: 0 };
   const parent = { ...scalar(), fields: [field(scalar()), field(empty), field(empty, 4)] };
-  assert.equal(snapshotMemoryLayout(parent).fields.length, 3);
+  assert.equal(valueMemoryLayout(snapshotMemoryLayout(parent)).fields.length, 3);
 });
 
 test("cyclic and over-depth physical descriptors reject without stack overflow", () => {
@@ -204,26 +205,26 @@ test("cyclic and over-depth physical descriptors reject without stack overflow",
 });
 
 test("shared empty-child graphs do not expand exponentially", () => {
-  let nested: TsonicMemoryLayoutFact = { ...scalar(), byteSize: 0, stride: 0 };
+  let nested: TsonicValueMemoryLayoutFact = { ...scalar(), byteSize: 0, stride: 0 };
   for (let depth = 0; depth < 32; depth += 1) {
     nested = { ...scalar(), byteSize: 0, stride: 0, fields: [field(nested), field(nested)] };
   }
-  const captured = snapshotMemoryLayout(nested);
+  const captured = valueMemoryLayout(snapshotMemoryLayout(nested));
   assert.ok(tsonicMemoryLayoutFactKey.equals(captured, snapshotMemoryLayout(nested)));
   assert.equal(captured.fields[0]?.fieldLayout, captured.fields[1]?.fieldLayout);
 });
 
 test("independently published field facts keep the same captured child instead of expanding its graph", () => {
-  let child = snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0 });
+  let child = valueMemoryLayout(snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0 }));
   for (let depth = 0; depth < 32; depth += 1) {
     const left = snapshotMemoryField(field(child));
     const right = snapshotMemoryField(field(child));
-    const parent = snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0, fields: [left, right] });
+    const parent = valueMemoryLayout(snapshotMemoryLayout({ ...scalar(), byteSize: 0, stride: 0, fields: [left, right] }));
     assert.equal(parent.fields[0]?.fieldLayout, child);
     assert.equal(parent.fields[1]?.fieldLayout, child);
     child = parent;
   }
-  const independent = snapshotMemoryLayout(child);
+  const independent = valueMemoryLayout(snapshotMemoryLayout(child));
   assert.notEqual(independent, child);
   assert.equal(independent.fields, child.fields);
   assert.ok(tsonicMemoryLayoutFactKey.equals(independent, child));
@@ -238,10 +239,10 @@ test("source-produced nested descriptors preserve sharing across all fact public
         memoryField((value: Layer${depth}) => value.right, 0, 4, layer${depth - 1}));`);
   }
   const checked = cleanMemorySession(declarations.join("\n"));
-  let layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 25))!;
+  let layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 25)));
   for (let depth = 24; depth !== 0; depth -= 1) {
     assert.equal(layout.fields[0]?.fieldLayout, layout.fields[1]?.fieldLayout);
-    layout = layout.fields[0]!.fieldLayout;
+    layout = valueMemoryLayout(layout.fields[0]!.fieldLayout);
   }
   assert.equal(layout.fields.length, 0);
 });

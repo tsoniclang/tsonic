@@ -3,18 +3,20 @@ import { test } from "node:test";
 import type { Node, Type } from "@tsonic/tsts";
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { snapshotMemoryLayout, tsonicDataLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "../facts.js";
-import type { TsonicMemoryLayoutFact } from "../facts.js";
+import type { TsonicValueMemoryLayoutFact } from "../facts.js";
 import { captureDataLayoutRegistrations } from "../registrations.js";
-import { memoryTestRegistration } from "./fixtures.js";
+import { memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 
-function layoutFixture(): TsonicMemoryLayoutFact {
+function layoutFixture(): TsonicValueMemoryLayoutFact {
   const fieldType = {} as Type;
-  const child: TsonicMemoryLayoutFact = {
+  const child: TsonicValueMemoryLayoutFact = {
+    kind: "value",
     call: {} as Node, sourceType: fieldType, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
     byteSize: 4, byteAlignment: 4, stride: 4, fields: [],
   };
   return {
+    kind: "value",
     call: {} as Node, sourceType: {} as Type, dataLayoutExpression: {} as Node,
     dataLayout: { providerDeclaration: { ...memoryTestRegistration.providerDeclaration }, ...memoryTestRegistration.descriptor },
     byteSize: 8, byteAlignment: 4, stride: 8,
@@ -25,7 +27,7 @@ function layoutFixture(): TsonicMemoryLayoutFact {
 
 test("layout snapshots deeply freeze metadata without freezing compiler subjects", () => {
   const input = layoutFixture();
-  const captured = snapshotMemoryLayout(input);
+  const captured = valueMemoryLayout(snapshotMemoryLayout(input));
   assert.notEqual(captured, input);
   assert.equal(captured.call, input.call);
   assert.ok(!Object.isFrozen(input.call));

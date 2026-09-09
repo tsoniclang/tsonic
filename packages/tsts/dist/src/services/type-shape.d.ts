@@ -44,6 +44,7 @@ export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
+    readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly isAny: (type: GoPtr<Type>) => boolean;
     readonly isUnknown: (type: GoPtr<Type>) => boolean;
     readonly isNever: (type: GoPtr<Type>) => boolean;
