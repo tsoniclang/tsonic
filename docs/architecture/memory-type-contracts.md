@@ -123,5 +123,17 @@ fingerprint, byte order, address width, size, alignment, stride, and exact
 child layouts. The target owns static codec placement, imports, initialization
 ordering, runtime alias preservation, and any target-specific rejection.
 
+Shared backing-demand reconciliation follows the same rule. For example,
+`toRawPointer(pointer, localLayout)` and `toRawPointer(pointer, importedLayout)`
+may demand the same storage even when the layouts were authored in different
+files. Their authenticated memory domains and complete physical layouts must
+agree, including every nested field's selected declaration and placement.
+Discovery order must not decide whether those demands are compatible.
+
+This is different from validating an individual fact's snapshot. That check
+still requires the original checker type for its exact authored occurrence;
+sharing a memory domain does not authorize substituting another occurrence's
+type or fact.
+
 Missing, unbound or unsupported evidence is a diagnostic, not permission to
 guess from type spelling, source text or a broad runtime value map.
