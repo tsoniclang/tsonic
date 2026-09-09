@@ -30,15 +30,25 @@ than silently widening them.
 | `Pointer<T>` | Typed mutable storage location |
 | `RawPointer` | Untyped address carrier; not an arbitrary object's identity |
 | `FunctionPointer<TArgs, TReturn>` | Exact native function-pointer signature |
-| `FixedArray<T, N>` | Fixed-length array; `N` must be one non-negative safe-integer literal type |
+| `FixedArray<T, N>` | Fixed-length array; `N` must be one exact non-negative safe numeric or bigint literal type |
 | `NativePointer<T>` | Target-native typed pointer used by explicit native-pointer operations |
 | `DataLayout` | Provider-selected ABI identity and immutable descriptor |
-| `MemoryLayout<T>` | Exact size, alignment, stride and selected field layout for `T` |
+| `MemoryLayout<T>` | Exact size, alignment, stride and selected physical field or array-element layouts for `T` |
 | `MemoryFieldLayout<T>` | One selected field's offset and alignment |
 
 `Pointer<T>` and `NativePointer<T>` are different contracts. The first is a
 safe closed location abstraction. The second requests the target's native
 pointer representation and safety rules.
+
+`FixedArray<T, 2>` has a number-based readonly `.length` of type `2`;
+`FixedArray<T, 2n>` has a bigint-based readonly `.length` of type `2n`. Shared
+metadata stores both counts exactly as bigint, without changing that source
+meaning. Wider `number`/`bigint` types, unions, negative or fractional extents,
+and unsafe numeric literals are rejected. Use an exact bigint literal such as
+`9007199254740993n` beyond the safe-number range. Exact source evidence does not
+guarantee a native value representation or an implemented `.length` operation;
+see the [C#](targets/csharp/type-mapping.md#fixed-arrays) and
+[Rust](targets/rust/type-mapping.md#fixed-arrays) limits.
 
 ## `@tsonic/core/lang.js`
 
@@ -170,11 +180,12 @@ A checked source fact alone does not prove native storage or lifetime safety.
 
 | Export | Source contract |
 | --- | --- |
-| `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe exact storage using a registered ABI token and constant dimensions |
+| `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe scalar or record storage using a registered ABI token and constant dimensions; not a fixed-array descriptor |
+| `memoryArrayLayout<T, N>(abi, size, alignment, stride, elementLayout: MemoryLayout<T>, length: N): MemoryLayout<FixedArray<T, N>>` | Describe a fixed array using one exact child layout and an extent matching the selected type |
 | `memoryField<T, TField>(select, offset, alignment, fieldLayout)` | Select a non-optional physical field and its exact child layout without executing the selector |
 | `sizeOf(layout)` | Observe the selected byte size |
 | `alignOf(layout)` | Observe the selected byte alignment |
-| `strideOf(layout)` | Observe the selected element stride |
+| `strideOf(layout)` | Observe the stride between whole values of the selected layout |
 | `fieldOffsetOf(layout, select)` | Observe the offset of one exact selected field |
 | `toRawPointer(pointer, layout)` | Request the address of the same typed storage, retaining its required owner |
 | `reinterpretRawPointer(raw, layout)` | Interpret an address as the canonical `Pointer<T>`, not `NativePointer<T>` |
@@ -205,6 +216,44 @@ child descriptors; Tsonic does not search for a layout with a matching name or
 type. The descriptor dependency graph must be acyclic and remain within the
 supported 128-level nesting and 131,072-value snapshot limits. These source
 checks do not by themselves establish a native record representation.
+
+An array descriptor selects one child, even for nested arrays, arrays of records,
+or zero elements. Using the same `abi` and `word` as above:
+
+```ts
+const words = memoryArrayLayout<uint32, 2>(abi, 12, 4, 16, word, 2);
+```
+
+Here `sizeOf(words)` is 12 and `strideOf(words)` is 16; element spacing remains
+`strideOf(word)`, which is 4. The two elements occupy 8 bytes, with explicit
+trailing padding. Whole-array dimensions are non-negative safe-integer byte
+quantities within the selected address width. For exact count `N`, occupied
+bytes are zero when `N` is zero, otherwise
+`(N - 1n) * BigInt(elementLayout.stride) + BigInt(elementLayout.byteSize)`.
+This calculation is exact and must fit the whole-array size. Outer stride must
+contain the size and preserve alignment; a nonempty array must preserve its
+child's alignment. A zero-count array still validates the child type, ABI and
+acyclic graph. Huge counts with zero-sized, zero-stride children can therefore
+describe zero-byte storage without expanding the count into metadata elements.
+
+The length argument must be a proven constant with the same exact value and
+number/bigint runtime base as selected `N`; a type assertion cannot excuse a
+different value. `memoryLayout<FixedArray<T, N>>(...)` is rejected because it
+omits the physical child. Neither builder allocates an array or supplies a
+native codec. C# and Rust reject raw conversion or physical backing requiring
+an inline array, including arrays nested in records; compile-time layout
+observations remain separate from that unsupported native representation.
+
+Consumers read `TsonicMemoryLayoutFact` through `@tsonic/source-core/facts`:
+`kind: "value"` has `fields`, whereas `kind: "array"` has `fixedArray`,
+`elementLayoutExpression` and `elementLayout`, with no synthetic fields. The
+canonical `fixedArray` owns the only count (`length: bigint`), its
+`lengthRuntimeBase`, resolved `sourceType` and `elementSourceType`, and optional
+authored `elementType` evidence. Selected memory-type identities preserve
+source primitive distinctions and cross-file equivalence; equal checker
+carriers alone do not establish that an element is the intended primitive.
+Snapshots, finalized observations and backing comparisons follow the one child
+edge, not one node per element. The existing graph limits still apply.
 
 For example, given a registered little-endian, 64-bit ABI token exported by
 `example:abi`, both targets preserve this local's storage:

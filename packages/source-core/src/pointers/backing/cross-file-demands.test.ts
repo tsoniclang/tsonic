@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import type { ReadonlySourceFactResolver } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "@tsonic/target-api/source";
-import { assertMemoryDiagnostics, memoryCalls, memorySession } from "../../memory-layout/testing/fixtures.js";
+import { assertMemoryDiagnostics, memoryCalls, memorySession, valueMemoryLayout } from "../../memory-layout/testing/fixtures.js";
 import { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../../memory-layout/type-contract/facts.js";
 import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
@@ -78,8 +78,8 @@ for (const [name, layout, type, value] of cases) {
     assert.equal(left.identity, right.identity);
     if (name !== "nested record") assert.notEqual(left.sourceType, right.sourceType);
     else {
-      const first = layouts[0]!.fields[0]!.fieldLayout.fields[0]!;
-      const second = layouts[1]!.fields[0]!.fieldLayout.fields[0]!;
+      const first = valueMemoryLayout(valueMemoryLayout(layouts[0]!).fields[0]!.fieldLayout).fields[0]!;
+      const second = valueMemoryLayout(valueMemoryLayout(layouts[1]!).fields[0]!.fieldLayout).fields[0]!;
       assert.equal(first.selectedDeclaration, second.selectedDeclaration);
       assert.notEqual(first.fieldType, second.fieldType);
     }

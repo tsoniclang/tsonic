@@ -10,16 +10,25 @@ export function memoryFieldDimensionsError(field: MemoryFieldDimensions): string
     ? undefined : "Memory field offset violates its selected alignment.";
 }
 
-export function memoryLayoutDimensionsError(layout: {
+interface MemoryValueDimensions {
   readonly byteSize: number;
   readonly byteAlignment: number;
   readonly stride: number;
+}
+
+export function memoryLayoutDimensionsError(layout: MemoryValueDimensions & {
   readonly dataLayout: { readonly addressWidth: 32 | 64 };
+} & ({
+  readonly kind: "value";
   readonly fields: readonly (MemoryFieldDimensions & {
     readonly selectedDeclaration: object;
     readonly fieldLayout: { readonly byteSize: number };
   })[];
-}): string | undefined {
+} | {
+  readonly kind: "array";
+  readonly fixedArray: { readonly length: bigint };
+  readonly elementLayout: MemoryValueDimensions;
+})): string | undefined {
   if (!isSize(layout.byteSize) || !isSize(layout.stride)) {
     return "Memory layout size and stride must be non-negative safe integers.";
   }
@@ -30,6 +39,21 @@ export function memoryLayoutDimensionsError(layout: {
   const maximum = (1n << BigInt(layout.dataLayout.addressWidth)) - 1n;
   if ([layout.byteSize, layout.byteAlignment, layout.stride].some((size) => BigInt(size) > maximum)) {
     return "Memory layout exceeds its selected address width.";
+  }
+  if (layout.kind === "array") {
+    const count = layout.fixedArray.length;
+    const element = layout.elementLayout;
+    if (typeof count !== "bigint" || count < 0n || !isSize(element.byteSize) ||
+        !isSize(element.stride) || !isAlignment(element.byteAlignment) ||
+        element.stride < element.byteSize || element.stride % element.byteAlignment !== 0) {
+      return "Memory array requires an exact non-negative extent and valid element dimensions.";
+    }
+    const occupied = count === 0n ? 0n : (count - 1n) * BigInt(element.stride) + BigInt(element.byteSize);
+    if (occupied > BigInt(layout.byteSize)) return "Memory array elements exceed the selected whole-array size.";
+    if (count !== 0n && layout.byteAlignment % element.byteAlignment !== 0) {
+      return "Memory array alignment does not preserve its selected element alignment.";
+    }
+    return undefined;
   }
   const declarations = new Set<object>();
   for (const field of layout.fields) {

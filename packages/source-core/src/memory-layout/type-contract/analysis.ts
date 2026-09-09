@@ -7,10 +7,12 @@ import { publishMemoryFact } from "../analysis-context.js";
 import type { TsonicMemoryLayoutFact } from "../facts.js";
 import { createMemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./domains.js";
-import { bindMemoryTypeIdentity, createMemoryTypeIdentity, tsonicMemoryTypeFactKey } from "./facts.js";
+import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, createMemoryTypeIdentity, tsonicMemoryTypeFactKey } from "./facts.js";
 import type { TsonicMemoryTypeIdentity } from "./facts.js";
 import { createMemoryValueDomains } from "./values.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
+import { selectTsonicFixedArray } from "../../fixed-arrays/selection.js";
+import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
 
 interface MemoryTypeSelection {
   readonly type: Type;
@@ -20,6 +22,8 @@ interface MemoryTypeSelection {
 
 export interface MemoryTypeContracts {
   layout(call: MemorySourceCall): boolean;
+  array(call: MemorySourceCall, element: TsonicMemoryLayoutFact,
+    count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined;
   field(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
   aggregate(call: MemorySourceCall, fields: readonly Node[]): boolean;
   raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact): boolean;
@@ -39,7 +43,8 @@ export function createMemoryTypeContracts(
   const identities = new Map<MemoryTypeDomain, MemoryTypeSelection[]>();
   const layouts = new Map<Node, MemoryTypeSelection>();
   const fields = new Map<Node, MemoryTypeSelection>();
-  const selections = new Map<Node, { readonly selection: MemoryTypeSelection; readonly index: number }>();
+  const selections = new Map<Node, { readonly selection: MemoryTypeSelection; readonly sourceType: Type;
+    readonly fixedArray?: TsonicFixedArrayFact }>();
   const byIdentity = new Map<TsonicMemoryTypeIdentity, MemoryTypeSelection>();
   const valueDomain = createMemoryValueDomains(context, domains, node => {
     demandRaw(node);
@@ -89,13 +94,44 @@ export function createMemoryTypeContracts(
     return domain === undefined ? undefined : domains.pointee(domain);
   }
 
+  function arrayResult(selection: ResolvedSourceCallInfo, queries: TsonicSourceFileAnalysisContext): TsonicFixedArrayFact | undefined {
+    const arguments_ = queries.typeShape.getTypeArguments(selection.sourceResultType);
+    if (arguments_.length !== 1 || arguments_[0] === undefined) return undefined;
+    const array = selectTsonicFixedArray(arguments_[0], queries,
+      { getFact: (subject, key) => readSourceFact(queries, subject, key) },
+      { elementType: selection.sourceSelectedMethodTypeArguments?.[0]?.explicitTypeNode });
+    return array?.kind === "selected" ? array.fact : undefined;
+  }
+
   return Object.freeze({
     layout(call: MemorySourceCall) {
       const selection = selected(call, 0);
       if (selection === undefined) return false;
       layouts.set(call.selected.call, selection);
-      selections.set(call.selected.call, { selection, index: 0 });
+      selections.set(call.selected.call, { selection,
+        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
       return true;
+    },
+    array(call: MemorySourceCall, layout: TsonicMemoryLayoutFact,
+      count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }) {
+      const canonicalCall = canonical(call);
+      if (canonicalCall === undefined) return undefined;
+      const fixedArray = arrayResult(canonicalCall, context);
+      const original = arrayResult(call.selected.selection, call.context);
+      const child = layouts.get(layout.call);
+      const element = child === undefined ? undefined : selected(call, 0, undefined, child.domain);
+      if (fixedArray === undefined || original === undefined || child === undefined ||
+          element?.identity !== child.identity || !typeShape.isTypeIdenticalTo(fixedArray.elementSourceType, element.type) ||
+          fixedArray.length !== count.value || original.length !== count.value ||
+          fixedArray.lengthRuntimeBase !== count.runtimeBase || original.lengthRuntimeBase !== count.runtimeBase ||
+          !domains.isClosed(fixedArray.sourceType)) return undefined;
+      const domain = domains.array(fixedArray.sourceType, child.domain, fixedArray.length, fixedArray.lengthRuntimeBase);
+      if (domain === undefined) return undefined;
+      const selection = intern(fixedArray.sourceType, domain);
+      bindMemoryArrayTypeIdentity(selection.identity, child.identity, fixedArray.length, fixedArray.lengthRuntimeBase);
+      layouts.set(call.selected.call, selection);
+      selections.set(call.selected.call, { selection, sourceType: original.sourceType, fixedArray: original });
+      return original;
     },
     field(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact) {
       const child = layouts.get(layout.call);
@@ -108,7 +144,8 @@ export function createMemoryTypeContracts(
       const selection = domain === undefined ? selected(call, 1, annotation) : selected(call, 1, undefined, domain);
       if (child === undefined || selection?.identity !== child.identity || parent === undefined) return false;
       fields.set(call.selected.call, parent);
-      selections.set(call.selected.call, { selection, index: 1 });
+      selections.set(call.selected.call, { selection,
+        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![1]!.selectedType });
       return true;
     },
     aggregate(call: MemorySourceCall, members: readonly Node[]) {
@@ -122,16 +159,16 @@ export function createMemoryTypeContracts(
       if (domain === undefined || domain !== child.domain) return false;
       const selection = selected(call, 0, undefined, domain);
       if (selection?.identity !== child.identity) return false;
-      selections.set(call.selected.call, { selection, index: 0 });
+      selections.set(call.selected.call, { selection,
+        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
       return true;
     },
     publish(call: MemorySourceCall) {
       const selected = selections.get(call.selected.call);
-      const sourceType = selected === undefined ? undefined
-        : call.selected.selection.sourceSelectedMethodTypeArguments?.[selected.index]?.selectedType;
+      const sourceType = selected?.sourceType;
       if (sourceType === undefined || selected === undefined) throw new Error("Missing validated memory type selection.");
       const identity = selected.selection.identity;
-      bindMemoryTypeIdentity(identity, call.selected.call, sourceType);
+      bindMemoryTypeIdentity(identity, call.selected.call, sourceType, selected.fixedArray);
       publishMemoryFact(call, tsonicMemoryTypeFactKey, { call: call.selected.call, sourceType, identity });
     },
   });

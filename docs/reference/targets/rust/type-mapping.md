@@ -26,6 +26,31 @@ const, associated-type, ABI, safety, fallibility, and foundation identities.
 No source type is silently boxed merely to make an unsupported operation
 compile.
 
+## Fixed arrays
+
+The fixed-array carrier retains the exact extent as an integer constant in
+`[T; N]`, including bigint source extents, without converting it through a
+JavaScript number. Native `usize` representability and allocation limits remain
+native constraints; exact emitted constants do not certify those constraints.
+
+Source `.length` is a separate operation. Number-based extents through
+`2147483647` use the existing checked `int32` result. Larger numeric `.length`
+reads reject with `RUST_FIXED_ARRAY_LENGTH_RANGE_UNSUPPORTED`; bigint-based
+reads, even for `2n`, reject with
+`RUST_FIXED_ARRAY_LENGTH_RUNTIME_BASE_UNSUPPORTED`. A bigint metadata count
+does not authorize a numeric source result. Literal index/cardinality checks
+and rest bounds use exact counts; dynamic indexing retains its checked `int32`
+index, and iteration retains native bounds. This is not blanket support for
+every fixed-array operation.
+
+The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
+supports array metadata observations without materializing `[T; N]`, including
+huge zero-sized arrays. A native array carrier does not supply a physical
+layout codec: raw conversion or demanded backing requiring an inline array,
+directly or through record children, rejects with an explicit unsupported-array
+reason. Existing scalar/record codecs and ordinary dynamic-array element
+backing do not constitute such an adapter.
+
 ## Broad values
 
 An `any` or `unknown` annotation does not select a general Rust carrier:

@@ -35,6 +35,7 @@ export function createTsonicCoreVirtualModulesProvider(): SourceDeclarationProvi
               { exportedName: "DataLayout", kind: "type" },
               { exportedName: "MemoryLayout", kind: "type" },
               { exportedName: "MemoryFieldLayout", kind: "type" },
+              { exportedName: "FixedArray", kind: "type" },
             ],
             typeOnly: true,
           }]

@@ -46,7 +46,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   }));
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => !name.startsWith("__Tsonic")), [
     "toRawPointer", "reinterpretRawPointer", "offsetRawPointer",
-    "rawPointerToAddressInteger", "addressIntegerToRawPointer", "memoryLayout", "memoryField",
+    "rawPointerToAddressInteger", "addressIntegerToRawPointer", "memoryLayout", "memoryArrayLayout", "memoryField",
     "sizeOf", "alignOf", "strideOf", "fieldOffsetOf", "keepAlive",
     "comptime",
     "comptimeIf",
@@ -59,6 +59,12 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     ...expectedSourceCoreLangIntrinsics.map((entry) => entry.exportName),
   ]);
   assert.equal(declarationModel.exports.some((entry) => entry.name === "int"), false);
+  assert.deepEqual(declarationModel.imports, [{
+    moduleSpecifier: tsonicCoreTypesModule,
+    typeOnly: true,
+    namedImports: ["Pointer", "RawPointer", "NativePointer", "DataLayout", "MemoryLayout", "MemoryFieldLayout", "FixedArray"]
+      .map(exportedName => ({ exportedName, kind: "type" })),
+  }]);
 
   const typesResolution = assertVirtualModuleResolution(provider.resolveModule(tsonicCoreTypesModule, {}));
   assert.equal(typesResolution.providerModuleId, tsonicCoreTypesModule);

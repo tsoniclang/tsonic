@@ -9,6 +9,8 @@ export type {
 import { tsonicCoreSourceExtensionId } from "../identity.js";
 import { exactRecord, nonEmptyText, opaqueSubject, recordsEqual, snapshotDataArray } from "./snapshots.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
+import { snapshotFixedArrayFact, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
+import type { TsonicFixedArrayFact } from "../fixed-arrays/facts.js";
 
 export interface TsonicDataLayoutFact extends TsonicDataLayoutDescriptor {
   readonly providerDeclaration: TsonicDataLayoutIdentity;
@@ -27,7 +29,7 @@ export interface TsonicMemoryFieldLayoutFact {
   readonly byteAlignment: number;
 }
 
-export interface TsonicMemoryLayoutFact {
+interface MemoryLayoutBase {
   readonly call: Node;
   readonly sourceType: Type;
   readonly explicitTypeNode?: Node;
@@ -36,8 +38,21 @@ export interface TsonicMemoryLayoutFact {
   readonly byteSize: number;
   readonly byteAlignment: number;
   readonly stride: number;
+}
+
+export interface TsonicValueMemoryLayoutFact extends MemoryLayoutBase {
+  readonly kind: "value";
   readonly fields: readonly TsonicMemoryFieldLayoutFact[];
 }
+
+export interface TsonicArrayMemoryLayoutFact extends MemoryLayoutBase {
+  readonly kind: "array";
+  readonly fixedArray: TsonicFixedArrayFact;
+  readonly elementLayoutExpression: Node;
+  readonly elementLayout: TsonicMemoryLayoutFact;
+}
+
+export type TsonicMemoryLayoutFact = TsonicValueMemoryLayoutFact | TsonicArrayMemoryLayoutFact;
 
 export interface TsonicMemoryLayoutQueryFact {
   readonly operation: "size" | "alignment" | "stride" | "field-offset";
@@ -86,13 +101,13 @@ export const maximumMemoryLayoutDepth = 128;
 const maximumMemoryLayoutValues = 131072;
 const capturedLayoutDepths = new WeakMap<TsonicMemoryLayoutFact, number>();
 
-export function memoryLayoutCaptureLimitsError(fields: readonly TsonicMemoryFieldLayoutFact[]): string | undefined {
-  if (fields.length > Math.floor((maximumMemoryLayoutValues - 1) / 2)) {
+export function memoryLayoutCaptureLimitsError(children: readonly TsonicMemoryLayoutFact[], fieldCount = 0): string | undefined {
+  if (children.length + fieldCount >= maximumMemoryLayoutValues) {
     return "Memory layout exceeds its metadata value budget.";
   }
-  for (const field of fields) {
-    const depth = capturedLayoutDepths.get(field.fieldLayout);
-    if (depth === undefined) return "Memory field layout is not an immutable source-owned snapshot.";
+  for (const child of children) {
+    const depth = capturedLayoutDepths.get(child);
+    if (depth === undefined) return "Memory child layout is not an immutable source-owned snapshot.";
     if (depth >= maximumMemoryLayoutDepth) return "Memory layout exceeds its supported nesting depth.";
   }
   return undefined;
@@ -137,23 +152,47 @@ function memoryLayoutSnapshot() {
     }
     if (active.has(value)) throw new Error("Memory layout contains a recursive physical value.");
     if (active.size >= maximumMemoryLayoutDepth) throw new Error("Memory layout exceeds its supported nesting depth.");
-    const result = exactRecord(value,
-      ["call", "sourceType", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride", "fields"],
-      ["explicitTypeNode"]);
+    const discriminator = value !== null && typeof value === "object"
+      ? Object.getOwnPropertyDescriptor(value, "kind") : undefined;
+    if (discriminator === undefined || !("value" in discriminator) ||
+      (discriminator.value !== "value" && discriminator.value !== "array")) {
+      throw new Error("Memory layout requires an exact own data discriminator.");
+    }
+    const result = discriminator.value === "value"
+      ? exactRecord(value as TsonicValueMemoryLayoutFact,
+        ["kind", "call", "sourceType", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride", "fields"],
+        ["explicitTypeNode"])
+      : exactRecord(value as TsonicArrayMemoryLayoutFact,
+        ["kind", "call", "sourceType", "dataLayoutExpression", "dataLayout", "byteSize", "byteAlignment", "stride",
+          "fixedArray", "elementLayoutExpression", "elementLayout"], ["explicitTypeNode"]);
     for (const subject of [result.call, result.sourceType, result.dataLayoutExpression]) opaqueSubject(subject);
     if (result.explicitTypeNode !== undefined) opaqueSubject(result.explicitTypeNode);
     active.add(value);
     try {
       const dataLayout = snapshotDataLayout(result.dataLayout);
-      const fields = snapshotDataArray(result.fields, field);
-      if (fields.some((entry) => !dataLayoutsEqual(entry.fieldLayout.dataLayout, dataLayout))) {
-        throw new Error("Memory field layout has a different ABI identity or descriptor from its aggregate.");
+      let captured: TsonicMemoryLayoutFact;
+      let children: readonly TsonicMemoryLayoutFact[];
+      if (result.kind === "value") {
+        const fields = snapshotDataArray(result.fields, field);
+        children = fields.map(entry => entry.fieldLayout);
+        captured = Object.freeze({ ...result, dataLayout, fields });
+      } else {
+        opaqueSubject(result.elementLayoutExpression);
+        const fixedArray = snapshotFixedArrayFact(result.fixedArray);
+        if (fixedArray.sourceType !== result.sourceType) {
+          throw new Error("Memory array layout must retain its exact selected fixed-array type.");
+        }
+        const elementLayout = layout(result.elementLayout);
+        children = [elementLayout];
+        captured = Object.freeze({ ...result, dataLayout, fixedArray, elementLayout });
       }
-      const error = memoryLayoutDimensionsError({ ...result, dataLayout, fields });
+      if (children.some(child => !dataLayoutsEqual(child.dataLayout, dataLayout))) {
+        throw new Error("Memory child layout has a different ABI identity or descriptor from its aggregate.");
+      }
+      const error = memoryLayoutDimensionsError(captured);
       if (error !== undefined) throw new Error(error);
-      const captured = Object.freeze({ ...result, dataLayout, fields });
       let depth = 1;
-      for (const entry of fields) depth = Math.max(depth, 1 + capturedLayoutDepths.get(entry.fieldLayout)!);
+      for (const child of children) depth = Math.max(depth, 1 + capturedLayoutDepths.get(child)!);
       capturedLayoutDepths.set(captured, depth);
       layouts.set(value, captured);
       return captured;
@@ -189,18 +228,24 @@ export function memoryLayoutsEqual(left: TsonicMemoryLayoutFact, right: TsonicMe
   while (pending.length !== 0) {
     const [current, other] = pending.pop()!;
     if (current === other || visited.get(current)?.has(other)) continue;
-    if (current.call !== other.call || current.sourceType !== other.sourceType ||
+    if (current.kind !== other.kind || current.call !== other.call || current.sourceType !== other.sourceType ||
         current.explicitTypeNode !== other.explicitTypeNode || current.dataLayoutExpression !== other.dataLayoutExpression ||
         !dataLayoutsEqual(current.dataLayout, other.dataLayout) || current.byteSize !== other.byteSize ||
-        current.byteAlignment !== other.byteAlignment || current.stride !== other.stride ||
-        current.fields.length !== other.fields.length) return false;
+        current.byteAlignment !== other.byteAlignment || current.stride !== other.stride) return false;
     const peers = visited.get(current) ?? new Set<TsonicMemoryLayoutFact>();
     peers.add(other);
     visited.set(current, peers);
-    for (const [index, field] of current.fields.entries()) {
-      const otherField = other.fields[index]!;
-      if (!memoryFieldSubjectsEqual(field, otherField)) return false;
-      pending.push([field.fieldLayout, otherField.fieldLayout]);
+    if (current.kind === "array") {
+      if (other.kind !== "array" || current.elementLayoutExpression !== other.elementLayoutExpression ||
+          !fixedArrayFactsEqual(current.fixedArray, other.fixedArray)) return false;
+      pending.push([current.elementLayout, other.elementLayout]);
+    } else {
+      if (other.kind !== "value" || current.fields.length !== other.fields.length) return false;
+      for (const [index, field] of current.fields.entries()) {
+        const otherField = other.fields[index]!;
+        if (!memoryFieldSubjectsEqual(field, otherField)) return false;
+        pending.push([field.fieldLayout, otherField.fieldLayout]);
+      }
     }
   }
   return true;

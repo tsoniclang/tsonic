@@ -112,7 +112,10 @@ test("source-core records exact fixed-array element and length facts without spe
     typeReference(session, sourceFile, "fixed"),
     tsonicFixedArrayFactKey,
   );
-  assert.equal(direct?.length, 4);
+  assert.equal(direct?.length, 4n);
+  assert.equal(direct?.lengthRuntimeBase, "number");
+  assert.ok(direct?.sourceType);
+  assert.ok(direct?.elementSourceType);
   assert.equal(typeReferenceName(session, direct?.elementType), "uint8");
 
   const namespace = getSourceFact(
@@ -120,7 +123,10 @@ test("source-core records exact fixed-array element and length facts without spe
     typeReference(session, sourceFile, "coreTypes.FixedArray"),
     tsonicFixedArrayFactKey,
   );
-  assert.equal(namespace?.length, 8);
+  assert.equal(namespace?.length, 8n);
+  assert.equal(namespace?.lengthRuntimeBase, "number");
+  assert.ok(namespace?.sourceType);
+  assert.ok(namespace?.elementSourceType);
   assert.equal(typeReferenceName(session, namespace?.elementType), "uint8");
 
   assert.equal(getSourceFact(

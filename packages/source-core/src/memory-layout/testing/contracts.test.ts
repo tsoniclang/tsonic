@@ -60,6 +60,7 @@ test("source memory descriptors retain explicit ABI, physical field identity and
   `);
   const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1));
   assert.ok(layout);
+  assert.ok(layout.kind === "value");
   assert.equal(layout.byteSize, 12);
   assert.equal(layout.stride, 12);
   assert.equal(layout.fields.length, 2);
@@ -100,6 +101,7 @@ test("value-shape layouts consume finalized fields selected through marker alias
   `);
   const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1));
   assert.ok(layout);
+  assert.ok(layout.kind === "value");
   assert.equal(layout.fields.length, 2);
   for (const [index, field] of layout.fields.entries()) {
     assert.equal(checked.ast.kindName(field.selectedDeclaration), "KindPropertyAssignment");

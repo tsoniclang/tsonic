@@ -68,18 +68,25 @@ function sameBackingLayout(facts: ReadonlySourceFactResolver, left: TsonicMemory
     if (current === other || compared.get(current)?.has(other)) continue;
     const currentType = readTsonicMemoryType(facts, current.call);
     const otherType = readTsonicMemoryType(facts, other.call);
-    if (currentType === undefined || otherType === undefined || currentType.identity !== otherType.identity ||
+    if (current.kind !== other.kind || currentType === undefined || otherType === undefined || currentType.identity !== otherType.identity ||
         !dataLayoutsEqual(current.dataLayout, other.dataLayout) ||
         current.byteSize !== other.byteSize || current.byteAlignment !== other.byteAlignment ||
-        current.stride !== other.stride || current.fields.length !== other.fields.length) return false;
+        current.stride !== other.stride) return false;
     const peers = compared.get(current) ?? new Set<TsonicMemoryLayoutFact>();
     peers.add(other);
     compared.set(current, peers);
-    for (const [index, field] of current.fields.entries()) {
-      const counterpart = other.fields[index]!;
-      if (field.selectedDeclaration !== counterpart.selectedDeclaration ||
-          field.byteOffset !== counterpart.byteOffset || field.byteAlignment !== counterpart.byteAlignment) return false;
-      pending.push([field.fieldLayout, counterpart.fieldLayout]);
+    if (current.kind === "array") {
+      if (other.kind !== "array" || current.fixedArray.length !== other.fixedArray.length ||
+          current.fixedArray.lengthRuntimeBase !== other.fixedArray.lengthRuntimeBase) return false;
+      pending.push([current.elementLayout, other.elementLayout]);
+    } else {
+      if (other.kind !== "value" || current.fields.length !== other.fields.length) return false;
+      for (const [index, field] of current.fields.entries()) {
+        const counterpart = other.fields[index]!;
+        if (field.selectedDeclaration !== counterpart.selectedDeclaration ||
+            field.byteOffset !== counterpart.byteOffset || field.byteAlignment !== counterpart.byteAlignment) return false;
+        pending.push([field.fieldLayout, counterpart.fieldLayout]);
+      }
     }
   }
   return true;

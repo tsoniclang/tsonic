@@ -7,6 +7,7 @@ import { tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js
 import { memoryDiagnostic } from "./analysis-context.js";
 import type { MemorySourceAnalysis, MemorySourceCall } from "./analysis-context.js";
 import { analyzeMemoryField, analyzeMemoryLayout, analyzeMemoryLayoutQuery } from "./builders.js";
+import { analyzeMemoryArrayLayout } from "./array-builder.js";
 import { tsonicMemorySignatureIds } from "./declarations.js";
 import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey } from "./facts.js";
 import type { TsonicDataLayoutFact } from "./facts.js";
@@ -71,6 +72,7 @@ export function analyzeTsonicMemoryOperations(
     switch (call.name) {
       case "memoryField": analyzeMemoryField(call, analysis); break;
       case "memoryLayout": analyzeMemoryLayout(call, analysis); break;
+      case "memoryArrayLayout": analyzeMemoryArrayLayout(call, analysis); break;
       case "sizeOf": case "alignOf": case "strideOf": case "fieldOffsetOf":
         analyzeMemoryLayoutQuery(call, analysis); break;
       default: analyzeRawMemoryCall(call, analysis); break;

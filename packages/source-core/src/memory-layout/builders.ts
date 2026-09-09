@@ -5,6 +5,8 @@ import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryFieldLayo
 import { exactLayoutSize, selectedDataLayout } from "./source-values.js";
 import { memoryFieldDimensionsError, memoryLayoutDimensionsError } from "./dimensions.js";
 import { isMemoryFieldDeclaration, isMemoryFieldSelector } from "./selectors.js";
+import { selectTsonicFixedArray } from "../fixed-arrays/selection.js";
+import { readSourceFact } from "../analysis/source-call.js";
 
 export function analyzeMemoryField(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
@@ -55,6 +57,12 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     memoryDiagnostic(call, "LAYOUT_NOT_PROVEN", "memoryLayout requires an exact selected type, registered ABI token, and non-negative safe integer size, alignment and stride.");
     return;
   }
+  const array = selectTsonicFixedArray(pointee.selectedType, context,
+    { getFact: (subject, key) => readSourceFact(context, subject, key) }, { authoredTypeNode: pointee.explicitTypeNode });
+  if (array !== undefined) {
+    memoryDiagnostic(call, "ARRAY_ELEMENT_REQUIRED", "A fixed-array memory layout requires memoryArrayLayout and its exact element child; a field-only descriptor is incomplete.");
+    return;
+  }
   if (!analysis.types.layout(call)) {
     memoryDiagnostic(call, "TYPE_NOT_PROVEN", "Memory layout requires an exact closed source memory type and selected marker domain.");
     return;
@@ -70,6 +78,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     return;
   }
   const fact = {
+    kind: "value" as const,
     call: selected.call, sourceType: pointee.selectedType,
     ...(pointee.explicitTypeNode === undefined ? {} : { explicitTypeNode: pointee.explicitTypeNode }),
     dataLayoutExpression: args[0].expression, dataLayout, byteSize, byteAlignment, stride,
@@ -80,7 +89,7 @@ export function analyzeMemoryLayout(call: MemorySourceCall, analysis: MemorySour
     memoryDiagnostic(call, "LAYOUT_DIMENSIONS_INVALID", error);
     return;
   }
-  const captureError = memoryLayoutCaptureLimitsError(fact.fields);
+  const captureError = memoryLayoutCaptureLimitsError(fact.fields.map(field => field.fieldLayout), fact.fields.length);
   if (captureError !== undefined) {
     memoryDiagnostic(call, "LAYOUT_CAPTURE_LIMIT", captureError);
     return;

@@ -86,6 +86,7 @@ export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensi
       context.registerSourceDeclarationProvider(createTsonicCoreVirtualModulesProvider());
     },
     analyzeSource(context): void {
+      analyzeTsonicFixedArrayTypes(context);
       analyzeTsonicMemoryOperations(context, dataLayouts);
       analyzeTsonicCompileTimeOperations(context);
       analyzeNativePointerOperations(context, {
@@ -133,7 +134,6 @@ export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensi
         diagnosticNumberBase: 9901140,
       });
       analyzeTsonicSourceMarkerEvidence(context);
-      analyzeTsonicFixedArrayTypes(context);
       analyzeTsonicAttributeBuilders(context);
       forEachTsonicSourceFile(context, (sourceContext): void => {
         recordUnsupportedTsonicCoreReExportDiagnostics(

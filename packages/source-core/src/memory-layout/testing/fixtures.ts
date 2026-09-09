@@ -4,7 +4,7 @@ import type { CheckedSourceProgram, CompilerExtension, Node, SourceSemanticsModu
 import { createSourceSemanticsVirtualModuleProvider } from "../../extension/semantics-virtual-modules.js";
 import { createTsonicCoreSourceExtension } from "../../extension/source-extension.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
-import type { TsonicDataLayoutRegistration } from "../facts.js";
+import type { TsonicDataLayoutRegistration, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 
 export const memoryTestRegistration: TsonicDataLayoutRegistration = Object.freeze({
   providerDeclaration: Object.freeze({
@@ -64,6 +64,11 @@ export function cleanMemorySession(sourceText: string): CheckedSourceProgram {
 export function assertMemoryDiagnostics(checked: CheckedSourceProgram): void {
   assert.equal(checked.extensionDiagnostics.length, 0, checked.extensionDiagnostics.map((entry) =>
     `${entry.extensionCode}: ${entry.message}`).join("\n"));
+}
+
+export function valueMemoryLayout(layout: TsonicMemoryLayoutFact | undefined): TsonicValueMemoryLayoutFact {
+  assert.ok(layout?.kind === "value");
+  return layout;
 }
 
 export function memoryCalls(checked: CheckedSourceProgram, name: string): readonly Node[] {

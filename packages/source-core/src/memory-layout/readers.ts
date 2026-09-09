@@ -2,7 +2,8 @@ import type { ExtensionFactSubject, ReadonlySourceFactResolver } from "@tsonic/t
 import { tsonicKeepAliveFactKey, tsonicRawMemoryOperationFactKey } from "../pointers/raw-memory/facts.js";
 import { dataLayoutsEqual, memoryLayoutsEqual, tsonicDataLayoutFactKey, tsonicMemoryFieldLayoutFactKey, tsonicMemoryLayoutFactKey, tsonicMemoryLayoutQueryFactKey } from "./facts.js";
 import type { TsonicMemoryLayoutFact } from "./facts.js";
-import { readTsonicMemoryType } from "./type-contract/facts.js";
+import { memoryArrayTypeMatches, memoryLayoutTypeKindMatches, readTsonicMemoryType } from "./type-contract/facts.js";
+import { tsonicFixedArrayFactKey, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
 
 export function readTsonicDataLayout(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject | undefined) {
   return facts.getFact(subject, tsonicDataLayoutFactKey);
@@ -27,8 +28,9 @@ export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maxi
     if (counts.has(layout)) return counts.get(layout);
     counts.set(layout, undefined);
     let total = 1;
-    for (const field of layout.fields) {
-      const child = count(field.fieldLayout);
+    const children = layout.kind === "array" ? [layout.elementLayout] : layout.fields.map(field => field.fieldLayout);
+    for (const element of children) {
+      const child = count(element);
       if (child === undefined || child > maximum - total) return undefined;
       total += child;
     }
@@ -45,11 +47,23 @@ export function isFinalizedMemoryLayout(facts: ReadonlySourceFactResolver, root:
     const layout = pending.pop()!;
     const selected = readTsonicMemoryLayout(facts, layout.call);
     const type = readTsonicMemoryType(facts, layout.call);
-    if (selected === undefined || type === undefined || !memoryLayoutsEqual(layout, selected) || type.sourceType !== layout.sourceType) return false;
+    if (selected === undefined || type === undefined || !memoryLayoutsEqual(layout, selected) || type.sourceType !== layout.sourceType ||
+        !memoryLayoutTypeKindMatches(type.identity, layout.call, layout.kind)) return false;
     if (visited.has(layout.call)) continue;
     visited.add(layout.call);
     const abi = readTsonicDataLayout(facts, layout.dataLayoutExpression);
     if (abi === undefined || !dataLayoutsEqual(abi, layout.dataLayout)) return false;
+    if (layout.kind === "array") {
+      const fixedArray = facts.getFact(layout.call, tsonicFixedArrayFactKey);
+      const selectedChild = readTsonicMemoryLayout(facts, layout.elementLayoutExpression);
+      const childType = readTsonicMemoryType(facts, layout.elementLayout.call);
+      if (fixedArray === undefined || childType === undefined || selectedChild === undefined ||
+          !fixedArrayFactsEqual(fixedArray, layout.fixedArray) ||
+          !memoryLayoutsEqual(layout.elementLayout, selectedChild) ||
+          !memoryArrayTypeMatches(type.identity, childType.identity, layout.call, fixedArray)) return false;
+      pending.push(layout.elementLayout);
+      continue;
+    }
     for (const field of layout.fields) {
       const selectedField = readTsonicMemoryFieldLayout(facts, field.call);
       const selectedChild = readTsonicMemoryLayout(facts, field.fieldLayoutExpression);
@@ -75,7 +89,8 @@ export function resolveTsonicMemoryLayoutObservation(facts: ReadonlySourceFactRe
   });
   const values = { size: layout.byteSize, alignment: layout.byteAlignment, stride: layout.stride };
   const fields = query.operation === "field-offset"
-    ? layout.fields.filter(field => field.selectedDeclaration === query.selectedFieldDeclaration) : undefined;
+    ? layout.kind === "value" ? layout.fields.filter(field => field.selectedDeclaration === query.selectedFieldDeclaration) : []
+    : undefined;
   if (fields !== undefined && fields.length !== 1) return Object.freeze({
     kind: "rejected" as const, reason: "Layout field observation does not select exactly one declared field.",
   });
