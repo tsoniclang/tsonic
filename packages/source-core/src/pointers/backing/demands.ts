@@ -1,7 +1,8 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
 import { dataLayoutsEqual } from "../../memory-layout/facts.js";
+import { readTsonicMemoryType } from "../../memory-layout/type-contract/facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingQueries } from "./requirements.js";
 import type { TsonicPointerBackingIssue, TsonicPointerBackingOrigin } from "./requirements.js";
@@ -49,7 +50,7 @@ export function createTsonicPointerBackingDemands(source: TargetSourceProgram): 
       }
       for (const origin of backing.origins) {
         const previous = demands.get(origin.call);
-        if (previous !== undefined && !sameBackingLayout(previous.layout, selected.layout)) {
+        if (previous !== undefined && !sameBackingLayout(source.sourceFacts, previous.layout, selected.layout)) {
           issues.push(Object.freeze({ node, reason: "One pointer origin has incompatible physical layout demands." }));
         } else {
           demands.set(origin.call, Object.freeze({ origin, layout: selected.layout }));
@@ -59,13 +60,16 @@ export function createTsonicPointerBackingDemands(source: TargetSourceProgram): 
   });
 }
 
-function sameBackingLayout(left: TsonicMemoryLayoutFact, right: TsonicMemoryLayoutFact): boolean {
+function sameBackingLayout(facts: ReadonlySourceFactResolver, left: TsonicMemoryLayoutFact, right: TsonicMemoryLayoutFact): boolean {
   const pending: [TsonicMemoryLayoutFact, TsonicMemoryLayoutFact][] = [[left, right]];
   const compared = new Map<TsonicMemoryLayoutFact, Set<TsonicMemoryLayoutFact>>();
   while (pending.length !== 0) {
     const [current, other] = pending.pop()!;
     if (current === other || compared.get(current)?.has(other)) continue;
-    if (current.sourceType !== other.sourceType || !dataLayoutsEqual(current.dataLayout, other.dataLayout) ||
+    const currentType = readTsonicMemoryType(facts, current.call);
+    const otherType = readTsonicMemoryType(facts, other.call);
+    if (currentType === undefined || otherType === undefined || currentType.identity !== otherType.identity ||
+        !dataLayoutsEqual(current.dataLayout, other.dataLayout) ||
         current.byteSize !== other.byteSize || current.byteAlignment !== other.byteAlignment ||
         current.stride !== other.stride || current.fields.length !== other.fields.length) return false;
     const peers = compared.get(current) ?? new Set<TsonicMemoryLayoutFact>();
@@ -73,7 +77,7 @@ function sameBackingLayout(left: TsonicMemoryLayoutFact, right: TsonicMemoryLayo
     compared.set(current, peers);
     for (const [index, field] of current.fields.entries()) {
       const counterpart = other.fields[index]!;
-      if (field.selectedDeclaration !== counterpart.selectedDeclaration || field.fieldType !== counterpart.fieldType ||
+      if (field.selectedDeclaration !== counterpart.selectedDeclaration ||
           field.byteOffset !== counterpart.byteOffset || field.byteAlignment !== counterpart.byteAlignment) return false;
       pending.push([field.fieldLayout, counterpart.fieldLayout]);
     }
