@@ -52,7 +52,7 @@ Activate the pinned SDK before generation. The compiler is needed for native
 API queries and formatting, not just the final build.
 
 ```sh
-npx tsonic build --project tsonic.json
+./node_modules/.bin/tsonic build --project tsonic.json
 pixi run --manifest-path out/mojo/pixi.toml build
 ```
 

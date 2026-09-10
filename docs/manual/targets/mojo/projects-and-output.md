@@ -22,7 +22,7 @@ runtime/package inputs under `out/mojo/packages`, and `out/mojo/pixi.toml`.
 Native build requirements are recorded in `mojo-native-build.json`.
 
 ```sh
-npx tsonic build
+./node_modules/.bin/tsonic build
 pixi run --manifest-path out/mojo/pixi.toml build
 ```
 

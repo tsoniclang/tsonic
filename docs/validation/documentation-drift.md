@@ -14,7 +14,7 @@ The documentation checker validates:
 - shared project-config fields and defaults;
 - neutral source primitive, type-marker, call-marker, pointer, safety, and
   attribute exports;
-- symmetric C# and Rust target-reference structure;
+- symmetric C#, Rust and Mojo target-reference structure;
 - exact C# and Rust target option names;
 - C# application startup and Rust binary-entry rules;
 - C# target-owned MSBuild property names;

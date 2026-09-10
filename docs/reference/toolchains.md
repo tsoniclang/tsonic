@@ -80,6 +80,22 @@ toolchain with `rustup component add clippy`.
 Install cross targets with `rustup target add <triple>`. Cargo owns target
 triples and linkers.
 
+## Mojo
+
+The current Mojo target pins SDK `1.1.0.dev2026083005` and `linux-64`, using a
+Pixi environment. Generation needs the compiler for native queries and
+`mojo format`; native building uses the generated Pixi tasks.
+
+```sh
+mojo --version
+pixi run --manifest-path out/mojo/pixi.toml build
+```
+
+Use the [Mojo setup](../manual/targets/mojo/README.md) and
+[compiler configuration](targets/mojo/configuration.md) for the current
+source-workspace route. The published C#/Rust project creator does not install
+this target or its SDK.
+
 ## Platform support
 
 Tsonic itself is platform-neutral Node software. A target is usable only where

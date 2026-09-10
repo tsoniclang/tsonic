@@ -18,6 +18,7 @@ Then read the parts that apply to your code:
 - [Surfaces and capabilities](surfaces-and-capabilities.md)
 - [C# target](targets/csharp/README.md)
 - [Rust target](targets/rust/README.md)
+- [Mojo target](targets/mojo/README.md)
 - [Troubleshooting](troubleshooting.md)
 
 The [reference](../reference/README.md) contains exact option, marker, API, and
