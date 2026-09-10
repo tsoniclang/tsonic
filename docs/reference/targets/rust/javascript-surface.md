@@ -25,3 +25,27 @@ Each accepted operation has one static Rust lowering or one closed runtime
 contract. Unsupported dynamic behavior rejects.
 
 See the detailed [support inventory](support-inventory.md).
+
+## Number formatting
+
+`Intl.NumberFormat` uses the deterministic `en`/`en-US` locale. Decimal,
+percent and currency formatting support fraction or significant precision.
+Resolved digit properties are optional: significant precision does not invent
+fraction-digit values. Resolved grouping is `false`, `"auto"`, `"always"` or
+`"min2"`, not a boolean approximation.
+
+```ts
+import type { uint64 } from "@tsonic/core/types.js";
+
+export function display(value: uint64): string {
+  return value.toLocaleString("en", { useGrouping: false });
+}
+```
+
+The integer stays exact, including values beyond `Number.MAX_SAFE_INTEGER`.
+`format` and `formatToParts` use the same formatter. Nonstandard notation
+(including compact), unit options, accounting signs, nondefault sign
+display, rounding priorities/modes/increments and trailing-zero strategies
+are not implemented by this runtime; selecting them fails at formatter
+construction. They are not silently ignored. The shared TypeScript declarations
+describe the source API, not universal target support.

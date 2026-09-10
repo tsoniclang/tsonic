@@ -221,29 +221,59 @@ interface IntlDateTimeFormatConstructor {
 }
 
 interface IntlNumberFormat {
-  format(value: number): string;
-  formatToParts(value: number): IntlNumberFormatPart[];
+  format(value: number | bigint): string;
+  formatToParts(value: number | bigint): IntlNumberFormatPart[];
   resolvedOptions(): IntlResolvedNumberFormatOptions;
+}
+interface BigInt {
+  toLocaleString(locales?: string | readonly string[], options?: IntlNumberFormatOptions): string;
 }
 interface IntlNumberFormatPart { type: string; value: string; }
 interface IntlNumberFormatOptions {
   localeMatcher?: "lookup" | "best fit";
-  style?: "decimal" | "percent" | "currency";
+  style?: "decimal" | "percent" | "currency" | "unit";
+  numberingSystem?: string;
   currency?: string;
   currencyDisplay?: "symbol" | "narrowSymbol" | "code" | "name";
-  useGrouping?: boolean;
+  currencySign?: "standard" | "accounting";
+  unit?: string;
+  unitDisplay?: "short" | "long" | "narrow";
+  notation?: "standard" | "scientific" | "engineering" | "compact";
+  compactDisplay?: "short" | "long";
+  signDisplay?: "auto" | "never" | "always" | "exceptZero" | "negative";
+  useGrouping?: boolean | "auto" | "always" | "min2";
   minimumIntegerDigits?: number;
   minimumFractionDigits?: number;
   maximumFractionDigits?: number;
+  minimumSignificantDigits?: number;
+  maximumSignificantDigits?: number;
+  roundingPriority?: "auto" | "morePrecision" | "lessPrecision";
+  roundingIncrement?: number;
+  roundingMode?: "ceil" | "floor" | "expand" | "trunc" | "halfCeil" | "halfFloor" | "halfExpand" | "halfTrunc" | "halfEven";
+  trailingZeroDisplay?: "auto" | "stripIfInteger";
 }
 interface IntlResolvedNumberFormatOptions {
   locale: string;
   numberingSystem: string;
   style: string;
   minimumIntegerDigits: number;
-  minimumFractionDigits: number;
-  maximumFractionDigits: number;
-  useGrouping: boolean;
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+  minimumSignificantDigits?: number;
+  maximumSignificantDigits?: number;
+  useGrouping: false | "auto" | "always" | "min2";
+  currency?: string;
+  currencyDisplay?: string;
+  currencySign?: string;
+  unit?: string;
+  unitDisplay?: string;
+  notation: string;
+  compactDisplay?: string;
+  signDisplay: string;
+  roundingPriority: string;
+  roundingIncrement: number;
+  roundingMode: string;
+  trailingZeroDisplay: string;
 }
 interface IntlNumberFormatConstructor {
   new (locales?: string | readonly string[], options?: IntlNumberFormatOptions): IntlNumberFormat;
