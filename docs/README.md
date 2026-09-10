@@ -1,7 +1,7 @@
 # Tsonic documentation
 
 Tsonic compiles TypeScript into target-native source projects. TypeScript is
-the authored language; C# or Rust is the generated language; the native target
+the authored language; C#, Rust or Mojo is the generated language; the native target
 toolchain owns the final build.
 
 ```text
@@ -10,11 +10,11 @@ TypeScript source
   -> Tsonic project and target orchestration
   -> target analysis, classification, planning, and target AST
   -> target printer and project artifacts
-  -> dotnet or Cargo
+  -> dotnet, Cargo or Mojo
 ```
 
 This directory is the canonical documentation source for the Tsonic host, the
-C# target, the Rust target, shared source semantics, surfaces, capabilities,
+C#, Rust and Mojo targets, shared source semantics, surfaces, capabilities,
 provider authoring, and certification. Package repositories may summarize
 their local build commands, but they must link here rather than maintain a
 second product contract.
@@ -41,6 +41,10 @@ second product contract.
 - [Rust source profile](manual/targets/rust/source-profile.md)
 - [Rust ownership and safety](manual/targets/rust/ownership-and-safety.md)
 - [Rust projects and output](manual/targets/rust/projects-and-output.md)
+- [Mojo manual](manual/targets/mojo/README.md)
+- [Mojo source profile](manual/targets/mojo/source-profile.md)
+- [Mojo ownership and safety](manual/targets/mojo/ownership-and-safety.md)
+- [Mojo projects and output](manual/targets/mojo/projects-and-output.md)
 - [Troubleshooting](manual/troubleshooting.md)
 
 ### Reference
@@ -79,6 +83,17 @@ second product contract.
 - [Rust language support](reference/targets/rust/language-support.md)
 - [Rust support inventory](reference/targets/rust/support-inventory.md)
 - [Rust limitations](reference/targets/rust/limitations.md)
+- [Mojo reference](reference/targets/mojo/README.md)
+- [Mojo configuration](reference/targets/mojo/configuration.md)
+- [Mojo source modules](reference/targets/mojo/source-modules.md)
+- [Mojo type mapping](reference/targets/mojo/type-mapping.md)
+- [Mojo native APIs](reference/targets/mojo/native-apis.md)
+- [Mojo JavaScript surface](reference/targets/mojo/javascript-surface.md)
+- [Mojo Node capability](reference/targets/mojo/node-capability.md)
+- [Mojo provider API](reference/targets/mojo/provider-api.md)
+- [Mojo language support](reference/targets/mojo/language-support.md)
+- [Mojo support inventory](reference/targets/mojo/support-inventory.md)
+- [Mojo limitations](reference/targets/mojo/limitations.md)
 
 ### Architecture
 
@@ -97,7 +112,8 @@ second product contract.
 The target manuals use the same structure where the targets have the same
 responsibility. Target-native concepts remain target-native. C# documents
 assemblies, attributes, and NativeAOT. Rust documents foundations, ownership,
-lifetimes, traits, and Cargo.
+lifetimes, traits, and Cargo. Mojo documents compile-time operations, origins
+and Pixi projects.
 
 ## Documentation rules
 
@@ -105,7 +121,7 @@ lifetimes, traits, and Cargo.
    target behavior.
 2. Exact option, marker, module, and support inventories live in reference
    pages, not in introductory prose.
-3. C# and Rust use symmetric document locations only where their ownership is
+3. Targets use symmetric document locations only where their ownership is
    genuinely symmetric.
 4. Unsupported behavior is documented as a precise semantic boundary, never
    as a vague roadmap statement.

@@ -30,6 +30,18 @@
 | `@tsonic/rust-js` | Rust JavaScript-surface runtime |
 | `@tsonic/rust-nodejs` | Rust Node capability and runtime |
 
+## Mojo packages
+
+These are source-workspace package identities, not a claim of npm publication.
+See the [Mojo setup](../manual/targets/mojo/README.md).
+
+| Package | Responsibility |
+| --- | --- |
+| `@tsonic/target-mojo` | Mojo analysis, planning, printing, native providers and Pixi output |
+| `@tsonic/mojo-runtime` | Native runtime substrate |
+| `@tsonic/mojo-js` | JavaScript-surface runtime |
+| `@tsonic/mojo-nodejs` | Node capability and native runtime |
+
 Compiler-owned virtual modules such as `@tsonic/core/types.js`,
 `@tsonic/dotnet/System.js`, and `@tsonic/rust/std/collections.js` are source
 declarations. They are not installed npm packages.

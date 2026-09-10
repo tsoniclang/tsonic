@@ -79,8 +79,8 @@ test("documentation examples have balanced fences and valid JSON", () => {
   }
 });
 
-test("C# and Rust references share the canonical target structure", () => {
-  for (const target of ["csharp", "rust"]) {
+test("C#, Rust and Mojo references share the canonical target structure", () => {
+  for (const target of ["csharp", "rust", "mojo"]) {
     const root = resolve(documentationRoot, "reference/targets", target);
     const actual = readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))

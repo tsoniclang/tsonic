@@ -1,6 +1,8 @@
 # Get started
 
-Create, compile, and run a C# or Rust application from an empty directory.
+Create, compile, and run a C# or Rust application from an empty directory using
+the published project creator. For Mojo's current source-workspace setup, see
+the [Mojo manual](targets/mojo/README.md).
 
 ## Requirements
 
