@@ -21,6 +21,7 @@ The reference documents exact current contracts. It complements the guided
 
 - [C#](targets/csharp/README.md)
 - [Rust](targets/rust/README.md)
+- [Mojo](targets/mojo/README.md)
 
 Reference pages state exact defaults, accepted values, ownership, and rejection
 behavior. Introductory examples must not be used as substitutes for these
