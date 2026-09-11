@@ -13,6 +13,9 @@ import { maximumMemoryLayoutDepth, tsonicMemoryFieldLayoutFactKey, tsonicMemoryL
 import type { TsonicDataLayoutFact } from "./facts.js";
 import { immutableValueOrigin } from "./source-values.js";
 import { createMemoryTypeContracts } from "./type-contract/analysis.js";
+import { analyzeMemoryFieldBinding, analyzeMemoryRecordBinding } from "./bindings/analysis.js";
+import { tsonicMemoryFieldBindingFactKey } from "./bindings/facts.js";
+import { analyzeTsonicPointerView } from "../pointers/views/analysis.js";
 
 const selectors = Object.entries(tsonicMemorySignatureIds).map(([name, signatureId]) => ({
   name: name as keyof typeof tsonicMemorySignatureIds,
@@ -30,6 +33,7 @@ export function analyzeTsonicMemoryOperations(
   const calls = new Map<Node, MemorySourceCall>();
   forEachSelectedProviderSourceCall(context, (selected, sourceContext) => {
     if (declarationOnly(selected.call, sourceContext)) return;
+    analyzeTsonicPointerView(selected, sourceContext);
     const rule = selectors.find((candidate) => selectedProviderCallMatches(selected, candidate.selector, sourceContext));
     if (rule !== undefined) calls.set(selected.call, { selected, context: sourceContext, name: rule.name });
   });
@@ -42,6 +46,7 @@ export function analyzeTsonicMemoryOperations(
     registrations,
     field: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldLayoutFactKey),
     layout: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryLayoutFactKey),
+    binding: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldBindingFactKey),
     rawOperation: (expression, sourceContext) => context.facts.get(demandOrigin(expression, sourceContext), tsonicRawMemoryOperationFactKey),
   };
   function demandOrigin(expression: Node, sourceContext: TsonicSourceFileAnalysisContext): Node | undefined {
@@ -73,6 +78,8 @@ export function analyzeTsonicMemoryOperations(
       case "memoryField": analyzeMemoryField(call, analysis); break;
       case "memoryLayout": analyzeMemoryLayout(call, analysis); break;
       case "memoryArrayLayout": analyzeMemoryArrayLayout(call, analysis); break;
+      case "bindMemoryField": analyzeMemoryFieldBinding(call, analysis); break;
+      case "bindMemoryRecord": analyzeMemoryRecordBinding(call, analysis); break;
       case "sizeOf": case "alignOf": case "strideOf": case "fieldOffsetOf":
         analyzeMemoryLayoutQuery(call, analysis); break;
       default: analyzeRawMemoryCall(call, analysis); break;

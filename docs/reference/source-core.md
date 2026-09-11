@@ -35,6 +35,7 @@ than silently widening them.
 | `DataLayout` | Provider-selected ABI identity and immutable descriptor |
 | `MemoryLayout<T>` | Exact size, alignment, stride and selected physical field or array-element layouts for `T` |
 | `MemoryFieldLayout<T>` | One selected field's offset and alignment |
+| `MemoryFieldBinding<T>` | An explicit binding of one physical field to an existing typed location |
 
 `Pointer<T>` and `NativePointer<T>` are different contracts. The first is a
 safe closed location abstraction. The second requests the target's native
@@ -153,9 +154,45 @@ targets must not rediscover the request from the callee's spelling.
 | `hashPointer(pointer)` | Hash canonical typed-location identity |
 | `bindPointer(identity, read, write)` | Bind a target/provider storage identity to explicit accessors |
 | `projectPointer(pointer, fromSource, toSource)` | Project a typed location through reversible conversions |
+| `viewPointer(pointer, read, write)` | Bind new accessors to the same referent without implicitly reading or writing the original pointee |
 
 `projectPointer` may preserve an optional pointer. Its conversions are part of
 the exact projection contract; targets do not infer them from `F` and `T`.
+
+`viewPointer<F, T>` returns `Pointer<T>` for a non-optional `Pointer<F>`, or
+`Pointer<T> | undefined` for an optional base. It preserves nil, location
+identity, position, owner and any established raw-address provenance. It does
+not allocate replacement storage, reinterpret bytes or prove a native backing.
+
+The arguments evaluate once in source order. Construction invokes neither
+callback. Loading the resulting pointer calls only `read(): T`; storing calls
+only `write(value: T): void`. Callback exceptions propagate. Nil still evaluates
+the argument expressions, but invokes no callbacks. In contrast,
+`projectPointer` loads `F` before `fromSource(F)` and writes the result of
+`toSource(T)` back to `F`.
+
+For example, an empty view can retain an end position without reading an
+element there:
+
+```ts
+import type { Pointer, FixedArray } from "@tsonic/core/types.js";
+import { viewPointer } from "@tsonic/core/lang.js";
+
+function emptyView<T>(
+  end: Pointer<T> | undefined,
+  empty: FixedArray<T, 0>,
+): Pointer<FixedArray<T, 0>> | undefined {
+  return viewPointer(end, () => empty, replacement => { empty = replacement; });
+}
+```
+
+The region owner supplies `end`; a valid position does not grant permission to
+dereference a nonexistent element. The zero-length callbacks need no element
+load or byte codec. Raw address observation still needs an explicit layout and
+the existing backing/lifetime proof. These are shared source contracts. Native
+C#/Rust lowering of callback-backed views is not implemented; a consumer must
+implement their exact semantics or reject them, never substitute
+`projectPointer` or a new allocation.
 
 ### Raw-pointer identity operations
 
@@ -183,6 +220,8 @@ A checked source fact alone does not prove native storage or lifetime safety.
 | `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe scalar or record storage using a registered ABI token and constant dimensions; not a fixed-array descriptor |
 | `memoryArrayLayout<T, N>(abi, size, alignment, stride, elementLayout: MemoryLayout<T>, length: N): MemoryLayout<FixedArray<T, N>>` | Describe a fixed array using one exact child layout and an extent matching the selected type |
 | `memoryField<T, TField>(select, offset, alignment, fieldLayout)` | Select a non-optional physical field and its exact child layout without executing the selector |
+| `bindMemoryField<T, TField>(field, pointer)` | Bind that exact field layout to a non-nil `Pointer<TField>` |
+| `bindMemoryRecord<T>(layout, ...bindings)` | Construct a typed field view with exactly one explicit location binding per physical field |
 | `sizeOf(layout)` | Observe the selected byte size |
 | `alignOf(layout)` | Observe the selected byte alignment |
 | `strideOf(layout)` | Observe the stride between whole values of the selected layout |
@@ -193,6 +232,75 @@ A checked source fact alone does not prove native storage or lifetime safety.
 | `rawPointerToAddressInteger<TAddress>(raw, abi)` | Convert to an explicitly selected `uint32` or `uint64`, without retaining ownership |
 | `addressIntegerToRawPointer<TAddress>(address, abi)` | Recover an address from the exact unsigned domain, without manufacturing ownership; the type argument may be inferred from the operand |
 | `keepAlive(value)` | Require reachability through this call, not pinning |
+
+### Explicit field locations
+
+An ordinary getter forwarding to a pointer does not make the getter's property
+location equal to that pointer. `bindMemoryRecord` makes this relationship
+explicit, using existing `memoryField` identities rather than property names:
+
+```ts
+interface Header { count: uint32; tag: uint32 }
+
+const countField = memoryField((value: Header) => value.count, 0, 4, word);
+const tagField = memoryField((value: Header) => value.tag, 4, 4, word);
+const layout = memoryLayout<Header>(abi, 8, 4, 8, countField, tagField);
+
+const logical: Header = { count: 3, tag: 5 };
+const before = addressOf(logical.count);
+const count = bindMemoryField(countField, before);
+const tag = bindMemoryField(tagField, addressOf(logical.tag));
+const physical = bindMemoryRecord(layout, tag, count);
+```
+
+Here `abi` is the registered ABI token and `word` its `uint32` layout.
+`physical.count` reads and writes through `before`; its field address denotes
+that same location. Writing it does not touch `logical.tag`. Bindings may be
+passed in a different order from the layout, but every field must appear exactly
+once. Missing, duplicate and unrelated fields are rejected. Record layouts must
+cover all required data members, not methods, accessors or open indexers.
+Scalar and fixed-array layouts cannot be passed as record layouts.
+
+Each binding captures its pointer once; construction does not load the field.
+Reassigning a variable that supplied the pointer does not retarget the binding.
+The field pointer's exact memory type must match its child layout, even when
+TypeScript represents both `int32` and `uint32` as `number`.
+
+A field can point to another bound record or a fixed array. Its existing child
+layout supplies the nested fields, element layout, exact count and stride. A
+region can form each physical element with `viewPointer(element, read, write)`
+and construct its record with `bindMemoryRecord` inside `read`. No relation is
+inferred from an arbitrary array getter or a record copy.
+
+For logical-to-physical conversions, compose field bindings with
+`projectPointer` or `viewPointer` at the root. The explicit converters still own
+aggregate copying and descriptor replacement. Binding does not merge separate
+allocations or retarget previously copied descriptors. When a physical root is
+exposed as raw memory, its field offsets must agree with these retained logical
+locations. A consumer must reject contradictory owners/positions rather than
+overwrite provenance. This does not prove contiguous storage for independently
+allocated native fields.
+
+Field/layout operands remain compile-time metadata. Field bindings contain
+runtime pointers and must not be erased. Metadata and binding arguments must
+resolve to their exact construction or immutable aliases; casting an arbitrary
+object to `MemoryFieldBinding<T>` supplies no relation.
+
+Targets consume `selectTsonicPointerView`, `selectTsonicMemoryFieldBinding` and
+`selectTsonicMemoryRecordBinding` from `@tsonic/source-core/facts`. Each takes the
+public AST reader, finalized source-fact resolver and exact call node. A
+`resolved` result includes selected operands and types; record results include
+the exact field-to-pointer join and recursively finalized layouts. Incomplete
+or contradictory retained evidence is rejected. These readers do not call the
+checker or inspect callee spelling. The corresponding keys are
+`tsonicPointerViewFactKey`, `tsonicMemoryFieldBindingFactKey` and
+`tsonicMemoryRecordBindingFactKey`, all owned by source-core.
+
+The shared declarations and facts do not implement a target runtime. C#/Rust
+do not yet lower explicit bound records. Native consumers must independently
+prove backing and lifetime safety or reject the request.
+
+### Layout observations and storage
 
 `keepAlive(value)` emits `global::System.GC.KeepAlive(value)` for a C# reference
 owner. Rust borrows the value without consuming or cloning it; the owner

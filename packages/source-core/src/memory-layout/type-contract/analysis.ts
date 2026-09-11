@@ -4,7 +4,8 @@ import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js"
 import { readSourceFact } from "../../analysis/source-call.js";
 import type { MemorySourceCall } from "../analysis-context.js";
 import { publishMemoryFact } from "../analysis-context.js";
-import type { TsonicMemoryLayoutFact } from "../facts.js";
+import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
+import { isMemoryFieldDeclaration } from "../selectors.js";
 import { createMemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./domains.js";
 import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, createMemoryTypeIdentity, tsonicMemoryTypeFactKey } from "./facts.js";
@@ -13,6 +14,7 @@ import { createMemoryValueDomains } from "./values.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { selectTsonicFixedArray } from "../../fixed-arrays/selection.js";
 import type { TsonicFixedArrayFact } from "../../fixed-arrays/facts.js";
+import { tsonicMemoryRecordBindingFactKey } from "../bindings/facts.js";
 
 interface MemoryTypeSelection {
   readonly type: Type;
@@ -27,13 +29,15 @@ export interface MemoryTypeContracts {
   field(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
   aggregate(call: MemorySourceCall, fields: readonly Node[]): boolean;
   raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact): boolean;
+  binding(call: MemorySourceCall, field: TsonicMemoryFieldLayoutFact): boolean;
+  record(call: MemorySourceCall, layout: TsonicValueMemoryLayoutFact): boolean;
   publish(call: MemorySourceCall): void;
 }
 
 export function createMemoryTypeContracts(
   source: SourceAnalysisContext,
   owner: TsonicSourceFileAnalysisContext,
-  demandRaw: (expression: Node) => void,
+  demandOperation: (expression: Node) => void,
 ): MemoryTypeContracts {
   const queries = source.source.getSourceFileQueries(owner.sourceFile);
   const context: TsonicSourceFileAnalysisContext = { ...queries,
@@ -47,7 +51,12 @@ export function createMemoryTypeContracts(
     readonly fixedArray?: TsonicFixedArrayFact }>();
   const byIdentity = new Map<TsonicMemoryTypeIdentity, MemoryTypeSelection>();
   const valueDomain = createMemoryValueDomains(context, domains, node => {
-    demandRaw(node);
+    demandOperation(node);
+    const record = source.facts.get(node, tsonicMemoryRecordBindingFactKey);
+    if (record?.call === node) {
+      const contract = source.facts.get(node, tsonicMemoryTypeFactKey);
+      return contract === undefined ? undefined : byIdentity.get(contract.identity)?.domain;
+    }
     const operation = source.facts.get(node, tsonicRawMemoryOperationFactKey);
     if (operation?.operation === "to-raw" || operation?.operation === "byte-offset" || operation?.operation === "address-integer-to-raw") {
       return domains.rawPointer();
@@ -86,8 +95,8 @@ export function createMemoryTypeContracts(
     return intern(argument.selectedType, actual);
   }
 
-  function pointerDomain(call: MemorySourceCall, nilDomain: MemoryTypeDomain): MemoryTypeDomain | undefined {
-    const operand = canonical(call)?.sourceArguments[0];
+  function pointerDomain(call: MemorySourceCall, nilDomain?: MemoryTypeDomain, index = 0): MemoryTypeDomain | undefined {
+    const operand = canonical(call)?.sourceArguments[index];
     if (operand === undefined) return undefined;
     if (typeShape.isNullish(operand.type)) return nilDomain;
     const domain = valueDomain(operand.expression);
@@ -159,6 +168,44 @@ export function createMemoryTypeContracts(
       if (domain === undefined || domain !== child.domain) return false;
       const selection = selected(call, 0, undefined, domain);
       if (selection?.identity !== child.identity) return false;
+      selections.set(call.selected.call, { selection,
+        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
+      return true;
+    },
+    binding(call: MemorySourceCall, field: TsonicMemoryFieldLayoutFact) {
+      const parent = fields.get(field.call);
+      const child = layouts.get(field.fieldLayout.call);
+      const owner = parent === undefined ? undefined : selected(call, 0, undefined, parent.domain);
+      const domain = pointerDomain(call, undefined, 1);
+      const pointee = domain === undefined ? undefined : selected(call, 1, undefined, domain);
+      if (parent === undefined || child === undefined || owner?.identity !== parent.identity ||
+          pointee?.identity !== child.identity) return false;
+      selections.set(call.selected.call, { selection: pointee,
+        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![1]!.selectedType });
+      return true;
+    },
+    record(call: MemorySourceCall, layout: TsonicValueMemoryLayoutFact) {
+      const parent = layouts.get(layout.call);
+      const selection = parent === undefined ? undefined : selected(call, 0, undefined, parent.domain);
+      if (parent === undefined || selection?.identity !== parent.identity) return false;
+      const type = selection.type;
+      if (typeShape.isAny(type) || typeShape.isUnknown(type) || typeShape.isNullish(type) ||
+          typeShape.isNumberLike(type) || typeShape.isStringLike(type) || typeShape.isBooleanLike(type) ||
+          typeShape.isBigIntLike(type) || typeShape.isSymbolLike(type) || typeShape.isArrayLike(type) ||
+          typeShape.getCallSignatures(type).length !== 0 || typeShape.getConstructSignatures(type).length !== 0 ||
+          typeShape.getIndexInfos(type).length !== 0) return false;
+      const properties = typeShape.getPropertyInfos(type);
+      if (properties.length !== layout.fields.length) return false;
+      if (properties.length === 0 && !checker.getSymbolDeclarations(checker.getTypeSymbol(type)).some(declaration =>
+        declaration !== undefined && (ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||
+          ast.is.IsClassDeclaration(declaration)))) return false;
+      const remaining = new Set(layout.fields.map(field => field.selectedDeclaration));
+      for (const property of properties) {
+        const declarations = checker.getSymbolDeclarations(property.symbol).filter(declaration =>
+          declaration !== undefined && remaining.has(declaration) && isMemoryFieldDeclaration(declaration, context));
+        if (property.optional || declarations.length !== 1) return false;
+        remaining.delete(declarations[0]!);
+      }
       selections.set(call.selected.call, { selection,
         sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
       return true;

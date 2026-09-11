@@ -14,6 +14,7 @@ import {
   tsonicAttributeBuilderSignatureIds,
 } from "../attributes/provider-declarations.js";
 import { memoryOperationDeclarations, memoryTypeDeclarations } from "../memory-layout/declarations.js";
+import { pointerViewDeclaration } from "../pointers/views/declarations.js";
 import {
   compileTimeProviderDeclarations,
 } from "../compile-time/declarations.js";
@@ -76,6 +77,7 @@ function sourceSemanticsHelperDeclarations(
       attributeBuilderDeclaration(),
       attributeMemberBuilderDeclaration(),
       ...memoryOperationDeclarations(),
+      pointerViewDeclaration(),
       ...compileTimeProviderDeclarations(),
       ...nativePointerOperationProviderDeclarations(
         tsonicCoreNativePointerProviderNames,

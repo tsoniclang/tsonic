@@ -3,6 +3,7 @@ import type { Node, ResolvedSourceCallableCompletionInfo, Type } from "@tsonic/t
 import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./backing/source-forms.js";
 import { selectTsonicRawLocationOperation } from "./raw-memory/selection.js";
+import { selectTsonicPointerView } from "./views/selection.js";
 
 export interface TsonicPointerReturnEvidence {
   readonly pointees: readonly { readonly subject: Node; readonly type: Type; readonly typeNode?: Node }[];
@@ -124,6 +125,16 @@ function selectTsonicPointerReturnEvidence(
     if (++visited > maximumValues) return undefined;
     const value = queue[index]!;
     const { node, frame } = value;
+    const view = selectTsonicPointerView(ast, sourceFacts, node);
+    if (view !== undefined) {
+      if (view.kind !== "resolved" || frame !== undefined &&
+          semantics.forNode(node).types.couldContainTypeVariables(view.operation.pointeeType)) return undefined;
+      const typeNode = view.operation.explicitPointeeTypeNode;
+      pointees.push(Object.freeze({ subject: node, type: view.operation.pointeeType,
+        ...(typeNode === undefined ? {} : { typeNode }) }));
+      terminals.add(value);
+      continue;
+    }
     const raw = selectTsonicRawLocationOperation(ast, sourceFacts, node);
     if (raw !== undefined) {
       if (raw.kind !== "resolved" || raw.operation.operation !== "reinterpret") return undefined;

@@ -4,6 +4,7 @@ import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js"
 import { readSourceFact } from "../../analysis/source-call.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "../../pointers/backing/source-forms.js";
 import type { MemoryTypeDomain, MemoryTypeDomains } from "./domains.js";
+import { tsonicPointerViewFactKey } from "../../pointers/views/facts.js";
 
 interface ValueFrame {
   readonly call: ResolvedSourceCallInfo;
@@ -13,7 +14,7 @@ interface ValueFrame {
 export function createMemoryValueDomains(
   context: TsonicSourceFileAnalysisContext,
   domains: MemoryTypeDomains,
-  rawValue: (node: Node) => MemoryTypeDomain | undefined,
+  selectedValue: (node: Node) => MemoryTypeDomain | undefined,
 ): (expression: Node) => MemoryTypeDomain | undefined {
   const { ast, checker, typeShape } = context;
 
@@ -125,6 +126,20 @@ export function createMemoryValueDomains(
         if (ast.is.IsCallExpression(node)) {
           const selected = checker.getResolvedCallInfo(node);
           if (selected?.outcome !== "applicable") return undefined;
+          const view = readSourceFact(context, node, tsonicPointerViewFactKey);
+          if (view !== undefined && view.call === node) {
+            const callbackType = checker.getTypeAtLocation(view.readExpression);
+            const signatures = callbackType === undefined ? [] : typeShape.getCallSignatures(callbackType);
+            const declaration = signatures.length === 1 ? checker.getSignatureDeclaration(signatures[0]) : undefined;
+            const annotation = view.explicitPointeeTypeNode ?? ast.typeNode(declaration);
+            const pointee = annotation === undefined ? domains.selected(view.pointeeType) : domains.authored(annotation);
+            if (pointee === undefined) return undefined;
+            const pointer = domains.pointer(pointee);
+            const resultTypes = typeShape.isUnion(selected.sourceResultType)
+              ? typeShape.getUnionOrIntersectionTypes(selected.sourceResultType) : [selected.sourceResultType];
+            return unite([pointer, ...resultTypes.filter(type => type !== undefined && typeShape.isNullish(type))
+              .map(type => type === undefined ? undefined : domains.selected(type))]);
+          }
           const pointer = readSourceFact(context, node, pointerOperationFactKey);
           if (pointer !== undefined && pointer.call === node) {
             const annotation = pointer.explicitPointeeTypeNode;
@@ -138,11 +153,11 @@ export function createMemoryValueDomains(
             return pointer.operation === "address-of" || pointer.operation === "allocate" ||
               pointer.operation === "bind-pointer" || pointer.operation === "project-pointer" ? domains.pointer(pointee) : undefined;
           }
-          const raw = rawValue(node);
-          if (raw !== undefined) {
+          const memory = selectedValue(node);
+          if (memory !== undefined) {
             const types = typeShape.isUnion(selected.sourceResultType)
               ? typeShape.getUnionOrIntersectionTypes(selected.sourceResultType) : [selected.sourceResultType];
-            return unite([raw, ...types.filter(type => type !== undefined && typeShape.isNullish(type))
+            return unite([memory, ...types.filter(type => type !== undefined && typeShape.isNullish(type))
               .map(type => type === undefined ? undefined : domains.selected(type))]);
           }
           return returns(selected, frame);

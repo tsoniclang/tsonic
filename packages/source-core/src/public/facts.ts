@@ -76,6 +76,14 @@ export { selectTsonicRawLocationOperation } from "../pointers/raw-memory/selecti
 export type { TsonicRawLocationSelection } from "../pointers/raw-memory/selection.js";
 export { readTsonicMemoryType, tsonicMemoryTypeFactKey } from "../memory-layout/type-contract/facts.js";
 export type { TsonicMemoryTypeFact, TsonicMemoryTypeIdentity } from "../memory-layout/type-contract/facts.js";
+export { tsonicPointerViewFactKey } from "../pointers/views/facts.js";
+export type { TsonicPointerViewFact } from "../pointers/views/facts.js";
+export { selectTsonicPointerView } from "../pointers/views/selection.js";
+export type { TsonicPointerViewSelection } from "../pointers/views/selection.js";
+export { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "../memory-layout/bindings/facts.js";
+export type { TsonicMemoryFieldBindingFact, TsonicMemoryRecordBindingFact } from "../memory-layout/bindings/facts.js";
+export { selectTsonicMemoryFieldBinding, selectTsonicMemoryRecordBinding } from "../memory-layout/bindings/selection.js";
+export type { TsonicMemoryBindingSelection } from "../memory-layout/bindings/selection.js";
 export { selectTsonicProviderPointerResult } from "../pointers/provider-return-evidence.js";
 export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } from "../pointers/provider-return-evidence.js";
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
