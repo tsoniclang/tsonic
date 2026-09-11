@@ -102,7 +102,7 @@ export const tsonicMemoryTypeFactKey = defineExtensionFactKey<TsonicMemoryTypeFa
 });
 
 export function readTsonicMemoryType(
-  facts: ReadonlySourceFactResolver,
+  facts: Pick<ReadonlySourceFactResolver, "getFact">,
   subject: ExtensionFactSubject | undefined,
 ): TsonicMemoryTypeFact | undefined {
   const fact = facts.getFact(subject, tsonicMemoryTypeFactKey);

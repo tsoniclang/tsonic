@@ -5,19 +5,21 @@ import type { TsonicMemoryLayoutFact } from "./facts.js";
 import { memoryArrayTypeMatches, memoryLayoutTypeKindMatches, readTsonicMemoryType } from "./type-contract/facts.js";
 import { tsonicFixedArrayFactKey, fixedArrayFactsEqual } from "../fixed-arrays/facts.js";
 
-export function readTsonicDataLayout(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject | undefined) {
+type MemoryFactReader = Pick<ReadonlySourceFactResolver, "getFact">;
+
+export function readTsonicDataLayout(facts: MemoryFactReader, subject: ExtensionFactSubject | undefined) {
   return facts.getFact(subject, tsonicDataLayoutFactKey);
 }
 
-export function readTsonicMemoryFieldLayout(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject | undefined) {
+export function readTsonicMemoryFieldLayout(facts: MemoryFactReader, subject: ExtensionFactSubject | undefined) {
   return facts.getFact(subject, tsonicMemoryFieldLayoutFactKey);
 }
 
-export function readTsonicMemoryLayout(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject | undefined) {
+export function readTsonicMemoryLayout(facts: MemoryFactReader, subject: ExtensionFactSubject | undefined) {
   return facts.getFact(subject, tsonicMemoryLayoutFactKey);
 }
 
-export function readTsonicMemoryLayoutQuery(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject | undefined) {
+export function readTsonicMemoryLayoutQuery(facts: MemoryFactReader, subject: ExtensionFactSubject | undefined) {
   return facts.getFact(subject, tsonicMemoryLayoutQueryFactKey);
 }
 
@@ -40,7 +42,7 @@ export function countTsonicMemoryLayoutValues(root: TsonicMemoryLayoutFact, maxi
   return count(root);
 }
 
-export function isFinalizedMemoryLayout(facts: ReadonlySourceFactResolver, root: TsonicMemoryLayoutFact): boolean {
+export function isFinalizedMemoryLayout(facts: MemoryFactReader, root: TsonicMemoryLayoutFact): boolean {
   const pending = [root];
   const visited = new Set<TsonicMemoryLayoutFact["call"]>();
   while (pending.length !== 0) {
@@ -80,7 +82,7 @@ export function isFinalizedMemoryLayout(facts: ReadonlySourceFactResolver, root:
   return true;
 }
 
-export function resolveTsonicMemoryLayoutObservation(facts: ReadonlySourceFactResolver, subject: ExtensionFactSubject) {
+export function resolveTsonicMemoryLayoutObservation(facts: MemoryFactReader, subject: ExtensionFactSubject) {
   const query = readTsonicMemoryLayoutQuery(facts, subject);
   if (query === undefined) return undefined;
   const layout = readTsonicMemoryLayout(facts, query.layoutExpression);

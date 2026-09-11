@@ -16,6 +16,7 @@ import { createMemoryTypeContracts } from "./type-contract/analysis.js";
 import { analyzeMemoryFieldBinding, analyzeMemoryRecordBinding } from "./bindings/analysis.js";
 import { tsonicMemoryFieldBindingFactKey } from "./bindings/facts.js";
 import { analyzeTsonicPointerView } from "../pointers/views/analysis.js";
+import { resolveTsonicMemoryLayoutObservation } from "./readers.js";
 
 const selectors = Object.entries(tsonicMemorySignatureIds).map(([name, signatureId]) => ({
   name: name as keyof typeof tsonicMemorySignatureIds,
@@ -46,6 +47,11 @@ export function analyzeTsonicMemoryOperations(
     registrations,
     field: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldLayoutFactKey),
     layout: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryLayoutFactKey),
+    layoutQuery: (expression, sourceContext) => {
+      const origin = demandOrigin(expression, sourceContext);
+      return origin === undefined ? undefined : resolveTsonicMemoryLayoutObservation(
+        { getFact: (subject, key) => context.facts.get(subject, key) }, origin);
+    },
     binding: (expression, sourceContext) => demand(expression, sourceContext, tsonicMemoryFieldBindingFactKey),
     rawOperation: (expression, sourceContext) => context.facts.get(demandOrigin(expression, sourceContext), tsonicRawMemoryOperationFactKey),
   };
