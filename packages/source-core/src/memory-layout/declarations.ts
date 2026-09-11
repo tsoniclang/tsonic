@@ -10,6 +10,8 @@ export const tsonicMemorySignatureIds = Object.freeze({
   memoryLayout: "memoryLayout<T>(dataLayout,byteSize,byteAlignment,stride,...fields)",
   memoryArrayLayout: "memoryArrayLayout<T,TLength>(dataLayout,byteSize,byteAlignment,stride,elementLayout,length)",
   memoryField: "memoryField<T,TField>(select,byteOffset,byteAlignment,fieldLayout)",
+  bindMemoryField: "bindMemoryField<T,TField>(field,pointer)",
+  bindMemoryRecord: "bindMemoryRecord<T>(layout,...fields)",
   sizeOf: "sizeOf<T>(layout)",
   alignOf: "alignOf<T>(layout)",
   strideOf: "strideOf<T>(layout)",
@@ -17,7 +19,7 @@ export const tsonicMemorySignatureIds = Object.freeze({
   keepAlive: "keepAlive<T>(value)",
 });
 
-export const tsonicMemoryTypeExports = Object.freeze(["DataLayout", "MemoryLayout", "MemoryFieldLayout"] as const);
+export const tsonicMemoryTypeExports = Object.freeze(["DataLayout", "MemoryLayout", "MemoryFieldLayout", "MemoryFieldBinding"] as const);
 
 const pointee: ProviderTypeExpression = { kind: "type-parameter", name: "T" };
 const field: ProviderTypeExpression = { kind: "type-parameter", name: "TField" };
@@ -87,6 +89,14 @@ export function memoryOperationDeclarations(): readonly ProviderExportDeclaratio
       { name: "byteOffset", type: nativeUint }, { name: "byteAlignment", type: nativeUint },
       { name: "fieldLayout", type: reference("MemoryLayout", [field]) },
     ], reference("MemoryFieldLayout", [pointee]), [{ name: "T" }, { name: "TField" }]),
+    declaration("bindMemoryField", [
+      { name: "field", type: reference("MemoryFieldLayout", [pointee]) },
+      { name: "pointer", type: reference("Pointer", [field]) },
+    ], reference("MemoryFieldBinding", [pointee]), [{ name: "T" }, { name: "TField" }]),
+    declaration("bindMemoryRecord", [
+      { name: "layout", type: layout },
+      { name: "fields", rest: true, type: { kind: "array", elementType: reference("MemoryFieldBinding", [pointee]) } },
+    ], pointee, generic),
     ...(["sizeOf", "alignOf", "strideOf"] as const).map((name) => declaration(name, [{ name: "layout", type: layout }], nativeUint, generic)),
     declaration("fieldOffsetOf", [{ name: "layout", type: layout }, selector("fieldOffsetOf.selector")], nativeUint, [{ name: "T" }, { name: "TField" }]),
     declaration("keepAlive", [{ name: "value", type: pointee }], { kind: "void" }, generic),

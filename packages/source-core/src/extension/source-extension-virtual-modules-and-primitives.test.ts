@@ -47,7 +47,9 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => !name.startsWith("__Tsonic")), [
     "toRawPointer", "reinterpretRawPointer", "offsetRawPointer",
     "rawPointerToAddressInteger", "addressIntegerToRawPointer", "memoryLayout", "memoryArrayLayout", "memoryField",
+    "bindMemoryField", "bindMemoryRecord",
     "sizeOf", "alignOf", "strideOf", "fieldOffsetOf", "keepAlive",
+    "viewPointer",
     "comptime",
     "comptimeIf",
     "unroll",
@@ -62,7 +64,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
   assert.deepEqual(declarationModel.imports, [{
     moduleSpecifier: tsonicCoreTypesModule,
     typeOnly: true,
-    namedImports: ["Pointer", "RawPointer", "NativePointer", "DataLayout", "MemoryLayout", "MemoryFieldLayout", "FixedArray"]
+    namedImports: ["Pointer", "RawPointer", "NativePointer", "DataLayout", "MemoryLayout", "MemoryFieldLayout", "MemoryFieldBinding", "FixedArray"]
       .map(exportedName => ({ exportedName, kind: "type" })),
   }]);
 
@@ -73,7 +75,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     materialization: { kind: "complete" },
   }), tsonicCoreTypesModule);
   assert.deepEqual(typesDeclarationModel.exports.map((entry) => entry.name), [
-    "DataLayout", "MemoryLayout", "MemoryFieldLayout",
+    "DataLayout", "MemoryLayout", "MemoryFieldLayout", "MemoryFieldBinding",
     "NativePointer",
     ...expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName),
     ...expectedSourceCoreTypeMarkers.map((entry) => entry.exportName),

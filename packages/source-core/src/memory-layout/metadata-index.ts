@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { readTsonicDataLayout, readTsonicMemoryFieldLayout, readTsonicMemoryLayout,
   readTsonicMemoryLayoutQuery, readTsonicRawMemoryOperation } from "./readers.js";
 import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact } from "./facts.js";
+import { tsonicMemoryFieldBindingFactKey, tsonicMemoryRecordBindingFactKey } from "./bindings/facts.js";
 
 export type TsonicMemoryMetadata =
   | { readonly kind: "data-layout"; readonly fact: TsonicDataLayoutFact }
@@ -64,6 +65,10 @@ export function createTsonicMemoryMetadataIndex(source: TargetSourceProgram): Ts
     if (parent === undefined || !ast.is.IsCallExpression(parent)) return false;
     const query = readTsonicMemoryLayoutQuery(sourceFacts, parent);
     if (query?.call === parent && ast.arguments(parent).includes(node)) return true;
+    const fieldBinding = sourceFacts.getFact(parent, tsonicMemoryFieldBindingFactKey);
+    if (fieldBinding?.call === parent && fieldBinding.fieldExpression === node) return true;
+    const recordBinding = sourceFacts.getFact(parent, tsonicMemoryRecordBindingFactKey);
+    if (recordBinding?.call === parent && recordBinding.layoutExpression === node) return true;
     const raw = readTsonicRawMemoryOperation(sourceFacts, parent);
     return raw?.call === parent && (raw.operation === "reinterpret" || raw.operation === "to-raw"
       ? raw.layoutExpression === node : raw.dataLayoutExpression === node);
