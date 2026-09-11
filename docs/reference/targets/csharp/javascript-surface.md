@@ -23,3 +23,27 @@ Open reflection, `eval`, arbitrary dynamic member access, and unsupported
 runtime object projection remain rejected.
 
 See the detailed [support inventory](support-inventory.md).
+
+## Number formatting
+
+`Intl.NumberFormat` uses the deterministic `en`/`en-US` locale. Decimal,
+percent and currency formatting support fraction or significant precision.
+Resolved digit properties are optional: significant precision does not invent
+fraction-digit values. Resolved grouping is `false`, `"auto"`, `"always"` or
+`"min2"`, not a boolean approximation.
+
+```ts
+import type { int64 } from "@tsonic/core/types.js";
+
+export function display(value: int64): string {
+  return new Intl.NumberFormat("en", { useGrouping: false }).format(value);
+}
+```
+
+The integer stays exact, including values beyond `Number.MAX_SAFE_INTEGER`.
+`formatToParts` and bigint-backed `toLocaleString` use the same formatter.
+Nonstandard notation (including compact), unit options, accounting signs,
+nondefault sign display, rounding priorities/modes/increments and trailing-zero
+strategies are not implemented by this runtime; selecting them throws at
+formatter construction. They are not silently ignored. The shared TypeScript
+declarations describe the source API, not universal target support.

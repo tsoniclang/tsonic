@@ -20,6 +20,8 @@ import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformatio
 import { getEffectiveSourceTypeArguments } from "./type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
+import { createSourceStructuralMemberQuery } from "./structural-members.js";
+export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
 import type {
   ResolvedSourceCallInfo,
   SourceFileSemantics,
@@ -180,6 +182,7 @@ export function createTargetSourceProgram(
         return definedValues(queries.typeShape.getUnionOrIntersectionTypes(type));
       },
       propertyInfos: queries.typeShape.getPropertyInfos,
+      structuralMembers: createSourceStructuralMemberQuery(source.ast, queries.checker, queries.typeShape),
       indexInfos: queries.typeShape.getIndexInfos,
       callSignatures(type: Type) {
         return definedValues(queries.typeShape.getCallSignatures(type));
