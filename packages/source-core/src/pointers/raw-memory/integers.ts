@@ -16,7 +16,7 @@ export function selectedRawOffsetInteger(
   context: TsonicSourceFileAnalysisContext,
   analysis: MemorySourceAnalysis,
 ): RawOffsetInteger | undefined {
-  const constant = classifyIntegerConstant(value.expression, context);
+  const constant = classifyIntegerConstant(value.expression, context, analysis);
   if (constant.kind === "invalid") return undefined;
   const primitive = selectedPrimitive(value, context, analysis);
   if (primitive !== undefined) {

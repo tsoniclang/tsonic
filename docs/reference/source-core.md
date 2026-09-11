@@ -302,6 +302,20 @@ prove backing and lifetime safety or reject the request.
 
 ### Layout observations and storage
 
+Layout queries return `nativeUint` byte quantities and can be used directly as
+raw byte offsets. With a registered `abi` and a `RawPointer | undefined` value
+named `raw`:
+
+```ts
+const word = memoryLayout<uint32>(abi, 4, 4, 4);
+const next = offsetRawPointer(raw, sizeOf(word), abi);
+```
+
+The same applies to `alignOf`, `strideOf` and `fieldOffsetOf`, including immutable
+aliases of their results. The query must resolve to an exact layout. Integer
+width checks still apply: asserting a byte count of 256 as `uint8` does not make
+it fit, and an authored plain `number` does not supply an integer domain.
+
 `keepAlive(value)` emits `global::System.GC.KeepAlive(value)` for a C# reference
 owner. Rust borrows the value without consuming or cloning it; the owner
 retains its native drop scope. Neither operation pins storage, reconstructs an

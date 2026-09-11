@@ -35,7 +35,7 @@ export function selectedAddressIntegerDomain(
   if (operand === undefined) return undefined;
   const primitive = selectedPrimitive(operand, context, analysis);
   const domain = addressDomain(primitive);
-  const constant = classifyIntegerConstant(operand.expression, context);
+  const constant = classifyIntegerConstant(operand.expression, context, analysis);
   if (constant.kind === "invalid") return undefined;
   if (domain === undefined && (primitive !== undefined || selectedValueAnnotation(operand, context) !== undefined)) {
     return undefined;

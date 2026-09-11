@@ -53,6 +53,9 @@ export function selectedPrimitive(
       ? { kind: "uint32", width: 32, runtimeBase: "number", signed: false }
       : { kind: "uint64", width: 64, runtimeBase: "bigint", signed: false };
   }
+  if (analysis.layoutQuery(source.expression, context)?.kind === "resolved") {
+    return { kind: "native-uint", runtimeBase: "number", signed: false };
+  }
   return readSourcePrimitiveAnnotation(context, selectedCallReturnAnnotation(source.expression, context));
 }
 
@@ -88,6 +91,8 @@ function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFi
       expression = context.ast.as.AsSatisfiesExpression(expression)?.Expression;
       continue;
     }
+    const authored = context.ast.typeNode(expression);
+    if (authored !== undefined) return { expression, annotation: authored };
     const storage = context.checker.getResolvedStorageInfo(expression);
     const declaration = storage?.declaration;
     const annotation = context.ast.typeNode(declaration);
@@ -97,8 +102,7 @@ function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFi
       expression = context.ast.as.AsVariableDeclaration(declaration)?.Initializer;
       continue;
     }
-    const authored = context.ast.typeNode(expression);
-    return { expression, ...(authored === undefined ? {} : { annotation: authored }) };
+    return { expression };
   }
   return undefined;
 }
@@ -119,6 +123,7 @@ export type IntegerConstant =
 export function classifyIntegerConstant(
   expression: Node,
   context: TsonicSourceFileAnalysisContext,
+  analysis?: MemorySourceAnalysis,
 ): IntegerConstant {
   const visited = new Set<Node>();
   let current: Node | undefined = expression;
@@ -152,7 +157,7 @@ export function classifyIntegerConstant(
       current = context.ast.as.AsPrefixUnaryExpression(origin)?.Operand;
       continue;
     }
-    const constant = integerLeafConstant(origin, context);
+    const constant = integerLeafConstant(origin, context, analysis);
     if (constant.kind !== "available") return constant;
     return !permitsBigInt && constant.runtimeBase === "bigint"
       ? { kind: "invalid" }
@@ -164,7 +169,15 @@ export function classifyIntegerConstant(
 function integerLeafConstant(
   origin: Node,
   context: TsonicSourceFileAnalysisContext,
+  analysis?: MemorySourceAnalysis,
 ): IntegerConstant {
+  if (context.ast.is.IsCallExpression(origin)) {
+    const observation = analysis?.layoutQuery(origin, context);
+    if (observation?.kind === "rejected") return { kind: "invalid" };
+    if (observation?.kind === "resolved") {
+      return { kind: "available", value: BigInt(observation.value), runtimeBase: "number" };
+    }
+  }
   if (context.ast.is.IsNumericLiteral(origin)) {
     const value = Number(context.ast.text(origin).split("_").join(""));
     return Number.isSafeInteger(value)

@@ -7,6 +7,7 @@ import type { TsonicDataLayoutFact, TsonicMemoryFieldLayoutFact, TsonicMemoryLay
 import type { TsonicRawMemoryOperationFact } from "../pointers/raw-memory/facts.js";
 import type { MemoryTypeContracts } from "./type-contract/analysis.js";
 import type { TsonicMemoryFieldBindingFact } from "./bindings/facts.js";
+import type { resolveTsonicMemoryLayoutObservation } from "./readers.js";
 
 export interface MemorySourceCall {
   readonly selected: SelectedProviderSourceCall;
@@ -19,6 +20,7 @@ export interface MemorySourceAnalysis {
   readonly registrations: ReadonlyMap<string, TsonicDataLayoutFact>;
   readonly field: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryFieldLayoutFact | undefined;
   readonly layout: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryLayoutFact | undefined;
+  readonly layoutQuery: (expression: Node, context: TsonicSourceFileAnalysisContext) => ReturnType<typeof resolveTsonicMemoryLayoutObservation>;
   readonly binding: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicMemoryFieldBindingFact | undefined;
   readonly rawOperation: (expression: Node, context: TsonicSourceFileAnalysisContext) => TsonicRawMemoryOperationFact | undefined;
 }
