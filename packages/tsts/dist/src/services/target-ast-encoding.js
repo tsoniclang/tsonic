@@ -16,9 +16,9 @@ export class TargetAstEncodingError extends Error {
         this.field = field;
     }
 }
-export function encodeTargetSourceFileForPrinting(sourceFile) {
+export function encodeTargetSourceFileForPrinting(sourceFile, limits = defaultTargetAstEncodingLimits) {
     try {
-        return new TargetAstEncoder().encode(sourceFile);
+        return new TargetAstEncoder(limits).encode(sourceFile);
     }
     catch (error) {
         if (error instanceof TargetAstResourceLimitError) {
@@ -39,8 +39,8 @@ class TargetAstEncoder {
     #nodeCount = 0;
     #parentIndex = 0;
     #previousIndex = 0;
-    constructor() {
-        this.#budget = new TargetAstResourceBudget(defaultTargetAstEncodingLimits);
+    constructor(limits) {
+        this.#budget = new TargetAstResourceBudget(limits);
         this.#budget.reserveNodeRows(1);
         this.#strings = new StringTable(this.#budget);
         const factory = NewNodeFactory({});
