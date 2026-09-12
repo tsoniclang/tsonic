@@ -1,5 +1,5 @@
 import { fieldFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallInfo, SourceAnalysisContext, Type } from "@tsonic/tsts";
+import type { Node, ResolvedSourceCallInfo, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
 import type { MemorySourceCall } from "../analysis-context.js";
@@ -8,8 +8,9 @@ import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMe
 import { isMemoryFieldDeclaration } from "../selectors.js";
 import { createMemoryTypeDomains } from "./domains.js";
 import type { MemoryTypeDomain } from "./domains.js";
-import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, createMemoryTypeIdentity, tsonicMemoryTypeFactKey } from "./facts.js";
-import type { TsonicMemoryTypeIdentity } from "./facts.js";
+import { bindMemoryArrayTypeIdentity, bindMemoryTypeIdentity, bindMemoryTypeMember, createMemoryTypeIdentity,
+  memoryTypeMember, tsonicMemoryTypeFactKey } from "./facts.js";
+import type { MemoryTypeMemberSelection, TsonicMemoryTypeIdentity } from "./facts.js";
 import { createMemoryValueDomains } from "./values.js";
 import { tsonicRawMemoryOperationFactKey } from "../../pointers/raw-memory/facts.js";
 import { selectTsonicFixedArray } from "../../fixed-arrays/selection.js";
@@ -27,6 +28,7 @@ export interface MemoryTypeContracts {
   array(call: MemorySourceCall, element: TsonicMemoryLayoutFact,
     count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined;
   field(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
+  queryField(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
   aggregate(call: MemorySourceCall, fields: readonly Node[]): boolean;
   raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact): boolean;
   binding(call: MemorySourceCall, field: TsonicMemoryFieldLayoutFact): boolean;
@@ -44,37 +46,59 @@ export function createMemoryTypeContracts(
     facts: source.facts, factResolver: source.factResolver, diagnostics: source.diagnostics };
   const { ast, checker, typeShape } = context;
   const domains = createMemoryTypeDomains(context);
-  const identities = new Map<MemoryTypeDomain, MemoryTypeSelection[]>();
+  const identities = new Map<string, MemoryTypeSelection[]>();
+  const interned = new Map<MemoryTypeDomain, Map<Type, MemoryTypeSelection>>();
   const layouts = new Map<Node, MemoryTypeSelection>();
   const fields = new Map<Node, MemoryTypeSelection>();
+  const fieldMembers = new Map<Node, MemoryTypeMemberSelection>();
   const selections = new Map<Node, { readonly selection: MemoryTypeSelection; readonly sourceType: Type;
-    readonly fixedArray?: TsonicFixedArrayFact }>();
-  const byIdentity = new Map<TsonicMemoryTypeIdentity, MemoryTypeSelection>();
+    readonly fixedArray?: TsonicFixedArrayFact; readonly member?: MemoryTypeMemberSelection }>();
   const valueDomain = createMemoryValueDomains(context, domains, node => {
     demandOperation(node);
     const record = source.facts.get(node, tsonicMemoryRecordBindingFactKey);
     if (record?.call === node) {
-      const contract = source.facts.get(node, tsonicMemoryTypeFactKey);
-      return contract === undefined ? undefined : byIdentity.get(contract.identity)?.domain;
+      return selections.get(node)?.selection.domain;
     }
     const operation = source.facts.get(node, tsonicRawMemoryOperationFactKey);
     if (operation?.operation === "to-raw" || operation?.operation === "byte-offset" || operation?.operation === "address-integer-to-raw") {
       return domains.rawPointer();
     }
     if (operation?.operation !== "reinterpret") return undefined;
-    const contract = source.facts.get(node, tsonicMemoryTypeFactKey);
-    const pointee = contract === undefined ? undefined : byIdentity.get(contract.identity)?.domain;
+    const pointee = selections.get(node)?.selection.domain;
     return pointee === undefined ? undefined : domains.pointer(pointee);
   });
 
   function intern(type: Type, domain: MemoryTypeDomain): MemoryTypeSelection {
-    const entries = identities.get(domain) ?? [];
-    const existing = entries.find(entry => typeShape.isTypeIdenticalTo(entry.type, type));
-    if (existing !== undefined) return existing;
-    const result = Object.freeze({ type, domain, identity: createMemoryTypeIdentity() });
-    entries.push(result);
-    identities.set(domain, entries);
-    byIdentity.set(result.identity, result);
+    const instances = interned.get(domain) ?? new Map<Type, MemoryTypeSelection>();
+    const cached = instances.get(type);
+    if (cached !== undefined) return cached;
+    const bucket = domains.bucket(domain);
+    const entries = identities.get(bucket) ?? [];
+    const existing = entries.find(entry => typeShape.isTypeIdenticalTo(entry.type, type) && domains.equivalent(entry.domain, domain));
+    const result = Object.freeze({ type, domain, identity: existing?.identity ?? createMemoryTypeIdentity() });
+    if (domain.kind === "reference") {
+      const canonicalType = existing?.type ?? type;
+      const properties = new Set(typeShape.getPropertyInfos(canonicalType).map(property => property.symbol));
+      const authored = domains.referenceType(domain);
+      for (const selectedType of new Set([type, ...(authored === undefined ? [] : [authored])])) {
+        if (!typeShape.isTypeIdenticalTo(type, selectedType)) continue;
+        for (const property of typeShape.getPropertyInfos(selectedType)) {
+          const counterpart = checker.getPropertyOfType(canonicalType, checker.getSymbolName(property.symbol));
+          if (counterpart === undefined || !properties.has(counterpart)) {
+            throw new Error("Equivalent memory records have no selected member correspondence.");
+          }
+          for (const declaration of [property.symbol, ...property.rootSymbols].flatMap(symbol => checker.getSymbolDeclarations(symbol))) {
+            if (declaration !== undefined) bindMemoryTypeMember(result.identity, declaration, counterpart);
+          }
+        }
+      }
+    }
+    if (existing === undefined) {
+      entries.push(result);
+      identities.set(bucket, entries);
+    }
+    instances.set(type, result);
+    interned.set(domain, instances);
     return result;
   }
 
@@ -91,7 +115,7 @@ export function createMemoryTypeContracts(
     if (argument === undefined || !domains.isClosed(argument.selectedType)) return undefined;
     const node = argument.explicitTypeNode ?? annotation;
     const actual = node === undefined ? domain ?? domains.selected(argument.selectedType) : domains.authored(node);
-    if (actual === undefined || domain !== undefined && actual !== domain) return undefined;
+    if (actual === undefined || domain !== undefined && !domains.equivalent(actual, domain)) return undefined;
     return intern(argument.selectedType, actual);
   }
 
@@ -152,20 +176,46 @@ export function createMemoryTypeContracts(
       const domain = annotation === undefined || parent === undefined ? undefined : domains.member(annotation, parent.domain);
       const selection = domain === undefined ? selected(call, 1, annotation) : selected(call, 1, undefined, domain);
       if (child === undefined || selection?.identity !== child.identity || parent === undefined) return false;
+      const member = memoryTypeMember(parent.identity, declaration);
+      if (member === undefined) return false;
+      const correspondence = Object.freeze({ owner: parent.identity, declaration, member });
       fields.set(call.selected.call, parent);
-      selections.set(call.selected.call, { selection,
+      fieldMembers.set(call.selected.call, correspondence);
+      selections.set(call.selected.call, { selection, member: correspondence,
         sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![1]!.selectedType });
+      return true;
+    },
+    queryField(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact) {
+      const owner = layouts.get(layout.call);
+      const selector = call.selected.selection.sourceArguments[1]?.expression;
+      const parameter = selector === undefined ? undefined : ast.parameters(selector)[0];
+      const selection = selected(call, 0, ast.typeNode(parameter));
+      const member = selection === undefined ? undefined : memoryTypeMember(selection.identity, declaration);
+      if (owner === undefined || selection?.identity !== owner.identity || member === undefined || layout.kind !== "value" ||
+          layout.fields.filter(field => {
+            const counterpart = fieldMembers.get(field.call);
+            return counterpart?.owner === owner.identity && counterpart.member === member;
+          }).length !== 1) return false;
+      selections.set(call.selected.call, { selection, member: Object.freeze({ owner: owner.identity, declaration, member }),
+        sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
       return true;
     },
     aggregate(call: MemorySourceCall, members: readonly Node[]) {
       const parent = layouts.get(call.selected.call);
-      return parent !== undefined && members.every(member => fields.get(member)?.identity === parent.identity);
+      if (parent === undefined) return false;
+      const selected = new Set<Symbol>();
+      for (const member of members) {
+        const field = fieldMembers.get(member);
+        if (fields.get(member)?.identity !== parent.identity || field?.owner !== parent.identity || selected.has(field.member)) return false;
+        selected.add(field.member);
+      }
+      return true;
     },
     raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact) {
       const child = layouts.get(layout.call);
       if (child === undefined) return false;
       const domain = call.name === "toRawPointer" ? pointerDomain(call, child.domain) : child.domain;
-      if (domain === undefined || domain !== child.domain) return false;
+      if (domain === undefined || !domains.equivalent(domain, child.domain)) return false;
       const selection = selected(call, 0, undefined, domain);
       if (selection?.identity !== child.identity) return false;
       selections.set(call.selected.call, { selection,
@@ -199,12 +249,19 @@ export function createMemoryTypeContracts(
       if (properties.length === 0 && !checker.getSymbolDeclarations(checker.getTypeSymbol(type)).some(declaration =>
         declaration !== undefined && (ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||
           ast.is.IsClassDeclaration(declaration)))) return false;
-      const remaining = new Set(layout.fields.map(field => field.selectedDeclaration));
+      const remaining = new Set<Symbol>();
+      for (const field of layout.fields) {
+        const member = fieldMembers.get(field.call);
+        if (member?.owner !== parent.identity || remaining.has(member.member)) return false;
+        remaining.add(member.member);
+      }
       for (const property of properties) {
-        const declarations = checker.getSymbolDeclarations(property.symbol).filter(declaration =>
-          declaration !== undefined && remaining.has(declaration) && isMemoryFieldDeclaration(declaration, context));
+        const declarations = [...new Set([property.symbol, ...property.rootSymbols].flatMap(symbol =>
+          checker.getSymbolDeclarations(symbol).filter(declaration => declaration !== undefined)))];
+        const member = declarations.length === 1 ? memoryTypeMember(selection.identity, declarations[0]!) : undefined;
         if (property.optional || declarations.length !== 1) return false;
-        remaining.delete(declarations[0]!);
+        if (member === undefined || !remaining.has(member) || !isMemoryFieldDeclaration(declarations[0]!, context)) return false;
+        remaining.delete(member);
       }
       selections.set(call.selected.call, { selection,
         sourceType: call.selected.selection.sourceSelectedMethodTypeArguments![0]!.selectedType });
@@ -215,7 +272,7 @@ export function createMemoryTypeContracts(
       const sourceType = selected?.sourceType;
       if (sourceType === undefined || selected === undefined) throw new Error("Missing validated memory type selection.");
       const identity = selected.selection.identity;
-      bindMemoryTypeIdentity(identity, call.selected.call, sourceType, selected.fixedArray);
+      bindMemoryTypeIdentity(identity, call.selected.call, sourceType, selected.fixedArray, selected.member);
       publishMemoryFact(call, tsonicMemoryTypeFactKey, { call: call.selected.call, sourceType, identity });
     },
   });

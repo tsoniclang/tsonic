@@ -42,7 +42,9 @@ test("duplicate and out-of-aggregate selected fields are rejected before publish
     memoryLayout<Header>(abi, 4, 4, 4, field, field);
     memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 8, 4, uint32Layout));
   `);
-  assert.equal(checked.extensionDiagnostics.filter((diagnostic) => diagnostic.extensionCode === "SOURCE_CORE_MEMORY_LAYOUT_DIMENSIONS_INVALID").length, 2);
+  assert.deepEqual(checked.extensionDiagnostics.map(diagnostic => diagnostic.extensionCode), [
+    "SOURCE_CORE_MEMORY_LAYOUT_FIELD_NOT_PROVEN", "SOURCE_CORE_MEMORY_LAYOUT_DIMENSIONS_INVALID",
+  ]);
   for (const index of [1, 2]) assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", index)), undefined);
 });
 
