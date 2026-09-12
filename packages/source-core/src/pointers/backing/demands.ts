@@ -2,7 +2,7 @@ import type { Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import type { TsonicMemoryLayoutFact } from "../../memory-layout/facts.js";
 import { dataLayoutsEqual } from "../../memory-layout/facts.js";
-import { readTsonicMemoryType } from "../../memory-layout/type-contract/facts.js";
+import { readMemoryTypeMember, readTsonicMemoryType } from "../../memory-layout/type-contract/facts.js";
 import { selectTsonicRawLocationOperation } from "../raw-memory/selection.js";
 import { createTsonicPointerBackingQueries } from "./requirements.js";
 import type { TsonicPointerBackingIssue, TsonicPointerBackingOrigin } from "./requirements.js";
@@ -81,9 +81,14 @@ function sameBackingLayout(facts: ReadonlySourceFactResolver, left: TsonicMemory
       pending.push([current.elementLayout, other.elementLayout]);
     } else {
       if (other.kind !== "value" || current.fields.length !== other.fields.length) return false;
-      for (const [index, field] of current.fields.entries()) {
-        const counterpart = other.fields[index]!;
-        if (field.selectedDeclaration !== counterpart.selectedDeclaration ||
+      const counterparts = new Map(other.fields.map(field =>
+        [readMemoryTypeMember(facts, field.call, field.selectedDeclaration)?.member, field]));
+      if (counterparts.has(undefined) || counterparts.size !== other.fields.length) return false;
+      for (const field of current.fields) {
+        const member = readMemoryTypeMember(facts, field.call, field.selectedDeclaration);
+        const counterpart = member === undefined ? undefined : counterparts.get(member.member);
+        if (member?.owner !== currentType.identity || counterpart === undefined ||
+            readMemoryTypeMember(facts, counterpart.call, counterpart.selectedDeclaration)?.owner !== otherType.identity ||
             field.byteOffset !== counterpart.byteOffset || field.byteAlignment !== counterpart.byteAlignment) return false;
         pending.push([field.fieldLayout, counterpart.fieldLayout]);
       }

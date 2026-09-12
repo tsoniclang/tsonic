@@ -79,7 +79,7 @@ export function createMemoryValueDomains(
           if (symbol === undefined || !parameters.has(symbol)) continue;
           const value = visit(argument.expression, frame);
           const domain = pointer === undefined ? value : value === undefined ? undefined : domains.pointee(value);
-          if (domain === undefined || bindings.has(symbol) && bindings.get(symbol) !== domain) return undefined;
+          if (domain === undefined || bindings.has(symbol) && !domains.equivalent(bindings.get(symbol)!, domain)) return undefined;
           bindings.set(symbol, domain);
         }
         const result = domains.instantiated(annotation, bindings);

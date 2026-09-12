@@ -53,6 +53,15 @@ if their ordinary TypeScript numeric carriers coincide. Alias substitution
 uses resolved declarations and type parameters, not names. Nullability,
 nested pointers and closed generic arguments participate in identity.
 
+Independently declared closed records can describe the same memory domain.
+For example, `interface First { count: int64 }` and
+`interface Second { count: int64 }` do not require one shared declaration.
+Source-core checks compiler type identity and the corresponding selected
+members' marker domains. It does not equate `{ count: int64 }` with
+`{ count: uint64 }` merely because both use bigint carriers. Member optionality
+and readonly requirements remain distinct. Graph comparison is memoized and
+bounded; recursive references do not authorize omitting conflicting fields.
+
 For inferred pointer values, the same contract follows selected declarations,
 array index signatures, call arguments and returns. This recovers the static
 marker domain; it does not prove that storage is stable or that a pointer may
@@ -76,7 +85,8 @@ closed identity, including type variables hidden in `typeof` properties,
 call signatures or index signatures.
 
 The result is an immutable `TsonicMemoryTypeFact` on each accepted layout,
-physical field and raw conversion. A field's fact describes its field type.
+physical field, field-offset query and raw conversion. A field's fact describes
+its field type; a field-offset query's fact describes its selected owner type.
 Other facts describe their selected pointee type. Each fact contains:
 
 - `call`: the exact authored operation;
@@ -127,8 +137,14 @@ Shared backing-demand reconciliation follows the same rule. For example,
 `toRawPointer(pointer, localLayout)` and `toRawPointer(pointer, importedLayout)`
 may demand the same storage even when the layouts were authored in different
 files. Their authenticated memory domains and complete physical layouts must
-agree, including every nested field's selected declaration and placement.
+agree, including every nested field's exact corresponding member and placement.
 Discovery order must not decide whether those demands are compatible.
+
+Source-core retains the original selected declarations and authenticates their
+member correspondence within the memory identity. Field-offset queries and
+backing-demand reconciliation consume that correspondence without checker
+re-entry or target-side name matching. A different declaration for an equivalent
+record does not authorize swapping fields, offsets or physical child layouts.
 
 This is different from validating an individual fact's snapshot. That check
 still requires the original checker type for its exact authored occurrence;

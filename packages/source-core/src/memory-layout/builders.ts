@@ -105,7 +105,7 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
     memoryDiagnostic(call, "QUERY_OPERAND_MISSING", "Layout query is missing its exact selected layout operand.");
     return;
   }
-  analysis.layout(operand.expression, context);
+  const layout = analysis.layout(operand.expression, context);
   const base = {
     call: selected.call, layoutExpression: operand.expression,
     layoutType: operand.type, resultType: selected.selection.sourceResultType,
@@ -115,11 +115,12 @@ export function analyzeMemoryLayoutQuery(call: MemorySourceCall, analysis: Memor
     const declaration = member.kind === "selected" ? member.selectedDeclaration : undefined;
     const selector = selected.selection.sourceArguments[1];
     if (declaration === undefined || selector === undefined || !isMemoryFieldSelector(selector.expression, context) ||
-        !isMemoryFieldDeclaration(declaration, context)) {
+        !isMemoryFieldDeclaration(declaration, context) || layout === undefined || !analysis.types.queryField(call, declaration, layout)) {
       memoryDiagnostic(call, "QUERY_FIELD_NOT_PROVEN", "fieldOffsetOf requires one exact non-optional physical field selection.");
       return;
     }
     publishMemoryFact(call, tsonicMemoryLayoutQueryFactKey, { ...base, operation: "field-offset", selectedFieldDeclaration: declaration });
+    analysis.types.publish(call);
     return;
   }
   const operation = call.name === "sizeOf" ? "size" : call.name === "alignOf" ? "alignment" : "stride";

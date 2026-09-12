@@ -1,15 +1,18 @@
-import { pointerFactKey, rawPointerFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
+import { fieldFactKey, pointerFactKey, rawPointerFactKey, sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type { Node, SourcePrimitiveFact, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
 import { tsonicCoreSourceSemanticsModules } from "../../extension/source-modules.js";
 import { memoryProviderFieldType } from "./provider-fields.js";
 import { tsonicFixedArrayFactKey } from "../../fixed-arrays/facts.js";
+import { createMemoryDomainRelation } from "./relations.js";
+import type { MemoryRecordMember, MemoryRecordShape } from "./relations.js";
 
 export interface MemoryTypeDomain {
   readonly key: number;
   readonly kind: "source" | "nullish" | "primitive" | "pointer" | "raw-pointer" | "union" | "intersection" | "reference" | "fixed-array" | "extent";
   readonly children: readonly MemoryTypeDomain[];
+  readonly head: DomainPart | undefined;
 }
 
 export interface MemoryTypeDomains {
@@ -24,6 +27,9 @@ export interface MemoryTypeDomains {
   selected(type: Type): MemoryTypeDomain | undefined;
   isClosed(type: Type): boolean;
   pointee(domain: MemoryTypeDomain): MemoryTypeDomain | undefined;
+  equivalent(left: MemoryTypeDomain, right: MemoryTypeDomain): boolean;
+  bucket(domain: MemoryTypeDomain): string;
+  referenceType(domain: MemoryTypeDomain): Type | undefined;
 }
 
 type DomainPart = object | string | number | bigint | boolean;
@@ -39,9 +45,12 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
   const cache = new Map<Node, MemoryTypeDomain | undefined>();
   const closed = new Map<Type, boolean>();
   const referenceBindings = new Map<MemoryTypeDomain, ReadonlyMap<Symbol, MemoryTypeDomain>>();
+  const references = new Map<MemoryTypeDomain, { readonly symbol: Symbol; readonly type: Type | undefined }>();
+  const records = new Map<MemoryTypeDomain, MemoryRecordShape | undefined>();
   const primitives = tsonicCoreSourceSemanticsModules().flatMap(module => module.exports)
     .filter(value => value.kind === "source-primitive");
   let nextKey = 0;
+  const equivalent = createMemoryDomainRelation(context, domain => references.get(domain)?.symbol, record);
 
   function typeParameters(declaration: Node): readonly (Node | undefined)[] {
     return ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration) ||
@@ -56,7 +65,7 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
       if (child === undefined) current.children.set(part, child = { children: new Map() });
       current = child;
     }
-    return current.domain ??= Object.freeze({ kind, key: nextKey++, children: Object.freeze([...children]) });
+    return current.domain ??= Object.freeze({ kind, key: nextKey++, children: Object.freeze([...children]), head: parts[0] });
   }
 
   function primitive(fact: SourcePrimitiveFact): MemoryTypeDomain {
@@ -87,6 +96,48 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
     const unique = [...new Set(children.flatMap(child => child.kind === kind ? child.children : [child]))]
       .sort((left, right) => left.key - right.key);
     return unique.length === 1 ? unique[0]! : intern(kind, unique, unique);
+  }
+
+  function record(domain: MemoryTypeDomain): MemoryRecordShape | undefined {
+    if (records.has(domain)) return records.get(domain);
+    const type = references.get(domain)?.type;
+    if (type === undefined || !isClosed(type) || typeShape.isArrayLike(type) ||
+        typeShape.getCallSignatures(type).length !== 0 || typeShape.getConstructSignatures(type).length !== 0 ||
+        typeShape.getIndexInfos(type).length !== 0) return undefined;
+    records.set(domain, undefined);
+    const members = new Map<Symbol, MemoryRecordMember>();
+    const properties = typeShape.getPropertyInfos(type);
+    if (properties.length > 131072) return undefined;
+    for (const property of properties) {
+      const declarations = [...new Set([property.symbol, ...property.rootSymbols].flatMap(symbol =>
+        checker.getSymbolDeclarations(symbol).filter(declaration => declaration !== undefined)))];
+      if (declarations.length !== 1 || declarations.some(declaration =>
+        !ast.is.IsPropertySignatureDeclaration(declaration) && !ast.is.IsPropertyDeclaration(declaration) &&
+        !ast.is.IsPropertyAssignment(declaration))) return undefined;
+      const declaration = declarations[0]!;
+      const annotation = ast.typeNode(declaration) ?? readSourceFact(context, declaration, fieldFactKey)?.type;
+      const child = annotation === undefined ? selected(property.type)
+        : visit(annotation, referenceBindings.get(domain) ?? new Map());
+      if (child === undefined || members.has(property.symbol)) return undefined;
+      members.set(property.symbol, Object.freeze({ property, declarations: Object.freeze(declarations), domain: child }));
+    }
+    const result = Object.freeze({ type, members });
+    records.set(domain, result);
+    return result;
+  }
+
+  function bucket(domain: MemoryTypeDomain): string {
+    if (domain.kind === "reference") {
+      const shape = record(domain);
+      if (shape !== undefined) return JSON.stringify(["record", ...[...shape.members.values()]
+        .map(member => checker.getSymbolName(member.property.symbol)).sort()]);
+    }
+    if (domain.kind === "union" || domain.kind === "intersection") {
+      const children = [...new Set(domain.children.map(bucket))];
+      if (children.length === 1) return children[0]!;
+    }
+    return domain.kind === "primitive" || domain.kind === "source" || domain.kind === "nullish" || domain.kind === "extent"
+      ? `${domain.kind}:${domain.key}` : domain.kind;
   }
 
   function isClosed(type: Type): boolean {
@@ -141,7 +192,9 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
       const declarations = checker.getSymbolDeclarations(symbol).filter(declaration => declaration !== undefined);
       const parameters = declarations.flatMap(typeParameters);
       if (parameters.length !== 0) return undefined;
-      return intern("reference", [symbol]);
+      const domain = intern("reference", [symbol]);
+      references.set(domain, { symbol, type });
+      return domain;
     }
     return intern("source", [type]);
   }
@@ -233,6 +286,10 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
           }
         }
         referenceBindings.set(domain, substituted);
+        if (references.get(domain)?.type === undefined) {
+          const type = checker.getTypeFromTypeNode(node);
+          references.set(domain, { symbol, type: type !== undefined && isClosed(type) ? type : undefined });
+        }
         return domain;
       }
       if (ast.is.IsArrayTypeNode(node)) {
@@ -252,6 +309,7 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
         if (substituted.size === 0) return undefined;
         const domain = intern("reference", [symbol, child], [child]);
         referenceBindings.set(domain, substituted);
+        references.set(domain, { symbol, type: checker.getTypeFromTypeNode(node) });
         return domain;
       }
       if (!ast.is.IsKeywordTypeNode(node) && !ast.is.IsLiteralTypeNode(node) &&
@@ -271,6 +329,9 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
       return domain;
     },
     selected,
+    equivalent,
+    bucket,
+    referenceType: (domain: MemoryTypeDomain) => references.get(domain)?.type,
     array,
     isClosed,
     instantiated: (node: Node, bindings: ReadonlyMap<Symbol, MemoryTypeDomain>) => visit(node, bindings),
@@ -289,7 +350,8 @@ export function createMemoryTypeDomains(context: TsonicSourceFileAnalysisContext
       if (domain.kind === "pointer") return domain.children[0];
       if (domain.kind !== "union") return undefined;
       const pointers = domain.children.filter(child => child.kind === "pointer");
-      return pointers.length === 1 && domain.children.every(child => child.kind === "pointer" || child.kind === "nullish")
+      return pointers.length !== 0 && pointers.every(pointer => equivalent(pointer, pointers[0]!)) &&
+        domain.children.every(child => child.kind === "pointer" || child.kind === "nullish")
         ? pointers[0]!.children[0] : undefined;
     },
   });

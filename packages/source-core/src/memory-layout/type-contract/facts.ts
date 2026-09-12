@@ -1,5 +1,5 @@
 import { defineExtensionFactKey } from "@tsonic/tsts";
-import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
+import type { ExtensionFactSubject, Node, ReadonlySourceFactResolver, Symbol as SourceSymbol, Type } from "@tsonic/tsts";
 import { tsonicCoreSourceExtensionId } from "../../identity.js";
 import { exactRecord, opaqueSubject, recordsEqual } from "../snapshots.js";
 import { fixedArrayFactsEqual, snapshotFixedArrayFact } from "../../fixed-arrays/facts.js";
@@ -12,9 +12,17 @@ interface MemoryArrayType {
   readonly lengthRuntimeBase: "number" | "bigint";
 }
 const identities = new WeakMap<TsonicMemoryTypeIdentity, {
-  readonly bindings: WeakMap<Node, { readonly type: Type; readonly array?: TsonicFixedArrayFact }>;
+  readonly bindings: WeakMap<Node, { readonly type: Type; readonly array?: TsonicFixedArrayFact;
+    readonly member?: MemoryTypeMemberSelection }>;
+  readonly members: WeakMap<Node, SourceSymbol>;
   array?: MemoryArrayType;
 }>();
+
+export interface MemoryTypeMemberSelection {
+  readonly owner: TsonicMemoryTypeIdentity;
+  readonly declaration: Node;
+  readonly member: SourceSymbol;
+}
 
 export interface TsonicMemoryTypeIdentity {
   readonly [identityBrand]: true;
@@ -28,22 +36,40 @@ export interface TsonicMemoryTypeFact {
 
 export function createMemoryTypeIdentity(): TsonicMemoryTypeIdentity {
   const identity = Object.freeze({ [identityBrand]: true as const });
-  identities.set(identity, { bindings: new WeakMap() });
+  identities.set(identity, { bindings: new WeakMap(), members: new WeakMap() });
   return identity;
+}
+
+export function bindMemoryTypeMember(identity: TsonicMemoryTypeIdentity, declaration: Node, member: SourceSymbol): void {
+  const record = identities.get(identity);
+  const previous = record?.members.get(declaration);
+  if (record === undefined || previous !== undefined && previous !== member) {
+    throw new Error("Memory member identity cannot be rebound to another selected property.");
+  }
+  record.members.set(declaration, member);
+}
+
+export function memoryTypeMember(identity: TsonicMemoryTypeIdentity, declaration: Node): SourceSymbol | undefined {
+  return identities.get(identity)?.members.get(declaration);
 }
 
 export function bindMemoryTypeIdentity(
   identity: TsonicMemoryTypeIdentity, call: Node, type: Type, array?: TsonicFixedArrayFact,
+  member?: MemoryTypeMemberSelection,
 ): void {
   const record = identities.get(identity);
   const previous = record?.bindings.get(call);
   if (record === undefined || array !== undefined && (array.sourceType !== type || record.array === undefined) ||
+      member !== undefined && memoryTypeMember(member.owner, member.declaration) !== member.member ||
       previous !== undefined && (previous.type !== type || (previous.array === undefined) !== (array === undefined) ||
-        previous.array !== undefined && array !== undefined && !fixedArrayFactsEqual(previous.array, array))) {
+        previous.array !== undefined && array !== undefined && !fixedArrayFactsEqual(previous.array, array) ||
+        previous.member?.owner !== member?.owner || previous.member?.declaration !== member?.declaration ||
+        previous.member?.member !== member?.member)) {
     throw new Error("Memory type identity cannot be rebound to different selected evidence.");
   }
   record.bindings.set(call, Object.freeze({ type,
     ...(array === undefined ? {} : { array: snapshotFixedArrayFact(array) }),
+    ...(member === undefined ? {} : { member: Object.freeze({ ...member }) }),
   }));
 }
 
@@ -107,4 +133,12 @@ export function readTsonicMemoryType(
 ): TsonicMemoryTypeFact | undefined {
   const fact = facts.getFact(subject, tsonicMemoryTypeFactKey);
   return fact !== undefined && fact.call === subject && authentic(fact) ? fact : undefined;
+}
+
+export function readMemoryTypeMember(
+  facts: Pick<ReadonlySourceFactResolver, "getFact">, call: Node, declaration: Node,
+): MemoryTypeMemberSelection | undefined {
+  const fact = readTsonicMemoryType(facts, call);
+  const member = fact === undefined ? undefined : identities.get(fact.identity)?.bindings.get(call)?.member;
+  return member?.declaration === declaration ? member : undefined;
 }
