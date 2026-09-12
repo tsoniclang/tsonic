@@ -1,3 +1,4 @@
+import { HEADER_SIZE, NODE_EXTENDED_DATA_MASK, NODE_LEN, NODE_STRING_INDEX_MASK, } from "../internal/ast/generated/protocol.js";
 export const defaultTargetAstEncodingLimits = Object.freeze({
     maximumNodeRows: 2_097_152,
     maximumDepth: 1_024,
@@ -21,11 +22,15 @@ export class TargetAstResourceBudget {
     #stringBytes = 0;
     #extendedWords = 0;
     #structuredBytes = 0;
+    #encodedBytes = HEADER_SIZE;
     constructor(limits) {
         this.#limits = validateLimits(limits);
+        this.requireEncodedBytes(this.#encodedBytes);
     }
     reserveNodeRows(count) {
-        this.#nodeRows = reserve("target AST node rows", this.#nodeRows, count, this.#limits.maximumNodeRows);
+        const next = reserve("target AST node rows", this.#nodeRows, count, this.#limits.maximumNodeRows);
+        this.#reserveEncodedBytes(count * NODE_LEN);
+        this.#nodeRows = next;
     }
     requireDepth(depth) {
         requireNonNegativeSafeInteger(depth, "target AST depth");
@@ -38,14 +43,21 @@ export class TargetAstResourceBudget {
         if (byteLength > this.#limits.maximumSingleStringBytes) {
             throw new TargetAstResourceLimitError(`target AST string size ${byteLength} exceeds per-string limit ${this.#limits.maximumSingleStringBytes}`);
         }
-        this.#stringCount = reserve("target AST strings", this.#stringCount, 1, this.#limits.maximumStringCount);
-        this.#stringBytes = reserve("target AST string bytes", this.#stringBytes, byteLength, this.#limits.maximumStringBytes);
+        const stringCount = reserve("target AST strings", this.#stringCount, 1, this.#limits.maximumStringCount);
+        const stringBytes = reserve("target AST string bytes", this.#stringBytes, byteLength, this.#limits.maximumStringBytes);
+        this.#reserveEncodedBytes(2 * Uint32Array.BYTES_PER_ELEMENT + byteLength);
+        this.#stringCount = stringCount;
+        this.#stringBytes = stringBytes;
     }
     reserveExtendedWords(count) {
-        this.#extendedWords = reserve("target AST extended-data words", this.#extendedWords, count, this.#limits.maximumExtendedWords);
+        const next = reserve("target AST extended-data words", this.#extendedWords, count, this.#limits.maximumExtendedWords);
+        this.#reserveEncodedBytes(count * Uint32Array.BYTES_PER_ELEMENT);
+        this.#extendedWords = next;
     }
     reserveStructuredBytes(count) {
-        this.#structuredBytes = reserve("target AST structured-data bytes", this.#structuredBytes, count, this.#limits.maximumStructuredBytes);
+        const next = reserve("target AST structured-data bytes", this.#structuredBytes, count, this.#limits.maximumStructuredBytes);
+        this.#reserveEncodedBytes(count);
+        this.#structuredBytes = next;
     }
     requireEncodedBytes(count) {
         requireNonNegativeSafeInteger(count, "target AST encoded byte length");
@@ -53,18 +65,49 @@ export class TargetAstResourceBudget {
             throw new TargetAstResourceLimitError(`target AST encoded size ${count} exceeds limit ${this.#limits.maximumEncodedBytes}`);
         }
     }
+    #reserveEncodedBytes(count) {
+        this.#encodedBytes = reserve("target AST encoded size", this.#encodedBytes, count, this.#limits.maximumEncodedBytes);
+    }
 }
 function validateLimits(limits) {
-    for (const [name, value] of Object.entries(limits)) {
+    const names = Object.keys(defaultTargetAstEncodingLimits);
+    if (typeof limits !== "object" || limits === null || Array.isArray(limits) ||
+        Reflect.ownKeys(limits).length !== names.length) {
+        throw new TargetAstResourceLimitError("target AST encoding limits require exactly the eight limit fields");
+    }
+    const result = { ...defaultTargetAstEncodingLimits };
+    for (const name of names) {
+        const descriptor = Object.getOwnPropertyDescriptor(limits, name);
+        if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) {
+            throw new TargetAstResourceLimitError(`${name} must be an own enumerable data field`);
+        }
+        const value = descriptor.value;
         requireNonNegativeSafeInteger(value, name);
         if (value === 0) {
             throw new TargetAstResourceLimitError(`${name} must be greater than zero`);
         }
+        result[name] = value;
     }
-    if (limits.maximumEncodedBytes > 0xffff_ffff) {
+    if (result.maximumEncodedBytes > 0xffff_ffff) {
         throw new TargetAstResourceLimitError("maximumEncodedBytes exceeds the uint32 wire-offset range");
     }
-    return Object.freeze({ ...limits });
+    const ranges = [
+        ["maximumNodeRows", Math.floor(0xffff_ffff / NODE_LEN), "uint32 node-table byte range"],
+        ["maximumDepth", defaultTargetAstEncodingLimits.maximumDepth, "supported recursive depth"],
+        ["maximumStringCount", Math.floor((NODE_STRING_INDEX_MASK + 1) / 2), "wire string-index range"],
+        ["maximumStringBytes", 0xffff_ffff, "uint32 string-table byte range"],
+        ["maximumExtendedWords", Math.floor((NODE_EXTENDED_DATA_MASK + 1) / Uint32Array.BYTES_PER_ELEMENT), "wire extended-data offset range"],
+        ["maximumStructuredBytes", 0xffff_ffff, "uint32 structured-data byte range"],
+    ];
+    for (const [name, maximum, subject] of ranges) {
+        if (result[name] > maximum) {
+            throw new TargetAstResourceLimitError(`${name} exceeds the ${subject} (${maximum})`);
+        }
+    }
+    if (result.maximumSingleStringBytes > result.maximumStringBytes) {
+        throw new TargetAstResourceLimitError("maximumSingleStringBytes exceeds maximumStringBytes");
+    }
+    return Object.freeze(result);
 }
 function reserve(subject, current, count, limit) {
     requireNonNegativeSafeInteger(count, `${subject} reservation`);

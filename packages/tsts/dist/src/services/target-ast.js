@@ -34,6 +34,7 @@ export function transformTargetSourceFile(sourceFile, rewrite) {
     return transformed;
 }
 export { encodeTargetSourceFileForPrinting, TargetAstEncodingError, } from "./target-ast-encoding.js";
+export { defaultTargetAstEncodingLimits } from "./target-ast-resource-budget.js";
 export * from "../internal/ast/generated/casts.js";
 export * from "../internal/ast/generated/factory.js";
 export * from "../internal/ast/generated/flags.js";
