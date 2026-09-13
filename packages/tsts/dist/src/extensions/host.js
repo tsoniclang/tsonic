@@ -5969,6 +5969,9 @@ function hasValidProviderValueHeritageReferences(declaration, context) {
     return (declaration.heritage ?? []).every((heritage) => heritage.kind !== "extends" || hasValidProviderValueHeritageReference(heritage.type, context));
 }
 function hasValidProviderValueHeritageReference(type, context) {
+    if (type.kind === "source-global") {
+        return true;
+    }
     if (type.kind !== "provider-ref") {
         return false;
     }
