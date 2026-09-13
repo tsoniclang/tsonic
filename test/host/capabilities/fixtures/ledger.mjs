@@ -3918,7 +3918,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-pointer-operations.test.mjs",
-      "../pudding-csharp/bcl/packages/hello-world/src/App.ts",
+      "../csharp-pudding/bcl/packages/hello-world/src/App.ts",
     ],
     negativeTests: [
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",

@@ -10,7 +10,7 @@ same source contract.
 | Shared host | Tsonic source, host, CLI, artifact, and architecture suites |
 | C# target | Target unit/integration tests plus generated C# and `dotnet` builds |
 | Rust target | Target unit/integration tests plus generated Rust, Cargo, rustfmt, and Clippy |
-| C# downstream | `proof-is-in-the-pudding` and Tsumo |
+| C# downstream | `csharp-pudding` and Tsumo |
 | Rust downstream | `rust-pudding` and Tsumo Rust |
 
 Focused tests are development tools. Merge certification uses each repository's
