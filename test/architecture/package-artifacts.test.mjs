@@ -37,6 +37,35 @@ test("vendored TSTS artifact exposes only the approved public entrypoints", asyn
   );
 });
 
+test("packaged source access queries retain exact intrinsic receiver evidence", async () => {
+  const { createCompilerSessionFromFiles, formatDiagnostics } = await import("@tsonic/tsts");
+  const { createTargetSourceProgram } = await import("@tsonic/target-api/source");
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": `
+      export const builtin = globalThis.Number;
+      export function local(globalThis: { Number: number }): number { return globalThis.Number; }
+    ` },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const accesses = [];
+  function visit(node) {
+    if (source.ast.is.IsPropertyAccessExpression(node)) accesses.push(node);
+    source.ast.forEachChild(node, visit);
+  }
+  visit(file);
+  assert.equal(accesses.length, 2);
+  for (const [index, node] of accesses.entries()) {
+    const info = source.semantics.forNode(node).operations.propertyAccess(node);
+    assert.equal(info.receiver.intrinsic, index === 0 ? "global-object" : undefined);
+    assert.equal(info, checked.getSourceFileQueries(file).checker.getResolvedPropertyAccessInfo(node));
+    assert.ok(Object.isFrozen(info.receiver));
+  }
+});
+
 test("vendored TSTS artifact contains dist output and no source-project tooling", async () => {
   const packageRoot = resolve(repoRoot, "packages/tsts");
   const workspaceManifest = JSON.parse(await readFile(resolve(repoRoot, "package.json"), "utf8"));

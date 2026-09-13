@@ -263,7 +263,7 @@ function withResolvedSourceReceiverValueEvidence(checker, selected) {
     if (checker === undefined || selected === undefined) {
         return undefined;
     }
-    const sourceSymbol = getDiagnosticFreeResolvedSymbol(checker, selected.receiver.expression);
+    const sourceSymbol = getDiagnosticFreeResolvedSymbol(checker, SkipOuterExpressions(selected.receiver.expression, (OEKAssertions | OEKParentheses)));
     const valueSymbol = sourceSymbol !== undefined &&
         (sourceSymbol.Flags & SymbolFlagsAlias) !== 0
         ? Checker_GetAliasedSymbol(checker, sourceSymbol)
@@ -276,6 +276,7 @@ function withResolvedSourceReceiverValueEvidence(checker, selected) {
         receiver: Object.freeze({
             ...selected.receiver,
             valueSymbol,
+            ...(valueSymbol === checker.globalThisSymbol ? { intrinsic: "global-object" } : {}),
             ...(valueSymbol.ValueDeclaration === undefined
                 ? {}
                 : { valueDeclaration: valueSymbol.ValueDeclaration }),
