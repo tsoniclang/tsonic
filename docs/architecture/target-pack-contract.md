@@ -130,14 +130,14 @@ generic host never grows target-specific configuration branches.
 
 ## Proof alignment
 
-`pudding-csharp` and `rust-pudding` describe their checks in
+`csharp-pudding` and `rust-pudding` describe their checks in
 `scripts/verify/scenarios.json`. A shared scenario ID means the same declared
 bounded contract, not identical project contents or proof strength. Native-only
 and unpaired assertions
 remain explicit. For example, both suites check calculator addition, while
 an ASP.NET server and a Rust lifetime signature have separate contracts.
 
-From `pudding-csharp`, inspect those declarations without compiling projects:
+From `csharp-pudding`, inspect those declarations without compiling projects:
 
 ```sh
 node scripts/verify-all.mjs --scenarios --peer ../rust-pudding
