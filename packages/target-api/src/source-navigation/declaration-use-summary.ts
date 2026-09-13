@@ -1,4 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
+import { sourceMemberOwner, sourceParameterIsProperty } from "./class-members.js";
 import type {
   SourceDeclarationUse,
   SourceDeclarationUseSummary,
@@ -27,13 +28,19 @@ export function sourceDeclarationUseSummary(
   const exported = ast.hasModifierKind(declaration, "export") ||
     uses.some((use) => use.role === "source-linkage" &&
       sourceLinkageKind(ast, use.reference) === "export");
-  const memberWrites = uses.filter((use) =>
-    use.role === "write" && (use.throughMember || declaredClassMember));
-  const constructorInitialized = memberWrites.some((use) =>
+  const parameterProperty = sourceParameterIsProperty(ast, declaration);
+  const isMemberUse = (use: SourceDeclarationUse): boolean =>
+    use.throughMember || declaredClassMember || parameterProperty &&
+      use.memberReceiver !== undefined;
+  const memberWrites = uses.filter((use) => use.role === "write" && isMemberUse(use));
+  const constructorInitialized = parameterProperty || memberWrites.some((use) =>
     sourceMemberWriteIsConstructorInitialization(ast, declaration, use.reference));
   const mutatedAfterInitialization = memberWrites.some((use) =>
     !sourceMemberWriteIsConstructorInitialization(ast, declaration, use.reference));
   const escapeKinds = new Set<SourceValueEscapeKind>();
+  if (parameterProperty) {
+    escapeKinds.add("storage");
+  }
   if (captured) {
     escapeKinds.add("capture");
   }
@@ -64,14 +71,14 @@ export function sourceDeclarationUseSummary(
     directCallCount: uses.filter((use) => use.kind === "direct-call").length,
     firstClassUseCount: uses.filter((use) => use.kind === "first-class").length,
     bindingWritten: uses.some((use) =>
-      use.role === "write" && !use.throughMember && !declaredClassMember),
+      use.role === "write" && !isMemberUse(use)),
     memberWritten: memberWrites.length > 0,
     constructorInitialized,
     mutatedAfterInitialization,
     receiverUsed: uses.some((use) => use.role === "receiver"),
     identityCompared: uses.some((use) => use.role === "comparison"),
     conditionallyRead: uses.some((use) => use.role === "condition"),
-    aliasedOrStored: uses.some((use) => use.role === "storage"),
+    aliasedOrStored: parameterProperty || uses.some((use) => use.role === "storage"),
     captured,
     exported,
     escapeKinds: Object.freeze(escapeOrder.filter((kind) => escapeKinds.has(kind))),
@@ -84,7 +91,7 @@ function sourceMemberWriteIsConstructorInitialization(
   declaration: Node,
   reference: Node,
 ): boolean {
-  const owner = ast.parent(declaration);
+  const owner = sourceMemberOwner(ast, declaration);
   if (owner === undefined || !ast.is.IsClassDeclaration(owner)) {
     return false;
   }

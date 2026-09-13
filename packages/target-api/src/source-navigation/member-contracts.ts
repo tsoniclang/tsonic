@@ -1,3 +1,4 @@
+import { sourceMemberOwner, sourceObjectMemberDeclarations, sourceParameterIsProperty } from "./class-members.js";
 import type {
   AstReader,
   Node,
@@ -60,7 +61,7 @@ function resolveMemberContracts(
     contractMemberDeclaration: Node,
   ) => SourceProjectMemberImplementationResult,
 ): SourceProjectMemberContractsResult {
-  const owner = ast.parent(implementationDeclaration);
+  const owner = sourceMemberOwner(ast, implementationDeclaration);
   if (!isProjectType(ast, owner) || !isProjectMember(ast, implementationDeclaration) ||
     !isProjectDeclaration(implementationDeclaration)) {
     return Object.freeze({
@@ -85,7 +86,7 @@ function resolveMemberContracts(
   const contracts: Node[] = [];
   const identities = new Set<string>();
   for (const inheritedType of inherited.declarations) {
-    for (const candidate of ast.members(inheritedType)) {
+    for (const candidate of sourceObjectMemberDeclarations(ast, inheritedType)) {
       if (candidate === undefined || !isProjectMember(ast, candidate) ||
         ast.hasModifierKind(candidate, "static") ||
         ast.hasModifierKind(candidate, "private")) {
@@ -180,5 +181,6 @@ function isProjectMember(ast: AstReader, node: Node): boolean {
   const kind = ast.kindName(node);
   return kind === "KindMethodDeclaration" || kind === "KindMethodSignature" ||
     kind === "KindGetAccessor" || kind === "KindSetAccessor" ||
-    kind === "KindPropertyDeclaration" || kind === "KindPropertySignature";
+    kind === "KindPropertyDeclaration" || kind === "KindPropertySignature" ||
+    sourceParameterIsProperty(ast, node);
 }
