@@ -126,6 +126,15 @@ export function createTsonicPointerBackingQueries(
         edge(node, transparent);
         continue;
       }
+      if (ast.is.IsVoidExpression(node)) {
+        if (ast.as.AsVoidExpression(node)?.Expression === undefined) {
+          reject(node, "A void pointer value has no exact source operand.");
+        } else {
+          includesUndefined = true;
+          terminals.add(node);
+        }
+        continue;
+      }
       if (ast.is.IsConditionalExpression(node)) {
         const conditional = ast.as.AsConditionalExpression(node);
         edge(node, conditional?.WhenTrue);

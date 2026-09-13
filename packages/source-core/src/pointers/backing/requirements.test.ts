@@ -24,6 +24,76 @@ function inspect(sourceText: string, options: { closed?: boolean; budget?: numbe
   return result;
 }
 
+for (const [expression, visitedValues] of [
+  ["void 0", 1],
+  ["(void 0)", 2],
+  ["void visit()", 1],
+  ["void projectPointer<uint32, uint32>(ordinary!, item => item, item => item)", 1],
+] as const) {
+  test(`void result has no pointer backing: ${expression}`, () => {
+    const result = inspect(`
+      declare function visit(): void;
+      toRawPointer<uint32>(${expression}, uint32Layout);
+    `, { budget: visitedValues });
+    assert.equal(result.kind, "origins");
+    if (result.kind !== "origins") return;
+    assert.deepEqual(result.origins, []);
+    assert.equal(result.includesUndefined, true);
+    assert.equal(result.visitedValues, visitedValues);
+    assert.ok(Object.isFrozen(result.origins));
+  });
+}
+
+test("void absence survives aliases, selected returns and physical alternatives", () => {
+  const result = inspect(`
+    function make(condition: boolean): Pointer<uint32> | undefined {
+      const absent = void 0;
+      return condition ? allocatePointer<uint32>(1) : absent;
+    }
+    toRawPointer(make(true), uint32Layout);
+  `);
+  assert.equal(result.kind, "origins");
+  if (result.kind !== "origins") return;
+  assert.deepEqual(result.origins.map(origin => origin.operation), ["allocate"]);
+  assert.equal(result.includesUndefined, true);
+});
+
+test("void arguments cannot hide a logical default pointer", () => {
+  const result = inspect(`
+    const pointer = allocatePointer<uint32>(1);
+    function pass(value: Pointer<uint32> = projectPointer<uint32, uint32>(pointer, item => item, item => item)) {
+      return value;
+    }
+    toRawPointer(pass(void 0), uint32Layout);
+  `);
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /logical pointer/u.test(issue.reason)));
+});
+
+test("void pointer evidence rejects a missing source operand", () => {
+  const checked = cleanMemorySession("toRawPointer<uint32>(void 0, uint32Layout);");
+  const call = memoryCall(checked, "toRawPointer");
+  const operation = checked.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
+  assert.ok(operation?.operation === "to-raw");
+  const source = createTargetSourceProgram(checked);
+  const queries = createTsonicPointerBackingQueries({
+    ...source,
+    ast: { ...source.ast, as: { ...source.ast.as, AsVoidExpression: () => undefined } },
+  }, { hasClosedCallers: () => true, maximumValues: 1 });
+  const result = queries.resolve(operation.pointerExpression);
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.deepEqual(result.issues.map(issue => issue.reason), ["A void pointer value has no exact source operand."]);
+});
+
+test("void terminals do not bypass the source-value budget", () => {
+  const result = inspect("toRawPointer<uint32>((void 0), uint32Layout);", { budget: 1 });
+  assert.equal(result.kind, "unproven");
+  if (result.kind !== "unproven") return;
+  assert.ok(result.issues.some(issue => /budget exceeded/u.test(issue.reason)));
+});
+
 test("pointer backing finds every branch, alias and rebinding origin without choosing target storage", () => {
   const result = inspect(`
     let value: uint32 = 1;
