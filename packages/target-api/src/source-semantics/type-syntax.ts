@@ -22,6 +22,18 @@ export function sourceTypeSyntaxIsCompositional(
   if (ast.is.IsTypeReferenceNode(node)) {
     return definedNodesAreCompositional(ast, ast.typeArguments(node));
   }
+  if (ast.is.IsFunctionTypeNode(node)) {
+    return ast.typeParameters(node).length === 0 &&
+      sourceTypeSyntaxIsCompositional(ast, ast.typeNode(node)) &&
+      ast.parameters(node).every(parameter => parameter !== undefined &&
+        sourceTypeSyntaxIsCompositional(ast, ast.typeNode(parameter)));
+  }
+  if (ast.is.IsTypeLiteralNode(node)) {
+    return ast.members(node).every(member => member !== undefined &&
+      ast.kindName(member) === "KindPropertySignature" &&
+      !ast.is.IsComputedPropertyName(ast.name(member)) &&
+      sourceTypeSyntaxIsCompositional(ast, ast.typeNode(member)));
+  }
   if (ast.is.IsArrayTypeNode(node)) {
     return sourceTypeSyntaxIsCompositional(
       ast,
