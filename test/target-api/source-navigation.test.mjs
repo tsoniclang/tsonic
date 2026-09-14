@@ -913,6 +913,40 @@ test("effective type arguments follow the instantiated generic target through a 
   assert.equal(semantics.types.isStringLike(arguments_?.[0]), true);
 });
 
+test("source generic bindings retain outer and local declaration identity", async () => {
+  const checked = await checkedSource("source-generic-enclosing-bindings", {
+    "src/index.ts": `
+export function make<T>(input: T) {
+  class Pair<U> {
+    left: T;
+    right: U;
+    constructor(left: T, right: U) { this.left = left; this.right = right; }
+  }
+  return new Pair<number>(input, 7);
+}
+const text = make("text");
+const numeric = make(8);
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(file);
+  const outer = source.ast.typeParameters(namedDeclaration(source.ast, file, "make"))[0];
+  const local = source.ast.typeParameters(namedDeclaration(source.ast, file, "Pair"))[0];
+  for (const [name, isText] of [["text", true], ["numeric", false]]) {
+    const declaration = namedVariable(source.ast, file, name);
+    const type = semantics.declarations.declaredValueType(declaration);
+    const bindings = semantics.types.typeArgumentBindings(type);
+    assert.deepEqual(bindings?.map(binding => binding.declaration), [outer, local]);
+    assert.deepEqual(bindings?.map(binding => binding.scope), ["outer", "local"]);
+    assert.equal(semantics.types.isStringLike(bindings[0].argumentType), isText);
+    assert.equal(semantics.types.isNumberLike(bindings[1].argumentType), true);
+    assert.deepEqual(semantics.types.effectiveTypeArguments(type), [bindings[1].argumentType]);
+    assert.equal(Object.isFrozen(bindings), true);
+    assert.equal(bindings.every(Object.isFrozen), true);
+  }
+});
+
 test("source type syntax distinguishes compositional forms from checker transforms", async () => {
   const checked = await checkedSource("source-type-syntax-composition", {
     "src/index.ts": [

@@ -68,6 +68,7 @@ export interface SourceFinalTypeQueries {
   declaredSymbolType(symbol: Symbol | undefined): Type | undefined;
   writeSymbolType(symbol: Symbol | undefined): Type | undefined;
   effectiveTypeArguments(type: Type): readonly Type[] | undefined;
+  typeArgumentBindings(type: Type): readonly import("./type-arguments.js").SourceTypeArgumentBinding[] | undefined;
   typeArguments(type: Type): readonly Type[];
   substitutionBaseType(type: Type): Type | undefined;
   typeReferenceTarget(type: Type): Type | undefined;

@@ -17,7 +17,8 @@ import { selectSourceContextualValueType } from "./contextual-type-selection.js"
 import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
 import { createSourceProgramDocuments } from "./source-documents.js";
 import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformation } from "./standard-type-transformations.js";
-import { getEffectiveSourceTypeArguments } from "./type-arguments.js";
+import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
+export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
@@ -168,6 +169,9 @@ export function createTargetSourceProgram(
       writeSymbolType: queries.checker.getWriteTypeOfSymbol,
       effectiveTypeArguments(type: Type) {
         return getEffectiveSourceTypeArguments(source.ast, queries, type);
+      },
+      typeArgumentBindings(type: Type) {
+        return getSourceTypeArgumentBindings(source.ast, queries, type);
       },
       typeArguments(type: Type) {
         return definedValues(queries.typeShape.getTypeArguments(type));
