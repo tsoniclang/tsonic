@@ -56,12 +56,24 @@ export function selectAuthoredSourceType(
   const selectedMembers = rawSelectedMembers.filter(
     (member): member is Type => member !== undefined,
   );
+  const authoredMemberTypes = new Map(authoredMembers.map((node) =>
+    [node, checker.getTypeFromTypeNode(node)] as const));
+  const retainedUnionMembers = new Map<Node, readonly Type[]>();
+  for (const [node, type] of authoredMemberTypes) {
+    if (type === undefined || !types.isUnion(type)) continue;
+    const members = types.getUnionOrIntersectionTypes(type);
+    if (members.length > 0 && members.every((member): member is Type =>
+      member !== undefined && selectedMembers.includes(member))) {
+      retainedUnionMembers.set(node, members);
+    }
+  }
   const selectedNodes: Node[] = [];
   const selectedNullishTypes: Type[] = [];
   for (const selectedMember of selectedMembers) {
     const candidates = authoredMembers.filter((authoredMember) => {
-      const authoredMemberType = checker.getTypeFromTypeNode(authoredMember);
-      return authoredMemberType !== undefined &&
+      const authoredMemberType = authoredMemberTypes.get(authoredMember);
+      return retainedUnionMembers.get(authoredMember)?.includes(selectedMember) === true ||
+        authoredMemberType !== undefined &&
         sourceTypeRelationship(
             types,
             checker,
