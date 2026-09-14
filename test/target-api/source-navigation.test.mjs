@@ -947,6 +947,38 @@ const numeric = make(8);
   }
 });
 
+test("source alias applications expose exact checker bindings through the public boundary", async () => {
+  const checked = await checkedSource("source-alias-applications", {
+    "src/types.ts": `
+export declare const storage: unique symbol;
+export interface Stored<S> { readonly [storage]: S; }
+export type Storage<T> = T extends Stored<infer S> ? S : T;
+`,
+    "src/index.ts": `
+import type { Stored } from "./types.js";
+export type Value = Stored<{ count: number }>;
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const definitionFile = projectSourceFile(source, "src/types.ts");
+  const semantics = source.semantics.forFile(file);
+  const valueDeclaration = namedDeclaration(source.ast, file, "Value");
+  const valueType = semantics.types.authoredType(source.ast.typeNode(valueDeclaration));
+  assert.ok(valueType);
+  const aliasDeclaration = namedDeclaration(source.ast, definitionFile, "Storage");
+  const application = semantics.types.instantiateAlias(aliasDeclaration, [valueType]);
+  assert.ok(application);
+  assert.equal(application.declaration, aliasDeclaration);
+  assert.equal(application.bindings[0].declaration, source.ast.typeParameters(aliasDeclaration)[0]);
+  assert.equal(application.bindings[0].argument, valueType);
+  assert.equal(Object.isFrozen(application), true);
+  const properties = semantics.types.propertyInfos(application.result);
+  assert.deepEqual(properties.map(property => property.name), ["count"]);
+  assert.equal(semantics.types.isNumberLike(properties[0].type), true);
+  assert.equal(semantics.types.instantiateAlias(aliasDeclaration, []), undefined);
+});
+
 test("source type syntax distinguishes compositional forms from checker transforms", async () => {
   const checked = await checkedSource("source-type-syntax-composition", {
     "src/index.ts": [

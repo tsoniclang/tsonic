@@ -173,6 +173,7 @@ export function createTargetSourceProgram(
       typeArgumentBindings(type: Type) {
         return getSourceTypeArgumentBindings(source.ast, queries, type);
       },
+      instantiateAlias: queries.typeShape.instantiateTypeAlias,
       typeArguments(type: Type) {
         return definedValues(queries.typeShape.getTypeArguments(type));
       },
