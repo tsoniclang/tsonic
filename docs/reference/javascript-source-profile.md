@@ -41,6 +41,25 @@ Targets must not infer `JsString` from literals, selected surface, member
 spelling, or API use. Native APIs such as file-system paths continue to accept
 ordinary `string` unless their declared contract says otherwise.
 
+## Error stacks
+
+```ts
+const error = new Error("Cannot load the file");
+const stack = error.stack;
+if (stack !== undefined) console.log(stack);
+```
+
+C# and Rust capture a native stack when the error is constructed, not when
+`stack` is first read. Formatting is deferred until the first read and subsequent
+reads retain that snapshot. An unthrown error can therefore have a stack.
+
+Frame names, filenames, and available debug information belong to the native
+toolchain. The text is not a V8 stack or a promised mapping to the authored
+TypeScript. Do not parse it as a portable source-location protocol. Capture has
+a runtime cost even if the stack is never read; it does not instrument ordinary
+function calls. Rust's `alloc`-only runtime reports `undefined` because it has no
+native stack service. Rust currently supports stack reads, not writes.
+
 ## Target references
 
 - [C# JavaScript surface](targets/csharp/javascript-surface.md)
