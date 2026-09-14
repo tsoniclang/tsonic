@@ -57,6 +57,7 @@ export const KindIdentifier = "KindIdentifier";
 export const KindIfStatement = "KindIfStatement";
 export const KindImplementsKeyword = "KindImplementsKeyword";
 export const KindImportDeclaration = "KindImportDeclaration";
+export const KindInKeyword = "KindInKeyword";
 export const KindIndexSignature = "KindIndexSignature";
 export const KindInterfaceDeclaration = "KindInterfaceDeclaration";
 export const KindLabeledStatement = "KindLabeledStatement";

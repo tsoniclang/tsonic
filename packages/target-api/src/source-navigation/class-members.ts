@@ -1,5 +1,10 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 
+export function sourceClassFieldIsTypeOnly(ast: AstReader, declaration: Node): boolean {
+  return ast.kindName(declaration) === "KindPropertyDeclaration" &&
+    ast.hasModifierKind(declaration, "ambient");
+}
+
 export function sourceParameterIsProperty(ast: AstReader, declaration: Node): boolean {
   if (ast.kindName(declaration) !== "KindParameter") return false;
   const constructor = ast.parent(declaration);

@@ -3,10 +3,43 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import {
   createTargetSourceProgram,
+  sourceClassFieldIsTypeOnly,
   sourceMemberOwner,
   sourceObjectMemberDeclarations,
   sourceParameterIsProperty,
 } from "../public/source.js";
+
+test("type-only field classification preserves original declarations without guessing from names or types", () => {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": `
+      declare const brand: unique symbol;
+      class Value {
+        declare private then?: never;
+        declare readonly [brand]: void;
+        declare static metadata: number;
+        ordinary?: never;
+        value: number = 3;
+        constructor(readonly count: number) {}
+      }
+    ` },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(file);
+  const declaration = source.ast.statements(file)[1];
+  assert.ok(declaration);
+  const original = source.ast.members(declaration);
+  const members = sourceObjectMemberDeclarations(source.ast, declaration);
+  assert.equal(members.length, original.length + 1);
+  members.forEach((member, index) => {
+    assert.ok(member);
+    assert.equal(sourceClassFieldIsTypeOnly(source.ast, member), index < 3);
+    if (index < original.length) assert.equal(member, original[index]);
+  });
+});
 
 test("parameter properties retain exact field declarations, owners and storage escape", () => {
   const checked = createCompilerSessionFromFiles({
