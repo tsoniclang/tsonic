@@ -1,4 +1,5 @@
 import type { GoPtr } from "../go/compat.js";
+import { type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
@@ -11,6 +12,11 @@ export interface TypeIndexInfo {
     readonly declaration: GoPtr<Node>;
     readonly symbol: GoPtr<Symbol>;
     readonly components: readonly GoPtr<Node>[];
+}
+export interface TypeReferenceArgumentInfo {
+    readonly parameter: Type;
+    readonly argument: Type;
+    readonly scope: "outer" | "local";
 }
 export interface TypePropertyInfo {
     readonly symbol: Symbol;
@@ -43,6 +49,7 @@ export interface CreateTypeShapeQueriesOptions {
 export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
+    readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly isAny: (type: GoPtr<Type>) => boolean;
@@ -65,6 +72,7 @@ export interface TypeShapeQueries {
     readonly getUnionOrIntersectionTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
+    readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
     readonly getSubstitutionBaseType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTupleElementTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTupleElementInfos: (type: GoPtr<Type>) => readonly TypeTupleElementInfo[];

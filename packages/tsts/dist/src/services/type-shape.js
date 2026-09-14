@@ -1,3 +1,4 @@
+import { resolveTypeAliasApplication } from "./type-applications.js";
 import { SymbolName } from "../internal/ast/symbol.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
 import { SymbolFlagsOptional } from "../internal/ast/symbolflags.js";
@@ -11,7 +12,7 @@ import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
 import { Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, Checker_GetRootSymbols, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsStringLike, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
+import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_AsInterfaceType, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
@@ -19,6 +20,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
     const queries = {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
+        instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
         getConstantValue: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetConstantValue(checker, node)),
         getNumericLiteralTypeValue: (type) => withCheckerForType(program, type, defaultOptions, () => {
             if (hasFlags(type, TypeFlagsNumberLiteral))
@@ -52,6 +54,37 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getUnionOrIntersectionTypes: (type) => Type_Types(type) ?? [],
         getTypeReferenceTarget: (type) => Type_Target(type),
         getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetTypeArguments(checker, type)) ?? [],
+        getTypeReferenceArgumentInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
+            if (type === undefined || checker === undefined || !hasFlags(type, TypeFlagsObject))
+                return undefined;
+            const target = Type_Target(type) ?? type;
+            if ((target.objectFlags & ObjectFlagsClassOrInterface) === 0)
+                return undefined;
+            const definition = Type_AsInterfaceType(target);
+            if (definition === undefined)
+                return undefined;
+            const parameters = InterfaceType_TypeParameters(definition);
+            if ((type.objectFlags & ObjectFlagsReference) === 0) {
+                return parameters.length === 0 && definition.outerTypeParameterCount === 0
+                    ? Object.freeze([])
+                    : undefined;
+            }
+            const arguments_ = Checker_GetTypeArguments(checker, type);
+            if (!Number.isSafeInteger(definition.outerTypeParameterCount) ||
+                definition.outerTypeParameterCount < 0 || definition.outerTypeParameterCount > parameters.length ||
+                arguments_.length < parameters.length ||
+                arguments_.length > parameters.length + (definition.thisType === undefined ? 0 : 1))
+                return undefined;
+            const result = [];
+            for (const [index, parameter] of parameters.entries()) {
+                const argument = arguments_[index];
+                if (parameter === undefined || argument === undefined)
+                    return undefined;
+                result.push(Object.freeze({ parameter, argument,
+                    scope: index < definition.outerTypeParameterCount ? "outer" : "local" }));
+            }
+            return Object.freeze(result);
+        }),
         getSubstitutionBaseType: (type) => hasFlags(type, TypeFlagsSubstitution)
             ? Type_AsSubstitutionType(type)?.baseType
             : undefined,

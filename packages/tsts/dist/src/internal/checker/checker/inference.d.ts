@@ -3,6 +3,7 @@ import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Symbol, SymbolTable } from "../../ast/symbol.js";
 import type { TypeMapper } from "../mapper.js";
+import type { ExtensionConditionalCapture } from "./conditional-evidence.js";
 import type { RecursionId } from "../relater.js";
 import type { Type, TypeAlias, TypeFlags } from "../types.js";
 import type { Checker, InferenceContext } from "./state.js";
@@ -586,6 +587,7 @@ export declare function Checker_clearActiveMapperCaches(receiver: GoPtr<Checker>
 export declare function Checker_getObjectTypeInstantiation(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getConditionalTypeInstantiation","kind":"method","status":"implemented","sigHash":"6b968bc364931de58a7e1860c88141bf9e4d160ea626bb1f4d4301dd21243de4","bodyHash":"90ad230272a3961872dd5ed1c18b8cd8769135b6e6ca4e6a717732c2a3650471"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The normal entry retains the native instantiation cache and absent capture. Explicit alias queries recompute through that same distribution worker to retain bounded conditional decisions and independently validate the cached result."}
  *
  * Go source:
  * func (c *Checker) getConditionalTypeInstantiation(t *Type, mapper *TypeMapper, forConstraint bool, alias *TypeAlias) *Type {
@@ -622,6 +624,7 @@ export declare function Checker_getObjectTypeInstantiation(receiver: GoPtr<Check
  * }
  */
 export declare function Checker_getConditionalTypeInstantiation(receiver: GoPtr<Checker>, t: GoPtr<Type>, mapper: GoPtr<TypeMapper>, forConstraint: bool, alias: GoPtr<TypeAlias>): GoPtr<Type>;
+export declare function Checker_getConditionalTypeInstantiationWithCapture(receiver: GoPtr<Checker>, t: GoPtr<Type>, mapper: GoPtr<TypeMapper>, forConstraint: bool, alias: GoPtr<TypeAlias>, capture: ExtensionConditionalCapture | undefined): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.hasArrayOrTypeTypeConstraint","kind":"method","status":"implemented","sigHash":"a2dc9bbd71713636ead52668b6cbbf291d1360ec62e00a709b310f4668fe8b40","bodyHash":"0f9c8757f2b139fd1e26fdbf96514de7a10450a91b140a748b0f2611a334238e"}
  *

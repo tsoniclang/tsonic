@@ -14,6 +14,7 @@ import { getDeclarationsOfKind, isNodeDescendantOf, IsTypeAny, NewDiagnosticForN
 import { Checker_symbolToString, Checker_TypeToString } from "../printer.js";
 import { All_declarations_of_0_must_have_identical_constraints, Type_parameter_0_has_a_circular_constraint, Circularity_originates_in_type_at_this_location, Property_0_of_type_1_is_not_assignable_to_2_index_type_3, X_0_is_declared_here, X_infer_declarations_are_only_permitted_in_the_extends_clause_of_a_conditional_type, Type_0_has_no_signatures_for_which_the_type_argument_list_is_applicable } from "../../diagnostics/generated/messages.js";
 import { Checker_combineTypeMappers, prependTypeMapping, newTypeMapper, TypeMapper_Map } from "../mapper.js";
+import { Checker_getConditionalTypeWithCapture } from "./types.js";
 import { Checker_isMemberOfStringMapping, Checker_isTypeMatchedByTemplateLiteralType, getRecursionIdentity } from "../relater.js";
 import { TypeFlagsTypeParameter, TypeFlagsIndexedAccess, TypeFlagsConditional, TypeFlagsSubstitution, TypeFlagsAnyOrUnknown, TypeFlagsUnknown, TypeFlagsAny, TypeFlagsPrimitive, TypeFlagsNever, TypeFlagsUnionOrIntersection, TypeFlagsUnion, TypeFlagsIntersection, TypeFlagsTemplateLiteral, TypeFlagsStringMapping, TypeFlagsIndex, TypeFlagsObject, TypeFlagsInstantiableNonPrimitive, TypeFlagsInstantiable, TypeFlagsNullable, TypeFlagsUndefined, TypeFlagsString, TypeFlagsStringLiteral, TypeFlagsStringOrNumberLiteralOrUnique, TypeFlagsObjectFlagsType, TypeAlias_TypeArguments, Type_AsConditionalType, Type_AsSubstitutionType, Type_AsTypeParameter, Type_AsUnionOrIntersectionType, Type_AsTemplateLiteralType, Type_AsIndexedAccessType, Type_AsMappedType, Type_AsIndexType, Type_AsTypeReference, Type_AsInstantiationExpressionType, StructuredType_CallSignatures, StructuredType_ConstructSignatures, Type_TargetTupleType, Type_AsConstrainedType, Type_AsObjectType, Type_Target, Type_Mapper, Type_Types, ObjectFlagsReference, ObjectFlagsInterface, ObjectFlagsMapped, ObjectFlagsAnonymous, ObjectFlagsInstantiated, ObjectFlagsInstantiationExpressionType, ObjectFlagsNone, ObjectFlagsSingleSignatureType, ObjectFlagsCouldContainTypeVariablesComputed, ObjectFlagsCouldContainTypeVariables, ElementFlagsVariadic, IndexFlagsNone, AccessFlagsNone, } from "../types.js";
 import { TypeSystemPropertyNameResolvedBaseConstraint, CachedTypeKindPermissiveInstantiation, CachedTypeKindRestrictiveInstantiation, IntrinsicTypeKindNoInfer, IntrinsicTypeKindUppercase, IntrinsicTypeKindLowercase, IntrinsicTypeKindCapitalize, IntrinsicTypeKindUncapitalize, intrinsicTypeKinds, getTypeInstantiationKey, getConditionalTypeKey, getTypeAliasInstantiationKey, getStringLiteralValue, everyType, someType, applyStringMapping, isUnaryTupleTypeNode, WideningKindNormal, } from "./state.js";
@@ -985,6 +986,7 @@ export function Checker_getObjectTypeInstantiation(receiver, t, m, alias) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getConditionalTypeInstantiation","kind":"method","status":"implemented","sigHash":"6b968bc364931de58a7e1860c88141bf9e4d160ea626bb1f4d4301dd21243de4","bodyHash":"90ad230272a3961872dd5ed1c18b8cd8769135b6e6ca4e6a717732c2a3650471"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The normal entry retains the native instantiation cache and absent capture. Explicit alias queries recompute through that same distribution worker to retain bounded conditional decisions and independently validate the cached result."}
  *
  * Go source:
  * func (c *Checker) getConditionalTypeInstantiation(t *Type, mapper *TypeMapper, forConstraint bool, alias *TypeAlias) *Type {
@@ -1021,12 +1023,15 @@ export function Checker_getObjectTypeInstantiation(receiver, t, m, alias) {
  * }
  */
 export function Checker_getConditionalTypeInstantiation(receiver, t, mapper, forConstraint, alias) {
+    return Checker_getConditionalTypeInstantiationWithCapture(receiver, t, mapper, forConstraint, alias, undefined);
+}
+export function Checker_getConditionalTypeInstantiationWithCapture(receiver, t, mapper, forConstraint, alias, capture) {
     const root = Type_AsConditionalType(t).root;
     if (root.outerTypeParameters.length !== 0) {
         const typeArguments = Map(root.outerTypeParameters, (tp) => TypeMapper_Map(mapper, tp));
         const key = getConditionalTypeKey(typeArguments, alias, forConstraint);
         let result = root.instantiations.get(key);
-        if (result === undefined) {
+        if (result === undefined || capture !== undefined) {
             const newMapper = newTypeMapper(root.outerTypeParameters, typeArguments);
             const checkType = root.checkType;
             let distributionType = undefined;
@@ -1035,13 +1040,18 @@ export function Checker_getConditionalTypeInstantiation(receiver, t, mapper, for
             }
             if (distributionType !== undefined && checkType !== distributionType && (distributionType.flags & (TypeFlagsUnion | TypeFlagsNever)) !== 0) {
                 result = Checker_mapTypeWithAlias(receiver, distributionType, (innerT) => {
-                    return Checker_getConditionalType(receiver, root, prependTypeMapping(checkType, innerT, newMapper), forConstraint, undefined);
+                    return capture === undefined
+                        ? Checker_getConditionalType(receiver, root, prependTypeMapping(checkType, innerT, newMapper), forConstraint, undefined)
+                        : Checker_getConditionalTypeWithCapture(receiver, root, prependTypeMapping(checkType, innerT, newMapper), forConstraint, undefined, capture);
                 }, alias);
             }
             else {
-                result = Checker_getConditionalType(receiver, root, newMapper, forConstraint, alias);
+                result = capture === undefined
+                    ? Checker_getConditionalType(receiver, root, newMapper, forConstraint, alias)
+                    : Checker_getConditionalTypeWithCapture(receiver, root, newMapper, forConstraint, alias, capture);
             }
-            root.instantiations.set(key, result);
+            if (capture === undefined)
+                root.instantiations.set(key, result);
         }
         return result;
     }

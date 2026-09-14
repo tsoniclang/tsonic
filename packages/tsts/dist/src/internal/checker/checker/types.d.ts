@@ -11,6 +11,7 @@ import type { Number } from "../../jsnum/jsnum.js";
 import type { PseudoBigInt } from "../../jsnum/pseudobigint.js";
 import type { ResolvedModule } from "../../module/types.js";
 import type { TypeMapper } from "../mapper.js";
+import type { ExtensionConditionalCapture } from "./conditional-evidence.js";
 import type { ConditionalRoot, ContextFlags, ElementFlags, IndexInfo, ObjectFlags, Signature, StructuredType, TupleElementInfo, Type, TypeAlias, TypeData, TypeFlags } from "../types.js";
 import type { orderedSet } from "../utilities.js";
 import type { Checker, CheckMode, InferenceContext, IntersectionFlags, IterationTypeKind, IterationTypes, IterationTypesResolver, IterationUse, keyBuilder, ObjectLiteralDiscriminator, PredicateSemantics, TupleNormalizer, TypeFacts, TypeSystemEntity, TypeSystemPropertyName, UnionReduction, WideningContext, WideningKind } from "./state.js";
@@ -5247,6 +5248,7 @@ export declare function Checker_getTypeFromMappedTypeNode(receiver: GoPtr<Checke
 export declare function Checker_getTypeFromConditionalTypeNode(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getConditionalType","kind":"method","status":"implemented","sigHash":"d50653c4663f396a2282f172098515c6e4820dfb760b0e6fd67b8aa329f4d70a","bodyHash":"0411b47fdc5ca799887f1017dc6d54a330d6db3b87576fe4bca6775f78ba2eda"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the same conditional branch worker with an absent capture. Explicit alias-application queries retain bounded branch and mapper provenance without a global observer or checker-state side table."}
  *
  * Go source:
  * func (c *Checker) getConditionalType(root *ConditionalRoot, mapper *TypeMapper, forConstraint bool, alias *TypeAlias) *Type {
@@ -5396,6 +5398,7 @@ export declare function Checker_getTypeFromConditionalTypeNode(receiver: GoPtr<C
  * }
  */
 export declare function Checker_getConditionalType(receiver: GoPtr<Checker>, root: GoPtr<ConditionalRoot>, mapper: GoPtr<TypeMapper>, forConstraint: bool, alias: GoPtr<TypeAlias>): GoPtr<Type>;
+export declare function Checker_getConditionalTypeWithCapture(receiver: GoPtr<Checker>, root: GoPtr<ConditionalRoot>, mapper: GoPtr<TypeMapper>, forConstraint: bool, alias: GoPtr<TypeAlias>, capture: ExtensionConditionalCapture | undefined): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isSimpleTupleType","kind":"method","status":"implemented","sigHash":"9cde4d41bce4e7dc7671b2ec95a591ac75e122f29f06718134a355b8100ede2a","bodyHash":"3c498dd37318939bcfce6c407ba545779751dd7b6a2bdada0ef05f4a827534b7"}
  *
