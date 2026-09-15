@@ -37,9 +37,9 @@ export function getEffectiveSourceTypeArguments(
   queries: SourceFileQueries,
   type: Type,
 ): readonly Type[] | undefined {
-  const bindings = getSourceTypeArgumentBindings(ast, queries, type);
+  const bindings = queries.typeShape.getTypeReferenceArgumentInfos(type);
   if (bindings !== undefined) {
-    return Object.freeze(bindings.filter(binding => binding.scope === "local").map(binding => binding.argumentType));
+    return Object.freeze(bindings.filter(binding => binding.scope === "local").map(binding => binding.argument));
   }
   if (!queries.typeShape.isTypeReference(type)) {
     return Object.freeze([]);

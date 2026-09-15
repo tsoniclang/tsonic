@@ -836,6 +836,34 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   );
 });
 
+test("effective type arguments retain merged interface parameter identities", async () => {
+  const checked = await checkedSource("effective-merged-type-arguments", {
+    "src/index.ts": `
+interface Merged<T> { readonly value: T; }
+interface Merged<T> { update(value: T): void; }
+export function text(value: Merged<string>): string { return value.value; }
+export function numeric(value: Merged<number>): number { return value.value; }
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(file);
+  for (const [typeKind, predicate] of [
+    ["KindStringKeyword", semantics.types.isStringLike],
+    ["KindNumberKeyword", semantics.types.isNumberLike],
+  ]) {
+    const node = requiredNode(source.ast, file, candidate =>
+      source.ast.is.IsTypeReferenceNode(candidate) &&
+      source.ast.kindName(source.ast.typeArguments(candidate)[0]) === typeKind);
+    const type = semantics.types.authoredType(node);
+    const arguments_ = semantics.types.effectiveTypeArguments(type);
+    assert.equal(arguments_?.length, 1);
+    assert.equal(predicate(arguments_[0]), true);
+    assert.equal(Object.isFrozen(arguments_), true);
+    assert.equal(arguments_[0], semantics.types.typeArguments(type)[0]);
+  }
+});
+
 test("effective type arguments ignore non-type declarations on shared symbols", async () => {
   const checked = await checkedSource("effective-type-arguments", {
     "src/index.ts": [
