@@ -8,12 +8,16 @@ function request(flags: string): void {
   setFlagsFromString(flags);
 }
 
+function attempted(count: number): boolean {
+  return attempts === count;
+}
+
 export function run(): boolean {
-  if (attempts !== 0) return false;
+  if (!attempted(0)) return false;
   let rejected = 0;
   try { request("--stack_size=1024"); } catch { rejected += 1; }
   try { request(""); } catch { rejected += 1; }
   try { aliasedFlags("--trace_gc"); } catch { rejected += 1; }
-  return attempts === 2 && rejected === 3;
+  return attempted(2) && rejected === 3;
 }
 `;

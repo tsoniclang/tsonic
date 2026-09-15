@@ -25,12 +25,16 @@ function request(): number {
   return sum(result);
 }
 
+function observed(expectedAttempts: number, expectedContinued: number): boolean {
+  return attempts === expectedAttempts && continued === expectedContinued;
+}
+
 export function run(): boolean {
-  if (attempts !== 0 || continued !== 0) return false;
+  if (!observed(0, 0)) return false;
   let rejected = 0;
   try { request(); } catch { rejected += 1; }
   try { request(); } catch { rejected += 1; }
   try { aliasedHeap(); continued += 1; } catch { rejected += 1; }
-  return attempts === 2 && continued === 0 && rejected === 3;
+  return observed(2, 0) && rejected === 3;
 }
 `;
