@@ -177,6 +177,24 @@ policy.
   language's documented coupling for the selected version, or reject an
   unrepresentable combination precisely.
 
+### Native Performance From Exact Metadata
+
+- TypeScript/JavaScript bootstrap implementation limits must not become limits
+  on Rust or C# code generation. Preserve the program's meaning, not inefficient
+  implementation choices forced by the bootstrap platform.
+- GoToTS retains lossless semantic metadata and annotations so native targets
+  can use them. Inspect and consume the exact available evidence when choosing
+  native representations, ownership, storage, integer operations and calls.
+- Prefer efficient native operations whenever the evidence proves them correct.
+  For example, a proven fixed-width integer may use native integer arithmetic;
+  arbitrary-precision `bigint` still requires arbitrary precision. Do not erase
+  width, signedness, aliasing, layout or lifetime guarantees for speed.
+- Shared layers retain target-neutral evidence; each target owns its native
+  optimization. No target semantics in shared code, spelling heuristics,
+  speculative coercions, compatibility paths or extra user annotations when
+  the existing evidence already suffices. Record necessity and verify semantic
+  equivalence and performance before claiming an optimization certified.
+
 ### TypeScript Source Discipline
 
 - Product TypeScript is a type-annotation layer over standard modern
