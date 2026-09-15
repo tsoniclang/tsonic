@@ -991,10 +991,12 @@ export type Value = Stored<{ count: number }>;
   const file = projectSourceFile(source, "src/index.ts");
   const definitionFile = projectSourceFile(source, "src/types.ts");
   const semantics = source.semantics.forFile(file);
-  const valueDeclaration = namedDeclaration(source.ast, file, "Value");
+  const valueDeclaration = requiredNode(source.ast, file, node =>
+    source.ast.is.IsTypeAliasDeclaration(node) && source.ast.text(source.ast.name(node)) === "Value");
   const valueType = semantics.types.authoredType(source.ast.typeNode(valueDeclaration));
   assert.ok(valueType);
-  const aliasDeclaration = namedDeclaration(source.ast, definitionFile, "Storage");
+  const aliasDeclaration = requiredNode(source.ast, definitionFile, node =>
+    source.ast.is.IsTypeAliasDeclaration(node) && source.ast.text(source.ast.name(node)) === "Storage");
   const application = semantics.types.instantiateAlias(aliasDeclaration, [valueType]);
   assert.ok(application);
   assert.equal(application.declaration, aliasDeclaration);
