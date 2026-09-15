@@ -29,3 +29,12 @@ export function run(): boolean {
 }
 `,
 });
+
+export const closedGenericDispatchPackageFiles = Object.freeze({
+  "node_modules/@acme/dispatch/package.json": JSON.stringify({
+    name: "@acme/dispatch", version: "1.0.0", type: "module",
+    exports: { ".": "./index.ts" },
+  }),
+  "node_modules/@acme/dispatch/index.ts": closedGenericDispatchProofFiles["dispatch.ts"],
+  "index.ts": closedGenericDispatchProofFiles["index.ts"].replace('"./dispatch.js"', '"@acme/dispatch"'),
+});
