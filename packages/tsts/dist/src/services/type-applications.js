@@ -11,7 +11,8 @@ import { Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo } from "../intern
 import { createExtensionConditionalCapture } from "../internal/checker/checker/conditional-evidence.js";
 import { Checker_getConditionalTypeInstantiationWithCapture } from "../internal/checker/checker/inference.js";
 import { Type_AsConditionalType, TypeFlagsConditional, TypeFlagsTypeParameter } from "../internal/checker/types.js";
-export function resolveTypeAliasApplication(checker, declaration, arguments_) {
+import { getExtensionHost } from "../extensions/host.js";
+export function resolveTypeAliasApplication(queryChecker, declaration, arguments_) {
     if (declaration === undefined || !IsTypeAliasDeclaration(declaration) || !Array.isArray(arguments_))
         return undefined;
     const parameters = Node_TypeParameters(declaration) ?? [];
@@ -26,7 +27,16 @@ export function resolveTypeAliasApplication(checker, declaration, arguments_) {
             return undefined;
     }
     const sourceFile = GetSourceFileOfNode(declaration);
-    if (checker === undefined || sourceFile === undefined || !checker.fileIndexMap.has(sourceFile) ||
+    if (queryChecker === undefined || sourceFile === undefined || !queryChecker.fileIndexMap.has(sourceFile))
+        return undefined;
+    const argumentChecker = arguments_[0]?.checker;
+    if (argumentChecker !== undefined && argumentChecker !== queryChecker) {
+        const owner = getExtensionHost(queryChecker.program);
+        if (owner === undefined || getExtensionHost(argumentChecker.program) !== owner)
+            return undefined;
+    }
+    const checker = argumentChecker ?? queryChecker;
+    if (!checker.fileIndexMap.has(sourceFile) ||
         arguments_.some(argument => argument.checker !== checker || argument === checker.errorType))
         return undefined;
     const typeNode = Node_Type(declaration);
