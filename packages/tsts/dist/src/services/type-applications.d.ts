@@ -26,5 +26,6 @@ export interface TypeAliasApplicationInfo {
     readonly result: Type;
     readonly conditionalSteps: readonly TypeAliasConditionalStep[];
 }
+export declare function readTypeAliasApplication(queryChecker: GoPtr<Checker>, type: GoPtr<Type>): TypeAliasApplicationInfo | undefined;
 export declare function resolveTypeAliasApplication(queryChecker: GoPtr<Checker>, declaration: GoPtr<Node>, arguments_: readonly Type[]): TypeAliasApplicationInfo | undefined;
 //# sourceMappingURL=type-applications.d.ts.map

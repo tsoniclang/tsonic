@@ -12,6 +12,27 @@ import { createExtensionConditionalCapture } from "../internal/checker/checker/c
 import { Checker_getConditionalTypeInstantiationWithCapture } from "../internal/checker/checker/inference.js";
 import { Type_AsConditionalType, TypeFlagsConditional, TypeFlagsTypeParameter } from "../internal/checker/types.js";
 import { getExtensionHost } from "../extensions/host.js";
+export function readTypeAliasApplication(queryChecker, type) {
+    if (queryChecker === undefined || type?.checker === undefined || type.alias === undefined)
+        return undefined;
+    const checker = type.checker;
+    if (checker !== queryChecker) {
+        const owner = getExtensionHost(queryChecker.program);
+        if (owner === undefined || getExtensionHost(checker.program) !== owner)
+            return undefined;
+    }
+    const declarations = type.alias.symbol?.Declarations;
+    const declaration = declarations?.[0];
+    if (declarations?.length !== 1 || declaration === undefined || !IsTypeAliasDeclaration(declaration))
+        return undefined;
+    const arguments_ = type.alias.typeArguments ?? [];
+    if (arguments_.some(argument => argument === undefined))
+        return undefined;
+    const application = resolveTypeAliasApplication(checker, declaration, arguments_);
+    if (application === undefined || !Checker_isTypeIdenticalTo(checker, application.result, type))
+        return undefined;
+    return Object.freeze({ ...application, result: type });
+}
 export function resolveTypeAliasApplication(queryChecker, declaration, arguments_) {
     if (declaration === undefined || !IsTypeAliasDeclaration(declaration) || !Array.isArray(arguments_))
         return undefined;

@@ -50,6 +50,7 @@ export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
+    readonly getTypeAliasApplication: (type: GoPtr<Type>) => TypeAliasApplicationInfo | undefined;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly isAny: (type: GoPtr<Type>) => boolean;

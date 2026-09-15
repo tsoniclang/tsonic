@@ -1,4 +1,4 @@
-import { resolveTypeAliasApplication } from "./type-applications.js";
+import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
 import { SymbolName } from "../internal/ast/symbol.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
 import { SymbolFlagsOptional } from "../internal/ast/symbolflags.js";
@@ -21,6 +21,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
+        getTypeAliasApplication: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeAliasApplication(checker, type)),
         getConstantValue: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetConstantValue(checker, node)),
         getNumericLiteralTypeValue: (type) => withCheckerForType(program, type, defaultOptions, () => {
             if (hasFlags(type, TypeFlagsNumberLiteral))
