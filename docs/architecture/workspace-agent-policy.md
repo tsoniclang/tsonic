@@ -137,7 +137,8 @@ policy.
 
 - Every project is greenfield. Legacy paths, dual paths, and backward
   compatibility are absolutely prohibited.
-- Never land bridge architecture, temporary product paths, dual readers,
+- Never design, implement, or land legacy support, bridge architecture,
+  temporary product paths, dual readers,
   old-or-new schema handling, compatibility aliases, legacy fallback, or
   “clean it later” code.
 - When a canonical shape changes, break stale assumptions and repair every
