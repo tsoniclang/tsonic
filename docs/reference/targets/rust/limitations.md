@@ -169,6 +169,25 @@ This affects APIs requiring a project type to implement `Display`, `Iterator`,
 the explicitly supported direct JavaScript `Error` model; transitive external
 heritage is not general Rust inheritance.
 
+Builtin errors can be narrowed after `catch` without creating another Error:
+
+```ts
+function sameError(): boolean {
+  const original = new Error("failed");
+  try { throw original; }
+  catch (failure) {
+    if (failure instanceof Error) return failure === original;
+  }
+  return false;
+}
+```
+
+The native transport retains identity and the construction-time stack. Ordinary
+thrown project objects do not become builtin errors. A closed error domain that
+contains a project subclass with mutable inherited Error fields still rejects
+this builtin projection: those fields do not yet share the native Error object.
+The target does not reconstruct one from its current name and message.
+
 Ordinary project objects and closures use single-threaded ownership. Tsonic
 does not silently replace them with `Arc`, a lock, or a sendable closure to
 satisfy a threaded API. Node workers use their separate structured-clone
