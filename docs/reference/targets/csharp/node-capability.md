@@ -39,5 +39,18 @@ export function requestEngineFlags(flags: string): void {
 }
 ```
 
-`getHeapStatistics` is not supplied: native memory measurements are not V8 heap
-statistics. This boundary does not provide a general V8 implementation.
+`getHeapStatistics()` also imports and type-checks, but always throws when
+called. Its `HeapInfo` result contract lets optional diagnostic code compile;
+the native runtime never returns invented V8 measurements.
+
+```ts
+import { getHeapStatistics } from "node:v8";
+
+export function reportHeapLimit(): number {
+  return getHeapStatistics().heap_size_limit;
+}
+```
+
+Importing this function is safe; calling it throws. A program that needs heap
+statistics on its normal execution path needs a native implementation of that
+requirement. This boundary does not provide one, or a general V8 implementation.
