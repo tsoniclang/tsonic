@@ -54,4 +54,5 @@ using different target facts and algorithms inside them.
 - [Target-pack contract](target-pack-contract.md)
 - [Provider and runtime ownership](provider-and-runtime-ownership.md)
 - [Memory type contracts](memory-type-contracts.md)
+- [Indexed type correspondence](indexed-type-correspondence.md)
 - [Workspace agent policy](workspace-agent-policy.md)

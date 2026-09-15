@@ -190,6 +190,8 @@ export function createTargetSourceProgram(
       propertyInfos: queries.typeShape.getPropertyInfos,
       structuralMembers: createSourceStructuralMemberQuery(source.ast, queries.checker, queries.typeShape),
       indexInfos: queries.typeShape.getIndexInfos,
+      indexedAccessComponents: queries.typeShape.getIndexedAccessComponents,
+      selectIndexedAccess: queries.typeShape.selectIndexedAccess,
       callSignatures(type: Type) {
         return definedValues(queries.typeShape.getCallSignatures(type));
       },

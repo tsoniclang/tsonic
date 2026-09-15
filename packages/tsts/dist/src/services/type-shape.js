@@ -1,17 +1,16 @@
-import { typeIndexComponents } from "./type-index-components.js";
+import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
+import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
 import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
-import { SymbolName } from "../internal/ast/symbol.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
-import { SymbolFlagsOptional } from "../internal/ast/symbolflags.js";
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Background } from "../go/context.js";
-import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
-import { Checker_getTypeOfSymbol, Checker_isReadonlySymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
+import { Checker_getTypeOfSymbol, } from "../internal/checker/checker/symbols.js";
 import { Checker_isOptionalParameter } from "../internal/checker/utilities.js";
 import { getBigIntLiteralValue, getNumberLiteralValue, signatureHasRestParameter, } from "../internal/checker/checker/state.js";
 import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
 import { Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
-import { Checker_GetConstantValue, Checker_GetRootSymbols, } from "../internal/checker/services.js";
+import { Checker_GetConstantValue, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_AsInterfaceType, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
@@ -23,6 +22,8 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
         getTypeAliasApplication: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeAliasApplication(checker, type)),
+        getIndexedAccessComponents: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeIndexedAccessComponents(checker, type)),
+        selectIndexedAccess: (objectType, indexType) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => selectTypeIndexedAccess(checker, objectType, indexType)),
         getConstantValue: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetConstantValue(checker, node)),
         getNumericLiteralTypeValue: (type) => withCheckerForType(program, type, defaultOptions, () => {
             if (hasFlags(type, TypeFlagsNumberLiteral))
@@ -103,14 +104,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getSignatureParameterInfos: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureParameterInfos(checker, signature)) ?? [],
         getSignatureThisParameterInfo: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureThisParameterInfo(checker, signature)),
         getReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
-        getIndexInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => (Checker_GetIndexInfosOfType(checker, type) ?? []).map((info) => ({
-            keyType: info?.keyType,
-            valueType: info?.valueType,
-            readonly: info?.isReadonly === true,
-            declaration: info?.declaration,
-            symbol: info?.indexSymbol,
-            components: typeIndexComponents(checker, type, info),
-        }))) ?? [],
+        getIndexInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => (Checker_GetIndexInfosOfType(checker, type) ?? []).map((info) => readTypeIndexInfo(checker, type, info))) ?? [],
         getApparentType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetApparentType(checker, type)),
         getWidenedType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetWidenedType(checker, type)),
         removeMissingOrUndefined: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_RemoveMissingOrUndefinedType(checker, type)),
@@ -125,24 +119,7 @@ function getTypePropertyInfos(checker, type) {
         throw new Error("The source type has no owning checker for property analysis.");
     }
     const properties = Checker_GetPropertiesOfType(checker, type) ?? [];
-    return properties.map((symbol) => {
-        if (symbol === undefined) {
-            throw new Error("The checker returned an absent property symbol for a source type.");
-        }
-        const name = SymbolName(symbol);
-        const propertyType = Checker_GetTypeOfPropertyOfType(checker, type, symbol.Name);
-        if (propertyType === undefined) {
-            throw new Error(`The checker returned property '${name}' without its effective source type.`);
-        }
-        return {
-            symbol,
-            rootSymbols: Object.freeze(Checker_GetRootSymbols(checker, symbol).filter((root) => root !== undefined)),
-            name,
-            type: propertyType,
-            optional: (symbol.Flags & SymbolFlagsOptional) !== 0,
-            readonly: Checker_isReadonlySymbol(checker, symbol) === true,
-        };
-    });
+    return properties.map((symbol) => readTypePropertyInfo(checker, type, symbol));
 }
 function getTypeTupleElementInfos(checker, type) {
     if (checker === undefined || type === undefined || !isTupleType(type)) {

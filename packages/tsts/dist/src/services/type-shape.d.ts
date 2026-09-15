@@ -1,4 +1,5 @@
 import type { GoPtr } from "../go/compat.js";
+import type { TypeIndexedAccessComponents, TypeIndexedAccessSelection } from "./type-indexed-access.js";
 import { type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
@@ -84,6 +85,8 @@ export interface TypeShapeQueries {
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
     readonly getIndexInfos: (type: GoPtr<Type>) => readonly TypeIndexInfo[];
+    readonly getIndexedAccessComponents: (type: GoPtr<Type>) => TypeIndexedAccessComponents | undefined;
+    readonly selectIndexedAccess: (objectType: GoPtr<Type>, indexType: GoPtr<Type>) => TypeIndexedAccessSelection | undefined;
     readonly getApparentType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getWidenedType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly removeMissingOrUndefined: (type: GoPtr<Type>) => GoPtr<Type>;
