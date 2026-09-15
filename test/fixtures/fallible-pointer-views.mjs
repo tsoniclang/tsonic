@@ -1,3 +1,5 @@
+import { sourcePackageGraphFixture } from "./source-package-graph.mjs";
+
 export const falliblePointerFiles = Object.freeze({
   "storage.ts": `
 import { bindPointer, viewPointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
@@ -73,4 +75,8 @@ export const falliblePointerPackageFiles = Object.freeze({
   "node_modules/@acme/storage/package.json": JSON.stringify({ name: "@acme/storage", version: "1.0.0", type: "module", exports: { ".": "./index.ts" } }),
   "node_modules/@acme/storage/index.ts": falliblePointerFiles["storage.ts"],
   "index.ts": falliblePointerFiles["index.ts"].replace('"./storage.js"', '"@acme/storage"'),
+});
+
+export const falliblePointerPackageGraph = sourcePackageGraphFixture(["index.ts"], {
+  "@acme/storage": { files: ["index.ts"], dependencies: [] },
 });

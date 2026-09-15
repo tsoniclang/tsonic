@@ -1,3 +1,5 @@
+import { sourcePackageGraphFixture } from "./source-package-graph.mjs";
+
 function packageFile(name) {
   return JSON.stringify({ name, version: "1.0.0", type: "module", exports: { ".": "./index.ts" } });
 }
@@ -37,4 +39,9 @@ export function run(): boolean {
   return caught === 2;
 }
 `,
+});
+
+export const sourcePackageCallbackErrorGraph = sourcePackageGraphFixture(["index.ts"], {
+  "@acme/failures": { files: ["index.ts"], dependencies: [] },
+  "@acme/forward": { files: ["index.ts"], dependencies: ["@acme/failures"] },
 });

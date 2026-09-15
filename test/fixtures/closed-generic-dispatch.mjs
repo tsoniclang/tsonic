@@ -1,3 +1,5 @@
+import { sourcePackageGraphFixture } from "./source-package-graph.mjs";
+
 export const closedGenericDispatchProofFiles = Object.freeze({
   "dispatch.ts": `
 export class Base {
@@ -37,4 +39,8 @@ export const closedGenericDispatchPackageFiles = Object.freeze({
   }),
   "node_modules/@acme/dispatch/index.ts": closedGenericDispatchProofFiles["dispatch.ts"],
   "index.ts": closedGenericDispatchProofFiles["index.ts"].replace('"./dispatch.js"', '"@acme/dispatch"'),
+});
+
+export const closedGenericDispatchPackageGraph = sourcePackageGraphFixture(["index.ts"], {
+  "@acme/dispatch": { files: ["index.ts"], dependencies: [] },
 });
