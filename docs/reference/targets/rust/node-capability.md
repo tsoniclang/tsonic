@@ -24,3 +24,22 @@ operations reject at provider selection and are never forwarded to a Node
 process.
 
 See the detailed [support inventory](support-inventory.md).
+
+## Engine-specific controls
+
+The native program does not contain V8. The named
+`node:v8.setFlagsFromString(flags)` import is available so an optional engine
+control need not prevent compilation. Calling it always throws an explicit
+unsupported-operation error, including for an empty flag string. Importing it
+does not change process state. It does not adjust native thread stacks.
+
+```ts
+import { setFlagsFromString } from "node:v8";
+
+export function requestEngineFlags(flags: string): void {
+  setFlagsFromString(flags);
+}
+```
+
+`getHeapStatistics` is not supplied: native memory measurements are not V8 heap
+statistics. This boundary does not provide a general V8 implementation.
