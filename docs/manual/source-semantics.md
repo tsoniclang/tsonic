@@ -165,3 +165,27 @@ library code should prefer `@tsonic/core` unless it intentionally exposes a
 target-native contract.
 
 The exhaustive catalog is in [neutral types and markers](../reference/source-core.md).
+
+## Alias evidence for target authors
+
+An inferred type can retain an alias application even when there is no type
+argument written at the use site:
+
+```ts
+type Stored<T> = T extends { storage: infer Value } ? Value : T;
+function read<T>(value: { current: Stored<T> }): Stored<T> {
+  return value.current;
+}
+```
+
+The shared `source.semantics.forNode(node).types.aliasApplication(type)` query
+returns the checker's retained alias declaration, parameter-to-argument bindings,
+result and conditional selections. Its immutable result uses the same contract
+as `types.instantiateAlias(declaration, arguments)`. Ordinary
+`types.typeArguments(type)` describes class/interface type references; it does
+not describe a conditional alias's arguments.
+
+The query returns no application when the checker has erased that provenance.
+Targets must not infer an alias from a result's name or shape. Types from a
+different checked program are not accepted. Each target still owns its native
+representation and its limits; this query adds no runtime object or marker.

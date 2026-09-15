@@ -1009,6 +1009,38 @@ export type Value = Stored<{ count: number }>;
   assert.equal(semantics.types.instantiateAlias(aliasDeclaration, []), undefined);
 });
 
+test("inferred alias applications retain cross-file identities through the public source boundary", async () => {
+  const checked = await checkedSource("inferred-alias-applications", {
+    "src/storage.ts": `
+export declare const key: unique symbol;
+export interface Stored<S> { readonly [key]: S; }
+export type Storage<T> = T extends Stored<infer S> ? S : T;
+`,
+    "src/index.ts": `
+import type { Storage as Selected } from "./storage.js";
+export function read<T>(value: Selected<T>): Selected<T> { return value; }
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const definitions = projectSourceFile(source, "src/storage.ts");
+  const declaration = namedDeclaration(source.ast, file, "read");
+  const parameter = source.ast.parameters(declaration)[0];
+  const semantics = source.semantics.forFile(file);
+  const type = semantics.declarations.declaredValueType(parameter);
+  const selected = semantics.types.aliasApplication(type);
+  assert.ok(selected);
+  assert.equal(selected.declaration, namedDeclaration(source.ast, definitions, "Storage"));
+  assert.equal(selected.result, type);
+  assert.equal(selected.conditionalSteps[0].branch, "deferred");
+  const argument = semantics.declarations.declaredType(source.ast.typeParameters(declaration)[0]);
+  assert.equal(selected.bindings[0].argument, argument);
+  assert.equal(Object.isFrozen(selected), true);
+  assert.equal(Object.isFrozen(selected.bindings), true);
+  assert.equal(selected.bindings.every(Object.isFrozen), true);
+  assert.equal(source.semantics.forFile(definitions).types.aliasApplication(type).result, type);
+});
+
 test("source type syntax distinguishes compositional forms from checker transforms", async () => {
   const checked = await checkedSource("source-type-syntax-composition", {
     "src/index.ts": [
