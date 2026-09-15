@@ -94,6 +94,7 @@ export const KindPropertyAssignment = "KindPropertyAssignment";
 export const KindPropertyDeclaration = "KindPropertyDeclaration";
 export const KindPropertySignature = "KindPropertySignature";
 export const KindQuestionQuestionToken = "KindQuestionQuestionToken";
+export const KindQuestionQuestionEqualsToken = "KindQuestionQuestionEqualsToken";
 export const KindRegularExpressionLiteral = "KindRegularExpressionLiteral";
 export const KindReturnStatement = "KindReturnStatement";
 export const KindSatisfiesExpression = "KindSatisfiesExpression";
