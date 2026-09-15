@@ -1,4 +1,4 @@
-import { AccessFlagsNone, AccessFlagsWriting, TypeFlagsIndexedAccess, TypeFlagsUnion, Type_AsIndexedAccessType, Type_Types, } from "../internal/checker/types.js";
+import { AccessFlagsNone, AccessFlagsWriting, TypeFlagsIndexedAccess, TypeFlagsNever, TypeFlagsUnion, Type_AsIndexedAccessType, Type_Types, } from "../internal/checker/types.js";
 import { Checker_getIndexedAccessTypeOrUndefined, Checker_getPropertyOfType, } from "../internal/checker/checker/symbols.js";
 import { Checker_getReducedApparentType } from "../internal/checker/checker/types.js";
 import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
@@ -26,6 +26,10 @@ export function selectTypeIndexedAccess(query, objectType, indexType) {
         return undefined;
     if ((readType.flags & TypeFlagsIndexedAccess) !== 0 || (writeType.flags & TypeFlagsIndexedAccess) !== 0) {
         return Object.freeze({ kind: "deferred", objectType, indexType, readType, writeType });
+    }
+    if ((indexType.flags & TypeFlagsNever) !== 0 && (readType.flags & TypeFlagsNever) !== 0 &&
+        (writeType.flags & TypeFlagsNever) !== 0) {
+        return Object.freeze({ kind: "resolved", objectType, indexType, readType, writeType, members: Object.freeze([]) });
     }
     const keys = (indexType.flags & TypeFlagsUnion) === 0 ? [indexType] : Type_Types(indexType);
     const apparent = Checker_getReducedApparentType(checker, objectType);

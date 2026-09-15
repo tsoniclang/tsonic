@@ -1,5 +1,9 @@
 # Indexed type correspondence
 
+A resolved query has no member rows only when the checker selects `never` for
+an empty (`never`) key domain. This is distinct from a missing key, which is
+rejected, and a deferred generic selection, whose members are not yet known.
+
 An indexed TypeScript type can select different native value types:
 
 ```ts
