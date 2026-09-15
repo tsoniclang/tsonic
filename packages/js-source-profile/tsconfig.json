@@ -11,6 +11,7 @@
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"],
   "references": [
+    { "path": "../target-api" },
     { "path": "../source-core" }
   ]
 }
