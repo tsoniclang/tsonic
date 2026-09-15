@@ -1,3 +1,4 @@
+import { typeIndexComponents } from "./type-index-components.js";
 import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
 import { SymbolName } from "../internal/ast/symbol.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
@@ -108,7 +109,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
             readonly: info?.isReadonly === true,
             declaration: info?.declaration,
             symbol: info?.indexSymbol,
-            components: info?.components ?? [],
+            components: typeIndexComponents(checker, type, info),
         }))) ?? [],
         getApparentType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetApparentType(checker, type)),
         getWidenedType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetWidenedType(checker, type)),
