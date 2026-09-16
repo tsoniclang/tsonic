@@ -9,6 +9,7 @@ const targetApiSourceRoot = resolve(repoRoot, "packages/target-api/src");
 
 const expectedCastCounts = Object.freeze({
   "packages/target-api/src/module-reference.ts": 3,
+  "packages/target-api/src/source-navigation/array-density.ts": 3,
   "packages/target-api/src/source-navigation/ast.ts": 81,
   "packages/target-api/src/source-navigation/checked-casts.ts": 76,
   "packages/target-api/src/source-navigation/constructors.ts": 1,

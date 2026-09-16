@@ -123,7 +123,7 @@ export function createSourceArrayDensityQuery(
     if (target?.kind !== "resolved" || ast.kindName(target.implementation.declaration) !== "KindFunctionDeclaration") return undefined;
     const declaration = target.implementation.declaration;
     if (!trackedCallable(declaration)) return undefined;
-    return ast.parameters(declaration).some(parameter => parameter === undefined || ast.kindName(parameter) !== "KindParameter" ||
+    return ast.parameters(declaration).some(parameter => parameter === undefined || !ast.is.IsParameterDeclaration(parameter) ||
       ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined)
       ? undefined : declaration;
   };
@@ -192,7 +192,7 @@ export function createSourceArrayDensityQuery(
             const callback = ast.arguments(call)[0];
             if (callback === undefined || ast.kindName(callback) !== "KindArrowFunction") return false;
             const parameters = ast.parameters(callback);
-            if (parameters.some(parameter => parameter === undefined || ast.kindName(parameter) !== "KindParameter" ||
+            if (parameters.some(parameter => parameter === undefined || !ast.is.IsParameterDeclaration(parameter) ||
               ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined)) return false;
             const receiver = parameters[receiverIndex];
             if (receiver !== undefined) {
@@ -209,7 +209,7 @@ export function createSourceArrayDensityQuery(
           const assignment = ast.parent(parent);
           const index = access === undefined ? undefined : semanticsFor(parent).types.numericLiteralValue(access.argument.type);
           const length = literalLength(subject);
-          if (assignment === undefined || ast.kindName(assignment) !== "KindBinaryExpression" ||
+          if (assignment === undefined || !ast.is.IsBinaryExpression(assignment) ||
             ast.as.AsBinaryExpression(assignment)?.Left !== parent || ast.operatorKindName(assignment) !== "KindEqualsToken" ||
             typeof index !== "number" || !Number.isSafeInteger(index) || index < 0 || length === undefined || index >= length) return false;
           indexedWrites = true;

@@ -165,8 +165,8 @@ test("CLI emits object-shape runtime-union declarations and member projections f
   assert.equal((generatedShapes.match(/public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g) ?? []).length, 2);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}, [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}> shape/);
   assert.match(generatedSource, /if \(shape\.Match\(__tsonic_union_arm1 => __tsonic_union_arm1\.kind, __tsonic_union_arm2 => __tsonic_union_arm2\.kind\) == "circle"\)/);
-  assert.match(generatedSource, /return \$"circle:\{shape\.As2\(\)\.radius\}";/);
-  assert.match(generatedSource, /return \$"square:\{shape\.As1\(\)\.size\}";/);
+  assert.match(generatedSource, /return \$"circle:\{shape\.As1\(\)\.radius\}";/);
+  assert.match(generatedSource, /return \$"square:\{shape\.As2\(\)\.size\}";/);
   assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double radius\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double size\s*\{\s*get;\s*set;\s*\}/);
