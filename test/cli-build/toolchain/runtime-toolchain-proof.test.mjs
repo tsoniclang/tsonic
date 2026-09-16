@@ -2,18 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, testRepositoryRoots, writeProject } from "../helpers/harness.mjs";
 
-const bannedGeneratedRuntimeSemantics = [
-  /\bdynamic\b/u,
-  /\bSystem\.Reflection\b/u,
-  /\bGetProperty\b/u,
-  /\bGetProperties\b/u,
-  /\bGetMethod\b/u,
-  /\bGetMethods\b/u,
-  /\bMethodInfo\.Invoke\b/u,
-  /\bMakeGenericMethod\b/u,
-  /\bActivator\.CreateInstance\b/u,
-  /\bAssembly\.Load\b/u,
-];
+import { assertCsharpSourceClosure } from "../helpers/csharp-source-guard.mjs";
 
 test("C# runtime packages do not contain reflection or dynamic language semantics", async () => {
   const runtimeSourceDirectories = [
@@ -24,13 +13,7 @@ test("C# runtime packages do not contain reflection or dynamic language semantic
   const files = (await Promise.all(runtimeSourceDirectories.map((directory) =>
     collectFiles(directory, (fileName) => fileName.endsWith(".cs"))
   ))).flat();
-  assert.notEqual(files.length, 0);
-  for (const file of files) {
-    const text = await readFile(file, "utf8");
-    for (const pattern of bannedGeneratedRuntimeSemantics) {
-      assert.doesNotMatch(text, pattern, `${file} contains banned runtime semantic mechanism ${pattern}`);
-    }
-  }
+  assertCsharpSourceClosure(files);
 });
 
 test("CLI emits configured C# library projects with closed base runtime references", async () => {
@@ -361,13 +344,7 @@ function currentDotnetRuntimeIdentifier() {
 
 async function assertGeneratedOutputHasNoReflectionSemantics(projectDirectory) {
   const files = await collectGeneratedFiles(resolve(projectDirectory, "out/csharp"));
-  assert.notEqual(files.length, 0);
-  for (const file of files) {
-    const text = await readFile(file, "utf8");
-    for (const pattern of bannedGeneratedRuntimeSemantics) {
-      assert.doesNotMatch(text, pattern, `${file} contains banned generated runtime semantic mechanism ${pattern}`);
-    }
-  }
+  assertCsharpSourceClosure(files);
 }
 
 async function collectGeneratedFiles(directory) {
