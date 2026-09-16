@@ -1,8 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createJsArrayDensityQuery } from "../../packages/js-source-profile/dist/index.js";
+import { createTargetSourceProgram, createSourceArrayDensityQuery } from "../../packages/target-api/dist/public/source.js";
+import { jsArrayMemberEffect } from "../../packages/js-source-profile/dist/index.js";
+
+test("array effect declarations require exact owners and own member rows", () => {
+  assert.equal(jsArrayMemberEffect(undefined), undefined);
+  assert.equal(jsArrayMemberEffect({ ownerName: "UserArray", memberName: "push" }), undefined);
+  assert.equal(jsArrayMemberEffect({ ownerName: "Array", memberName: "constructor" }), undefined);
+  assert.equal(jsArrayMemberEffect({ ownerName: "Array", memberName: "unknown" }), undefined);
+  assert.equal(jsArrayMemberEffect({ ownerName: "Array", memberName: "from" }), undefined);
+  assert.deepEqual(jsArrayMemberEffect({ ownerName: "ArrayConstructor", memberName: "from" }), { kind: "copy" });
+  const effect = jsArrayMemberEffect({ ownerName: "Array", memberName: "forEach" });
+  assert.deepEqual(effect, { kind: "method", callbackReceiverIndex: 2 });
+  assert.ok(Object.isFrozen(effect));
+});
 
 for (const [name, preparation, expected] of [
   ["literal", "const values = [1, 2];", true],
@@ -87,7 +99,10 @@ function inspect(text, closed = false, omitIdentity = false, files = {}) {
         const ownerName = ast.text(ast.name(node));
         if (ownerName === "Array" || ownerName === "ReadonlyArray" || ownerName === "ArrayConstructor") {
           for (const member of ast.members(node)) {
-            if (member !== undefined) identities.set(member, { ownerName, memberName: ast.text(ast.name(member)) });
+            const name = member === undefined ? undefined : ast.name(member);
+            if (name !== undefined && ast.is.IsIdentifier(name)) {
+              identities.set(member, { ownerName, memberName: ast.text(name) });
+            }
           }
         }
       }
@@ -95,9 +110,9 @@ function inspect(text, closed = false, omitIdentity = false, files = {}) {
     };
     visit(library);
   }
-  const query = createJsArrayDensityQuery(source, {
+  const query = createSourceArrayDensityQuery(source, {
     closedSourceFiles: new Set(closed ? source.navigation.sourceFiles : []),
-    memberIdentity: declaration => omitIdentity ? undefined : identities.get(declaration),
+    memberEffect: declaration => jsArrayMemberEffect(omitIdentity ? undefined : identities.get(declaration)),
   });
   const results = [];
   const visit = node => {

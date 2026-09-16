@@ -306,7 +306,7 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST system-attributes\.ts:1:37: C# type policy could not resolve source node kind 'KindObjectKeyword' to a closed target type\./u);
+  assert.match(build.stderr, /CSHARP_ATTRIBUTE_TYPE_NOT_CONSTRUCTIBLE.*An attribute requires an exact checked constructor type/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedAttributeBuilder.csproj")), false);
 });
 

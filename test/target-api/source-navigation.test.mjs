@@ -1030,7 +1030,10 @@ export function read<T>(value: Selected<T>): Selected<T> { return value; }
   const type = semantics.declarations.declaredValueType(parameter);
   const selected = semantics.types.aliasApplication(type);
   assert.ok(selected);
-  assert.equal(selected.declaration, namedDeclaration(source.ast, definitions, "Storage"));
+  const alias = requiredNode(source.ast, definitions, node =>
+    source.ast.is.IsTypeAliasDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "Storage");
+  assert.equal(selected.declaration, alias);
   assert.equal(selected.result, type);
   assert.equal(selected.conditionalSteps[0].branch, "deferred");
   const argument = semantics.declarations.declaredType(source.ast.typeParameters(declaration)[0]);

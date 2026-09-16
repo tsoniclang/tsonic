@@ -32,7 +32,6 @@
   },
   "dependencies": {
     "@tsonic/source-core": "0.1.1",
-    "@tsonic/target-api": "0.1.1",
     "@tsonic/tsts": "0.1.1"
   },
   "license": "MIT"

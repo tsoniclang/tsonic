@@ -18,5 +18,4 @@ export { jsSourceSemanticsModules } from "./extension/source-modules.js";
 export { createJsSourceSemanticsExtension } from "./extension/source-extension.js";
 export { createJsSourceVirtualModulesProvider } from "./extension/source-virtual-modules.js";
 export { jsRegExpTypeLibraryContract } from "./type-library-contract.js";
-export { createJsArrayDensityQuery } from "./analysis/array-density.js";
-export type { JsArrayDensityOptions, JsArrayDensityQueries } from "./analysis/array-density.js";
+export { jsArrayMemberEffect } from "./identities/array-effects.js";

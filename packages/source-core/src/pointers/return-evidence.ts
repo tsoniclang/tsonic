@@ -139,7 +139,8 @@ function selectTsonicPointerReturnEvidence(
     if (raw !== undefined) {
       if (raw.kind !== "resolved" || raw.operation.operation !== "reinterpret") return undefined;
       if (frame !== undefined && semantics.forNode(node).types.couldContainTypeVariables(raw.operation.pointeeType)) return undefined;
-      const typeNode = raw.operation.explicitPointeeTypeNode ?? raw.layout.explicitTypeNode;
+      const typeNode = raw.operation.explicitPointeeTypeNode ??
+        (raw.layout.kind === "value" ? raw.layout.explicitTypeNode : undefined);
       pointees.push(Object.freeze({ subject: node, type: raw.operation.pointeeType,
         ...(typeNode === undefined ? {} : { typeNode }) }));
       terminals.add(value);

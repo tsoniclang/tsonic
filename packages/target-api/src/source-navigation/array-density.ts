@@ -1,38 +1,28 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "@tsonic/target-api/source";
-import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import { Node_Expression, Node_Initializer } from "./ast.js";
+import type { TargetSourceProgram } from "../source-semantics/target-source-program.js";
 
-export interface JsArrayDensityQueries {
+export interface SourceArrayDensityQueries {
   array(expression: Node): boolean;
   entries(expression: Node): boolean;
 }
 
-export interface JsArrayDensityOptions {
-  readonly closedSourceFiles: ReadonlySet<SourceFile>;
-  intrinsicallyDense?(expression: Node): boolean;
-  memberIdentity(declaration: Node): {
-    readonly ownerName: string;
-    readonly memberName: string;
-  } | undefined;
+export interface SourceArrayMemberEffect {
+  readonly kind: "length" | "copy" | "entries" | "method";
+  readonly mayShrink?: boolean;
+  readonly callbackReceiverIndex?: number;
 }
 
-const densityPreservingMethods = new Set([
-  "entries", "keys", "values", "push", "pop", "shift", "unshift",
-  "reverse", "sort", "fill", "copyWithin", "splice", "slice", "concat",
-  "includes", "indexOf", "lastIndexOf", "join", "toString", "flat",
-  "at", "toReversed", "toSorted", "toSpliced", "with",
-]);
+export interface SourceArrayDensityOptions {
+  readonly closedSourceFiles: ReadonlySet<SourceFile>;
+  intrinsicallyDense?(expression: Node): boolean;
+  memberEffect(declaration: Node): SourceArrayMemberEffect | undefined;
+}
 
-const callbackReceiverIndexes: Readonly<Record<string, number>> = {
-  map: 2, filter: 2, forEach: 2, every: 2, some: 2,
-  find: 2, findIndex: 2, findLast: 2, findLastIndex: 2,
-  reduce: 3, reduceRight: 3, flatMap: 2,
-};
-
-export function createJsArrayDensityQuery(
+export function createSourceArrayDensityQuery(
   source: TargetSourceProgram,
-  options: JsArrayDensityOptions,
-): JsArrayDensityQueries {
+  options: SourceArrayDensityOptions,
+): SourceArrayDensityQueries {
   const { ast, navigation } = source;
   const semanticsFor = source.semantics.forNode;
   const safeDeclarations = new WeakSet<Node>();
@@ -92,18 +82,18 @@ export function createJsArrayDensityQuery(
       current = parent;
     }
   };
-  const arrayMember = (node: Node): string | undefined => {
+  const arrayMember = (node: Node): SourceArrayMemberEffect | undefined => {
     const semantics = semanticsFor(node);
     const property = semantics.operations.propertyAccess(node);
     if (property === undefined) return undefined;
     const declarations = property.selectedDeclaration !== undefined ? [property.selectedDeclaration]
       : property.selectedSymbol === undefined ? [] : [property.selectedSymbol, ...semantics.declarations.rootSymbols(property.selectedSymbol)]
         .flatMap(symbol => semantics.declarations.symbolDeclarations(symbol));
-    const identities = declarations.map(declaration => options.memberIdentity(declaration));
-    const first = identities[0];
-    return first !== undefined && identities.every(identity => identity !== undefined &&
-      ["Array", "ReadonlyArray", "TypedArray"].includes(identity.ownerName) && identity.memberName === first.memberName)
-      ? first.memberName : undefined;
+    const effects = declarations.map(declaration => options.memberEffect(declaration));
+    const first = effects[0];
+    return first !== undefined && effects.every(effect => effect !== undefined &&
+      effect.kind === first.kind && effect.mayShrink === first.mayShrink &&
+      effect.callbackReceiverIndex === first.callbackReceiverIndex) ? first : undefined;
   };
   const literalLength = (declaration: Node): number | undefined => {
     const visited = new Set<Node>();
@@ -145,9 +135,9 @@ export function createJsArrayDensityQuery(
     const callee = Node_Expression(ast, call);
     if (callee === undefined || ast.kindName(callee) !== "KindPropertyAccessExpression") return false;
     const selected = semanticsFor(callee).operations.propertyAccess(callee);
-    const identity = selected?.selectedDeclaration === undefined ? undefined
-      : options.memberIdentity(selected.selectedDeclaration);
-    return identity?.ownerName === "ArrayConstructor" && identity.memberName === "from";
+    const effect = selected?.selectedDeclaration === undefined ? undefined
+      : options.memberEffect(selected.selectedDeclaration);
+    return effect?.kind === "copy";
   };
   const forwardedParameter = (reference: Node): Node | undefined => {
     const argument = outer(reference);
@@ -192,12 +182,13 @@ export function createJsArrayDensityQuery(
         }
         if (ast.kindName(parent) === "KindPropertyAccessExpression" && Node_Expression(ast, parent) === reference) {
           const member = arrayMember(parent);
-          if (member === "length" && use.role !== "write") continue;
+          if (member?.kind === "length" && use.role !== "write") continue;
           const call = ast.parent(parent);
-          if (member === undefined || call === undefined ||
+          if (member === undefined || (member.kind !== "method" && member.kind !== "entries") || call === undefined ||
             ast.kindName(call) !== "KindCallExpression" || Node_Expression(ast, call) !== parent) return false;
-          const receiverIndex = callbackReceiverIndexes[member];
+          const receiverIndex = member.callbackReceiverIndex;
           if (receiverIndex !== undefined) {
+            if (!Number.isSafeInteger(receiverIndex) || receiverIndex < 0) return false;
             const callback = ast.arguments(call)[0];
             if (callback === undefined || ast.kindName(callback) !== "KindArrowFunction") return false;
             const parameters = ast.parameters(callback);
@@ -208,8 +199,8 @@ export function createJsArrayDensityQuery(
               if (ast.kindName(ast.name(receiver)) !== "KindIdentifier") return false;
               pending.push(receiver);
             }
-          } else if (!densityPreservingMethods.has(member)) return false;
-          if (["pop", "shift", "splice"].includes(member)) shrinking = true;
+          }
+          if (member.mayShrink === true) shrinking = true;
           continue;
         }
         if (ast.kindName(parent) === "KindElementAccessExpression" && Node_Expression(ast, parent) === reference) {
@@ -330,7 +321,7 @@ export function createJsArrayDensityQuery(
     }
     if (ast.kindName(node) !== "KindCallExpression" || ast.arguments(node).length !== 0) return false;
     const member = Node_Expression(ast, node);
-    if (member === undefined || ast.kindName(member) !== "KindPropertyAccessExpression" || arrayMember(member) !== "entries") return false;
+    if (member === undefined || ast.kindName(member) !== "KindPropertyAccessExpression" || arrayMember(member)?.kind !== "entries") return false;
     const receiver = Node_Expression(ast, member);
     return receiver !== undefined && dense(receiver);
   };
