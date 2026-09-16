@@ -23,7 +23,7 @@ import type { FixedArray, uint32 } from "@tsonic/core/types.js";
 import { abi } from "test:abi";
 import { empty, header, word } from "./layout.js";
 import type { Header } from "./layout.js";
-function initial(): Header { return { tag: 7, values: [[1, 2], [3, 4]] }; }
+function initial(): Header { return { tag: 7, values: [[1, 2], [3, 4]] as const }; }
 export function run(): boolean {
   unsafeContext();
   const source = initial();
@@ -36,9 +36,9 @@ export function run(): boolean {
   if (last === undefined) return false;
   storePointer(last, 55);
   if (loadPointer(pointer).values[1][1] !== 55 || snapshot.values[1][1] !== 4 || source.values[1][1] !== 4) return false;
-  storePointer(restored, { tag: 9, values: [[11, 12], [13, 14]] });
+  storePointer(restored, { tag: 9, values: [[11, 12], [13, 14]] as const });
   if (loadPointer(last) !== 14 || loadPointer(pointer).tag !== 9) return false;
-  const zero = allocatePointer<FixedArray<uint32, 0>>([]);
+  const zero = allocatePointer<FixedArray<uint32, 0>>([] as const);
   const zeroRaw = toRawPointer(zero, empty);
   const zeroView = reinterpretRawPointer(zeroRaw, empty);
   return zeroView !== undefined && equalPointer(zero, zeroView) && loadPointer(zeroView).length === 0;

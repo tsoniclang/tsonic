@@ -29,6 +29,7 @@ import { Cell, Counter, point } from "./records.js";
 import type { Pair, Point, Record } from "./records.js";
 function generic<T>(value: T): T { return value; }
 let receiverVisits: uint32 = 0;
+function visits(): uint32 { return receiverVisits; }
 function selected(value: Counter): Counter { receiverVisits += 1; return value; }
 function change(value: Counter): uint32 { value.set(20); return 3; }
 export function run(): boolean {
@@ -58,9 +59,9 @@ export function run(): boolean {
   if (counter.increment() !== 8 || counter.get() !== 9) return false;
   receiverVisits = 0;
   selected(counter).storage.x += change(counter);
-  if (receiverVisits !== 1 || counter.get() !== 12) return false;
+  if (visits() !== 1 || counter.get() !== 12) return false;
   const assigned = (selected(counter).storage.y = 17);
-  if (receiverVisits !== 2 || assigned !== 17 || counter.storage.y !== 17) return false;
+  if (visits() !== 2 || assigned !== 17 || counter.storage.y !== 17) return false;
   let located = point(1, 2);
   const pointer = addressOf(located.x);
   const snapshot: Point = located;

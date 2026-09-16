@@ -6,6 +6,12 @@ import { createJsArrayDensityQuery } from "../../packages/js-source-profile/dist
 
 for (const [name, preparation, expected] of [
   ["literal", "const values = [1, 2];", true],
+  ["in-range overwrite", "const values = [1, 2]; values[0] = 8;", true],
+  ["alias in-range overwrite", "const values = [1, 2]; const alias = values; alias[1] = 8;", true],
+  ["out-of-range overwrite", "const values = [1, 2]; values[4] = 8;", false],
+  ["overwrite after shrink", "const values = [1, 2]; values.pop(); values.pop(); values[1] = 8;", false],
+  ["overwrite after alias shrink", "const values = [1, 2]; const alias = values; alias.pop(); values[1] = 8;", false],
+  ["deletion at in-range index", "const values = [1, 2]; delete values[0];", false],
   ["push", "const values: number[] = []; values.push(1);", true],
   ["alias deletion", "const values = [1, 2]; const alias = values; delete alias[0];", false],
   ["length expansion", "const values = [1]; values.length = 3;", false],
@@ -43,10 +49,29 @@ test("missing selected member identity cannot prove a copy non-mutating", () => 
   assert.deepEqual(inspect("const values = [1]; const output = Array.from(values);", false, true).results, [false]);
 });
 
-function inspect(text, closed = false, omitIdentity = false) {
+test("shared density follows closed cross-file calls without treating imports as escapes", () => {
+  const files = { "/src/copy.ts": "export function copy(values: readonly number[]): number[] { return Array.from(values); }" };
+  const text = 'import { copy as clone } from "./copy.js"; const values = [1, 2]; export const output = clone(values);';
+  assert.deepEqual(inspect(text, true, false, files).results, [true]);
+  assert.deepEqual(inspect(text, false, false, files).results, [false]);
+});
+
+test("a cached safe alias cannot hide a shrink from an indexed write proof", () => {
+  assert.deepEqual(inspect(`
+const values = [1, 2];
+const alias = values;
+alias.pop();
+values[1] = 8;
+const first = Array.from(alias);
+const second = Array.from(values);
+export { first, second };
+`).results, [false, false]);
+});
+
+function inspect(text, closed = false, omitIdentity = false, files = {}) {
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src",
-    files: { "/src/index.ts": text },
+    files: { "/src/index.ts": text, ...files },
     compilerOptions: { strict: true, target: "esnext", module: "esnext" },
   }).checkSource();
   assert.equal(formatDiagnostics(checked.diagnostics), "");
@@ -71,7 +96,7 @@ function inspect(text, closed = false, omitIdentity = false) {
     visit(library);
   }
   const query = createJsArrayDensityQuery(source, {
-    closedSourceFiles: new Set(closed ? [file] : []),
+    closedSourceFiles: new Set(closed ? source.navigation.sourceFiles : []),
     memberIdentity: declaration => omitIdentity ? undefined : identities.get(declaration),
   });
   const results = [];
@@ -86,7 +111,7 @@ function inspect(text, closed = false, omitIdentity = false) {
     }
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
-  visit(file);
+  for (const sourceFile of source.navigation.sourceFiles) visit(sourceFile);
   assert.ok(Object.isFrozen(query));
   return { results };
 }

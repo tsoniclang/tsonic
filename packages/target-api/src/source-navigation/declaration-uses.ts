@@ -225,6 +225,9 @@ function sourceReferenceIsWriteTarget(
   parent: Node,
   current: Node,
 ): boolean {
+  if (ast.is.IsDeleteExpression(parent)) {
+    return sourceNodesEqual(ast, Node_Expression(ast, parent), current);
+  }
   if (ast.is.IsBinaryExpression(parent)) {
     const binary = ast.as.AsBinaryExpression(parent);
     return sourceNodesEqual(ast, binary?.Left, current) &&

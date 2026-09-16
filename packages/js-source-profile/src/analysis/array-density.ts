@@ -9,6 +9,7 @@ export interface JsArrayDensityQueries {
 
 export interface JsArrayDensityOptions {
   readonly closedSourceFiles: ReadonlySet<SourceFile>;
+  intrinsicallyDense?(expression: Node): boolean;
   memberIdentity(declaration: Node): {
     readonly ownerName: string;
     readonly memberName: string;
@@ -92,11 +93,34 @@ export function createJsArrayDensityQuery(
     }
   };
   const arrayMember = (node: Node): string | undefined => {
-    const property = semanticsFor(node).operations.propertyAccess(node);
-    const identity = property?.selectedDeclaration === undefined ? undefined
-      : options.memberIdentity(property.selectedDeclaration);
-    return identity !== undefined && (identity.ownerName === "Array" || identity.ownerName === "ReadonlyArray")
-      ? identity.memberName : undefined;
+    const semantics = semanticsFor(node);
+    const property = semantics.operations.propertyAccess(node);
+    if (property === undefined) return undefined;
+    const declarations = property.selectedDeclaration !== undefined ? [property.selectedDeclaration]
+      : property.selectedSymbol === undefined ? [] : [property.selectedSymbol, ...semantics.declarations.rootSymbols(property.selectedSymbol)]
+        .flatMap(symbol => semantics.declarations.symbolDeclarations(symbol));
+    const identities = declarations.map(declaration => options.memberIdentity(declaration));
+    const first = identities[0];
+    return first !== undefined && identities.every(identity => identity !== undefined &&
+      ["Array", "ReadonlyArray", "TypedArray"].includes(identity.ownerName) && identity.memberName === first.memberName)
+      ? first.memberName : undefined;
+  };
+  const literalLength = (declaration: Node): number | undefined => {
+    const visited = new Set<Node>();
+    let subject: Node | undefined = declaration;
+    while (subject !== undefined && !visited.has(subject) && visited.size < 256) {
+      visited.add(subject);
+      const initializer = Node_Initializer(ast, subject);
+      if (initializer === undefined) return undefined;
+      const value = unwrap(initializer);
+      if (ast.kindName(value) === "KindArrayLiteralExpression") {
+        const elements = ast.elements(value);
+        return elements.every(element => element !== undefined && ast.kindName(element) !== "KindSpreadElement" &&
+          ast.kindName(element) !== "KindOmittedExpression") ? elements.length : undefined;
+      }
+      subject = ast.kindName(value) === "KindIdentifier" ? navigation.sourceReferenceFor(value)?.declaration : undefined;
+    }
+    return undefined;
   };
   const implementation = (call: Node): Node | undefined => {
     if (ast.kindName(call) !== "KindCallExpression" ||
@@ -137,9 +161,11 @@ export function createJsArrayDensityQuery(
     if (safeDeclarations.has(declaration)) return true;
     const pending = [declaration];
     const visited = new Set<Node>();
+    let indexedWrites = false;
+    let shrinking = false;
     for (let index = 0; index < pending.length; index++) {
       const subject = pending[index]!;
-      if (visited.has(subject) || safeDeclarations.has(subject)) continue;
+      if (visited.has(subject)) continue;
       if (visited.size >= maximumProofNodes) return false;
       visited.add(subject);
       const summary = navigation.declarationUseSummary(subject);
@@ -183,15 +209,27 @@ export function createJsArrayDensityQuery(
               pending.push(receiver);
             }
           } else if (!densityPreservingMethods.has(member)) return false;
+          if (["pop", "shift", "splice"].includes(member)) shrinking = true;
           continue;
         }
-        if (ast.kindName(parent) === "KindElementAccessExpression" && Node_Expression(ast, parent) === reference &&
-          use.role !== "write") continue;
+        if (ast.kindName(parent) === "KindElementAccessExpression" && Node_Expression(ast, parent) === reference) {
+          if (use.role !== "write") continue;
+          const access = semanticsFor(parent).operations.elementAccess(parent);
+          const assignment = ast.parent(parent);
+          const index = access === undefined ? undefined : semanticsFor(parent).types.numericLiteralValue(access.argument.type);
+          const length = literalLength(subject);
+          if (assignment === undefined || ast.kindName(assignment) !== "KindBinaryExpression" ||
+            ast.as.AsBinaryExpression(assignment)?.Left !== parent || ast.operatorKindName(assignment) !== "KindEqualsToken" ||
+            typeof index !== "number" || !Number.isSafeInteger(index) || index < 0 || length === undefined || index >= length) return false;
+          indexedWrites = true;
+          continue;
+        }
         if (ast.kindName(parent) === "KindForOfStatement" && Node_Expression(ast, parent) === reference) continue;
         if (use.role === "comparison" || use.role === "condition") continue;
         return false;
       }
     }
+    if (indexedWrites && shrinking) return false;
     if (returnOwner === undefined) for (const subject of visited) safeDeclarations.add(subject);
     return true;
   };
@@ -239,6 +277,7 @@ export function createJsArrayDensityQuery(
   };
   const dense = (expression: Node): boolean => {
     const node = unwrap(expression);
+    if (options.intrinsicallyDense?.(node) === true) return true;
     if (ast.kindName(node) === "KindCallExpression") return freshCall(node);
     if (ast.kindName(node) === "KindArrayLiteralExpression") {
       return ast.elements(node).every(element => element !== undefined && ast.kindName(element) !== "KindOmittedExpression" &&
@@ -262,7 +301,8 @@ export function createJsArrayDensityQuery(
         if (callable === undefined || sourceFile === undefined ||
           navigation.declarationUseSummary(callable).exported && !options.closedSourceFiles.has(sourceFile)) return false;
         const index = callable === undefined ? -1 : ast.parameters(callable).indexOf(declaration);
-        const uses = callable === undefined ? [] : navigation.declarationUses(callable).filter(use => use.kind !== "type-only");
+        const uses = callable === undefined ? [] : navigation.declarationUses(callable)
+          .filter(use => use.kind !== "type-only" && use.kind !== "source-linkage");
         result = index >= 0 && uses.length > 0 && uses.every(use => {
           const callee = outer(use.reference);
           const call = ast.parent(callee);
