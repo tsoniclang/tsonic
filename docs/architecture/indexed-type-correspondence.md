@@ -53,6 +53,32 @@ than combining opaque handles from independently checked files or programs.
 Cross-file declarations remain visible through that application's types and
 selected root symbols.
 
+A deferred selection retains the exact object and index type handles. Its
+result need not be the same object as an alias-bearing type from authored
+syntax: the checker's cache also distinguishes alias identity. Compare the
+selected relationship or use the checker's type-identity query; do not discard
+alias evidence to force two handles to match.
+
+## Alias applications
+
+```ts
+type Values<T = string> = T[];
+function first(values: Values): string | undefined { return values[0]; }
+```
+
+`aliasApplication(type)` retains the selected `Values` declaration, its
+parameter-to-argument bindings and its result. Here the binding is `T` to
+`string`, even though the source supplies no type argument. `instantiateAlias`
+uses the checker's declared defaults for omitted optional arguments, including
+defaults that depend on earlier arguments. Missing required arguments, excess
+arguments, failed constraints and foreign-program handles are rejected.
+
+`typeArguments(type)` is the reference-type query. A conditional or other
+non-reference type returns an empty list; that is not evidence that it lacks
+alias bindings. Use `aliasApplication` for those bindings. If the checker has
+erased the alias provenance, the query returns no application rather than
+reconstructing one from a name or an equivalent type.
+
 ## Ownership and limits
 
 Legacy owns TypeScript index selection. Shared Tsonic exposes it without

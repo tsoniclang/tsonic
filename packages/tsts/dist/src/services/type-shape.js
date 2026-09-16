@@ -56,7 +56,9 @@ export function createTypeShapeQueries(program, defaultOptions) {
         }) === true,
         getUnionOrIntersectionTypes: (type) => Type_Types(type) ?? [],
         getTypeReferenceTarget: (type) => Type_Target(type),
-        getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetTypeArguments(checker, type)) ?? [],
+        getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => hasFlags(type, TypeFlagsObject) && type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0
+            ? Checker_GetTypeArguments(checker, type)
+            : []) ?? [],
         getTypeReferenceArgumentInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
             if (type === undefined || checker === undefined || !hasFlags(type, TypeFlagsObject))
                 return undefined;

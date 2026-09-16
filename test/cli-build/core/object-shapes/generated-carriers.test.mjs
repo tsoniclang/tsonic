@@ -75,8 +75,8 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
     "utf8",
   );
   assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /public required double value;/);
-  assert.match(generatedShapes, /public required string label;/);
+  assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedSource, /public static double fromParameter\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param0\)/);
   assert.match(generatedSource, /double value = __tsonic_param0\.value;/);
   assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} create\(double value\)/);

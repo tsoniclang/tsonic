@@ -3,7 +3,7 @@ import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Symbol, SymbolTable } from "../../ast/symbol.js";
 import type { TypeMapper } from "../mapper.js";
-import type { ExtensionConditionalCapture } from "./conditional-evidence.js";
+import type { ExtensionConditionalCapture } from "../../../extensions/conditional-type-evidence.js";
 import type { RecursionId } from "../relater.js";
 import type { Type, TypeAlias, TypeFlags } from "../types.js";
 import type { Checker, InferenceContext } from "./state.js";

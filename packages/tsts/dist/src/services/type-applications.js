@@ -8,8 +8,9 @@ import { Checker_GetSymbolAtLocation } from "../internal/checker/checker/symbols
 import { Checker_instantiateType } from "../internal/checker/checker/types.js";
 import { Checker_combineTypeMappers, newTypeMapper } from "../internal/checker/mapper.js";
 import { Checker_isTypeAssignableTo, Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
-import { createExtensionConditionalCapture } from "../internal/checker/checker/conditional-evidence.js";
+import { createExtensionConditionalCapture } from "../extensions/conditional-type-evidence.js";
 import { Checker_getConditionalTypeInstantiationWithCapture } from "../internal/checker/checker/inference.js";
+import { Checker_fillMissingTypeArguments, Checker_getMinTypeArgumentCount } from "../internal/checker/checker/signatures.js";
 import { Type_AsConditionalType, TypeFlagsConditional, TypeFlagsTypeParameter } from "../internal/checker/types.js";
 import { getExtensionHost } from "../extensions/host.js";
 export function readTypeAliasApplication(queryChecker, type) {
@@ -37,7 +38,7 @@ export function resolveTypeAliasApplication(queryChecker, declaration, arguments
     if (declaration === undefined || !IsTypeAliasDeclaration(declaration) || !Array.isArray(arguments_))
         return undefined;
     const parameters = Node_TypeParameters(declaration) ?? [];
-    if (parameters.length !== arguments_.length)
+    if (arguments_.length > parameters.length)
         return undefined;
     for (const parameter of parameters) {
         if (parameter === undefined)
@@ -75,7 +76,13 @@ export function resolveTypeAliasApplication(queryChecker, declaration, arguments
     const template = Checker_GetTypeFromTypeNode(checker, typeNode);
     if (template === undefined || template === checker.errorType)
         return undefined;
-    const mapper = sourceParameters.length === 0 ? undefined : newTypeMapper(sourceParameters, [...arguments_]);
+    const minimumArguments = Checker_getMinTypeArgumentCount(checker, sourceParameters);
+    if (arguments_.length < minimumArguments)
+        return undefined;
+    const effectiveArguments = Checker_fillMissingTypeArguments(checker, [...arguments_], sourceParameters, minimumArguments, false);
+    if (effectiveArguments.length !== sourceParameters.length || effectiveArguments.some(argument => argument === undefined || argument === checker.errorType || argument.checker !== checker))
+        return undefined;
+    const mapper = sourceParameters.length === 0 ? undefined : newTypeMapper(sourceParameters, effectiveArguments);
     for (const [index, parameter] of parameters.entries()) {
         const constraintNode = AsTypeParameterDeclaration(parameter)?.Constraint;
         if (constraintNode === undefined)
@@ -83,7 +90,7 @@ export function resolveTypeAliasApplication(queryChecker, declaration, arguments
         const constraint = Checker_GetTypeFromTypeNode(checker, constraintNode);
         const instantiated = constraint === undefined ? undefined : Checker_instantiateType(checker, constraint, mapper);
         if (instantiated === undefined || instantiated === checker.errorType ||
-            !Checker_isTypeAssignableTo(checker, arguments_[index], instantiated))
+            !Checker_isTypeAssignableTo(checker, effectiveArguments[index], instantiated))
             return undefined;
     }
     const result = Checker_instantiateType(checker, template, mapper);
@@ -97,7 +104,7 @@ export function resolveTypeAliasApplication(queryChecker, declaration, arguments
         declaration,
         typeNode,
         bindings: Object.freeze(parameters.map((parameter, index) => Object.freeze({
-            declaration: parameter, parameter: sourceParameters[index], argument: arguments_[index],
+            declaration: parameter, parameter: sourceParameters[index], argument: effectiveArguments[index],
         }))),
         result,
         conditionalSteps,
