@@ -56,6 +56,20 @@ receivers, ownership, fallibility, foundation, and Cargo dependencies live in
 the Rust target model. Matching source and Rust spellings never replaces an
 explicit identity.
 
+### Borrowed string arguments
+
+A native function taking `&str` can select
+`rustStringToBorrowedStrValueConversion` from the public provider entrypoint.
+Set its argument mode to `"value"`: the conversion already produces the shared
+view. A `String` input becomes `value.as_str()` without copying its contents;
+an existing string view stays borrowed. The source carrier must be exactly
+`rustStringTargetType()`.
+
+This is different from a generic native `&T` argument where `T` is `String`.
+That argument uses mode `"ref"` without the conversion and retains `&String`.
+For example, `statSync(path)` may take a string view, while
+`names.includes(path)` must preserve the collection's selected element type.
+
 ## Compilation lifecycle
 
 1. The host discovers the installed package.
