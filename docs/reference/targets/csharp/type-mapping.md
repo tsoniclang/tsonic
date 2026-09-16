@@ -7,6 +7,7 @@ The target maps exact source evidence, not TypeScript display names.
 | `boolean` / `bool` | `bool` |
 | `int8`…`uint64` | matching fixed-width CLR integer |
 | `int128`, `uint128` | `Int128`, `UInt128` when selected |
+| ordinary `bigint` | arbitrary-precision `System.Numerics.BigInteger` |
 | `float32`, `float64`, `decimal` | `float`, `double`, `decimal` |
 | `string` | `string` |
 | `T | undefined` / selected nullable | nullable reference or `Nullable<T>` according to carrier |

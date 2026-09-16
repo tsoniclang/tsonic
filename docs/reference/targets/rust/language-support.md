@@ -6,7 +6,7 @@ represented faithfully by the approved static Rust architecture.
 | Area | Supported contracts |
 | --- | --- |
 | Modules | ESM imports/exports, side-effect imports, source packages, source-ordered module initialization, default exports |
-| Declarations | Functions, classes, interfaces, enums, aliases, generics, overload implementations, inheritance, constructors, statics, static blocks |
+| Declarations | Functions, classes, abstract declarations, readonly fields, interfaces, enums, aliases, generics, overload implementations, inheritance, constructors, statics, static blocks |
 | Values | Primitives, arrays, fixed arrays, tuples, structural records, string-literal enums, discriminated unions, nullable values, and producer-owned finite broad values |
 | Calls | Source/provider overloads, generics, optional/rest parameters, callbacks, constructors, parameter modes, conversions |
 | Expressions | Arithmetic, comparisons, boolean logic, optional chains, nullish coalescing, properties, elements, assignments, spreads, assertions |

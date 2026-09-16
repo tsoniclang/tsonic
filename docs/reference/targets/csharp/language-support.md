@@ -6,7 +6,7 @@ represented faithfully by the approved static C# architecture.
 | Area | Supported contracts |
 | --- | --- |
 | Modules | ESM imports/exports, side-effect imports, source packages, module initialization, default exports |
-| Declarations | Functions, classes, interfaces, enums, aliases, generics, overload implementations, inheritance, constructors, statics |
+| Declarations | Functions, classes, abstract declarations, readonly fields, interfaces, enums, aliases, generics, overload implementations, inheritance, constructors, statics |
 | Values | Primitives, arrays, tuples, structural object shapes, discriminated unions, nullable values, and finite broad values through the closed `TsValue` carrier |
 | Calls | Source and provider overloads, generics, optional/rest parameters, callbacks, constructors, parameter modes, conversions |
 | Expressions | Arithmetic, comparisons, boolean logic, optional chains, nullish coalescing, properties, elements, assignments, spreads, assertions |

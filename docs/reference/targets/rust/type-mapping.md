@@ -8,6 +8,7 @@ TypeScript display names.
 | `boolean` / `bool` | `bool` |
 | `int8`…`uint128` | matching Rust fixed-width integer |
 | `nativeInt`, `nativeUint` | `isize`, `usize` |
+| ordinary `bigint` | arbitrary-precision runtime `BigInt` |
 | `float32`, `float64` | `f32`, `f64` |
 | `string` | `String` or `&str` only when complete use analysis proves the ABI |
 | `T | undefined` / selected nullable | `Option<T>` |
