@@ -294,10 +294,10 @@ test("CLI runs utility-projected object shapes and Parameters tuple destructurin
     "utf8",
   );
   assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /public required int x;/);
-  assert.match(generatedShapes, /public required string label;/);
-  assert.doesNotMatch(generatedShapes, /public required int y;/);
-  assert.doesNotMatch(generatedShapes, /public required bool active;/);
+  assert.match(generatedShapes, /public required int x\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
+  assert.doesNotMatch(generatedShapes, /\bint y\b/);
+  assert.doesNotMatch(generatedShapes, /\bbool active\b/);
   assert.match(generatedSource, /public static string formatPair\(\(string, double\) args\)/);
   assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1;/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.Item2;/);
