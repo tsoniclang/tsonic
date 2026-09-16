@@ -21,6 +21,7 @@ function selected(value: NullValue): NullValue { effects++; return value; }
 let order = "";
 function nil(): null { order += "n"; return null; }
 function absent(): undefined { order += "u"; return undefined; }
+function present(text: string): boolean { return text !== undefined && text !== null; }
 export function run(): boolean {
   const value = new NullValue();
   const record: { value: null; missing: undefined } = { value: null, missing: undefined };
@@ -38,7 +39,7 @@ export function run(): boolean {
   const present = value.nullable === "present" && value.optional === "present";
   value.nullable = null;
   value.optional = undefined;
-  return exact && comparisons && ordered && effects === 2 && record.value === null && record.missing === undefined &&
+  return present("text") && exact && comparisons && ordered && effects === 2 && record.value === null && record.missing === undefined &&
     nullable && present && value.nullable === null && value.optional === undefined;
 }
 `;
