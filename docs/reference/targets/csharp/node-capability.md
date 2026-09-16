@@ -23,6 +23,52 @@ embedded Node process.
 
 See the detailed [support inventory](support-inventory.md).
 
+## Synchronous child processes
+
+`spawnSync` uses .NET's `System.Diagnostics.Process`, not Node or libuv.
+It supports argument arrays, a working directory, an independent child
+environment, binary input, and piped or inherited standard streams.
+
+```ts
+import { spawnSync } from "node:child_process";
+import { Buffer } from "node:buffer";
+
+const result = spawnSync("cat", [], {
+  input: Buffer.from("hello"),
+  maxBuffer: 4096,
+});
+const output = result.stdout;
+if (result.status === 0 && output !== null) {
+  const text = output.toString("utf8");
+}
+```
+
+The JS profile also accepts `Uint8Array` input, including subarray views.
+Input is read when the call starts; assigning an options field does not copy
+the bytes or the `stdio` array. An omitted environment inherits the parent;
+an explicit environment record supplies the child's complete environment.
+Creating or changing that record does not change `process.env`.
+
+Uncaptured output is `null`. A launch failure has no `pid` or `status`, leaves
+both output fields `null`, and reports `error.code` and `error.message`.
+An ordinary nonzero exit is not a launch error.
+
+Public .NET process APIs cannot express every Node launch contract:
+
+- Numeric `uid`/`gid`, remapped or extra descriptors, and `"ignore"` streams
+  are rejected before launch. `"pipe"`, `"inherit"`, and matching inherited
+  descriptors 0, 1 and 2 are supported.
+- Nonzero `timeout` and explicit `killSignal` are rejected before launch.
+  The runtime does not substitute forceful termination for `SIGTERM`.
+- If captured output exceeds `maxBuffer`, the runtime stops the child and
+  throws an unsupported-operation error. It does not fabricate Node's signal
+  result. Memory remains bounded; overflow is not silently ignored.
+- On Unix, .NET cannot distinguish certain exit codes from signal termination.
+  Exit results of 128 or greater therefore throw rather than inventing
+  `status` or `signal`. Ordinary exits below 128 retain their exact status.
+
+These are C# platform limitations, not restrictions on Rust's native launcher.
+
 ## Engine-specific controls
 
 The native program does not contain V8. The named

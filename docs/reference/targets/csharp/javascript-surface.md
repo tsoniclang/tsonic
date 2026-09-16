@@ -1,5 +1,25 @@
 # C# JavaScript surface
 
+## Array copies
+
+`Array.from` copies a proven dense array directly into capacity-sized native
+storage. A mapped copy visits the live source length, including changes made by
+its callback. It does not run a hidden density scan or widen every element to an
+optional boxed value.
+
+```ts
+import type { int32 } from "@tsonic/core/types.js";
+
+const values: int32[] = [1, 2];
+const doubled = Array.from(values, value => value + value);
+```
+
+A sparse copy needs an element carrier that can represent `undefined`.
+An open `int32[]` parameter does not establish density; copying it is rejected
+unless the existing source evidence proves density. Holes are never replaced
+with zero. Use an explicit `(int32 | undefined)[]` when absence is part of the
+source contract.
+
 Select with `surfaces: ["js"]`. The target composes the shared JavaScript source
 profile and references `@tsonic/csharp-js`.
 
