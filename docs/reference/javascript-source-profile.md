@@ -45,20 +45,25 @@ ordinary `string` unless their declared contract says otherwise.
 
 ```ts
 const error = new Error("Cannot load the file");
+Error.captureStackTrace(error);
 const stack = error.stack;
 if (stack !== undefined) console.log(stack);
 ```
 
-C# and Rust capture a native stack when the error is constructed, not when
-`stack` is first read. Formatting is deferred until the first read and subsequent
-reads retain that snapshot. An unthrown error can therefore have a stack.
+C# and Rust do not capture stacks during Error construction or when `stack` is
+read. Call `Error.captureStackTrace(error)` explicitly to capture and format the
+native stack at that call. Aliases and rethrows retain the resulting string;
+calling it again replaces the previous snapshot. Without capture or an explicit
+stack assignment, `stack` is undefined, including for runtime-created errors.
 
 Frame names, filenames, and available debug information belong to the native
 toolchain. The text is not a V8 stack or a promised mapping to the authored
-TypeScript. Do not parse it as a portable source-location protocol. Capture has
-a runtime cost even if the stack is never read; it does not instrument ordinary
-function calls. Rust's `alloc`-only runtime reports `undefined` because it has no
-native stack service. Rust currently supports stack reads, not writes.
+TypeScript. Do not parse it as a portable source-location protocol. Only the
+explicit call pays capture and formatting costs. Rust requires its `std`
+foundation for capture; `alloc`-only errors still work without stacks. C# retains
+the CLR's normal throw-time exception behavior independently of this source
+stack property. Rust currently supports explicit capture and stack reads, not
+arbitrary stack-property assignment.
 
 ## Target references
 

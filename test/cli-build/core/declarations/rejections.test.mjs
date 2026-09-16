@@ -31,7 +31,7 @@ test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", a
   assert.equal(build.status, 1);
   assert.match(build.stderr, /TypeScript-only modifier 'public'/);
   assert.match(build.stderr, /TypeScript-only modifier 'private'/);
-  assert.match(build.stderr, /TypeScript-only modifier 'readonly'/);
+  assert.doesNotMatch(build.stderr, /TypeScript-only modifier 'readonly'/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeScriptOnlyModifiers.csproj")), false);
 });
 

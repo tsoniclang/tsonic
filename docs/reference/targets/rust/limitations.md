@@ -182,7 +182,7 @@ function sameError(): boolean {
 }
 ```
 
-The native transport retains identity and the construction-time stack. Ordinary
+The native transport retains identity and an explicitly captured stack. Ordinary
 thrown project objects do not become builtin errors. A closed error domain that
 contains a project subclass with mutable inherited Error fields still rejects
 this builtin projection: those fields do not yet share the native Error object.

@@ -179,6 +179,13 @@ policy.
 
 ### Native Performance From Exact Metadata
 
+- Native performance must remain available and high performance is the default.
+  Do not silently add diagnostic stack capture, symbol lookup, eager formatting
+  or avoidable copying/allocation to ordinary runtime operations. Optional
+  diagnostic enrichment requires an explicit source request, including in JS
+  profiles. Preserve native language requirements and source identity/aliasing;
+  measure changed hot paths rather than treating functional tests as a cost
+  certificate.
 - TypeScript/JavaScript bootstrap implementation limits must not become limits
   on Rust or C# code generation. Preserve the program's meaning, not inefficient
   implementation choices forced by the bootstrap platform.
@@ -205,6 +212,9 @@ policy.
   signals, test aids, or source-package workarounds.
 - Type-only annotations, interfaces, imports, and deterministic assertions may
   erase normally; runtime-facing syntax must retain ECMAScript meaning.
+- Abstract declarations and readonly class fields are supported source
+  annotations in both C# and Rust. Preserve their checker restrictions without
+  introducing runtime freezing or weakening abstract implementation checks.
 - Omitted class accessibility is public. Normalize equivalent syntax in the
   compiler instead of requiring spelling changes in source.
 - All TypeScript/JavaScript module wiring is ESM. Do not introduce `require`,

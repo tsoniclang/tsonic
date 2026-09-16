@@ -234,16 +234,6 @@ test("CLI rejects cyclic runtime ESM graphs until live-binding and TDZ facts are
 test("CLI rejects unsupported whole-program declaration shapes before C# artifacts", async () => {
   const scenarios = [
     {
-      name: "abstract-declarations",
-      source: [
-        "export abstract class Base {",
-        "  abstract run(): string;",
-        "}",
-        "",
-      ].join("\n"),
-      diagnostic: /TypeScript-only modifier 'abstract'/,
-    },
-    {
       name: "string-enum",
       source: [
         "export enum Mode {",

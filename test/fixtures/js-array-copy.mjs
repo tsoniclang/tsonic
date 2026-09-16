@@ -8,6 +8,7 @@ export function run(): boolean {
   copied[0] = 9;
   const sparse: (number | undefined)[] = [1, , undefined];
   const filled = optionalCopy(sparse);
+  const explicitFilled = optionalCopy<number>(sparse);
   const originalPresence = 1 in sparse;
   const copiedPresence = 1 in filled && 2 in filled;
   delete filled[0];
@@ -17,6 +18,7 @@ export function run(): boolean {
   const nullableCopy = copy(nullable);
   return original[0] === 1 && copied[0] === 9 && !originalPresence && copiedPresence &&
     filled[1] === undefined && filled[2] === undefined && sparse[0] === 1 &&
+    explicitFilled[0] === 1 && explicitFilled[1] === undefined && 1 in explicitFilled &&
     !(0 in missing) && 0 in present && 1 in present && present[0] === undefined &&
     nullableCopy[0] === null && nullableCopy[1] === 3;
 }
