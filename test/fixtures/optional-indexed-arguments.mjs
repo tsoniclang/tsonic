@@ -28,11 +28,54 @@ function computed(value: string | undefined): string | undefined {
   if (observed(value) === undefined) return undefined;
   return "present";
 }
+function fallible(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (value === "bad") throw new Error("bad");
+  return value;
+}
+function conditional(values: string[]): string | undefined {
+  const selected = values.length === 1 ? values[0] : undefined;
+  return selected;
+}
+function normalize(value: string | undefined): string | undefined {
+  return value?.trim().toLowerCase();
+}
+function normalizeObserved(value: string | undefined): string | undefined {
+  return observed(value)?.trim().concat(observedText()).toLowerCase();
+}
+function observedText(): string { reads++; return ""; }
+function normalizeElement(values: string[] | undefined): string | undefined {
+  return values?.at(0)?.trim().toLowerCase();
+}
+function optionalLength(value: string | undefined): number | undefined {
+  return value?.trim().indexOf("x");
+}
 class Data { values: string[] = ["first"]; }
 class Receiver { accept(value: string | undefined): string { return accept(value); } }
+class TextReader { read(): string { reads++; return " FIRST "; } }
+function normalizeReader(reader: TextReader | undefined): string | undefined {
+  return reader?.read().trim().toLowerCase();
+}
+function conditionalObject(values: Data[]): Data | undefined {
+  const selected = values.length > 0 ? values[0] : undefined;
+  return selected;
+}
 export function run(): boolean {
   const data = new Data();
   const receiver = new Receiver();
+  let caught = false;
+  try { fallible("bad"); } catch { caught = true; }
+  if (!caught || fallible(undefined) !== undefined || fallible("good") !== "good") return false;
+  if (conditional(["first"]) !== "first" || conditional([]) !== undefined) return false;
+  if (conditionalObject([data]) !== data || conditionalObject([]) !== undefined) return false;
+  if (normalize(" FIRST ") !== "first" || normalize(undefined) !== undefined) return false;
+  reads = 0;
+  if (normalizeObserved(undefined) !== undefined || readCount() !== 1) return false;
+  if (normalizeObserved(" FIRST ") !== "first" || readCount() !== 3) return false;
+  if (normalizeElement(undefined) !== undefined || normalizeElement([]) !== undefined || normalizeElement([" FIRST "]) !== "first") return false;
+  if (optionalLength(undefined) !== undefined || optionalLength("x") !== 0) return false;
+  if (normalizeReader(undefined) !== undefined || readCount() !== 3) return false;
+  if (normalizeReader(new TextReader()) !== "first" || readCount() !== 4) return false;
   reads = 0;
   const present = accept(data.values[index(0)]);
   const missing = accept(data.values[index(9)]);
