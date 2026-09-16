@@ -131,7 +131,7 @@ export function createSourceArrayDensityQuery(
     const argument = outer(reference);
     const call = ast.parent(argument);
     if (call === undefined || ast.kindName(call) !== "KindCallExpression" ||
-      ast.arguments(call).length !== 1 || ast.arguments(call)[0] !== argument) return false;
+      (ast.arguments(call).length !== 1 && ast.arguments(call).length !== 2) || ast.arguments(call)[0] !== argument) return false;
     const callee = Node_Expression(ast, call);
     if (callee === undefined || ast.kindName(callee) !== "KindPropertyAccessExpression") return false;
     const selected = semanticsFor(callee).operations.propertyAccess(callee);

@@ -61,6 +61,22 @@ test("missing selected member identity cannot prove a copy non-mutating", () => 
   assert.deepEqual(inspect("const values = [1]; const output = Array.from(values);", false, true).results, [false]);
 });
 
+for (const [name, mapper, expected] of [
+  ["dense mapping", "value => value + 1", true],
+  ["captured in-range overwrite", "value => { values[1] = 8; return value; }", true],
+  ["captured deletion", "value => { delete values[1]; return value; }", false],
+  ["captured length expansion", "value => { values.length = 4; return value; }", false],
+  ["captured unknown escape", "value => { escape(values); return value; }", false],
+]) {
+  test(`shared density proves mapping without a runtime pre-pass: ${name}`, () => {
+    assert.deepEqual(inspect(`
+declare function escape(input: number[]): void;
+const values = [1, 2];
+export const output = Array.from(values, ${mapper});
+`).results, [expected]);
+  });
+}
+
 test("shared density follows closed cross-file calls without treating imports as escapes", () => {
   const files = { "/src/copy.ts": "export function copy(values: readonly number[]): number[] { return Array.from(values); }" };
   const text = 'import { copy as clone } from "./copy.js"; const values = [1, 2]; export const output = clone(values);';
