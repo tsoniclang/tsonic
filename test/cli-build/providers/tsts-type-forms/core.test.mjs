@@ -203,7 +203,7 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
   assert.match(generatedSource, /public class DerivedValue : BaseValue/);
   assert.match(generatedSource, /public static string readBase\(BaseValue\? value\)/);
   assert.match(generatedSource, /if \(value is null\)/);
-  assert.match(generatedSource, /if \(value is DerivedValue\)/);
+  assert.match(generatedSource, /if \(\(object\?\)value is DerivedValue\)/);
   assert.match(generatedSource, /return \$"\{\(\(DerivedValue\)value\)\.name\}:\{\(\(DerivedValue\)value\)\.score\}";/);
   assert.match(generatedSource, /public static U apply<T, U>\(T value, Func<T, U> callback\)/);
   assert.match(generatedSource, /Func<double, string> render = \(double input\) => \$"\{input\}";/);

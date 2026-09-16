@@ -339,8 +339,10 @@ test("CLI emits discriminated object-shape unions with identical finalized carri
     "utf8",
   );
   assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /public required string kind;/);
-  assert.match(generatedShapes, /public required double value;/);
+  assert.match(generatedShapes, /string kind \{ get; set; \}/);
+  assert.match(generatedShapes, /double value \{ get; set; \}/);
+  assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedSource, /public static double score\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} result\)/);
   assert.match(generatedSource, /if \(result\.kind == "found"\)/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} found = result;/);

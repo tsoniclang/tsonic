@@ -339,7 +339,7 @@ test("CLI emits source-owned instanceof as C# is expressions", async () => {
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static bool isDog\(Animal value\)/);
-  assert.match(generatedSource, /return value is Dog;/);
+  assert.match(generatedSource, /return \(object\?\)value is Dog;/);
   assert.doesNotMatch(generatedSource, /value is Animal\.Dog/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
