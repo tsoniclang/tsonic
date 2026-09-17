@@ -17,6 +17,7 @@ import {
   run,
   validateWaveManifests,
 } from "./npm-wave.mjs";
+import { verifyCsharpFrameworks } from "./verify-csharp-frameworks.mjs";
 
 const wave = validateWaveManifests();
 const scratchRoot = mkdtempSync(resolve(ensureScratchRoot(), "packed-install-"));
@@ -229,51 +230,12 @@ async function verifyCsharp(registryOrigin) {
   ].join("\n"));
   run("npm", ["start", "--silent"], { cwd: root, capture: true });
   assertInstalledPackagesUnchanged(root, installedNodePackages, "C# Node");
-  await verifyCsharpFrameworks(root, installedNodePackages);
-}
-
-async function verifyCsharpFrameworks(root, installedPackages) {
-  const selections = JSON.parse(process.env.TSONIC_CSHARP_FRAMEWORK_MATRIX ?? "[]");
-  if (!Array.isArray(selections)) throw new Error("TSONIC_CSHARP_FRAMEWORK_MATRIX must be a JSON array.");
-  for (const selection of selections) {
-    if (selection === null || typeof selection !== "object" ||
-        Object.keys(selection).sort().join(",") !== "framework,sdk" ||
-        !/^net[1-9][0-9]+\.0$/u.test(selection.framework) ||
-        !/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/u.test(selection.sdk)) {
-      throw new Error("Each framework selection requires an exact SDK version and a net10.0-or-later framework.");
-    }
-    writeFileSync(resolve(root, "global.json"), `${JSON.stringify({ sdk: {
-      version: selection.sdk, rollForward: "disable", allowPrerelease: true,
-    } }, null, 2)}\n`);
-    if (run("dotnet", ["--version"], { cwd: root, capture: true }).trim() !== selection.sdk) {
-      throw new Error(`Packed install did not select SDK ${selection.sdk}.`);
-    }
-    const config = readJson(resolve(root, "tsonic.json"));
-    config.targets[0].surfaces = ["js"];
-    config.targets[0].options.targetFramework = selection.framework;
-    writeFileSync(resolve(root, "tsonic.json"), `${JSON.stringify(config, null, 2)}\n`);
-    writeFileSync(resolve(root, "src/App.ts"), [
-      'import { Environment } from "@tsonic/dotnet/System.js";',
-      'import { readFileSync } from "node:fs";',
-      `if (Environment.Version.Major !== ${selection.framework.slice(3, -2)}) throw new Error("Wrong framework");`,
-      'if (readFileSync("message.txt", "utf8") !== "C# Node capability\\n") throw new Error("Wrong file contents");',
-      'console.log([1, 2, 3].map(value => value * 2).join(","));',
-      "",
-    ].join("\n"));
-    for (const phase of ["cold", "warm"]) {
-      const output = run("npm", ["start", "--silent"], { cwd: root, capture: true });
-      if (!normalizeLines(output).endsWith("2,4,6\n")) {
-        throw new Error(`Packed ${selection.framework} ${phase} run failed its runtime contract: ${output}`);
-      }
-      const project = readFileSync(resolve(root, "out/csharp/HelloCsharp.csproj"), "utf8");
-      if (!project.includes(`<TargetFramework>${selection.framework}</TargetFramework>`) ||
-          !project.includes(`/csharp/runtime/${selection.framework}/`)) {
-        throw new Error(`Packed ${selection.framework} project lost its framework selection.`);
-      }
-      assertInstalledPackagesUnchanged(root, installedPackages, `C# ${selection.framework} ${phase}`);
-      process.stdout.write(`Packed C# ${selection.framework} SDK ${selection.sdk}: ${phase} execution passed without reinstall or package mutation.\n`);
-    }
-  }
+  verifyCsharpFrameworks(root, {
+    run,
+    environment: process.env,
+    message: "C# Node capability\n",
+    verifyInstallation: (selection) => assertInstalledPackagesUnchanged(root, installedNodePackages, `C# ${selection}`),
+  });
 }
 
 async function verifyRust(registryOrigin) {

@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import {
   hostRoot,
@@ -7,11 +8,13 @@ import {
 } from "./npm-wave.mjs";
 import {
   npmRegistry,
+  npmView,
   requireNpmAuthentication,
   waitForNpmViewPresence,
   waitForNpmViewValue,
 } from "./npm-registry.mjs";
 import { inspectRegistry } from "./release-inspection.mjs";
+import { publishStagedWave } from "./npm-publication.mjs";
 import {
   classifyReleaseState,
   compareSemver,
@@ -36,21 +39,12 @@ if (releaseAction.kind === "prepare-patch") {
 }
 
 if (releaseAction.kind === "current") {
-  run(
-    process.execPath,
-    ["scripts/release/verify-public-install.mjs", "--version", wave.version],
-    { cwd: hostRoot },
-  );
+  verifyPublicInstall("latest");
   process.stdout.write(
     `Every package in npm wave ${wave.version} is published and its public install is verified.\n`,
   );
   process.exit(0);
 }
-const { pending, awaitingPromotion } = releaseAction;
-const pendingNames = new Set(pending.map(({ name }) => name));
-const recoveryPromotions = awaitingPromotion.filter(({ name }) =>
-  !pendingNames.has(name));
-
 const npmUsername = requireNpmAuthentication();
 process.stdout.write(`Publishing as npm user '${npmUsername}'.\n`);
 certifyWave(wave);
@@ -76,74 +70,26 @@ if (packed.version !== wave.version || !Array.isArray(packed.packages) ||
     !Number.isSafeInteger(packed.totalFileCount) || packed.totalFileCount < 1) {
   throw new Error("Packed-install certification did not produce the expected release record.");
 }
-const packedByName = new Map(packed.packages.map((entry) => [entry.name, entry]));
-for (const entry of registryState.filter(({ versionIntegrity }) =>
-  versionIntegrity !== undefined)) {
-  const artifact = packedByName.get(entry.name);
-  if (artifact === undefined) {
-    throw new Error(`Certified release artifact '${entry.name}' is missing.`);
-  }
-  if (entry.versionIntegrity !== artifact.integrity) {
-    throw new Error(
-      `Published package '${entry.name}@${wave.version}' differs from the certified release artifact; prepare a new version before continuing the wave.`,
-    );
-  }
-}
-for (const entry of pending) {
-  const artifact = packedByName.get(entry.name);
-  if (artifact === undefined) {
-    throw new Error(`Certified release artifact '${entry.name}' is missing.`);
-  }
-  run(
-    "npm",
-    [
-      "publish",
-      artifact.tarballPath,
-      "--access",
-      "public",
-      "--tag",
-      "latest",
-      "--registry",
-      npmRegistry,
-    ],
-    { cwd: hostRoot },
-  );
-}
-for (const entry of wave.packages) {
-  const artifact = packedByName.get(entry.name);
-  if (artifact === undefined) {
-    throw new Error(`Certified release artifact '${entry.name}' is missing.`);
-  }
-  verifyPublishedIntegrity(entry.name, wave.version, artifact.integrity);
-}
-for (const entry of recoveryPromotions) {
-  run(
-    "npm",
-    [
-      "dist-tag",
-      "add",
-      `${entry.name}@${wave.version}`,
-      "latest",
-      "--registry",
-      npmRegistry,
-    ],
-    { cwd: hostRoot },
-  );
-}
-for (const entry of wave.packages) {
-  const artifact = packedByName.get(entry.name);
-  if (artifact === undefined) {
-    throw new Error(`Certified release artifact '${entry.name}' is missing.`);
-  }
-  verifyPublishedRelease(entry.name, wave.version, artifact.integrity, "latest");
-}
-run(
-  process.execPath,
-  ["scripts/release/verify-public-install.mjs", "--version", wave.version],
-  { cwd: hostRoot },
-);
+const result = publishStagedWave({
+  version: wave.version, packages: wave.packages, registryState, packed,
+}, {
+  verifyLocalArtifact(artifact) {
+    const integrity = `sha512-${createHash("sha512").update(readFileSync(artifact.tarballPath)).digest("base64")}`;
+    if (integrity !== artifact.integrity) throw new Error(`Certified tarball '${artifact.name}' changed before publication.`);
+  },
+  readLatest: (name) => npmView(name, "dist-tags.latest"),
+  publish(artifact, tag) {
+    run("npm", ["publish", artifact.tarballPath, "--access", "public", "--tag", tag, "--registry", npmRegistry], { cwd: hostRoot });
+  },
+  verifyIntegrity: verifyPublishedIntegrity,
+  verifyPublicInstall,
+  promote(name, version) {
+    run("npm", ["dist-tag", "add", `${name}@${version}`, "latest", "--registry", npmRegistry], { cwd: hostRoot });
+  },
+  verifyLatest: (name, version) => waitForNpmViewValue(name, "dist-tags.latest", version),
+});
 process.stdout.write(
-  `Published ${pending.length} packages and recovered ${recoveryPromotions.length} existing latest tags at ${wave.version}; certified ${packed.packages.length} packages, ${packed.totalFileCount} files, aggregate SHA-256 ${packed.aggregateSha256}.\n`,
+  `Staged ${result.published} packages and promoted ${result.promoted} latest tags at ${wave.version}; certified ${packed.packages.length} packages, ${packed.totalFileCount} files, aggregate SHA-256 ${packed.aggregateSha256}.\n`,
 );
 
 function readMode(args) {
@@ -298,9 +244,11 @@ function verifyPublishedIntegrity(name, version, expectedIntegrity) {
   );
 }
 
-function verifyPublishedRelease(name, version, expectedIntegrity, tag) {
-  verifyPublishedIntegrity(name, version, expectedIntegrity);
-  waitForNpmViewValue(name, `dist-tags.${tag}`, version);
+function verifyPublicInstall(selection) {
+  run(process.execPath, [
+    "scripts/release/verify-public-install.mjs", "--version", wave.version,
+    "--selection", selection,
+  ], { cwd: hostRoot });
 }
 
 function readJson(path) {

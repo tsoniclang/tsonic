@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostRoot, validateWaveManifests } from "./npm-wave.mjs";
 import { npmRegistry } from "./npm-registry.mjs";
+import { verifyCsharpFrameworks } from "./verify-csharp-frameworks.mjs";
 
 const publicRegistryOrigin = new URL(npmRegistry).origin;
 
@@ -76,10 +77,10 @@ export function assertNoLocalDependencySpecifiers(value) {
 
 if (process.argv[1] !== undefined &&
     resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  verifyPublicInstall(readVersion(process.argv.slice(2)));
+  verifyPublicInstall(readPublicInstallOptions(process.argv.slice(2)));
 }
 
-function verifyPublicInstall(version) {
+function verifyPublicInstall({ version, selection }) {
   const wave = validateWaveManifests();
   if (version !== wave.version) {
     throw new Error(
@@ -109,6 +110,7 @@ function verifyPublicInstall(version) {
     targetPackage: "@tsonic/target-csharp",
     capabilityPackage: "@tsonic/csharp-nodejs",
     version,
+    selection,
     scratchRoot,
     environment,
     source: [
@@ -126,6 +128,7 @@ function verifyPublicInstall(version) {
     targetPackage: "@tsonic/target-rust",
     capabilityPackage: "@tsonic/rust-nodejs",
     version,
+    selection,
     scratchRoot,
     environment,
     source: [
@@ -140,7 +143,7 @@ function verifyPublicInstall(version) {
     message: "Rust public install\n",
   });
   process.stdout.write(
-    `Public npm install verified for C#, Rust, and both Node capabilities at ${version}.\n`,
+    `Public npm ${selection} install verified for C#, Rust, and both Node capabilities at ${version}.\n`,
   );
 }
 
@@ -149,7 +152,7 @@ function verifyTarget(options) {
     "npm",
     [
       "create",
-      "tsonic@latest",
+      `tsonic@${publicPackageSelection(options.version, options.selection)}`,
       options.name,
       "--",
       "--target",
@@ -172,7 +175,7 @@ function verifyTarget(options) {
       "install",
       "--save-dev",
       "--save-exact",
-      `${options.capabilityPackage}@latest`,
+      `${options.capabilityPackage}@${publicPackageSelection(options.version, options.selection)}`,
       "--registry",
       npmRegistry,
       "--no-audit",
@@ -189,6 +192,17 @@ function verifyTarget(options) {
   );
   run("npm", ["ls", "--all"], { cwd: projectRoot, env: options.environment });
   run("npm", ["start", "--silent"], { cwd: projectRoot, env: options.environment });
+  if (options.targetId === "csharp") {
+    verifyCsharpFrameworks(projectRoot, {
+      run,
+      environment: options.environment,
+      message: options.message,
+      verifyInstallation: () => assertPublicProject(
+        projectRoot, options.version,
+        ["@tsonic/cli", options.targetPackage, options.capabilityPackage],
+      ),
+    });
+  }
 }
 
 function assertPublicProject(root, expectedVersion, requiredDirectPackages) {
@@ -237,12 +251,19 @@ function createPublicInstallEnvironment(npmConfigPath, npmCachePath) {
   };
 }
 
-function readVersion(args) {
-  if (args.length !== 2 || args[0] !== "--version" ||
+export function readPublicInstallOptions(args) {
+  if (args.length !== 4 || args[0] !== "--version" || args[2] !== "--selection" ||
       !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(args[1])) {
-    throw new Error("Usage: node scripts/release/verify-public-install.mjs --version <version>");
+    throw new Error("Usage: node scripts/release/verify-public-install.mjs --version <version> --selection <exact|latest>");
   }
-  return args[1];
+  publicPackageSelection(args[1], args[3]);
+  return Object.freeze({ version: args[1], selection: args[3] });
+}
+
+export function publicPackageSelection(version, selection) {
+  if (selection === "exact") return version;
+  if (selection === "latest") return "latest";
+  throw new Error(`Unsupported public install selection '${selection}'.`);
 }
 
 function isFirstPartyPackagePath(path) {
@@ -262,16 +283,18 @@ function run(command, args, options) {
   const result = spawnSync(command, args, {
     cwd: options.cwd,
     env: options.env,
-    stdio: "inherit",
+    encoding: "utf8",
+    stdio: options.capture === true ? "pipe" : "inherit",
   });
   if (result.error !== undefined) {
     throw new Error(`Could not start ${command}: ${result.error.message}`);
   }
   if (result.status !== 0) {
     throw new Error(
-      `${command} ${args.join(" ")} failed with exit code ${String(result.status)}.`,
+      `${command} ${args.join(" ")} failed with exit code ${String(result.status)}.\n${result.stdout ?? ""}${result.stderr ?? ""}`,
     );
   }
+  return result.stdout ?? "";
 }
 
 function readJson(path) {

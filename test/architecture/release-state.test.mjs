@@ -9,6 +9,8 @@ import {
 import {
   assertNoLocalDependencySpecifiers,
   assertPublicInstallLock,
+  publicPackageSelection,
+  readPublicInstallOptions,
 } from "../../scripts/release/verify-public-install.mjs";
 import {
   inspectRegistry,
@@ -65,6 +67,7 @@ test("release checklist identifies the exact maintainer action", () => {
   assert.match(publish, /short-lived read\/write granular token/u);
   assert.match(publish, /identity only/u);
   assert.match(publish, /exact public-registry C#, Rust, and Node execution/u);
+  assert.match(publish, /before promotion/u);
 
   const patch = formatReleaseChecklist(
     classifyReleaseState(version, [entry("one", "equal", "old", true)]),
@@ -85,6 +88,23 @@ test("release semantic versions compare and advance deterministically", () => {
   assert.equal(compareSemver("2.0.0", "1.99.99"), 1);
   assert.equal(incrementPatch("1.2.9"), "1.2.10");
   assert.throws(() => compareSemver("1.2", "1.2.0"), /Unsupported release version/u);
+});
+
+test("public install selects exact staged versions and latest explicitly", () => {
+  for (const selection of ["exact", "latest"]) {
+    assert.deepEqual(readPublicInstallOptions([
+      "--version", version, "--selection", selection,
+    ]), { version, selection });
+    assert.equal(publicPackageSelection(version, selection), selection === "exact" ? version : "latest");
+  }
+  for (const args of [
+    ["--version", version],
+    ["--version", "latest", "--selection", "exact"],
+    ["--version", version, "--selection", "unknown"],
+    ["--version", version, "--selection", "exact", "--skip"],
+  ]) {
+    assert.throws(() => readPublicInstallOptions(args), /Usage:|Unsupported public install selection/u);
+  }
 });
 
 test("registry inspection uses one shared content-drift decision", () => {
