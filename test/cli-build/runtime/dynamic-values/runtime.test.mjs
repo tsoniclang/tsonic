@@ -1,4 +1,4 @@
-import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -109,9 +109,9 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.TsValue readName\(Tsonic\.CSharp\.Runtime\.TsValue value\)/);
@@ -352,9 +352,9 @@ test("CLI wraps non-exception thrown values with closed runtime carriers", async
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readGeneratedProject(projectDirectory, assemblyName);
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoRuntimeReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /throw Tsonic\.CSharp\.Runtime\.TsThrownValueException\.from\(Tsonic\.CSharp\.Runtime\.TsValue\.from\("boom"\)\);/);

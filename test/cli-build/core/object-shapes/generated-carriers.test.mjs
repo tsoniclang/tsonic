@@ -1,4 +1,4 @@
-import { assert, assertInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("CLI emits non-nullish unions through finalized runtime-carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");
@@ -21,8 +21,8 @@ test("CLI emits non-nullish unions through finalized runtime-carrier facts", asy
   assert.equal(build.status, 0, build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "utf8");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.Union<double, string> choose\(bool flag\)/);

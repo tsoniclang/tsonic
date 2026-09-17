@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../helpers/harness.mjs";
 
 const bannedGeneratedRuntimeSemantics = [
   /\bdynamic\b/u,
@@ -169,8 +169,8 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   const projectFile = await readFile(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "utf8");
   assert.match(projectFile, /<Project Sdk="Microsoft\.NET\.Sdk">/);
   assert.match(projectFile, /<OutputType>Exe<\/OutputType>/);
-  assert.match(projectFile, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath=".*csharp-runtime.*Tsonic\.CSharp\.Runtime\.dll" \/>/);
-  assert.match(projectFile, /<Reference Include="Tsonic\.CSharp\.Js" HintPath=".*csharp-js.*Tsonic\.CSharp\.Js\.dll" \/>/);
+  assertRuntimeProjectReference(projectFile, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(projectFile, "Tsonic.CSharp.Js");
   assert.doesNotMatch(projectFile, /Tsonic\.CSharp\.Node/);
 
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);

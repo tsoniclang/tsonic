@@ -62,14 +62,14 @@ const requiredArtifacts = Object.freeze([
   ["tsonic.createTsonicDist", resolve(repos.tsonic, "packages/create-tsonic/dist")],
   ["tsonic.tstsBundledLibs", resolve(repos.tsonic, "packages/tsts/dist/src/internal/bundled/libs")],
   ["tsonicCsharp.dist", resolve(repos.tsonicCsharp, "dist")],
-  ["csharpJs.runtimeDll", resolve(repos.csharpJs, "runtimes/net10.0/Tsonic.CSharp.Js.dll")],
+  ["csharpJs.runtimeProject", resolve(repos.csharpJs, "src/Tsonic.CSharp.Js/Tsonic.CSharp.Js.csproj")],
   ["csharpNodejs.dist", resolve(repos.csharpNodejs, "dist")],
   ["csharpNodejs.tstsPeer", resolve(repos.csharpNodejs, "node_modules/@tsonic/tsts/package.json")],
   ["csharpNodejs.targetApiPeer", resolve(repos.csharpNodejs, "node_modules/@tsonic/target-api/package.json")],
   ["csharpNodejs.targetCsharpPeer", resolve(repos.csharpNodejs, "node_modules/@tsonic/target-csharp/package.json")],
-  ["csharpNodejs.runtimeDll", resolve(repos.csharpNodejs, "runtimes/net10.0/Tsonic.CSharp.Node.dll")],
+  ["csharpNodejs.runtimeProject", resolve(repos.csharpNodejs, "csharp/src/Tsonic.CSharp.Node/Tsonic.CSharp.Node.csproj")],
   ["csharpNodejs.testDll", resolve(repos.csharpNodejs, "artifacts/bin/Tsonic.CSharp.Node.Tests/Debug/net10.0/Tsonic.CSharp.Node.Tests.dll")],
-  ["csharpRuntime.runtimeDll", resolve(repos.csharpRuntime, "runtimes/net10.0/Tsonic.CSharp.Runtime.dll")],
+  ["csharpRuntime.runtimeProject", resolve(repos.csharpRuntime, "src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj")],
 ]);
 
 for (const command of commands) {

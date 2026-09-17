@@ -55,7 +55,7 @@ package/
 │   └── provider/
 │       ├── package.ts     # capability composition
 │       └── modules/       # declarations and exact native mappings by module
-└── runtimes/net10.0/      # runtime assembly, when one is required
+└── native/               # runtime source project, when one is required
 ```
 
 The source model must be legal TypeScript declaration syntax. The target model
@@ -118,6 +118,38 @@ Each module's `getExports(selectedSurfaceIds)` receives the selected surfaces.
 The capability owns that selection's meaning. For example, C# Node includes
 `Stats.mtime: Date` only on the JS surface; the package factory contains no
 Node or `Date` special case. Runtime references remain a separate contribution.
+
+## Native runtime source
+
+Use `csharpRuntimeSourceContributions` for a runtime shipped as source. Its
+descriptor names the exact source project, build properties, and dependency
+projects. For example, a provider that depends on the core runtime supplies:
+
+```ts
+import { fileURLToPath } from "node:url";
+import {
+  csharpCoreRuntimeSource,
+  csharpRuntimeSourceContributions,
+} from "@tsonic/target-csharp/provider";
+
+export const runtime = csharpRuntimeSourceContributions({
+  projectPath: fileURLToPath(new URL("../../native/Counter.csproj", import.meta.url)),
+  propertiesPath: fileURLToPath(new URL("../../native/Directory.Build.props", import.meta.url)),
+  dependencies: { TsonicCsharpRuntimeProject: csharpCoreRuntimeSource },
+});
+```
+
+Pass this value as the package definition's `runtime`. The native project uses
+`$(TsonicCsharpRuntimeProject)` in its `ProjectReference`. Its build properties
+honor the selected `TargetFramework` and `TsonicRuntimeArtifactsPath`; its source
+includes are relative to `$(MSBuildThisFileDirectory)`, not the importing project.
+
+`CsharpRuntimeProjectSource` is the exported descriptor type. The helper returns
+the complete immutable `csharp-source-project` reference graph. C# analysis rejects
+missing dependencies, conflicting declarations and cycles. Planning creates
+framework-specific import projects, and emission writes them into the host cache.
+Providers neither write cache projects nor select the application's framework.
+`csharpJsRuntimeSource` supplies the JS runtime and its exact core dependency.
 
 ## Compilation lifecycle
 

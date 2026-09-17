@@ -1,4 +1,4 @@
-import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);
@@ -75,12 +75,12 @@ test("CLI emits Map and Set operations from selected JS surface facts", async ()
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedMapSetSurfaceOperations.csproj"), "utf8");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeReference(generatedProject, "Tsonic.CSharp.Node");
   assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Node");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static bool countHas\(string key\)/);

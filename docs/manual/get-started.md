@@ -14,8 +14,9 @@ node --version
 npm --version
 ```
 
-For C#, install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0),
-not only the runtime.
+For C#, install a [.NET 10-or-later SDK](https://dotnet.microsoft.com/en-us/download/dotnet),
+not only the runtime. The starter targets `net10.0`; for another framework,
+set `target.options.targetFramework` in `tsonic.json` and install its runtime.
 
 ```sh
 dotnet --version

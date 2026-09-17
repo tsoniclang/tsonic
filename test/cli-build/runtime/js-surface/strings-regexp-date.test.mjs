@@ -1,4 +1,4 @@
-import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);
@@ -144,10 +144,10 @@ test("CLI emits Date calls through provider-backed JS runtime carriers", async (
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedDateRuntimeCarrier.csproj"), "utf8");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Date date = new Tsonic\.CSharp\.Js\.Date\(Tsonic\.CSharp\.Js\.Date\.UTC\(2023, 5, 15, 12, 30, 45, 123\)\);/);

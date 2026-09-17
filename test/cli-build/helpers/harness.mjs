@@ -88,16 +88,17 @@ function dotnetOutputAssemblyPath(projectDirectory, assemblyName) {
   return resolve(projectDirectory, "out/csharp/bin/Debug/net10.0", `${assemblyName}.dll`);
 }
 
-function assertInstalledAssemblyReference(projectText, assemblyName) {
-  assert.match(projectText, new RegExp(`<Reference Include="${escapeRegExp(assemblyName)}" HintPath="[^"]*/runtimes/net10\\.0/${escapeRegExp(assemblyName)}\\.dll" />`));
+function assertRuntimeProjectReference(projectText, assemblyName) {
+  assert.match(projectText, new RegExp(`<ProjectReference Include="[^"]*/csharp/runtime/net10\\.0/[a-f0-9]+/${escapeRegExp(assemblyName)}\\.csproj" />`));
+}
+
+function assertNoRuntimeReference(projectText, assemblyName) {
+  assert.doesNotMatch(projectText, new RegExp(`<Reference Include="${escapeRegExp(assemblyName)}"`));
+  assert.doesNotMatch(projectText, new RegExp(`${escapeRegExp(assemblyName)}\\.csproj`));
 }
 
 function assertNoInstalledAssemblyReference(projectText, assemblyName) {
   assert.doesNotMatch(projectText, new RegExp(`<Reference Include="${escapeRegExp(assemblyName)}"`));
-}
-
-function assertNoRuntimeProjectReference(projectText, assemblyName) {
-  assert.doesNotMatch(projectText, new RegExp(`${escapeRegExp(assemblyName)}\\.csproj`));
 }
 
 function run(command, args) {
@@ -236,9 +237,9 @@ function escapeRegExp(value) {
 export {
   assert,
   assertGeneratedOutputHasNoReflectionSemantics,
-  assertInstalledAssemblyReference,
+  assertRuntimeProjectReference,
+  assertNoRuntimeReference,
   assertNoInstalledAssemblyReference,
-  assertNoRuntimeProjectReference,
   csharpProjectPath,
   dotnetOutputAssemblyPath,
   cliPath,

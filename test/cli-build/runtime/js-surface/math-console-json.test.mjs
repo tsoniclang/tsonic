@@ -1,4 +1,4 @@
-import { assert, assertInstalledAssemblyReference, assertNoInstalledAssemblyReference, assertNoRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);
@@ -98,12 +98,12 @@ test("CLI emits standard Math calls from selected TSTS provider facts", async ()
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardMathCalls.csproj"), "utf8");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeReference(generatedProject, "Tsonic.CSharp.Node");
   assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Node");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double normalize\(double value\)/);
@@ -290,8 +290,8 @@ test("CLI emits JSON.stringify from selected JS surface facts", async () => {
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedStandardJsonStringify.csproj"), "utf8");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string stringifyText\(string value\)/);
@@ -420,12 +420,12 @@ test("CLI compiles existing TypeScript JS-surface utility code when JS surface i
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingTypescriptJsSurfaceUtilityCode.csproj"), "utf8");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
-  assertInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Js");
+  assertNoRuntimeReference(generatedProject, "Tsonic.CSharp.Node");
   assertNoInstalledAssemblyReference(generatedProject, "Tsonic.CSharp.Node");
-  assertNoRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> appendTag\(Tsonic\.CSharp\.Js\.JSArray<string> tags, string tag\)/);
