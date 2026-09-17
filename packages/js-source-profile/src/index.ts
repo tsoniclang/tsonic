@@ -18,3 +18,5 @@ export { jsSourceSemanticsModules } from "./extension/source-modules.js";
 export { createJsSourceSemanticsExtension } from "./extension/source-extension.js";
 export { createJsSourceVirtualModulesProvider } from "./extension/source-virtual-modules.js";
 export { jsRegExpTypeLibraryContract } from "./type-library-contract.js";
+export { jsArrayMemberEffect } from "./identities/array-effects.js";
+export { sourceErrorDeclarations } from "./declarations/errors.js";

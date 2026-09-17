@@ -8,6 +8,7 @@ import {
 import {
   primaryDeclaration,
 } from "./syntax.js";
+import { sourceMemberOwner } from "./class-members.js";
 import {
   selectCallableImplementationDeclaration,
 } from "./callable-implementation.js";
@@ -79,7 +80,7 @@ function resolveMemberImplementation(
   ) => SourceHeritagePathResult,
 ): SourceProjectMemberImplementationResult {
   const { ast } = source;
-  const contractOwner = ast.parent(contractMemberDeclaration);
+  const contractOwner = sourceMemberOwner(ast, contractMemberDeclaration);
   if (
     (
       !ast.is.IsClassDeclaration(typeDeclaration) &&

@@ -27,7 +27,8 @@ provider declarations.
   lookup, size, iteration, callbacks, insertion order, SameValueZero, and Set
   algebra.
 - **Date:** constructors, now/parse/UTC, identity, ISO/UTC/JSON output, UTC
-  getters, and UTC setters with JavaScript overflow and TimeClip rules.
+  getters, local getters and timezone offsets, and UTC setters with JavaScript
+  overflow and TimeClip rules. Local getters use the native timezone source.
 - **Object and JSON:** closed structural keys/values/entries, own-property
   tests, selected spread/assignment shapes, JSON parse/stringify over finite
   broad-value graphs, replacer callbacks, and selected `toJSON` methods.
@@ -79,7 +80,7 @@ operation families rather than copying the evolving Rust API catalog.
 ## Rust target limits
 
 - locale-sensitive string behavior requires one explicit ICU/data contract;
-- local-time Date behavior requires one explicit timezone/data contract;
+- local Date setters and locale string formatting remain unsupported;
 - open Node event schedulers such as unrestricted streams and `fs.watch`
   cannot be approximated without exact cancellation, ordering, backpressure,
   and resource-lifetime contracts;

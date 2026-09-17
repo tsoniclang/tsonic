@@ -136,9 +136,13 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   assert.match(indexSource, /public static User current\s*\{\s*get;\s*private set;\s*\} = default\(User\)!;/u);
   const shapeSource = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
   const shapeName = /public class ([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12})/u.exec(shapeSource)?.[1];
+  const readonlyName = /public interface ([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12})\s*\{\s*string name \{ get; \}\s*\}/u.exec(shapeSource)?.[1];
   assert.ok(shapeName);
-  assert.match(shapeSource, new RegExp(`public class ${shapeName}[\\s\\S]*public required string name;`));
-  assert.match(indexSource, new RegExp(`public static ${shapeName} named`));
+  assert.ok(readonlyName);
+  assert.match(shapeSource, new RegExp(`public class ${shapeName} : ${readonlyName}\\b`));
+  assert.match(shapeSource, new RegExp(`public class ${shapeName}[\\s\\S]*public required string name\\s*\\{\\s*get;\\s*set;\\s*\\}`));
+  assert.match(indexSource, new RegExp(`public static ${readonlyName} named`));
+  assert.match(indexSource, new RegExp(`named = new ${shapeName}\\b`));
   assert.match(indexSource, /current = Users\.makeUser\("Ada"\);/);
   assert.match(indexSource, /greeter = new Greeter\(named\.name\);/);
   assert.doesNotMatch(indexSource, /Model\.__tsonic_module_init|UserName|__unsupported/);
@@ -233,16 +237,6 @@ test("CLI rejects cyclic runtime ESM graphs until live-binding and TDZ facts are
 
 test("CLI rejects unsupported whole-program declaration shapes before C# artifacts", async () => {
   const scenarios = [
-    {
-      name: "abstract-declarations",
-      source: [
-        "export abstract class Base {",
-        "  abstract run(): string;",
-        "}",
-        "",
-      ].join("\n"),
-      diagnostic: /TypeScript-only modifier 'abstract'/,
-    },
     {
       name: "string-enum",
       source: [

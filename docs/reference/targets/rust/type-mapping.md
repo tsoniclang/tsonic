@@ -8,6 +8,7 @@ TypeScript display names.
 | `boolean` / `bool` | `bool` |
 | `int8`…`uint128` | matching Rust fixed-width integer |
 | `nativeInt`, `nativeUint` | `isize`, `usize` |
+| ordinary `bigint` | arbitrary-precision runtime `BigInt` |
 | `float32`, `float64` | `f32`, `f64` |
 | `string` | `String` or `&str` only when complete use analysis proves the ABI |
 | `T | undefined` / selected nullable | `Option<T>` |
@@ -45,11 +46,12 @@ every fixed-array operation.
 
 The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
 supports array metadata observations without materializing `[T; N]`, including
-huge zero-sized arrays. A native array carrier does not supply a physical
-layout codec: raw conversion or demanded backing requiring an inline array,
-directly or through record children, rejects with an explicit unsupported-array
-reason. Existing scalar/record codecs and ordinary dynamic-array element
-backing do not constitute such an adapter.
+huge zero-sized arrays. Raw conversion and demanded backing support fixed arrays
+of native `Copy` scalars and value records, including nested arrays, using the
+declared element layout and stride. Reads produce independent `[T; N]` values;
+writes preserve aliases to the raw region. Zero-sized elements require no
+per-element memory operation, even for large exact extents. Reference-valued
+elements and counts outside the selected address width remain rejections.
 
 ## Broad values
 

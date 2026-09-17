@@ -137,7 +137,8 @@ policy.
 
 - Every project is greenfield. Legacy paths, dual paths, and backward
   compatibility are absolutely prohibited.
-- Never land bridge architecture, temporary product paths, dual readers,
+- Never design, implement, or land legacy support, bridge architecture,
+  temporary product paths, dual readers,
   old-or-new schema handling, compatibility aliases, legacy fallback, or
   “clean it later” code.
 - When a canonical shape changes, break stale assumptions and repair every
@@ -176,6 +177,31 @@ policy.
   language's documented coupling for the selected version, or reject an
   unrepresentable combination precisely.
 
+### Native Performance From Exact Metadata
+
+- Native performance must remain available and high performance is the default.
+  Do not silently add diagnostic stack capture, symbol lookup, eager formatting
+  or avoidable copying/allocation to ordinary runtime operations. Optional
+  diagnostic enrichment requires an explicit source request, including in JS
+  profiles. Preserve native language requirements and source identity/aliasing;
+  measure changed hot paths rather than treating functional tests as a cost
+  certificate.
+- TypeScript/JavaScript bootstrap implementation limits must not become limits
+  on Rust or C# code generation. Preserve the program's meaning, not inefficient
+  implementation choices forced by the bootstrap platform.
+- GoToTS retains lossless semantic metadata and annotations so native targets
+  can use them. Inspect and consume the exact available evidence when choosing
+  native representations, ownership, storage, integer operations and calls.
+- Prefer efficient native operations whenever the evidence proves them correct.
+  For example, a proven fixed-width integer may use native integer arithmetic;
+  arbitrary-precision `bigint` still requires arbitrary precision. Do not erase
+  width, signedness, aliasing, layout or lifetime guarantees for speed.
+- Shared layers retain target-neutral evidence; each target owns its native
+  optimization. No target semantics in shared code, spelling heuristics,
+  speculative coercions, compatibility paths or extra user annotations when
+  the existing evidence already suffices. Record necessity and verify semantic
+  equivalence and performance before claiming an optimization certified.
+
 ### TypeScript Source Discipline
 
 - Product TypeScript is a type-annotation layer over standard modern
@@ -186,6 +212,9 @@ policy.
   signals, test aids, or source-package workarounds.
 - Type-only annotations, interfaces, imports, and deterministic assertions may
   erase normally; runtime-facing syntax must retain ECMAScript meaning.
+- Abstract declarations and readonly class fields are supported source
+  annotations in both C# and Rust. Preserve their checker restrictions without
+  introducing runtime freezing or weakening abstract implementation checks.
 - Omitted class accessibility is public. Normalize equivalent syntax in the
   compiler instead of requiring spelling changes in source.
 - All TypeScript/JavaScript module wiring is ESM. Do not introduce `require`,

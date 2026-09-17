@@ -836,6 +836,34 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   );
 });
 
+test("effective type arguments retain merged interface parameter identities", async () => {
+  const checked = await checkedSource("effective-merged-type-arguments", {
+    "src/index.ts": `
+interface Merged<T> { readonly value: T; }
+interface Merged<T> { update(value: T): void; }
+export function text(value: Merged<string>): string { return value.value; }
+export function numeric(value: Merged<number>): number { return value.value; }
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(file);
+  for (const [typeKind, predicate] of [
+    ["KindStringKeyword", semantics.types.isStringLike],
+    ["KindNumberKeyword", semantics.types.isNumberLike],
+  ]) {
+    const node = requiredNode(source.ast, file, candidate =>
+      source.ast.is.IsTypeReferenceNode(candidate) &&
+      source.ast.kindName(source.ast.typeArguments(candidate)[0]) === typeKind);
+    const type = semantics.types.authoredType(node);
+    const arguments_ = semantics.types.effectiveTypeArguments(type);
+    assert.equal(arguments_?.length, 1);
+    assert.equal(predicate(arguments_[0]), true);
+    assert.equal(Object.isFrozen(arguments_), true);
+    assert.equal(arguments_[0], semantics.types.typeArguments(type)[0]);
+  }
+});
+
 test("effective type arguments ignore non-type declarations on shared symbols", async () => {
   const checked = await checkedSource("effective-type-arguments", {
     "src/index.ts": [
@@ -911,6 +939,109 @@ test("effective type arguments follow the instantiated generic target through a 
   assert.equal(semantics.declarations.symbolName(semantics.declarations.typeSymbol(aliasType)), "Box");
   assert.equal(arguments_?.length, 1);
   assert.equal(semantics.types.isStringLike(arguments_?.[0]), true);
+});
+
+test("source generic bindings retain outer and local declaration identity", async () => {
+  const checked = await checkedSource("source-generic-enclosing-bindings", {
+    "src/index.ts": `
+export function make<T>(input: T) {
+  class Pair<U> {
+    left: T;
+    right: U;
+    constructor(left: T, right: U) { this.left = left; this.right = right; }
+  }
+  return new Pair<number>(input, 7);
+}
+const text = make("text");
+const numeric = make(8);
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(file);
+  const outer = source.ast.typeParameters(namedDeclaration(source.ast, file, "make"))[0];
+  const local = source.ast.typeParameters(namedDeclaration(source.ast, file, "Pair"))[0];
+  for (const [name, isText] of [["text", true], ["numeric", false]]) {
+    const declaration = namedVariable(source.ast, file, name);
+    const type = semantics.declarations.declaredValueType(declaration);
+    const bindings = semantics.types.typeArgumentBindings(type);
+    assert.deepEqual(bindings?.map(binding => binding.declaration), [outer, local]);
+    assert.deepEqual(bindings?.map(binding => binding.scope), ["outer", "local"]);
+    assert.equal(semantics.types.isStringLike(bindings[0].argumentType), isText);
+    assert.equal(semantics.types.isNumberLike(bindings[1].argumentType), true);
+    assert.deepEqual(semantics.types.effectiveTypeArguments(type), [bindings[1].argumentType]);
+    assert.equal(Object.isFrozen(bindings), true);
+    assert.equal(bindings.every(Object.isFrozen), true);
+  }
+});
+
+test("source alias applications expose exact checker bindings through the public boundary", async () => {
+  const checked = await checkedSource("source-alias-applications", {
+    "src/types.ts": `
+export declare const storage: unique symbol;
+export interface Stored<S> { readonly [storage]: S; }
+export type Storage<T> = T extends Stored<infer S> ? S : T;
+`,
+    "src/index.ts": `
+import type { Stored } from "./types.js";
+export type Value = Stored<{ count: number }>;
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const definitionFile = projectSourceFile(source, "src/types.ts");
+  const semantics = source.semantics.forFile(file);
+  const valueDeclaration = requiredNode(source.ast, file, node =>
+    source.ast.is.IsTypeAliasDeclaration(node) && source.ast.text(source.ast.name(node)) === "Value");
+  const valueType = semantics.types.authoredType(source.ast.typeNode(valueDeclaration));
+  assert.ok(valueType);
+  const aliasDeclaration = requiredNode(source.ast, definitionFile, node =>
+    source.ast.is.IsTypeAliasDeclaration(node) && source.ast.text(source.ast.name(node)) === "Storage");
+  const application = semantics.types.instantiateAlias(aliasDeclaration, [valueType]);
+  assert.ok(application);
+  assert.equal(application.declaration, aliasDeclaration);
+  assert.equal(application.bindings[0].declaration, source.ast.typeParameters(aliasDeclaration)[0]);
+  assert.equal(application.bindings[0].argument, valueType);
+  assert.equal(Object.isFrozen(application), true);
+  const properties = semantics.types.propertyInfos(application.result);
+  assert.deepEqual(properties.map(property => property.name), ["count"]);
+  assert.equal(semantics.types.isNumberLike(properties[0].type), true);
+  assert.equal(semantics.types.instantiateAlias(aliasDeclaration, []), undefined);
+});
+
+test("inferred alias applications retain cross-file identities through the public source boundary", async () => {
+  const checked = await checkedSource("inferred-alias-applications", {
+    "src/storage.ts": `
+export declare const key: unique symbol;
+export interface Stored<S> { readonly [key]: S; }
+export type Storage<T> = T extends Stored<infer S> ? S : T;
+`,
+    "src/index.ts": `
+import type { Storage as Selected } from "./storage.js";
+export function read<T>(value: Selected<T>): Selected<T> { return value; }
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const definitions = projectSourceFile(source, "src/storage.ts");
+  const declaration = namedDeclaration(source.ast, file, "read");
+  const parameter = source.ast.parameters(declaration)[0];
+  const semantics = source.semantics.forFile(file);
+  const type = semantics.declarations.declaredValueType(parameter);
+  const selected = semantics.types.aliasApplication(type);
+  assert.ok(selected);
+  const alias = requiredNode(source.ast, definitions, node =>
+    source.ast.is.IsTypeAliasDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "Storage");
+  assert.equal(selected.declaration, alias);
+  assert.equal(selected.result, type);
+  assert.equal(selected.conditionalSteps[0].branch, "deferred");
+  const argument = semantics.declarations.declaredType(source.ast.typeParameters(declaration)[0]);
+  assert.equal(selected.bindings[0].argument, argument);
+  assert.equal(Object.isFrozen(selected), true);
+  assert.equal(Object.isFrozen(selected.bindings), true);
+  assert.equal(selected.bindings.every(Object.isFrozen), true);
+  assert.equal(source.semantics.forFile(definitions).types.aliasApplication(type).result, type);
 });
 
 test("source type syntax distinguishes compositional forms from checker transforms", async () => {

@@ -8,6 +8,7 @@ import { isAbsolute, relative } from "node:path";
 import { isPathWithinOrEqual } from "./path-relation.js";
 
 export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDirectory: string): readonly TargetDiagnostic[] {
+  const positions: DiagnosticPositions = new WeakMap();
   const diagnostics = source.diagnostics
     .filter((diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined);
   const tstsDiagnostics: TargetDiagnostic[] = diagnostics.map((diagnostic): TargetDiagnostic => ({
@@ -15,7 +16,7 @@ export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDire
     category: tstsDiagnosticCategory(diagnostic),
     message: formatDiagnostics([diagnostic], currentDirectory).trimEnd(),
     source: "tsts",
-    sourceSpan: getTstsDiagnosticSourceSpan(source, diagnostic, currentDirectory),
+    sourceSpan: getTstsDiagnosticSourceSpan(source, diagnostic, currentDirectory, positions),
     evidence: tstsDiagnosticEvidence(diagnostic),
   }));
   return [
@@ -25,7 +26,7 @@ export function collectTstsDiagnostics(source: CheckedSourceProgram, currentDire
       category: diagnostic.category,
       message: diagnostic.message,
       source: diagnostic.extensionId,
-      sourceSpan: getExtensionDiagnosticSourceSpan(source, diagnostic.nodeOrSpan, currentDirectory),
+      sourceSpan: getExtensionDiagnosticSourceSpan(source, diagnostic.nodeOrSpan, currentDirectory, positions),
       evidence: diagnostic.evidence?.map((entry) =>
         entry.details === undefined ? entry.message : `${entry.message}: ${formatDiagnosticEvidenceDetails(entry.details)}`),
     })),
@@ -37,12 +38,14 @@ export function finalizeTargetDiagnostics(
   diagnostics: readonly TargetDiagnostic[],
   currentDirectory: string,
 ): readonly TargetDiagnostic[] {
+  const positions: DiagnosticPositions = new WeakMap();
   return diagnostics.map((diagnostic) => {
     const sourceSpan = diagnostic.sourceSpan ??
       getExtensionDiagnosticSourceSpan(
         source,
         diagnostic.sourceNode,
         currentDirectory,
+        positions,
       );
     const { sourceNode: _sourceNode, ...result } = diagnostic;
     return {
@@ -74,6 +77,7 @@ function getTstsDiagnosticSourceSpan(
   source: CheckedSourceProgram,
   diagnostic: unknown,
   currentDirectory: string,
+  positions: DiagnosticPositions,
 ): TargetDiagnosticSourceSpan | undefined {
   if (!isObjectRecord(diagnostic)) {
     return undefined;
@@ -83,7 +87,7 @@ function getTstsDiagnosticSourceSpan(
   if (!isSourceFileLike(file) || !isDiagnosticLocation(loc)) {
     return undefined;
   }
-  return createSourceSpan(source, file, loc.pos, loc.end, currentDirectory);
+  return createSourceSpan(source, file, loc.pos, loc.end, currentDirectory, positions);
 }
 
 function isSourceFileLike(value: unknown): value is SourceFile {
@@ -100,6 +104,7 @@ function getExtensionDiagnosticSourceSpan(
   source: CheckedSourceProgram,
   nodeOrSpan: unknown,
   currentDirectory: string,
+  positions: DiagnosticPositions,
 ): TargetDiagnosticSourceSpan | undefined {
   if (nodeOrSpan === undefined || nodeOrSpan === null || typeof nodeOrSpan !== "object") {
     return undefined;
@@ -111,6 +116,7 @@ function getExtensionDiagnosticSourceSpan(
       nodeOrSpan.pos,
       nodeOrSpan.end,
       currentDirectory,
+      positions,
     );
   }
   if (source.ast.kind(nodeOrSpan as SourceFile) === undefined) {
@@ -126,6 +132,7 @@ function getExtensionDiagnosticSourceSpan(
     source.ast.pos(nodeOrSpan as SourceFile),
     source.ast.end(nodeOrSpan as SourceFile),
     currentDirectory,
+    positions,
   );
 }
 
@@ -145,14 +152,19 @@ function createSourceSpan(
   pos: number,
   end: number,
   currentDirectory: string,
+  positions: DiagnosticPositions,
 ): TargetDiagnosticSourceSpan | undefined {
-  const text = source.ast.getSourceText(sourceFile);
   if (!Number.isInteger(pos) || !Number.isInteger(end) || pos < 0 || end < pos) {
     return undefined;
   }
-  const normalizedStart = skipLeadingDiagnosticWhitespace(text, pos, end);
-  const start = lineColumnAt(text, normalizedStart);
-  const finish = lineColumnAt(text, end);
+  let index = positions.get(sourceFile);
+  if (index === undefined) {
+    index = createDiagnosticPositionIndex(source.ast.getSourceText(sourceFile));
+    positions.set(sourceFile, index);
+  }
+  const normalizedStart = skipLeadingDiagnosticWhitespace(index, pos, end);
+  const start = lineColumnAt(index, normalizedStart);
+  const finish = lineColumnAt(index, end);
   if (start === undefined || finish === undefined) {
     return undefined;
   }
@@ -165,11 +177,68 @@ function createSourceSpan(
   };
 }
 
-function skipLeadingDiagnosticWhitespace(text: string, start: number, end: number): number {
-  const cursor = utf8CursorAt(text, start);
+interface DiagnosticCursor {
+  readonly byteOffset: number;
+  readonly index: number;
+  readonly line: number;
+  readonly column: number;
+}
+
+interface DiagnosticPositionIndex {
+  readonly text: string;
+  readonly checkpoints: readonly DiagnosticCursor[];
+}
+
+type DiagnosticPositions = WeakMap<SourceFile, DiagnosticPositionIndex>;
+
+function createDiagnosticPositionIndex(text: string): DiagnosticPositionIndex {
+  const checkpoints: DiagnosticCursor[] = [{ byteOffset: 0, index: 0, line: 1, column: 1 }];
+  let byteOffset = 0;
+  let line = 1;
+  let column = 1;
+  let previousCheckpoint = 0;
+  for (let index = 0; index < text.length;) {
+    const codePoint = text.codePointAt(index)!;
+    if (codePoint === 0x0d && text[index + 1] === "\n") {
+      byteOffset += 2;
+      index += 2;
+      line += 1;
+      column = 1;
+    } else {
+      byteOffset += utf8ByteLength(codePoint);
+      index += codePoint > 0xffff ? 2 : 1;
+      if (codePoint === 0x0a || codePoint === 0x0d) {
+        line += 1;
+        column = 1;
+      } else {
+        column += 1;
+      }
+    }
+    if (byteOffset - previousCheckpoint >= 1024) {
+      checkpoints.push({ byteOffset, index, line, column });
+      previousCheckpoint = byteOffset;
+    }
+  }
+  return { text, checkpoints };
+}
+
+function diagnosticCheckpoint(index: DiagnosticPositionIndex, position: number): DiagnosticCursor {
+  let lower = 0;
+  let upper = index.checkpoints.length;
+  while (lower + 1 < upper) {
+    const middle = Math.floor((lower + upper) / 2);
+    if (index.checkpoints[middle]!.byteOffset > position) upper = middle;
+    else lower = middle;
+  }
+  return index.checkpoints[lower]!;
+}
+
+function skipLeadingDiagnosticWhitespace(positions: DiagnosticPositionIndex, start: number, end: number): number {
+  const cursor = utf8CursorAt(positions, start);
   if (cursor === undefined) {
     return start;
   }
+  const { text } = positions;
   let byteOffset = cursor.byteOffset;
   let index = cursor.index;
   while (byteOffset < end && index < text.length) {
@@ -184,9 +253,9 @@ function skipLeadingDiagnosticWhitespace(text: string, start: number, end: numbe
   return byteOffset;
 }
 
-function utf8CursorAt(text: string, position: number): { readonly byteOffset: number; readonly index: number } | undefined {
-  let byteOffset = 0;
-  let index = 0;
+function utf8CursorAt(positions: DiagnosticPositionIndex, position: number): { readonly byteOffset: number; readonly index: number } | undefined {
+  const { text } = positions;
+  let { byteOffset, index } = diagnosticCheckpoint(positions, position);
   while (index < text.length && byteOffset < position) {
     const codePoint = text.codePointAt(index);
     if (codePoint === undefined) {
@@ -214,11 +283,10 @@ function isDiagnosticLeadingWhitespace(codePoint: number): boolean {
     codePoint === 0x20;
 }
 
-function lineColumnAt(text: string, position: number): { readonly line: number; readonly column: number } | undefined {
-  let byteOffset = 0;
-  let line = 1;
-  let column = 1;
-  for (let index = 0; index < text.length && byteOffset < position;) {
+function lineColumnAt(positions: DiagnosticPositionIndex, position: number): { readonly line: number; readonly column: number } | undefined {
+  const { text } = positions;
+  let { byteOffset, index, line, column } = diagnosticCheckpoint(positions, position);
+  for (; index < text.length && byteOffset < position;) {
     const codePoint = text.codePointAt(index);
     if (codePoint === undefined) {
       return undefined;

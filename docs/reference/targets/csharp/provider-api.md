@@ -86,12 +86,18 @@ export function createTsonicPlugin() {
 | `virtualDeclarationFileName` | Virtual source filename for a public specifier |
 | `moduleDiagnostic` | Unowned or missing-module diagnostic |
 | `resolutionEvidence`, `declarationEvidence` | Optional source-provider evidence |
-| `policy` | Existing exact C# type/member relations, rejections and execution-driver contribution |
+| `createPolicy(selectedSurfaceIds)` | Exact C# type/member relations, rejections and execution driver for the selected source profiles |
 | `runtime` | Declared native artifact requirements |
 
 The factory snapshots package metadata and registers one source provider.
 It does not reflect native assemblies or infer target mappings. Those remain
 the producer's declared inputs, validated through the existing C# contracts.
+
+`createPolicy` receives the same immutable surface IDs as each module's
+`getExports`. Its result is validated and frozen once per selection. Use this
+when native and JavaScript declarations have different native carriers, such
+as `T[]` and `JSArray<T>`. A source-profile change cannot silently reuse the
+other profile's member signatures.
 
 For example, a module can have a public alias without changing its native
 member identity:

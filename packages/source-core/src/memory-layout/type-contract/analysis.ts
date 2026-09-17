@@ -246,9 +246,7 @@ export function createMemoryTypeContracts(
           typeShape.getIndexInfos(type).length !== 0) return false;
       const properties = typeShape.getPropertyInfos(type);
       if (properties.length !== layout.fields.length) return false;
-      if (properties.length === 0 && !checker.getSymbolDeclarations(checker.getTypeSymbol(type)).some(declaration =>
-        declaration !== undefined && (ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeLiteralNode(declaration) ||
-          ast.is.IsClassDeclaration(declaration)))) return false;
+      if (properties.length === 0 && domains.referenceType(selection.domain) === undefined) return false;
       const remaining = new Set<Symbol>();
       for (const field of layout.fields) {
         const member = fieldMembers.get(field.call);

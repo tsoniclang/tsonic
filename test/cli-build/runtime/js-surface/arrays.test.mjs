@@ -159,7 +159,8 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
       "  return [value, ...values];",
       "}",
       "",
-      "export function copy(values: int32[]): int32[] {",
+      "export function copy(): int32[] {",
+      "  const values: int32[] = [1, 2, 3];",
       "  return Array.from(values);",
       "}",
       "",
@@ -246,8 +247,8 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(values\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ value \}\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> prepend\(Tsonic\.CSharp\.Js\.JSArray<int> values, int value\)/);
   assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ value \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(values\)\);/);
-  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> copy\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArrayStatics\.from<int>\(values\);/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> copy\(\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArrayStatics\.fromDense<int>\(values\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> chars\(string value\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArrayStatics\.from\(value\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> make\(int left, int right\)/);

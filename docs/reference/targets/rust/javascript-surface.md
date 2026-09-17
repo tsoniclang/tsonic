@@ -1,5 +1,24 @@
 # Rust JavaScript surface
 
+## Array copies
+
+`Array.from` materializes the destination slots directly, preserving source
+element identity. A proven dense copy has no hidden density prepass, temporary
+element vector or automatic optional-element widening.
+
+```ts
+import type { int32 } from "@tsonic/core/types.js";
+
+const values: int32[] = [1, 2];
+const copy = Array.from(values);
+```
+
+A sparse copy needs an element carrier that can represent `undefined`.
+An open `int32[]` parameter does not establish density; copying it is rejected
+unless the existing source evidence proves density. Holes are never replaced
+with zero. Use an explicit `(int32 | undefined)[]` when absence is part of the
+source contract.
+
 Select with `surfaces: ["js"]`. The target composes the shared JavaScript
 source profile and activates `@tsonic/rust-js` only when selected operations
 require it.

@@ -24,3 +24,35 @@ operations reject at provider selection and are never forwarded to a Node
 process.
 
 See the detailed [support inventory](support-inventory.md).
+
+## Engine-specific controls
+
+The native program does not contain V8. The named
+`node:v8.setFlagsFromString(flags)` import is available so an optional engine
+control need not prevent compilation. Calling it always throws an explicit
+unsupported-operation error, including for an empty flag string. Importing it
+does not change process state. It does not adjust native thread stacks.
+
+```ts
+import { setFlagsFromString } from "node:v8";
+
+export function requestEngineFlags(flags: string): void {
+  setFlagsFromString(flags);
+}
+```
+
+`getHeapStatistics()` also imports and type-checks, but always throws when
+called. Its `HeapInfo` result contract lets optional diagnostic code compile;
+the native runtime never returns invented V8 measurements.
+
+```ts
+import { getHeapStatistics } from "node:v8";
+
+export function reportHeapLimit(): number {
+  return getHeapStatistics().heap_size_limit;
+}
+```
+
+Importing this function is safe; calling it throws. A program that needs heap
+statistics on its normal execution path needs a native implementation of that
+requirement. This boundary does not provide one, or a general V8 implementation.

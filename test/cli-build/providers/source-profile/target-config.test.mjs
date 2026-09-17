@@ -372,8 +372,9 @@ test("CLI diagnostics preserve the last successfully published target output", a
       ],
     }, null, 2),
     "src/index.ts": [
-      "export abstract class Base {",
-      "  abstract run(): string;",
+      "export function* values(): Generator<number, string, unknown> {",
+      "  try { yield 1; } catch { return \"caught\"; }",
+      "  return \"done\";",
       "}",
       "",
     ].join("\n"),
@@ -384,7 +385,7 @@ test("CLI diagnostics preserve the last successfully published target output", a
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST/);
+  assert.match(build.stderr, /CSHARP_UNSUPPORTED_GENERATOR_SUSPENSION_REGION/);
   assert.equal(await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedCleanDiagnostic.csproj"), "utf8"), "<Project />\n");
   assert.equal(await readFile(resolve(projectDirectory, "out/csharp/src/Stale.cs"), "utf8"), "public static class Stale {}\n");
   assert.equal(await readFile(resolve(projectDirectory, "out/csharp/runtime/stale.txt"), "utf8"), "stale\n");

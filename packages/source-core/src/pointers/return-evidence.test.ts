@@ -74,6 +74,17 @@ test("pointer return evidence preserves conflicting primitive alternatives for t
   assert.deepEqual(result.pointees.map(value => checked.sourceFacts.getFact(value.typeNode, sourcePrimitiveFactKey)?.kind).sort(), ["int32", "uint32"]);
 });
 
+test("inferred array pointers never advertise the layout element syntax as their pointee syntax", () => {
+  const { checked, result } = inspect(`
+    import { memoryArrayLayout } from "@tsonic/core/lang.js";
+    const words = memoryArrayLayout<uint32, 2>(abi, 8, 4, 8, uint32Layout, 2);
+    function expose() { return reinterpretRawPointer(raw, words); }
+  `);
+  assert.equal(result?.pointees.length, 1);
+  assert.equal(result.pointees[0]?.typeNode, undefined);
+  assert.equal(checked.ast.is.IsCallExpression(result.pointees[0]!.subject), true);
+});
+
 test("pointer return evidence excludes all nested callable and class return bodies", () => {
   const { result } = inspect(`
     function expose() {

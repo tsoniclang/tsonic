@@ -122,8 +122,20 @@ and generators without this capture are supported.
 
 ## Defaults, initialization, and receivers
 
-A C# optional-parameter default must be representable by C# metadata. A source
-default that executes code is not:
+Closed non-nullable reference parameters, including strings, can evaluate their
+source default in the function body when the argument is omitted or undefined:
+
+```ts
+function title(value: string = createTitle()): string {
+  return value;
+}
+
+title();          // evaluates createTitle() once
+title("chosen");  // does not evaluate createTitle()
+```
+
+Value-type defaults still need a C# metadata constant. For example, a numeric
+default that executes code remains unsupported:
 
 ```ts
 function next(value = createValue()): number {
@@ -146,6 +158,12 @@ Write an explicit initializer when that is the intended state. Static `this`
 in an initializer and a function-valued object property using dynamic `this`
 also reject unless one exact receiver contract exists. Instance methods and
 lexical arrow `this` are supported.
+
+Optional receiver call chains preserve their guard even when an operation maps
+to a static runtime method: `value?.trim().toLowerCase()` does not call either
+method when `value` is absent. A guard hidden behind an earlier property access,
+such as `box?.value.trim()?.toLowerCase()`, still rejects when that complete
+static-call region has no retained lowering contract.
 
 Catch-binding destructuring is not supported:
 
@@ -173,7 +191,6 @@ These selected forms remain unavailable:
 const raw = String.raw`c:\temp\file.txt`;
 const boxed = new String("text");
 Object.defineProperty(value, "name", { value: "next" });
-Object.freeze(value);
 value.toLocaleString("de-DE", { minimumFractionDigits: 2 });
 ```
 
@@ -182,7 +199,9 @@ are distinct from wrapper-object construction and remain supported where the
 selected conversion is closed. Object prototype, descriptor, and
 extensibility APIs require an object model that the static C# layout does not
 provide. No-argument number formatting remains separate from locale/options
-formatting.
+formatting. `Object.freeze` is supported for selected closed object carriers:
+it preserves identity and enforces shallow write restrictions.
+It is not a general property-descriptor or prototype implementation.
 
 ## Node capability boundaries
 
@@ -227,11 +246,10 @@ representable.
 
 ## Source forms with supported alternatives
 
-Some legal TypeScript forms have no direct C# source contract: abstract
-declarations, string-valued enums, and an uncontextualized empty array literal
-are examples. Use a concrete interface/base contract, a closed string-literal
-union, or an explicit array element type when that preserves the program. The
-target does not infer a missing carrier from later use.
+Some legal TypeScript forms have no direct C# source contract: string-valued
+enums and an uncontextualized empty array literal are examples. Use a closed
+string-literal union or an explicit array element type when that preserves the
+program. The target does not infer a missing carrier from later use.
 
 ## Deliberate source-to-source boundaries
 

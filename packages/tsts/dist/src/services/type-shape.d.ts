@@ -1,4 +1,6 @@
 import type { GoPtr } from "../go/compat.js";
+import type { TypeIndexedAccessComponents, TypeIndexedAccessSelection } from "./type-indexed-access.js";
+import { type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
@@ -11,6 +13,11 @@ export interface TypeIndexInfo {
     readonly declaration: GoPtr<Node>;
     readonly symbol: GoPtr<Symbol>;
     readonly components: readonly GoPtr<Node>[];
+}
+export interface TypeReferenceArgumentInfo {
+    readonly parameter: Type;
+    readonly argument: Type;
+    readonly scope: "outer" | "local";
 }
 export interface TypePropertyInfo {
     readonly symbol: Symbol;
@@ -43,6 +50,8 @@ export interface CreateTypeShapeQueriesOptions {
 export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
+    readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
+    readonly getTypeAliasApplication: (type: GoPtr<Type>) => TypeAliasApplicationInfo | undefined;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;
     readonly getNumericLiteralTypeValue: (type: GoPtr<Type>) => number | bigint | undefined;
     readonly isAny: (type: GoPtr<Type>) => boolean;
@@ -65,6 +74,7 @@ export interface TypeShapeQueries {
     readonly getUnionOrIntersectionTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTypeReferenceTarget: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTypeArguments: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
+    readonly getTypeReferenceArgumentInfos: (type: GoPtr<Type>) => readonly TypeReferenceArgumentInfo[] | undefined;
     readonly getSubstitutionBaseType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getTupleElementTypes: (type: GoPtr<Type>) => readonly GoPtr<Type>[];
     readonly getTupleElementInfos: (type: GoPtr<Type>) => readonly TypeTupleElementInfo[];
@@ -75,6 +85,8 @@ export interface TypeShapeQueries {
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
     readonly getIndexInfos: (type: GoPtr<Type>) => readonly TypeIndexInfo[];
+    readonly getIndexedAccessComponents: (type: GoPtr<Type>) => TypeIndexedAccessComponents | undefined;
+    readonly selectIndexedAccess: (objectType: GoPtr<Type>, indexType: GoPtr<Type>) => TypeIndexedAccessSelection | undefined;
     readonly getApparentType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getWidenedType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly removeMissingOrUndefined: (type: GoPtr<Type>) => GoPtr<Type>;

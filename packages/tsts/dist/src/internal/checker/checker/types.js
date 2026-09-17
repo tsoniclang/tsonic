@@ -9282,6 +9282,7 @@ export function Checker_getTypeFromConditionalTypeNode(receiver, node) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getConditionalType","kind":"method","status":"implemented","sigHash":"d50653c4663f396a2282f172098515c6e4820dfb760b0e6fd67b8aa329f4d70a","bodyHash":"0411b47fdc5ca799887f1017dc6d54a330d6db3b87576fe4bca6775f78ba2eda"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Delegates to the same conditional branch worker with an absent capture. Explicit alias-application queries retain bounded branch and mapper provenance without a global observer or checker-state side table."}
  *
  * Go source:
  * func (c *Checker) getConditionalType(root *ConditionalRoot, mapper *TypeMapper, forConstraint bool, alias *TypeAlias) *Type {
@@ -9431,6 +9432,9 @@ export function Checker_getTypeFromConditionalTypeNode(receiver, node) {
  * }
  */
 export function Checker_getConditionalType(receiver, root, mapper, forConstraint, alias) {
+    return Checker_getConditionalTypeWithCapture(receiver, root, mapper, forConstraint, alias, undefined);
+}
+export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, forConstraint, alias, capture) {
     let result = undefined;
     let extraTypes = [];
     let tailCount = 0;
@@ -9474,8 +9478,10 @@ export function Checker_getConditionalType(receiver, root, mapper, forConstraint
                     (forConstraint &&
                         (inferredExtendsType.flags & TypeFlagsNever) === 0 &&
                         someType(Checker_getPermissiveInstantiation(receiver, inferredExtendsType), (t) => Checker_isTypeAssignableTo(receiver, t, Checker_getPermissiveInstantiation(receiver, checkType))))) {
+                    capture?.record(root, "true", rootNode.TrueType, core.OrElse(combinedMapper, mapper));
                     extraTypes = [...(extraTypes ?? []), Checker_instantiateType(receiver, Checker_getTypeFromTypeNode(receiver, rootNode.TrueType), core.OrElse(combinedMapper, mapper))];
                 }
+                capture?.record(root, "false", rootNode.FalseType, mapper);
                 const falseType = Checker_getTypeFromTypeNode(receiver, rootNode.FalseType);
                 if ((falseType.flags & TypeFlagsConditional) !== 0) {
                     const newRoot = Type_AsConditionalType(falseType).root;
@@ -9501,6 +9507,7 @@ export function Checker_getConditionalType(receiver, root, mapper, forConstraint
                 Checker_isTypeAssignableTo(receiver, Checker_getRestrictiveInstantiation(receiver, checkType), Checker_getRestrictiveInstantiation(receiver, inferredExtendsType))) {
                 const trueType = Checker_getTypeFromTypeNode(receiver, rootNode.TrueType);
                 const trueMapper = core.OrElse(combinedMapper, mapper);
+                capture?.record(root, "true", rootNode.TrueType, trueMapper);
                 const [tailRoot, tailMapper] = Checker_getTailRecursionRoot(receiver, trueType, trueMapper);
                 if (tailRoot !== undefined) {
                     root = tailRoot;
@@ -9515,6 +9522,7 @@ export function Checker_getConditionalType(receiver, root, mapper, forConstraint
                 break;
             }
         }
+        capture?.record(root, "deferred", undefined, mapper);
         result = Checker_newConditionalType(receiver, root, mapper, combinedMapper);
         if (alias !== undefined) {
             result.alias = alias;

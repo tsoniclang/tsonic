@@ -68,6 +68,9 @@ export interface SourceFinalTypeQueries {
   declaredSymbolType(symbol: Symbol | undefined): Type | undefined;
   writeSymbolType(symbol: Symbol | undefined): Type | undefined;
   effectiveTypeArguments(type: Type): readonly Type[] | undefined;
+  typeArgumentBindings(type: Type): readonly import("./type-arguments.js").SourceTypeArgumentBinding[] | undefined;
+  instantiateAlias(declaration: Node, arguments_: readonly Type[]): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
+  aliasApplication(type: Type): import("@tsonic/tsts").TypeAliasApplicationInfo | undefined;
   typeArguments(type: Type): readonly Type[];
   substitutionBaseType(type: Type): Type | undefined;
   typeReferenceTarget(type: Type): Type | undefined;
@@ -76,6 +79,8 @@ export interface SourceFinalTypeQueries {
   unionOrIntersectionTypes(type: Type): readonly Type[];
   propertyInfos(type: Type): readonly import("@tsonic/tsts").TypePropertyInfo[];
   indexInfos(type: Type): readonly import("@tsonic/tsts").TypeIndexInfo[];
+  indexedAccessComponents(type: Type): import("@tsonic/tsts").TypeIndexedAccessComponents | undefined;
+  selectIndexedAccess(objectType: Type, indexType: Type): import("@tsonic/tsts").TypeIndexedAccessSelection | undefined;
   callSignatures(type: Type): readonly Signature[];
   constructSignatures(type: Type): readonly Signature[];
   returnType(signature: Signature): Type | undefined;

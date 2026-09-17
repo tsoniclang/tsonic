@@ -16,7 +16,7 @@ export function buildTypeScriptModuleAnalysis(sourceFiles) {
     files,
     rootFiles: [...sourceFiles.keys()],
     compilerOptions: {
-      allowJs: false,
+      allowJs: true,
       module: "esnext",
       moduleResolution: "bundler",
       noLib: true,
@@ -76,6 +76,7 @@ export function resolveRelativeModule(sourceFile, specifier, sourceFiles) {
   if (extension === ".js" || extension === ".mjs" || extension === ".cjs") {
     const stem = base.slice(0, -extension.length);
     candidates.push(...sourceExtensions.map((candidate) => `${stem}${candidate}`));
+    candidates.push(base);
   } else if (sourceExtensions.includes(extension)) {
     candidates.push(base);
   } else {

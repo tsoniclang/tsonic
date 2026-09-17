@@ -2,18 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, testRepositoryRoots, writeProject } from "../helpers/harness.mjs";
 
-const bannedGeneratedRuntimeSemantics = [
-  /\bdynamic\b/u,
-  /\bSystem\.Reflection\b/u,
-  /\bGetProperty\b/u,
-  /\bGetProperties\b/u,
-  /\bGetMethod\b/u,
-  /\bGetMethods\b/u,
-  /\bMethodInfo\.Invoke\b/u,
-  /\bMakeGenericMethod\b/u,
-  /\bActivator\.CreateInstance\b/u,
-  /\bAssembly\.Load\b/u,
-];
+import { assertCsharpSourceClosure } from "../helpers/csharp-source-guard.mjs";
 
 test("downstream smoke simple apps compile and run without old runtime reflection paths", async () => {
   const scenarios = [
@@ -346,13 +335,7 @@ test("downstream provider package imports fail closed when the package is not se
 
 async function assertGeneratedOutputHasNoReflectionSemantics(projectDirectory) {
   const files = await collectFiles(resolve(projectDirectory, "out/csharp"), (fileName) => fileName.endsWith(".cs"));
-  assert.notEqual(files.length, 0);
-  for (const file of files) {
-    const text = await readFile(file, "utf8");
-    for (const pattern of bannedGeneratedRuntimeSemantics) {
-      assert.doesNotMatch(text, pattern, `${file} contains banned runtime semantic ${pattern}`);
-    }
-  }
+  assertCsharpSourceClosure(files);
 }
 
 async function assertRuntimePackagesHaveNoReflectionSemantics() {
@@ -364,13 +347,7 @@ async function assertRuntimePackagesHaveNoReflectionSemantics() {
   const files = (await Promise.all(runtimeSourceDirectories.map((directory) =>
     collectFiles(directory, (fileName) => fileName.endsWith(".cs"))
   ))).flat();
-  assert.notEqual(files.length, 0);
-  for (const file of files) {
-    const text = await readFile(file, "utf8");
-    for (const pattern of bannedGeneratedRuntimeSemantics) {
-      assert.doesNotMatch(text, pattern, `${file} contains banned runtime semantic ${pattern}`);
-    }
-  }
+  assertCsharpSourceClosure(files);
 }
 
 function targetCsharpNodejsPackageJson(name) {

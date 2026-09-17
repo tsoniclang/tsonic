@@ -56,6 +56,7 @@ import type {
 } from "./types.js";
 
 export * from "./ast.js";
+export * from "./class-members.js";
 export * from "./checked-casts.js";
 export * from "./kinds.js";
 export * from "./node-access.js";

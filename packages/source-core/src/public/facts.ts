@@ -89,6 +89,8 @@ export type { TsonicProviderPointerResult, TsonicProviderPointerCarrierPolicy } 
 export { createTsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export type { TsonicPointerBackingDemand, TsonicPointerBackingDemands } from "../pointers/backing/demands.js";
 export { createTsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
+export { createTsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
+export type { TsonicMemoryBindingIndex } from "../memory-layout/bindings/usage.js";
 export { resolveTsonicMemoryLayoutObservation } from "../memory-layout/readers.js";
 export type { TsonicMemoryMetadata, TsonicMemoryMetadataIndex } from "../memory-layout/metadata-index.js";
 export type {

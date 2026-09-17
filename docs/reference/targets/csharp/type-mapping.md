@@ -7,6 +7,7 @@ The target maps exact source evidence, not TypeScript display names.
 | `boolean` / `bool` | `bool` |
 | `int8`…`uint64` | matching fixed-width CLR integer |
 | `int128`, `uint128` | `Int128`, `UInt128` when selected |
+| ordinary `bigint` | arbitrary-precision `System.Numerics.BigInteger` |
 | `float32`, `float64`, `decimal` | `float`, `double`, `decimal` |
 | `string` | `string` |
 | `T | undefined` / selected nullable | nullable reference or `Nullable<T>` according to carrier |
@@ -36,9 +37,12 @@ silently become numeric `.Length`.
 The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
 can describe exact array metadata, including huge zero-sized arrays, and
 resolve compile-time size/alignment/stride observations without constructing a
-C# array. Raw conversion or demanded physical backing for an inline array,
-directly or inside a record, rejects with an explicit unsupported inline-array
-reason. No native array codec or storage adapter is supplied by the descriptor.
+C# array. Raw conversion and demanded physical backing support bounded fixed
+arrays whose elements have an exact native scalar or value-record layout,
+including nested arrays. The codec uses the declared element stride rather than
+the CLR array's storage layout. Reads produce independent array snapshots;
+writes update the original raw region. Reference-valued elements and the extent
+restrictions above remain explicit rejections.
 
 ## Broad values
 

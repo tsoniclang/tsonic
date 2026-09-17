@@ -69,8 +69,9 @@ subfields work. An owned-root receiver location remains unsupported.
 `hashPointer` uses canonical location identity. `bindPointer` retains a closed
 reference owner, not just its identity token. `projectPointer` preserves
 identity, applies the selected conversions, and preserves optionality.
-Bindings and projections require infallible native callbacks with closed
-capture lifetimes; their stored callbacks must satisfy `'static`.
+Bindings and projections retain their callbacks' exact error contract. Throwing
+callbacks use native `Result` propagation rather than panic transport. Capture
+lifetimes must be closed; stored callbacks must satisfy `'static`.
 
 Raw identity, checked byte offsets, and exact 32/64-bit address integers are
 supported using a closed raw carrier. They require the `alloc` foundation;
@@ -169,6 +170,25 @@ This affects APIs requiring a project type to implement `Display`, `Iterator`,
 the explicitly supported direct JavaScript `Error` model; transitive external
 heritage is not general Rust inheritance.
 
+Builtin errors can be narrowed after `catch` without creating another Error:
+
+```ts
+function sameError(): boolean {
+  const original = new Error("failed");
+  try { throw original; }
+  catch (failure) {
+    if (failure instanceof Error) return failure === original;
+  }
+  return false;
+}
+```
+
+The native transport retains identity and an explicitly captured stack. Ordinary
+thrown project objects do not become builtin errors. A closed error domain that
+contains a project subclass with mutable inherited Error fields still rejects
+this builtin projection: those fields do not yet share the native Error object.
+The target does not reconstruct one from its current name and message.
+
 Ordinary project objects and closures use single-threaded ownership. Tsonic
 does not silently replace them with `Arc`, a lock, or a sendable closure to
 satisfy a threaded API. Node workers use their separate structured-clone
@@ -234,10 +254,11 @@ those platform contracts from source code.
 
 ## JavaScript and Node boundaries
 
-Locale- or timezone-dependent operations require an explicit deterministic
-data contract; host-default locale/timezone behavior is not compiler
-semantics. Open object inspection, dynamic field addition that changes a
-closed Rust layout, arbitrary cyclic graph projection, and Node stream/event
+Local Date getters and `getTimezoneOffset` use the native timezone source,
+including an explicit `TZ` selection. An unavailable selected timezone produces
+an error rather than silently substituting UTC. Local setters and locale string
+formatting remain unsupported. Open object inspection, dynamic field addition
+that changes a closed Rust layout, arbitrary cyclic graph projection, and Node stream/event
 schedulers outside the capability's closed contracts remain rejected.
 
 The JavaScript surface does not currently expose `String.raw`, wrapper-object

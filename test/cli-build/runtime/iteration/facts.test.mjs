@@ -169,11 +169,12 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   const generatedShapes = await readFile(resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"), "utf8");
-  assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /public required double value;/);
-  assert.match(generatedShapes, /public required string label;/);
+  assert.match(generatedShapes, /public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
+  assert.match(generatedShapes, /double value \{ get; set; \}/);
+  assert.match(generatedShapes, /string label \{ get; set; \}/);
+  assert.match(generatedShapes, /System\.ReadOnlySpan<string> __tsonicObjectEnumerableKeys\(\);/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_forInTarget0 = values;/);
-  assert.match(generatedSource, /string\[\] __tsonic_forInKeys0 = new string\[\] \{ "value", "label" \};/);
+  assert.match(generatedSource, /System\.ReadOnlySpan<string> __tsonic_forInKeys0 = __tsonic_forInTarget0\.__tsonicObjectEnumerableKeys\(\);/);
   assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
   assert.match(generatedSource, /string key = __tsonic_forInKeys0\[__tsonic_forInIndex0\];/);
   assert.match(generatedSource, /total = total \+ key\.Length;/);

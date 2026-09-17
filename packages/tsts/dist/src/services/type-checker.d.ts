@@ -16,6 +16,7 @@ export type ResolvedSourceCallInfo = ResolvedCallEvidence;
 export interface ResolvedSourceReceiverValueEvidence {
     readonly valueSymbol?: Symbol;
     readonly valueDeclaration?: Node;
+    readonly intrinsic?: "global-object";
 }
 export type ResolvedSourcePropertyAccessInfo = CheckerResolvedSourcePropertyAccessInfo & {
     readonly receiver: CheckerResolvedSourcePropertyAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;

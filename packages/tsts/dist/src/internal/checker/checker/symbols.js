@@ -5408,6 +5408,7 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         || selected.argumentType === undefined
         || sourceResultType === undefined
         || Checker_isErrorType(receiver, sourceResultType)
+        || (selected.readType !== undefined && Checker_isErrorType(receiver, selected.readType))
         || sourceResultType === receiver.silentNeverType) {
         return undefined;
     }
@@ -5433,9 +5434,9 @@ export function Checker_getResolvedSourceElementAccessInfo(receiver, node) {
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
         ...(selected.selectedElementIndex === undefined ? {} : { selectedElementIndex: selected.selectedElementIndex }),
         writable: selectedElementAccessIsWritable(receiver, node, selected),
-        ...resolvedSourceAccessTypes(accessMode, accessMode === "read" || accessMode === "delete" || accessMode === "read-write"
-            ? sourceResultType
-            : undefined, accessMode === "write" || accessMode === "read-write"
+        ...resolvedSourceAccessTypes(accessMode, accessMode === "read-write"
+            ? selected.readType
+            : accessMode === "read" || accessMode === "delete" ? sourceResultType : undefined, accessMode === "write" || accessMode === "read-write"
             ? sourceResultType
             : undefined),
         optionalChain: IsOptionalChain(node),
@@ -5473,6 +5474,12 @@ function checkElementAccessExpressionWithEvidence(receiver, node, exprType, chec
     if (selected !== undefined && !Checker_isErrorType(receiver, resultType)) {
         selected.selected = true;
         selected.resultType = resultType;
+        if (checkedAccessMode(node) === "read-write") {
+            const readAccessType = getIndexedAccessTypeOrUndefinedWithEvidence(receiver, objectType, effectiveIndexType, AccessFlagsExpressionPosition, node, undefined);
+            selected.readType = readAccessType === undefined
+                ? undefined
+                : Checker_checkIndexedAccessIndexType(receiver, Checker_getFlowTypeOfAccessExpression(receiver, node, selectedSymbol, readAccessType, indexExpression, checkMode), node);
+        }
         selected.receiverType = objectType;
         selected.argumentType = effectiveIndexType;
         const targetSelectedSymbol = selectedSymbol !== undefined && (selectedSymbol.Flags & SymbolFlagsAlias) !== 0
@@ -5534,6 +5541,7 @@ function createSelectedElementAccessCheck() {
     return {
         selected: false,
         resultType: undefined,
+        readType: undefined,
         receiverType: undefined,
         argumentType: undefined,
         sourceSymbol: undefined,
@@ -6723,16 +6731,7 @@ function checkedAccessMode(node) {
     if (isDeleteTarget(node)) {
         return "delete";
     }
-    switch (getAssignmentTargetKind(node)) {
-        case AssignmentKindNone:
-            return "read";
-        case AssignmentKindDefinite:
-            return "write";
-        case AssignmentKindCompound:
-            return "read-write";
-        default:
-            throw new Error("TS-Go returned an unknown checked access assignment kind.");
-    }
+    return IsWriteOnlyAccess(node) ? "write" : IsWriteAccess(node) ? "read-write" : "read";
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpressionOrQualifiedName","kind":"method","status":"implemented","sigHash":"9215f415f7607d418e5a3a390b0bf838e9a2f44b6cd177065016f5a85a4714b1","bodyHash":"c9ee642c0561d3b1c6f6fcf3a43fb2def31c2e6dcf98504b1f6a3169813218e3"}

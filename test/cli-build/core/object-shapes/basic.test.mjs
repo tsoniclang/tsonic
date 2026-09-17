@@ -339,8 +339,10 @@ test("CLI emits discriminated object-shape unions with identical finalized carri
     "utf8",
   );
   assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /public required string kind;/);
-  assert.match(generatedShapes, /public required double value;/);
+  assert.match(generatedShapes, /string kind \{ get; set; \}/);
+  assert.match(generatedShapes, /double value \{ get; set; \}/);
+  assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedSource, /public static double score\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} result\)/);
   assert.match(generatedSource, /if \(result\.kind == "found"\)/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} found = result;/);
@@ -393,11 +395,12 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /public required double value;/);
-  assert.match(generatedShapes, /public required string label;/);
+  assert.match(generatedShapes, /public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
+  assert.match(generatedShapes, /double value \{ get; set; \}/);
+  assert.match(generatedShapes, /string label \{ get; set; \}/);
+  assert.match(generatedShapes, /System\.ReadOnlySpan<string> __tsonicObjectEnumerableKeys\(\);/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_forInTarget0 = values;/);
-  assert.match(generatedSource, /string\[\] __tsonic_forInKeys0 = new string\[\] \{ "value", "label" \};/);
+  assert.match(generatedSource, /System\.ReadOnlySpan<string> __tsonic_forInKeys0 = __tsonic_forInTarget0\.__tsonicObjectEnumerableKeys\(\);/);
   assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
   assert.match(generatedSource, /string key = __tsonic_forInKeys0\[__tsonic_forInIndex0\];/);
   assert.match(generatedSource, /total = total \+ (?:\(\(string\)key\)|key)\.Length;/);
@@ -520,10 +523,10 @@ test("CLI emits nested structural object-shape literals through finalized nested
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public required [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} child;/);
-  assert.match(generatedShapes, /public required double count;/);
-  assert.match(generatedShapes, /public required double value;/);
-  assert.match(generatedShapes, /public required string label;/);
+  assert.match(generatedShapes, /public required [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} child\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required double count\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*child = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = "ok",\s*\},\s*count = 2,\s*\};/);
   assert.match(generatedSource, /parent\.child\.label/);
   assert.match(generatedSource, /parent\.child\.value \+ parent\.count/);
