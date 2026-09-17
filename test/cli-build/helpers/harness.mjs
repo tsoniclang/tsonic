@@ -5,10 +5,11 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { testRepositoryRoots } from "../../scripts/workspace-layout.mjs";
+import { createTestWorkspace } from "../../scripts/test-workspaces.mjs";
 
 const repoRoot = testRepositoryRoots.tsonic;
 const cliPath = resolve(repoRoot, "packages/cli/dist/src/index.js");
-const tempRoot = resolve(repoRoot, ".temp/test-runs/cli-build", `${Date.now()}-${process.pid}`);
+const tempRoot = createTestWorkspace(resolve(repoRoot, ".temp/test-runs/cli-build"), "worker-");
 const bannedGeneratedRuntimeSemantics = [
   /\bdynamic\b/u,
   /\bSystem\.Reflection\b/u,

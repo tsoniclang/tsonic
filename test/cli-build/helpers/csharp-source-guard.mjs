@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { testRepositoryRoots } from "../../scripts/workspace-layout.mjs";
+import { createTestWorkspace } from "../../scripts/test-workspaces.mjs";
 
 let scanner;
 
@@ -12,8 +13,7 @@ export function assertCsharpSourceClosure(files) {
   if (sourceFiles.length > 0) {
     if (scanner === undefined) {
       const scratch = join(testRepositoryRoots.tsonic, ".temp", "source-guard");
-      mkdirSync(scratch, { recursive: true });
-      const directory = mkdtempSync(join(scratch, "worker-"));
+      const directory = createTestWorkspace(scratch, "worker-");
       const output = join(directory, "bin");
       const build = spawnSync("dotnet", ["build",
         join(testRepositoryRoots.csharpJs, "tools/source-guard/SourceGuard.csproj"),
