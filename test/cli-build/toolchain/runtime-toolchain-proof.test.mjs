@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, testRepositoryRoots, writeProject } from "../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, testRepositoryRoots, writeProject } from "../helpers/harness.mjs";
 
 import { assertCsharpSourceClosure } from "../helpers/csharp-source-guard.mjs";
 
@@ -293,16 +293,11 @@ test("CLI generated C# executable publishes and runs through NativeAOT", async (
 });
 
 function assertRuntimeReferences(projectText, expected) {
-  assertReference(projectText, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath="[^"]*Tsonic\.CSharp\.Runtime\.dll" \/>/u, expected.runtime, "Tsonic.CSharp.Runtime");
-  assertReference(projectText, /<Reference Include="Tsonic\.CSharp\.Js" HintPath="[^"]*Tsonic\.CSharp\.Js\.dll" \/>/u, expected.js, "Tsonic.CSharp.Js");
-  assertReference(projectText, /<Reference Include="Tsonic\.CSharp\.Node" HintPath="[^"]*Tsonic\.CSharp\.Node\.dll" \/>/u, expected.nodejs, "Tsonic.CSharp.Node");
-}
-
-function assertReference(projectText, pattern, shouldExist, label) {
-  if (shouldExist) {
-    assert.match(projectText, pattern, label);
-  } else {
-    assert.doesNotMatch(projectText, pattern, label);
+  for (const [key, name] of [["runtime", "Runtime"], ["js", "Js"], ["nodejs", "Node"]]) {
+    const assemblyName = `Tsonic.CSharp.${name}`;
+    assertNoInstalledAssemblyReference(projectText, assemblyName);
+    if (expected[key]) assertRuntimeProjectReference(projectText, assemblyName);
+    else assertNoRuntimeReference(projectText, assemblyName);
   }
 }
 

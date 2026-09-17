@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("CLI builds and runs existing Node-style code when Node provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-provider-package-code");
@@ -67,9 +67,9 @@ test("CLI builds and runs existing Node-style code when Node provider package is
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedExistingNodeProviderPackageCode.csproj"), "utf8");
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath="[^"]*Tsonic\.CSharp\.Runtime\.dll" \/>/);
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Js" HintPath="[^"]*Tsonic\.CSharp\.Js\.dll" \/>/);
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Node" HintPath="[^"]*Tsonic\.CSharp\.Node\.dll" \/>/);
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.fs\.existsSync\(path\) && Tsonic\.CSharp\.Node\.fs\.statSync\(path\)\.IsFile\(\);/);
@@ -355,9 +355,9 @@ test("CLI emits NodeJS default imports from selected provider-package module obj
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/SmokeGeneratedNodeDefaultModules.csproj"), "utf8");
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath="[^"]*Tsonic\.CSharp\.Runtime\.dll" \/>/);
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Js" HintPath="[^"]*Tsonic\.CSharp\.Js\.dll" \/>/);
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Node" HintPath="[^"]*Tsonic\.CSharp\.Node\.dll" \/>/);
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return Tsonic\.CSharp\.Node\.path\.join\(Tsonic\.CSharp\.Node\.process\.cwd\(\), Tsonic\.CSharp\.Node\.util\.toUSVString\(name\)\) \+ Tsonic\.CSharp\.Node\.os\.EOL \+ Tsonic\.CSharp\.Node\.crypto\.randomUUID\(\);/);
@@ -464,9 +464,9 @@ test("CLI runs Node provider-package runtime operations from selected facts", as
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedProject = await readFile(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "utf8");
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Runtime" HintPath="[^"]*Tsonic\.CSharp\.Runtime\.dll" \/>/);
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Js" HintPath="[^"]*Tsonic\.CSharp\.Js\.dll" \/>/);
-  assert.match(generatedProject, /<Reference Include="Tsonic\.CSharp\.Node" HintPath="[^"]*Tsonic\.CSharp\.Node\.dll" \/>/);
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Runtime");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(generatedProject, "Tsonic.CSharp.Node");
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /Tsonic\.CSharp\.Node\.fs\.writeFileSync\(filePath, "hello", "utf8"\);/);
