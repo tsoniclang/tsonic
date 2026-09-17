@@ -55,7 +55,7 @@ package/
 │   └── provider/
 │       ├── package.ts     # capability composition
 │       └── modules/       # declarations and exact native mappings by module
-└── runtimes/net10.0/      # runtime assembly, when one is required
+└── native/               # runtime source project, when one is required
 ```
 
 The source model must be legal TypeScript declaration syntax. The target model

@@ -53,6 +53,36 @@ TypeScript exports. Synchronous top-level initialization uses a CLR module
 initializer. A library with top-level `await` is rejected because CLR module
 initializers are synchronous.
 
+## Runtime source and framework selection
+
+The npm packages `@tsonic/csharp-runtime`, `@tsonic/csharp-js`, and
+`@tsonic/csharp-nodejs` contain native source projects. Tsonic creates small,
+framework-specific import projects in its cache and references the ones the
+program needs. MSBuild builds their source for the same
+framework as the application and restores their NuGet dependencies. There is
+no separate runtime build command and no precompiled runtime DLL to replace.
+
+The default framework is `net10.0`. Choose another in the C# target entry:
+
+```json
+{
+  "id": "csharp",
+  "options": {
+    "targetFramework": "net11.0",
+    "outputType": "Exe"
+  }
+}
+```
+
+Select an SDK that supports that framework using the normal .NET `global.json`
+mechanism. Run `dotnet --list-sdks` and `dotnet --list-runtimes` to check the
+installation. Tsonic reports an unavailable framework instead of substituting
+another. The C# language dialect remains separately configured.
+
+Build outputs are stored under `.tsonic/cache/csharp/runtime`, outside installed
+packages. MSBuild owns incremental rebuilds. Source delivery adds a cold native
+runtime build; it does not add runtime interpretation to the application.
+
 ## References
 
 Generated projects can declare project, NuGet package, framework, and assembly
@@ -111,6 +141,7 @@ For a project at `native/Example.csproj` and generated files under
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../out/csharp/**/*.cs" LinkBase="Generated" />
+    <ProjectReference Include="runtime/Tsonic.CSharp.Runtime.csproj" />
   </ItemGroup>
 </Project>
 ```
@@ -118,6 +149,35 @@ For a project at `native/Example.csproj` and generated files under
 Adjust the relative path to match the project layout. Use a user-owned project
 for a different SDK, such as `Microsoft.NET.Sdk.Web`, a test SDK, desktop UI,
 MAUI, or a custom build pipeline.
+
+Keep its framework consistent with `targetFramework` in `tsonic.json`. The
+referenced `native/runtime/Tsonic.CSharp.Runtime.csproj` imports the installed
+source project:
+
+```xml
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <DirectoryBuildPropsPath>$(MSBuildThisFileDirectory)../../node_modules/@tsonic/csharp-runtime/Directory.Build.props</DirectoryBuildPropsPath>
+    <TsonicRuntimeArtifactsPath>$(MSBuildThisFileDirectory)../../.tsonic/cache/csharp/runtime/</TsonicRuntimeArtifactsPath>
+  </PropertyGroup>
+  <Import Project="../../node_modules/@tsonic/csharp-runtime/src/Tsonic.CSharp.Runtime/Tsonic.CSharp.Runtime.csproj" />
+</Project>
+```
+
+For JS or Node, add equivalent import projects for their `runtime.csproj` and
+`runtime.props` package exports. Before the import, set
+`TsonicCsharpRuntimeProject` to the core import project; Node also needs
+`TsonicCsharpJsProject` pointing to the JS import project. Use absolute paths or
+paths based on `$(MSBuildThisFileDirectory)`. Keep one core project in that graph.
+Native source stays in npm packages, while build products stay in your cache.
+
+These examples use npm's default hoisted layout. For a nested installation,
+resolve the package exports with Node's `import.meta.resolve` and use those exact
+paths. Generated-project mode does this automatically. Do not carry framework
+or output selection through `ProjectReference.AdditionalProperties`: NuGet's
+restore walk does not preserve that metadata. Each import project must declare
+the same configuration for restore and build.
 
 ## What each setting controls
 

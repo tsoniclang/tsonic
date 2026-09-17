@@ -1,8 +1,8 @@
 import {
   assert,
   assertGeneratedOutputHasNoReflectionSemantics,
-  assertInstalledAssemblyReference,
-  assertNoRuntimeProjectReference,
+  assertRuntimeProjectReference,
+  assertNoInstalledAssemblyReference,
   cliPath,
   readFile,
   resolve,
@@ -110,8 +110,8 @@ test("CLI maps selected JS Promise construction and all to Task-backed runtime o
 
   const projectText = await readFile(resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "utf8");
   const generatedText = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assertInstalledAssemblyReference(projectText, "Tsonic.CSharp.Js");
-  assertNoRuntimeProjectReference(projectText, "Tsonic.CSharp.Js");
+  assertRuntimeProjectReference(projectText, "Tsonic.CSharp.Js");
+  assertNoInstalledAssemblyReference(projectText, "Tsonic.CSharp.Js");
   assert.match(generatedText, /System\.Threading\.Tasks\.Task<double>/u);
   assert.match(generatedText, /System\.Threading\.Tasks\.Task<double> passthrough\(System\.Threading\.Tasks\.Task<double> input\)/u);
   assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime\.Create/u);

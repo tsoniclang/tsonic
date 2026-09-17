@@ -17,7 +17,7 @@ are rejected.
 | `properties` | scalar object | empty | Additional non-target-owned MSBuild properties |
 | `publishAot` | boolean | omitted | Generated `PublishAot` property when supplied |
 | `references` | object | empty | Generated native project references |
-| `targetFramework` | nonempty string | `net10.0` | Generated target framework and framework-pack lookup |
+| `targetFramework` | .NET 10-or-later framework | `net10.0` | Generated project, source runtime projects, and provider framework selection |
 
 `memorySafetyRules: "preview"` requires
 `languageDialect: "csharp15-preview"`.

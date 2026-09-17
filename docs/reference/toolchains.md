@@ -25,23 +25,43 @@ Tsonic installation.
 
 | Item | Contract |
 | --- | --- |
-| SDK | .NET 10 SDK |
+| SDK | An installed .NET 10-or-later SDK supporting the selected framework |
 | Default target framework | `net10.0` |
 | Generated SDK | `Microsoft.NET.Sdk` |
 | Stable language dialect | C# 14 |
 | Optional preview dialect | C# 15 preview |
 
-The selected SDK must contain the reference pack for `targetFramework`.
+The selected SDK must support `targetFramework`; its matching .NET runtime and
+required reference packs must also be installed. Tsonic follows native SDK
+selection, including the application's `global.json`.
 Framework and assembly provider inputs are snapshotted for one compilation.
 
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0),
+Install the [.NET SDK](https://dotnet.microsoft.com/en-us/download/dotnet),
 using Microsoft's [platform instructions](https://learn.microsoft.com/en-us/dotnet/core/install/)
-when needed. Confirm that a `10.0.x` SDK is listed:
+when needed. Confirm the SDK and runtime for your chosen framework are listed:
 
 ```sh
 dotnet --version
 dotnet --list-sdks
+dotnet --list-runtimes
 ```
+
+The default is `net10.0`. To target .NET 11, set
+`target.options.targetFramework` to `net11.0` in `tsonic.json` and select a suitable
+SDK. Later frameworks use the same setting; an unavailable framework is an error,
+not a reason to substitute .NET 10. C# language dialect remains a separate option.
+
+The C# npm runtimes ship source projects. MSBuild builds them for the selected
+framework and caches outputs outside `node_modules`. Installing another framework
+does not require a differently precompiled Tsonic runtime package.
+
+Release verification can exercise several installed SDKs against the same npm
+installation. For example, maintainers can set `TSONIC_CSHARP_FRAMEWORK_MATRIX`
+to a JSON array of `{ "framework": "net11.0", "sdk": "11.0.100-rc.1.26425.128" }`
+records when running `node scripts/release/verify-packed-install.mjs`. Use exact
+SDK versions present on that machine. Each selection runs the native, JS and
+Node source-runtime closure, repeats the build, and checks that installed
+packages remain unchanged. This is a verification input, not application config.
 
 Use a user-owned project for another SDK shape. Tsonic does not change an
 ASP.NET, desktop, mobile, test, or custom SDK project into a generated
