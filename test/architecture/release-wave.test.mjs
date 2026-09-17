@@ -84,33 +84,25 @@ test("the required publisher validates without publishing from a feature branch"
     authenticationIndex < certificationIndex,
     "npm authentication must be checked before expensive certification",
   );
-  assert.doesNotMatch(publisherSource, /tsonic-wave/u);
-  assert.match(publisherSource, /"--tag",\s*"latest"/u);
+  assert.match(publisherSource, /publishStagedWave/u);
+  assert.doesNotMatch(publisherSource, /"--tag",\s*"latest"/u);
   assert.match(
     publisherSource,
-    /"dist-tag",\s*"add",\s*`\$\{entry\.name\}@\$\{wave\.version\}`,\s*"latest"/u,
+    /"dist-tag",\s*"add",\s*`\$\{name\}@\$\{version\}`,\s*"latest"/u,
   );
   assert.match(publisherSource, /"--registry",\s*npmRegistry/u);
   assert.match(publisherSource, /scripts\/check-branch-hygiene\.sh/u);
   assert.match(publisherSource, /waitForNpmViewPresence/u);
-  const publicInstallIndex = publisherSource.lastIndexOf(
-    '"scripts/release/verify-public-install.mjs", "--version", wave.version',
-  );
-  const publicationIndex = publisherSource.indexOf('"publish",');
-  assert.notEqual(publicInstallIndex, -1);
-  assert.notEqual(publicationIndex, -1);
-  assert.ok(
-    publicationIndex < publicInstallIndex,
-    "the public install must exercise already-published registry artifacts",
-  );
+  assert.match(publisherSource, /verifyLocalArtifact/u);
+  assert.match(publisherSource, /"--selection", selection/u);
 
   const publicInstallSource = readFileSync(
     resolve(hostRoot, "scripts/release/verify-public-install.mjs"),
     "utf8",
   );
   assert.match(publicInstallSource, /npm_config_registry: npmRegistry/u);
-  assert.match(publicInstallSource, /"tsonic@latest"/u);
-  assert.match(publicInstallSource, /`\$\{options\.capabilityPackage\}@latest`/u);
+  assert.match(publicInstallSource, /`tsonic@\$\{publicPackageSelection\(options\.version, options\.selection\)\}`/u);
+  assert.match(publicInstallSource, /`\$\{options\.capabilityPackage\}@\$\{publicPackageSelection\(options\.version, options\.selection\)\}`/u);
   assert.match(publicInstallSource, /name: "tsonic-public-install-root"/u);
   assert.match(publicInstallSource, /delete environment\[name\]/u);
   assert.match(publicInstallSource, /"TSONICLANG_WORKSPACE_ROOT"/u);
@@ -125,6 +117,9 @@ test("the required publisher validates without publishing from a feature branch"
   );
   assert.match(packedInstallSource, /const totalFileCount = packed\.reduce/u);
   assert.match(publisherSource, /packed\.totalFileCount/u);
+  for (const source of [packedInstallSource, publicInstallSource]) {
+    assert.match(source, /from "\.\/verify-csharp-frameworks\.mjs"/u);
+  }
 });
 
 test("npm release access is explicit and fails before unauthenticated publication", () => {

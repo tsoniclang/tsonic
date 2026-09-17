@@ -50,8 +50,10 @@ This file contains only host-repository deltas.
   patch and publish from there.
 - Determine publish need per package from both local-vs-npm versions and content
   drift since that package's last version-bump commit.
-- A wave publish includes every affected npm and NuGet package; do not omit
-  runtime packages implicitly.
+- npm is the sole distribution for first-party compiler and runtime packages.
+  A wave includes every affected npm package; do not omit runtime packages.
+  External NuGet dependencies still restore normally; do not publish our own
+  runtime NuGet packages.
 - Stage exact npm artifacts before changing `latest`. Promote only after fresh
   public-registry C#, Rust, and Node-capability projects install and execute
   without a source checkout, local links, workspace roots, or global Tsonic.

@@ -65,7 +65,9 @@ export function formatReleaseChecklist(action, packageCount) {
     "- [ ] Confirm `npm whoami --registry https://registry.npmjs.org/` (identity only; this does not prove publish authorization).",
     "- [ ] Run `./scripts/publish-npm.sh` from a coherent clean `main` workspace.",
     "- [ ] Require complete source, target, runtime, and packed-install certification.",
-    "- [ ] Require exact public-registry C#, Rust, and Node execution after direct publication.",
+    "- [ ] Stage certified tarballs without changing existing latest tags.",
+    "- [ ] Require exact public-registry C#, Rust, and Node execution before promotion.",
+    "- [ ] Promote latest and verify fresh latest-based public installation.",
     "- [ ] Confirm `./scripts/release-status.sh` reports `Status: current`.",
   );
   return `${lines.join("\n")}\n`;
