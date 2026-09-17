@@ -16,6 +16,21 @@ same source contract.
 Focused tests are development tools. Merge certification uses each repository's
 complete bounded gate and downstream proof required by the changed contract.
 
+## Temporary test projects
+
+Native test fixtures use `test/scripts/test-workspaces.mjs` to allocate a fresh
+directory under `.temp` or `.tests`. The same helper serves C# and Rust tests.
+It removes only the directories it created, after the owning test process exits
+successfully. Files stay available to later assertions, teardown hooks and
+repeated native toolchain commands until then.
+
+A failed process retains its workspaces and reports their paths when its exit
+hook runs. Fatal errors and killed runs also leave their files for inspection.
+Cleanup failures fail the run. Existing
+scratch, shared provider caches, package downloads and release artifacts are
+not swept or expired by this helper. Remove retained failure workspaces only
+after investigating them; this helper does not prune earlier runs.
+
 ## Positive and negative proof
 
 A capability needs both:
