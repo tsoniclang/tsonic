@@ -172,7 +172,7 @@ class CallableIntegerRanges {
     }
     if (ast.is.IsVariableStatement(node)) {
       const list = ast.as.AsVariableStatement(node)?.DeclarationList;
-      if (list !== undefined) for (const declaration of ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes ?? []) {
+      if (list !== undefined && ast.is.IsVariableDeclarationList(list)) for (const declaration of ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes ?? []) {
         const initializer = Node_Initializer(ast, declaration);
         this.bind(declaration, initializer === undefined ? undefined : this.expression(initializer, environment, depth + 1), environment);
       }

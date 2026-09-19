@@ -77,6 +77,7 @@
     "architecture/compilation-lifecycle.md",
     "architecture/indexed-type-correspondence.md",
     "architecture/memory-type-contracts.md",
+    "architecture/proven-integer-operations.md",
     "architecture/structural-member-correspondence.md",
     "architecture/target-pack-contract.md",
     "architecture/provider-and-runtime-ownership.md",

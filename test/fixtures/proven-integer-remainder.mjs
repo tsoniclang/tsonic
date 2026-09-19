@@ -47,5 +47,14 @@ export function integerRemainderExecutionSource() {
       return `if (!(${comparison})) throw new Error(${JSON.stringify(entry.name)});`;
     });
   });
-  return `${integerRemainderSource}\nexport function run(): boolean { ${checks.join("\n")} return true; }`;
+  return `import type { int32, float32 } from "@tsonic/core/types.js";
+${integerRemainderSource}
+export function integerZero(): int32 { return -0; }
+export function singlePrecisionZero(): float32 { return -0; }
+export function run(): boolean {
+  ${checks.join("\n")}
+  if (integerZero() !== 0) throw new Error("integerZero");
+  if (1 / Number(singlePrecisionZero()) !== Number.NEGATIVE_INFINITY) throw new Error("singlePrecisionZero");
+  return true;
+}`;
 }
