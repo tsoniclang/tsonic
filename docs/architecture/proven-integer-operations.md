@@ -33,10 +33,11 @@ signed 32-bit carrier, with a strictly positive divisor. Only the already-select
 primitive floating remainder is replaced. Existing integer/BigInt/native provider
 operations are not reclassified.
 
-The analysis admits stable local values, exact bounded arithmetic, branch joins,
+The analysis admits stable lexical local values, exact bounded arithmetic, branch joins,
 ascending bounded loops and non-negative square-bounded nested loops. Captured or
-address-exposed bindings are not admitted. Loop-carried writes invalidate prior
-ranges. Unmodelled control flow does not manufacture evidence. The per-callable
+address-exposed bindings and merged `var` declarations are not admitted. Loop-carried
+writes invalidate prior ranges, including values assigned by a one-time loop
+initializer. Unmodelled binding patterns and control flow do not manufacture evidence. The per-callable
 node/depth budgets discard that callable's entire proof if exhausted.
 
 Negative operands, possible negative zero, NaN, infinities, fractions, zero

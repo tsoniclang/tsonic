@@ -78,8 +78,11 @@ class CallableIntegerRanges {
   private safeBinding(declaration: Node): boolean {
     const cached = this.#safeBindings.get(declaration);
     if (cached !== undefined) return cached;
+    const parent = this.#options.ast.parent(declaration);
+    const declarationKind = parent === undefined ? undefined : this.#options.ast.variableDeclarationKind(parent);
     const summary = this.#options.navigation.declarationUseSummary(declaration);
     const safe = this.#options.ast.is.IsVariableDeclaration(declaration) &&
+      (declarationKind === "let" || declarationKind === "const") &&
       !summary.captured && !summary.exported && !summary.memberWritten &&
       !summary.uses.some(use => use.role === "argument" || use.role === "yield");
     this.#safeBindings.set(declaration, safe);
@@ -173,6 +176,11 @@ class CallableIntegerRanges {
     if (ast.is.IsVariableStatement(node)) {
       const list = ast.as.AsVariableStatement(node)?.DeclarationList;
       if (list !== undefined && ast.is.IsVariableDeclarationList(list)) for (const declaration of ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes ?? []) {
+        const name = ast.name(declaration);
+        if (name === undefined || !ast.is.IsIdentifier(name)) {
+          environment.clear();
+          continue;
+        }
         const initializer = Node_Initializer(ast, declaration);
         this.bind(declaration, initializer === undefined ? undefined : this.expression(initializer, environment, depth + 1), environment);
       }
@@ -214,6 +222,8 @@ class CallableIntegerRanges {
     const counter = declarations?.length === 1 ? declarations[0] : undefined;
     const startNode = counter === undefined ? undefined : Node_Initializer(ast, counter);
     const start = startNode === undefined ? undefined : this.expression(startNode, bodyEnvironment, depth + 1);
+    this.invalidateWrites(loop.Condition, bodyEnvironment, depth + 1);
+    this.invalidateWrites(loop.Statement, bodyEnvironment, depth + 1);
     const increment = ast.is.IsPostfixUnaryExpression(loop.Incrementor)
       ? ast.as.AsPostfixUnaryExpression(loop.Incrementor)?.Operand
       : ast.is.IsPrefixUnaryExpression(loop.Incrementor) ? ast.as.AsPrefixUnaryExpression(loop.Incrementor)?.Operand : undefined;
@@ -236,6 +246,7 @@ class CallableIntegerRanges {
     const range = integerRange(start.minimum, maximum);
     if (range === undefined) return;
     const writes = new Map<Node, SourceIntegerRange>([[counter, range]]);
+    this.invalidateWrites(loop.Condition, writes, depth + 1);
     this.invalidateWrites(loop.Statement, writes, depth + 1);
     if (!writes.has(counter)) return;
     bodyEnvironment.set(counter, range);

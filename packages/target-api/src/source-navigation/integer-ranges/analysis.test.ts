@@ -50,6 +50,18 @@ test("mutations, captures, zero, negative zero and uncertain bounds cannot selec
     "let divisor = 3; for (divisor of [0]) {} return 9 % divisor;",
     "let divisor = 3; for (let value = 1; value < 4; value++) { const result = value % divisor; for (divisor of [0]) {} } return 0;",
     "var divisor = 3; for (let value = 1; value < 4; value++) { const result = value % divisor; var divisor = 0; } return 0;",
+    "var value = 5; var value = 1.5; return value % 3;",
+    "var divisor = 3; var divisor = 0; return 9 % divisor;",
+    "var divisor = 3; divisor = 2; var divisor = 0; return 9 % divisor;",
+    "let divisor = 3; const { value = (divisor = 0) } = {} as { value?: number }; return 9 % divisor;",
+    "let divisor = 3; const [value = (divisor = 0)] = [] as number[]; return 9 % divisor;",
+    "let divisor = 3; const { value: { nested = (divisor = 0) } } = { value: {} } as { value: { nested?: number } }; return 9 % divisor;",
+    "let divisor = 3; const { value = (divisor = 0) } = (divisor = 1, {} as { value?: number }); return 9 % divisor;",
+    "let divisor = 2; let sum = 0; for (let value = (divisor = 1); value < 4; value++) { sum += value % divisor; divisor = 0; } return sum;",
+    "let divisor = 2; let sum = 0; for (let value = (divisor = 1); value < 4; value++) { sum += value % divisor; divisor = 1.5; } return sum;",
+    "let divisor = 2; let sum = 0; for (let value = (divisor = 1); value < (5 % divisor) + 3; value++) { sum += value; divisor = 0; } return sum;",
+    "let divisor = 2; let sum = 0; for (let value = (divisor = 1); value < 10 + (6 % divisor) + (divisor = 0); value++) sum += value; return sum;",
+    "for (let value = 0; value < ((value = 2147483648) - 2147483640); value++) return value % 3; return 0;",
   ];
   for (const body of bodies) assert.equal(analyze(`export function run(input: number) { ${body} }`).queries.exactInt32Remainders.length, 0, body);
 });
