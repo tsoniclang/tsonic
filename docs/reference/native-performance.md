@@ -23,6 +23,10 @@ same text in both. Rust rejects a slice that splits a UTF-8 character; it does n
 silently convert the entire string to UTF-16 to make the slice possible. JSON and
 Node APIs retain native strings too.
 
+Rust `String.fromCharCode` and `String.fromCodePoint` construct Unicode scalar
+values from finite integer arguments. Fractional values, surrogate code points
+and values beyond `0x10FFFF` reject instead of applying UTF-16 wrapping.
+
 Use an explicit value when UTF-16 code-unit behavior is required:
 
 ```ts
@@ -88,7 +92,9 @@ are not expressed by ordinary arrays.
 
 - Hash updates retain incremental hash state, not the complete message history.
 - Buffer views share a backing range; explicit copies allocate independent bytes.
-- Boolean regular-expression tests do not build discarded public match arrays.
+- Boolean regular-expression tests on proven native expressions do not build
+  discarded public match arrays. Unknown C# receivers retain virtual `exec`
+  dispatch so an override's observable behavior is not erased.
 - Number formatting writes text directly; `formatToParts` creates parts when asked.
 - File statistics retain a numeric snapshot; Date objects are created on access.
 - Errors capture no stack until `Error.captureStackTrace` is called.

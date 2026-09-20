@@ -57,7 +57,7 @@ const replacedAllCallback: string = "letters".replaceAll(literal, callback);
 const searched: number = "letters".search(literal);
 const customSearched: number = "letters".search(searcher);
 const split: (string | undefined)[] = "letters".split(literal, 2);
-const customSplit: (string | undefined)[] = "letters".split(splitter, 2);
+const customSplit: string[] = "letters".split(splitter, 2);
 
 if (executed !== null) {
   const first: string = executed[0];
@@ -93,6 +93,10 @@ test("canonical JS RegExp profile type-checks the complete declaration contract"
     "/src/index.ts": `${contractExercise}\n${String.raw`
       import { jsstr } from "@tsonic/js/lang.js";
       const exactEscaped: string = RegExp.escape(jsstr("😀").charAt(0));
+      const optionalSplitter = {
+        [Symbol.split](_input: string): (string | undefined)[] { return [undefined, "value"]; },
+      };
+      const optionalSplit: (string | undefined)[] = "letters".split(optionalSplitter);
     `}`,
   }, ["/src/profile.d.ts", "/src/index.ts"], {
     extensions: [
