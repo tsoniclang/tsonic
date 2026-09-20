@@ -362,6 +362,27 @@ test("source navigation resolves overload signatures to one concrete callable bo
   }
 });
 
+test("source navigation retains exact checked arrow and function-expression implementations", async () => {
+  const source = await checkedSource("project-expression-implementation", {
+    "src/index.ts": `
+      export const arrow = (value: string): boolean => value === "arrow";
+      export const expression = function(value: string): boolean { return value === "function"; };
+    `,
+  });
+  const { ast } = source;
+  const file = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  for (const predicate of [ast.is.IsArrowFunction, ast.is.IsFunctionExpression]) {
+    const declaration = requiredNode(ast, file, predicate);
+    const selected = navigation.callableImplementation(declaration);
+    assert.equal(selected.kind, "resolved");
+    assert.strictEqual(selected.implementation.declaration, declaration);
+    assert.strictEqual(selected.implementation.sourceFile, file);
+    assert.equal(selected.implementation.project, true);
+    assert.strictEqual(navigation.callableImplementation(declaration), selected);
+  }
+});
+
 test("target source semantics answer checked-source questions without exposing raw checker access", async () => {
   const checked = await checkedSource("target-source-semantics", {
     "src/index.ts": [

@@ -58,6 +58,19 @@ function resolveCallableImplementation(
   const { ast } = source;
   const category = callableCategory(ast, contractDeclaration);
   const sourceFile = ast.getSourceFile(contractDeclaration);
+  if (sourceFile !== undefined && isProjectDeclaration(contractDeclaration) &&
+    (ast.is.IsArrowFunction(contractDeclaration) || ast.is.IsFunctionExpression(contractDeclaration)) &&
+    ast.body(contractDeclaration) !== undefined) {
+    return Object.freeze({
+      kind: "resolved",
+      contractDeclaration,
+      implementation: Object.freeze({
+        declaration: contractDeclaration,
+        sourceFile,
+        project: true,
+      }),
+    });
+  }
   if (category === undefined || sourceFile === undefined ||
     !isProjectDeclaration(contractDeclaration)) {
     return Object.freeze({
