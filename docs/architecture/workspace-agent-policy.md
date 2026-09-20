@@ -179,6 +179,22 @@ policy.
 
 ### Native Performance From Exact Metadata
 
+- Native performance is a hard requirement; compatibility is best effort within
+  that constraint. Ordinary operations use native target behavior. JS and Node
+  surfaces are explicit API opt-ins, not permission to impose hidden copying,
+  conversion, storage or bookkeeping for unused features. When native performance
+  conflicts with compatibility, document the native difference or reject the
+  unsupported operation instead of inserting a slower emulation path.
+- Compatibility is subordinate to performance, never a justification for a
+  slowdown of the common path. A compatibility behavior with additional cost
+  requires an explicit per-value or per-operation request; a whole-project JS
+  or Node surface does not authorize that cost. Correctness and memory safety
+  remain mandatory; reject an unrepresentable operation rather than fake it.
+- Ordinary Rust strings use native UTF-8 units and operations; exact UTF-16 is an
+  explicit `JsString` value. Ordinary arrays prioritize dense native storage;
+  sparse/hole behavior must not tax every element. Preserve declared aliasing,
+  lifetime and memory-safety guarantees; never invent values or access
+  uninitialized storage to remove a check.
 - Native performance must remain available and high performance is the default.
   Do not silently add diagnostic stack capture, symbol lookup, eager formatting
   or avoidable copying/allocation to ordinary runtime operations. Optional
