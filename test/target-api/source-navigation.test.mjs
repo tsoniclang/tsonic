@@ -9,6 +9,7 @@ import {
   createTargetSourceProgram,
   projectSourceNodeIdentity,
   sourceTypeSyntaxIsCompositional,
+  sourceMayReadBeforeInitialization,
 } from "../../packages/target-api/dist/public/source.js";
 import {
   sourcePrimitiveFactKey,
@@ -24,6 +25,45 @@ import {
   projectSourceFile,
   requiredNode,
 } from "../fixtures/source-navigation.mjs";
+
+test("field flow does not escape its receiver but returning and capturing the receiver does", async () => {
+  const source = await checkedSource("receiver-flow", { "src/index.ts": `
+    interface Box { count: number }
+    export function field(box: Box): number { return box.count; }
+    export function passed(box: Box): number { return read(box.count); }
+    function read(value: number): number { return value; }
+    export function escaped(box: Box): Box { return box; }
+    export function captured(box: Box): () => number { return () => box.count; }
+  ` });
+  const ast = source.ast;
+  const file = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  const summary = name => navigation.parameterUseSummary(ast.parameters(namedDeclaration(ast, file, name))[0]);
+  assert.equal(summary("field").returned, false);
+  assert.equal(summary("field").receiverUsed, true);
+  assert.equal(summary("passed").passedAsArgument, false);
+  assert.equal(summary("escaped").returned, true);
+  assert.equal(summary("captured").captured, true);
+});
+
+test("initialization proof follows deferred bodies and exact early invocation roots", async () => {
+  const cases = [
+    ["function read(): number { return value; } const value = 3; export const result = read();", false],
+    ["function read(): number { return value; } export const result = read(); const value = 3;", true],
+    ["export const result = read(); const value = 3; function read(): number { return value; }", true],
+    ["const value = 3; export const result = value;", false],
+    ["const read = (): number => value; const value = 3; export const result = read();", false],
+    ["class Reader { read(): number { return value; } } const value = 3; export const result = new Reader().read();", false],
+    ["class Reader { read(): number { return value; } } export const result = new Reader().read(); const value = 3;", true],
+  ];
+  for (const [index, [text, early]] of cases.entries()) {
+    const source = await checkedSource(`initialization-${index}`, { "src/index.ts": text });
+    const ast = source.ast;
+    const file = projectSourceFile(source, "src/index.ts");
+    assert.equal(sourceMayReadBeforeInitialization(namedVariable(ast, file, "value"), ast,
+      createSourceProgramNavigation(source)), early, text);
+  }
+});
 
 test("project source-node identities are stable across checkout roots and compiler path forms", () => {
   const node = {};
