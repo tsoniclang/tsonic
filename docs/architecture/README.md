@@ -55,4 +55,5 @@ using different target facts and algorithms inside them.
 - [Provider and runtime ownership](provider-and-runtime-ownership.md)
 - [Memory type contracts](memory-type-contracts.md)
 - [Indexed type correspondence](indexed-type-correspondence.md)
+- [Proven integer operations](proven-integer-operations.md)
 - [Workspace agent policy](workspace-agent-policy.md)
