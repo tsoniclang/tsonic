@@ -25,7 +25,8 @@ export function sourceMayReadBeforeInitialization(
       while (current !== undefined && current !== file) {
         const parent = ast.parent(current);
         if (parent === undefined) return true;
-        if (ast.body(parent) === current && isCallable(ast, parent)) {
+        if ((ast.body(parent) === current || ast.is.IsParameterDeclaration(current)) &&
+          isCallable(ast, parent)) {
           const owner = callableOwner(parent, ast);
           if (owner === undefined) return true;
           if (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) ||

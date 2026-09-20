@@ -55,6 +55,12 @@ test("initialization proof follows deferred bodies and exact early invocation ro
     ["const read = (): number => value; const value = 3; export const result = read();", false],
     ["class Reader { read(): number { return value; } } const value = 3; export const result = new Reader().read();", false],
     ["class Reader { read(): number { return value; } } export const result = new Reader().read(); const value = 3;", true],
+    ["export const result = read(); const value = 3; function read(input: number = value): number { return input; }", true],
+    ["const value = 3; export const result = read(); function read(input: number = value): number { return input; }", false],
+    ["export const result = invoke(); const value = 3; function invoke(): number { return read(); } function read(input: number = value): number { return input; }", true],
+    ["export const result = read(); const value = 3; function read({ count = value }: { count?: number } = {}): number { return count; }", true],
+    ["const read = (input: number = value): number => input; export const result = read(); const value = 3;", true],
+    ["const read = (input: number = value): number => input; const value = 3; export const result = read();", false],
   ];
   for (const [index, [text, early]] of cases.entries()) {
     const source = await checkedSource(`initialization-${index}`, { "src/index.ts": text });
@@ -62,6 +68,32 @@ test("initialization proof follows deferred bodies and exact early invocation ro
     const file = projectSourceFile(source, "src/index.ts");
     assert.equal(sourceMayReadBeforeInitialization(namedVariable(ast, file, "value"), ast,
       createSourceProgramNavigation(source)), early, text);
+  }
+});
+
+test("variable exports retain exact statement ownership without exporting locals", async () => {
+  const source = await checkedSource("exported-variable-owners", { "src/index.ts": `
+    export const direct = 1, multiple = 2;
+    const listed = 3;
+    export { listed as renamed };
+    const defaulted = 4;
+    export default ((defaulted satisfies number));
+    export const { count: destructured } = { count: 5 };
+    export function read(): number { const local = 6; return local; }
+    const privateValue = 7;
+    function identity(input: number): number { return input; }
+    export const calculated = identity(privateValue);
+  ` });
+  const ast = source.ast;
+  const file = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  for (const name of ["direct", "multiple", "listed", "defaulted"]) {
+    assert.equal(navigation.declarationUseSummary(namedVariable(ast, file, name)).exported, true, name);
+  }
+  const binding = requiredNode(ast, file, node => ast.is.IsBindingElement(node) && ast.text(ast.name(node)) === "destructured");
+  assert.equal(navigation.declarationUseSummary(binding).exported, true);
+  for (const name of ["local", "privateValue"]) {
+    assert.equal(navigation.declarationUseSummary(namedVariable(ast, file, name)).exported, false, name);
   }
 });
 

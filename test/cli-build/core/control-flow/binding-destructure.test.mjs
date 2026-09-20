@@ -212,11 +212,11 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} spread = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedSource, /label = label,/);
   assert.match(generatedSource, /total = value \+ rest\.count,/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> composed = new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ spread\.total \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<double>\(numbers\), new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ rest\.count \}\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> composed = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[spread\.total\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<double>\(numbers\), Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[rest\.count\]\)\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> tail = __tsonic_destructure\d+\.slice\(2\);/);
   assert.match(generatedSource, /throw new System\.Exception\("missing numbers"\);/);
   assert.match(generatedSource, /catch\s*\{/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> empty = new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ \}\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> empty = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[\]\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [

@@ -98,6 +98,7 @@ export function namedMember(ast, declaration, name) {
 export function namedVariable(ast, sourceFile, name) {
   return requiredNode(ast, sourceFile, (node) =>
     ast.is.IsVariableDeclaration(node) &&
+    ast.is.IsIdentifier(ast.name(node)) &&
     ast.text(ast.name(node)) === name);
 }
 
