@@ -238,8 +238,8 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);
   assert.match(generatedSource, /return first \+ second;/);
   assert.match(generatedSource, /public static int destructDefault\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.hasIndex\(0\) \? \1\[0\] : 1;/);
-  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.hasIndex\(1\) \? \1\[1\] : 2;/);
+  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.length > 0 \? \1\[0\] : 1;/);
+  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.length > 1 \? \1\[1\] : 2;/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> destructRest\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> rest = (__tsonic_destructure\d+)\.slice\(1\);/);
   assert.match(generatedSource, /return rest;/);
@@ -470,9 +470,9 @@ test("CLI emits sparse JS array delete and length mutation only through JSArray 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI runs sparse JS array literal holes through closed JSArray carrier facts", async () => {
-  const projectDirectory = resolve(tempRoot, "array-sparse-literal-runtime");
-  const assemblyName = "SmokeGeneratedArraySparseLiteralRuntime";
+test("CLI runs explicit optional elements through dense JSArray carrier facts", async () => {
+  const projectDirectory = resolve(tempRoot, "array-optional-literal-runtime");
+  const assemblyName = "SmokeGeneratedArrayOptionalLiteralRuntime";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -493,7 +493,7 @@ test("CLI runs sparse JS array literal holes through closed JSArray carrier fact
     "src/index.ts": [
       "import { Console } from \"@tsonic/dotnet/System.js\";",
       "",
-      "const values = [, 5, 6];",
+      "const values = [undefined, 5, 6];",
       "const [first = 10, second = 20, ...tail] = values;",
       "Console.WriteLine(`${first}:${second}:${tail[0] ?? -1}:${tail.length}:${values[0] ?? -1}`);",
       "",
@@ -504,12 +504,27 @@ test("CLI runs sparse JS array literal holes through closed JSArray carrier fact
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.fromSparse\(3, \(1, 5\), \(2, 6\)\)/);
-  assert.match(generatedSource, /__tsonic_destructure\d+\.hasIndex\(0\) \? __tsonic_destructure\d+\[0\] : 10/);
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<double\?>\(new double\?\[\] \{ null, 5, 6 \}\)/);
   assert.match(generatedSource, /__tsonic_destructure\d+\.slice\(2\)/);
   assert.doesNotMatch(generatedSource, /new double\?\[\] \{ 5, 6 \}/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "10:5:6:1:-1\n");
+});
+
+test("CLI rejects omitted array elements instead of allocating sparse storage", async () => {
+  const projectDirectory = resolve(tempRoot, "array-omitted-literal-rejection");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp", surfaces: ["js"] }],
+    }),
+    "src/index.ts": "export const values = [, 5, 6];\n",
+  });
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.notEqual(build.status, 0);
+  assert.match(build.stdout + build.stderr, /Sparse array literals are not supported by native dense arrays/);
 });
 
 test("CLI rejects sparse JS array operations without selected JS surface facts", async () => {

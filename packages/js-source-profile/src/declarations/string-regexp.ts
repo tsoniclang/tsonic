@@ -14,7 +14,8 @@ interface String {
   replaceAll(searchValue: { [Symbol.replace](string: string, replacer: RegExpReplaceCallback): string }, replacer: RegExpReplaceCallback): string;
   search(regexp: string | RegExp): number;
   search(searcher: { [Symbol.search](string: string): number }): number;
-  split(separator: string | RegExp, limit?: number): string[];
-  split(splitter: { [Symbol.split](string: string, limit?: number): string[] }, limit?: number): string[];
+  split(separator: string, limit?: number): string[];
+  split(separator: RegExp, limit?: number): (string | undefined)[];
+  split<T extends string | undefined>(splitter: { [Symbol.split](string: string, limit?: number): T[] }, limit?: number): T[];
 }
 `.trim();

@@ -148,8 +148,12 @@ optional accessor shapes reject when no exact storage representation exists.
 Static fields require explicit initializers, and static access must retain the
 exact class identity; constructor aliases and static `this` are not guessed.
 
-`delete` is supported for selected JavaScript-array hole semantics. It cannot
-remove a field from a static Rust record. `for...in` and `switch` similarly
+Deleting an existing array element rejects because ordinary arrays have dense
+storage; use `splice` to remove an element. Gap writes, length growth without
+initialized values, and deletion of existing elements trigger native Rust panic
+guards. TypeScript `try`/`catch` handles source errors, not native panics.
+`delete` also cannot remove a field
+from a static Rust record. `for...in` and `switch` similarly
 require an exact own-key or equality policy for the selected carrier.
 
 ## Native traits, threads, and object graphs

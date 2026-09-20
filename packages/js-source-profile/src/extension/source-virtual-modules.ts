@@ -191,10 +191,16 @@ function jsStringDeclaration(): ProviderExportDeclaration {
         ], jsStringType),
       ]),
       method("search", [parameter("regexp", regExpType)], numberType),
-      method("split", [
-        parameter("separator", union(jsStringType, regExpType)),
-        optionalParameter("limit", numberType),
-      ], jsStringArrayType),
+      overloadedMethod("split", [
+        signature("split(separator,limit)", [
+          parameter("separator", jsStringType),
+          optionalParameter("limit", numberType),
+        ], jsStringArrayType),
+        signature("split(regexp,limit)", [
+          parameter("separator", regExpType),
+          optionalParameter("limit", numberType),
+        ], { kind: "array", elementType: jsStringOrUndefinedType }),
+      ]),
     ],
   });
 }

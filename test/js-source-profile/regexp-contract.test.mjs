@@ -45,7 +45,7 @@ const symbolMatches: RegExpStringIterator<RegExpExecArray> = literal[Symbol.matc
 const symbolReplaceString: string = literal[Symbol.replace]("letters", "$&");
 const symbolReplaceCallback: string = literal[Symbol.replace]("letters", callback);
 const symbolSearch: number = literal[Symbol.search]("letters");
-const symbolSplit: string[] = literal[Symbol.split]("letters", 2);
+const symbolSplit: (string | undefined)[] = literal[Symbol.split]("letters", 2);
 const matched: RegExpMatchArray | null = "letters".match(literal);
 const customMatched: RegExpMatchArray | null = "letters".match(matcher);
 const allMatches: RegExpStringIterator<RegExpExecArray> = "letters".matchAll(literal);
@@ -56,7 +56,7 @@ const replacedAllString: string = "letters".replaceAll(literal, "$&");
 const replacedAllCallback: string = "letters".replaceAll(literal, callback);
 const searched: number = "letters".search(literal);
 const customSearched: number = "letters".search(searcher);
-const split: string[] = "letters".split(literal, 2);
+const split: (string | undefined)[] = "letters".split(literal, 2);
 const customSplit: string[] = "letters".split(splitter, 2);
 
 if (executed !== null) {
@@ -93,6 +93,10 @@ test("canonical JS RegExp profile type-checks the complete declaration contract"
     "/src/index.ts": `${contractExercise}\n${String.raw`
       import { jsstr } from "@tsonic/js/lang.js";
       const exactEscaped: string = RegExp.escape(jsstr("😀").charAt(0));
+      const optionalSplitter = {
+        [Symbol.split](_input: string): (string | undefined)[] { return [undefined, "value"]; },
+      };
+      const optionalSplit: (string | undefined)[] = "letters".split(optionalSplitter);
     `}`,
   }, ["/src/profile.d.ts", "/src/index.ts"], {
     extensions: [

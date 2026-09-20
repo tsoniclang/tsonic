@@ -3,7 +3,7 @@
 ## Array copies
 
 `Array.from` materializes the destination slots directly, preserving source
-element identity. A proven dense copy has no hidden density prepass, temporary
+element identity. A dense copy has no hidden density prepass, temporary
 element vector or automatic optional-element widening.
 
 ```ts
@@ -13,11 +13,13 @@ const values: int32[] = [1, 2];
 const copy = Array.from(values);
 ```
 
-A sparse copy needs an element carrier that can represent `undefined`.
-An open `int32[]` parameter does not establish density; copying it is rejected
-unless the existing source evidence proves density. Holes are never replaced
-with zero. Use an explicit `(int32 | undefined)[]` when absence is part of the
-source contract.
+Ordinary arrays use dense native storage, including open array parameters.
+Length construction initializes native defaults rather than holes. Omitted
+literal elements and sparse mutations reject. Use explicit `(int32 | undefined)[]`
+elements when absence is part of the source contract.
+
+Ordinary strings use UTF-8 byte offsets. See [native performance](../../native-performance.md)
+for string boundaries, array initialization, ownership and explicit compatibility.
 
 Select with `surfaces: ["js"]`. The target composes the shared JavaScript
 source profile and activates `@tsonic/rust-js` only when selected operations

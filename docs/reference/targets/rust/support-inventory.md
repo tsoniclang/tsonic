@@ -9,10 +9,10 @@ provider declarations.
 - **Array:** literals, indexed access, `at`, length, push/pop, shift/unshift,
   splice, slice, concat, join, includes, index searches, reverse, default sort,
   fill, copyWithin, iteration, and callback forms of forEach, map, filter,
-  reduce, some, every, find, and their index/last variants. Dense and sparse
-  identity use the selected array carrier.
+  reduce, some, every, find, and their index/last variants. Dense native storage
+  preserves identity; omitted elements and sparse mutations reject.
 - **String:** length, case conversion, search predicates, index searches,
-  slice/substring/substr/at, UTF-16 character/code-point operations, repeat,
+  slice/substring/substr/at, native UTF-8 character operations, repeat,
   padding, trimming, normalization, concat, split, replace, replaceAll,
   search, match, matchAll, well-formedness, and static code-unit/code-point
   construction. Unrepresentable native-string results reject; explicit
