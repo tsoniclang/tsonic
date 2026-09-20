@@ -59,8 +59,8 @@ test("CLI runs array fixed default rest and nested destructuring from finalized 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /int first = __tsonic_destructure\d+\[0\];/);
   assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);
-  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.hasIndex\(0\) \? \1\[0\] : 10;/);
-  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.hasIndex\(1\) \? \1\[1\] : 20;/);
+  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.length > 0 \? \1\[0\] : 10;/);
+  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.length > 1 \? \1\[1\] : 20;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> tail = __tsonic_destructure\d+\.slice\(1\);/);
   assert.match(generatedSource, /return first \+ tail\.length;/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
@@ -109,8 +109,8 @@ test("CLI runs array parameter destructuring from real TSTS binding facts", asyn
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double sum\(Tsonic\.CSharp\.Js\.JSArray<double> __tsonic_param\d+\)/);
-  assert.match(generatedSource, /double first = __tsonic_param\d+\.hasIndex\(0\) \? __tsonic_param\d+\[0\] : 10;/);
-  assert.match(generatedSource, /double second = __tsonic_param\d+\.hasIndex\(1\) \? __tsonic_param\d+\[1\] : 20;/);
+  assert.match(generatedSource, /double first = (__tsonic_param\d+)\.length > 0 \? \1\[0\] : 10;/);
+  assert.match(generatedSource, /double second = (__tsonic_param\d+)\.length > 1 \? \1\[1\] : 20;/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> rest = __tsonic_param\d+\.slice\(2\);/);
   assert.match(generatedSource, /public static double nested\(Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<double>> __tsonic_param\d+\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);

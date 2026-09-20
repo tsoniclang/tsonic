@@ -238,8 +238,8 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /int second = __tsonic_destructure\d+\[1\];/);
   assert.match(generatedSource, /return first \+ second;/);
   assert.match(generatedSource, /public static int destructDefault\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.hasIndex\(0\) \? \1\[0\] : 1;/);
-  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.hasIndex\(1\) \? \1\[1\] : 2;/);
+  assert.match(generatedSource, /int first = (__tsonic_destructure\d+)\.length > 0 \? \1\[0\] : 1;/);
+  assert.match(generatedSource, /int second = (__tsonic_destructure\d+)\.length > 1 \? \1\[1\] : 2;/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> destructRest\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> rest = (__tsonic_destructure\d+)\.slice\(1\);/);
   assert.match(generatedSource, /return rest;/);
