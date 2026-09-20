@@ -1,6 +1,8 @@
 # Agent Notes (Tsonic Host)
 
-Read and follow `docs/architecture/workspace-agent-policy.md` before any work.
+Read and follow `docs/architecture/workspace-agent-policy.md` before any work,
+including its mandatory "Native Performance From Exact Metadata" contract
+against silent overhead and unnecessary heap allocation.
 This file contains only host-repository deltas.
 
 ## Host Ownership
