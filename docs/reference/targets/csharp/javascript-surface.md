@@ -2,7 +2,7 @@
 
 ## Array copies
 
-`Array.from` copies a proven dense array directly into capacity-sized native
+`Array.from` copies a dense array directly into capacity-sized native
 storage. A mapped copy visits the live source length, including changes made by
 its callback. It does not run a hidden density scan or widen every element to an
 optional boxed value.
@@ -14,11 +14,13 @@ const values: int32[] = [1, 2];
 const doubled = Array.from(values, value => value + value);
 ```
 
-A sparse copy needs an element carrier that can represent `undefined`.
-An open `int32[]` parameter does not establish density; copying it is rejected
-unless the existing source evidence proves density. Holes are never replaced
-with zero. Use an explicit `(int32 | undefined)[]` when absence is part of the
-source contract.
+Ordinary arrays use dense native storage, including open array parameters.
+Length construction initializes native defaults rather than holes. Omitted
+literal elements and sparse mutations reject. Use explicit `(int32 | undefined)[]`
+elements when absence is part of the source contract.
+
+Ordinary strings use .NET UTF-16 units. See [native performance](../../native-performance.md)
+for string boundaries, array initialization, ownership and explicit compatibility.
 
 Select with `surfaces: ["js"]`. The target composes the shared JavaScript source
 profile and references `@tsonic/csharp-js`.

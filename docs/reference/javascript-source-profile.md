@@ -6,8 +6,7 @@ supplies their carriers and runtime implementation.
 
 ## Covered source families
 
-- `Array`, readonly arrays, sparse arrays where the target provides an exact
-  identity-preserving carrier;
+- `Array` and readonly arrays with native dense storage;
 - `String`, `Boolean`, `Number`, and `Math`;
 - `Map`, `Set`, and their iterators;
 - `Date`;
@@ -17,8 +16,9 @@ supplies their carriers and runtime implementation.
 - `console`;
 - typed arrays and other declarations provided by the active profile.
 
-Support for a declaration is not permission to approximate it. Each target's
-support matrix records implemented operations and precise target limits.
+Each target's support matrix records implemented operations and precise target
+limits. See [native performance](native-performance.md) for the native string
+units, dense-array contract, explicit UTF-16 values and retained ownership costs.
 
 ## Native strings and `JsString`
 

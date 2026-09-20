@@ -34,6 +34,7 @@
     "reference/typescript-types.md",
     "reference/source-core.md",
     "reference/javascript-source-profile.md",
+    "reference/native-performance.md",
     "reference/node-capability.md",
     "reference/diagnostics.md",
     "reference/package-catalog.md",
