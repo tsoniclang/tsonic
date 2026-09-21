@@ -5,6 +5,10 @@ import { run } from "./npm-wave.mjs";
 import { readSourceProvenance } from "./source-provenance.mjs";
 
 export function packReleasePackage(entry, tarballRoot) {
+  const manifestPath = resolve(entry.packageRoot, "package.json");
+  if (JSON.stringify(JSON.parse(readFileSync(manifestPath, "utf8"))) !== JSON.stringify(entry.manifest)) {
+    throw new Error(`Package '${entry.name}' manifest changed after release selection.`);
+  }
   if (Object.hasOwn(entry.manifest, "tsonicRelease")) {
     throw new Error(`Package '${entry.name}' must not author release provenance.`);
   }

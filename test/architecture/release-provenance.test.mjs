@@ -83,7 +83,16 @@ test("missing, malformed and mismatched provenance never invent a baseline", () 
     { ...record, extra: true }]) {
     assert.equal(inspectPublishedSource(entry, value).kind, "unverified");
   }
-  assert.throws(() => packReleasePackage({ ...entry, manifest: { ...entry.manifest, tsonicRelease: record } }, entry.scratchRoot), /must not author/u);
+  const authored = { ...entry.manifest, tsonicRelease: record };
+  writeFileSync(resolve(entry.packageRoot, "package.json"), `${JSON.stringify(authored)}\n`);
+  assert.throws(() => packReleasePackage({ ...entry, manifest: authored }, entry.scratchRoot), /must not author/u);
+});
+
+test("packing rejects a stale selected manifest even when name and version match", () => {
+  const entry = fixture(".");
+  writeFileSync(resolve(entry.packageRoot, "package.json"), `${JSON.stringify({ ...entry.manifest, engines: { node: ">=22" } })}\n`);
+  commit(entry.repositoryRoot, "Changed package contract after release selection");
+  assert.throws(() => packReleasePackage(entry, entry.scratchRoot), /manifest changed after release selection/u);
 });
 
 test("source selection is explicit, bounded, canonical and fails on missing inputs", () => {
