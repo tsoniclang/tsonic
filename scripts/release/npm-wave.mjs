@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateSourceInputs } from "./source-provenance.mjs";
 
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
 export const hostRoot = resolve(releaseDirectory, "../..");
@@ -16,7 +17,8 @@ export function loadNpmWave() {
     throw new Error("The npm release-wave manifest has an unsupported shape.");
   }
   for (const entry of manifest.packages) {
-    requireManifestEntry(entry, "package", ["directory", "name", "repository"]);
+    requireManifestEntry(entry, "package", ["directory", "name", "repository", "sourceInputs"]);
+    entry.sourceInputs = validateSourceInputs(entry);
   }
   for (const entry of manifest.certification) {
     requireManifestEntry(entry, "certification", ["command", "repository"]);
@@ -200,7 +202,7 @@ function requireManifestEntry(value, subject, expectedKeys) {
       `Every npm release-wave ${subject} entry must contain exactly: ${sortedExpectedKeys.join(", ")}.`,
     );
   }
-  for (const key of expectedKeys.filter((entryKey) => entryKey !== "command")) {
+  for (const key of expectedKeys.filter((entryKey) => entryKey !== "command" && entryKey !== "sourceInputs")) {
     if (typeof value[key] !== "string" || value[key].length === 0) {
       throw new Error(`Every npm release-wave ${subject} entry requires '${key}'.`);
     }

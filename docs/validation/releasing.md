@@ -24,9 +24,9 @@ three actions:
 
 | Status | Meaning | Next action |
 | --- | --- | --- |
-| `current` | Every exact artifact exists and every `latest` tag selects it | Do not publish |
+| `current` | Every exact artifact exists, its certified source provenance matches, and every `latest` tag selects it | Do not publish |
 | `publish` | The local wave is newer, partially published, or not yet selected by `latest` | Authenticate and run the publisher |
-| `prepare-patch` | npm is ahead, or package content changed after this version was recorded | Run the publisher to create one coordinated patch-release branch per repository |
+| `prepare-patch` | npm is ahead, source changed since publication, or published source provenance cannot be verified | Run the publisher to create one coordinated patch-release branch per repository |
 
 Changes only to host documentation, host tests, or release tooling outside a
 published package do not by themselves require an npm package release. A
@@ -34,6 +34,25 @@ change to package source, generated distribution, manifest, dependency,
 published README, provider, or runtime does. First-party dependency versions
 are exact, so a required package release advances the complete wave in
 `scripts/release/npm-wave.json`; maintainers never publish a guessed subset.
+
+Each package declares `sourceInputs` in that wave. Nested host packages include
+their shared build configuration and build scripts; repository-root packages
+include their complete tracked tree. Changes within those inputs require a
+release, even if a stale `dist` directory still contains the previous build.
+
+The packer records a `tsonicRelease` field in the certified package manifest.
+It identifies the package, version, repository and package directory, and hashes
+the declared inputs together with their committed Git file identities and modes.
+The baseline is the source actually packed, not the earlier commit that changed
+the version. It works in a fresh clone without local release logs or historical
+commits. The same source tree has the same digest after a merge. Uncommitted
+selected inputs cannot be certified; missing or malformed published provenance
+requires a new version, never a guessed baseline.
+
+Provenance is inserted in an isolated staging directory before packed-install
+certification. Tracked manifests are not rewritten, and certified tarballs are
+not modified afterward. Source provenance does not replace artifact integrity:
+resuming a staged release still requires byte-identical tarballs.
 
 ## Prerequisites
 

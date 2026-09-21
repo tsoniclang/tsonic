@@ -14,7 +14,6 @@ import {
 } from "../../scripts/release/verify-public-install.mjs";
 import {
   inspectRegistry,
-  packageChangedSinceVersion,
 } from "../../scripts/release/release-inspection.mjs";
 
 const version = "1.2.3";
@@ -107,7 +106,7 @@ test("public install selects exact staged versions and latest explicitly", () =>
   }
 });
 
-test("registry inspection uses one shared content-drift decision", () => {
+test("registry inspection uses the exact published source provenance", () => {
   const calls = [];
   const [state] = inspectRegistry([{
     name: "package",
@@ -117,18 +116,23 @@ test("registry inspection uses one shared content-drift decision", () => {
       calls.push([name, field, selectedVersion]);
       return field === "dist-tags.latest" ? version : "sha512-exact";
     },
-    packageChangedSinceVersion(entryValue, selectedVersion) {
-      calls.push([entryValue.name, "content", selectedVersion]);
-      return true;
+    npmViewJson(name, field, selectedVersion) {
+      calls.push([name, field, selectedVersion]);
+      return { sourceDigest: "selected" };
+    },
+    inspectPublishedSource(entryValue, provenance) {
+      calls.push([entryValue.name, "source", provenance]);
+      return { kind: "changed" };
     },
     write() {},
   });
   assert.equal(state.relation, "equal");
-  assert.equal(state.drift, true);
+  assert.equal(state.source.kind, "changed");
   assert.deepEqual(calls, [
     ["package", "dist-tags.latest", undefined],
     ["package", "dist.integrity", version],
-    ["package", "content", version],
+    ["package", "tsonicRelease", version],
+    ["package", "source", { sourceDigest: "selected" }],
   ]);
 });
 
@@ -145,8 +149,11 @@ test("registry inspection accepts delayed metadata only through bounded converge
       waits.push([name, field, selectedVersion, options.npmView("package", field)]);
       return "sha512-converged";
     },
-    packageChangedSinceVersion() {
-      return false;
+    npmViewJson() {
+      return {};
+    },
+    inspectPublishedSource() {
+      return { kind: "current" };
     },
     write() {},
   });
@@ -159,25 +166,25 @@ test("registry inspection accepts delayed metadata only through bounded converge
   ]]);
 });
 
-test("root package drift uses a valid repository pathspec", () => {
-  const calls = [];
-  const changed = packageChangedSinceVersion({
-    name: "root-package",
-    repositoryRoot: "/workspace/package",
-    packageRoot: "/workspace/package",
-    path: "/workspace/package/package.json",
-  }, version, {
-    run(command, args) {
-      calls.push([command, args]);
-      return "version-commit\n";
-    },
-    spawnSync(command, args, options) {
-      calls.push([command, args, options]);
-      return { status: 0 };
-    },
+test("unverifiable publication requires a new version, not a guessed baseline", () => {
+  const [state] = inspectRegistry([{ name: "package", manifest: { version } }], {
+    npmView: (name, field) => field === "dist-tags.latest" ? version : "sha512-existing",
+    npmViewJson: () => undefined,
+    write() {},
   });
-  assert.equal(changed, false);
-  assert.deepEqual(calls[1][1].slice(-2), ["--", "."]);
+  assert.equal(state.source.kind, "unverified");
+  assert.equal(classifyReleaseState(version, [state]).kind, "prepare-patch");
+  assert.match(formatReleaseChecklist(classifyReleaseState(version, [state]), 1), /provenance is missing or invalid/u);
+});
+
+test("unpublished versions do not ask for invented source provenance", () => {
+  const [state] = inspectRegistry([{ name: "package", manifest: { version } }], {
+    npmView: () => undefined,
+    npmViewJson() { assert.fail("unpublished metadata query"); },
+    write() {},
+  });
+  assert.equal(state.source.kind, "unpublished");
+  assert.equal(classifyReleaseState(version, [state]).kind, "publish");
 });
 
 test("public install lock accepts exact public artifacts", () => {
@@ -237,7 +244,9 @@ test("public install lock rejects local, linked, and mismatched artifacts", () =
 });
 
 function entry(name, relation, versionIntegrity, drift = false) {
-  return Object.freeze({ name, relation, versionIntegrity, drift });
+  return Object.freeze({ name, relation, versionIntegrity,
+    source: { kind: drift ? "changed" : versionIntegrity === undefined ? "unpublished" : "current" },
+  });
 }
 
 function publicLock() {

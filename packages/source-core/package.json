@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/source-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Target-neutral Tsonic source semantics for TSTS",
   "license": "MIT",
   "repository": {
@@ -36,8 +36,8 @@
     "test": "node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
-    "@tsonic/target-api": "0.1.1",
-    "@tsonic/tsts": "0.1.1"
+    "@tsonic/target-api": "0.1.2",
+    "@tsonic/tsts": "0.1.2"
   },
   "engines": {
     "node": ">=22.18.0"
