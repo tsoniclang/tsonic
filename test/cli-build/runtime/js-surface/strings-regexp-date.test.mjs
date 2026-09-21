@@ -580,7 +580,7 @@ test("CLI emits selected JS number toString facts through the C# JS runtime", as
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toExponential\(value, digits\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Number\.toPrecision\(value, digits\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(text\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(count\)/);
+  assert.match(generatedSource, /\(double\)\(?count\)?/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Globals\.Number\(\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 

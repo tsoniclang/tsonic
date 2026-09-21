@@ -149,7 +149,7 @@ function sourceDeclarationUseRole(
         current = parent;
         continue;
       }
-      return { role: "value", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "value", throughMember: receiverPath };
     }
     if (ast.is.IsCallExpression(parent)) {
       if (sourceNodesEqual(ast, Node_Expression(ast, parent), current)) {
