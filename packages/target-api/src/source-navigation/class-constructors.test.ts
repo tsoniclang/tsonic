@@ -38,6 +38,17 @@ test("class expressions retain exact effective constructors without requiring an
   const baseConstructor = source.ast.members(base).find(member => member !== undefined && source.ast.is.IsConstructorDeclaration(member));
   assert.ok(baseConstructor);
   for (const [index, expression] of expressions.entries()) {
+    const semantics = source.semantics.forNode(expression);
+    const instance = semantics.declarations.declaredType(expression);
+    const value = semantics.declarations.declaredValueType(expression);
+    assert.ok(instance);
+    assert.ok(value);
+    assert.notEqual(instance, value);
+    assert.equal(semantics.types.constructSignatures(instance).length, 0);
+    assert.equal(semantics.types.constructSignatures(value).length, 1);
+    const symbol = semantics.declarations.typeSymbol(instance);
+    assert.ok(symbol);
+    assert.deepEqual(semantics.declarations.symbolDeclarations(symbol), [expression]);
     const result = source.navigation.classConstructors(expression);
     assert.equal(result.kind, "resolved");
     if (result.kind !== "resolved") continue;
