@@ -2,7 +2,8 @@
 
 Read and follow `docs/architecture/workspace-agent-policy.md` before any work,
 including its mandatory "Native Performance From Exact Metadata" contract
-against silent overhead and unnecessary heap allocation.
+for every decision, measured against the selected target's idiomatic native
+implementation, without silent overhead or unnecessary heap allocation.
 This file contains only host-repository deltas.
 
 ## Host Ownership

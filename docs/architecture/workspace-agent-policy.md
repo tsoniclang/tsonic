@@ -179,6 +179,13 @@ policy.
 
 ### Native Performance From Exact Metadata
 
+- Apply this contract to every design and implementation decision, not only
+  optimizations. Judge representation, ownership, allocation, calls and emitted
+  syntax against efficient, idiomatic handwritten code for the selected native
+  target. Shared architecture does not require copying one target's runtime
+  idioms into another. Record the target-native alternative and why the chosen
+  representation preserves correctness and avoids unnecessary cost in the
+  necessity ledger before implementing it.
 - **Hard rule: native performance by default; no silent runtime overhead of any
   kind.** Compatibility is best effort within that constraint. Ordinary
   operations use native target behavior. JS and Node
