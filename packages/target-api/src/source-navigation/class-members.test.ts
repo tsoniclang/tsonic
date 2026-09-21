@@ -152,3 +152,57 @@ test("named and anonymous class expressions retain the same exact parameter-prop
   assert.ok(source.ast.members(expressions[0]!)[0]);
   assert.equal(sourceClassFieldIsTypeOnly(source.ast, source.ast.members(expressions[0]!)[0]!), true);
 });
+
+test("class expressions retain exact inherited and parameter-property implementations", () => {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": `
+      abstract class Base { abstract readonly value: number; abstract read(): number; }
+      function named() {
+        return class Selected extends Base {
+          constructor(readonly value: number) { super(); }
+          read(): number { return this.value; }
+        };
+      }
+      function anonymous() {
+        return class extends Base {
+          constructor(readonly value: number) { super(); }
+          read(): number { return this.value; }
+        };
+      }
+    ` },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(file);
+  const base = source.ast.statements(file)[0];
+  assert.ok(base);
+  const [value, read] = source.ast.members(base);
+  assert.ok(value && read);
+  const expressions: import("@tsonic/tsts").Node[] = [];
+  const visit = (node: import("@tsonic/tsts").Node): void => {
+    if (source.ast.is.IsClassExpression(node)) expressions.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(expressions.length, 2);
+  for (const expression of expressions) {
+    const members = source.ast.members(expression);
+    const constructor = members.find(member => member !== undefined && source.ast.kindName(member) === "KindConstructor");
+    const method = members.find(member => member !== undefined && source.ast.kindName(member) === "KindMethodDeclaration");
+    assert.ok(constructor && method);
+    const property = source.ast.parameters(constructor)[0];
+    assert.ok(property);
+    const pairs: readonly (readonly [import("@tsonic/tsts").Node, import("@tsonic/tsts").Node])[] =
+      [[value, property], [read, method], [property, property], [method, method]];
+    for (const [contract, implementation] of pairs) {
+      const selected = source.navigation.memberImplementation(expression, contract);
+      assert.equal(selected.kind, "resolved");
+      if (selected.kind !== "resolved") throw new Error("Missing exact implementation");
+      assert.equal(selected.implementation.declaration, implementation);
+      assert.equal(source.navigation.memberImplementation(expression, contract), selected);
+    }
+  }
+});

@@ -84,11 +84,13 @@ function resolveMemberImplementation(
   if (
     (
       !ast.is.IsClassDeclaration(typeDeclaration) &&
+      !ast.is.IsClassExpression(typeDeclaration) &&
       !ast.is.IsInterfaceDeclaration(typeDeclaration)
     ) ||
     contractOwner === undefined ||
     (
       !ast.is.IsClassDeclaration(contractOwner) &&
+      !ast.is.IsClassExpression(contractOwner) &&
       !ast.is.IsInterfaceDeclaration(contractOwner)
     ) ||
     !isProjectDeclaration(typeDeclaration) ||
@@ -109,16 +111,16 @@ function resolveMemberImplementation(
     return Object.freeze({ kind: "unresolved", reason: relation.reason });
   }
 
-  const typeName = ast.name(typeDeclaration);
-  const typeReference = referenceFor(typeName);
-  if (typeName === undefined || typeReference === undefined) {
+  const sourceFile = ast.getSourceFile(typeDeclaration);
+  const typeReference = referenceFor(ast.name(typeDeclaration));
+  if (sourceFile === undefined || !ast.is.IsClassExpression(typeDeclaration) && typeReference === undefined) {
     return Object.freeze({
       kind: "unresolved",
       reason: "The checked source program did not expose the project type declaration symbol.",
     });
   }
 
-  const checker = source.getSourceFileQueries(typeReference.sourceFile).checker;
+  const checker = source.getSourceFileQueries(sourceFile).checker;
   const memberNameNode = ast.name(contractMemberDeclaration);
   const contractSymbol = checker.getSymbolAtLocation(memberNameNode);
   if (
@@ -131,7 +133,10 @@ function resolveMemberImplementation(
     });
   }
 
-  const selectedType = checker.getDeclaredTypeOfSymbol(typeReference.symbol);
+  const typeSymbol = ast.is.IsClassExpression(typeDeclaration)
+    ? checker.getTypeSymbol(checker.getTypeAtLocation(typeDeclaration))
+    : typeReference?.symbol;
+  const selectedType = checker.getDeclaredTypeOfSymbol(typeSymbol);
   const implementationSymbol = checker.getPropertyOfType(
     selectedType,
     checker.getSymbolName(contractSymbol),
