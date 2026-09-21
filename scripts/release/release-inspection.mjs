@@ -1,16 +1,15 @@
-import { spawnSync } from "node:child_process";
-import { relative } from "node:path";
 import {
   npmView,
+  npmViewJson,
   waitForNpmViewPresence,
 } from "./npm-registry.mjs";
-import { run } from "./npm-wave.mjs";
+import { inspectPublishedSource } from "./source-provenance.mjs";
 import { compareSemver } from "./release-state.mjs";
 
 export function inspectRegistry(packages, options = {}) {
   const view = options.npmView ?? npmView;
-  const changedSinceVersion = options.packageChangedSinceVersion ??
-    packageChangedSinceVersion;
+  const viewJson = options.npmViewJson ?? npmViewJson;
+  const inspectSource = options.inspectPublishedSource ?? inspectPublishedSource;
   const write = options.write ?? ((value) => process.stdout.write(value));
   return packages.map((entry) => {
     const publishedVersion = view(entry.name, "dist-tags.latest");
@@ -36,46 +35,18 @@ export function inspectRegistry(packages, options = {}) {
         { npmView: view },
       );
     }
-    const drift = versionIntegrity !== undefined &&
-      changedSinceVersion(entry, entry.manifest.version);
+    const source = versionIntegrity === undefined
+      ? Object.freeze({ kind: "unpublished" })
+      : inspectSource(entry, viewJson(entry.name, "tsonicRelease", entry.manifest.version));
     write(
-      `${entry.name}: local=${entry.manifest.version} npm-latest=${publishedVersion ?? "<missing>"} exact=${versionIntegrity === undefined ? "missing" : "published"}${drift ? " content=changed" : ""}\n`,
+      `${entry.name}: local=${entry.manifest.version} npm-latest=${publishedVersion ?? "<missing>"} exact=${versionIntegrity === undefined ? "missing" : "published"} source=${source.kind}${source.reason === undefined ? "" : ` (${source.reason})`}\n`,
     );
     return Object.freeze({
       ...entry,
       publishedVersion,
       versionIntegrity,
       relation,
-      drift,
+      source,
     });
   });
-}
-
-export function packageChangedSinceVersion(entry, version, options = {}) {
-  const runCommand = options.run ?? run;
-  const spawn = options.spawnSync ?? spawnSync;
-  const packagePath = relative(entry.repositoryRoot, entry.path);
-  const commits = runCommand(
-    "git",
-    [
-      "log",
-      "--format=%H",
-      "-G",
-      `"version"[[:space:]]*:[[:space:]]*"${version.replaceAll(".", "\\.")}"`,
-      "--",
-      packagePath,
-    ],
-    { cwd: entry.repositoryRoot, capture: true },
-  ).trim().split("\n").filter(Boolean);
-  const versionCommit = commits[0];
-  if (versionCommit === undefined) return true;
-  const packageRootPath = relative(entry.repositoryRoot, entry.packageRoot) || ".";
-  const changed = spawn(
-    "git",
-    ["diff", "--quiet", versionCommit, "--", packageRootPath],
-    { cwd: entry.repositoryRoot },
-  );
-  if (changed.status === 0) return false;
-  if (changed.status === 1) return true;
-  throw new Error(`Could not inspect content drift for '${entry.name}'.`);
 }

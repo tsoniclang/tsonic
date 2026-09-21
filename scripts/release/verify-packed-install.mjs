@@ -17,6 +17,7 @@ import {
   run,
   validateWaveManifests,
 } from "./npm-wave.mjs";
+import { packReleasePackage } from "./package-artifact.mjs";
 import { verifyCsharpFrameworks } from "./verify-csharp-frameworks.mjs";
 
 const wave = validateWaveManifests();
@@ -28,7 +29,7 @@ writeFileSync(resolve(scratchRoot, "package.json"), `${JSON.stringify({
   private: true,
 }, null, 2)}\n`);
 
-const packed = wave.packages.map((entry) => pack(entry));
+const packed = wave.packages.map((entry) => packReleasePackage(entry, tarballRoot));
 const registry = await startRegistry(packed);
 try {
   await verifyCsharp(registry.origin);
@@ -73,57 +74,6 @@ function ensureScratchRoot() {
   const root = resolve(hostRoot, ".temp/npm-release");
   mkdirSync(root, { recursive: true });
   return root;
-}
-
-function pack(entry) {
-  const output = run(
-    "npm",
-    ["pack", "--json", "--ignore-scripts", "--pack-destination", tarballRoot],
-    { cwd: entry.packageRoot, capture: true },
-  );
-  const result = JSON.parse(output);
-  if (!Array.isArray(result) || result.length !== 1) {
-    throw new Error(`npm pack returned no unique artifact for '${entry.name}'.`);
-  }
-  const item = result[0];
-  if (item.name !== entry.name || item.version !== wave.version ||
-      typeof item.filename !== "string" || !Array.isArray(item.files)) {
-    throw new Error(`npm pack returned an invalid artifact record for '${entry.name}'.`);
-  }
-  const forbidden = item.files
-    .map(({ path }) => path)
-    .filter((path) =>
-      path.includes("node_modules/") ||
-      path.endsWith(".tsbuildinfo") ||
-      /(?:^|\/)\.temp(?:\/|$)/u.test(path));
-  if (forbidden.length !== 0) {
-    throw new Error(
-      `Package '${entry.name}' contains forbidden build state: ${forbidden.join(", ")}.`,
-    );
-  }
-  const runtimeProject = entry.manifest.exports?.["./runtime.csproj"];
-  if (typeof runtimeProject === "string") {
-    const paths = new Set(item.files.map(({ path }) => path));
-    if (!paths.has(runtimeProject.replace(/^\.\//u, "")) || !paths.has("Directory.Build.props") ||
-        !item.files.some(({ path }) => path.endsWith(".cs")) ||
-        item.files.some(({ path }) => /\.(?:dll|pdb|exe)$/iu.test(path) || path === "global.json")) {
-      throw new Error(`Package '${entry.name}' must ship its complete native source project, not native binaries or a contributor SDK pin.`);
-    }
-  }
-  const tarballPath = resolve(tarballRoot, item.filename);
-  const bytes = readFileSync(tarballPath);
-  const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
-  const shasum = createHash("sha1").update(bytes).digest("hex");
-  return Object.freeze({
-    name: entry.name,
-    version: wave.version,
-    manifest: entry.manifest,
-    filename: item.filename,
-    tarballPath,
-    integrity,
-    shasum,
-    fileCount: item.files.length,
-  });
 }
 
 async function startRegistry(packages) {

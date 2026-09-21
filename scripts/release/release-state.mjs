@@ -1,6 +1,6 @@
 export function classifyReleaseState(version, entries) {
-  const patchReasons = entries.filter(({ relation, drift }) =>
-    relation === "ahead" || drift);
+  const patchReasons = entries.filter(({ relation, source }) =>
+    relation === "ahead" || source.kind === "changed" || source.kind === "unverified");
   if (patchReasons.length !== 0) {
     return Object.freeze({
       kind: "prepare-patch",
@@ -35,6 +35,7 @@ export function formatReleaseChecklist(action, packageCount) {
       "",
       "- [x] Every package exact version exists on npm.",
       "- [x] Every `latest` tag selects the exact wave version.",
+      "- [x] Certified published source provenance matches the selected source inputs.",
     );
     return `${lines.join("\n")}\n`;
   }
@@ -44,7 +45,7 @@ export function formatReleaseChecklist(action, packageCount) {
       "",
       "Direct reasons:",
       ...action.reasons.map((entry) =>
-        `- ${entry.name}: ${entry.relation === "ahead" ? "npm latest is ahead of the local wave" : "published-version content changed"}`),
+        `- ${entry.name}: ${entry.relation === "ahead" ? "npm latest is ahead of the local wave" : entry.source.kind === "unverified" ? entry.source.reason : "source changed since the certified publication"}`),
       "",
       `All ${String(packageCount)} packages must receive the same next patch version because first-party edges are exact.`,
       "",

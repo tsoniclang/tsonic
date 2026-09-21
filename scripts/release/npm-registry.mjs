@@ -24,6 +24,15 @@ export function requireNpmAuthentication(runNpm = runNpmCommand) {
 }
 
 export function npmView(name, field, version, runNpm = runNpmCommand) {
+  const value = npmViewJson(name, field, version, runNpm);
+  if (value === undefined || typeof value === "string") return value;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value.at(-1);
+  }
+  throw new Error(`npm returned no scalar '${field}' value for '${name}'.`);
+}
+
+export function npmViewJson(name, field, version, runNpm = runNpmCommand) {
   const selector = version === undefined ? name : `${name}@${version}`;
   const result = runNpm([
     "view",
@@ -40,12 +49,7 @@ export function npmView(name, field, version, runNpm = runNpmCommand) {
   }
   const output = result.stdout?.trim() ?? "";
   if (output.length === 0) return undefined;
-  const value = JSON.parse(output);
-  if (typeof value === "string") return value;
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-    return value.at(-1);
-  }
-  throw new Error(`npm returned no scalar '${field}' value for '${selector}'.`);
+  return JSON.parse(output);
 }
 
 export function waitForNpmViewPresence(name, field, version, options = {}) {
@@ -90,6 +94,8 @@ function runNpmCommand(args) {
   return spawnSync("npm", args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: 60_000,
+    maxBuffer: 4 * 1024 * 1024,
   });
 }
 

@@ -50,8 +50,9 @@ This file contains only host-repository deltas.
   before publication.
 - If npm is ahead of `main`, do not rewrite history; bump `main` to the next
   patch and publish from there.
-- Determine publish need per package from both local-vs-npm versions and content
-  drift since that package's last version-bump commit.
+- Determine publish need from local-vs-npm versions and certified source
+  provenance in the exact published package. The wave declares each package's
+  source/build inputs. Never infer publication from a version-bump commit.
 - npm is the sole distribution for first-party compiler and runtime packages.
   A wave includes every affected npm package; do not omit runtime packages.
   External NuGet dependencies still restore normally; do not publish our own

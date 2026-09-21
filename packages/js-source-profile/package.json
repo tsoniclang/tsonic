@@ -1,6 +1,6 @@
 {
   "name": "@tsonic/js-source-profile",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Canonical JavaScript source-profile declarations and identities for Tsonic targets",
   "repository": {
     "type": "git",
@@ -31,8 +31,8 @@
     "node": ">=22.18.0"
   },
   "dependencies": {
-    "@tsonic/source-core": "0.1.1",
-    "@tsonic/tsts": "0.1.1"
+    "@tsonic/source-core": "0.1.2",
+    "@tsonic/tsts": "0.1.2"
   },
   "license": "MIT"
 }
