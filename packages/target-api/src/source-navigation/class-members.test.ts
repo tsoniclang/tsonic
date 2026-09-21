@@ -110,3 +110,45 @@ test("parameter properties retain exact field declarations, owners and storage e
     assert.equal(implementation.implementation.declaration, source.ast.parameters(derivedConstructor)[0]);
   }
 });
+
+test("named and anonymous class expressions retain the same exact parameter-property ownership", () => {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": `
+      const named = class Named {
+        declare private then?: never;
+        constructor(readonly value: number, ignored: number) {}
+      };
+      const anonymous = class {
+        constructor(readonly value: string, ignored: string) {}
+      };
+    ` },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(file);
+  const expressions: import("@tsonic/tsts").Node[] = [];
+  const visit = (node: import("@tsonic/tsts").Node): void => {
+    if (source.ast.kindName(node) === "KindClassExpression") expressions.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(expressions.length, 2);
+  for (const expression of expressions) {
+    const original = source.ast.members(expression);
+    const constructor = original.find(member => member !== undefined && source.ast.kindName(member) === "KindConstructor");
+    assert.ok(constructor);
+    const [property, ignored] = source.ast.parameters(constructor);
+    assert.ok(property && ignored);
+    assert.equal(sourceParameterIsProperty(source.ast, property), true);
+    assert.equal(sourceParameterIsProperty(source.ast, ignored), false);
+    assert.equal(sourceMemberOwner(source.ast, property), expression);
+    assert.deepEqual(sourceObjectMemberDeclarations(source.ast, expression), [...original, property]);
+    assert.deepEqual(source.ast.members(expression), original);
+    assert.equal(sourceClassFieldIsTypeOnly(source.ast, property), false);
+  }
+  assert.ok(source.ast.members(expressions[0]!)[0]);
+  assert.equal(sourceClassFieldIsTypeOnly(source.ast, source.ast.members(expressions[0]!)[0]!), true);
+});
