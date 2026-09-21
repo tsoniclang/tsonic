@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceMemberOwner, sourceParameterIsProperty } from "./class-members.js";
+import { Node_Expression } from "./ast.js";
 import type {
   SourceDeclarationUse,
   SourceDeclarationUseSummary,
@@ -25,9 +26,10 @@ export function sourceDeclarationUseSummary(
   const declarationOwner = ast.parent(declaration);
   const declaredClassMember = declarationOwner !== undefined &&
     ast.is.IsClassDeclaration(declarationOwner);
-  const exported = ast.hasModifierKind(declaration, "export") ||
+  const exported = declarationHasExportModifier(ast, declaration) ||
     uses.some((use) => use.role === "source-linkage" &&
-      sourceLinkageKind(ast, use.reference) === "export");
+      sourceLinkageKind(ast, use.reference) === "export" ||
+      sourceReferenceIsExportedValue(ast, use.reference));
   const parameterProperty = sourceParameterIsProperty(ast, declaration);
   const isMemberUse = (use: SourceDeclarationUse): boolean =>
     use.throughMember || declaredClassMember || parameterProperty &&
@@ -84,6 +86,32 @@ export function sourceDeclarationUseSummary(
     escapeKinds: Object.freeze(escapeOrder.filter((kind) => escapeKinds.has(kind))),
     hasUnclassifiedValueUse: uses.some((use) => use.role === "value"),
   });
+}
+
+function declarationHasExportModifier(ast: AstReader, declaration: Node): boolean {
+  let current: Node | undefined = declaration;
+  while (current !== undefined) {
+    if (ast.hasModifierKind(current, "export")) return true;
+    if (!ast.is.IsVariableDeclaration(current) && !ast.is.IsVariableDeclarationList(current) &&
+      !ast.is.IsBindingElement(current) && !ast.is.IsObjectBindingPattern(current) &&
+      !ast.is.IsArrayBindingPattern(current)) return false;
+    current = ast.parent(current);
+  }
+  return false;
+}
+
+function sourceReferenceIsExportedValue(ast: AstReader, reference: Node): boolean {
+  let current = reference;
+  for (;;) {
+    const parent = ast.parent(current);
+    if (parent === undefined) return false;
+    if (ast.is.IsExportAssignment(parent)) return Node_Expression(ast, parent) === current;
+    if (!ast.is.IsParenthesizedExpression(parent) && !ast.is.IsAsExpression(parent) &&
+      !ast.is.IsTypeAssertion(parent) && !ast.is.IsNonNullExpression(parent) &&
+      !ast.is.IsSatisfiesExpression(parent)) return false;
+    if (Node_Expression(ast, parent) !== current) return false;
+    current = parent;
+  }
 }
 
 function sourceMemberWriteIsConstructorInitialization(

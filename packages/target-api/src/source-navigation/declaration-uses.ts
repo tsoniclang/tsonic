@@ -149,7 +149,7 @@ function sourceDeclarationUseRole(
         current = parent;
         continue;
       }
-      return { role: "value", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "value", throughMember: receiverPath };
     }
     if (ast.is.IsCallExpression(parent)) {
       if (sourceNodesEqual(ast, Node_Expression(ast, parent), current)) {
@@ -159,7 +159,7 @@ function sourceDeclarationUseRole(
         };
       }
       return {
-        role: ast.arguments(parent).some((argument) =>
+        role: receiverPath ? "receiver" : ast.arguments(parent).some((argument) =>
         sourceNodesEqual(ast, argument, current))
           ? "argument"
           : "value",
@@ -174,7 +174,7 @@ function sourceDeclarationUseRole(
         };
       }
       return {
-        role: ast.arguments(parent).some((argument) =>
+        role: receiverPath ? "receiver" : ast.arguments(parent).some((argument) =>
         sourceNodesEqual(ast, argument, current))
           ? "argument"
           : "value",
@@ -182,22 +182,22 @@ function sourceDeclarationUseRole(
       };
     }
     if (ast.is.IsReturnStatement(parent)) {
-      return { role: "return", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "return", throughMember: receiverPath };
     }
     if (ast.is.IsYieldExpression(parent)) {
-      return { role: "yield", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "yield", throughMember: receiverPath };
     }
     if (sourceReferenceIsWriteTarget(ast, parent, current)) {
       return { role: "write", throughMember: receiverPath };
     }
     if (sourceReferenceIsStored(ast, parent, current)) {
-      return { role: "storage", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "storage", throughMember: receiverPath };
     }
     if (sourceReferenceIsCompared(ast, parent, current)) {
-      return { role: "comparison", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "comparison", throughMember: receiverPath };
     }
     if (sourceReferenceIsCondition(ast, parent, current)) {
-      return { role: "condition", throughMember: receiverPath };
+      return { role: receiverPath ? "receiver" : "condition", throughMember: receiverPath };
     }
     return {
       role: receiverPath ? "receiver" : "value",

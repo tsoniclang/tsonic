@@ -44,7 +44,7 @@ test("CLI runs inferred source-owned array returns through finalized carrier fac
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<double> make\(int value\)/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ value, value \+ 1 \}\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[value, value \+ 1\]\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<double>> nested\(int value\)/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<double> values/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<double>> nestedValues/);

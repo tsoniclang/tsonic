@@ -244,9 +244,9 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> rest = (__tsonic_destructure\d+)\.slice\(1\);/);
   assert.match(generatedSource, /return rest;/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> append\(Tsonic\.CSharp\.Js\.JSArray<int> values, int value\)/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(values\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ value \}\)\);/);
+  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(values\)\.concat\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[value\]\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> prepend\(Tsonic\.CSharp\.Js\.JSArray<int> values, int value\)/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ value \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(values\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[value\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(values\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> copy\(\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArrayStatics\.fromDense<int>\(values\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> chars\(string value\)/);
@@ -414,7 +414,7 @@ test("CLI selects ordinary TypeScript array public ABI lanes from finalized JS s
   assert.match(generatedSource, /values\[index\] = value;/);
   assert.match(generatedSource, /return values\.length;/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> make\(int value\)/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ value, value \+ 1 \}\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[value, value \+ 1\]\);/);
   assert.match(generatedSource, /public static int sparse\(Tsonic\.CSharp\.Js\.JSArray<int> values, int index\)/);
   assert.match(generatedSource, /values\.deleteAt\(index\);/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.(?:IEnumerable|IReadOnlyList|List)<int>/);
@@ -504,7 +504,7 @@ test("CLI runs explicit optional elements through dense JSArray carrier facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<double\?>\(new double\?\[\] \{ null, 5, 6 \}\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double\?>\.of\(\[null, 5, 6\]\)/);
   assert.match(generatedSource, /__tsonic_destructure\d+\.slice\(2\)/);
   assert.doesNotMatch(generatedSource, /new double\?\[\] \{ 5, 6 \}/);
 

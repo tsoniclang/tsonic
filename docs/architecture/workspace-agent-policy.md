@@ -179,12 +179,44 @@ policy.
 
 ### Native Performance From Exact Metadata
 
-- Native performance is a hard requirement; compatibility is best effort within
-  that constraint. Ordinary operations use native target behavior. JS and Node
+- **Hard rule: native performance by default; no silent runtime overhead of any
+  kind.** Compatibility is best effort within that constraint. Ordinary
+  operations use native target behavior. JS and Node
   surfaces are explicit API opt-ins, not permission to impose hidden copying,
   conversion, storage or bookkeeping for unused features. When native performance
   conflicts with compatibility, document the native difference or reject the
   unsupported operation instead of inserting a slower emulation path.
+- This applies across generated code, analysis-selected representations,
+  provider adapters, call boundaries, runtimes and benchmark dispatchers, not
+  only individual runtime functions. Audit implicit copies, allocations,
+  reference counting, conversions, boxing, checks, scans, repeated syscalls and
+  work for unused values or capabilities. For example, querying file size must
+  not copy an unrelated payload; a read-only call must not acquire an owned
+  string merely because its generated signature was designed that way.
+- **Allocation placement must be idiomatic and no more expensive than the
+  equivalent handwritten native implementation.** Prefer value storage,
+  borrowing and bounded local buffers when exact escape, aliasing, identity,
+  size and lifetime evidence permits them. Do not default to heap boxes,
+  shared handles, captured environments, reference-counted wrappers or owned
+  copies merely to simplify lowering. Heap allocation required by the program
+  remains valid; justify the particular owner, representation and lifetime,
+  rather than treating every allocation as a defect or moving unbounded data
+  onto the stack. Preserve observable mutation, identity and memory safety.
+- Allocation reviews must inspect representative application and proof output
+  for both C# and Rust, including callees and runtime carriers. Distinguish
+  inline value storage from guaranteed stack placement, an empty collection
+  from an allocated buffer, and source-level allocation sites from allocations
+  remaining after native optimization. A `struct`, native type or passing test
+  alone is not proof of optimal placement; claims of allocation elimination
+  require native evidence.
+- A native type, a native API call, an existing implementation or an aggregate
+  benchmark win does not establish an acceptable cost. Use exact evidence to
+  remove avoidable work at its owning layer; do not require extra source
+  annotations when the compiler can prove the efficient operation. Necessary
+  costs of the requested semantics must be explicit in the contract and review,
+  not silently accepted as compiler overhead. If performance and correctness
+  cannot both be met, disclose the concrete conflict and obtain an explicit
+  supported choice rather than quietly accepting a slowdown.
 - Compatibility is subordinate to performance, never a justification for a
   slowdown of the common path. A compatibility behavior with additional cost
   requires an explicit per-value or per-operation request; a whole-project JS
@@ -217,6 +249,13 @@ policy.
   speculative coercions, compatibility paths or extra user annotations when
   the existing evidence already suffices. Record necessity and verify semantic
   equivalence and performance before claiming an optimization certified.
+- Certification must cover the entire affected source-to-native path. Inspect
+  generated code and verify relevant allocation, copying, syscall and scaling
+  behavior; inspect optimized code when claiming the native toolchain removes
+  an apparent cost. Keep known avoidable overhead in scope open until fixed.
+  Correct output, a faster aggregate result or measurement noise is not proof
+  of zero overhead. Never weaken semantics, safety or assertions to improve a
+  performance result.
 
 ### TypeScript Source Discipline
 

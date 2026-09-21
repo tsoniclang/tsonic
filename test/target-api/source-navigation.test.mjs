@@ -9,6 +9,7 @@ import {
   createTargetSourceProgram,
   projectSourceNodeIdentity,
   sourceTypeSyntaxIsCompositional,
+  sourceMayReadBeforeInitialization,
 } from "../../packages/target-api/dist/public/source.js";
 import {
   sourcePrimitiveFactKey,
@@ -24,6 +25,77 @@ import {
   projectSourceFile,
   requiredNode,
 } from "../fixtures/source-navigation.mjs";
+
+test("field flow does not escape its receiver but returning and capturing the receiver does", async () => {
+  const source = await checkedSource("receiver-flow", { "src/index.ts": `
+    interface Box { count: number }
+    export function field(box: Box): number { return box.count; }
+    export function passed(box: Box): number { return read(box.count); }
+    function read(value: number): number { return value; }
+    export function escaped(box: Box): Box { return box; }
+    export function captured(box: Box): () => number { return () => box.count; }
+  ` });
+  const ast = source.ast;
+  const file = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  const summary = name => navigation.parameterUseSummary(ast.parameters(namedDeclaration(ast, file, name))[0]);
+  assert.equal(summary("field").returned, false);
+  assert.equal(summary("field").receiverUsed, true);
+  assert.equal(summary("passed").passedAsArgument, false);
+  assert.equal(summary("escaped").returned, true);
+  assert.equal(summary("captured").captured, true);
+});
+
+test("initialization proof follows deferred bodies and exact early invocation roots", async () => {
+  const cases = [
+    ["function read(): number { return value; } const value = 3; export const result = read();", false],
+    ["function read(): number { return value; } export const result = read(); const value = 3;", true],
+    ["export const result = read(); const value = 3; function read(): number { return value; }", true],
+    ["const value = 3; export const result = value;", false],
+    ["const read = (): number => value; const value = 3; export const result = read();", false],
+    ["class Reader { read(): number { return value; } } const value = 3; export const result = new Reader().read();", false],
+    ["class Reader { read(): number { return value; } } export const result = new Reader().read(); const value = 3;", true],
+    ["export const result = read(); const value = 3; function read(input: number = value): number { return input; }", true],
+    ["const value = 3; export const result = read(); function read(input: number = value): number { return input; }", false],
+    ["export const result = invoke(); const value = 3; function invoke(): number { return read(); } function read(input: number = value): number { return input; }", true],
+    ["export const result = read(); const value = 3; function read({ count = value }: { count?: number } = {}): number { return count; }", true],
+    ["const read = (input: number = value): number => input; export const result = read(); const value = 3;", true],
+    ["const read = (input: number = value): number => input; const value = 3; export const result = read();", false],
+  ];
+  for (const [index, [text, early]] of cases.entries()) {
+    const source = await checkedSource(`initialization-${index}`, { "src/index.ts": text });
+    const ast = source.ast;
+    const file = projectSourceFile(source, "src/index.ts");
+    assert.equal(sourceMayReadBeforeInitialization(namedVariable(ast, file, "value"), ast,
+      createSourceProgramNavigation(source)), early, text);
+  }
+});
+
+test("variable exports retain exact statement ownership without exporting locals", async () => {
+  const source = await checkedSource("exported-variable-owners", { "src/index.ts": `
+    export const direct = 1, multiple = 2;
+    const listed = 3;
+    export { listed as renamed };
+    const defaulted = 4;
+    export default ((defaulted satisfies number));
+    export const { count: destructured } = { count: 5 };
+    export function read(): number { const local = 6; return local; }
+    const privateValue = 7;
+    function identity(input: number): number { return input; }
+    export const calculated = identity(privateValue);
+  ` });
+  const ast = source.ast;
+  const file = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  for (const name of ["direct", "multiple", "listed", "defaulted"]) {
+    assert.equal(navigation.declarationUseSummary(namedVariable(ast, file, name)).exported, true, name);
+  }
+  const binding = requiredNode(ast, file, node => ast.is.IsBindingElement(node) && ast.text(ast.name(node)) === "destructured");
+  assert.equal(navigation.declarationUseSummary(binding).exported, true);
+  for (const name of ["local", "privateValue"]) {
+    assert.equal(navigation.declarationUseSummary(namedVariable(ast, file, name)).exported, false, name);
+  }
+});
 
 test("project source-node identities are stable across checkout roots and compiler path forms", () => {
   const node = {};
@@ -319,6 +391,27 @@ test("source navigation resolves overload signatures to one concrete callable bo
         implementation,
       );
     }
+  }
+});
+
+test("source navigation retains exact checked arrow and function-expression implementations", async () => {
+  const source = await checkedSource("project-expression-implementation", {
+    "src/index.ts": `
+      export const arrow = (value: string): boolean => value === "arrow";
+      export const expression = function(value: string): boolean { return value === "function"; };
+    `,
+  });
+  const { ast } = source;
+  const file = projectSourceFile(source, "src/index.ts");
+  const navigation = createSourceProgramNavigation(source);
+  for (const predicate of [ast.is.IsArrowFunction, ast.is.IsFunctionExpression]) {
+    const declaration = requiredNode(ast, file, predicate);
+    const selected = navigation.callableImplementation(declaration);
+    assert.equal(selected.kind, "resolved");
+    assert.strictEqual(selected.implementation.declaration, declaration);
+    assert.strictEqual(selected.implementation.sourceFile, file);
+    assert.equal(selected.implementation.project, true);
+    assert.strictEqual(navigation.callableImplementation(declaration), selected);
   }
 });
 

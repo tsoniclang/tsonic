@@ -80,15 +80,15 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int accepts\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ \}\);/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ \}\);/);
-  assert.match(generatedSource, /return accepts\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ \}\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\);/);
+  assert.match(generatedSource, /return accepts\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> nestedEmptyAndSpread\(\)/);
-  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>>\(new Tsonic\.CSharp\.Js\.JSArray<int>\[\] \{ new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ \}\), new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 1, 2 \}\) \}\)/);
-  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 0 \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(right\)\)/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 0 \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(left\), new Tsonic\.CSharp\.Js\.JSArray<int>\(right\), new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 9 \}\)\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<float> values = new Tsonic\.CSharp\.Js\.JSArray<float>\(new float\[\] \{ 1.5F, 2.5F \}\);/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> values = new Tsonic\.CSharp\.Js\.JSArray<double>\(new double\[\] \{ 1, 2, 3 \}\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>>\.of\(\[Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2\]\)\]\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[0\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(right\)\)/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[0\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(left\), new Tsonic\.CSharp\.Js\.JSArray<int>\(right\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[9\]\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<float> values = Tsonic\.CSharp\.Js\.JSArray<float>\.of\(\[1.5F, 2.5F\]\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> values = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[1, 2, 3\]\);/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /foreach \(int value in values\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
@@ -152,7 +152,7 @@ test("CLI emits readonly source arrays through finalized JSArray carrier facts",
   assert.match(generatedSource, /public static T genericReadonly<T>\(Tsonic\.CSharp\.Js\.JSArray<T> values\)/);
   assert.match(generatedSource, /public static int nested\(Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> values\)/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> readonlySpread\(Tsonic\.CSharp\.Js\.JSArray<int> left, Tsonic\.CSharp\.Js\.JSArray<int> right\)/);
-  assert.match(generatedSource, /return new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 0 \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(left\), new Tsonic\.CSharp\.Js\.JSArray<int>\(right\), new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 9 \}\)\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[0\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(left\), new Tsonic\.CSharp\.Js\.JSArray<int>\(right\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[9\]\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> spread/);
   assert.match(generatedSource, /spread\.length/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.(?:List|IReadOnlyList|IEnumerable)</);
@@ -196,11 +196,11 @@ test("CLI emits module-scope array spread constants from finalized expected arra
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> source/);
-  assert.match(generatedSource, /source = new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 1, 2, 3 \}\);/);
-  assert.match(generatedSource, /withSpread = new Tsonic\.CSharp\.Js\.JSArray<int>\(source\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 4, 5 \}\)\);/);
+  assert.match(generatedSource, /source = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2, 3\]\);/);
+  assert.match(generatedSource, /withSpread = new Tsonic\.CSharp\.Js\.JSArray<int>\(source\)\.concat\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[4, 5\]\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> more/);
-  assert.match(generatedSource, /more = new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 10, 20 \}\);/);
-  assert.match(generatedSource, /multiSpread = new Tsonic\.CSharp\.Js\.JSArray<int>\(source\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(more\), new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 100 \}\)\);/);
+  assert.match(generatedSource, /more = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[10, 20\]\);/);
+  assert.match(generatedSource, /multiSpread = new Tsonic\.CSharp\.Js\.JSArray<int>\(source\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(more\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[100\]\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysModuleSpreadConstants.csproj"), "--nologo", "--v:minimal"]);
@@ -245,7 +245,7 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 1 \}\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ pair\.Item1, pair\.Item2 \}\), new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ 4 \}\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ pair\.Item1, pair\.Item2 \}\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[4\]\)\)/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> values/);
   assert.match(generatedSource, /values = compose\(\(2, 3\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
