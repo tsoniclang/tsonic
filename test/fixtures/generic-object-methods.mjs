@@ -17,9 +17,17 @@ export const genericObjectMethodFiles = {
       count += 2;
       return operations;
     }
+    export function shadowed<T, T2>(seed: T, other: T2) {
+      return {
+        identity<T>(value: T): T { return value; },
+        seed<U>(value: U): T { return seed; },
+        other<U>(value: U): T2 { return other; },
+        constrained<T extends { score: number }>(value: T): number { return value.score; },
+      };
+    }
   `,
   "index.ts": `
-    import { factory, identity } from "./factory.js";
+    import { factory, identity, shadowed } from "./factory.js";
     export function run(): boolean {
       const left = identity();
       const right = { identity<T>(value: T): T { return value; } };
@@ -32,6 +40,8 @@ export const genericObjectMethodFiles = {
       const pair = operations.seeded(true);
       if (pair[0] !== "seed" || pair[1] !== true) return false;
       const independent = factory(9);
+      const scoped = shadowed("outer", 17);
+      if (scoped.identity(23) !== 23 || scoped.seed(false) !== "outer" || scoped.other(true) !== 17 || scoped.constrained({ score: 4 }) !== 4) return false;
       return independent.read(0) === 3 && operations.read(0) === 4 &&
         independent.seeded("other")[0] === 9;
     }
@@ -57,6 +67,38 @@ export const genericObjectCaptureSource = `
   function destructured({ count }: { count: number }) {
     return { change<T>(item: T): T { count++; return item; }, count<T>(item: T): number { return count; } };
   }
+  function mixed(seed: number) {
+    let count = seed;
+    const methods = { add<T>(item: T): T { count++; return item; }, read<T>(item: T): number { return count; } };
+    const read = () => count;
+    const increment = function (step: number): number { count += step; return count; };
+    count += 2;
+    return { methods, read, increment };
+  }
+  function mixedLoops(): boolean {
+    const calls: (() => number)[] = [];
+    const methods: Reader[] = [];
+    const conditions: (() => number)[] = [];
+    const increments: (() => number)[] = [];
+    for (let index = 0; (conditions.push(() => index), index < 3); (increments.push(() => index), index++)) {
+      let local = index;
+      methods.push({ read<T>(value: T): number { local++; return local + index; } });
+      calls.push(() => local + index);
+    }
+    if (calls[0]() !== 0 || calls[1]() !== 2 || calls[2]() !== 4) return false;
+    if (methods[1].read(0) !== 3 || calls[1]() !== 3 || calls[0]() !== 0) return false;
+    return conditions[0]() === 0 && conditions[1]() === 1 && conditions[3]() === 3 &&
+      increments[0]() === 1 && increments[1]() === 2 && increments[2]() === 3;
+  }
+  class Owner {
+    value: number = 5;
+    build(seed: number) {
+      let count = seed;
+      const methods = { read<T>(item: T): number { return count; } };
+      const callback = (step: number): number => { count += step; this.value += count; return this.value; };
+      return { methods, callback };
+    }
+  }
   export function run(): boolean {
     const readers = build();
     if (readers.length !== 3 || readers[0].read(0) !== 1 || readers[1].read(0) !== 3 || readers[2].read(0) !== 7) return false;
@@ -64,7 +106,13 @@ export const genericObjectCaptureSource = `
     const counter = parameter(7);
     if (counter.increment("x") !== "x" || counter.read(0) !== 10) return false;
     const captured = destructured({ count: 11 });
-    return captured.change(true) && captured.count(0) === 12;
+    if (!captured.change(true) || captured.count(0) !== 12 || !mixedLoops()) return false;
+    const shared = mixed(7);
+    if (shared.read() !== 9 || shared.increment(3) !== 12 || shared.methods.read(0) !== 12) return false;
+    if (!shared.methods.add(true) || shared.read() !== 13) return false;
+    const owner = new Owner();
+    const receiver = owner.build(4);
+    return receiver.callback(2) === 11 && receiver.methods.read(0) === 6 && owner.value === 11;
   }
 `;
 

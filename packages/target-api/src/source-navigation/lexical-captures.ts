@@ -10,6 +10,7 @@ export interface SourceLexicalCapture {
 export interface SourceLexicalCaptureSelection {
   readonly captures: readonly SourceLexicalCapture[];
   readonly selfReferences: readonly Node[];
+  readonly receivers: readonly { readonly owner: Node; readonly references: readonly Node[] }[];
 }
 
 export function sourceLexicalCaptures(
@@ -20,10 +21,19 @@ export function sourceLexicalCaptures(
 ): SourceLexicalCaptureSelection {
   const captures = new Map<Node, Node[]>();
   const selfReferences: Node[] = [];
+  const receivers = new Map<Node, Node[]>();
   const visited = new Set<Node>();
   const visit = (node: Node): void => {
     if (visited.has(node) || isTypeSyntaxNode(ast, node)) return;
     visited.add(node);
+    if (ast.kindName(node) === "KindThisKeyword") {
+      const owner = receiverOwner(node, ast);
+      if (owner !== undefined && !within(owner, scope, ast)) {
+        const references = receivers.get(owner) ?? [];
+        references.push(node);
+        receivers.set(owner, references);
+      }
+    }
     if (ast.is.IsIdentifier(node)) {
       const selected = navigation.sourceReferenceFor(node);
       if (selected?.project === true) {
@@ -51,6 +61,9 @@ export function sourceLexicalCaptures(
       declaration, references: Object.freeze(references),
     }))),
     selfReferences: Object.freeze(selfReferences),
+    receivers: Object.freeze([...receivers].map(([owner, references]) => Object.freeze({
+      owner, references: Object.freeze(references),
+    }))),
   });
 }
 
@@ -102,4 +115,12 @@ function within(node: Node, ancestor: Node, ast: AstReader): boolean {
     if (current === ancestor) return true;
   }
   return false;
+}
+
+function receiverOwner(node: Node, ast: AstReader): Node | undefined {
+  for (let owner = ast.parent(node); owner !== undefined; owner = ast.parent(owner)) {
+    if (["KindFunctionDeclaration", "KindFunctionExpression", "KindMethodDeclaration", "KindConstructor",
+      "KindGetAccessor", "KindSetAccessor", "KindPropertyDeclaration", "KindClassStaticBlockDeclaration", "KindSourceFile"].includes(ast.kindName(owner))) return owner;
+  }
+  return undefined;
 }

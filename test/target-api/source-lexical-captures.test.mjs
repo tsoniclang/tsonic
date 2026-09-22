@@ -59,6 +59,33 @@ test("named recursive functions distinguish self references from outer bindings"
   assert.equal(result.selfReferences.length, 1);
 });
 
+test("lexical receiver captures retain exact owners across nested arrows and methods", async () => {
+  const source = await checkedSource("lexical-receivers", { "src/index.ts": `
+    export class Owner {
+      value = 1;
+      make() {
+        return () => {
+          const nested = () => this.value;
+          const independent = { value: 7, read() { return this.value; } };
+          return this.value + nested() + independent.read();
+        };
+      }
+    }
+  ` });
+  const ast = source.ast;
+  const file = projectSourceFile(source, "src/index.ts");
+  const owner = namedDeclaration(ast, file, "Owner");
+  const method = requiredNode(ast, owner, node => ast.is.IsMethodDeclaration(node) && ast.text(ast.name(node)) === "make");
+  const closure = requiredNode(ast, method, node => ast.is.IsArrowFunction(node));
+  const result = sourceLexicalCaptures(closure, [closure], ast, createSourceProgramNavigation(source));
+  assert.equal(result.receivers.length, 1);
+  assert.equal(result.receivers[0].owner, method);
+  assert.equal(result.receivers[0].references.length, 2);
+  assert.ok(result.receivers[0].references.every(node => ast.kindName(node) === "KindThisKeyword"));
+  assert.ok(Object.isFrozen(result.receivers));
+  assert.ok(Object.isFrozen(result.receivers[0].references));
+});
+
 test("captured binding scopes distinguish parameters, lexical blocks, loops and function-scoped vars", async () => {
   const source = await checkedSource("capture-binding-scopes", { "src/index.ts": `
     export function create(seed: number) {
