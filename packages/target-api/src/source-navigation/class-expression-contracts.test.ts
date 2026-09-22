@@ -56,8 +56,9 @@ test("class-expression public navigation preserves overloaded, inherited and acc
     const localRead = members.find(member => member !== undefined && source.ast.is.IsMethodDeclaration(member));
     const localValue = members.find(member => member !== undefined && source.ast.is.IsGetAccessorDeclaration(member)) ?? members[0];
     assert.ok(localRead && localValue);
-    for (const [contract, expected] of [[value, localValue], [read, localRead],
-      [firstOverload, implementation], [secondOverload, implementation], [inherited, inherited]] as const) {
+    const correspondences: readonly (readonly [Node, Node])[] = [[value, localValue], [read, localRead],
+      [firstOverload, implementation], [secondOverload, implementation], [inherited, inherited]];
+    for (const [contract, expected] of correspondences) {
       const selected = source.navigation.memberImplementation(expression, contract);
       assert.equal(selected.kind, "resolved");
       if (selected.kind !== "resolved") throw new Error("Missing public member implementation");

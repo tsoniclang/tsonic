@@ -105,7 +105,7 @@ test("aliased cross-file class bases retain generic, default and rest constructo
   assert.ok(constructor);
   const selected = source.navigation.classConstructors(expression);
   assert.equal(selected.kind, "resolved");
-  if (selected.kind !== "resolved") throw new Error(selected.reason);
+  if (selected.kind !== "resolved") throw new Error("Missing public class constructor contract");
   assert.equal(selected.implicit, true);
   assert.equal(selected.signatures.length, 1);
   const parameters = selected.signatures[0]!.parameters;
