@@ -144,13 +144,19 @@ export const genericObjectMethodValueSource = `
     const fromContract = contract.identity;
     if (fromContract !== identity || !fromContract(true) || value.read(0) !== 8) return false;
     let evaluations = 0;
-    function receiver() { evaluations++; return value; }
+    const receiver = () => { evaluations++; return value; };
     const selected = receiver().identity;
     if (evaluations !== 1 || selected(9) !== 9 || evaluations !== 1) return false;
     const escaped = returned();
     const stored = { call: value.identity };
     const extracted = stored.call;
     if (stored.call<number>(13) !== 13 || extracted !== identity || !extracted<boolean>(true)) return false;
+    const copied = { ...value, extra: 17 };
+    const projected = { ...contract, extra: 19 };
+    const copiedAgain = { ...copied };
+    if (copied.identity !== identity || projected.identity !== identity || copiedAgain.identity !== identity) return false;
+    if (copied.extra !== 17 || projected.extra !== 19 || copied.identity(23) !== 23 || !projected.identity(true)) return false;
+    if (copiedAgain.identity("copy") !== "copy" || copiedAgain.read(0) !== value.read(0)) return false;
     return escaped("returned") === "returned" && escaped(11) === 11;
   }
 `;
