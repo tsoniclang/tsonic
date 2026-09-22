@@ -238,6 +238,7 @@ export function createSourceProgramNavigation(
     return declaration !== undefined &&
       (
         source.ast.is.IsClassDeclaration(declaration) ||
+        source.ast.is.IsClassExpression(declaration) ||
         source.ast.is.IsInterfaceDeclaration(declaration) ||
         source.ast.is.IsEnumDeclaration(declaration) ||
         source.ast.is.IsEnumMember(declaration)
@@ -247,7 +248,7 @@ export function createSourceProgramNavigation(
   const isProjectConstructibleObject = (node: Node | undefined): boolean => {
     const declaration = projectTypeDeclaration(node);
     return declaration !== undefined &&
-      source.ast.is.IsClassDeclaration(declaration) &&
+      (source.ast.is.IsClassDeclaration(declaration) || source.ast.is.IsClassExpression(declaration)) &&
       acceptsNoConstructorArguments(source, declaration);
   };
 

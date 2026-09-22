@@ -10,7 +10,7 @@ export function sourceParameterIsProperty(ast: AstReader, declaration: Node): bo
   const constructor = ast.parent(declaration);
   const owner = constructor === undefined ? undefined : ast.parent(constructor);
   return constructor !== undefined && ast.kindName(constructor) === "KindConstructor" &&
-    owner !== undefined && ast.kindName(owner) === "KindClassDeclaration" &&
+    owner !== undefined && (ast.kindName(owner) === "KindClassDeclaration" || ast.kindName(owner) === "KindClassExpression") &&
     (["public", "private", "protected", "readonly"] as const).some(modifier =>
       ast.hasModifierKind(declaration, modifier));
 }
@@ -20,7 +20,7 @@ export function sourceObjectMemberDeclarations(
   declaration: Node,
 ): readonly (Node | undefined)[] {
   const members = ast.members(declaration);
-  if (ast.kindName(declaration) !== "KindClassDeclaration") return members;
+  if (ast.kindName(declaration) !== "KindClassDeclaration" && ast.kindName(declaration) !== "KindClassExpression") return members;
   const properties: (Node | undefined)[] = [];
   for (const member of members) {
     if (member === undefined || ast.kindName(member) !== "KindConstructor") continue;

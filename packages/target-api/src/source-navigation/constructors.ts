@@ -35,7 +35,7 @@ function resolveSourceClassConstructors(
   declaration: Node,
 ): SourceClassConstructorResult {
   if (
-    !source.ast.is.IsClassDeclaration(declaration) ||
+    (!source.ast.is.IsClassDeclaration(declaration) && !source.ast.is.IsClassExpression(declaration)) ||
     !isProjectDeclaration(declaration)
   ) {
     return unresolved(
@@ -45,15 +45,16 @@ function resolveSourceClassConstructors(
   }
   const name = source.ast.name(declaration);
   const sourceFile = source.ast.getSourceFile(declaration);
-  if (name === undefined || sourceFile === undefined) {
+  const expression = source.ast.is.IsClassExpression(declaration);
+  if ((!expression && name === undefined) || sourceFile === undefined) {
     return unresolved(
       declaration,
-      "The project class has no exact named source declaration.",
+      "The project class has no exact source declaration.",
     );
   }
   const queries = source.getSourceFileQueries(sourceFile);
-  const symbol = queries.checker.getSymbolAtLocation(name);
-  const valueType = symbol === undefined
+  const symbol = name === undefined ? undefined : queries.checker.getSymbolAtLocation(name);
+  const valueType = expression ? queries.checker.getTypeAtLocation(declaration) : symbol === undefined
     ? undefined
     : queries.checker.getTypeOfSymbol(symbol);
   const rawSignatures = valueType === undefined
@@ -64,7 +65,6 @@ function resolveSourceClassConstructors(
       signature !== undefined,
   );
   if (
-    symbol === undefined ||
     valueType === undefined ||
     signatures.length === 0 ||
     signatures.length !== rawSignatures.length

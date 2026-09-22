@@ -339,15 +339,15 @@ test("CLI emits discriminated object-shape unions with identical finalized carri
     "utf8",
   );
   assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /string kind \{ get; set; \}/);
-  assert.match(generatedShapes, /double value \{ get; set; \}/);
+  assert.match(generatedShapes, /Property0 kind \{ get; set; \}/);
+  assert.match(generatedShapes, /Property1 value \{ get; set; \}/);
   assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
-  assert.match(generatedSource, /public static double score\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} result\)/);
+  assert.match(generatedSource, /public static double score\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> result\)/);
   assert.match(generatedSource, /if \(result\.kind == "found"\)/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} found = result;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> found = result;/);
   assert.match(generatedSource, /return found\.value \+ 1;/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} missing = result;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> missing = result;/);
   assert.match(generatedSource, /return missing\.value - 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
 
@@ -396,10 +396,10 @@ test("CLI emits object-shape for-in from finalized provider enumeration facts", 
     "utf8",
   );
   assert.match(generatedShapes, /public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedShapes, /double value \{ get; set; \}/);
-  assert.match(generatedShapes, /string label \{ get; set; \}/);
+  assert.match(generatedShapes, /Property1 value \{ get; set; \}/);
+  assert.match(generatedShapes, /Property0 label \{ get; set; \}/);
   assert.match(generatedShapes, /System\.ReadOnlySpan<string> __tsonicObjectEnumerableKeys\(\);/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_forInTarget0 = values;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> __tsonic_forInTarget0 = values;/);
   assert.match(generatedSource, /System\.ReadOnlySpan<string> __tsonic_forInKeys0 = __tsonic_forInTarget0\.__tsonicObjectEnumerableKeys\(\);/);
   assert.match(generatedSource, /for \(int __tsonic_forInIndex0 = 0; __tsonic_forInIndex0 < __tsonic_forInKeys0\.Length; __tsonic_forInIndex0\+\+\)/);
   assert.match(generatedSource, /string key = __tsonic_forInKeys0\[__tsonic_forInIndex0\];/);
@@ -474,8 +474,8 @@ test("CLI emits shared generated object-shape declarations once across source fi
   const shapeDeclarationCount = generatedSources.reduce((count, source) => count + (source.match(/public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g)?.length ?? 0), 0);
 
   assert.equal(shapeDeclarationCount, 1);
-  assert.equal(generatedSources.some((source) => /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} createA\(double value\)/.test(source)), true);
-  assert.equal(generatedSources.some((source) => /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} createB\(double value\)/.test(source)), true);
+  assert.equal(generatedSources.some((source) => /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> createA\(double value\)/.test(source)), true);
+  assert.equal(generatedSources.some((source) => /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> createB\(double value\)/.test(source)), true);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, `out/csharp/${assemblyName}.csproj`), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
@@ -523,7 +523,7 @@ test("CLI emits nested structural object-shape literals through finalized nested
     resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
     "utf8",
   );
-  assert.match(generatedShapes, /public required [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} child\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> child\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double count\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
@@ -704,7 +704,7 @@ test("CLI runs readonly utility object spread through object-shape copy facts", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} clone\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} input\)/);
+  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, string> clone\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, string> input\)/);
   assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = input\.id,\s*label = input\.label,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
 

@@ -60,6 +60,17 @@ export const canonicalTargetForbiddenDirectories = Object.freeze([
   "utils",
 ]);
 
+export const canonicalTargetRootPolicies = Object.freeze([
+  targetRootPolicy("src/", ["src/index.ts"]),
+  targetRootPolicy("src/backend/", ["src/backend/compile.ts"]),
+  targetRootPolicy("src/backend/planner/", [
+    "src/backend/planner/context.ts",
+    "src/backend/planner/diagnostics.ts",
+  ]),
+  targetRootPolicy("src/policy/", ["src/policy/index.ts"]),
+  targetRootPolicy("src/source/", ["src/source/index.ts"]),
+]);
+
 export const canonicalTargetSourceRules = Object.freeze([
   sourceRule(
     "ARCH-TARGET-SESSION-001",
