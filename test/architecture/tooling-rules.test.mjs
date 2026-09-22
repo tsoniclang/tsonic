@@ -15,6 +15,7 @@ import {
 import {
   canonicalTargetForbiddenDirectories,
   canonicalTargetLayerPolicies,
+  canonicalTargetRootPolicies,
   canonicalTargetSourceRules,
   targetLayerNames,
 } from "./tooling/target-layer-contract.mjs";
@@ -105,6 +106,27 @@ test("architecture layer rules reject every forbidden dependency direction", () 
       }],
     });
     assert.deepEqual(result.findings.map((finding) => finding.ruleId), [ruleId]);
+  }
+});
+
+test("canonical target roots admit entrypoints and require semantic subdirectories", () => {
+  const allowed = canonicalTargetRootPolicies.flatMap((rule) => [...rule.allowed]);
+  const nested = [
+    "src/policy/model/context.ts",
+    "src/source/profiles/provider-globals.ts",
+    "src/backend/planner/program/planning.ts",
+    "src/backend/planner/expressions/option-default.ts",
+  ];
+  const misplaced = canonicalTargetRootPolicies.map((rule) => `${rule.prefix}misplaced.ts`);
+  for (const [files, rejected] of [[allowed, false], [nested, false], [misplaced, true]]) {
+    const result = evaluateArchitecture({
+      sourceFiles: new Map(files.map((file) => [file, "export {};"])),
+      edges: [],
+      classifications: new Map(files.map((file) => [file, "policy"])),
+      rootPolicies: canonicalTargetRootPolicies,
+    });
+    assert.deepEqual(result.findings.map((finding) => finding.ruleId),
+      rejected ? files.map(() => "ARCH-NO-VAGUE-ROOT-001") : []);
   }
 });
 

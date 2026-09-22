@@ -88,7 +88,7 @@ export function createParallelSuiteDefinition(repos) {
       {
         scope: "csharp-nodejs",
         group: "node-provider",
-        directory: resolve(repos.csharpNodejs, "test"),
+    directory: resolve(repos.csharpNodejs, "nodejs/test"),
         suffix: ".test.mjs",
         maxDepth: 0,
       },

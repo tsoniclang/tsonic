@@ -5032,7 +5032,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/architecture/analysis-abstraction-policy.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/architecture/dependency-boundaries.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -5040,7 +5040,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/architecture/analysis-abstraction-policy.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/architecture/dependency-boundaries.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -6100,7 +6100,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6108,7 +6108,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6122,7 +6122,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6130,7 +6130,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6146,7 +6146,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6166,7 +6166,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6185,7 +6185,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6197,11 +6197,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6228,7 +6228,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6263,7 +6263,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emits Stats.mtime Date access and Date instance calls only from finalized Node provider-package and JS surface facts; it must not reinterpret Stats timestamps as native DateTime, string, dynamic object, or unproven nullable union carriers.",
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
@@ -6273,7 +6273,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
@@ -6284,14 +6284,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+        "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+        "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
       ],
       backendEmission: [
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -6305,7 +6305,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/test/nodejs-stats-date-surface.test.mjs",
+        "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
@@ -6324,7 +6324,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6347,7 +6347,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/versions.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6361,7 +6361,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6369,7 +6369,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6408,7 +6408,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6430,7 +6430,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6442,11 +6442,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6476,7 +6476,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6496,7 +6496,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6506,7 +6506,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6520,7 +6520,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6528,7 +6528,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6546,7 +6546,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6568,7 +6568,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.url": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6577,7 +6577,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6589,7 +6589,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6597,7 +6597,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6614,7 +6614,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6676,7 +6676,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "runtime.csharp.nodejs": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6701,7 +6701,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6831,7 +6831,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
@@ -6845,7 +6845,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
@@ -6863,7 +6863,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
@@ -7866,7 +7866,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "carrier.union": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/unions/runtime-union.test.mjs",
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
@@ -7896,7 +7896,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "runtime.union.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/unions/runtime-union.test.mjs",
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
       "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
     ]),
@@ -9360,7 +9360,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
     positiveTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -9369,7 +9369,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
