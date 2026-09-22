@@ -11,6 +11,10 @@ export function run(): boolean {
   const constructed = new Array<string[]>(first, second);
   const invoked = Array<string[]>(first, second);
   const collected = collect(first, second);
+  const expanded: string[][] = [];
+  expanded.push(...selected);
+  expanded.unshift(...collected);
+  const forwarded = collect(...selected);
   const nested: string[][][] = [];
   nested.push(values);
   first[0] = "changed";
@@ -20,6 +24,8 @@ export function run(): boolean {
     constructed[0] === first && constructed[1] === second &&
     invoked[0] === first && invoked[1] === second &&
     collected[0] === first && collected[1] === second &&
+    expanded.length === 4 && expanded[0] === first && expanded[3] === second &&
+    forwarded[0] === first && forwarded[1] === second &&
     nested[0] === values && nested[0][1][0] === "changed";
 }
 `;
