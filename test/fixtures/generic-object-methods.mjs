@@ -90,6 +90,16 @@ export const genericObjectCaptureSource = `
     return conditions[0]() === 0 && conditions[1]() === 1 && conditions[3]() === 3 &&
       increments[0]() === 1 && increments[1]() === 2 && increments[2]() === 3;
   }
+  function labeled(): boolean {
+    const callbacks: (() => number)[] = [];
+    const objects: Reader[] = [];
+    outer: for (let index = 0; index < 3; index++) {
+      objects.push({ read<T>(value: T): number { return index; } });
+      callbacks.push(() => index);
+      for (let inner = 0; inner < 2; inner++) { continue outer; }
+    }
+    return callbacks[0]() === 0 && callbacks[2]() === 2 && objects[0].read(0) === 0 && objects[2].read(0) === 2;
+  }
   class Owner {
     value: number = 5;
     build(seed: number) {
@@ -106,7 +116,7 @@ export const genericObjectCaptureSource = `
     const counter = parameter(7);
     if (counter.increment("x") !== "x" || counter.read(0) !== 10) return false;
     const captured = destructured({ count: 11 });
-    if (!captured.change(true) || captured.count(0) !== 12 || !mixedLoops()) return false;
+    if (!captured.change(true) || captured.count(0) !== 12 || !mixedLoops() || !labeled()) return false;
     const shared = mixed(7);
     if (shared.read() !== 9 || shared.increment(3) !== 12 || shared.methods.read(0) !== 12) return false;
     if (!shared.methods.add(true) || shared.read() !== 13) return false;
