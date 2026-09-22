@@ -66,3 +66,53 @@ test("class expressions retain exact effective constructors without requiring an
   assert.ok(arrow);
   assert.equal(source.navigation.classConstructors(arrow).kind, "unresolved");
 });
+
+test("aliased cross-file class bases retain generic, default and rest constructor contracts", () => {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: {
+      "/src/base.ts": `
+        export class Base<T> {
+          readonly value: T;
+          constructor(value: T, label: string = "base", ...counts: number[]) { this.value = value; }
+        }
+      `,
+      "/src/index.ts": `
+        import { Base as Parent } from "./base.js";
+        export const Item = class extends Parent<string> {};
+        const Alias = Item;
+        new Alias("value");
+        new Item("value", "selected", 1, 2);
+      `,
+    },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+  const source = createTargetSourceProgram(checked);
+  const baseFile = checked.getSourceFile("/src/base.ts");
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(baseFile && file);
+  let expression: Node | undefined;
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsClassExpression(node)) expression = node;
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.ok(expression);
+  const base = source.ast.statements(baseFile)[0];
+  assert.ok(base);
+  const constructor = source.ast.members(base).find(member => member !== undefined && source.ast.is.IsConstructorDeclaration(member));
+  assert.ok(constructor);
+  const selected = source.navigation.classConstructors(expression);
+  assert.equal(selected.kind, "resolved");
+  if (selected.kind !== "resolved") throw new Error(selected.reason);
+  assert.equal(selected.implicit, true);
+  assert.equal(selected.signatures.length, 1);
+  const parameters = selected.signatures[0]!.parameters;
+  assert.deepEqual(parameters.map(parameter => parameter.parameterDeclaration), source.ast.parameters(constructor));
+  assert.deepEqual(parameters.map(parameter => parameter.acceptsOmission), [false, true, true]);
+  assert.deepEqual(parameters.map(parameter => parameter.rest), [false, false, true]);
+  assert.ok(Object.isFrozen(selected));
+  assert.ok(Object.isFrozen(selected.signatures));
+  assert.ok(parameters.every(Object.isFrozen));
+});
