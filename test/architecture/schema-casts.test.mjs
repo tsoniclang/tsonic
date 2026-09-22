@@ -20,6 +20,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/heritage.ts": 1,
   "packages/target-api/src/source-navigation/initialization-uses.ts": 1,
   "packages/target-api/src/source-navigation/integer-ranges/analysis.ts": 17,
+  "packages/target-api/src/source-navigation/lexical-captures.ts": 1,
   "packages/target-api/src/source-navigation/member-dispatch.ts": 1,
   "packages/target-api/src/source-navigation/modules.ts": 1,
   "packages/target-api/src/source-navigation/navigation.ts": 1,

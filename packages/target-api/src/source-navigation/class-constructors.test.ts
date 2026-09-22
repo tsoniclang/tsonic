@@ -43,25 +43,27 @@ test("class expressions retain exact effective constructors without requiring an
     const value = semantics.declarations.declaredValueType(expression);
     assert.ok(instance);
     assert.ok(value);
-    assert.notEqual(instance, value);
+    assert.ok(instance !== value);
     assert.equal(semantics.types.constructSignatures(instance).length, 0);
     assert.equal(semantics.types.constructSignatures(value).length, 1);
     const symbol = semantics.declarations.typeSymbol(instance);
     assert.ok(symbol);
-    assert.deepEqual(semantics.declarations.symbolDeclarations(symbol), [expression]);
+    const declarations = semantics.declarations.symbolDeclarations(symbol);
+    assert.equal(declarations.length, 1);
+    assert.ok(declarations[0] === expression);
     const result = source.navigation.classConstructors(expression);
     assert.equal(result.kind, "resolved");
     if (result.kind !== "resolved") continue;
-    assert.equal(result.declaration, expression);
+    assert.ok(result.declaration === expression);
     assert.equal(result.implicit, index !== 2);
     assert.equal(result.signatures.length, 1);
     const signature = result.signatures[0]!;
     assert.equal(signature.parameters.length, index < 2 ? 2 : index === 2 ? 1 : 0);
     if (index < 2) {
-      assert.equal(signature.parameters[0]!.parameterDeclaration, source.ast.parameters(baseConstructor)[0]);
+      assert.ok(signature.parameters[0]!.parameterDeclaration === source.ast.parameters(baseConstructor)[0]);
       assert.equal(signature.parameters[1]!.acceptsOmission, true);
     }
-    assert.equal(source.navigation.classConstructors(expression), result);
+    assert.ok(source.navigation.classConstructors(expression) === result);
   }
   assert.ok(arrow);
   assert.equal(source.navigation.classConstructors(arrow).kind, "unresolved");
@@ -109,7 +111,8 @@ test("aliased cross-file class bases retain generic, default and rest constructo
   assert.equal(selected.implicit, true);
   assert.equal(selected.signatures.length, 1);
   const parameters = selected.signatures[0]!.parameters;
-  assert.deepEqual(parameters.map(parameter => parameter.parameterDeclaration), source.ast.parameters(constructor));
+  const expected = source.ast.parameters(constructor);
+  assert.deepEqual(parameters.map(parameter => expected.indexOf(parameter.parameterDeclaration)), [0, 1, 2]);
   assert.deepEqual(parameters.map(parameter => parameter.acceptsOmission), [false, true, true]);
   assert.deepEqual(parameters.map(parameter => parameter.rest), [false, false, true]);
   assert.ok(Object.isFrozen(selected));

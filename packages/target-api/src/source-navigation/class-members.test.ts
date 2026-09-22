@@ -144,9 +144,12 @@ test("named and anonymous class expressions retain the same exact parameter-prop
     assert.ok(property && ignored);
     assert.equal(sourceParameterIsProperty(source.ast, property), true);
     assert.equal(sourceParameterIsProperty(source.ast, ignored), false);
-    assert.equal(sourceMemberOwner(source.ast, property), expression);
-    assert.deepEqual(sourceObjectMemberDeclarations(source.ast, expression), [...original, property]);
-    assert.deepEqual(source.ast.members(expression), original);
+    assert.ok(sourceMemberOwner(source.ast, property) === expression);
+    const expected = [...original, property];
+    assert.deepEqual(sourceObjectMemberDeclarations(source.ast, expression).map(member => expected.indexOf(member)),
+      expected.map((_member, index) => index));
+    assert.deepEqual(source.ast.members(expression).map(member => original.indexOf(member)),
+      original.map((_member, index) => index));
     assert.equal(sourceClassFieldIsTypeOnly(source.ast, property), false);
   }
   assert.ok(source.ast.members(expressions[0]!)[0]);
@@ -201,8 +204,8 @@ test("class expressions retain exact inherited and parameter-property implementa
       const selected = source.navigation.memberImplementation(expression, contract);
       assert.equal(selected.kind, "resolved");
       if (selected.kind !== "resolved") throw new Error("Missing exact implementation");
-      assert.equal(selected.implementation.declaration, implementation);
-      assert.equal(source.navigation.memberImplementation(expression, contract), selected);
+      assert.ok(selected.implementation.declaration === implementation);
+      assert.ok(source.navigation.memberImplementation(expression, contract) === selected);
     }
   }
 });

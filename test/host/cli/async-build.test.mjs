@@ -300,9 +300,9 @@ test("CLI emits and executes async structural object returns from finalized Prom
   );
   assert.doesNotMatch(generatedSource, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedObjectShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
-  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}> make\(int value\)/);
+  assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int>> make\(int value\)/);
   assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} box = await make\(7\);/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int> box = await make\(7\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [

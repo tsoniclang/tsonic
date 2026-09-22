@@ -62,11 +62,11 @@ test("class-expression public navigation preserves overloaded, inherited and acc
       const selected = source.navigation.memberImplementation(expression, contract);
       assert.equal(selected.kind, "resolved");
       if (selected.kind !== "resolved") throw new Error("Missing public member implementation");
-      assert.equal(selected.contractDeclaration, contract);
-      assert.equal(selected.implementation.declaration, expected);
+      assert.ok(selected.contractDeclaration === contract);
+      assert.ok(selected.implementation.declaration === expected);
       assert.ok(Object.isFrozen(selected));
       assert.ok(Object.isFrozen(selected.implementation));
-      assert.equal(source.navigation.memberImplementation(expression, contract), selected);
+      assert.ok(source.navigation.memberImplementation(expression, contract) === selected);
     }
     assert.equal(source.navigation.memberImplementation(expression, unrelatedMember).kind, "unrelated");
     assert.equal(source.navigation.memberImplementation(localRead, read).kind, "unresolved");

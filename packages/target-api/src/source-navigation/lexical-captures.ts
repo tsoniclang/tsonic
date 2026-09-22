@@ -105,7 +105,7 @@ export function sourceBindingScope(declaration: Node, ast: AstReader): Node | un
     if (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration",
       "KindConstructor", "KindGetAccessor", "KindSetAccessor"].includes(kind)) return ast.body(current);
     if (!functionScoped && ["KindBlock", "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindCaseBlock"].includes(kind)) return current;
-    if (!functionScoped && kind === "KindCatchClause") return ast.as.AsCatchClause(current)?.Block;
+    if (!functionScoped && ast.is.IsCatchClause(current)) return ast.as.AsCatchClause(current)?.Block;
   }
   return undefined;
 }

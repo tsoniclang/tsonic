@@ -29,13 +29,15 @@ test("lexical captures retain exact bindings, exclude types and modules, and inc
     ast.properties(node).some(property => ast.text(ast.name(property)) === "apply"));
   const selected = sourceLexicalCaptures(literal, ast.properties(literal), ast, navigation);
   const seed = ast.parameters(create)[0];
-  const count = namedVariable(ast, create, "count");
+  const count = requiredNode(ast, create, node => ast.is.IsVariableDeclaration(node) &&
+    ast.text(ast.name(node)) === "count" && sourceBindingScope(node, ast) === ast.body(create));
   const input = namedVariable(ast, create, "source");
-  assert.deepEqual(new Set(selected.captures.map(capture => capture.declaration)), new Set([seed, count, input]));
+  const expected = [seed, count, input];
+  assert.deepEqual(selected.captures.map(capture => expected.indexOf(capture.declaration)).sort(), [0, 1, 2]);
   for (const capture of selected.captures) {
     assert.ok(capture.references.length > 0);
     assert.ok(Object.isFrozen(capture.references));
-    for (const reference of capture.references) assert.equal(navigation.sourceReferenceFor(reference).declaration, capture.declaration);
+    for (const reference of capture.references) assert.ok(navigation.sourceReferenceFor(reference).declaration === capture.declaration);
   }
   assert.deepEqual(selected.selfReferences, []);
   assert.ok(Object.isFrozen(selected.captures));
@@ -55,7 +57,8 @@ test("named recursive functions distinguish self references from outer bindings"
   const create = namedDeclaration(ast, file, "create");
   const expression = requiredNode(ast, create, node => ast.is.IsFunctionExpression(node));
   const result = sourceLexicalCaptures(expression, [expression], ast, createSourceProgramNavigation(source));
-  assert.deepEqual(result.captures.map(capture => capture.declaration), [ast.parameters(create)[0]]);
+  assert.equal(result.captures.length, 1);
+  assert.ok(result.captures[0].declaration === ast.parameters(create)[0]);
   assert.equal(result.selfReferences.length, 1);
 });
 
@@ -79,7 +82,7 @@ test("lexical receiver captures retain exact owners across nested arrows and met
   const closure = requiredNode(ast, method, node => ast.is.IsArrowFunction(node));
   const result = sourceLexicalCaptures(closure, [closure], ast, createSourceProgramNavigation(source));
   assert.equal(result.receivers.length, 1);
-  assert.equal(result.receivers[0].owner, method);
+  assert.ok(result.receivers[0].owner === method);
   assert.equal(result.receivers[0].references.length, 2);
   assert.ok(result.receivers[0].references.every(node => ast.kindName(node) === "KindThisKeyword"));
   assert.ok(Object.isFrozen(result.receivers));
@@ -99,16 +102,16 @@ test("captured binding scopes distinguish parameters, lexical blocks, loops and 
   const ast = source.ast;
   const file = projectSourceFile(source, "src/index.ts");
   const create = namedDeclaration(ast, file, "create");
-  assert.equal(sourceBindingScope(ast.parameters(create)[0], ast), ast.body(create));
-  assert.equal(sourceBindingScope(namedVariable(ast, create, "shared"), ast), ast.body(create));
+  assert.ok(sourceBindingScope(ast.parameters(create)[0], ast) === ast.body(create));
+  assert.ok(sourceBindingScope(namedVariable(ast, create, "shared"), ast) === ast.body(create));
   const local = namedVariable(ast, create, "local");
   const localScope = sourceBindingScope(local, ast);
   assert.equal(ast.kindName(localScope), "KindBlock");
-  assert.notEqual(localScope, ast.body(create));
+  assert.ok(localScope !== ast.body(create));
   assert.equal(ast.kindName(sourceBindingScope(namedVariable(ast, create, "index"), ast)), "KindForStatement");
   assert.equal(ast.kindName(sourceBindingScope(namedVariable(ast, create, "item"), ast)), "KindForOfStatement");
   const bound = requiredNode(ast, create, node => ast.is.IsBindingElement(node));
   assert.equal(ast.kindName(sourceBindingScope(bound, ast)), "KindBlock");
   const caught = namedVariable(ast, create, "error");
-  assert.equal(sourceBindingScope(caught, ast), ast.as.AsCatchClause(ast.parent(caught)).Block);
+  assert.ok(sourceBindingScope(caught, ast) === ast.as.AsCatchClause(ast.parent(caught)).Block);
 });

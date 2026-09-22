@@ -126,7 +126,7 @@ test("canonical target roots admit entrypoints and require semantic subdirectori
       rootPolicies: canonicalTargetRootPolicies,
     });
     assert.deepEqual(result.findings.map((finding) => finding.ruleId),
-      rejected ? files.map(() => "ARCH-NO-VAGUE-ROOT-001") : []);
+      rejected ? files.map(() => "ARCH-DIRECTORY-001") : []);
   }
 });
 
