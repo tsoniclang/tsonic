@@ -163,14 +163,14 @@ test("CLI emits object-shape runtime-union declarations and member projections f
   const shapeDeclarations = generatedShapes.match(/public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g) ?? [];
   assert.equal(shapeDeclarations.length, 2);
   assert.equal((generatedShapes.match(/public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g) ?? []).length, 2);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}, [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}> shape/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double>, [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double>> shape/);
   assert.match(generatedSource, /if \(shape\.Match\(__tsonic_union_arm1 => __tsonic_union_arm1\.kind, __tsonic_union_arm2 => __tsonic_union_arm2\.kind\) == "circle"\)/);
   assert.match(generatedSource, /return \$"circle:\{shape\.As1\(\)\.radius\}";/);
   assert.match(generatedSource, /return \$"square:\{shape\.As2\(\)\.size\}";/);
   assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double radius\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double size\s*\{\s*get;\s*set;\s*\}/);
-  assert.doesNotMatch(generatedSource, /\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\)shape/);
+  assert.doesNotMatch(generatedSource, /\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}(?:<string, double>)?\)shape/);
   assert.doesNotMatch(generatedSource, /shape\.radius|shape\.size|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);

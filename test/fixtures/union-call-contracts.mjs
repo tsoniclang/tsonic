@@ -37,11 +37,13 @@ export function identity<Value>(receiver: Receiver, value: Value): Value {
 export function defaults(receiver: Receiver): number { return receiver.value(); }
 export function rest(receiver: Receiver): number { return receiver.total(3, 4, 5); }
 export function spread(receiver: Receiver, values: number[]): number { return receiver.total(3, ...values); }
+export function emptyRest(receiver: Receiver): number { return receiver.total(3); }
+export function mixedRest(receiver: Receiver, values: number[]): number { return receiver.total(3, 4, ...values, 6); }
 export function change(receiver: Receiver): void { receiver.change(); }
 export function future(receiver: Receiver, value: number): Promise<number> { return receiver.read(value); }
 `,
   "index.ts": `
-import { First, Second, identity, defaults, rest, spread, change, future } from "./receivers.js";
+import { First, Second, identity, defaults, rest, spread, emptyRest, mixedRest, change, future } from "./receivers.js";
 import type { Receiver } from "./receivers.js";
 let order = "";
 let selected: Receiver = new First();
@@ -56,6 +58,7 @@ export async function run(): Promise<boolean> {
   if (identity(first, "first") !== "first" || identity(second, 12) !== 12) return false;
   if (defaults(first) !== 6 || defaults(second) !== 11) return false;
   if (rest(first) !== 13 || rest(second) !== 14 || spread(second, [4, 5]) !== 14) return false;
+  if (emptyRest(first) !== 4 || emptyRest(second) !== 5 || mixedRest(first, [5]) !== 19) return false;
   change(first); change(second);
   if (first.changed !== 10 || second.changed !== 20) return false;
   chosen(first);

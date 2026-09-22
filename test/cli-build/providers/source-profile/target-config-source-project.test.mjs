@@ -140,7 +140,8 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
   assert.match(generatedSource, /try/);
   assert.match(generatedSource, /catch/);
   assert.match(generatedSource, /finally/);
-  assert.match(generatedSource, /done:/);
+  assert.doesNotMatch(generatedSource, /done:/);
+  assert.match(generatedSource, /result = result \+ 1;\s*System\.Diagnostics\.Debugger\.Break\(\);/);
   assert.match(generatedSource, /System\.Diagnostics\.Debugger\.Break\(\);/);
   assert.match(generatedSource, /return this\.value % 2 == 0 \? this\.value : this\.value \+ 1;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

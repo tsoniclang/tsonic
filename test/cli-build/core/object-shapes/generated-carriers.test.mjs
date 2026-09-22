@@ -77,12 +77,12 @@ test("CLI emits structural type-literal object shapes from finalized provider fa
   assert.match(generatedShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
-  assert.match(generatedSource, /public static double fromParameter\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param0\)/);
+  assert.match(generatedSource, /public static double fromParameter\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double> __tsonic_param0\)/);
   assert.match(generatedSource, /double value = __tsonic_param0\.value;/);
-  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} create\(double value\)/);
+  assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> create\(double value\)/);
   assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = "ok",\s*\};/);
-  assert.match(generatedSource, /public static double fromLocal\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} input\)/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /public static double fromLocal\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> input\)/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> __tsonic_destructure\d+ = input;/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -176,8 +176,8 @@ test("CLI emits nested object rest destructuring from finalized TSTS rest bindin
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = input;/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = __tsonic_destructure\d+\.address;/);
+  assert.match(generatedSource, /ObjectShape_3daa8c9d038d<ObjectShape_4cf13624946c<string, string, string>, string> __tsonic_destructure\d+ = input;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, string, string> __tsonic_destructure\d+ = __tsonic_destructure\d+\.address;/);
   assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /city = __tsonic_destructure\d+\.city,\s*\};/);
@@ -282,7 +282,7 @@ test("CLI runs object parameter rename rest nested and callable destructuring fr
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string inspect\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_param\d+\)/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<int, string> __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /int count = __tsonic_destructure\d+\.count;/);
   assert.match(generatedSource, /int renamed = __tsonic_param\d+\.value;/);
   assert.match(generatedSource, /__tsonic_shape_method_\d+_run = __tsonic_param\d+\.__tsonic_shape_method_\d+_run/);
