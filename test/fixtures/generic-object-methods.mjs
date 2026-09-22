@@ -120,3 +120,37 @@ export const invalidGenericObjectMethods = [
   `const value = { identity<T>(item: T): T { return item; } }; export const result: number = value.identity("wrong");`,
   `const value = { score<T extends { score: number }>(item: T): number { return item.score; } }; export const result = value.score({ score: "wrong" });`,
 ];
+
+export const genericObjectMethodValueSource = `
+  interface Identity { identity<T>(value: T): T; }
+  function make(seed: number) {
+    let count = seed;
+    return {
+      identity<T>(value: T): T { count++; return value; },
+      other<T>(value: T): T { count += 2; return value; },
+      read<T>(value: T): number { return count; },
+    };
+  }
+  function returned() { const value = make(3); return value.identity; }
+  export function run(): boolean {
+    const value = make(5);
+    const identity = value.identity;
+    const alias = identity;
+    if (identity(7) !== 7 || alias("value") !== "value" || value.read(false) !== 7) return false;
+    if (identity !== alias || identity !== value.identity || identity === value.other) return false;
+    const second = make(5);
+    if (identity === second.identity) return false;
+    const contract: Identity = value;
+    const fromContract = contract.identity;
+    if (fromContract !== identity || !fromContract(true) || value.read(0) !== 8) return false;
+    let evaluations = 0;
+    function receiver() { evaluations++; return value; }
+    const selected = receiver().identity;
+    if (evaluations !== 1 || selected(9) !== 9 || evaluations !== 1) return false;
+    const escaped = returned();
+    const stored = { call: value.identity };
+    const extracted = stored.call;
+    if (stored.call<number>(13) !== 13 || extracted !== identity || !extracted<boolean>(true)) return false;
+    return escaped("returned") === "returned" && escaped(11) === 11;
+  }
+`;
