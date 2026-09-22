@@ -51,6 +51,8 @@ export function run(): boolean {
   const inherited: Count = child;
   inherited.count = 31;
   if (child.count !== 31 || !child.child) return false;
+  const inheritedAction: Action = child;
+  if (inheritedAction.add() !== 34 || count(child) !== 34) return false;
   const box = new Box<string>("original");
   const projected = readonlyView(box);
   box.value = "changed";

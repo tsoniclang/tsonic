@@ -88,7 +88,7 @@ export function createParallelSuiteDefinition(repos) {
       {
         scope: "csharp-nodejs",
         group: "node-provider",
-    directory: resolve(repos.csharpNodejs, "nodejs/test"),
+        directory: resolve(repos.csharpNodejs, "nodejs/test"),
         suffix: ".test.mjs",
         maxDepth: 0,
       },
@@ -96,7 +96,7 @@ export function createParallelSuiteDefinition(repos) {
     testRoots: [
       { scope: "tsonic", directory: resolve(repos.tsonic, "test") },
       { scope: "tsonic-csharp", directory: resolve(repos.tsonicCsharp, "test") },
-      { scope: "csharp-nodejs", directory: resolve(repos.csharpNodejs, "test") },
+      { scope: "csharp-nodejs", directory: resolve(repos.csharpNodejs, "nodejs/test") },
     ],
     architectureSuites: [],
     dotnetSuites: [
