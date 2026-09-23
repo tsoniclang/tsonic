@@ -43,6 +43,10 @@ integer conversion. Neither target assumes the compiler host's pointer width.
 
 ## Integer operations
 
+The source is TypeScript, not a request to port JavaScript numeric semantics.
+Each operation follows the selected native target. The JS/Node API surface
+does not change that rule.
+
 Use integer operands for bitwise operations and shifts:
 
 ```ts
@@ -60,6 +64,51 @@ its native shift behavior. Tsonic does not add JavaScript shift masks.
 With the JavaScript surface, `Math.imul` explicitly requests a wrapping 32-bit
 integer product. `Math.clz32` counts leading zero bits in a 32-bit integer.
 Their inputs and results are `int32`; neither coerces a floating-point input.
+
+`Math.round`, `Math.sign`, `Math.min`, `Math.max` and `Math.pow` use native
+operations too. For example, midpoint rounding follows `System.Math.Round`
+on C# and `f64::round` on Rust; their answers can differ. Tsonic does not
+insert branches to make either one agree with Node.
+
+Typed-array and DataView element conversions use native narrowing: checked
+CLR conversions on C#, Rust casts on Rust. Integer-to-integer conversions
+retain the source integer type instead of passing through a float. The
+explicit `Uint8ClampedArray` operation still requests clamping.
+
+Indexes exposed as floating-point values use the target's native index
+conversion. Range and from-end arithmetic then uses native integers. Counts
+used for allocation, repetition, padding and split limits must be integral,
+non-negative and within the target's storage domain. A fractional or invalid
+count does not become zero or wrap modulo 2^32.
+
+## Parsing and formatting
+
+Numeric text uses the target's native parser and formatter. A malformed whole
+token is not accepted merely because it starts with digits. `parseInt` parses
+a signed 128-bit integer in the requested radix (decimal by default), then
+returns the declared floating-point `number`. Use `BigInt` for an arbitrary-
+precision integer result. Invalid tokens, radices and integer overflow produce
+NaN. A radix must be an integer from 2 through 36; it does not wrap modulo 2^32.
+
+`parseFloat` uses Rust's `f64` parser or C#'s invariant `double` parser. Native
+whitespace and special-value rules apply. For example, Rust rejects leading
+whitespace; C# permits it. Neither accepts `"12.5suffix"` as `12.5`.
+
+`toString()` preserves the selected numeric width and uses native decimal
+formatting. It does not change an exact integer to floating point to print it.
+Native exponent spelling, signed zero and special-value text remain native:
+Rust prints infinity as `inf`, while C# prints `Infinity`.
+
+`toFixed(digits)` requests fixed-point formatting. `toExponential(digits)`
+requests native exponential formatting. `toPrecision(precision)` uses C#'s
+general numeric format; Rust uses exponential notation with the requested
+significant digits. Without a precision, it uses ordinary native formatting.
+The rounding rules belong to those native formatters. Integer receivers stay
+integer-valued during formatting.
+
+Counts must be integral and within the native formatter/storage limits.
+There is no JavaScript precision cap of 100. Requesting a huge formatted
+string can still exceed native memory or formatter limits.
 
 ## Explicit bit truncation
 

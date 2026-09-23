@@ -36,12 +36,12 @@ export function parseNativeIntegerLiteral(text: string): bigint | undefined {
     if (digits.length * bitsPerDigit > 132) return undefined;
     return digits.length === 0 ? 0n : BigInt(normalized.slice(0, 2) + digits);
   }
-  const decimal = /^(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/u.exec(normalized);
+  const decimal = /^(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/u.exec(normalized);
   if (decimal === null) return undefined;
-  const fraction = decimal[2] ?? "";
-  const digits = (decimal[1]! + fraction).replace(/^0+/u, "");
+  const fraction = decimal[2] ?? decimal[3] ?? "";
+  const digits = ((decimal[1] ?? "0") + fraction).replace(/^0+/u, "");
   if (digits.length === 0) return 0n;
-  const exponent = Number(decimal[3] ?? "0") - fraction.length;
+  const exponent = Number(decimal[4] ?? "0") - fraction.length;
   if (!Number.isInteger(exponent)) return undefined;
   const size = digits.length + exponent;
   if (size < 1 || size > 40) return undefined;

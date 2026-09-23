@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sourceIntegerLiteralValue, parseNativeIntegerLiteral } from "../../packages/target-api/dist/public/source.js";
+import { sourceIntegerLiteralValue } from "../../packages/target-api/dist/public/source.js";
+import { parseNativeIntegerLiteral } from "../../packages/target-api/dist/source-semantics/integer-literal.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 test("native integer values retain exact authored literal tokens across scanner normalization", async () => {
@@ -13,6 +14,8 @@ test("native integer values retain exact authored literal tokens across scanner 
     ["0b100000000000000000000000000000000000000000000000000001", 9007199254740993n],
     ["9007199254740993.0", 9007199254740993n],
     ["90071992547409930e-1", 9007199254740993n],
+    [".1e1", 1n],
+    ["1.e2", 100n],
     ["340282366920938463463374607431768211455n", (1n << 128n) - 1n],
   ];
   const source = await checkedSource("native-integer-tokens", { "src/index.ts":
