@@ -1,7 +1,7 @@
 # Agent Notes (Tsonic Host)
 
 Read and follow `docs/architecture/workspace-agent-policy.md` before any work,
-including its mandatory "Target-Native Semantics, Not JavaScript Conformance"
+including its mandatory "Native Semantics and Best-Effort JS Surfaces"
 and "Native Performance From Exact Metadata" contracts for every decision.
 This file contains only host-repository deltas.
 

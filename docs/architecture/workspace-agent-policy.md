@@ -177,18 +177,22 @@ policy.
   language's documented coupling for the selected version, or reject an
   unrepresentable combination precisely.
 
-### Target-Native Semantics, Not JavaScript Conformance
+### Native Semantics and Best-Effort JS Surfaces
 
-- The selected target's native semantics govern generated code and runtime
-  operations. TypeScript provides source syntax, checked types and explicit
-  metadata; JavaScript and Node.js conformance are not runtime requirements.
-  This maintainer decision supersedes earlier JS-compatibility expectations.
-- JS and Node surfaces expose familiar APIs implemented against native targets.
-  Selecting either surface does not select a JavaScript runtime or authorize
-  emulated coercions, indexing rules, sparse-array machinery, object bookkeeping,
-  numeric restrictions or other runtime quirks merely to match JS or Node.
-  Every retained behavior needs a concrete native capability or separately
-  approved explicit operation, not a conformance argument.
+- Without a JS surface, code follows the selected target's native semantics
+  completely. TypeScript supplies source syntax, checked types and explicit
+  metadata, not a JavaScript runtime. Native semantics are also authoritative
+  when a JS or Node surface is selected: native semantics always win a conflict.
+- JS and Node surfaces provide best-effort standards compatibility. Retain
+  compatible behavior where it conflicts with neither native semantics nor
+  native performance. Compatibility is not itself a defect or a reason to
+  delete working behavior. Conversely, a familiar API name never authorizes
+  hidden emulation costs, lossy conversions or replacing native semantics.
+- Expensive, impractical or unrepresentable compatibility may remain
+  unsupported even on a JS surface. Document the exact supported contract and
+  reject unsupported operations precisely. Do not weaken safety, invent results
+  or create a slow fallback to claim conformance. This clarification supersedes
+  both blanket JS-conformance requirements and blanket removal of compatibility.
 - Do not cap native integers at JavaScript's 53-bit safe-integer boundary or
   invent an int53 representation. Annotated int32/int64 and unsigned integers
   use their selected native widths and signedness. Remove artificial JS-only
@@ -201,9 +205,12 @@ policy.
   A compiler-host or wire-format check preventing precision loss is not a
   native int53 contract: use lossless metadata/transport where larger values
   are required rather than simply deleting a necessary validation guard.
-- Native behavior must be explicit and consistent across declarations, retained
+- Native behavior and any supported surface compatibility must be explicit and
+  consistent across declarations, retained
   evidence, target policy, generated code, runtimes, documentation and tests.
-  Correctness is measured against that documented contract, not Node output.
+  Correctness is measured against that documented contract. A Node oracle is
+  appropriate for a supported compatible operation, not for overriding native
+  arithmetic, representation, range or performance requirements.
   Keep safety, identity, aliasing, lifetime and explicitly selected operations
   intact; do not replace them with no-ops or unproved casts. Record removals and
   replacement proof gates in the necessity ledger.

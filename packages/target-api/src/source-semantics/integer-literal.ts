@@ -28,7 +28,7 @@ export function sourceIntegerLiteralValue(ast: AstReader, node: Node): bigint | 
 }
 
 export function parseNativeIntegerLiteral(text: string): bigint | undefined {
-  const normalized = text.replaceAll("_", "").replace(/n$/u, "");
+  const normalized = text.replace(/_/gu, "").replace(/n$/u, "");
   const radix = /^0(?:[xX]([0-9a-fA-F]+)|[oO]([0-7]+)|[bB]([01]+))$/u.exec(normalized);
   if (radix !== null) {
     const digits = (radix[1] ?? radix[2] ?? radix[3]!).replace(/^0+/u, "");

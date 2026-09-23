@@ -1,7 +1,10 @@
 # Native numbers
 
-C# and Rust use their native numeric types. Selecting the JavaScript or Node
-surface does not change their integer ranges to JavaScript's range.
+C# and Rust use their native numeric types. Without a JavaScript surface,
+semantics are entirely native. JavaScript and Node surfaces provide best-effort
+compatibility, but native semantics and performance always take precedence.
+Selecting either surface does not change native integer ranges to JavaScript's
+range or authorize hidden emulation overhead.
 
 | TypeScript type | C# | Rust |
 | --- | --- | --- |
@@ -110,6 +113,24 @@ Counts must be integral and within the native formatter/storage limits.
 There is no JavaScript precision cap of 100. Requesting a huge formatted
 string can still exceed native memory or formatter limits.
 
+`Number(text)` uses the same native parser as `parseFloat`. An empty string is
+not zero. `BigInt(text)` uses native arbitrary-integer parsing; the explicit
+`0x`, `0o` and `0b` prefixes select a radix. Whitespace and digit syntax follow
+the target parser. For example, Rust's integer parser accepts underscores;
+.NET's decimal integer parser does not.
+
+Date timestamps are floating-point epoch milliseconds bounded by the native
+signed 64-bit decomposition. They are not capped at JavaScript's timestamp
+limit. `Date.UTC(99, 0, 1)` uses year 99, not 1999. Native local-time APIs can
+have narrower calendar ranges than UTC timestamp storage.
+
+Explicit closed-value operations retain native numeric carriers. C# uses its
+native arithmetic promotion rules instead of first converting boxed integers
+to double. Invalid mixed domains, such as decimal and double, need an explicit
+conversion. Native collection equality also retains boxed numeric types: a
+boxed `long` key is not a boxed `double` key. Ordinary typed operations do not
+use closed-value dispatch.
+
 ## Explicit bit truncation
 
 ```ts
@@ -131,10 +152,12 @@ non-negative integers. NaN and fractional widths are rejected, not coerced.
 
 ## Predicates and sizes
 
-`Number.isInteger` and `Number.isSafeInteger` test integrality in the selected
-native representation. All native integer values qualify, including values
-above 2^53. Floating NaN, infinity and fractions do not. Native integer
-arguments to these predicates do not convert to floating point.
+`Number.isInteger` tests integrality in the selected native representation.
+`Number.isSafeInteger` additionally tests a floating receiver's native exact-
+integer precision: 53 bits for `double`/`f64`, 24 for `float`/`f32`, and 11
+for C# `Half`. This explicit query does not limit storage or arithmetic.
+All native integer values qualify, including values above 2^53; integer
+arguments never convert to floating point for these predicates.
 
 Array and buffer allocation still obey native capacity and address-space
 limits. Lengths must be non-negative integers; fractions, NaN and overflow
