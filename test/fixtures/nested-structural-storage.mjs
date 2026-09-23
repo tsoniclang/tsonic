@@ -24,6 +24,20 @@ export class Entry<Value> {
   value: Value;
   constructor(value: Value) { this.value = value; }
 }
+export class AlternateEntry<Value> {
+  value: Value;
+  constructor(value: Value) { this.value = value; }
+}
+export type AlternateStorage<Key, Value> = {
+  entries: MapStorage<Key, Pointer<AlternateEntry<Value>> | undefined>;
+};
+export class AlternateCache<Key, Value> {
+  storage: AlternateStorage<Key, Value>;
+  constructor(storage: AlternateStorage<Key, Value>) { this.storage = storage; }
+  first(): Pointer<AlternateEntry<Value>> | undefined {
+    return this.storage.entries.values.values[0];
+  }
+}
 export type CacheStorage<Key, Value> = {
   entries: MapStorage<Key, Pointer<Entry<Value>> | undefined>;
 };
@@ -48,13 +62,14 @@ export function write<Value>(entry: Pointer<Entry<Value>> | undefined, value: Va
 `,
   "index.ts": `
 import type { int32, Pointer } from "@tsonic/core/types.js";
-import { addressOf } from "@tsonic/core/lang.js";
+import { addressOf, loadPointer, storePointer } from "@tsonic/core/lang.js";
 import { Buffer } from "./storage.js";
-import { Cache, Entry, read, write } from "./cache.js";
+import { AlternateCache, AlternateEntry, Cache, Entry, read, write } from "./cache.js";
 import type { CacheStorage } from "./cache.js";
 export function run(): boolean {
   let numericEntry = new Entry<int32>(7);
   let textEntry = new Entry<string>("first");
+  let alternateEntry = new AlternateEntry<int32>(17);
   const numericSource: CacheStorage<int32, int32> = { entries: {
     keys: new Buffer<int32, 1>([1 as int32], 1),
     values: new Buffer<Pointer<Entry<int32>> | undefined, 1>([addressOf(numericEntry)], 1),
@@ -65,6 +80,14 @@ export function run(): boolean {
   } };
   const numeric = Cache.from<int32, int32>(numericSource);
   const text = Cache.from<string, string>(textSource);
+  const alternate = new AlternateCache<int32, int32>({ entries: {
+    keys: new Buffer<int32, 1>([2 as int32], 1),
+    values: new Buffer<Pointer<AlternateEntry<int32>> | undefined, 1>([addressOf(alternateEntry)], 1),
+  } });
+  const alternatePointer = alternate.first();
+  if (alternatePointer === undefined || loadPointer(alternatePointer).value !== 17) return false;
+  storePointer(alternatePointer, new AlternateEntry<int32>(23));
+  if (alternateEntry.value !== 23) return false;
   if (read(numeric.first()) !== 7 || read(text.first()) !== "first") return false;
   write(numeric.first(), 11 as int32);
   write(text.first(), "changed");
