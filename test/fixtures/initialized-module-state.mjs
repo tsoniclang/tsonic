@@ -1,4 +1,15 @@
 export const initializedModuleStateFiles = Object.freeze({
+  "address.ts": `
+import { addressOf, loadPointer, storePointer, equalPointer } from "@tsonic/core/lang.js";
+import { state, constant } from "./state.js";
+export function writeCount(): boolean {
+  const first = addressOf(state.count);
+  const second = addressOf(state.count);
+  storePointer(first, 10);
+  return equalPointer(first, second) && loadPointer(second) === 10 &&
+    loadPointer(addressOf(constant)) === 7;
+}
+`,
   "state.ts": `
 import type { int32 } from "@tsonic/core/types.js";
 import type { Payload } from "./values.js";
@@ -11,8 +22,13 @@ export class State {
   }
 }
 export let state: State;
+export let assigned: State;
+export const constant: int32 = 7;
 export function initializeState(count: int32, payload: Payload): void {
   state = new State(count, payload);
+}
+export function assignValue(count: int32, payload: Payload): State {
+  return assigned = new State(count, payload);
 }
 `,
   "values.ts": `
@@ -28,17 +44,27 @@ export function advance(): void {
 `,
   "index.ts": `
 import type { int32 } from "@tsonic/core/types.js";
-import { state, initializeState } from "./state.js";
+import { state, assigned, initializeState, assignValue } from "./state.js";
 import { Payload, advance } from "./values.js";
+import { writeCount } from "./address.js";
 export function run(): boolean {
   const count: int32 = 0;
   const payload = new Payload("ready");
+  const assignment = assignValue(count, payload);
+  if (assignment !== assigned || assigned.payload !== payload) return false;
   initializeState(count, payload);
   const alias = state;
   advance();
   advance();
-  return alias.count === 2 && state.count === 2 &&
-    payload.text === "ready!!" && alias.payload === payload && state === alias;
+  if (alias.count !== 2 || state.count !== 2 || payload.text !== "ready!!" ||
+    alias.payload !== payload || state !== alias) return false;
+  const nextCount: int32 = 10;
+  initializeState(nextCount, new Payload("next"));
+  if (!writeCount()) return false;
+  advance();
+  const current = state;
+  return current.count === 11 && current.payload.text === "next!" &&
+    alias.count === 2 && alias.payload === payload && current !== alias;
 }
 `,
 });
