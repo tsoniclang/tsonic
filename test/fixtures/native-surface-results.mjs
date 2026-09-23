@@ -72,6 +72,8 @@ export const nativeNodeResultsSource = `
 import { Buffer } from "node:buffer";
 import { statSync, writeFileSync, unlinkSync } from "node:fs";
 import process, { memoryUsage, hrtime, uptime } from "node:process";
+export function nativeFileSize(path: string) { return statSync(path).size; }
+export function forwardedFileSize(path: string) { const size = nativeFileSize(path); return size; }
 export function run(): boolean {
   const bytes = Buffer.alloc(8);
   const written = bytes.writeUInt32LE(4294967295, 0);
@@ -79,6 +81,7 @@ export function run(): boolean {
   if (word !== 4294967295 || written !== 4 || bytes.length !== 8) return false;
   writeFileSync("native-counter-proof.bin", bytes);
   const stats = statSync("native-counter-proof.bin");
+  if (nativeFileSize("native-counter-proof.bin") !== 8 || forwardedFileSize("native-counter-proof.bin") !== 8) return false;
   unlinkSync("native-counter-proof.bin");
   const size = stats.size;
   const lastBytes = bytes.slice(size - 4, size);

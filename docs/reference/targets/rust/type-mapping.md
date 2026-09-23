@@ -37,15 +37,13 @@ The fixed-array carrier retains the exact extent as an integer constant in
 JavaScript number. Native `usize` representability and allocation limits remain
 native constraints; exact emitted constants do not certify those constraints.
 
-Source `.length` is a separate operation. Number-based extents through
-`2147483647` use the existing checked `int32` result. Larger numeric `.length`
-reads reject with `RUST_FIXED_ARRAY_LENGTH_RANGE_UNSUPPORTED`; bigint-based
-reads, even for `2n`, reject with
-`RUST_FIXED_ARRAY_LENGTH_RUNTIME_BASE_UNSUPPORTED`. A bigint metadata count
-does not authorize a numeric source result. Literal index/cardinality checks
-and rest bounds use exact counts; dynamic indexing retains its checked `int32`
-index, and iteration retains native bounds. This is not blanket support for
-every fixed-array operation.
+Source `.length` uses the native array's `usize` result, including arrays with
+bigint source extents. It is not narrowed to `int32` or converted through a
+floating-point value. An explicit `as int32` conversion checks the native range;
+a declaration annotation does not silently narrow a native-word length.
+Literal index/cardinality checks and rest bounds use exact counts, and iteration
+retains native bounds. A representable extent alone does not guarantee that
+an array can be allocated or that every fixed-array operation is supported.
 
 The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
 supports array metadata observations without materializing `[T; N]`, including

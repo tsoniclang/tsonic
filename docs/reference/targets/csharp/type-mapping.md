@@ -29,13 +29,13 @@ cannot be reconciled with one exact target carrier is rejected before planning.
 
 ## Fixed arrays
 
-C# admits number-based fixed-array values with exact extents from `0` through
+C# admits fixed-array values with exact extents from `0` through
 `2147483647`, retaining the ordinary array carrier, indexing, iteration and
 signed 32-bit `.Length`. This is a representation bound, not a guarantee that
-an allocation of that size succeeds. Larger numeric extents and every
-bigint-based value extent, including `0n` and `2n`, reject with
-`CSHARP_FIXED_ARRAY_REPRESENTATION_UNSUPPORTED`; bigint source `.length` must not
-silently become numeric `.Length`.
+an allocation of that size succeeds. Numeric and bigint metadata literals select
+the same native array: `FixedArray<T, 2>` and `FixedArray<T, 2n>` both expose
+native signed 32-bit length results. Larger extents reject with
+`CSHARP_FIXED_ARRAY_REPRESENTATION_UNSUPPORTED`.
 
 The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
 can describe exact array metadata, including huge zero-sized arrays, and
