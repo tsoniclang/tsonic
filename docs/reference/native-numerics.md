@@ -1,10 +1,7 @@
 # Native numbers
 
-C# and Rust use their native numeric types. Without a JavaScript surface,
-semantics are entirely native. JavaScript and Node surfaces provide best-effort
-compatibility, but native semantics and performance always take precedence.
-Selecting either surface does not change native integer ranges to JavaScript's
-range or authorize hidden emulation overhead.
+TypeScript supplies checked source types, not a JavaScript virtual machine.
+C# and Rust retain their native numeric representations on every source surface.
 
 | TypeScript type | C# | Rust |
 | --- | --- | --- |
@@ -29,28 +26,47 @@ export function retain(value: int64): int64 {
 }
 ```
 
-`count` stays exact. It does not pass through a floating-point number or an
-arbitrary-precision temporary. Width, signedness and native overflow rules
-still matter. Values outside the selected integer range are not accepted as
-integer literals.
+These values stay exact. They do not pass through floating point or an
+arbitrary-precision temporary. The selected native width, signedness and
+overflow rules still apply. A literal outside its selected integer range
+is rejected.
 
-`number` remains floating point. Converting an integer to `number` can lose
-precision. `Number.MAX_SAFE_INTEGER` describes a binary64 precision boundary;
-it is not a limit on `int64`, `uint64` or the other native integer types.
+Selected native integer literals use the checked AST's exact authored token,
+not a potentially rounded checker display string. Rust checks platform-sized
+literals through its native compiler. C# retains a checked native-integer
+conversion. Neither target assumes the compiler host's pointer width.
 
-For a selected native integer literal, both targets read the exact token from
-the checked AST's authored range. They do not recover integer values from a
-rounded checker display string. Platform-sized constants keep native toolchain
-range checking: Rust checks the typed literal, while C# uses a checked native
-integer conversion. Neither target assumes the compiler host's pointer width.
+`number` remains floating point. An explicit conversion to `number` can lose
+precision. `Number.MAX_SAFE_INTEGER` describes binary64 precision; it does
+not limit native integer storage, arithmetic, API arguments or results.
 
-## Integer operations
+## Native operations and JS APIs
 
-The source is TypeScript, not a request to port JavaScript numeric semantics.
-Each operation follows the selected native target. The JS/Node API surface
-does not change that rule.
+Without a JS surface, use the selected target's APIs and semantics. Selecting
+a JS or Node surface makes supported library operations available; it does
+not replace native carriers, string encoding, ownership or allocation policy.
 
-Use integer operands for bitwise operations and shifts:
+An explicitly selected JS API still means that operation, not whichever native
+library operation happens to have the same name:
+
+| Source operation | Supported behavior |
+| --- | --- |
+| `Math.min(NaN, 1)` | NaN, even where a native minimum function ignores NaN |
+| `Math.round(-1.5)` | -1, with JS rounding and signed-zero rules |
+| `Math.imul(a, b)` | Wrapping 32-bit product; floating inputs convert to low 32-bit words |
+| `Math.clz32(a)` | Leading-zero count of the selected 32-bit word |
+| `parseInt("123tail", 10)` | 123 |
+| `parseFloat("1.5tail")` | 1.5 |
+| `Number("")` | 0 |
+| `Number("123tail")` | NaN: this conversion requires a complete numeric string |
+| `BigInt("0xff")` | Exact arbitrary-precision 255 |
+| `new Uint8Array([-1, 256])` | Elements 255 and 0 |
+| `new Uint8ClampedArray([-1, 256])` | Elements 0 and 255 |
+| `Date.UTC(99, 0, 1)` | Year 1999 |
+
+For different native behavior, call the native API explicitly. Ordinary native
+integer arithmetic does not acquire JS coercion. Floating-point operands to
+integer bitwise operations are not silently converted to 32-bit integers.
 
 ```ts
 import type { int32, int64 } from "@tsonic/core/types.js";
@@ -60,76 +76,27 @@ export function shift(value: int64, count: int32): int64 {
 }
 ```
 
-Floating-point operands are not silently converted to 32-bit integers. Rust
-uses native shift behavior, including its overflow-check settings. C# uses
-its native shift behavior. Tsonic does not add JavaScript shift masks.
+Native shifts retain native overflow/masking behavior. The explicit `Math.imul`
+and `Math.clz32` helpers do not redefine those operators. Their integer inputs
+are not converted through floating point.
 
-With the JavaScript surface, `Math.imul` explicitly requests a wrapping 32-bit
-integer product. `Math.clz32` counts leading zero bits in a 32-bit integer.
-Their inputs and results are `int32`; neither coerces a floating-point input.
+## Numeric text
 
-`Math.round`, `Math.sign`, `Math.min`, `Math.max` and `Math.pow` use native
-operations too. For example, midpoint rounding follows `System.Math.Round`
-on C# and `f64::round` on Rust; their answers can differ. Tsonic does not
-insert branches to make either one agree with Node.
+On the JS surface, `toString()` retains integer receivers and their exact digits.
+`toFixed`, `toExponential` and `toPrecision` provide the supported JS notation
+and rounding rules. For example, `(12.5).toExponential(1)` produces
+`"1.3e+1"`. Precision argument ranges belong to these APIs: fraction digits
+range from 0 through 100; significant digits range from 1 through 100.
 
-Typed-array and DataView element conversions use native narrowing: checked
-CLR conversions on C#, Rust casts on Rust. Integer-to-integer conversions
-retain the source integer type instead of passing through a float. The
-explicit `Uint8ClampedArray` operation still requests clamping.
+A native `int64` receiver containing `9007199254740993` prints
+`"9007199254740993"`, not a rounded `double`. Integer radix formatting uses
+native integers. Floating-point radix formatting outside the supported
+decimal operation is rejected rather than approximated.
 
-Indexes exposed as floating-point values use the target's native index
-conversion. Range and from-end arithmetic then uses native integers. Counts
-used for allocation, repetition, padding and split limits must be integral,
-non-negative and within the target's storage domain. A fractional or invalid
-count does not become zero or wrap modulo 2^32.
-
-## Parsing and formatting
-
-Numeric text uses the target's native parser and formatter. A malformed whole
-token is not accepted merely because it starts with digits. `parseInt` parses
-a signed 128-bit integer in the requested radix (decimal by default), then
-returns the declared floating-point `number`. Use `BigInt` for an arbitrary-
-precision integer result. Invalid tokens, radices and integer overflow produce
-NaN. A radix must be an integer from 2 through 36; it does not wrap modulo 2^32.
-
-`parseFloat` uses Rust's `f64` parser or C#'s invariant `double` parser. Native
-whitespace and special-value rules apply. For example, Rust rejects leading
-whitespace; C# permits it. Neither accepts `"12.5suffix"` as `12.5`.
-
-`toString()` preserves the selected numeric width and uses native decimal
-formatting. It does not change an exact integer to floating point to print it.
-Native exponent spelling, signed zero and special-value text remain native:
-Rust prints infinity as `inf`, while C# prints `Infinity`.
-
-`toFixed(digits)` requests fixed-point formatting. `toExponential(digits)`
-requests native exponential formatting. `toPrecision(precision)` uses C#'s
-general numeric format; Rust uses exponential notation with the requested
-significant digits. Without a precision, it uses ordinary native formatting.
-The rounding rules belong to those native formatters. Integer receivers stay
-integer-valued during formatting.
-
-Counts must be integral and within the native formatter/storage limits.
-There is no JavaScript precision cap of 100. Requesting a huge formatted
-string can still exceed native memory or formatter limits.
-
-`Number(text)` uses the same native parser as `parseFloat`. An empty string is
-not zero. `BigInt(text)` uses native arbitrary-integer parsing; the explicit
-`0x`, `0o` and `0b` prefixes select a radix. Whitespace and digit syntax follow
-the target parser. For example, Rust's integer parser accepts underscores;
-.NET's decimal integer parser does not.
-
-Date timestamps are floating-point epoch milliseconds bounded by the native
-signed 64-bit decomposition. They are not capped at JavaScript's timestamp
-limit. `Date.UTC(99, 0, 1)` uses year 99, not 1999. Native local-time APIs can
-have narrower calendar ranges than UTC timestamp storage.
-
-Explicit closed-value operations retain native numeric carriers. C# uses its
-native arithmetic promotion rules instead of first converting boxed integers
-to double. Invalid mixed domains, such as decimal and double, need an explicit
-conversion. Native collection equality also retains boxed numeric types: a
-boxed `long` key is not a boxed `double` key. Ordinary typed operations do not
-use closed-value dispatch.
+Parsing returns its declared result: `parseInt` produces a floating-point
+`number`, not an exact native integer. Use `BigInt` or the target's native
+integer parser when the result must retain every integer bit. Supported
+whitespace, prefixes and invalid-input handling belong to the explicit API.
 
 ## Explicit bit truncation
 
@@ -141,29 +108,47 @@ export function lowWord(value: bigint): int64 {
 }
 ```
 
-The selected operation and constant width prove that this result fits `int64`.
-The target reads the low bits directly into a native integer. It does not first
-allocate a truncated BigInt. An unannotated `bigint` result remains arbitrary
+The selected operation and constant width prove the result fits `int64`.
+The target reads those low bits directly into a native integer without an
+intermediate truncated BigInt. An unannotated `bigint` result remains arbitrary
 precision.
 
-A dynamic width or a result range that does not fit the destination cannot
-use this implicit native result conversion. Bit counts must be finite,
-non-negative integers. NaN and fractional widths are rejected, not coerced.
+A dynamic or out-of-range width cannot prove an implicit native result
+conversion. The public BigInt operation normalizes its width argument and
+checks native capacity; the proven native-result helper validates its exact
+compile-time width. No width is capped at 53 bits merely for JS compatibility.
 
-## Predicates and sizes
+## Queries, collections and storage
 
-`Number.isInteger` tests integrality in the selected native representation.
-`Number.isSafeInteger` additionally tests a floating receiver's native exact-
-integer precision: 53 bits for `double`/`f64`, 24 for `float`/`f32`, and 11
-for C# `Half`. This explicit query does not limit storage or arithmetic.
-All native integer values qualify, including values above 2^53; integer
-arguments never convert to floating point for these predicates.
+`Number.isInteger` tests the selected native value's integrality.
+`Number.isSafeInteger` explicitly queries the JS Number precision domain.
+It can return false for an exact `int64` without restricting that integer in
+any way. Native integer arguments never round through floating point for
+this query.
 
-Array and buffer allocation still obey native capacity and address-space
-limits. Lengths must be non-negative integers; fractions, NaN and overflow
-are errors. Allocation failure is not evidence that the integer itself is
-outside a JavaScript-compatible range.
+Native typed-array copies retain exact element carriers. Same-type copies use
+native bulk copying. Different integer types convert directly; floating inputs
+use the selected typed-array API's conversion. Overlapping views preserve the
+source values required by the operation.
+
+JS array `indexOf` does not match NaN; `includes`, Map and Set do. Ordinary
+typed keys/searches avoid boxing. Explicit closed-value operations preserve
+exact native integers rather than converting all values to double.
+
+Array construction requires a non-negative integral length. Buffer and
+typed-array APIs normalize their numeric length arguments, then validate the
+native storage bounds. Allocation failure is not an artificial JS integer
+limit. Split limits and formatting precision are API-specific arguments, not
+a storage-carrier policy.
+
+Date stores floating-point epoch milliseconds within its native signed
+64-bit decomposition domain, rather than imposing the JS timestamp ceiling.
+Native local-time libraries can support a narrower calendar range than UTC.
 
 Node file reads and writes accept exact `int64` positions as well as ordinary
-numeric positions. The `int64` path does not round through `number`. The native
-OS and filesystem retain their own offset and file-size limits.
+numeric positions. The `int64` path never rounds through `number`. Native OS
+and filesystem limits still apply.
+
+Compatibility is best effort within these representations. Unsupported
+operations must reject precisely, not silently return a different result or
+introduce a slow general fallback.

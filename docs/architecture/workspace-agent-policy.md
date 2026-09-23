@@ -181,13 +181,23 @@ policy.
 
 - Without a JS surface, code follows the selected target's native semantics
   completely. TypeScript supplies source syntax, checked types and explicit
-  metadata, not a JavaScript runtime. Native semantics are also authoritative
-  when a JS or Node surface is selected: native semantics always win a conflict.
-- JS and Node surfaces provide best-effort standards compatibility. Retain
-  compatible behavior where it conflicts with neither native semantics nor
-  native performance. Compatibility is not itself a defect or a reason to
-  delete working behavior. Conversely, a familiar API name never authorizes
-  hidden emulation costs, lossy conversions or replacing native semantics.
+  metadata, not a JavaScript runtime.
+- A JS or Node surface does not change native carriers, widths, string encoding,
+  storage, ownership or allocation policy. An API exposing a native integer
+  retains its native domain: no int53 carrier, 53-bit admission cap or floating
+  round trip is introduced merely for JavaScript compatibility.
+- An explicitly selected JS/Node API retains its supported API semantics within
+  those native representations. JS Math.min must propagate NaN; JS Math.round
+  must not silently become System.Math.Round or f64::round. Native primitives
+  implement these APIs only where their behavior matches. Users select native
+  APIs explicitly for different native behavior. Native representation is not
+  permission to silently replace a supported library operation's semantics.
+- Retain efficient compatible behavior. Compatibility is not itself a defect
+  or a reason to delete working behavior. Conversely, an API name never
+  authorizes hidden emulation costs, lossy conversions, carrier restrictions or
+  overhead on unrelated ordinary code. Necessary work of an explicitly selected
+  operation remains local to that operation; compare its implementation with
+  efficient native code performing the same requested operation.
 - Expensive, impractical or unrepresentable compatibility may remain
   unsupported even on a JS surface. Document the exact supported contract and
   reject unsupported operations precisely. Do not weaken safety, invent results
@@ -209,8 +219,10 @@ policy.
   consistent across declarations, retained
   evidence, target policy, generated code, runtimes, documentation and tests.
   Correctness is measured against that documented contract. A Node oracle is
-  appropriate for a supported compatible operation, not for overriding native
-  arithmetic, representation, range or performance requirements.
+  appropriate for supported JS API behavior, not for overriding native
+  arithmetic, representation, range or performance requirements. Explicit
+  Number.isSafeInteger queries may test the JS Number precision domain; they
+  must never become native-value admission restrictions.
   Keep safety, identity, aliasing, lifetime and explicitly selected operations
   intact; do not replace them with no-ops or unproved casts. Record removals and
   replacement proof gates in the necessity ledger.

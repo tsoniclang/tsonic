@@ -2,11 +2,11 @@ import type { AstReader, Node } from "@tsonic/tsts";
 
 export function sourceIntegerLiteralValue(ast: AstReader, node: Node): bigint | undefined {
   const kind = ast.kindName(node);
-  if (kind === "KindParenthesizedExpression") {
+  if (ast.is.IsParenthesizedExpression(node)) {
     const inner = ast.as.AsParenthesizedExpression(node)?.Expression;
     return inner === undefined ? undefined : sourceIntegerLiteralValue(ast, inner);
   }
-  if (kind === "KindPrefixUnaryExpression") {
+  if (ast.is.IsPrefixUnaryExpression(node)) {
     const operand = ast.as.AsPrefixUnaryExpression(node)?.Operand;
     const operator = ast.operatorKindName(node);
     if (operand === undefined || (operator !== "KindPlusToken" && operator !== "KindMinusToken")) return undefined;

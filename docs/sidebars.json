@@ -35,6 +35,7 @@
     "reference/source-core.md",
     "reference/javascript-source-profile.md",
     "reference/native-performance.md",
+    "reference/native-numerics.md",
     "reference/node-capability.md",
     "reference/diagnostics.md",
     "reference/package-catalog.md",

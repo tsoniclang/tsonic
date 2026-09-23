@@ -30,6 +30,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/value-flow.ts": 8,
   "packages/target-api/src/source-semantics/authored-type-facts.ts": 2,
   "packages/target-api/src/source-semantics/authored-type-selection.ts": 1,
+  "packages/target-api/src/source-semantics/integer-literal.ts": 2,
   "packages/target-api/src/source-semantics/standard-type-transformations.ts": 2,
   "packages/target-api/src/source-semantics/type-syntax.ts": 6,
 });
