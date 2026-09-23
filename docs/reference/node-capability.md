@@ -28,6 +28,11 @@ Installing the capability:
 - maps declarations through provider/module/export/member/signature identity;
 - rejects unavailable Node behavior without source-name fallback.
 
+Type imports also retain the capability's native project reference. A type such
+as `MakeDirectoryOptions` can become a native parameter, local or return value
+even when TypeScript imports it with `import type`. This does not execute a
+type-only imported source module or emit an unused type alias.
+
 The capability families include the supported portions of `node:fs`,
 `node:fs/promises`, `node:path`, `node:process`, `node:os`, `node:url`, Buffer,
 HTTP, crypto, zlib, streams, timers, assertions, and utilities. Exact per-target

@@ -249,7 +249,7 @@ const oldSuitePortInventoryEntries = Object.freeze([
     owner: "C# NodeJS provider package",
     newPath: "test/cli-build/nodejs-provider-package-rejections.test.mjs",
     reason:
-      "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:http declarations include a type-only import proof with no Node runtime reference, node:timers participates through provider declarations, and unsupported historical modules child_process, dgram, dns, events, net, querystring, readline, stream, tls, and zlib produce deterministic provider diagnostics with no target artifacts.",
+      "Ported as current-architecture evidence for selected NodeJS provider-package aliases: supported node:http declarations include a type-only import proof retaining the native reference without emitting unused aliases; node:timers participates through provider declarations. Historical unsupported-module cases are evidence for their original inventory, not the current Node capability catalog.",
   }),
   Object.freeze({
     oldPath: "test/fixtures/top-level-code/",
