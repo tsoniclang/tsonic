@@ -177,6 +177,37 @@ policy.
   language's documented coupling for the selected version, or reject an
   unrepresentable combination precisely.
 
+### Target-Native Semantics, Not JavaScript Conformance
+
+- The selected target's native semantics govern generated code and runtime
+  operations. TypeScript provides source syntax, checked types and explicit
+  metadata; JavaScript and Node.js conformance are not runtime requirements.
+  This maintainer decision supersedes earlier JS-compatibility expectations.
+- JS and Node surfaces expose familiar APIs implemented against native targets.
+  Selecting either surface does not select a JavaScript runtime or authorize
+  emulated coercions, indexing rules, sparse-array machinery, object bookkeeping,
+  numeric restrictions or other runtime quirks merely to match JS or Node.
+  Every retained behavior needs a concrete native capability or separately
+  approved explicit operation, not a conformance argument.
+- Do not cap native integers at JavaScript's 53-bit safe-integer boundary or
+  invent an int53 representation. Annotated int32/int64 and unsigned integers
+  use their selected native widths and signedness. Remove artificial JS-only
+  restrictions and the tests that require those restrictions; replace them with
+  the native contract's boundary, correctness and safety proofs.
+- Actual native bounds still apply: floating-point precision, representable
+  integer ranges, valid shift widths, addressable memory, collection capacity
+  and resource budgets. An f64 cannot exactly represent every 64-bit integer.
+  Never route exact native integers through an imprecise floating-point value.
+  A compiler-host or wire-format check preventing precision loss is not a
+  native int53 contract: use lossless metadata/transport where larger values
+  are required rather than simply deleting a necessary validation guard.
+- Native behavior must be explicit and consistent across declarations, retained
+  evidence, target policy, generated code, runtimes, documentation and tests.
+  Correctness is measured against that documented contract, not Node output.
+  Keep safety, identity, aliasing, lifetime and explicitly selected operations
+  intact; do not replace them with no-ops or unproved casts. Record removals and
+  replacement proof gates in the necessity ledger.
+
 ### Native Performance From Exact Metadata
 
 - Apply this contract to every design and implementation decision, not only
@@ -187,12 +218,10 @@ policy.
   representation preserves correctness and avoids unnecessary cost in the
   necessity ledger before implementing it.
 - **Hard rule: native performance by default; no silent runtime overhead of any
-  kind.** Compatibility is best effort within that constraint. Ordinary
-  operations use native target behavior. JS and Node
-  surfaces are explicit API opt-ins, not permission to impose hidden copying,
-  conversion, storage or bookkeeping for unused features. When native performance
-  conflicts with compatibility, document the native difference or reject the
-  unsupported operation instead of inserting a slower emulation path.
+  kind.** Apply the target-native semantics contract above. JS and Node APIs
+  do not authorize hidden copying, conversion, storage, bookkeeping or a slower
+  emulation path. Document native differences; do not simulate another runtime
+  merely to avoid those differences.
 - This applies across generated code, analysis-selected representations,
   provider adapters, call boundaries, runtimes and benchmark dispatchers, not
   only individual runtime functions. Audit implicit copies, allocations,
@@ -224,11 +253,11 @@ policy.
   not silently accepted as compiler overhead. If performance and correctness
   cannot both be met, disclose the concrete conflict and obtain an explicit
   supported choice rather than quietly accepting a slowdown.
-- Compatibility is subordinate to performance, never a justification for a
-  slowdown of the common path. A compatibility behavior with additional cost
-  requires an explicit per-value or per-operation request; a whole-project JS
-  or Node surface does not authorize that cost. Correctness and memory safety
-  remain mandatory; reject an unrepresentable operation rather than fake it.
+- An explicit per-value or per-operation capability may have necessary native
+  costs, which must be justified and visible in its contract. JavaScript or
+  Node conformance alone is never that justification. Correctness and memory
+  safety remain mandatory; reject an unrepresentable operation rather than
+  fake it or silently tax unrelated values.
 - Ordinary Rust strings use native UTF-8 units and operations; exact UTF-16 is an
   explicit `JsString` value. Ordinary arrays prioritize dense native storage;
   sparse/hole behavior must not tax every element. Preserve declared aliasing,
@@ -272,8 +301,10 @@ policy.
 - In particular, do not use explicit `public`, parameter properties,
   namespaces, decorators, or non-ECMAScript class modifiers as compiler
   signals, test aids, or source-package workarounds.
-- Type-only annotations, interfaces, imports, and deterministic assertions may
-  erase normally; runtime-facing syntax must retain ECMAScript meaning.
+- Type-only annotations, interfaces, imports, and deterministic assertions
+  remain checked source evidence. Generated runtime behavior follows the
+  selected target's semantics under the target-native contract above; source
+  syntax does not authorize JavaScript coercions or runtime emulation.
 - Abstract declarations and readonly class fields are supported source
   annotations in both C# and Rust. Preserve their checker restrictions without
   introducing runtime freezing or weakening abstract implementation checks.

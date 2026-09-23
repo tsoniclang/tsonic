@@ -3,6 +3,9 @@
 The target maps exact source evidence and sealed ownership facts, not
 TypeScript display names.
 
+See [native numbers](../../native-numerics.md) for exact integer ranges,
+numeric operations, literal handling and explicit truncation.
+
 | Source contract | Rust representation |
 | --- | --- |
 | `boolean` / `bool` | `bool` |
