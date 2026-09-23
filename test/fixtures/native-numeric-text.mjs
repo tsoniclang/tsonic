@@ -17,6 +17,7 @@ export function jsNumericApiContract(): boolean {
     Math.imul(4294967297, 2) === 2 && Math.clz32(Number.NaN) === 32 &&
     parseInt("123suffix", 10) === 123 && parseFloat("1.5tail") === 1.5 &&
     Number("") === 0 && Number.isNaN(Number("123suffix")) &&
+    String(-0) === "0" && String(1e21) === "1e+21" && String(Number.POSITIVE_INFINITY) === "Infinity" &&
     (12.5).toExponential(1) === "1.3e+1" && (1.25).toPrecision(2) === "1.3" &&
     target[0] === 255 && target[1] === 0;
 }
