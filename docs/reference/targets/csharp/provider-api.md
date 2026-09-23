@@ -39,6 +39,13 @@ relations from one provider member to multiple target signatures. Staticness,
 generic arguments, parameter modes, conversions, and result carriers are
 independent fields and must agree wherever both sides supply them.
 
+A floating-input argument adapter can declare `nativeIntegerConversion:
+"checked"` when native integer inputs instead require a checked integral cast.
+This preserves exact wide integers without passing through `double`. Without
+that explicit contract, the target does not replace an adapter's behavior.
+Fractional inputs still use the declared method. The contract requires a
+floating input type, integral result, and by-value parameter relation.
+
 Providers must not attach target-specific fields to closed TSTS values. They
 publish only through the C# target's public relation, type, policy, and runtime
 contribution contracts.
