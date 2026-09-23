@@ -1,11 +1,29 @@
 export const nativeSurfaceResultsSource = `
 export function run(): boolean {
+  const indexed = [7, 11].map((value, index) => index);
+  if (indexed[0] !== 0 || indexed[1] !== 1) return false;
+  for (const [position, value] of indexed.entries()) {
+    if (position !== value) return false;
+  }
+  const from = Array.from("ab", (value, index) => index);
+  if (from[0] !== 0 || from[1] !== 1) return false;
+  const explicit = [7, 11].map<number>((value, index) => index);
+  const fractional = [7, 11].map((value, index): number => index + 0.5);
+  if (explicit[1] !== 1 || fractional[1] !== 1.5) return false;
   const timer = setTimeout(() => {}, 100000);
   clearTimeout(timer);
   const interval = setInterval(() => {}, 100000);
   clearInterval(interval);
   const bytes = new ArrayBuffer(8);
+  const sized = new Uint8Array(bytes.byteLength);
+  const sizedView = new DataView(sized.buffer, bytes.byteLength - 4, 4);
+  sizedView.setUint32(sized.byteLength - 8, 17, true);
+  const tail = sized.subarray(sized.length - 4, sized.length);
+  if (tail[0] !== 17 || sized.slice(sized.length - 4).length !== 4) return false;
+  if (bytes.slice(bytes.byteLength - 4, bytes.byteLength).byteLength !== 4) return false;
   const view = new DataView(bytes);
+  view.setUint32(0, bytes.byteLength, true);
+  if (view.getUint32(0, true) !== 8) return false;
   view.setUint32(0, 4294967295, true);
   const word = view.getUint32(0, true);
   view.setFloat32(4, 1.5, true);
@@ -48,11 +66,43 @@ export function run(): boolean {
   const stats = statSync("native-counter-proof.bin");
   unlinkSync("native-counter-proof.bin");
   const size = stats.size;
+  const lastBytes = bytes.slice(size - 4, size);
+  const copied = bytes.copy(Buffer.alloc(8), size - 8, size - 8, size);
+  if (lastBytes.length !== 4 || copied !== 8) return false;
+  bytes.writeUInt32LE(word, size - 8);
+  if (bytes.readUInt32LE(size - 8) !== word) return false;
   const memory = memoryUsage();
   const cpu = process.cpuUsage();
+  const previous = { user: cpu.user, system: cpu.system };
+  const previousAlias = previous;
+  previousAlias.user = 0;
+  if (previous.user !== 0) return false;
+  const elapsed = process.cpuUsage(previous);
+  if (elapsed.user < 0 || elapsed.system < 0) return false;
+  cpu.user = 9007199254740993;
+  const binary = new DataView(new ArrayBuffer(4));
+  binary.setUint32(0, cpu.user, true);
+  if (binary.getUint32(0, true) !== 1) return false;
+  const words = new Uint32Array(2);
+  words[0] = cpu.user;
+  words.fill(cpu.user, 1);
+  if (words[0] !== 1 || words[1] !== 1) return false;
+  words[0] = 0;
+  words[0] += cpu.user;
+  if (words[0] !== 1) return false;
+  const old = words[0]++;
+  const next = ++words[1];
+  if (old !== 1 || next !== 2 || words[0] !== 2 || words[1] !== 2) return false;
+  let receiverCalls = 0;
+  let indexCalls = 0;
+  const receiver = (): Uint32Array => { receiverCalls++; return words; };
+  const index = (): number => { indexCalls++; return 0; };
+  const readWord = (): number => words[0];
+  const updated = receiver()[index()]++;
+  if (updated !== 2 || readWord() !== 3 || receiverCalls !== 1 || indexCalls !== 1) return false;
   const before = hrtime();
   const delta = hrtime(before);
-  return size === 8 && size > 0 && memory.rss > 0 && cpu.user >= 0 &&
+  return size === 8 && size > 0 && memory.rss > 0 && cpu.user === 9007199254740993 &&
     cpu.system >= 0 && delta[0] >= 0 && delta[1] >= 0 && delta[1] < 1000000000 && uptime() >= 0;
 }
 `;

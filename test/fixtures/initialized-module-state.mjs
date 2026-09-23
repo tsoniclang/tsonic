@@ -1,13 +1,13 @@
 export const initializedModuleStateFiles = Object.freeze({
   "address.ts": `
 import { addressOf, loadPointer, storePointer, equalPointer } from "@tsonic/core/lang.js";
-import { state, constant } from "./state.js";
+import { state, constant, writable } from "./state.js";
 export function writeCount(): boolean {
   const first = addressOf(state.count);
   const second = addressOf(state.count);
   storePointer(first, 10);
   return equalPointer(first, second) && loadPointer(second) === 10 &&
-    loadPointer(addressOf(constant)) === 7;
+    constant === 7 && loadPointer(addressOf(writable)) === 13;
 }
 `,
   "state.ts": `
@@ -24,6 +24,7 @@ export class State {
 export let state: State;
 export let assigned: State;
 export const constant: int32 = 7;
+export let writable: int32 = 13;
 export function initializeState(count: int32, payload: Payload): void {
   state = new State(count, payload);
 }
