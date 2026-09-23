@@ -80,6 +80,10 @@ Native shifts retain native overflow/masking behavior. The explicit `Math.imul`
 and `Math.clz32` helpers do not redefine those operators. Their integer inputs
 are not converted through floating point.
 
+Small integer operations follow the target as well. Rust keeps the operand's
+width for complement and shifts; C# promotes small integers to `int`. To
+complement a byte at 32 bits on both targets, write `~(value as int32)`.
+
 ## Numeric text
 
 On the JS surface, `toString()` retains integer receivers and their exact digits.

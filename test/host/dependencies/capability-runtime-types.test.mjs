@@ -29,7 +29,8 @@ for (const statement of [
     const selected = collectImportActivatedTargetCapabilities(source.ast, files,
       [records, storage, unrelated, otherTarget], { id: "demo" });
     assert.deepEqual(selected, [records, storage]);
-    assert.deepEqual(collectRuntimeActivatedTargetCapabilities(source.ast, files, selected), [records, storage]);
+    assert.deepEqual(collectRuntimeActivatedTargetCapabilities(source.ast, files, selected),
+      statement === 'import { options } from "native:records";' ? [records, storage] : []);
     assert.deepEqual(collectRuntimeActivatedTargetCapabilities(source.ast, files, []), []);
   });
 }

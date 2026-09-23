@@ -31,7 +31,7 @@ export function collectRuntimeActivatedTargetCapabilities(
   if (selectedCapabilities.length === 0) {
     return [];
   }
-  const moduleSpecifiers = collectStaticModuleSpecifiers(ast, sourceFiles);
+  const moduleSpecifiers = collectStaticModuleSpecifiers(ast, sourceFiles, true);
   const directlyActivated = selectedCapabilities.filter((capability) =>
     capability.moduleOwnership.some((ownership) =>
       moduleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
@@ -62,7 +62,7 @@ function closeRequiredCapabilities(
   return available.filter((capability) => selectedIds.has(capability.id));
 }
 
-function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly string[] {
+function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[], runtimeOnly = false): readonly string[] {
   const specifiers = new Set<string>();
   for (const sourceFile of sourceFiles) {
     for (const statement of ast.statements(sourceFile)) {
@@ -70,7 +70,7 @@ function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly Sou
         continue;
       }
       const reference = getStaticModuleReference(ast, statement);
-      if (reference === undefined) {
+      if (reference === undefined || runtimeOnly && !reference.hasRuntimeValue) {
         continue;
       }
       const moduleSpecifier = readModuleSpecifierText(ast, reference.moduleSpecifier);

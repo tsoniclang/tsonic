@@ -81,7 +81,13 @@ test("capability activation uses the shared import and export runtime-classifica
     events,
     moduleOwnership: [{ specifierPrefix: `@${entry.id}/native/` }],
   }));
-  const targetPack = createFakeTargetPack(events);
+  let runtimeActivatedCapabilityIds;
+  const targetPack = createFakeTargetPack(events, {
+    onCompile(input) {
+      runtimeActivatedCapabilityIds = input.runtimeActivatedCapabilityIds;
+      assert.equal(Object.isFrozen(runtimeActivatedCapabilityIds), true);
+    },
+  });
   const source = moduleReferenceCases
     .map((entry, index) => entry.render(`@${entry.id}/native/module.js`, index))
     .join("\n") + "\n";
@@ -100,8 +106,10 @@ test("capability activation uses the shared import and export runtime-classifica
   assert.deepEqual(
     events.filter((event) => event.startsWith("capability-runtime:"))
       .map((event) => event.split(":")[1]),
-    moduleReferenceCases.filter((entry) => entry.runtime).map((entry) => entry.id),
+    moduleReferenceCases.map((entry) => entry.id),
   );
+  assert.deepEqual(runtimeActivatedCapabilityIds,
+    moduleReferenceCases.filter(entry => entry.runtime).map(entry => entry.id));
 });
 
 function row(id, runtime, render) {

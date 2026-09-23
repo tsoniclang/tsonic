@@ -1,9 +1,9 @@
 export const nativeIntegerComplementSource = `
 import type { int8, uint8, int16, uint16, int32, uint32, int64, uint64 } from "@tsonic/core/types.js";
-function signed8(value: int8): int32 { return ~value; }
-function unsigned8(value: uint8): int32 { return ~value; }
-function signed16(value: int16): int32 { return ~value; }
-function unsigned16(value: uint16): int32 { return ~value; }
+function signed8(value: int8): int32 { return ~(value as int32); }
+function unsigned8(value: uint8): int32 { return ~(value as int32); }
+function signed16(value: int16): int32 { return ~(value as int32); }
+function unsigned16(value: uint16): int32 { return ~(value as int32); }
 function signed32(value: int32): int32 { return ~value; }
 function unsigned32(value: uint32): uint32 { return ~value; }
 function signed64(value: int64): int64 { return ~value; }

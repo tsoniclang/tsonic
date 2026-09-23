@@ -21,7 +21,6 @@ export interface CollectTargetRuntimeContributionsOptions {
   readonly target: TargetSelection;
   readonly targetPackId: string;
   readonly selectedCapabilities: readonly TargetCapabilityImplementation[];
-  readonly runtimeActivatedCapabilities?: readonly TargetCapabilityImplementation[];
   readonly selectedSurfaces: readonly TargetSurfaceImplementation[];
   readonly paths: TargetCompilationPaths;
   readonly targetContributions: TargetRuntimeContributions;
@@ -45,7 +44,7 @@ export function collectTargetRuntimeContributions(options: CollectTargetRuntimeC
   return mergeRuntimeContributions(
     [
       options.targetContributions,
-      ...(options.runtimeActivatedCapabilities ?? options.selectedCapabilities).map((capability) => capability.runtimeContributions?.({
+      ...options.selectedCapabilities.map((capability) => capability.runtimeContributions?.({
         ...context,
         capability,
       })),

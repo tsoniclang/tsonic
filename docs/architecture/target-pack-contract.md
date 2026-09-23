@@ -99,6 +99,14 @@ does not create a second compilation path.
 
 ## Planning boundary
 
+The host passes two distinct inputs to compilation. `runtimeReferences` contains
+native dependencies needed by all selected capabilities, including imported
+native types. `runtimeActivatedCapabilityIds` contains the immutable dependency
+closure selected by value imports and re-exports. Linking a type-only dependency
+does not authorize its initialization or binary hooks. Targets use the latter
+set for capability-owned executable hooks; surface-owned behavior remains
+controlled by surface selection.
+
 Planning may query:
 
 - immutable source syntax and source navigation;
