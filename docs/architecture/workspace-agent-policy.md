@@ -21,6 +21,33 @@ policy.
   task. Read-only inspection may establish a contract; it does not grant change
   ownership.
 
+### Direct Solutions, Not Patch Accumulation
+
+- Apply this rule to every edit and issue resolution, including all existing
+  changes in the current PR: never keep bolting corrective layers onto an
+  incorrect implementation when a direct solution exists.
+- Reassess the owning model, data structures, contracts and complete call path,
+  not just the latest failing line. Correct the earliest layer that actually
+  owns the decision, update its consumers, and remove superseded logic in the
+  same change. A previous fix or passing checkpoint does not justify keeping
+  redundant branches, adapters, conversions or competing decisions.
+- Prefer the smallest clean, complete canonical mechanism. Reuse genuine common
+  requirements; do not hide repeated corrections behind a generic wrapper or
+  invent a framework to preserve an accidental design. Independently necessary
+  boundary validation remains mandatory, not redundant patching.
+- For example, if a provider exposes an exact native integer but the compiler
+  selects a floating carrier, do not retain that mistake and add conversions,
+  large-value exceptions and target-specific caller repairs. Preserve the exact
+  integer in the provider/semantic contract, select its native target carrier,
+  and remove the erroneous conversions and compensating branches. Both targets
+  consume the corrected evidence through their existing ownership layers.
+- Review the entire current PR against this rule before certification. For each
+  change family, the necessity ledger must identify the direct owner, the
+  simpler complete alternative considered, removed or demonstrably necessary
+  surrounding logic, and correctness/performance proof. Passing tests alone
+  cannot certify a layered workaround. Do not expand scope into unrelated
+  rewrites; record any concrete architectural conflict for the maintainer.
+
 ### Necessity Ledger
 
 - Every product change set must maintain a task-local necessity ledger under
