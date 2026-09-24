@@ -14,7 +14,7 @@ numeric operations, literal handling and explicit truncation.
 | ordinary `bigint` | arbitrary-precision runtime `BigInt` |
 | `float32`, `float64` | `f32`, `f64` |
 | `string` | `String` or `&str` only when complete use analysis proves the ABI |
-| `T | undefined` / selected nullable | `Option<T>` |
+| `T | null`, `T | undefined`, `T | null | undefined` | `Option<T>` |
 | mutable dense `T[]` | `Vec<T>` or selected JS array carrier |
 | readonly array parameter | borrowed slice when the closed ABI proves it |
 | homogeneous fixed tuple / `FixedArray<T, N>` | `[T; N]` when exact length and element carrier are proven |
@@ -81,3 +81,17 @@ spelling-based conversion from arbitrary `any`.
 
 See [TypeScript types and utilities](../../typescript-types.md) for the pinned
 utility inventory and the target-neutral `any` and `unknown` rules.
+
+## Absence
+
+`null` and `undefined` are the same native absence, including on the JavaScript
+and Node surfaces. A value that is absent compares equal to either spelling.
+Zero, `false` and an empty string remain present values. Optional chaining and
+`??` test absence without replacing these values.
+
+There is no separate undefined runtime object or tag. For closed dynamic values,
+string conversion renders absence as `"null"`, numeric conversion produces zero,
+and `typeof` reports `"object"`. JSON writes a present absent-valued member as
+`null`; it does not omit that member to imitate JavaScript undefined. A missing
+dictionary key remains different from a present key holding JSON null. Use a
+collection membership query when that distinction matters.

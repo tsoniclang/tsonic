@@ -13,7 +13,7 @@ numeric operations, literal handling and explicit truncation.
 | ordinary `bigint` | arbitrary-precision `System.Numerics.BigInteger` |
 | `float32`, `float64`, `decimal` | `float`, `double`, `decimal` |
 | `string` | `string` |
-| `T | undefined` / selected nullable | nullable reference or `Nullable<T>` according to carrier |
+| `T | null`, `T | undefined`, `T | null | undefined` | nullable reference or `Nullable<T>` according to carrier |
 | `T[]` | selected C# array/runtime carrier |
 | tuple | C# tuple carrier |
 | `Pointer<T>` | `Tsonic.CSharp.Runtime.Location<T>` |
@@ -73,3 +73,17 @@ operation. It never authorizes a late-bound CLR call by name.
 
 See [TypeScript types and utilities](../../typescript-types.md) for the pinned
 utility inventory and the target-neutral `any` and `unknown` rules.
+
+## Absence
+
+`null` and `undefined` are the same native absence, including on the JavaScript
+and Node surfaces. A value that is absent compares equal to either spelling.
+Zero, `false` and an empty string remain present values. Optional chaining and
+`??` test absence without replacing these values.
+
+There is no separate undefined runtime object or tag. For closed dynamic values,
+string conversion renders absence as `"null"`, numeric conversion produces zero,
+and `typeof` reports `"object"`. JSON writes a present absent-valued member as
+`null`; it does not omit that member to imitate JavaScript undefined. A missing
+dictionary key remains different from a present key holding JSON null. Use a
+collection membership query when that distinction matters.

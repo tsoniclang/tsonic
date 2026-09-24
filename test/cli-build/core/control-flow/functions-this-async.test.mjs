@@ -285,12 +285,12 @@ test("CLI emits omitted function and method return types from TSTS inferred sign
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int inferred\(\)/);
   assert.match(generatedSource, /public static void sideEffect\(double value\)/);
-  assert.match(generatedSource, /public static double\[\] inferredArray\(\)/);
-  assert.match(generatedSource, /return new double\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /public static int\[\] inferredArray\(\)/);
+  assert.match(generatedSource, /return new int\[\] \{ 1, 2 \};/);
   assert.match(generatedSource, /public static T inferredGeneric<T>\(T value\)/);
-  assert.match(generatedSource, /public static double localArray\(\)/);
-  assert.match(generatedSource, /double\[\] values = new double\[\] \{ 1, 2 \};/);
-  assert.match(generatedSource, /public double\[\] values = new double\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /public static int localArray\(\)/);
+  assert.match(generatedSource, /int\[\] values = new int\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /public int\[\] values = new int\[\] \{ 1, 2 \};/);
   assert.match(generatedSource, /public double current\(\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

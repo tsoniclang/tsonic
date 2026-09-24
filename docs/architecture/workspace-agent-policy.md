@@ -206,6 +206,15 @@ policy.
 
 ### Native Semantics and Best-Effort JS Surfaces
 
+- Source `null` and `undefined` denote one native absence state in generated
+  C# and Rust, including JS and Node surfaces. Use native nullable storage or
+  `Option<T>`; never manufacture separate null/undefined tags, nested options,
+  wrappers or allocation merely to reproduce JavaScript's platform distinction.
+  Normalize the relationship once in target type policy; preserve exact source
+  checker evidence and native API/data-model distinctions such as a missing
+  dictionary entry versus an explicit JSON-null value. Zero, false and empty
+  strings are present values. Construction, comparison, narrowing, generic
+  instantiation, optional chaining and coalescing must consume the same policy.
 - Without a JS surface, code follows the selected target's native semantics
   completely. TypeScript supplies source syntax, checked types and explicit
   metadata, not a JavaScript runtime.
