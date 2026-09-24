@@ -111,7 +111,7 @@ export function snapshotTargetPlanningSourceNavigation(
       rememberDeclaration(node);
     }
     const kind = source.ast.kindName(node);
-    if (kind === "KindClassDeclaration" || kind === "KindInterfaceDeclaration") {
+    if (kind === "KindClassDeclaration" || kind === "KindClassExpression" || kind === "KindInterfaceDeclaration") {
       declaredHeritage.set(node, source.navigation.declaredHeritage(node));
       rememberDeclaration(node);
     }
@@ -239,5 +239,5 @@ function isMemberDeclaration(ast: AstReader, node: Node): boolean {
   const parent = ast.parent(node);
   if (parent === undefined) return false;
   const kind = ast.kindName(parent);
-  return kind === "KindClassDeclaration" || kind === "KindInterfaceDeclaration";
+  return kind === "KindClassDeclaration" || kind === "KindClassExpression" || kind === "KindInterfaceDeclaration";
 }

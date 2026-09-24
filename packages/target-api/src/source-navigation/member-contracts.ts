@@ -174,7 +174,7 @@ function collectInheritedProjectTypes(
 
 function isProjectType(ast: AstReader, node: Node | undefined): node is Node {
   return node !== undefined &&
-    (ast.is.IsClassDeclaration(node) || ast.is.IsInterfaceDeclaration(node));
+    (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node) || ast.is.IsInterfaceDeclaration(node));
 }
 
 function isProjectMember(ast: AstReader, node: Node): boolean {
