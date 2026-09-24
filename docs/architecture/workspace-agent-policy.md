@@ -123,6 +123,17 @@ policy.
 - Do not run a complete suite repeatedly after each small implementation. Batch
   coherent edits, collect all diagnostics from a run, fix the complete class,
   then rerun at the appropriate scope.
+- Finish an already-started certification suite and collect its failures, but
+  do not start another suite while known failures remain. Do not reinterpret a
+  multi-suite certification queue as one suite. An explicit maintainer request
+  may cancel a run; retain its observed failures and label its coverage partial.
+- Use the highest useful test parallelism permitted by effective CPUs, available
+  memory and actual isolation constraints. Configure repeatable resource budgets
+  for both outer test workers and native child builds; do not fix every machine
+  at two workers or multiply both levels without bounds. Preserve OOM, swap,
+  process, timeout and log guards. Explicitly designated throughput calibration
+  runs may be aborted when utilization targets are unmet; they never substitute
+  for complete certification or justify weakening tests.
 
 ### Expectation-Only Rerun Exception
 

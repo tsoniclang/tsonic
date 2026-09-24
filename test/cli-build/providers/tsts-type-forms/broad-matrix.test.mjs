@@ -109,7 +109,8 @@ test("CLI consumes broad TSTS type-form matrix without backend type-system reimp
   assert.match(generatedSource, /string providerText = values\[0\];/);
   assert.match(generatedSource, /string message = maybeException!\.Message;/);
   assert.match(generatedSource, /values\.Count/);
-  assert.doesNotMatch(generatedSource, /Normalized|Accessor|keyof|Capitalize|NonNullable|TupleRest|CallableParts|Distribute|NonDistributed|satisfies|as const|!/);
+  assert.doesNotMatch(generatedSource, /Normalized|Accessor|keyof|Capitalize|NonNullable|TupleRest|CallableParts|Distribute|NonDistributed|satisfies|as const/);
+  assert.equal((generatedSource.match(/!/gu) ?? []).length, 1);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("advanced-type-distributive-negative", "SmokeGeneratedAdvancedTypeDistributiveNegative", [

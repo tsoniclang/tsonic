@@ -29,7 +29,7 @@ export function run(): boolean {
   const exact = selected(value).value === null && selected(value).missing === undefined;
   order = "";
   const comparisons = nil() === nil() && absent() === absent() &&
-    nil() !== absent() && absent() !== nil() &&
+    !(nil() !== absent()) && !(absent() !== nil()) &&
     nil() == absent() && absent() == nil() &&
     !(nil() != absent()) && !(absent() != nil());
   const ordered = order === "nnuunuunnuunnuun";

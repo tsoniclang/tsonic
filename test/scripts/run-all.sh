@@ -25,4 +25,4 @@ while (( $# > 0 )); do
   esac
 done
 
-exec node test/scripts/run-parallel.mjs "${arguments[@]}"
+exec bash test/scripts/bounded-run.sh host node test/scripts/run-parallel.mjs "${arguments[@]}"

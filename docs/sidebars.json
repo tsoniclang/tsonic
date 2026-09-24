@@ -83,6 +83,7 @@
     "architecture/structural-member-correspondence.md",
     "architecture/target-pack-contract.md",
     "architecture/provider-and-runtime-ownership.md",
+    "architecture/test-execution.md",
     "architecture/workspace-agent-policy.md"
   ],
   "validation": [
