@@ -3,6 +3,11 @@ export const nestedStructuralStorageFiles = Object.freeze({
 declare const stored: unique symbol;
 interface Stored<Value> { readonly [stored]: Value; }
 type Storage<Value> = Value extends Stored<infer Inner> ? Inner : Value;
+export class BrandedKey {
+  declare readonly [stored]: string;
+  value: string;
+  constructor(value: string) { this.value = value; }
+}
 export class Buffer<Value, Size extends number | bigint> {
   values: Value[];
   length: Size;
@@ -63,7 +68,7 @@ export function write<Value>(entry: Pointer<Entry<Value>> | undefined, value: Va
   "index.ts": `
 import type { int32, Pointer } from "@tsonic/core/types.js";
 import { addressOf, loadPointer, storePointer } from "@tsonic/core/lang.js";
-import { Buffer } from "./storage.js";
+import { BrandedKey, Buffer } from "./storage.js";
 import { AlternateCache, AlternateEntry, Cache, Entry, read, write } from "./cache.js";
 import type { CacheStorage } from "./cache.js";
 export function run(): boolean {
@@ -80,6 +85,12 @@ export function run(): boolean {
   } };
   const numeric = Cache.from<int32, int32>(numericSource);
   const text = Cache.from<string, string>(textSource);
+  const brandedSource: CacheStorage<BrandedKey, int32> = { entries: {
+    keys: new Buffer<string, 1>(["branded"], 1),
+    values: new Buffer<Pointer<Entry<int32>> | undefined, 1>([addressOf(numericEntry)], 1),
+  } };
+  const branded = Cache.from<BrandedKey, int32>(brandedSource);
+  if (branded.storage !== brandedSource || branded.storage.entries.keys.values[0] !== "branded" || read(branded.first()) !== 7) return false;
   const alternate = new AlternateCache<int32, int32>({ entries: {
     keys: new Buffer<int32, 1>([2 as int32], 1),
     values: new Buffer<Pointer<AlternateEntry<int32>> | undefined, 1>([addressOf(alternateEntry)], 1),

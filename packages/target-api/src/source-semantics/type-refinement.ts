@@ -54,14 +54,7 @@ export function selectSourceTypeRefinement(
   const refined: Type[] = [];
   for (const selectedMember of selectedMembers) {
     const candidates = declaredMembers.filter((declaredMember) =>
-      sourceTypeRelationship(
-        types,
-        checker,
-        facts,
-        declaredMember,
-        selectedMember,
-      ) !== "unrelated"
-    );
+      selectedRefinesMember(declaredMember, selectedMember));
     if (candidates.length === 0) {
       return { kind: "unrelated" };
     }
@@ -73,4 +66,21 @@ export function selectSourceTypeRefinement(
     }
   }
   return { kind: "members", types: Object.freeze(refined) };
+
+  function selectedRefinesMember(declaredMember: Type, selectedMember: Type): boolean {
+    const pending = [selectedMember];
+    const visited = new Set<Type>();
+    while (pending.length > 0) {
+      const member = pending.pop()!;
+      if (visited.has(member)) continue;
+      visited.add(member);
+      if (sourceTypeRelationship(types, checker, facts, declaredMember, member) !== "unrelated") return true;
+      if (types.getNumericLiteralTypeValue(member) !== undefined && types.getNumericLiteralTypeValue(declaredMember) === undefined &&
+        (types.isNumberLike(member) && types.isNumberLike(declaredMember) || types.isBigIntLike(member) && types.isBigIntLike(declaredMember))) return true;
+      if (types.isIntersection(member)) {
+        for (const part of types.getUnionOrIntersectionTypes(member)) if (part !== undefined) pending.push(part);
+      }
+    }
+    return false;
+  }
 }
