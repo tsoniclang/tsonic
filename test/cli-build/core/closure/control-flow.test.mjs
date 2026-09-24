@@ -71,7 +71,7 @@ test("CLI runs switch and loop statements through structured C# AST", async () =
   assert.equal(stdout, "zero;one;total=6\n");
 });
 
-test("CLI rejects switch and loop statements without finalized facts", async () => {
+test("CLI rejects non-bool loop conditions even beside supported dynamic switches", async () => {
   const projectDirectory = resolve(tempRoot, "slice6-control-flow-diagnostics");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -104,7 +104,6 @@ test("CLI rejects switch and loop statements without finalized facts", async () 
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /Switch case labels must be C# compile-time constants/);
   assert.match(build.stderr, /While statement condition requires a finalized C# bool runtime carrier/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedSlice6ControlFlowDiagnostics.csproj")), false);
 });

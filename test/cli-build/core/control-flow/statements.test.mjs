@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("CLI emits C# switch defaults and literal fallthrough labels", async () => {
   const projectDirectory = resolve(tempRoot, "literal-switch-fallthrough");
@@ -46,8 +46,9 @@ test("CLI emits C# switch defaults and literal fallthrough labels", async () => 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects dynamic TypeScript switch case expressions before C# emission", async () => {
+test("CLI executes dynamic switch cases in source order with default and fallthrough", async () => {
   const projectDirectory = resolve(tempRoot, "dynamic-switch-case-expression");
+  const assemblyName = "SmokeGeneratedDynamicSwitchCase";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -58,28 +59,43 @@ test("CLI rejects dynamic TypeScript switch case expressions before C# emission"
           id: "csharp",
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedDynamicSwitchCase",
+            assemblyName,
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "let trace = \"\";",
+      "function record(value: string, label: string): string { trace += label; return value; }",
       "export function classify(value: string, dynamicCase: string): string {",
-      "  switch (value) {",
-      "    case dynamicCase:",
-      "      return \"dynamic\";",
+      "  trace = \"\";",
+      "  let result = \"\";",
+      "  switch (record(value, \"input;\")) {",
+      "    case record(dynamicCase, \"first;\"):",
+      "      result = \"dynamic\";",
+      "      break;",
       "    default:",
-      "      return \"other\";",
+      "      result = \"default\";",
+      "    case record(\"last\", \"last;\"):",
+      "      result += \"last\";",
       "  }",
+      "  return result + \"|\" + trace;",
       "}",
+      "Console.WriteLine(classify(\"first\", \"first\"));",
+      "Console.WriteLine(classify(\"last\", \"first\"));",
+      "Console.WriteLine(classify(\"missing\", \"first\"));",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Switch case labels must be C# compile-time constants/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedDynamicSwitchCase.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|System\.Reflection/u);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName),
+    "dynamic|input;first;\nlast|input;first;last;\ndefaultlast|input;first;last;\n");
 });
 
 test("CLI rewrites mixed-type for initializers into C# prelude locals", async () => {

@@ -407,9 +407,9 @@ test("CLI emits string instance calls from selected target signature facts", asy
   assert.match(generatedSource, /public static int codePointOrMissing\(string value, int index\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.codePointAt\(value, index\) \?\? -1;/);
   assert.match(generatedSource, /public static string fromChars\(int a, int b, int c\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCharCode\(a, b, c\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCharCode<int>\(a, b, c\);/);
   assert.match(generatedSource, /public static string fromCodePoints\(int a, int b\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCodePoint\(a, b\);/);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.fromCodePoint<int>\(a, b\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<string> splitParts\(string value, string separator, int limit\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.String\.split\(value, separator, limit\);/);
   assert.match(generatedSource, /public static string primitive\(string value\)/);
