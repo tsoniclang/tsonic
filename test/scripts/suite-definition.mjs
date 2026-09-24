@@ -67,8 +67,10 @@ export function createParallelSuiteDefinition(repos) {
       nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/publication"),
       nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/cli"),
       nodeSuite(repos.tsonic, "tsonic", "host-source-core", "test/source-core"),
+      packageUnitSuite(repos.tsonic, "host-source-core", "source-core"),
       nodeSuite(repos.tsonic, "tsonic", "host-js-source-profile", "test/js-source-profile"),
       nodeSuite(repos.tsonic, "tsonic", "host-target-api", "test/target-api"),
+      packageUnitSuite(repos.tsonic, "host-target-api", "target-api"),
       nodeSuite(repos.tsonic, "tsonic", "host-cli-build-core", "test/cli-build/core"),
       nodeSuite(repos.tsonic, "tsonic", "host-cli-build-provider", "test/cli-build/providers"),
       nodeSuite(repos.tsonic, "tsonic", "host-cli-build-runtime", "test/cli-build/runtime"),
@@ -126,28 +128,19 @@ export function createParallelSuiteDefinition(repos) {
         directory: resolve(repos.csharpNodejs, "csharp/test/Tsonic.CSharp.Node.Tests"),
       },
     ],
-    groupOrder: [
-      "host-architecture",
-      "host-ledger-inventory",
-      "host-cli-config",
-      "host-source-core",
-      "host-js-source-profile",
-      "host-target-api",
-      "host-test-infrastructure",
-      "host-cli-build-core",
-      "host-cli-build-provider",
-      "host-cli-build-runtime",
-      "host-cli-build-toolchain",
-      "csharp-provider",
-      "csharp-source-semantics",
-      "csharp-js-surface",
-      "csharp-backend-toolchain",
-      "node-provider",
-      "runtime-dotnet",
-    ],
     groupWorkerLimits: Object.freeze({
       "runtime-dotnet": 2,
     }),
+  };
+}
+
+function packageUnitSuite(repository, group, name) {
+  return {
+    scope: "tsonic",
+    group,
+    directory: resolve(repository, "packages", name, "src"),
+    compiledDirectory: resolve(repository, "packages", name, "dist"),
+    suffix: ".test.ts",
   };
 }
 

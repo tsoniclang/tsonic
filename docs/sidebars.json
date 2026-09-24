@@ -35,6 +35,7 @@
     "reference/source-core.md",
     "reference/javascript-source-profile.md",
     "reference/native-performance.md",
+    "reference/native-numerics.md",
     "reference/node-capability.md",
     "reference/diagnostics.md",
     "reference/package-catalog.md",
@@ -82,6 +83,7 @@
     "architecture/structural-member-correspondence.md",
     "architecture/target-pack-contract.md",
     "architecture/provider-and-runtime-ownership.md",
+    "architecture/test-execution.md",
     "architecture/workspace-agent-policy.md"
   ],
   "validation": [

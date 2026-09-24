@@ -34,6 +34,7 @@ export interface TargetCompileInput {
   readonly project: TsonicProjectConfig;
   readonly target: TargetSelection;
   readonly runtimeReferences: readonly TargetRuntimeReference[];
+  readonly runtimeActivatedCapabilityIds: readonly string[];
   readonly paths: TargetCompilationPaths;
 }
 

@@ -2,6 +2,9 @@
 
 The target maps exact source evidence, not TypeScript display names.
 
+See [native numbers](../../native-numerics.md) for exact integer ranges,
+numeric operations, literal handling and explicit truncation.
+
 | Source contract | C# representation |
 | --- | --- |
 | `boolean` / `bool` | `bool` |
@@ -10,7 +13,7 @@ The target maps exact source evidence, not TypeScript display names.
 | ordinary `bigint` | arbitrary-precision `System.Numerics.BigInteger` |
 | `float32`, `float64`, `decimal` | `float`, `double`, `decimal` |
 | `string` | `string` |
-| `T | undefined` / selected nullable | nullable reference or `Nullable<T>` according to carrier |
+| `T | null`, `T | undefined`, `T | null | undefined` | nullable reference or `Nullable<T>` according to carrier |
 | `T[]` | selected C# array/runtime carrier |
 | tuple | C# tuple carrier |
 | `Pointer<T>` | `Tsonic.CSharp.Runtime.Location<T>` |
@@ -26,13 +29,13 @@ cannot be reconciled with one exact target carrier is rejected before planning.
 
 ## Fixed arrays
 
-C# admits number-based fixed-array values with exact extents from `0` through
+C# admits fixed-array values with exact extents from `0` through
 `2147483647`, retaining the ordinary array carrier, indexing, iteration and
 signed 32-bit `.Length`. This is a representation bound, not a guarantee that
-an allocation of that size succeeds. Larger numeric extents and every
-bigint-based value extent, including `0n` and `2n`, reject with
-`CSHARP_FIXED_ARRAY_REPRESENTATION_UNSUPPORTED`; bigint source `.length` must not
-silently become numeric `.Length`.
+an allocation of that size succeeds. Numeric and bigint metadata literals select
+the same native array: `FixedArray<T, 2>` and `FixedArray<T, 2n>` both expose
+native signed 32-bit length results. Larger extents reject with
+`CSHARP_FIXED_ARRAY_REPRESENTATION_UNSUPPORTED`.
 
 The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
 can describe exact array metadata, including huge zero-sized arrays, and
@@ -70,3 +73,17 @@ operation. It never authorizes a late-bound CLR call by name.
 
 See [TypeScript types and utilities](../../typescript-types.md) for the pinned
 utility inventory and the target-neutral `any` and `unknown` rules.
+
+## Absence
+
+`null` and `undefined` are the same native absence, including on the JavaScript
+and Node surfaces. A value that is absent compares equal to either spelling.
+Zero, `false` and an empty string remain present values. Optional chaining and
+`??` test absence without replacing these values.
+
+There is no separate undefined runtime object or tag. For closed dynamic values,
+string conversion renders absence as `"null"`, numeric conversion produces zero,
+and `typeof` reports `"object"`. JSON writes a present absent-valued member as
+`null`; it does not omit that member to imitate JavaScript undefined. A missing
+dictionary key remains different from a present key holding JSON null. Use a
+collection membership query when that distinction matters.

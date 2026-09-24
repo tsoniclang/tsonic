@@ -18,6 +18,12 @@ Length construction initializes native defaults rather than holes. Omitted
 literal elements and sparse mutations reject. Use explicit `(int32 | undefined)[]`
 elements when absence is part of the source contract.
 
+Shared mutable arrays must have the API's native element type. For example,
+`SpawnSyncOptionsWithBufferEncoding.stdio` accepts an array whose elements include
+`null | undefined`. Declare that element domain when creating the array. Assigning
+a narrower present-only array is rejected, rather than copying it or silently
+widening every array's storage. This preserves subsequent mutations through aliases.
+
 Ordinary strings use UTF-8 byte offsets. See [native performance](../../native-performance.md)
 for string boundaries, array initialization, ownership and explicit compatibility.
 

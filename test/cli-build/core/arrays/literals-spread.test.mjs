@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("CLI emits typed, empty, nested, and spread array literals from finalized array facts", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-typed-literals");
@@ -253,8 +253,9 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4:1:2:3:4\n");
 });
 
-test("CLI rejects untyped empty array returns with a target diagnostic", async () => {
-  const projectDirectory = resolve(tempRoot, "arrays-empty-return-requires-element-evidence");
+test("CLI executes inferred empty arrays with the exact never element carrier", async () => {
+  const projectDirectory = resolve(tempRoot, "arrays-empty-never-return");
+  const assemblyName = "SmokeGeneratedArraysEmptyNeverReturn";
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
       entryPoint: "index.ts",
@@ -266,22 +267,27 @@ test("CLI rejects untyped empty array returns with a target diagnostic", async (
           surfaces: ["js"],
           options: {
             namespace: "Smoke.Generated",
-            assemblyName: "SmokeGeneratedArraysEmptyReturnRequiresElementEvidence",
+            assemblyName,
+            outputType: "Exe",
           },
         },
       ],
     }, null, 2),
     "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
       "export function f() {",
       "  return [];",
       "}",
+      "Console.WriteLine(f().length);",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Array literal emission requires renderable provider collection and element carrier types before C# emission/);
-  assert.doesNotMatch(build.stderr, /resolvedTypeArguments|TypeError|Cannot read properties/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysEmptyReturnRequiresElementEvidence.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Never> f\(\)/u);
+  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<Never>\.of\(\[\]\);/u);
+  assert.doesNotMatch(generatedSource, /JSArray<(?:object|dynamic|TsValue)>|__unsupported|InvalidExpression/u);
+  assert.equal(runGeneratedProject(projectDirectory, assemblyName), "0\n");
 });

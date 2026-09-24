@@ -21,6 +21,33 @@ policy.
   task. Read-only inspection may establish a contract; it does not grant change
   ownership.
 
+### Direct Solutions, Not Patch Accumulation
+
+- Apply this rule to every edit and issue resolution, including all existing
+  changes in the current PR: never keep bolting corrective layers onto an
+  incorrect implementation when a direct solution exists.
+- Reassess the owning model, data structures, contracts and complete call path,
+  not just the latest failing line. Correct the earliest layer that actually
+  owns the decision, update its consumers, and remove superseded logic in the
+  same change. A previous fix or passing checkpoint does not justify keeping
+  redundant branches, adapters, conversions or competing decisions.
+- Prefer the smallest clean, complete canonical mechanism. Reuse genuine common
+  requirements; do not hide repeated corrections behind a generic wrapper or
+  invent a framework to preserve an accidental design. Independently necessary
+  boundary validation remains mandatory, not redundant patching.
+- For example, if a provider exposes an exact native integer but the compiler
+  selects a floating carrier, do not retain that mistake and add conversions,
+  large-value exceptions and target-specific caller repairs. Preserve the exact
+  integer in the provider/semantic contract, select its native target carrier,
+  and remove the erroneous conversions and compensating branches. Both targets
+  consume the corrected evidence through their existing ownership layers.
+- Review the entire current PR against this rule before certification. For each
+  change family, the necessity ledger must identify the direct owner, the
+  simpler complete alternative considered, removed or demonstrably necessary
+  surrounding logic, and correctness/performance proof. Passing tests alone
+  cannot certify a layered workaround. Do not expand scope into unrelated
+  rewrites; record any concrete architectural conflict for the maintainer.
+
 ### Necessity Ledger
 
 - Every product change set must maintain a task-local necessity ledger under
@@ -96,6 +123,17 @@ policy.
 - Do not run a complete suite repeatedly after each small implementation. Batch
   coherent edits, collect all diagnostics from a run, fix the complete class,
   then rerun at the appropriate scope.
+- Finish an already-started certification suite and collect its failures, but
+  do not start another suite while known failures remain. Do not reinterpret a
+  multi-suite certification queue as one suite. An explicit maintainer request
+  may cancel a run; retain its observed failures and label its coverage partial.
+- Use the highest useful test parallelism permitted by effective CPUs, available
+  memory and actual isolation constraints. Configure repeatable resource budgets
+  for both outer test workers and native child builds; do not fix every machine
+  at two workers or multiply both levels without bounds. Preserve OOM, swap,
+  process, timeout and log guards. Explicitly designated throughput calibration
+  runs may be aborted when utilization targets are unmet; they never substitute
+  for complete certification or justify weakening tests.
 
 ### Expectation-Only Rerun Exception
 
@@ -177,6 +215,65 @@ policy.
   language's documented coupling for the selected version, or reject an
   unrepresentable combination precisely.
 
+### Native Semantics and Best-Effort JS Surfaces
+
+- Source `null` and `undefined` denote one native absence state in generated
+  C# and Rust, including JS and Node surfaces. Use native nullable storage or
+  `Option<T>`; never manufacture separate null/undefined tags, nested options,
+  wrappers or allocation merely to reproduce JavaScript's platform distinction.
+  Normalize the relationship once in target type policy; preserve exact source
+  checker evidence and native API/data-model distinctions such as a missing
+  dictionary entry versus an explicit JSON-null value. Zero, false and empty
+  strings are present values. Construction, comparison, narrowing, generic
+  instantiation, optional chaining and coalescing must consume the same policy.
+- Without a JS surface, code follows the selected target's native semantics
+  completely. TypeScript supplies source syntax, checked types and explicit
+  metadata, not a JavaScript runtime.
+- A JS or Node surface does not change native carriers, widths, string encoding,
+  storage, ownership or allocation policy. An API exposing a native integer
+  retains its native domain: no int53 carrier, 53-bit admission cap or floating
+  round trip is introduced merely for JavaScript compatibility.
+- An explicitly selected JS/Node API retains its supported API semantics within
+  those native representations. JS Math.min must propagate NaN; JS Math.round
+  must not silently become System.Math.Round or f64::round. Native primitives
+  implement these APIs only where their behavior matches. Users select native
+  APIs explicitly for different native behavior. Native representation is not
+  permission to silently replace a supported library operation's semantics.
+- Retain efficient compatible behavior. Compatibility is not itself a defect
+  or a reason to delete working behavior. Conversely, an API name never
+  authorizes hidden emulation costs, lossy conversions, carrier restrictions or
+  overhead on unrelated ordinary code. Necessary work of an explicitly selected
+  operation remains local to that operation; compare its implementation with
+  efficient native code performing the same requested operation.
+- Expensive, impractical or unrepresentable compatibility may remain
+  unsupported even on a JS surface. Document the exact supported contract and
+  reject unsupported operations precisely. Do not weaken safety, invent results
+  or create a slow fallback to claim conformance. This clarification supersedes
+  both blanket JS-conformance requirements and blanket removal of compatibility.
+- Do not cap native integers at JavaScript's 53-bit safe-integer boundary or
+  invent an int53 representation. Annotated int32/int64 and unsigned integers
+  use their selected native widths and signedness. Remove artificial JS-only
+  restrictions and the tests that require those restrictions; replace them with
+  the native contract's boundary, correctness and safety proofs.
+- Actual native bounds still apply: floating-point precision, representable
+  integer ranges, valid shift widths, addressable memory, collection capacity
+  and resource budgets. An f64 cannot exactly represent every 64-bit integer.
+  Never route exact native integers through an imprecise floating-point value.
+  A compiler-host or wire-format check preventing precision loss is not a
+  native int53 contract: use lossless metadata/transport where larger values
+  are required rather than simply deleting a necessary validation guard.
+- Native behavior and any supported surface compatibility must be explicit and
+  consistent across declarations, retained
+  evidence, target policy, generated code, runtimes, documentation and tests.
+  Correctness is measured against that documented contract. A Node oracle is
+  appropriate for supported JS API behavior, not for overriding native
+  arithmetic, representation, range or performance requirements. Explicit
+  Number.isSafeInteger queries may test the JS Number precision domain; they
+  must never become native-value admission restrictions.
+  Keep safety, identity, aliasing, lifetime and explicitly selected operations
+  intact; do not replace them with no-ops or unproved casts. Record removals and
+  replacement proof gates in the necessity ledger.
+
 ### Native Performance From Exact Metadata
 
 - Apply this contract to every design and implementation decision, not only
@@ -187,12 +284,10 @@ policy.
   representation preserves correctness and avoids unnecessary cost in the
   necessity ledger before implementing it.
 - **Hard rule: native performance by default; no silent runtime overhead of any
-  kind.** Compatibility is best effort within that constraint. Ordinary
-  operations use native target behavior. JS and Node
-  surfaces are explicit API opt-ins, not permission to impose hidden copying,
-  conversion, storage or bookkeeping for unused features. When native performance
-  conflicts with compatibility, document the native difference or reject the
-  unsupported operation instead of inserting a slower emulation path.
+  kind.** Apply the target-native semantics contract above. JS and Node APIs
+  do not authorize hidden copying, conversion, storage, bookkeeping or a slower
+  emulation path. Document native differences; do not simulate another runtime
+  merely to avoid those differences.
 - This applies across generated code, analysis-selected representations,
   provider adapters, call boundaries, runtimes and benchmark dispatchers, not
   only individual runtime functions. Audit implicit copies, allocations,
@@ -224,11 +319,11 @@ policy.
   not silently accepted as compiler overhead. If performance and correctness
   cannot both be met, disclose the concrete conflict and obtain an explicit
   supported choice rather than quietly accepting a slowdown.
-- Compatibility is subordinate to performance, never a justification for a
-  slowdown of the common path. A compatibility behavior with additional cost
-  requires an explicit per-value or per-operation request; a whole-project JS
-  or Node surface does not authorize that cost. Correctness and memory safety
-  remain mandatory; reject an unrepresentable operation rather than fake it.
+- An explicit per-value or per-operation capability may have necessary native
+  costs, which must be justified and visible in its contract. JavaScript or
+  Node conformance alone is never that justification. Correctness and memory
+  safety remain mandatory; reject an unrepresentable operation rather than
+  fake it or silently tax unrelated values.
 - Ordinary Rust strings use native UTF-8 units and operations; exact UTF-16 is an
   explicit `JsString` value. Ordinary arrays prioritize dense native storage;
   sparse/hole behavior must not tax every element. Preserve declared aliasing,
@@ -272,8 +367,10 @@ policy.
 - In particular, do not use explicit `public`, parameter properties,
   namespaces, decorators, or non-ECMAScript class modifiers as compiler
   signals, test aids, or source-package workarounds.
-- Type-only annotations, interfaces, imports, and deterministic assertions may
-  erase normally; runtime-facing syntax must retain ECMAScript meaning.
+- Type-only annotations, interfaces, imports, and deterministic assertions
+  remain checked source evidence. Generated runtime behavior follows the
+  selected target's semantics under the target-native contract above; source
+  syntax does not authorize JavaScript coercions or runtime emulation.
 - Abstract declarations and readonly class fields are supported source
   annotations in both C# and Rust. Preserve their checker restrictions without
   introducing runtime freezing or weakening abstract implementation checks.

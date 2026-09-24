@@ -107,9 +107,10 @@ test("CLI consumes broad TSTS type-form matrix without backend type-system reimp
   assert.match(generatedSource, /\(string, double, string\) parts = \(first, second, "user:ok"\);/);
   assert.match(generatedSource, /System\.Collections\.Generic\.List<string> values = new System\.Collections\.Generic\.List<string>\(new string\[\] \{ parts\.Item1, distributed, mixed \}\);/);
   assert.match(generatedSource, /string providerText = values\[0\];/);
-  assert.match(generatedSource, /string message = maybeException\.Message;/);
+  assert.match(generatedSource, /string message = maybeException!\.Message;/);
   assert.match(generatedSource, /values\.Count/);
-  assert.doesNotMatch(generatedSource, /Normalized|Accessor|keyof|Capitalize|NonNullable|TupleRest|CallableParts|Distribute|NonDistributed|satisfies|as const|!/);
+  assert.doesNotMatch(generatedSource, /Normalized|Accessor|keyof|Capitalize|NonNullable|TupleRest|CallableParts|Distribute|NonDistributed|satisfies|as const/);
+  assert.equal((generatedSource.match(/!/gu) ?? []).length, 1);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("advanced-type-distributive-negative", "SmokeGeneratedAdvancedTypeDistributiveNegative", [
@@ -155,13 +156,13 @@ test("CLI consumes TSTS non-null assertion results without backend nullability i
   ]);
 
   assert.match(generatedSource, /public static string unwrap\(string\? value\)/);
-  assert.match(generatedSource, /return value;/);
+  assert.match(generatedSource, /return value!;/);
   assert.match(generatedSource, /public class Box/);
   assert.match(generatedSource, /public static string readName\(Box\? value\)/);
-  assert.match(generatedSource, /return value\.name;/);
+  assert.match(generatedSource, /return value!\.name;/);
   assert.match(generatedSource, /public static string invoke\(Func<string>\? value\)/);
-  assert.match(generatedSource, /return value\(\);/);
-  assert.doesNotMatch(generatedSource, /!/);
+  assert.match(generatedSource, /return value!\(\);/);
+  assert.equal((generatedSource.match(/!/gu) ?? []).length, 3);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   await assertRejected("non-null-assertion-negative", "SmokeGeneratedNonNullAssertionNegative", [

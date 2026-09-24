@@ -201,7 +201,7 @@ test("CLI rejects remaining unsupported historical NodeJS alias imports without 
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
-test("CLI accepts provider-owned Node type imports without adding a runtime reference", async () => {
+test("CLI retains native references for provider-owned type imports without emitting unused source types", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-nodejs-type-only-alias-imports");
   await writeProject(projectDirectory, {
     "package.json": targetCsharpNodejsPackageJson(projectDirectory),
@@ -234,7 +234,7 @@ test("CLI accepts provider-owned Node type imports without adding a runtime refe
   assert.match(generatedSource, /public static double loaded\(\)[\s\S]*return 1;/u);
   assert.doesNotMatch(generatedSource, /IncomingMessage|ServerResponse|Reflection|dynamic|GetMethod|GetProperty/u);
   const generatedProject = await readFile(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "utf8");
-  assert.doesNotMatch(generatedProject, /Tsonic\.CSharp\.Node/u);
+  assert.match(generatedProject, /Tsonic\.CSharp\.Node/u);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });

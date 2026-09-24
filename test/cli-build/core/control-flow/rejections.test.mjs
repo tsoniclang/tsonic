@@ -39,8 +39,8 @@ test("CLI emits array literals from finalized runtime carrier facts", async () =
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return new double\[\] \{ 1, 2 \};/);
-  assert.match(generatedSource, /double\[\] values = new double\[\] \{ 1, 2 \};/);
-  assert.match(generatedSource, /new double\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /int\[\] values = new int\[\] \{ 1, 2 \};/);
+  assert.match(generatedSource, /new int\[\] \{ 1, 2 \};/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArrayLiteralFacts.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

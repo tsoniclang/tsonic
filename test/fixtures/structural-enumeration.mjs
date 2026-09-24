@@ -10,7 +10,7 @@ export function run(): boolean {
   const alias: { count: number } = value;
   const first = collect(alias);
   const second = collect(value);
-  alias.count = 7;
-  return first === "2,10,first,count,last," && second === first && value.count === 7 && reads === 0;
+  alias.count = 7.5;
+  return first === "2,10,first,count,last," && second === first && value.count === 7.5 && reads === 0;
 }
 `;

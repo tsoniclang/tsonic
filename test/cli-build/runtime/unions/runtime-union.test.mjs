@@ -68,7 +68,7 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
   assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready|fallback\n");
 });
 
-test("CLI emits neutral nullish runtime-union arms from finalized facts", async () => {
+test("CLI emits native nullable runtime unions from finalized facts", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-union-nullish-arm");
   const assemblyName = "SmokeGeneratedRuntimeUnionNullishArm";
   await writeProject(projectDirectory, {
@@ -103,9 +103,9 @@ test("CLI emits neutral nullish runtime-union arms from finalized facts", async 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string, Tsonic\.CSharp\.Runtime\.Undefined>/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Undefined\.value/);
-  assert.doesNotMatch(generatedSource, /flag == 0 \? null|flag == 0 \? default/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string>\?/);
+  assert.match(generatedSource, /flag == 0 \? null/);
+  assert.doesNotMatch(generatedSource, /Runtime\.(?:Null|Undefined)|Union<double, string,/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
   const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
@@ -113,7 +113,7 @@ test("CLI emits neutral nullish runtime-union arms from finalized facts", async 
 
   const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
   assert.equal(executed.status, 0, executed.stdout + executed.stderr);
-  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "undefined|1|ready\n");
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "|1|ready\n");
 });
 
 test("CLI emits object-shape runtime-union declarations and member projections from finalized facts", async () => {

@@ -227,7 +227,6 @@ function compileTargetBuild(
           target: plan.target,
           targetPackId: targetPack.id,
           selectedCapabilities: plan.selectedCapabilities,
-          runtimeActivatedCapabilities,
           selectedSurfaces: plan.selectedSurfaces,
           paths: targetPaths,
           targetContributions: session.runtimeContributions(),
@@ -242,6 +241,7 @@ function compileTargetBuild(
             project: input.project,
             target: plan.target,
             runtimeReferences: runtime.references,
+            runtimeActivatedCapabilityIds: Object.freeze(runtimeActivatedCapabilities.map(capability => capability.id)),
             paths: targetPaths,
           });
           const targetDiagnostics = finalizeTargetDiagnostics(

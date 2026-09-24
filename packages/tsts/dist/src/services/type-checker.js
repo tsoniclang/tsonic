@@ -170,9 +170,12 @@ function getResolvedSourceStorageInfo(checker, expression) {
         return undefined;
     }
     if (IsIdentifier(storageExpression)) {
-        const symbol = getDiagnosticFreeResolvedSymbol(checker, storageExpression);
+        const referenceSymbol = getDiagnosticFreeResolvedSymbol(checker, storageExpression);
+        const symbol = referenceSymbol !== undefined && (referenceSymbol.Flags & SymbolFlagsAlias) !== 0
+            ? Checker_GetAliasedSymbol(checker, referenceSymbol)
+            : referenceSymbol;
         const type = Checker_GetTypeAtLocation(checker, storageExpression);
-        if (symbol === undefined || type === undefined) {
+        if (symbol === undefined || symbol === checker.unknownSymbol || type === undefined) {
             return undefined;
         }
         const declaration = getPrimarySymbolDeclaration(symbol);

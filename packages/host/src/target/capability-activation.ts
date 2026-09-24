@@ -31,10 +31,10 @@ export function collectRuntimeActivatedTargetCapabilities(
   if (selectedCapabilities.length === 0) {
     return [];
   }
-  const valueModuleSpecifiers = collectValueModuleSpecifiers(ast, sourceFiles);
+  const moduleSpecifiers = collectStaticModuleSpecifiers(ast, sourceFiles, true);
   const directlyActivated = selectedCapabilities.filter((capability) =>
     capability.moduleOwnership.some((ownership) =>
-      valueModuleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
+      moduleSpecifiers.some((specifier) => moduleSpecifierMatchesOwnership(specifier, ownership.specifierPrefix))
     )
   );
   return closeRequiredCapabilities(directlyActivated, selectedCapabilities, selectedCapabilities[0]?.targetId);
@@ -62,19 +62,7 @@ function closeRequiredCapabilities(
   return available.filter((capability) => selectedIds.has(capability.id));
 }
 
-function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly string[] {
-  return collectModuleSpecifiers(ast, sourceFiles, false);
-}
-
-function collectValueModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[]): readonly string[] {
-  return collectModuleSpecifiers(ast, sourceFiles, true);
-}
-
-function collectModuleSpecifiers(
-  ast: AstReader,
-  sourceFiles: readonly SourceFile[],
-  runtimeOnly: boolean,
-): readonly string[] {
+function collectStaticModuleSpecifiers(ast: AstReader, sourceFiles: readonly SourceFile[], runtimeOnly = false): readonly string[] {
   const specifiers = new Set<string>();
   for (const sourceFile of sourceFiles) {
     for (const statement of ast.statements(sourceFile)) {
@@ -82,7 +70,7 @@ function collectModuleSpecifiers(
         continue;
       }
       const reference = getStaticModuleReference(ast, statement);
-      if (reference === undefined || (runtimeOnly && !reference.hasRuntimeValue)) {
+      if (reference === undefined || runtimeOnly && !reference.hasRuntimeValue) {
         continue;
       }
       const moduleSpecifier = readModuleSpecifierText(ast, reference.moduleSpecifier);

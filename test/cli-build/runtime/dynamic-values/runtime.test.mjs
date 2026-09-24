@@ -127,7 +127,7 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicUnaryBoolean\(value, "!"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicTypeof\(value\);/);
-  assert.match(generatedSource, /return \(value\.ReadDynamicSlot\("name"\), \(Tsonic\.CSharp\.Runtime\.TsValue\)Tsonic\.CSharp\.Runtime\.TsValue\.from\(Tsonic\.CSharp\.Runtime\.Undefined\.value\)\)\.Item2;/);
+  assert.match(generatedSource, /return \(value\.ReadDynamicSlot\("name"\), \(Tsonic\.CSharp\.Runtime\.TsValue\)Tsonic\.CSharp\.Runtime\.TsValue\.from\(null\)\)\.Item2;/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
   assert.match(generatedSource, /double result = Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
   assert.match(generatedSource, /result = Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);

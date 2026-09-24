@@ -4,6 +4,10 @@ Select the JavaScript source profile with `surfaces: ["js"]` on a C# or Rust
 target. The profile supplies JavaScript globals and built-ins; the target
 supplies their carriers and runtime implementation.
 
+These are native operations, not a JavaScript runtime. See
+[native numbers](native-numerics.md) for integer widths, bitwise operations,
+numeric predicates and allocation limits.
+
 ## Covered source families
 
 - `Array` and readonly arrays with native dense storage;

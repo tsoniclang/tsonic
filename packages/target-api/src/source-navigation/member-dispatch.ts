@@ -50,7 +50,7 @@ export function createSourceMemberDispatchNavigation(
     if (
       classDeclaration === undefined ||
       sourceFile === undefined ||
-      !ast.is.IsClassDeclaration(classDeclaration)
+      !isClassDefinition(ast, classDeclaration)
     ) {
       if (nodeKey !== undefined) {
         cache.set(nodeKey, null);
@@ -221,7 +221,7 @@ function projectBaseClassType(
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
 ): Type | undefined {
   const reference = referenceFor(baseClassReferenceNode(ast, classDeclaration));
-  if (reference === undefined || !ast.is.IsClassDeclaration(reference.declaration)) {
+  if (reference === undefined || !isClassDefinition(ast, reference.declaration)) {
     return undefined;
   }
   return source.getSourceFileQueries(reference.sourceFile)
@@ -234,7 +234,7 @@ function projectBaseClassDeclaration(
   referenceFor: (node: Node | undefined) => SourceProjectReference | undefined,
 ): Node | undefined {
   const reference = referenceFor(baseClassReferenceNode(ast, classDeclaration));
-  return reference !== undefined && ast.is.IsClassDeclaration(reference.declaration)
+  return reference !== undefined && isClassDefinition(ast, reference.declaration)
     ? reference.declaration
     : undefined;
 }
@@ -260,7 +260,7 @@ function collectClassDeclarations(
     if (node === undefined) {
       return;
     }
-    if (ast.is.IsClassDeclaration(node)) {
+    if (isClassDefinition(ast, node)) {
       declarations.push(node);
     }
     ast.forEachChild(node, visit);
@@ -269,4 +269,8 @@ function collectClassDeclarations(
     visit(sourceFile);
   }
   return Object.freeze(declarations);
+}
+
+function isClassDefinition(ast: AstReader, node: Node): boolean {
+  return ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node);
 }

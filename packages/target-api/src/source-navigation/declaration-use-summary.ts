@@ -25,7 +25,7 @@ export function sourceDeclarationUseSummary(
   const captured = uses.some((use) => use.captured);
   const declarationOwner = ast.parent(declaration);
   const declaredClassMember = declarationOwner !== undefined &&
-    ast.is.IsClassDeclaration(declarationOwner);
+    (ast.is.IsClassDeclaration(declarationOwner) || ast.is.IsClassExpression(declarationOwner));
   const exported = declarationHasExportModifier(ast, declaration) ||
     uses.some((use) => use.role === "source-linkage" &&
       sourceLinkageKind(ast, use.reference) === "export" ||
@@ -120,7 +120,7 @@ function sourceMemberWriteIsConstructorInitialization(
   reference: Node,
 ): boolean {
   const owner = sourceMemberOwner(ast, declaration);
-  if (owner === undefined || !ast.is.IsClassDeclaration(owner)) {
+  if (owner === undefined || !ast.is.IsClassDeclaration(owner) && !ast.is.IsClassExpression(owner)) {
     return false;
   }
   let current: Node | undefined = reference;

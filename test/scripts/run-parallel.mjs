@@ -3,8 +3,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
 import { relative, resolve, sep } from "node:path";
-import { defaultParallelWorkerCount } from "./parallel-worker-budget.mjs";
-import { parallelGroupWorkerCount } from "./parallel-group-budget.mjs";
+import { readTestResourceBudget } from "./test-resource-budget.mjs";
+import { runBoundedTestQueue } from "./parallel-scheduler.mjs";
 import { createProgressTracker } from "./parallel-progress.mjs";
 import { createParallelSuiteDefinition } from "./suite-definition.mjs";
 import {
@@ -17,6 +17,10 @@ import {
 } from "./workspace-layout.mjs";
 
 const options = parseArgs(process.argv.slice(2));
+const resourceBudget = readTestResourceBudget({
+  ...process.env,
+  ...(options.concurrency === undefined ? {} : { TSONIC_TEST_WORKERS: String(options.concurrency) }),
+});
 const runId = `parallel-${timestamp()}-${process.pid}`;
 const runRoot = resolve(tsonicRoot, ".temp/test-runs/parallel-runs", runId);
 const logRoot = resolve(runRoot, "logs");
@@ -26,6 +30,8 @@ mkdirSync(statusRoot, { recursive: true });
 
 const env = {
   ...process.env,
+  CARGO_BUILD_JOBS: String(resourceBudget.childJobs),
+  DOTNET_PROCESSOR_COUNT: String(resourceBudget.childJobs),
   TSONIC_TEST_RUN_ID: runId,
   NUGET_PACKAGES: process.env.NUGET_PACKAGES ?? resolve(tsonicRoot, ".temp/test-runs/nuget/packages"),
 };
@@ -59,7 +65,7 @@ if (options.inventory) {
 }
 
 const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).length;
-console.log(`parallel-run: tasks=${shards.length} concurrency=${options.concurrency} exclusive=${exclusiveShardCount}`);
+console.log(`parallel-run: tasks=${shards.length} concurrency=${resourceBudget.workers} exclusive=${exclusiveShardCount} memoryMiB=${resourceBudget.memoryMiB} childJobs=${resourceBudget.childJobs}`);
 
 const startedAt = Date.now();
 const preRunResults = options.withPreruns ? runPreRuns(requiredPreRuns(shards)) : [];
@@ -67,7 +73,7 @@ const progress = createProgressTracker(shards, options.progressIntervalMs);
 progress.start();
 let results;
 try {
-  results = await runShards(shards, options.concurrency);
+  results = await runShards(shards);
 } finally {
   progress.stop();
 }
@@ -87,6 +93,7 @@ const report = {
     arch: process.arch,
     cpus: typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
   },
+  resourceBudget,
   repos: repoSnapshot(),
   inventory,
   progress: progress.summary(),
@@ -157,7 +164,8 @@ function buildShards() {
         ? listFiles(testSuite.directory, testSuite.suffix, testSuite.maxDepth ?? 0)
         : listFilesRecursive(testSuite.directory, testSuite.suffix))
         .filter((file) => !isIntentionallySkipped(testSuite, file))
-        .flatMap((file) => nodeTestShards(testSuite.scope, groupForSuiteFile(testSuite, file), file))
+        .map((file) => nodeTestShard(testSuite.scope, groupForSuiteFile(testSuite, file), file,
+          testSuite.compiledDirectory === undefined ? file : resolve(testSuite.compiledDirectory, relative(testSuite.directory, file).replace(/\.ts$/u, ".js"))))
     ),
     ...suiteDefinition.architectureSuites.flatMap((testSuite) =>
       listExecutableArchitectureTests(testSuite.directory)
@@ -294,7 +302,7 @@ function nodeTestShards(scope, group, file) {
   return [nodeTestShard(scope, group, file)];
 }
 
-function nodeTestShard(scope, group, file) {
+function nodeTestShard(scope, group, file, executableFile = file) {
   return {
     id: `${scope}:${toPosix(relative(repos[scopeToRepoKey(scope)], file))}`,
     scope,
@@ -304,7 +312,7 @@ function nodeTestShard(scope, group, file) {
     preRunIds: preRunsForTask(scope, group),
     cwd: repos[scopeToRepoKey(scope)],
     command: process.execPath,
-    args: ["--test", "--test-reporter=tap", toPosix(relative(repos[scopeToRepoKey(scope)], file))],
+    args: ["--test", "--test-reporter=tap", toPosix(relative(repos[scopeToRepoKey(scope)], executableFile))],
   };
 }
 
@@ -649,50 +657,12 @@ function listExecutableArchitectureTests(directory) {
     .filter((file) => readFileSync(file, "utf8").includes("node:test"));
 }
 
-async function runShards(allShards, concurrency) {
-  const results = [];
-  for (const group of orderedGroups(allShards)) {
-    const groupShards = allShards.filter((shard) => shard.group === group);
-    const parallelShards = groupShards.filter((shard) => shard.exclusive !== true);
-    const exclusiveShards = groupShards.filter((shard) => shard.exclusive === true);
-    const groupConcurrency = parallelGroupWorkerCount(
-      concurrency,
-      group,
-      suiteDefinition.groupWorkerLimits,
-    );
-    console.log(`parallel-group: start group=${group} tasks=${groupShards.length} parallel=${parallelShards.length} exclusive=${exclusiveShards.length} concurrency=${groupConcurrency}`);
-    results.push(...await runShardQueue(parallelShards, groupConcurrency));
-    for (const shard of exclusiveShards) {
-      results.push(await runShard(shard));
-    }
-    const failed = results.filter((result) => result.shard.group === group && result.status !== 0).length;
-    console.log(`parallel-group: done group=${group} failed=${failed}`);
-  }
+async function runShards(allShards) {
+  const results = await runBoundedTestQueue(allShards, {
+    ...resourceBudget,
+    groupWorkerLimits: suiteDefinition.groupWorkerLimits,
+  }, runShard);
   return results.sort((left, right) => left.shard.id.localeCompare(right.shard.id));
-}
-
-function orderedGroups(allShards) {
-  const groups = new Set(allShards.map((shard) => shard.group));
-  const ordered = [];
-  for (const group of suiteDefinition.groupOrder ?? []) {
-    if (groups.delete(group)) {
-      ordered.push(group);
-    }
-  }
-  return [...ordered, ...[...groups].sort()];
-}
-
-async function runShardQueue(allShards, concurrency) {
-  const queue = [...allShards];
-  const results = [];
-  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-    while (queue.length > 0) {
-      const shard = queue.shift();
-      results.push(await runShard(shard));
-    }
-  });
-  await Promise.all(workers);
-  return results;
 }
 
 function runShard(shard) {
@@ -725,6 +695,11 @@ function runShard(shard) {
       logStream.write(chunk);
     });
     child.stderr.on("data", (chunk) => {
+      chunks.push(chunk);
+      logStream.write(chunk);
+    });
+    child.on("error", (error) => {
+      const chunk = Buffer.from(`Could not start test task: ${error.message}\n`);
       chunks.push(chunk);
       logStream.write(chunk);
     });
@@ -802,9 +777,7 @@ function parseArgs(args) {
   let list = false;
   let inventory = false;
   let withPreruns = false;
-  let concurrency = defaultParallelWorkerCount(
-    typeof availableParallelism === "function" ? availableParallelism() : cpus().length,
-  );
+  let concurrency;
   let progressIntervalMs = Number(process.env.TSONIC_TEST_PROGRESS_INTERVAL_MS ?? 180_000);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -832,9 +805,7 @@ function parseArgs(args) {
       process.exit(2);
     }
   }
-  if (!Number.isInteger(concurrency) || concurrency <= 0) {
-    concurrency = 1;
-  }
+  if (concurrency !== undefined && (!Number.isSafeInteger(concurrency) || concurrency <= 0)) throw new Error("--concurrency must be a positive safe integer.");
   if (!Number.isFinite(progressIntervalMs) || progressIntervalMs < 0) {
     progressIntervalMs = 180_000;
   }

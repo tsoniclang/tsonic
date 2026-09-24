@@ -115,6 +115,14 @@ is writable. Fallibility is independent: the selected row supplies the error
 boundary and generated Rust uses the closed `Result` path. The planner never
 infers purity or fallibility from a Rust path.
 
+A pure, infallible length property implemented as a receiver method may declare
+`emptyTestMethod: "is_empty"` on its `receiver-method` form. This is an explicit
+provider promise that the zero-argument method tests whether that unsigned
+length is zero. The contract requires a synchronous native unsigned result,
+identity result conversion, and no writable receiver or additional inputs.
+The target can then emit `value.is_empty()` for a comparison with zero. It never
+guesses this relationship from names such as `len` or `length`.
+
 ## Minimum proof
 
 A provider change is complete only when tests prove:

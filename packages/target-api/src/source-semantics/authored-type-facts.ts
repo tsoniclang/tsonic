@@ -5,6 +5,7 @@ import type {
   ReadonlySourceFactResolver,
   TypeCheckerQueries,
 } from "@tsonic/tsts";
+import { sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type {
   SourceProgramNavigation,
 } from "../source-navigation/index.js";
@@ -62,12 +63,15 @@ function collectAuthoredSourceTypeFactDependencies(
       return;
     }
     visited.add(current);
-    if (facts.getFacts(current).length > 0) {
+    const hasFacts = facts.getFacts(current).length > 0;
+    if (hasFacts) {
       subjects.push(current);
+    }
+    if (hasFacts || ast.is.IsKeywordTypeNode(current)) {
       nodes.push(current);
     }
     ast.forEachChild(current, visit);
-    if (!ast.is.IsTypeReferenceNode(current)) {
+    if (!ast.is.IsTypeReferenceNode(current) || facts.getFact(current, sourcePrimitiveFactKey) !== undefined) {
       return;
     }
     const typeName = ast.as.AsTypeReferenceNode(current)?.TypeName;

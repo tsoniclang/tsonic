@@ -3,6 +3,9 @@
 The target maps exact source evidence and sealed ownership facts, not
 TypeScript display names.
 
+See [native numbers](../../native-numerics.md) for exact integer ranges,
+numeric operations, literal handling and explicit truncation.
+
 | Source contract | Rust representation |
 | --- | --- |
 | `boolean` / `bool` | `bool` |
@@ -11,7 +14,7 @@ TypeScript display names.
 | ordinary `bigint` | arbitrary-precision runtime `BigInt` |
 | `float32`, `float64` | `f32`, `f64` |
 | `string` | `String` or `&str` only when complete use analysis proves the ABI |
-| `T | undefined` / selected nullable | `Option<T>` |
+| `T | null`, `T | undefined`, `T | null | undefined` | `Option<T>` |
 | mutable dense `T[]` | `Vec<T>` or selected JS array carrier |
 | readonly array parameter | borrowed slice when the closed ABI proves it |
 | homogeneous fixed tuple / `FixedArray<T, N>` | `[T; N]` when exact length and element carrier are proven |
@@ -34,15 +37,13 @@ The fixed-array carrier retains the exact extent as an integer constant in
 JavaScript number. Native `usize` representability and allocation limits remain
 native constraints; exact emitted constants do not certify those constraints.
 
-Source `.length` is a separate operation. Number-based extents through
-`2147483647` use the existing checked `int32` result. Larger numeric `.length`
-reads reject with `RUST_FIXED_ARRAY_LENGTH_RANGE_UNSUPPORTED`; bigint-based
-reads, even for `2n`, reject with
-`RUST_FIXED_ARRAY_LENGTH_RUNTIME_BASE_UNSUPPORTED`. A bigint metadata count
-does not authorize a numeric source result. Literal index/cardinality checks
-and rest bounds use exact counts; dynamic indexing retains its checked `int32`
-index, and iteration retains native bounds. This is not blanket support for
-every fixed-array operation.
+Source `.length` uses the native array's `usize` result, including arrays with
+bigint source extents. It is not narrowed to `int32` or converted through a
+floating-point value. An explicit `as int32` conversion checks the native range;
+a declaration annotation does not silently narrow a native-word length.
+Literal index/cardinality checks and rest bounds use exact counts, and iteration
+retains native bounds. A representable extent alone does not guarantee that
+an array can be allocated or that every fixed-array operation is supported.
 
 The [shared layout contract](../../source-core.md#layout-and-raw-memory-source-contracts)
 supports array metadata observations without materializing `[T; N]`, including
@@ -80,3 +81,17 @@ spelling-based conversion from arbitrary `any`.
 
 See [TypeScript types and utilities](../../typescript-types.md) for the pinned
 utility inventory and the target-neutral `any` and `unknown` rules.
+
+## Absence
+
+`null` and `undefined` are the same native absence, including on the JavaScript
+and Node surfaces. A value that is absent compares equal to either spelling.
+Zero, `false` and an empty string remain present values. Optional chaining and
+`??` test absence without replacing these values.
+
+There is no separate undefined runtime object or tag. For closed dynamic values,
+string conversion renders absence as `"null"`, numeric conversion produces zero,
+and `typeof` reports `"object"`. JSON writes a present absent-valued member as
+`null`; it does not omit that member to imitate JavaScript undefined. A missing
+dictionary key remains different from a present key holding JSON null. Use a
+collection membership query when that distinction matters.

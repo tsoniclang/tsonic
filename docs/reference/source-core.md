@@ -43,8 +43,10 @@ pointer representation and safety rules.
 
 `FixedArray<T, 2>` has a number-based readonly `.length` of type `2`;
 `FixedArray<T, 2n>` has a bigint-based readonly `.length` of type `2n`. Shared
-metadata stores both counts exactly as bigint, without changing that source
-meaning. Wider `number`/`bigint` types, unions, negative or fractional extents,
+metadata stores both counts exactly as bigint. The native target retains its
+array length carrier independently of the metadata literal's spelling; the
+source type does not require a bigint allocation or a floating conversion.
+Wider `number`/`bigint` types, unions, negative or fractional extents,
 and unsafe numeric literals are rejected. Use an exact bigint literal such as
 `9007199254740993n` beyond the safe-number range. Exact source evidence does not
 guarantee a native value representation or an implemented `.length` operation;
