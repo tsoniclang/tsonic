@@ -1,3 +1,12 @@
+export const incompatibleNodeStdioSource = `
+import type { SpawnSyncOptionsWithBufferEncoding } from "node:child_process";
+export function run(): void {
+  const options: SpawnSyncOptionsWithBufferEncoding = { encoding: "buffer" };
+  const stdio: Array<"pipe" | "ignore" | number> = ["pipe", "ignore", "pipe"];
+  options.stdio = stdio;
+  stdio[1] = "pipe";
+}`;
+
 export function nativeNodeSpawnSource(executable) {
   return `
 import { spawnSync } from "node:child_process";

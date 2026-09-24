@@ -1,3 +1,32 @@
+export const nativeAbsenceJsonSource = `
+let reads = 0;
+function absent(): undefined { reads += 1; return undefined; }
+function count(): number { return reads; }
+let sequence = 0;
+function first(): string { sequence = sequence * 10 + 1; return '{"value":1}'; }
+function second(): undefined { sequence = sequence * 10 + 2; return undefined; }
+function third(): string { sequence = sequence * 10 + 3; return "  "; }
+function failed(): undefined { sequence = sequence * 10 + 2; throw new Error("omitted argument"); }
+function order(): number { return sequence; }
+function reset(): void { sequence = 0; }
+export function run(): boolean {
+  const value = JSON.parse('{"value":1}');
+  const compact = '{"value":1}';
+  const pretty = '{\\n  "value": 1\\n}';
+  const plain = JSON.stringify(value, null) === compact &&
+    JSON.stringify(value, undefined) === compact &&
+    JSON.stringify(value, null, 2) === pretty &&
+    JSON.stringify(value, undefined, "  ") === pretty &&
+    JSON.stringify(value, absent(), absent()) === compact && count() === 2;
+  const ordered = JSON.stringify(JSON.parse(first()), second(), third()) === pretty && order() === 123;
+  reset();
+  let rejected = false;
+  try { JSON.stringify(JSON.parse(first()), failed(), third()); }
+  catch { rejected = true; }
+  return plain && ordered && rejected && order() === 12;
+}
+`;
+
 export const nativeAbsenceSource = `
 import type { int32, int64 } from "@tsonic/core/types.js";
 import { field, struct } from "@tsonic/core/lang.js";
