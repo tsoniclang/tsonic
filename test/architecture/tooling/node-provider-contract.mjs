@@ -3,7 +3,7 @@ import { buildTypeScriptModuleAnalysis } from "./module-graph.mjs";
 
 const providerPrefix = "nodejs/src/provider/";
 const rootOwners = new Set([
-  "package.ts", "runtime.ts", "identity.ts", "metadata-indexes.ts", "target-relations.ts",
+  "package.ts", "runtime.ts", "metadata-indexes.ts", "target-relations.ts",
 ]);
 const families = ["model/", "declarations/", "assembly/", "modules/"];
 
@@ -19,6 +19,9 @@ export function evaluateNodeProviderContract(sources, { targetPackage, factoryNa
     factoryOwners.push(...calls.map(() => file));
     if (!file.startsWith(providerPrefix)) continue;
     const ownedPath = file.slice(providerPrefix.length);
+    if (ownedPath === "package.ts" && /\b(?:providerModuleId|(?:Csharp|Rust)ProviderModuleDefinition)\b/u.test(source)) {
+      findings.push(`${file}: package composition cannot own module declaration policy`);
+    }
     if (!rootOwners.has(ownedPath) && !families.some(family => ownedPath.startsWith(family))) {
       findings.push(`${file}: missing coherent module or package owner`);
     }
@@ -46,8 +49,26 @@ export function evaluateNodeProviderContract(sources, { targetPackage, factoryNa
       findings.push(`${edge.source}: module data cannot depend on package assembly`);
     }
   }
-  findings.push(...evaluateBarrelModules(graph.modules, {
-    allowedImplementationFiles: new Set(["nodejs/src/index.ts"]),
-  }).map(finding => `${finding.file}: ${finding.ruleId} ${finding.reason}`));
+  const dependencies = new Map();
+  for (const edge of graph.edges) {
+    if (edge.target === undefined) continue;
+    const targets = dependencies.get(edge.source) ?? [];
+    targets.push(edge.target);
+    dependencies.set(edge.source, targets);
+  }
+  const reachable = new Set();
+  const pending = [`${providerPrefix}package.ts`];
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (reachable.has(file)) continue;
+    reachable.add(file);
+    pending.push(...(dependencies.get(file) ?? []));
+  }
+  for (const file of sources.keys()) {
+    if (file.startsWith(`${providerPrefix}modules/`) && !reachable.has(file)) {
+      findings.push(`${file}: module fragment has no owning package import`);
+    }
+  }
+  findings.push(...evaluateBarrelModules(graph.modules).map(finding => `${finding.source}: ${finding.ruleId} ${finding.reason}`));
   return findings.sort();
 }

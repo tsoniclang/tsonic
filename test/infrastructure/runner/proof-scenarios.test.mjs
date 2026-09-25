@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { compareScenarioInventories, createScenarioReport, summarizeScenarioReport, validateScenarios } from "../../scripts/proof-scenarios.mjs";
+import { compareScenarioInventories, createScenarioReport, summarizeScenarioReport, validateScenarios, validateProofWorkspaceFamilies } from "../../scripts/proof-scenarios.mjs";
 import { tsonicRoot } from "../../scripts/workspace-layout.mjs";
 
 async function fixture() {
@@ -32,6 +32,16 @@ async function fixture() {
   };
   return { root, projects, projectFiles: projects.map(({ path }) => `${path}/tsonic.json`), manifest: { schemaVersion: 1, suite: "first", scenarios: [runtime, library] } };
 }
+
+test("portable proof workspace families are shared and native-only groups are explicit", () => {
+  const workspaces = ["native", "js", "nodejs", "workspaces/scoped-multi-project", "workspaces/unscoped-multi-project"].map(path => ({ path }));
+  validateProofWorkspaceFamilies(workspaces);
+  validateProofWorkspaceFamilies([...workspaces, { path: "aspnetcore" }], ["aspnetcore"]);
+  assert.throws(() => validateProofWorkspaceFamilies(workspaces.slice(1)), /family drift/u);
+  assert.throws(() => validateProofWorkspaceFamilies([...workspaces, { path: "bcl" }]), /family drift/u);
+  assert.throws(() => validateProofWorkspaceFamilies([...workspaces, { path: "native" }], ["native"]), /portable family/u);
+  assert.throws(() => validateProofWorkspaceFamilies([...workspaces, { path: "native/extra" }], ["native/extra"]), /canonical directory/u);
+});
 
 test("scenario metadata covers configs, sources, consumer dependencies and assertion anchors", async () => {
   const input = await fixture();

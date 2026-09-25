@@ -9,7 +9,7 @@ for (const target of ["Csharp", "Rust"]) {
   };
   const valid = new Map([
     ["nodejs/src/index.ts", 'import { createNodePackage } from "./provider/package.js";'],
-    ["nodejs/src/provider/package.ts", `export function createNodePackage() { return ${options.factoryName}(definition); }`],
+    ["nodejs/src/provider/package.ts", `import { moduleSpecifier } from "./modules/http/declarations.js"; export function createNodePackage() { return ${options.factoryName}(definition); }`],
     ["nodejs/src/provider/modules/http/declarations.ts", 'export const moduleSpecifier = "node:http";'],
     ["nodejs/src/provider/model/types.ts", "export interface Types {}"],
   ]);
@@ -21,6 +21,8 @@ for (const target of ["Csharp", "Rust"]) {
     ["model recovery", "modules/local.ts", "function getDeclarationModel() {}", "transport"],
     ["rebasing", "modules/local.ts", "function rebaseProviderType(type) {}", "transport"],
     ["unowned root", "extension.ts", "export const extension = {};", "owner"],
+    ["module policy in package", "package.ts", `export function createNodePackage() { const providerModuleId = "node:http"; return ${options.factoryName}(definition); }`, "module declaration policy"],
+    ["orphan fragment", "modules/http/carriers.ts", "export const carrier = {};", "owning package import"],
     ["second factory", "modules/local.ts", `${options.factoryName}(definition);`, "factory"],
     ["unresolved import", "modules/local.ts", 'import { missing } from "./missing.js";', "unresolved"],
     ["private SDK", "modules/local.ts", `import {} from "${options.targetPackage}/dist/private.js";`, "public provider SDK"],

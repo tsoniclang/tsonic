@@ -8,6 +8,16 @@ const classifications = new Set(["paired", "native-only", "unpaired"]);
 const levels = new Set(["runtime", "compile-only", "unasserted"]);
 const scope = "Declared contracts and source-anchor integrity, not semantic equivalence or a parity percentage. Task status is local whole-project status, not an independently executed scenario.";
 
+export function validateProofWorkspaceFamilies(workspaces, nativeOnly = []) {
+  const portable = ["native", "js", "nodejs", "workspaces/scoped-multi-project", "workspaces/unscoped-multi-project"];
+  assert.deepEqual(workspaces.map(workspace => workspace.path).sort(), [...portable, ...nativeOnly].sort(), "Proof workspace family drift.");
+  assert.equal(new Set(nativeOnly).size, nativeOnly.length, "Duplicate native-only proof family.");
+  for (const family of nativeOnly) {
+    assert.equal(portable.includes(family), false, "A portable family cannot be declared native-only.");
+    assert.match(family, /^[a-z][a-z0-9-]*$/u, "Native-only family must be one canonical directory.");
+  }
+}
+
 export async function validateScenarios({ root, manifest, projects, projectFiles, inputFiles = [] }) {
   assert.equal(manifest.schemaVersion, 1, "Unsupported scenario schemaVersion.");
   requireText(manifest.suite, "suite");
