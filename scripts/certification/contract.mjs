@@ -27,7 +27,7 @@ export function validateCertificationEntry(entry) {
 }
 
 export function readCertificationOptions(args, { publisher = false } = {}) {
-  const options = { reuse: false, force: false, validate: false, suites: [] };
+  const options = { check: false, validate: false, suites: [] };
   const seen = new Set();
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -39,12 +39,10 @@ export function readCertificationOptions(args, { publisher = false } = {}) {
     }
     if (seen.has(argument)) throw new Error(`Duplicate release option '${argument}'.`);
     seen.add(argument);
-    if (argument === "--reuse-certification") options.reuse = true;
-    else if (argument === "--force") options.force = true;
+    if (argument === "--check" && !publisher) options.check = true;
     else if (argument === "--validate" && publisher) options.validate = true;
     else throw new Error(`Unknown release option '${argument}'.`);
   }
-  if (options.force && !options.reuse) throw new Error("--force requires --reuse-certification; it reruns invalid evidence, never bypasses tests.");
-  if (options.validate && (options.reuse || options.force)) throw new Error("--validate only validates manifests and cannot select certification.");
+  if (options.validate && options.check) throw new Error("--validate only validates manifests and cannot select certification.");
   return Object.freeze(options);
 }

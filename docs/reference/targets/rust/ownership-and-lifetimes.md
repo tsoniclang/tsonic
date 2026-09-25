@@ -43,3 +43,17 @@ Tsonic preserves the authored lifetime contract and proves its own carrier and
 operation consistency. `rustc` remains the final authority for Rust borrow
 validity. Tsonic does not weaken an authored lifetime or extend a borrow to
 make native compilation succeed.
+
+## Evidence required for ownership changes
+
+Use checked source uses and Rust's compiler-understood type, trait and lifetime
+guarantees. Names such as `Rc` and `Arc` are not a wrapper-detection mechanism;
+a third-party native type receives the same treatment. A `Clone` implementation
+does not prove that cloning is cheap or preserves shared identity.
+
+Providers may transport compiler facts, not invent those guarantees. Missing
+evidence prevents an optimization; it does not justify a hidden wrapper, unsafe
+conversion or weakened aliasing rule. This requirement is not a claim that every
+existing ownership path has already been proved optimal.
+
+- [Compiler-understood ownership](../../../architecture/workspace-agent-policy.md#compiler-understood-ownership)

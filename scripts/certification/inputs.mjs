@@ -46,9 +46,28 @@ export function snapshotCertificationInputs(entry, layout, environment = process
   };
 }
 
-export function sameCertificationInputs(left, right) {
-  const identity = snapshot => ({ ...snapshot, repositories: snapshot.repositories.map(({ head, ...entry }) => entry) });
-  return JSON.stringify(identity(left)) === JSON.stringify(identity(right));
+export function sameCertificationInputs(left, right, coveredPaths = []) {
+  const identity = snapshot => ({ ...snapshot, repositories: snapshot.repositories.map(({ head, tree, ...entry }) => entry) });
+  if (JSON.stringify(identity(left)) !== JSON.stringify(identity(right))) return false;
+  for (let index = 0; index < left.repositories.length; index += 1) {
+    const before = left.repositories[index];
+    const after = right.repositories[index];
+    if (before.tree === after.tree) continue;
+    const paths = coveredPaths.filter(path => path.repository === before.repository);
+    if (paths.length === 0 || changedTreePaths(before.root, before.tree, after.tree)
+      .some(path => !paths.some(input => pathIsCovered(path, input.path)))) return false;
+  }
+  return true;
+}
+
+export function changedTreePaths(root, before, after) {
+  return execFileSync("git", ["diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", before, after], {
+    cwd: root, encoding: "utf8", timeout: 30_000, maxBuffer: 4 * 1024 * 1024,
+  }).split("\0").filter(Boolean);
+}
+
+export function pathIsCovered(path, input) {
+  return input.endsWith("/") ? path.startsWith(input) : path === input;
 }
 
 export function digest(bytes) {

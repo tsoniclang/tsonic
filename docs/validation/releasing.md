@@ -104,8 +104,8 @@ The publisher performs these steps in order:
 
 1. verifies branch hygiene and exact `origin/main` identity;
 2. inspects exact public artifacts and `latest` tags;
-3. runs the complete source, target, provider, and runtime certification bank,
-   or validates exact reusable evidence when explicitly requested;
+3. validates existing source, target, provider, and runtime certification and
+   runs only missing or invalidated checks;
 4. rebuilds and packs the complete wave and runs C#, Rust, and Node-capability projects from
    a private tarball registry;
 5. checks local tarball hashes and existing `latest` baselines, then publishes
@@ -129,7 +129,7 @@ then verifies the commands ordinary users run.
 
 Complete `npm test` runs in the Rust target and Rust runtimes, and the host's
 complete `./test/scripts/run-all.sh`, write a common certification record. You
-can also run all five release banks together, or select one:
+can also bring all five release banks up to date, or select one:
 
 ```sh
 node scripts/release/certify.mjs
@@ -144,30 +144,43 @@ environment fingerprints. It retains complete test counts and hashes the
 underlying reports and bounded process log. Environment values are hashed, not
 copied into certification records.
 
-After those branches are merged unchanged, use:
+The publisher reuses valid results automatically. After merging, use:
 
 ```sh
-./scripts/publish-npm.sh --reuse-certification
+./scripts/publish-npm.sh
 ```
 
-The publisher accepts only complete, successful, clean and unchanged records.
-A merge commit with the same tree is fine. A changed source, test, configuration,
-dependency or toolchain is not. Filtered runs, calibration runs, missing counts,
+The publisher accepts only complete, successful and current evidence from clean
+inputs. A merge commit with the same tree is fine. Changed product source,
+build configuration, dependencies, execution guards or toolchains invalidate
+their affected banks. Filtered runs, calibration runs, missing counts,
 changed evidence, resource failures and unfinished newer runs cannot stand in
 for complete certification. Rust JS's one existing ignored vendored doctest is
 explicitly counted in the release manifest; additional skips are rejected.
 
-Missing or stale evidence stops publication before any suite is started. To
-rerun only the banks that need new evidence, use:
+Documentation and release-control edits do not require another compiler/runtime
+run. The release manifest assigns their exact paths to focused checks. Those
+checks use the same bounded runner and immutable record format as source banks.
+Only current passing checks can cover those differences in an earlier source
+record. Other changed files still require their affected full bank. There is no
+blanket Markdown exemption, manually edited certificate or historical-log import.
+
+Original records remain unchanged: release acceptance combines the existing
+source results with the necessary focused results. Changes during any recorded
+run are rejected, including changes inside a focused scope. Repeated publication
+attempts reuse current focused evidence too.
+
+Missing or stale evidence runs only the affected checks. A failed check stops
+the sequence before another bank starts. To inspect evidence without running
+tests or publishing, use:
 
 ```sh
-./scripts/publish-npm.sh --reuse-certification --force
+node scripts/release/certify.mjs --check
 ```
 
-`--force` means rerun, not override. Any failed bank stops the sequence before
-the next bank starts. Without the reuse option, every bank runs again. To check
-the records without publishing, use
-`node scripts/release/certify.mjs --reuse-certification`.
+The read-only check reports missing or invalidated evidence as an error. There
+is no skip-tests or force-to-publish option. Direct complete test entrypoints
+still run their requested banks; publishing does not repeat them unnecessarily.
 
 Records live in `.temp/certification/<repository>/`. Keep that directory and
 its referenced logs if you want reuse; scratch cleanup can remove them. Old
@@ -176,7 +189,9 @@ runner records with corruption checks, not signed remote attestations: do not
 accept records supplied by an untrusted party.
 
 Reuse never skips rebuilding, packing, the private tarball installations, the
-framework matrix, the exact public installations or fresh `latest` installations.
+configured framework matrix, the exact public installations or fresh `latest`
+installations. These prove the selected artifacts and registry state, not just
+unchanged compiler behavior.
 Publication still requires every release repository on clean, exact main.
 `./scripts/publish-npm.sh --validate` only validates manifests; it does not test
 or publish anything.

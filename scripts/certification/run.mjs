@@ -8,9 +8,9 @@ import { snapshotCertificationInputs } from "./inputs.mjs";
 import { hostReportCounts } from "./counts.mjs";
 import { certificationRoot, describeEvidence, validateCertification, writeImmutableJson } from "./records.mjs";
 
-export function runCertification(entry, layout, { environment = process.env } = {}) {
+export function runCertification(entry, layout, { environment = process.env, name = entry.repository } = {}) {
   const startedAt = new Date().toISOString();
-  const root = resolve(certificationRoot(hostRoot, entry.repository), `${startedAt.replaceAll(/[-:.]/gu, "")}-${randomUUID()}`);
+  const root = resolve(certificationRoot(hostRoot, name), `${startedAt.replaceAll(/[-:.]/gu, "")}-${randomUUID()}`);
   mkdirSync(root, { recursive: true });
   const before = snapshotCertificationInputs(entry, layout, environment);
   writeImmutableJson(resolve(root, "started.json"), { suite: entry, startedAt, before });

@@ -18,15 +18,16 @@ const entry = validateCertificationEntry({
 const count = { total: 2, passed: 2, failed: 0, skipped: 0, todo: 0, cancelled: 0, filtered: 0 };
 
 test("certification options cannot bypass tests or disguise manifest validation", () => {
-  assert.deepEqual(readCertificationOptions([]), { reuse: false, force: false, validate: false, suites: [] });
-  assert.equal(readCertificationOptions(["--reuse-certification", "--force"]).force, true);
+  assert.deepEqual(readCertificationOptions([]), { check: false, validate: false, suites: [] });
+  assert.equal(readCertificationOptions(["--check"]).check, true);
   assert.equal(readCertificationOptions(["--validate"], { publisher: true }).validate, true);
   assert.deepEqual(readCertificationOptions(["--suite", "rust-js"]).suites, ["rust-js"]);
-  for (const args of [["--force"], ["--verify-only"], ["--skip-tests"], ["--suite"],
-    ["--reuse-certification", "--reuse-certification"], ["--suite", "a", "--suite", "a"]]) {
+  for (const args of [["--force"], ["--reuse-certification"], ["--verify-only"], ["--skip-tests"], ["--suite"],
+    ["--check", "--check"], ["--suite", "a", "--suite", "a"]]) {
     assert.throws(() => readCertificationOptions(args));
   }
-  assert.throws(() => readCertificationOptions(["--validate", "--reuse-certification"], { publisher: true }));
+  assert.throws(() => readCertificationOptions(["--validate", "--check"], { publisher: true }));
+  assert.throws(() => readCertificationOptions(["--check"], { publisher: true }));
   assert.throws(() => readCertificationOptions(["--suite", "rust-js"], { publisher: true }));
 });
 
@@ -57,15 +58,15 @@ test("verification preserves explicit checkout roots without relaxing publisher 
   assert.throws(() => resolveWaveLayout(loadNpmWave(), { repositoryRoots: new Map([["tsonic-rust", "relative"]]) }));
 });
 
-test("reuse preflight rejects any missing bank; force reruns only invalid banks", () => {
+test("reuse is automatic and only invalid banks run; check mode never starts tests", () => {
   const entries = [entry, { ...entry, repository: "rust-js" }];
   const inspect = selected => {
     if (selected.repository === "rust-js") throw new Error("stale");
     return { passed: true };
   };
-  assert.throws(() => selectCertification(entries, { reuse: true, force: false }, inspect), /rust-js: stale/u);
-  assert.deepEqual(selectCertification(entries, { reuse: true, force: true }, inspect).map(item => item.action), ["reuse", "run"]);
-  assert.deepEqual(selectCertification(entries, { reuse: false }, () => assert.fail("not reuse mode")).map(item => item.action), ["run", "run"]);
+  assert.throws(() => selectCertification(entries, { check: true }, inspect), /rust-js: stale/u);
+  assert.deepEqual(selectCertification(entries, readCertificationOptions([]), inspect).map(item => item.action), ["reuse", "run"]);
+  assert.deepEqual(selectCertification(entries, {}, () => ({ passed: true })).map(item => item.action), ["reuse", "reuse"]);
 });
 
 test("exact clean trees survive a different commit but not source, dependency or tool changes", () => {
@@ -124,6 +125,8 @@ test("every incomplete, unsafe, malformed and mutated certification is rejected"
     const record = structuredClone(fixture.record);
     mutate(record);
     assert.throws(() => validate(fixture, record));
+    assert.throws(() => validateCertification(record, entry, fixture.current, fixture.root, Date.now(),
+      [{ repository: "tsonic", path: "docs/" }]));
   }
   writeFileSync(fixture.record.guard.log, "changed\n");
   assert.throws(() => validate(fixture), /evidence changed/u);

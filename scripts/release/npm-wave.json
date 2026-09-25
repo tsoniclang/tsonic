@@ -164,6 +164,51 @@
       ]
     }
   ],
+  "checks": [
+    {
+      "name": "check-documentation",
+      "paths": [
+        { "repository": "tsonic", "path": "docs/" },
+        { "repository": "tsonic", "path": "AGENTS.md" },
+        { "repository": "tsonic", "path": "CLAUDE.md" },
+        { "repository": "tsonic", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-csharp", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-rust", "path": "test/architecture/documentation.test.mjs" }
+      ],
+      "tests": [
+        { "repository": "tsonic", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-csharp", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-rust", "path": "test/architecture/documentation.test.mjs" }
+      ]
+    },
+    {
+      "name": "check-release-tooling",
+      "paths": [
+        { "repository": "tsonic", "path": "scripts/certification/" },
+        { "repository": "tsonic", "path": "scripts/release/" },
+        { "repository": "tsonic", "path": "test/architecture/package-artifacts.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification-coverage.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-frameworks.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-parallel.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-provenance.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-publication.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-state.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-wave.test.mjs" }
+      ],
+      "tests": [
+        { "repository": "tsonic", "path": "test/architecture/package-artifacts.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification-coverage.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-frameworks.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-parallel.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-provenance.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-publication.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-state.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-wave.test.mjs" }
+      ]
+    }
+  ],
   "certification": [
     {
       "repository": "tsonic",

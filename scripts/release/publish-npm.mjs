@@ -68,7 +68,7 @@ run(
 );
 verifyRepositories(wave, { fetch: false });
 const packed = JSON.parse(readFileSync(packageResultPath, "utf8"));
-certifyWave(wave, { ...options, reuse: true, force: false });
+certifyWave(wave, { ...options, check: true });
 if (packed.version !== wave.version || !Array.isArray(packed.packages) ||
     !Number.isSafeInteger(packed.totalFileCount) || packed.totalFileCount < 1) {
   throw new Error("Packed-install certification did not produce the expected release record.");

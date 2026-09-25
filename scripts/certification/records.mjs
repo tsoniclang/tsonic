@@ -36,7 +36,7 @@ export function latestCertification(root) {
   return { path, record: readEvidenceJson(path) };
 }
 
-export function validateCertification(record, entry, current, root, now = Date.now()) {
+export function validateCertification(record, entry, current, root, now = Date.now(), coveredPaths = []) {
   if (record?.schemaVersion !== 1 || JSON.stringify(record.suite) !== JSON.stringify(entry)) {
     throw new Error("Certification suite, command or dependency closure changed.");
   }
@@ -54,7 +54,7 @@ export function validateCertification(record, entry, current, root, now = Date.n
       throw new Error("Certification requires the complete clean repository closure.");
     }
   }
-  if (!sameCertificationInputs(record.before, record.after) || !sameCertificationInputs(record.after, current)) {
+  if (!sameCertificationInputs(record.before, record.after) || !sameCertificationInputs(record.after, current, coveredPaths)) {
     throw new Error("Certification source, dependency, toolchain or environment is stale.");
   }
   if (record.exitCode !== 0 || record.complete !== true || !Array.isArray(record.counts) || record.counts.length === 0) {

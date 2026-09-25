@@ -36,6 +36,13 @@ Concrete API names exist only in provider data. Generic selection compares
 exact identities and requirements; it does not branch on `HashMap`, `readFile`,
 or a package spelling.
 
+Ownership optimization has a stricter evidence boundary: provider data may
+carry exact native types, signatures, lifetimes and trait facts, but cannot
+invent an "already shared" or "cheap clone" classification. Standard and
+third-party types use the same compiler-understood rules.
+
+- [Compiler-understood ownership](../../../architecture/workspace-agent-policy.md#compiler-understood-ownership)
+
 ## Package shape
 
 A provider package normally contains:

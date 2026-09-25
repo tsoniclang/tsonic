@@ -4,6 +4,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateSourceInputs } from "./source-provenance.mjs";
 import { validateCertificationEntry } from "../certification/contract.mjs";
+import { validateCertificationChecks } from "../certification/checks.mjs";
 
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
 export const hostRoot = resolve(releaseDirectory, "../..");
@@ -26,6 +27,7 @@ export function loadNpmWave() {
     certification: Object.freeze(
       manifest.certification.map(validateCertificationEntry),
     ),
+    checks: validateCertificationChecks(manifest.checks, new Set(manifest.certification.flatMap(entry => entry.inputs))),
   });
 }
 
@@ -71,6 +73,7 @@ export function resolveWaveLayout(wave = loadNpmWave(), options = {}) {
     repositoryRoots,
     packages: Object.freeze(packages),
     certification: wave.certification,
+    checks: wave.checks,
   });
 }
 
@@ -146,6 +149,7 @@ export function validateWaveManifests(layout = resolveWaveLayout()) {
     version,
     packages: Object.freeze(packages),
     certification: layout.certification,
+    checks: layout.checks,
     layout,
   });
 }

@@ -114,8 +114,9 @@ policy.
   approval. Fix invalid downstream assumptions downstream instead of weakening
   the compiler.
 - Use focused tests while iterating. Before merge or publication, run the
-  repository's documented complete gate unless the exact exception below
-  applies.
+  repository's documented applicable gates, reusing current verified coverage
+  under the input-scoped rule below. The expectation-only exception also applies
+  under its exact stated conditions.
 - Never change product code, fixtures, tests, or expected output merely to make
   a test pass. Determine and fix the owning root cause.
 - Temporary instrumentation belongs under `.temp/`, never in a final product
@@ -123,6 +124,15 @@ policy.
 - Do not run a complete suite repeatedly after each small implementation. Batch
   coherent edits, collect all diagnostics from a run, fix the complete class,
   then rerun at the appropriate scope.
+- Test execution is expensive. All publishing entrypoints must automatically
+  reuse valid existing verification and run only checks invalidated by actual
+  input changes. Documentation-only edits require their owning documentation
+  checks, not another compiler/runtime run. Isolated release-tooling changes
+  require their owning verification checks. Declare and verify those input
+  boundaries; do not infer them from a commit message or a broad extension
+  filter. Retain original evidence and record any required focused checks
+  separately. Never rewrite a certificate or omit a necessary artifact/public
+  installation proof merely to avoid execution.
 - Finish an already-started certification suite and collect its failures, but
   do not start another suite while known failures remain. Do not reinterpret a
   multi-suite certification queue as one suite. An explicit maintainer request
@@ -202,7 +212,8 @@ policy.
   the case as policy data.
 - A hardcoded exception requires explicit source and target identity, rationale,
   required evidence, diagnostic behavior, positive and negative tests, and
-  ledger evidence.
+  ledger evidence. A ledger entry does not authorize an exception to the
+  compiler-understood ownership requirement below.
 
 ### Explicit Target Semantics
 
@@ -214,6 +225,45 @@ policy.
 - Absence means the behavior was not selected. Emit exactly the target
   language's documented coupling for the selected version, or reject an
   unrepresentable combination precisely.
+
+### Compiler-Understood Ownership
+
+- Hard requirement: ownership, borrowing, moves, copies, storage and wrapper
+  elimination must use checked source-use evidence and guarantees understood
+  by the selected native compiler. Every semantic premise must trace to an
+  exact compiler fact or the target language's specified rule for the selected
+  type, trait, signature, qualifier or lifetime. Do not invent library-specific
+  optimization knowledge beyond what that compiler knows.
+- Providers may transport those exact native facts; they may not manufacture
+  ownership authority with custom "already shared", "interior mutable",
+  "nonretaining" or "cheap clone" assertions. Moving a hardcoded assumption
+  from compiler code into provider data does not satisfy this rule. Ordinary
+  native API identity and invocation mapping remain provider responsibilities;
+  they are not evidence for an additional ownership optimization.
+- Standard-library and third-party types follow the same rules. Do not use
+  wrapper-name lists, package names, private-field scans or arbitrary marker
+  traits to infer ownership behavior. Preserve an imported native carrier
+  without requiring it to be recognized as a particular smart pointer.
+- Use each trait only for its compiler-understood guarantees. For example,
+  Rust `Clone` establishes a cloning operation, not cheap copying or shared
+  identity; `Copy` does not establish that copying a large value is cheap.
+  `Deref` does not establish reference counting. Benchmark observations cannot
+  manufacture missing semantic guarantees either.
+- Genuine native compiler special cases are permitted only for the exact rule
+  and declaration identity that the compiler recognizes. For example, Rust's
+  special `Rc<Self>` method-receiver support is not authority to infer payload
+  sharing or eliminate a captured-binding cell. `UnsafeCell` does not waive
+  exclusive-borrow uniqueness or thread-safety requirements. Delegate native
+  checking to the native compiler rather than extending its rules ourselves.
+- If compiler-understood evidence is missing, identify the precise missing
+  guarantee and do not perform that optimization. Never fill the gap with a
+  name heuristic, bespoke provider promise, unsafe cast or hidden runtime
+  fallback. Preserve safety and existing required behavior; report an unresolved
+  correctness/performance conflict rather than claiming completion or silently
+  rejecting previously supported code.
+- Native execution and cost proofs remain mandatory. Compiler acceptance alone
+  proves neither preservation of source observations nor minimal runtime cost.
+  Apply this rule symmetrically using each target's own native semantics.
 
 ### Native Semantics and Best-Effort JS Surfaces
 

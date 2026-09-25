@@ -30,6 +30,13 @@ C# and Rust retain this shape. Their inner algorithms differ:
 Those are different facts inside the same architectural phase, not different
 architectures.
 
+Ownership and representation optimizations must be justified by checked source
+uses and native compiler-understood guarantees, not library wrapper recognition.
+This is a design requirement, not a claim that every existing representation
+has already been certified minimal.
+
+- [Compiler-understood ownership](workspace-agent-policy.md#compiler-understood-ownership)
+
 Targets obtain TypeScript structural member correspondence through the public
 [source member query](structural-member-correspondence.md). Native option
 construction and ownership remain target decisions; targets do not match source
