@@ -8,7 +8,8 @@ for (const target of ["Csharp", "Rust"]) {
     factoryName: `create${target}ProviderPackage`,
   };
   const valid = new Map([
-    ["nodejs/src/index.ts", 'import { createNodePackage } from "./provider/package.js";'],
+    ["nodejs/src/index.ts", 'export { createTsonicPlugin } from "./capability.js";'],
+    ["nodejs/src/capability.ts", 'import { createNodePackage } from "./provider/package.js"; export function createTsonicPlugin() { return createNodePackage(); }'],
     ["nodejs/src/provider/package.ts", `import { moduleSpecifier } from "./modules/http/declarations.js"; export function createNodePackage() { return ${options.factoryName}(definition); }`],
     ["nodejs/src/provider/modules/http/declarations.ts", 'export const moduleSpecifier = "node:http";'],
     ["nodejs/src/provider/model/types.ts", "export interface Types {}"],
@@ -16,6 +17,14 @@ for (const target of ["Csharp", "Rust"]) {
   test(`${target} Node uses the shared provider ownership contract`, () => {
     assert.deepEqual(evaluateNodeProviderContract(valid, options), []);
   });
+  for (const file of ["nodejs/src/index.ts", "nodejs/src/capability.ts"]) {
+    test(`${target} Node rejects a disconnected public entry at ${file}`, () => {
+      const mutated = new Map(valid);
+      mutated.set(file, 'export {} from "./provider/model/types.js";');
+      assert.ok(evaluateNodeProviderContract(mutated, options).some(finding =>
+        finding.startsWith(`${file}: public capability must connect`)));
+    });
+  }
   for (const [name, file, source, expected] of [
     ["transport", "modules/local.ts", "registerSourceDeclarationProvider(provider);", "transport"],
     ["model recovery", "modules/local.ts", "function getDeclarationModel() {}", "transport"],

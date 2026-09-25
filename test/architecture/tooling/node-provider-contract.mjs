@@ -56,6 +56,14 @@ export function evaluateNodeProviderContract(sources, { targetPackage, factoryNa
     targets.push(edge.target);
     dependencies.set(edge.source, targets);
   }
+  for (const [source, target] of [
+    ["nodejs/src/index.ts", "nodejs/src/capability.ts"],
+    ["nodejs/src/capability.ts", `${providerPrefix}package.ts`],
+  ]) {
+    if (!dependencies.get(source)?.includes(target)) {
+      findings.push(`${source}: public capability must connect to ${target}`);
+    }
+  }
   const reachable = new Set();
   const pending = [`${providerPrefix}package.ts`];
   while (pending.length > 0) {
