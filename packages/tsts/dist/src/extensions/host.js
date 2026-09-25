@@ -4126,6 +4126,7 @@ function collectProviderDeclarationReferenceUses(declarations) {
                 case "source-primitive":
                 case "type-parameter":
                 case "literal":
+                case "bigint-literal":
                     return;
                 case "source-global":
                     for (const typeArgument of type.typeArguments ?? []) {
@@ -4897,6 +4898,8 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
         }
         case "literal":
             return type.value === null ? "null" : JSON.stringify(type.value);
+        case "bigint-literal":
+            return type.value + "n";
         case "provider-ref":
             const typeArgumentCount = type.typeArguments?.length ?? 0;
             const providerRefKey = getProviderRefKey(type.moduleSpecifier, type.exportName, typeArgumentCount);
@@ -5779,6 +5782,8 @@ function isValidProviderTypeExpression(value) {
                 && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration);
         case "literal":
             return typeof value.value !== "number" || Number.isFinite(value.value);
+        case "bigint-literal":
+            return /^(?:0|-?[1-9][0-9]*)$/.test(value.value);
         case "provider-ref":
             return value.moduleSpecifier.length > 0
                 && !isHostOwnedProviderVirtualFileName(value.moduleSpecifier)
@@ -5917,6 +5922,7 @@ function hasValidProviderReferenceBindings(type, context) {
         case "source-primitive":
         case "type-parameter":
         case "literal":
+        case "bigint-literal":
             return true;
         case "source-global":
             return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderReferenceBindings(typeArgument, context));
@@ -6033,6 +6039,7 @@ function hasValidProviderTypeExpressionScope(type, scope) {
         case "object":
         case "source-primitive":
         case "literal":
+        case "bigint-literal":
             return true;
         case "source-global":
             return (type.typeArguments ?? []).every((typeArgument) => hasValidProviderTypeExpressionScope(typeArgument, scope));

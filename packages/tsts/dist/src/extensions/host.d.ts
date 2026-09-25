@@ -360,6 +360,9 @@ export type ProviderTypeExpression = {
     readonly kind: "literal";
     readonly value: string | number | boolean | null;
 } | {
+    readonly kind: "bigint-literal";
+    readonly value: string;
+} | {
     readonly kind: "provider-ref";
     readonly moduleSpecifier: string;
     readonly exportName: string;

@@ -92,6 +92,23 @@ when the provider explicitly supplies that construction contract.
 
 ## Generic parameter boundaries
 
+Integer const arguments retain their exact values, including values larger than
+a JavaScript number can represent. Use bigint literal syntax for those values:
+
+```ts
+import { Token, makeToken } from "@tsonic/rust/crates/example/index.js";
+
+const token: Token<9007199254740993n> = makeToken<9007199254740993n>();
+```
+
+The Rust const parameter still determines the permitted native type and range.
+The bigint suffix is source syntax; it does not allocate a runtime bigint.
+Provider declaration models represent an exact bigint literal as
+`{ kind: "bigint-literal", value: "9007199254740993" }`.
+The value is canonical signed decimal text without a suffix, leading zeros or
+positive sign. Validation rejects malformed text before declaration rendering.
+Ordinary numeric literals and bigint literals remain distinct checker types.
+
 Provider operation rows preserve whether a Rust type parameter accepts
 unsized arguments:
 
