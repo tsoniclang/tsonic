@@ -44,6 +44,28 @@ operation consistency. `rustc` remains the final authority for Rust borrow
 validity. Tsonic does not weaken an authored lifetime or extend a borrow to
 make native compilation succeed.
 
+## Captures and final uses
+
+For a mutable binding used only by one synchronous closure, Tsonic stores the
+binding in that closure's environment. A Copy value uses `Cell<T>`; a Clone
+value that is not Copy uses `RefCell<T>`. Neither needs a separate shared
+location allocation. Reads release their borrow before later source effects.
+
+Independent closures that update the same binding still share it. Taking its
+address, creating owners repeatedly, or retaining it across suspension can
+require shared storage. An imported native owner is not itself a reason to add
+another owner; binding mutation and payload ownership are separate questions.
+
+Final-use moves use the closed source-use graph. A last stored field of a
+local, unaliased generated value can move without cloning. Borrowed receivers,
+later uses, cleanup and overlapping argument borrows retain their required
+storage. Imported destructors are not inferred from a type name.
+
+Native imported carriers remain native through aliases, generic calls, fields,
+optional values and captures. Explicit `move` remains available when a native
+ownership transfer should be stated in the source. It does not bypass Rust's
+borrow checker or manufacture a longer lifetime.
+
 ## Evidence required for ownership changes
 
 Use checked source uses and Rust's compiler-understood type, trait and lifetime
