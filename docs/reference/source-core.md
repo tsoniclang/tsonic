@@ -75,7 +75,7 @@ target policy must independently support the requested mode.
 | --- | --- |
 | `struct(shape)` | Declares an exact value-type shape from proven `field<T>()` members |
 | `field<T>()` | Declares a field with explicit source type evidence |
-| `attribute<T>(...args)` | Starts an exact attribute-application builder |
+| `attribute<T>()` | Starts an exact attribute-application builder |
 | `defaultValue<T>()` | Requests the target default for exact `T` |
 
 Example:
@@ -97,10 +97,15 @@ attribute<Controller>()
   .method((controller) => controller.handle)
   .parameter("request")
   .target("param")
-  .add(RouteAttribute, "/items");
+  .add(() => new RouteAttribute("/items"));
 ```
 
 The selected provider owns the target attribute identity and legal values.
+The argument is an inline, synchronous, zero-parameter arrow containing one
+checked call or construction. Constructor arguments use ordinary TypeScript
+type checking. A stored callback, block body or bare attribute type is not an
+attribute application. The lambda is annotation syntax; no callback runs or
+allocates at runtime. Native attribute constant and placement rules still apply.
 
 ### Compile-time intent
 

@@ -242,7 +242,7 @@ test("source-core records abstract struct, field, attribute, and default facts",
     import type { bool, char, int32 } from "@tsonic/core/types.js";
     import { field as localField } from "./local.js";
 
-    class RouteAttribute {}
+    class RouteAttribute { constructor(route: string) {} }
     class User {
       name = "";
     }
@@ -250,7 +250,7 @@ test("source-core records abstract struct, field, attribute, and default facts",
     const defaultChar = defaultValue<char>();
     const Point = struct({ x: field<int32>(), ok: field<bool>() });
     const ignored = localField<int32>();
-    attribute<User>().add(RouteAttribute, "user");
+    attribute<User>().add(() => new RouteAttribute("user"));
   `, {
     "/src/local.ts": "export function field<T>(): T { throw new Error('local field'); }",
   });
@@ -298,7 +298,7 @@ test("source-core records structural, attribute, and default facts from core nam
     const defaultBool = lang.defaultValue<bool>();
     const Point = lang.struct({ id: lang.field<int32>() });
     const skipped = local.field<int32>();
-    lang.attribute<User>().add(RouteAttribute);
+    lang.attribute<User>().add(() => new RouteAttribute());
     const fakeDefault = local.defaultValue<bool>();
     const Fake = local.struct({ id: local.field<int32>() });
     local.attribute<User>().add(RouteAttribute);
@@ -334,7 +334,7 @@ test("source-core records structural, attribute, and default facts from aliases 
 
     const defaultValue = coreDefaultof<bool>();
     const Point = coreStruct({ id: coreField<int32>() });
-    coreAttribute<User>().add(RouteAttribute);
+    coreAttribute<User>().add(() => new RouteAttribute());
     const localDefault = localDefaultof<bool>();
     const Local = localStruct({ id: localField<int32>() });
     localAttribute<User>().add(RouteAttribute);
@@ -398,7 +398,7 @@ test("source-core rejects every unsupported local barrel re-export deterministic
     move(value);
     const zero = defaultValue<int32>();
     const Point = struct({ id: field<int32>() });
-    attribute<User>().add(RouteAttribute);
+    attribute<User>().add(() => new RouteAttribute());
     type ValuePointer = CorePointer<int32>;
     type ValueFunctionPointer = CoreFunctionPointer<[int32], bool>;
   `, {

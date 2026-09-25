@@ -174,7 +174,7 @@ test("source-core records direct provider-owned facts for every core lang intrin
     move(value);
     const zero = defaultValue<int32>();
     const Point = struct({ id: field<int32>() });
-    attribute<User>().add(RouteAttribute);
+    attribute<User>().add(() => new RouteAttribute());
     type DirectPointer = Pointer<int32>;
     type DirectFunctionPointer = FunctionPointer<[int32], bool>;
   `);

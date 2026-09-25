@@ -35,6 +35,7 @@ import {
 import {
   selectInlineSourceMember,
 } from "../analysis/selected-source-member.js";
+import { selectedAttributeInvocation } from "./invocation.js";
 
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
 const attributeMemberBuilderExportId = "__TsonicAttributeMemberBuilder";
@@ -49,6 +50,18 @@ interface AttributeBuilderRule {
 }
 
 const attributeBuilderRules = Object.freeze([
+  rule(
+    memberSelector(attributeExportId, tsonicAttributeBuilderMemberIds.module, tsonicAttributeBuilderSignatureIds.module),
+    (selected, context) => writeAttributeBuilderFact(selected, context, {
+      kind: "builder-state",
+      applicationTarget: context.sourceFile,
+      applicationPlacement: "module",
+    }),
+  ),
+  rule(
+    memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleAdd, tsonicAttributeBuilderSignatureIds.moduleAdd),
+    analyzeAttributeApplication,
+  ),
   rule(
     exportSelector(attributeExportId, tsonicAttributeBuilderSignatureIds.root),
     analyzeAttributeRoot,
@@ -278,23 +291,20 @@ function analyzeAttributeApplication(
   if (predecessor === undefined) {
     return;
   }
-  const attributeType = selected.selection.sourceArguments[0]?.expression;
-  if (attributeType === undefined) {
+  const invocation = selectedAttributeInvocation(selected, context);
+  if (invocation === undefined) {
     appendDiagnostic(
       selected,
       context,
-      "SOURCE_CORE_ATTRIBUTE_TYPE_NOT_PROVEN",
+      "SOURCE_CORE_ATTRIBUTE_INVOCATION_NOT_PROVEN",
       9901116,
-      "The selected attribute application requires an exact checked attribute type argument.",
+      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one checked call or construction.",
     );
     return;
   }
   writeAttributeBuilderFact(selected, context, {
     kind: "application",
-    attributeType,
-    arguments: selected.selection.sourceArguments
-      .slice(1)
-      .map((argument) => argument.expression),
+    invocation,
     applicationTarget: predecessor.applicationTarget,
     ...(predecessor.selectedMember === undefined
       ? {}

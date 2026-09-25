@@ -24,7 +24,7 @@ Use the neutral attribute builder with provider-backed attribute types:
 ```ts
 attribute<Controller>()
   .method((controller) => controller.handle)
-  .add(AuthorizeAttribute);
+  .add(() => new AuthorizeAttribute());
 ```
 
 Selectors identify exact source declarations. The .NET provider resolves the

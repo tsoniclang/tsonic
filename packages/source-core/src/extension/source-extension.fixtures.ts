@@ -271,8 +271,11 @@ export function assertAttributeApplication(
     return;
   }
   assert.equal(typeReferenceName(session, fact.applicationTarget as Node), expectedTarget);
-  assert.equal(sourceAst(session).text(fact.attributeType as Node), expectedAttributeType);
-  assert.equal(fact.arguments.length, expectedArgumentCount);
+  const invocation = fact.invocation as Node;
+  const ast = sourceAst(session);
+  const callee = ast.as.AsNewExpression(invocation)?.Expression ?? ast.as.AsCallExpression(invocation)?.Expression;
+  assert.equal(callee === undefined ? undefined : ast.text(callee), expectedAttributeType);
+  assert.equal(ast.arguments(invocation).length, expectedArgumentCount);
 }
 
 export function callExpression(session: CompilerSession, sourceFile: SourceFile, calleeText: string, occurrence = 0): Node {

@@ -9,7 +9,7 @@ import {
 } from "../identity.js";
 
 export type TsonicAttributeApplicationMemberKind = "property" | "method";
-export type TsonicAttributeApplicationPlacement = "declaration" | "constructor";
+export type TsonicAttributeApplicationPlacement = "declaration" | "constructor" | "module";
 
 export interface TsonicAttributeBuilderStateFact {
   readonly kind: "builder-state";
@@ -23,8 +23,7 @@ export interface TsonicAttributeBuilderStateFact {
 
 export interface TsonicAttributeApplicationFact {
   readonly kind: "application";
-  readonly attributeType: ExtensionFactSubject;
-  readonly arguments: readonly ExtensionFactSubject[];
+  readonly invocation: ExtensionFactSubject;
   readonly applicationTarget: ExtensionFactSubject;
   readonly selectedMember?: ExtensionFactSubject;
   readonly applicationMemberKind?: TsonicAttributeApplicationMemberKind;
@@ -47,13 +46,7 @@ export const tsonicAttributeBuilderFactKey = defineExtensionFactKey<TsonicAttrib
 function snapshotTsonicAttributeBuilderFact(
   value: TsonicAttributeBuilderFact,
 ): TsonicAttributeBuilderFact {
-  if (value.kind === "builder-state") {
-    return Object.freeze({ ...value });
-  }
-  return Object.freeze({
-    ...value,
-    arguments: Object.freeze([...value.arguments]),
-  });
+  return Object.freeze({ ...value });
 }
 
 function tsonicAttributeBuilderFactEquals(
@@ -68,8 +61,6 @@ function tsonicAttributeBuilderFactEquals(
     left.applicationParameterName === right.applicationParameterName &&
     left.applicationTargetSpecifier === right.applicationTargetSpecifier &&
     (left.kind !== "application" || right.kind !== "application" || (
-      left.attributeType === right.attributeType &&
-      left.arguments.length === right.arguments.length &&
-      left.arguments.every((argument, index) => argument === right.arguments[index])
+      left.invocation === right.invocation
     ));
 }

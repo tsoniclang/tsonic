@@ -259,7 +259,7 @@ test("CLI emits provider-owned delegate type annotations from .NET reflection", 
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects attribute builder targets without provider target facts", async () => {
+test("CLI rejects attribute construction without a checked constructor", async () => {
   const projectDirectory = resolve(tempRoot, "attribute-builder");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -294,19 +294,19 @@ test("CLI rejects attribute builder targets without provider target facts", asyn
       "  }",
       "}",
       "",
-      "A<Annotated>().add(CLSCompliantAttribute, true);",
-      "A<Annotated>().constructor().add(CLSCompliantAttribute, true);",
-      "A<Annotated>().constructor().parameter(\"seed\").add(CLSCompliantAttribute, false);",
-      "A<Annotated>().property((target) => target.value).add(CLSCompliantAttribute, false);",
-      "A<Annotated>().method((target) => target.run).add(CLSCompliantAttribute, true);",
-      "A<Annotated>().method((target) => target.run).parameter(\"input\").add(CLSCompliantAttribute, false);",
+      "A<Annotated>().add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().constructor().add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().constructor().parameter(\"seed\").add(() => new CLSCompliantAttribute(false));",
+      "A<Annotated>().property((target) => target.value).add(() => new CLSCompliantAttribute(false));",
+      "A<Annotated>().method((target) => target.run).add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().method((target) => target.run).parameter(\"input\").add(() => new CLSCompliantAttribute(false));",
       "",
     ].join("\n"),
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_ATTRIBUTE_TYPE_NOT_CONSTRUCTIBLE.*An attribute requires an exact checked constructor type/u);
+  assert.match(build.stderr, /not constructable|no construct signatures/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedAttributeBuilder.csproj")), false);
 });
 
@@ -344,14 +344,14 @@ test("CLI emits C# attributes from provider target identity facts", async () => 
       "  }",
       "}",
       "",
-      "A<Annotated>().add(CLSCompliantAttribute, true);",
-      "A<Annotated>().constructor().add(CLSCompliantAttribute, true);",
-      "A<Annotated>().constructor().parameter(\"seed\").add(CLSCompliantAttribute, false);",
-      "A<Annotated>().property((target) => target.value).target(\"field\").add(CLSCompliantAttribute, false);",
-      "A<Annotated>().property((target) => target.computed).target(\"property\").add(CLSCompliantAttribute, true);",
-      "A<Annotated>().method((target) => target.run).add(CLSCompliantAttribute, true);",
-      "A<Annotated>().method((target) => target.run).target(\"return\").add(CLSCompliantAttribute, false);",
-      "A<Annotated>().method((target) => target.run).parameter(\"input\").target(\"param\").add(CLSCompliantAttribute, false);",
+      "A<Annotated>().add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().constructor().add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().constructor().parameter(\"seed\").add(() => new CLSCompliantAttribute(false));",
+      "A<Annotated>().property((target) => target.value).target(\"field\").add(() => new CLSCompliantAttribute(false));",
+      "A<Annotated>().property((target) => target.computed).target(\"property\").add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().method((target) => target.run).add(() => new CLSCompliantAttribute(true));",
+      "A<Annotated>().method((target) => target.run).target(\"return\").add(() => new CLSCompliantAttribute(false));",
+      "A<Annotated>().method((target) => target.run).parameter(\"input\").target(\"param\").add(() => new CLSCompliantAttribute(false));",
       "",
     ].join("\n"),
   });
@@ -398,7 +398,7 @@ test("CLI rejects unsupported explicit attribute target specifiers from finalize
       "  }",
       "}",
       "",
-      "A<Annotated>().method((target) => target.run).target(\"assembly\").add(CLSCompliantAttribute, true);",
+      "A<Annotated>().method((target) => target.run).target(\"assembly\").add(() => new CLSCompliantAttribute(true));",
       "",
     ].join("\n"),
   });

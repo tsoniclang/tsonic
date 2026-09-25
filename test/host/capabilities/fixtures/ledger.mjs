@@ -3078,7 +3078,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceExamples: Object.freeze([
       "import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue, addressOf, allocatePointer, loadPointer, storePointer, equalPointer } from \"@tsonic/core/lang.js\";",
       "writeOnlyRef(value); readWriteRef(value); readOnlyRef(value); sharedBorrow(value); mutableBorrow(value); move(value);",
-      "const Point = struct({ x: field<int32>() }); const zero = defaultValue<int32>(); attribute<Point>().add(RouteAttribute);",
+      "const Point = struct({ x: field<int32>() }); const zero = defaultValue<int32>(); attribute<Point>().add(() => new RouteAttribute());",
       "const alias = addressOf(value); const fresh = allocatePointer<int32>(0); storePointer(alias, loadPointer(fresh)); equalPointer(alias, addressOf(value));",
     ]),
     tstsDecision:
@@ -3606,7 +3606,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     sourceKind: "call-marker",
     sourceExamples: [
       "import { attribute } from \"@tsonic/core/lang.js\";",
-      "attribute<Annotated>().method((target) => target.run).parameter(\"input\").target(\"param\").add(CLSCompliantAttribute, false);",
+      "attribute<Annotated>().method((target) => target.run).parameter(\"input\").target(\"param\").add(() => new CLSCompliantAttribute(false));",
     ],
     sourceContract:
       "Core owns attribute<T>() as a portable attribute-application builder that records exact source declaration targets and arguments; provider/target facts own target attribute identity and legal placements.",
