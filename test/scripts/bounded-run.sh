@@ -94,7 +94,7 @@ set +e
       --signal=TERM \
       --kill-after=30s \
       "${timeout_seconds}s" \
-      "$@" \
+      env -u TSONIC_TEST_GUARD_REPORT "$@" \
     >"${log_file}" 2>&1
 ) &
 test_runner_pid=$!
@@ -183,7 +183,7 @@ if (( log_size_after > log_size_max_bytes )); then
   printf 'Bounded test log exceeded its %s-byte ceiling; inspect %s.\n' \
     "${log_size_max_bytes}" \
     "${log_file}" >&2
-  exit 153
+  test_status=153
 fi
 
 if (( test_status != 0 )); then
@@ -196,24 +196,31 @@ fi
 
 if [[ "${scope_result}" == "oom-kill" ]]; then
   printf 'Bounded test scope exhausted its memory ceiling; inspect %s.\n' "${log_file}" >&2
-  exit 137
+  test_status=137
 fi
 
 if [[ "${oom_kill_before}" != "unavailable" && "${oom_kill_after}" != "unavailable" &&
   "${oom_kill_after}" -gt "${oom_kill_before}" ]]; then
   printf 'System OOM kill count increased during the test run; inspect %s.\n' "${log_file}" >&2
-  exit 137
+  test_status=137
 fi
 
-if [[ -n "${TSONIC_TEST_CALIBRATION_SECONDS:-}" ]]; then
+if [[ -n "${TSONIC_TEST_CALIBRATION_SECONDS:-}" && "$test_status" != 137 && "$test_status" != 153 ]]; then
   if [[ -f "$log_file.calibration.json" ]]; then
     cat "$log_file.calibration.json"
     if node --input-type=module -e 'import {readFileSync} from "node:fs"; process.exit(JSON.parse(readFileSync(process.argv[1], "utf8")).targetMet ? 0 : 1)' "$log_file.calibration.json"; then
-      exit 125
+      test_status=125
+    else
+      test_status=126
     fi
-    exit 126
+  else
+    printf 'Calibration ended before a complete measurement window; this is not certification.\n'
+    test_status=125
   fi
-  printf 'Calibration ended before a complete measurement window; this is not certification.\n'
-  exit 125
+fi
+if [[ -n "${TSONIC_TEST_GUARD_REPORT:-}" ]]; then
+  node "$script_root/guard-report.mjs" "$TSONIC_TEST_GUARD_REPORT" "$PWD/$log_file" \
+    "$test_status" "$memory_mebibytes" "$tasks_max" "$timeout_seconds" "$log_size_max_bytes" \
+    "$oom_kill_before" "$oom_kill_after" "$scope_result" "${TSONIC_TEST_CALIBRATION_SECONDS:-}"
 fi
 exit "${test_status}"

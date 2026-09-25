@@ -104,8 +104,9 @@ The publisher performs these steps in order:
 
 1. verifies branch hygiene and exact `origin/main` identity;
 2. inspects exact public artifacts and `latest` tags;
-3. runs the complete source, target, provider, and runtime certification bank;
-4. packs the complete wave and runs C#, Rust, and Node-capability projects from
+3. runs the complete source, target, provider, and runtime certification bank,
+   or validates exact reusable evidence when explicitly requested;
+4. rebuilds and packs the complete wave and runs C#, Rust, and Node-capability projects from
    a private tarball registry;
 5. checks local tarball hashes and existing `latest` baselines, then publishes
    the certified tarballs under `staged-<version>`, leaving `latest` unchanged;
@@ -123,6 +124,77 @@ proof runs `npm create tsonic@0.1.1` and installs Node capabilities at `0.1.1`.
 If installation or execution fails, `latest` remains unchanged. Successful
 exact-version verification allows promotion; the final latest-based proof
 then verifies the commands ordinary users run.
+
+### Reuse completed verification
+
+Complete `npm test` runs in the Rust target and Rust runtimes, and the host's
+complete `./test/scripts/run-all.sh`, write a common certification record. You
+can also run all five release banks together, or select one:
+
+```sh
+node scripts/release/certify.mjs
+node scripts/release/certify.mjs --suite tsonic-rust
+```
+
+Commit the tested sources first. A run on a dirty worktree still reports its
+test result, but cannot authorize release reuse. The recorder captures the
+declared repository closure before and after execution, including exact Git
+trees, installed dependency-lock identity, native toolchains and relevant
+environment fingerprints. It retains complete test counts and hashes the
+underlying reports and bounded process log. Environment values are hashed, not
+copied into certification records.
+
+After those branches are merged unchanged, use:
+
+```sh
+./scripts/publish-npm.sh --reuse-certification
+```
+
+The publisher accepts only complete, successful, clean and unchanged records.
+A merge commit with the same tree is fine. A changed source, test, configuration,
+dependency or toolchain is not. Filtered runs, calibration runs, missing counts,
+changed evidence, resource failures and unfinished newer runs cannot stand in
+for complete certification. Rust JS's one existing ignored vendored doctest is
+explicitly counted in the release manifest; additional skips are rejected.
+
+Missing or stale evidence stops publication before any suite is started. To
+rerun only the banks that need new evidence, use:
+
+```sh
+./scripts/publish-npm.sh --reuse-certification --force
+```
+
+`--force` means rerun, not override. Any failed bank stops the sequence before
+the next bank starts. Without the reuse option, every bank runs again. To check
+the records without publishing, use
+`node scripts/release/certify.mjs --reuse-certification`.
+
+Records live in `.temp/certification/<repository>/`. Keep that directory and
+its referenced logs if you want reuse; scratch cleanup can remove them. Old
+human-readable logs are not imported as certificates. These are local trusted
+runner records with corruption checks, not signed remote attestations: do not
+accept records supplied by an untrusted party.
+
+Reuse never skips rebuilding, packing, the private tarball installations, the
+framework matrix, the exact public installations or fresh `latest` installations.
+Publication still requires every release repository on clean, exact main.
+`./scripts/publish-npm.sh --validate` only validates manifests; it does not test
+or publish anything.
+
+### Parallelism and resource bounds
+
+The publisher uses the same CPU/memory policy and no-swap process-group guards
+as ordinary certification. `TSONIC_TEST_CPUS` and `TSONIC_TEST_MEMORY_MIB` select
+finite limits; `TSONIC_TEST_WORKERS`, `TSONIC_TEST_CHILD_JOBS` and
+`TSONIC_TEST_HEAP_MIB` can further constrain test workers. Defaults use effective
+CPUs and available memory while keeping a system reserve.
+
+Independent C# and Rust installation projects run concurrently, dividing the
+total CPU and memory budget between them. Each project's cold/warm and framework
+checks stay ordered because they intentionally modify the same project. Single
+Cargo test phases use the available native CPU budget. Complete source banks
+run in order because they share builds; their internal test workers remain
+parallel. Time, task, output-size and OOM guards still apply.
 
 The public-install step uses an isolated npm cache and configuration. It strips
 workspace and source-root environment variables, rejects local dependency

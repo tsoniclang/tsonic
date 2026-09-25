@@ -15,6 +15,9 @@ test("test budgets use effective CPUs, memory reserves and native child costs", 
   assert.equal(rust.childJobs, 2);
   assert(rust.workers * rust.childJobs <= rust.cpuBudget);
   assert(rust.workers * rust.workerMemoryMiB <= rust.memoryMiB);
+  const native = testResourceBudget(machine, {}, "native");
+  assert.equal(native.workers, 1);
+  assert.equal(native.childJobs, native.cpuBudget);
   assert.equal(testResourceBudget({ cpus: 2, availableMemoryMiB: 6144, totalMemoryMiB: 8192 }).workers, 1);
 });
 

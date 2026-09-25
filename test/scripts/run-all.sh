@@ -3,6 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
+if (( $# == 0 )); then
+  exec node scripts/certification/run.mjs tsonic
+fi
+
 arguments=(--with-preruns)
 while (( $# > 0 )); do
   case "$1" in

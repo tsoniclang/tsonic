@@ -59,7 +59,7 @@ test("the required publisher validates without publishing from a feature branch"
   const statusScript = resolve(hostRoot, "scripts/release-status.sh");
   assert.equal(statSync(script).mode & 0o111, 0o111);
   assert.equal(statSync(statusScript).mode & 0o111, 0o111);
-  const result = spawnSync(script, ["--verify-only"], {
+  const result = spawnSync(script, ["--validate"], {
     cwd: hostRoot,
     encoding: "utf8",
   });
@@ -77,7 +77,7 @@ test("the required publisher validates without publishing from a feature branch"
   const authenticationIndex = publisherSource.indexOf(
     "const npmUsername = requireNpmAuthentication();",
   );
-  const certificationIndex = publisherSource.indexOf("certifyWave(wave)");
+  const certificationIndex = publisherSource.indexOf("certifyWave(wave, options)");
   assert.notEqual(authenticationIndex, -1);
   assert.notEqual(certificationIndex, -1);
   assert.ok(
@@ -117,9 +117,12 @@ test("the required publisher validates without publishing from a feature branch"
   );
   assert.match(packedInstallSource, /const totalFileCount = packed\.reduce/u);
   assert.match(publisherSource, /packed\.totalFileCount/u);
-  for (const source of [packedInstallSource, publicInstallSource]) {
-    assert.match(source, /from "\.\/verify-csharp-frameworks\.mjs"/u);
-  }
+  const packedTargetSource = readFileSync(resolve(hostRoot, "scripts/release/packed-install/verify-target.mjs"), "utf8");
+  assert.match(packedTargetSource, /from "\.\.\/verify-csharp-frameworks\.mjs"/u);
+  assert.match(publicInstallSource, /from "\.\/verify-csharp-frameworks\.mjs"/u);
+  assert.match(packedInstallSource, /buildReleaseWave\(wave\)/u);
+  assert.match(packedInstallSource, /runReleaseLanes/u);
+  assert.match(publicInstallSource, /runReleaseLanes/u);
 });
 
 test("npm release access is explicit and fails before unauthenticated publication", () => {

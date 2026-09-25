@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const mebibyte = 1024 * 1024;
 
 export function testResourceBudget(machine, environment = {}, profile = "host") {
-  if (profile !== "host" && profile !== "rust") throw new Error("Unknown test resource profile.");
+  if (!["host", "rust", "native"].includes(profile)) throw new Error("Unknown test resource profile.");
   const availableCpus = positiveInteger(machine.cpus, "available CPUs");
   const cpuBudget = configuredInteger(environment.TSONIC_TEST_CPUS, "TSONIC_TEST_CPUS")
     ?? Math.max(1, Math.floor(availableCpus * 0.85));
@@ -21,9 +21,9 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
     throw new Error("The test memory budget must fit currently available memory.");
   }
   const workerMemoryMiB = configuredInteger(environment.TSONIC_TEST_WORKER_MEMORY_MIB, "TSONIC_TEST_WORKER_MEMORY_MIB")
-    ?? (profile === "rust" ? 4096 : 2048);
+    ?? (profile === "host" ? 2048 : 4096);
   const childJobs = configuredInteger(environment.TSONIC_TEST_CHILD_JOBS, "TSONIC_TEST_CHILD_JOBS")
-    ?? (profile === "rust" ? Math.min(2, cpuBudget) : 1);
+    ?? (profile === "native" ? cpuBudget : profile === "rust" ? Math.min(2, cpuBudget) : 1);
   const capacity = Math.min(Math.floor(cpuBudget / childJobs), Math.floor(memoryMiB / workerMemoryMiB));
   if (capacity < 1) throw new Error("The CPU/memory budget cannot admit one test worker.");
   const workers = configuredInteger(environment.TSONIC_TEST_WORKERS, "TSONIC_TEST_WORKERS") ?? capacity;
