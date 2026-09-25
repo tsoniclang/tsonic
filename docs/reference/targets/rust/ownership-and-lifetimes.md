@@ -47,9 +47,11 @@ make native compilation succeed.
 ## Captures and final uses
 
 For a mutable binding used only by one synchronous closure, Tsonic stores the
-binding in that closure's environment. A Copy value uses `Cell<T>`; a Clone
-value that is not Copy uses `RefCell<T>`. Neither needs a separate shared
-location allocation. Reads release their borrow before later source effects.
+binding in that closure's environment. A native `FnMut` or `FnOnce` parameter
+uses an ordinary mutable captured value. The cloneable source-callable `Fn`
+contract instead needs `Cell<T>` for a Copy value or `RefCell<T>` for a Clone
+value that is not Copy. Neither needs a separate shared location allocation.
+Reads release their borrow before later source effects.
 
 Independent closures that update the same binding still share it. Taking its
 address, creating owners repeatedly, or retaining it across suspension can

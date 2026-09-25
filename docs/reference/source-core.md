@@ -97,7 +97,7 @@ attribute<Controller>()
   .method((controller) => controller.handle)
   .parameter("request")
   .target("param")
-  .add(() => new RouteAttribute("/items"));
+  .add(() => new InAttribute());
 ```
 
 The selected provider owns the target attribute identity and legal values.
@@ -106,6 +106,12 @@ checked call or construction. Constructor arguments use ordinary TypeScript
 type checking. A stored callback, block body or bare attribute type is not an
 attribute application. The lambda is annotation syntax; no callback runs or
 allocates at runtime. Native attribute constant and placement rules still apply.
+This example uses C#'s `InAttribute` on a parameter. Import it from
+`@tsonic/dotnet/System/Runtime/InteropServices.js`.
+
+`attribute.module()` selects the authored source module. A target must have a
+matching native declaration: Rust emits an attributed inline module; C# rejects
+this selection rather than treating it as an assembly or CLR module attribute.
 
 ### Compile-time intent
 
