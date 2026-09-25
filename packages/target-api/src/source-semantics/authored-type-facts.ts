@@ -67,7 +67,7 @@ function collectAuthoredSourceTypeFactDependencies(
     if (hasFacts) {
       subjects.push(current);
     }
-    if (hasFacts || ast.is.IsKeywordTypeNode(current)) {
+    if (hasFacts || ast.is.IsKeywordTypeNode(current) || ast.is.IsIndexedAccessTypeNode(current)) {
       nodes.push(current);
     }
     ast.forEachChild(current, visit);

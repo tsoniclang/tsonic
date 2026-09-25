@@ -1,5 +1,6 @@
 import type {
   AstReader,
+  ExtensionFactSubject,
   Node,
   Type,
   TypePropertyInfo,
@@ -8,6 +9,36 @@ import type {
 import type {
   SourceFileSemantics,
 } from "./types.js";
+
+interface SourceIndexedPropertyTypeEvidence {
+  readonly owner: Node;
+  readonly properties: readonly {
+    readonly property: TypePropertyInfo;
+    readonly subjects: readonly ExtensionFactSubject[];
+  }[];
+}
+
+export function sourceIndexedPropertyTypeEvidence(
+  ast: AstReader,
+  semantics: SourceFileSemantics,
+  node: Node,
+): SourceIndexedPropertyTypeEvidence | undefined {
+  if (!ast.is.IsIndexedAccessTypeNode(node)) return undefined;
+  const syntax = ast.as.AsIndexedAccessTypeNode(node);
+  if (syntax?.ObjectType === undefined || syntax.IndexType === undefined) return undefined;
+  const owner = semantics.types.authoredType(syntax.ObjectType);
+  const key = semantics.types.authoredType(syntax.IndexType);
+  if (owner === undefined || key === undefined) return undefined;
+  const selection = semantics.types.selectIndexedAccess(owner, key);
+  if (selection?.kind !== "resolved" || selection.members.some(member => member.kind !== "property")) return undefined;
+  const properties = selection.members.flatMap(member => member.kind !== "property" ? [] : [Object.freeze({
+    property: member.property,
+    subjects: Object.freeze([...new Set([member.property.symbol, ...member.property.rootSymbols].flatMap(
+      symbol => semantics.facts.selectedSubjects(symbol, undefined),
+    ))]),
+  })]);
+  return Object.freeze({ owner: syntax.ObjectType, properties: Object.freeze(properties) });
+}
 
 export function sourcePropertyTypeEvidenceNodes(
   ast: AstReader,
@@ -97,5 +128,6 @@ function sourceTypeNodeIsExactCandidate(ast: AstReader, node: Node): boolean {
     ast.is.IsFunctionTypeNode(node) ||
     ast.is.IsConstructorTypeNode(node) ||
     ast.is.IsTypeQueryNode(node) ||
+    ast.is.IsIndexedAccessTypeNode(node) ||
     ast.is.IsParenthesizedTypeNode(node);
 }

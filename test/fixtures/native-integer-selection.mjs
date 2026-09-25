@@ -48,7 +48,7 @@ export function mutableCounter(values: string[]): number {
   for (let index = 0; index < values.length; index++) { result += index; index += 0.5; }
   return result;
 }
-export function integralFloor(value: int32): int32 { return Math.floor(value) as int32; }
+export function integralFloor(value: int32) { return Math.floor(value); }
 export function fractionalFloor(value: number): number { return Math.floor(value); }
 export function conditional(left: int32, right: int32, choice: boolean) {
   const value = choice ? left : right;
