@@ -9,7 +9,7 @@ import {
   type Node,
 } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
-import { sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
+import { sourceIndexedPropertyTypeEvidence, sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({
@@ -28,6 +28,12 @@ function fixture() {
         type Exact = word;
         type Mixed = [Exact, Floating];
         type Recursive = { next?: Recursive; value: word };
+        type Fields = { first: word; second: word; optional?: word; ordinary: number };
+        type First = Fields["first"];
+        type Several = Fields["first" | "second"];
+        type Optional = Fields["optional"];
+        type Indexed = { [key: string]: number }[string];
+        type Deferred<T, K extends keyof T> = T[K];
       `,
     },
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
@@ -94,4 +100,32 @@ test("recursive authored closures terminate and return each evidence node once",
   assert.ok(nodes.length > 0 && nodes.length < 10);
   assert.equal(new Set(nodes).size, nodes.length);
   assert.ok(Object.isFrozen(nodes));
+});
+
+test("indexed property evidence retains exact selected symbols and optionality", () => {
+  const { source, semantics, alias } = fixture();
+  for (const [name, count, optional] of [["First", 1, false], ["Several", 2, false], ["Optional", 1, true]] as const) {
+    const evidence = sourceIndexedPropertyTypeEvidence(source.ast, semantics, alias(name));
+    assert.ok(evidence);
+    assert.equal(evidence.properties.length, count);
+    assert.ok(Object.isFrozen(evidence));
+    assert.ok(Object.isFrozen(evidence.properties));
+    for (const member of evidence.properties) {
+      assert.equal(member.property.optional, optional);
+      assert.ok(member.subjects.includes(member.property.symbol));
+      assert.ok(Object.isFrozen(member));
+      assert.ok(Object.isFrozen(member.subjects));
+      assert.equal(new Set(member.subjects).size, member.subjects.length);
+    }
+  }
+  for (const name of ["Indexed", "Deferred", "Floating"]) {
+    assert.equal(sourceIndexedPropertyTypeEvidence(source.ast, semantics, alias(name)), undefined);
+  }
+});
+
+test("transformed aliases retain indexed selection syntax without requiring a fact on that syntax", () => {
+  const { source, semantics, alias, selected } = fixture();
+  const nodes = sourceTransformedTypeFactEvidenceNodes(source.ast, semantics, alias("First"), selected("First"));
+  assert.ok(nodes.includes(alias("First")));
+  assert.equal(source.sourceFacts.getFacts(alias("First")).length, 0);
 });

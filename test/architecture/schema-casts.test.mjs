@@ -20,6 +20,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/heritage.ts": 1,
   "packages/target-api/src/source-navigation/initialization-uses.ts": 1,
   "packages/target-api/src/source-navigation/integer-ranges/analysis.ts": 17,
+  "packages/target-api/src/source-navigation/integer-ranges/induction.ts": 2,
   "packages/target-api/src/source-navigation/lexical-captures.ts": 1,
   "packages/target-api/src/source-navigation/member-dispatch.ts": 1,
   "packages/target-api/src/source-navigation/modules.ts": 1,
@@ -32,6 +33,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-semantics/authored-type-selection.ts": 1,
   "packages/target-api/src/source-semantics/integer-literal.ts": 2,
   "packages/target-api/src/source-semantics/standard-type-transformations.ts": 2,
+  "packages/target-api/src/source-semantics/type-component-evidence.ts": 1,
   "packages/target-api/src/source-semantics/type-syntax.ts": 6,
 });
 
