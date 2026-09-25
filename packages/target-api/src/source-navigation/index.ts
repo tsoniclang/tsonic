@@ -1,5 +1,6 @@
 export * from "./navigation.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "./lexical-captures.js";
+export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 export { createSourceArrayDensityQuery } from "./array-density.js";
