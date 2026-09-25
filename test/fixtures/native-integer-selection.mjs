@@ -95,8 +95,15 @@ export function shadowed(value: number): number {
   const Math = { floor(input: number): number { return input + 0.25; } };
   return Math.floor(value);
 }
+export function adjacent(values: string[], selected: int32, next: boolean): string {
+  const position = next ? selected + 1 : selected - 1;
+  if (position < 0 || position >= values.length) return "";
+  return values[position]!;
+}
 export function run(): boolean {
-  return forwardedCount(4) === 10 && forwardedCount(0) === 0 &&
+  return adjacent(["a", "b"], 0, true) === "b" && adjacent(["a", "b"], 1, false) === "a" &&
+    adjacent(["a", "b"], 0, false) === "" && adjacent(["a", "b"], 1, true) === "" &&
+    adjacent([], 0, true) === "" && forwardedCount(4) === 10 && forwardedCount(0) === 0 &&
     boundedCount(127) === 127 && boundedCount(0) === 0 && boundedCount(-1) === 0 &&
     reverseCount(["a", "b"]) === 2 && reverseCount([]) === 0 &&
     exiting(["a", "b", "c"]) === "b" && counted(["a", "b", "c"]) === "abc" && counted([]) === "" && growing() === "ab" &&
