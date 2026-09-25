@@ -1,0 +1,509 @@
+[
+  {
+    "id": "modules.named-linkage",
+    "area": "modules",
+    "source": "export function value(): number { return 1; }",
+    "classification": "implemented",
+    "action": "retain exact source-reference linkage",
+    "rustReference": "tsonic-rust/test/backend/printer/semantic-humanization.test.mjs"
+  },
+  {
+    "id": "modules.side-effect-imports",
+    "area": "modules",
+    "source": "import \"./setup.js\";",
+    "classification": "implemented",
+    "action": "retain dependency-ordered module initialization",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/module-initialization.test.mjs"
+  },
+  {
+    "id": "modules.top-level-await",
+    "area": "modules",
+    "source": "const value = await load();",
+    "classification": "implemented",
+    "action": "retain asynchronous crate startup",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/module-initialization.test.mjs"
+  },
+  {
+    "id": "modules.default-expression-export",
+    "area": "modules",
+    "source": "export default makeValue();",
+    "classification": "implemented",
+    "action": "retain one source-ordered immutable module binding and exact default-import identity",
+    "csharpReference": "tsonic-csharp/src/backend/planner/program/source-file.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/module-and-class-initialization-parity.test.mjs"
+  },
+  {
+    "id": "modules.runtime-cycles",
+    "area": "modules",
+    "source": "import { b } from \"./b.js\"; export const a = b;",
+    "classification": "shared-rejection",
+    "action": "retain deterministic rejection until shared live-binding and temporal-dead-zone evidence exists",
+    "csharpReference": "tsonic-csharp/test/backend/planner/artifacts/direct-translation-artifacts.test.mjs",
+    "rustReference": "tsonic-rust/src/backend/planner/program/module-initialization.ts"
+  },
+  {
+    "id": "declarations.functions",
+    "area": "declarations",
+    "source": "export function identity<T>(value: T): T { return value; }",
+    "classification": "implemented",
+    "action": "retain exact generic callable contracts",
+    "rustReference": "tsonic-rust/test/backend/printer/semantic-humanization.test.mjs"
+  },
+  {
+    "id": "declarations.classes",
+    "area": "declarations",
+    "source": "class Counter { value = 0; increment(): void { this.value++; } }",
+    "classification": "implemented",
+    "action": "retain generated state and impl separation",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/native-classes-enums-and-storage.test.mjs"
+  },
+  {
+    "id": "declarations.private-fields",
+    "area": "declarations",
+    "source": "class Box { #value = 1; read(): number { return this.#value; } }",
+    "classification": "implemented",
+    "action": "retain declaration-identity-backed storage",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/native-classes-enums-and-storage.test.mjs"
+  },
+  {
+    "id": "declarations.static-fields",
+    "area": "declarations",
+    "source": "class Counter { static total = mark(1); }",
+    "classification": "implemented",
+    "action": "retain source-order module-cell initialization",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/class-static-fields.test.mjs"
+  },
+  {
+    "id": "declarations.static-fields-default-initializer",
+    "area": "declarations",
+    "source": "class Counter { static total: number; }",
+    "classification": "shared-rejection",
+    "action": "retain the exact rejection; use an explicit initializer or defaultValue<T>() instead of silently replacing TypeScript undefined with a target-native default",
+    "csharpReference": "tsonic-csharp/test/backend/planner/declarations/direct-translation-declarations.test.mjs",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/class-static-fields.test.mjs"
+  },
+  {
+    "id": "declarations.class-static-blocks",
+    "area": "declarations",
+    "source": "class Registry { static { register(); } }",
+    "classification": "implemented",
+    "action": "retain one source-ordered class initialization plan for static fields and blocks",
+    "csharpReference": "tsonic-csharp/src/backend/planner/declarations/classes/constructors.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/module-and-class-initialization-parity.test.mjs"
+  },
+  {
+    "id": "declarations.inheritance",
+    "area": "declarations",
+    "source": "class Derived extends Base implements Named {}",
+    "classification": "implemented",
+    "action": "retain closed-world state and dispatch planning",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/inheritance-construction-parity.test.mjs"
+  },
+  {
+    "id": "declarations.generic-virtual-methods",
+    "area": "declarations",
+    "source": "const base: Base = new Derived(); base.identity<int32>(1); base.identity<string>(\"one\");",
+    "classification": "implemented",
+    "action": "retain exact finite specialization across virtual, interface, override, and super dispatch",
+    "csharpReference": "tsonic-csharp/src/backend/planner/declarations/classes/methods.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/inheritance-construction-parity.test.mjs"
+  },
+  {
+    "id": "declarations.open-generic-virtual-callers",
+    "area": "declarations",
+    "source": "function call<T>(base: Base, value: T): T { return base.identity<T>(value); }",
+    "classification": "implemented",
+    "action": "retain finite caller-specialization propagation through the callable dependency graph before closing dynamic-dispatch slots",
+    "csharpReference": "tsonic-csharp/src/backend/planner/declarations/classes/methods.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/native-classes-enums-and-storage.test.mjs"
+  },
+  {
+    "id": "declarations.interface-properties-methods",
+    "area": "declarations",
+    "source": "interface Counter { value: number; increment(): number; }",
+    "classification": "implemented",
+    "action": "retain record and polymorphic interface plans",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/project-contract-parity.test.mjs"
+  },
+  {
+    "id": "declarations.interface-heritage",
+    "area": "declarations",
+    "source": "interface Child extends Parent { value: number; }",
+    "classification": "implemented",
+    "action": "retain exact project heritage",
+    "rustReference": "tsonic-rust/test/backend/planner/declarations/inheritance-parity.test.mjs"
+  },
+  {
+    "id": "declarations.interface-index-signatures",
+    "area": "declarations",
+    "source": "interface Values { [key: string]: number; }",
+    "classification": "implemented",
+    "action": "retain exact map-backed index storage, selected key/value carriers, source-ordered construction, and copy-or-clone reads",
+    "csharpReference": "tsonic-csharp/src/backend/planner/declarations/interfaces/planning.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-property-parity.test.mjs"
+  },
+  {
+    "id": "declarations.enums",
+    "area": "declarations",
+    "source": "enum Mode { Off, On = 4 }",
+    "classification": "implemented",
+    "action": "retain checker-evaluated discriminants",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/native-classes-enums-and-storage.test.mjs"
+  },
+  {
+    "id": "declarations.closed-unions",
+    "area": "declarations",
+    "source": "type Shape = { kind: \"circle\"; radius: number } | { kind: \"square\"; size: number };",
+    "classification": "implemented",
+    "action": "retain exact tagged Rust enum carriers",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/native-types-generics-and-async.test.mjs"
+  },
+  {
+    "id": "objects.explicit-properties",
+    "area": "objects",
+    "source": "const point: Point = { x: 1, y: 2 };",
+    "classification": "implemented",
+    "action": "retain finalized ordered record fields",
+    "rustReference": "tsonic-rust/test/integration/generated-rust/generated-projects.test.mjs"
+  },
+  {
+    "id": "objects.spread",
+    "area": "objects",
+    "source": "const next: Point = { ...previous, x: 2 };",
+    "classification": "implemented",
+    "action": "record each spread projection and override in source evaluation order, evaluating every source expression once",
+    "csharpReference": "tsonic-csharp/src/backend/planner/objects/object-literals/spread.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-construction-parity.test.mjs"
+  },
+  {
+    "id": "objects.contextual-method-declarations",
+    "area": "objects",
+    "source": "const counter: Counter = { value: 1, next() { return this.value + 1; } };",
+    "classification": "implemented",
+    "action": "retain exact contextual declarations, this identity, captures, inheritance, recursion, and finite generic specializations",
+    "csharpReference": "tsonic-csharp/src/backend/planner/objects/object-literals/methods.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-method-parity.test.mjs"
+  },
+  {
+    "id": "objects.callable-property-values",
+    "area": "objects",
+    "source": "const counter: Counter = { value: 1, next: function () { return this.value + 1; } };",
+    "classification": "implemented",
+    "action": "retain exact contextual method identity while preserving dynamic this for function expressions and lexical receiver semantics for arrows",
+    "csharpReference": "tsonic-csharp/src/backend/planner/objects/object-literals/methods.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-method-parity.test.mjs"
+  },
+  {
+    "id": "objects.method-value-operations",
+    "area": "objects",
+    "source": "const next = counter.next; counter.next = replacement;",
+    "classification": "implemented",
+    "action": "retain exact bound-callable reads and independently replaceable method-property storage",
+    "csharpReference": "tsonic-csharp/src/backend/planner/objects/object-literals/methods.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-property-parity.test.mjs"
+  },
+  {
+    "id": "objects.method-spread",
+    "area": "objects",
+    "source": "const derived: Counter = { ...counter, value: 2 };",
+    "classification": "implemented",
+    "action": "retain exact callable-property projection alongside data fields in source evaluation order",
+    "csharpReference": "tsonic-csharp/src/backend/planner/objects/object-literals/spread.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-property-parity.test.mjs"
+  },
+  {
+    "id": "objects.overloaded-method-declarations",
+    "area": "objects",
+    "source": "const parser: Parser = { parse(value: string, radix?: int32) { return radix === undefined ? value : value + \"-radix\"; } };",
+    "classification": "implemented",
+    "action": "retain one authored implementation carrier and one exact adapter for each selected overload ABI",
+    "csharpReference": "tsonic-csharp/src/backend/planner/objects/object-literals/methods.ts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-method-parity.test.mjs"
+  },
+  {
+    "id": "objects.accessor-members",
+    "area": "objects",
+    "source": "const value = { get count() { return 1; } };",
+    "classification": "implemented",
+    "action": "retain exact getter and setter evidence, mutable storage, receiver identity, and project-interface dispatch",
+    "csharpReference": "tsonic-csharp/test/backend/planner/expressions/direct-translation-object-shapes.test.mjs",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/object-property-parity.test.mjs"
+  },
+  {
+    "id": "bindings.destructuring",
+    "area": "bindings",
+    "source": "const { left, ...rest } = pair; const [first, ...tail] = values;",
+    "classification": "implemented",
+    "action": "retain exact single-evaluation projections",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/binding-patterns-parity.test.mjs"
+  },
+  {
+    "id": "control.statements",
+    "area": "control-flow",
+    "source": "for (let i = 0; i < 3; i++) { if (i === 1) continue; }",
+    "classification": "implemented",
+    "action": "retain structured control-flow planning",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/control-flow-syntax-parity.test.mjs"
+  },
+  {
+    "id": "control.switch-fallthrough",
+    "area": "control-flow",
+    "source": "switch (value) { case 1: hit(); default: finish(); }",
+    "classification": "implemented",
+    "action": "retain strict selection and source fallthrough",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/control-flow-syntax-parity.test.mjs"
+  },
+  {
+    "id": "control.try-catch-finally",
+    "area": "control-flow",
+    "source": "try { run(); } catch (error) { recover(error); } finally { close(); }",
+    "classification": "implemented",
+    "action": "retain explicit result and completion-flow lowering",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/error-and-callbacks.test.mjs"
+  },
+  {
+    "id": "iteration.sync-async",
+    "area": "iteration",
+    "source": "for await (const value of values) { consume(value); }",
+    "classification": "implemented",
+    "action": "retain selected iterator protocol evidence",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/async-iteration.test.mjs"
+  },
+  {
+    "id": "generators.bidirectional",
+    "area": "generators",
+    "source": "function* values(): Generator<number, string, number> { const next = yield 1; return String(next); }",
+    "classification": "implemented",
+    "action": "retain yield next return throw and delegation protocol",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/generators.test.mjs"
+  },
+  {
+    "id": "generators.async",
+    "area": "generators",
+    "source": "async function* values() { yield await load(); }",
+    "classification": "implemented",
+    "action": "retain asynchronous generator protocol",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/generators.test.mjs"
+  },
+  {
+    "id": "generators.resource-suspension",
+    "area": "generators",
+    "source": "function* values() { using resource = open(); yield resource.value; }",
+    "classification": "implemented",
+    "action": "retain lexical disposal and suppressed-error composition across synchronous and asynchronous generator suspension",
+    "csharpReference": "tsonic-csharp/test/backend/planner/statements/direct-translation-generators.test.mjs",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/resource-management.test.mjs"
+  },
+  {
+    "id": "resources.sync-async",
+    "area": "resources",
+    "source": "using file = open(); await using connection = await connect();",
+    "classification": "implemented",
+    "action": "retain exact disposal selection and abrupt-completion cleanup",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/resource-management.test.mjs"
+  },
+  {
+    "id": "expressions.optional-nullish",
+    "area": "expressions",
+    "source": "return value?.item?.count ?? 0;",
+    "classification": "implemented",
+    "action": "retain selected Option projections",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/optional-chaining-parity.test.mjs"
+  },
+  {
+    "id": "expressions.assertions-narrowing",
+    "area": "expressions",
+    "source": "if (value instanceof Dog) return (value as Dog).name;",
+    "classification": "implemented",
+    "action": "retain checker-selected conversions and generated downcast routes",
+    "rustReference": "tsonic-rust/test/analysis/operations/selected-evidence.test.mjs"
+  },
+  {
+    "id": "expressions.callable-values",
+    "area": "expressions",
+    "source": "const operation = condition ? add : subtract; return operation(2, 1);",
+    "classification": "implemented",
+    "action": "retain exact capture and callable ABI facts",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/callable-values-parity.test.mjs"
+  },
+  {
+    "id": "types.primitives-aliases",
+    "area": "types",
+    "source": "const value: int32 = 1; const byte: uint8 = 2;",
+    "classification": "implemented",
+    "action": "retain authored primitive identity",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/native-types-generics-and-async.test.mjs"
+  },
+  {
+    "id": "types.arrays-tuples-fixed",
+    "area": "types",
+    "source": "const tuple: [number, string] = [1, \"one\"];",
+    "classification": "implemented",
+    "action": "retain exact tuple and homogeneous fixed-array carriers",
+    "rustReference": "tsonic-rust/test/backend/planner/statements/binding-patterns-parity.test.mjs"
+  },
+  {
+    "id": "types.fixed-array-lengths",
+    "area": "types",
+    "source": "declare const bytes: FixedArray<uint8, 32>;",
+    "classification": "implemented",
+    "action": "retain exact source-core FixedArray<T, N> facts and native target array lowering without syntax or name inference",
+    "csharpReference": "tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
+    "rustReference": "tsonic-rust/test/integration/generated-rust/r8-completion.test.mjs"
+  },
+  {
+    "id": "types.open-dynamic-values",
+    "area": "types",
+    "source": "return value[name];",
+    "classification": "shared-rejection",
+    "action": "retain fail-closed behavior without reflection or dynamic dispatch",
+    "csharpReference": "tsonic/AGENTS.md",
+    "rustReference": "tsonic-rust/README.md"
+  },
+  {
+    "id": "safety.typed-locations",
+    "area": "safety",
+    "source": "const location = addressOf(value); storePointer(location, loadPointer(location) + 1);",
+    "classification": "implemented",
+    "action": "retain exact storage identity and alias proofs",
+    "rustReference": "tsonic-rust/test/backend/planner/expressions/typed-locations.test.mjs"
+  },
+  {
+    "id": "safety.raw-pointers",
+    "area": "safety",
+    "source": "unsafe(() => loadPointer(rawPointerAs<uint8>(address)));",
+    "classification": "implemented",
+    "action": "retain explicit unsafe contracts and native pointer carriers",
+    "rustReference": "tsonic-rust/test/analysis/safety/explicit-safety.test.mjs"
+  },
+  {
+    "id": "providers.cargo-dependencies",
+    "area": "providers",
+    "source": "import { Widget } from \"@tsonic/rust/crates/widget_alias/index.js\";",
+    "classification": "implemented",
+    "action": "retain rustdoc-backed exact provider declarations",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.standard-library-breadth",
+    "area": "providers",
+    "source": "import { PathBuf } from \"@tsonic/rust/std/path.js\";",
+    "classification": "implemented",
+    "action": "retain requested compiler-backed public standard-library exports",
+    "csharpReference": "tsonic-csharp/src/providers/native/reflection",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/rust-stdlib-provider.test.mjs"
+  },
+  {
+    "id": "providers.generic-bounds",
+    "area": "providers",
+    "source": "import { constrained } from \"@tsonic/rust/crates/library/index.js\";",
+    "classification": "implemented",
+    "action": "retain exact Clone and Copy provider bounds through declaration models and generated generic requirements",
+    "csharpReference": "tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.copy-static-borrowed-results",
+    "area": "providers",
+    "source": "const name = item.staticName(); const copied = item.borrowedCount();",
+    "classification": "implemented",
+    "action": "retain exact static-string and Copy-value projections from compiler-selected borrowed results",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.escaping-borrowed-results",
+    "area": "providers",
+    "source": "const view = buffer.asSlice();",
+    "classification": "target-limit",
+    "action": "Retain exact lifetime-bearing borrowed-result checks. Re-audit this broad capability classification separately; this source-reference inventory does not certify an escaping-borrow capability gap.",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.owned-custom-receivers",
+    "area": "providers",
+    "source": "const value = boxed.consume();",
+    "classification": "implemented",
+    "action": "retain exact owned custom receiver projection such as Box<Self> through provider-selected UFCS",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.borrowed-custom-receivers",
+    "area": "providers",
+    "source": "pinned.poll(context);",
+    "classification": "target-limit",
+    "action": "reject nested borrowed custom receivers before source projection; retain owned custom receivers such as Box<Self>",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.c-variadics",
+    "area": "providers",
+    "source": "unsafe(() => variadic(format, first, second));",
+    "classification": "implemented",
+    "action": "retain C variadic tails as an explicit unsafe provider ABI without treating them as ordinary Rust rest parameters",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.mutable-statics",
+    "area": "providers",
+    "source": "unsafe(() => externalCounter.value++);",
+    "classification": "implemented",
+    "action": "retain exact unsafe read and write operations over the selected mutable static identity",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.closed-trait-associated-items",
+    "area": "providers",
+    "source": "const value = iterator.next();",
+    "classification": "implemented",
+    "action": "retain exact trait methods, associated constants, and concrete associated-type substitutions",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.open-associated-types",
+    "area": "providers",
+    "source": "const value: Family<T>::Item<U> = family.make(input);",
+    "classification": "target-limit",
+    "action": "reject open associated and generic-associated projections because TypeScript has no higher-kinded projection type; retain compiler-resolved concrete substitutions",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.rust-unions",
+    "area": "providers",
+    "source": "unsafe(() => payload.integer);",
+    "classification": "implemented",
+    "action": "retain union fields as explicit unsafe selected operations over exact provider identities",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  },
+  {
+    "id": "providers.macros",
+    "area": "providers",
+    "source": "externalMacro(value);",
+    "classification": "target-limit",
+    "action": "require a library-owned function wrapper because rustdoc does not provide an ordinary callable macro ABI",
+    "rustReference": "tsonic-rust/src/providers/native/model/model.ts"
+  },
+  {
+    "id": "js-node.detailed-surface",
+    "area": "surfaces",
+    "source": "console.log(values.map(value => value + 1));",
+    "classification": "implemented",
+    "action": "retain every implemented detailed lane and each exact hard rejection or Rust target limit in the dedicated JS and Node inventory",
+    "rustReference": "tsonic/test/fixtures/target-parity/javascript-node-lanes.json"
+  },
+  {
+    "id": "output.generated-cargo",
+    "area": "output",
+    "source": "export function main(): void {}",
+    "classification": "implemented",
+    "action": "retain deterministic Cargo artifacts",
+    "rustReference": "tsonic-rust/test/toolchain/cargo-project/cargo-project.test.mjs"
+  },
+  {
+    "id": "output.user-owned-cargo",
+    "area": "output",
+    "source": "import { Widget } from \"@tsonic/rust/crates/widget_alias/index.js\";",
+    "classification": "implemented",
+    "action": "retain source-only publication without mutating Cargo.toml",
+    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+  }
+]

@@ -82,6 +82,7 @@ export function createParallelSuiteDefinition(repos) {
       nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-provider", "test/providers"),
       nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/policy"),
       nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/analysis"),
+      nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-source-semantics", "test/target-model"),
       nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-backend-toolchain", "test/backend"),
       nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-backend-toolchain", "test/toolchain"),
       nodeSuite(repos.tsonicCsharp, "tsonic-csharp", "csharp-provider", "test/integration/provider-selection"),
@@ -92,7 +93,6 @@ export function createParallelSuiteDefinition(repos) {
         group: "node-provider",
         directory: resolve(repos.csharpNodejs, "nodejs/test"),
         suffix: ".test.mjs",
-        maxDepth: 0,
       },
     ],
     testRoots: [

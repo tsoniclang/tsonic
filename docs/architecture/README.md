@@ -52,6 +52,7 @@ using different target facts and algorithms inside them.
 
 - [Compilation lifecycle](compilation-lifecycle.md)
 - [Target-pack contract](target-pack-contract.md)
+- [C# and Rust source structure](csharp-rust-structure.md)
 - [Provider and runtime ownership](provider-and-runtime-ownership.md)
 - [Memory type contracts](memory-type-contracts.md)
 - [Indexed type correspondence](indexed-type-correspondence.md)

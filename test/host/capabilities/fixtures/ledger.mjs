@@ -132,14 +132,14 @@ const pointerOperationOldEvidenceAbsence = Object.freeze({
     "The portable typed-location operations are new final-architecture contracts. Historical pointer evidence remains mapped only to Pointer and function-pointer type capabilities; current positive and negative tests prove each operation.",
 });
 const slice4DotnetProviderContractPositiveTests = Object.freeze([
-  "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-  "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-  "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+  "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
 ]);
 const slice4DotnetProviderContractNegativeTests = Object.freeze([
-  "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-  "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-  "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+  "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
 ]);
 const slice4DotnetProviderContractOldEvidence = Object.freeze([
   "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
@@ -435,14 +435,14 @@ const slice4SourceCoreContractRows = Object.freeze([
   },
 ]);
 const slice4ProviderCallContractPositiveTests = Object.freeze([
-  "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
 ]);
 const slice4ProviderCallContractNegativeTests = Object.freeze([
-  "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+  "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
   "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
@@ -2593,8 +2593,8 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.module.virtual-import": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -2615,8 +2615,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/host/dependencies/surface-composition.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/host/dependencies/surface-composition.test.mjs",
@@ -2643,8 +2643,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/reflection/dotnet-provider-performance.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/reflection/dotnet-provider-performance.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/host/dependencies/surface-composition.test.mjs",
@@ -2653,8 +2653,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/reflection/dotnet-provider-performance.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/reflection/dotnet-provider-performance.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/cli/src/package-manifests/bindings.test.ts",
@@ -2666,17 +2666,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.source-shape": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/reflection/dotnet-provider-performance.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/reflection/dotnet-provider-performance.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/reflection/dotnet-provider-performance.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/reflection/dotnet-provider-performance.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2688,15 +2688,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.target-identity": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2754,17 +2754,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   "provider.virtual-module.constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -2909,7 +2909,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -2918,7 +2918,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -2957,8 +2957,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
@@ -3918,7 +3918,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-pointer-operations.test.mjs",
-      "../csharp-pudding/bcl/packages/hello-world/src/App.ts",
+      "../csharp-pudding/native/packages/hello-world/src/App.ts",
     ],
     negativeTests: [
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
@@ -3971,8 +3971,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ],
     oldEvidence: [
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
@@ -4023,8 +4023,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ],
     oldEvidence: [
       "packages/targets/csharp/emitter/testcases/common/types/pointers/PointerTypes.ts",
@@ -4036,12 +4036,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.assembly-model": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/reflection/dotnet-provider-assembly-identity.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/reflection/dotnet-provider-assembly-identity.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/reflection/dotnet-provider-assembly-identity.test.mjs",
+      "../tsonic-csharp/test/providers/native/reflection/dotnet-provider-assembly-identity.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/extensions/system/Overlaps.ts",
@@ -4053,14 +4053,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.type-model": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/classes/generic-inheritance/InheritanceChain.ts",
@@ -4073,17 +4073,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.member-methods": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4100,15 +4100,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.member-fields-properties-events": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4122,17 +4122,17 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.constructors": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4145,16 +4145,16 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.constraints": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -4173,15 +4173,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   "native.dotnet.conversions": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/providers/relations/direct-provider-relations.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/providers/relations/direct-provider-relations.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
@@ -4196,10 +4196,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.parameter-modes": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -4207,10 +4207,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4239,17 +4239,17 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emission may use T[] element access and Length only from finalized provider/native-array facts; assignment to native-array length must remain a read-only diagnostic, and normal source T[] stays TypeScript Array<T> semantics instead of becoming explicit CLR Array<T> by spelling.",
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4300,15 +4300,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.attributes": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -4369,9 +4369,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "provider.virtual-module.overload-identity": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -4381,9 +4381,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -4402,9 +4402,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "type.generic.provider-target-arguments": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4412,9 +4412,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4435,9 +4435,9 @@ const reviewedCapabilityEvidence = Object.freeze({
   "type.generic.provider-target-constraints": Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4447,7 +4447,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
       "../tsonic-csharp/test/backend/planner/declarations/direct-translation-inheritance-generics.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
@@ -4471,15 +4471,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/policy/types/direct-binding-projection-policy.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/array-and-literal-inference.test.ts",
@@ -4505,7 +4505,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/language/declarations.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "../tsonic-csharp/test/policy/types/direct-binding-projection-policy.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/core/arrays/literals-spread.test.mjs",
@@ -4714,7 +4714,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emits Array helpers only from the exact source-profile call selection. It must not rediscover Array members from source names, infer callback arity in the backend, choose List/JSArray/native-array carriers from TS spelling, or emit a call when the target policy rejects it.",
     positiveTests: Object.freeze([
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -4744,7 +4744,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -4776,7 +4776,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# must emit Array construction only from finalized selected-surface constructor facts; it must not reinterpret type-only Array<T> usage as a CLR allocation or native array fallback.",
     positiveTests: Object.freeze([
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
@@ -4800,7 +4800,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -4831,7 +4831,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# length/index emission uses Count, Length, or indexer only from selected array operation facts; missing receiver, declaration, or index facts fail before emission.",
     positiveTests: Object.freeze([
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/core/arrays/literals-spread.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -4906,7 +4906,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/language/declarations.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
         "test/cli-build/runtime/language/declarations.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -4940,7 +4940,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -4994,7 +4994,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -5032,7 +5032,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/architecture/analysis-abstraction-policy.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/architecture/dependency-boundaries.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -5040,7 +5040,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/architecture/analysis-abstraction-policy.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/architecture/dependency-boundaries.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -5249,8 +5249,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emits selected System.String/runtime-helper/Globals.String calls only from finalized JS string operation facts. String match, matchAll, replace, replaceAll, search, and split require exact RegExp or well-known-symbol protocol facts; String.raw, wrapper construction, source-spelling selection, and native string fallbacks without closed facts are diagnostics.",
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Strings/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -5334,8 +5334,8 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Strings/StringTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -5372,8 +5372,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emits BooleanOps.toString/valueOf and Globals.Boolean conversion calls only from finalized selected Boolean operation facts; bool.ToString() casing, native object fallback, and implicit Boolean wrapper construction must not be used as JavaScript semantics.",
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/BooleanTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -5448,8 +5448,8 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/BooleanTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/BooleanTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -5492,8 +5492,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emits Tsonic.CSharp.Js.Number operations only from finalized selected Number operation/signature/property facts; CLR ToString(), culture-sensitive formatting, boxing, dynamic, source-spelling lookup, or static property name guessing must not provide JavaScript number semantics.",
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Numeric/NumberTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -5558,8 +5558,8 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NumberTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Numeric/NumberTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -5593,7 +5593,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emits Tsonic.CSharp.Js.console operations only from finalized selected Console operation facts and closed argument carriers; it must not route to System.Console directly, box unknown values, infer from source spelling, or emit placeholder calls.",
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/ConsoleTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -5655,7 +5655,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/ConsoleTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -5685,7 +5685,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emits Tsonic.CSharp.Js.console.log only from finalized selected Console.log operation facts with closed argument carriers; it must not box unknown values, call System.Console directly, or recover from source spelling.",
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/ConsoleTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -5745,7 +5745,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ConsoleTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/ConsoleTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -5781,15 +5781,15 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/number-boolean.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExpTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Numeric/MathTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExp/RegExpTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/number-boolean.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -5813,9 +5813,9 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExpTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Numeric/MathTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/RegExp/RegExpTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -5883,8 +5883,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     positiveTests: Object.freeze([
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Collections/MapTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Collections/SetTests.cs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
@@ -5910,8 +5910,8 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MapTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/SetTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Collections/MapTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Collections/SetTests.cs",
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       failClosedDiagnostics: [
@@ -5928,7 +5928,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "surface.js.math": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Numeric/MathTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -5951,7 +5951,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/MathTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Numeric/MathTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -5984,7 +5984,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "C# emits Tsonic.CSharp.Js.Date construction, static calls, call(), and instance calls only from finalized selected-surface Date operation facts; without selected facts, Date calls and constructors fail before artifact creation.",
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Date/DateTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
     negativeTests: Object.freeze([
@@ -6006,7 +6006,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Date/DateTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/arrays.test.mjs",
@@ -6041,8 +6041,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/number-boolean.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Objects/ObjectTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6052,7 +6052,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     negativeTests: Object.freeze([
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/number-boolean.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Objects/ObjectTests.cs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6082,8 +6082,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       runtimeBehavior: [
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ObjectTests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Objects/ObjectTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
       ],
       failClosedDiagnostics: [
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -6100,7 +6100,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.fs-path-process": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6108,7 +6108,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6122,7 +6122,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6130,7 +6130,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6146,7 +6146,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6166,7 +6166,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.fs": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6185,7 +6185,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6197,11 +6197,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6228,7 +6228,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/writeSync.tests.cs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6263,17 +6263,17 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "C# emits Stats.mtime Date access and Date instance calls only from finalized Node provider-package and JS surface facts; it must not reinterpret Stats timestamps as native DateTime, string, dynamic object, or unproven nullable union carriers.",
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/fstatSync.tests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Date/DateTests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+      "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
@@ -6284,14 +6284,14 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+        "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+        "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
       ],
       backendEmission: [
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -6302,10 +6302,10 @@ const reviewedCapabilityEvidence = Object.freeze({
       runtimeBehavior: [
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/statSync.tests.cs",
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/fs/fstatSync.tests.cs",
-        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/DateTests.cs",
+        "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Date/DateTests.cs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/nodejs/test/nodejs-stats-date-surface.test.mjs",
+        "../csharp-nodejs/nodejs/test/integration/nodejs-stats-date-surface.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
@@ -6324,7 +6324,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.process": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6347,7 +6347,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/versions.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6361,7 +6361,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6369,7 +6369,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6408,7 +6408,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.buffer-crypto-os": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6430,7 +6430,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6442,11 +6442,11 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6476,7 +6476,7 @@ const reviewedCapabilityEvidence = Object.freeze({
         "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/os/machine-version.tests.cs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6496,7 +6496,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.util": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6506,7 +6506,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6520,7 +6520,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6528,7 +6528,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6546,7 +6546,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6568,7 +6568,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "surface.node.url": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6577,7 +6577,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/url/url.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6589,7 +6589,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     surfaceEvidence: freezeSurfaceEvidence({
       selectedOperationFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6597,7 +6597,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       providerFacts: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
       ],
       backendEmission: [
@@ -6614,7 +6614,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
       ],
       failClosedDiagnostics: [
-        "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+        "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
         "test/cli-build/runtime/js-surface/rejections.test.mjs",
         "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6676,7 +6676,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "runtime.csharp.nodejs": Object.freeze({
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6701,7 +6701,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/util/util.more.tests.cs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
@@ -6722,12 +6722,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NoReflectionSemanticsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Architecture/NoReflectionSemanticsTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/toolchain/runtime-toolchain-proof.test.mjs",
       "../tsonic-csharp/test/architecture/roslyn-boundary.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/NoReflectionSemanticsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Architecture/NoReflectionSemanticsTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-maximus-cases/json-static-safety.test.ts",
@@ -6772,13 +6772,13 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/core.test.mjs",
       "../tsonic-csharp/test/source/markers/direct-source-core-translation.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6793,7 +6793,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   "expression.literal.null-undefined": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/core/control-flow/expressions.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/core/control-flow/expressions.test.mjs",
@@ -6830,12 +6830,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Strings/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/exitCode.tests.cs",
     ]),
@@ -6845,8 +6845,8 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/nullish-coalescing/",
@@ -6863,11 +6863,11 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/ArrayTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/StringTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/GlobalsTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Arrays/ArrayTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Strings/StringTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Globals/GlobalsTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
       "../csharp-nodejs/csharp/test/Tsonic.CSharp.Node.Tests/process/env.tests.cs",
     ]),
     negativeTests: Object.freeze([
@@ -6876,7 +6876,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/process-buffer-crypto-os.test.mjs",
       "test/cli-build/runtime/nodejs/util-url.test.mjs",
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
     oldEvidenceAbsence: Object.freeze({
@@ -6899,19 +6899,19 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "native.dotnet.unsupported-diagnostics": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-attributes.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-attributes.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -6923,7 +6923,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "operation.call.provider-selected-method": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6931,7 +6931,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6948,7 +6948,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6957,7 +6957,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6974,9 +6974,9 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -6984,7 +6984,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -7496,7 +7496,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "../tsonic-csharp/test/backend/planner/declarations/direct-translation-inheritance-defaults.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -7507,7 +7507,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-parameter-and-generic-evidence.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-relations-and-conversions.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-call-selection-structural-and-constructor-edges.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -7524,7 +7524,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "expression.new": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-declaration-contract-distant-lands.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
@@ -7847,15 +7847,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -7866,13 +7866,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   "carrier.union": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/unions/runtime-union.test.mjs",
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/unions/runtime-union.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([]),
     oldEvidenceAbsence: Object.freeze({
@@ -7896,13 +7896,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   "runtime.union.carrier": Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/runtime/unions/runtime-union.test.mjs",
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/JSONTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Json/JSONTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/unions/runtime-union.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/expected/operators/in-operator/InOperator.cs",
@@ -7946,7 +7946,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
@@ -7963,7 +7963,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
@@ -7980,12 +7980,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -7998,7 +7998,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
@@ -8015,7 +8015,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
@@ -8032,13 +8032,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -8051,13 +8051,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -8071,14 +8071,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/policy/conversions/direct-source-literal-policy.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -8095,8 +8095,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
@@ -8115,8 +8115,8 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
     ]),
@@ -8132,15 +8132,15 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
       "../tsonic-csharp/test/toolchain/project-model/project-artifacts.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     negativeTests: Object.freeze([
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-core.test.mjs",
       "test/cli-build/runtime/dynamic-values/runtime.test.mjs",
       "../tsonic-csharp/test/architecture/selected-evidence-audit.test.mjs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsValueTests.cs",
-      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/TsUnionTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsValueTests.cs",
+      "../csharp-js/tests/Tsonic.CSharp.Js.Tests/Values/TsUnionTests.cs",
     ]),
     oldEvidence: Object.freeze([
       "packages/frontend/src/validator-cases/any-and-object-literals.test.ts",
@@ -8163,12 +8163,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "function.default-rest-optional-params": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
       "test/cli-build/core/declarations/classes.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-optional-params.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-optional-params.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8181,13 +8181,13 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "function.delegate-carrier": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -8303,15 +8303,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "carrier.function-delegate": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
       "test/cli-build/core/closure/csharp.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "test/cli-build/core/object-shapes/basic.test.mjs",
       "test/cli-build/core/control-flow/expressions.test.mjs",
     ]),
@@ -8327,12 +8327,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "declaration.generic-parameters": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "test/cli-build/core/closure/csharp.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
       "test/cli-build/core/closure/csharp.test.mjs",
     ]),
@@ -9360,7 +9360,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     backendContract:
       "Selected but unsupported surface operations must reject with the owning surface diagnostic and must not defer to backend name lookup or emit placeholder calls.",
     positiveTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -9369,7 +9369,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/runtime/nodejs/rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../csharp-nodejs/nodejs/test/node-surface-completion.test.mjs",
+      "../csharp-nodejs/nodejs/test/providers/node-surface-completion.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
       "test/cli-build/runtime/js-surface/arrays.test.mjs",
       "test/cli-build/runtime/nodejs/modules-path-fs.test.mjs",
@@ -9414,14 +9414,14 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.unsupported-target-operation": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/runtime/js-surface/rejections.test.mjs",
     ]),
@@ -9437,12 +9437,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.target-constraint": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-generic-constraints.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
       "../tsonic-csharp/test/integration/provider-selection/direct-provider-member-selection.test.mjs",
       "test/cli-build/providers/dotnet/core.test.mjs",
     ]),
@@ -9543,12 +9543,12 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.evidence": Object.freeze({
     positiveTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
     ]),
     negativeTests: Object.freeze([
-      "../tsonic-csharp/test/providers/dotnet/declarations/dotnet-provider-contract.test.mjs",
+      "../tsonic-csharp/test/providers/native/declarations/dotnet-provider-contract.test.mjs",
       "../tsonic-csharp/test/backend/planner/expressions/direct-translation-provider-heritage.test.mjs",
       "test/host/dependencies/surface-composition.test.mjs",
     ]),
@@ -9616,13 +9616,13 @@ const reviewedCapabilityEvidence = Object.freeze({
       "The C# backend emits a provider-backed library from finalized facts, includes explicit ASP.NET framework references from target-owned project options, suppresses artifacts on diagnostics, and leaves ASP.NET/Web SDK behavior to the downstream .NET project through ProjectReference.",
     positiveTests: Object.freeze([
       "test/cli-build/toolchain/downstream-smoke.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/toolchain/downstream-smoke.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
-      "../tsonic-csharp/test/providers/dotnet/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
+      "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "test/fixtures/aspnetcore-dotnet/",

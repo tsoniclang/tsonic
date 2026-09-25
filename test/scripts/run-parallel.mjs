@@ -7,6 +7,7 @@ import { readTestResourceBudget } from "./test-resource-budget.mjs";
 import { runBoundedTestQueue } from "./parallel-scheduler.mjs";
 import { createProgressTracker } from "./parallel-progress.mjs";
 import { createParallelSuiteDefinition } from "./suite-definition.mjs";
+import { discoverTestFiles } from "./node-test-files.mjs";
 import {
   aggregateTestCounts,
   parseTestCounts,
@@ -161,8 +162,8 @@ function buildShards() {
   return [
     ...suiteDefinition.nodeSuites.flatMap((testSuite) =>
       (testSuite.recursive === false
-        ? listFiles(testSuite.directory, testSuite.suffix, testSuite.maxDepth ?? 0)
-        : listFilesRecursive(testSuite.directory, testSuite.suffix))
+        ? discoverTestFiles(testSuite.directory, testSuite.suffix, testSuite.maxDepth ?? 0)
+        : discoverTestFiles(testSuite.directory, testSuite.suffix))
         .filter((file) => !isIntentionallySkipped(testSuite, file))
         .map((file) => nodeTestShard(testSuite.scope, groupForSuiteFile(testSuite, file), file,
           testSuite.compiledDirectory === undefined ? file : resolve(testSuite.compiledDirectory, relative(testSuite.directory, file).replace(/\.ts$/u, ".js"))))
@@ -216,7 +217,7 @@ function validateShardCoverage(shardsToValidate) {
   }
   for (const testRoot of suiteDefinition.testRoots ?? []) {
     const repoKey = scopeToRepoKey(testRoot.scope);
-    for (const file of listFilesRecursive(testRoot.directory, ".test.mjs")) {
+    for (const file of discoverTestFiles(testRoot.directory, ".test.mjs")) {
       const relativeFile = toPosix(relative(repos[repoKey], file));
       if (!representedFiles.has(`${testRoot.scope}:${relativeFile}`)) {
         failures.push(`${testRoot.scope} test file has no owning suite root: ${relativeFile}`);
@@ -234,7 +235,7 @@ function validateShardCoverage(shardsToValidate) {
 
   function validateNodeSuiteCoverage(testSuite) {
     const repoKey = scopeToRepoKey(testSuite.scope);
-    for (const file of listFilesRecursive(testSuite.directory, testSuite.suffix)) {
+    for (const file of discoverTestFiles(testSuite.directory, testSuite.suffix)) {
       const relativeFile = toPosix(relative(repos[repoKey], file));
       if (testSuite.intentionallySkipped?.has(relativeFile) === true) {
         continue;
@@ -410,7 +411,7 @@ function groupFilesByDirectory(rootDirectory, files) {
 }
 
 function listDotnetTestFiles(directory) {
-  return listFilesRecursive(directory, ".cs")
+  return discoverTestFiles(directory, ".cs")
     .filter((file) => {
       const text = readFileSync(file, "utf8");
       return /\[(?:Fact|Theory|Test)\]/u.test(text);
@@ -612,48 +613,8 @@ function runPreRuns(preRuns) {
   return results;
 }
 
-function listFiles(directory, suffix, maxDepth) {
-  if (!existsSync(directory)) {
-    return [];
-  }
-  const output = [];
-  walk(directory, 0);
-  return output.sort();
-
-  function walk(current, depth) {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory() && depth < maxDepth) {
-        walk(path, depth + 1);
-      } else if (entry.isFile() && path.endsWith(suffix)) {
-        output.push(path);
-      }
-    }
-  }
-}
-
-function listFilesRecursive(directory, suffix) {
-  if (!existsSync(directory)) {
-    return [];
-  }
-  const output = [];
-  walk(directory);
-  return output.sort();
-
-  function walk(current) {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(path);
-      } else if (entry.isFile() && path.endsWith(suffix)) {
-        output.push(path);
-      }
-    }
-  }
-}
-
 function listExecutableArchitectureTests(directory) {
-  return listFilesRecursive(directory, ".mjs")
+  return discoverTestFiles(directory, ".mjs")
     .filter((file) => readFileSync(file, "utf8").includes("node:test"));
 }
 

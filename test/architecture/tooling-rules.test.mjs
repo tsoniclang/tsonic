@@ -17,6 +17,8 @@ import {
   canonicalTargetLayerPolicies,
   canonicalTargetRootPolicies,
   canonicalTargetSourceRules,
+  canonicalTargetTestDomains,
+  selectedTargetEvidenceRule,
   targetLayerNames,
 } from "./tooling/target-layer-contract.mjs";
 
@@ -50,6 +52,9 @@ test("canonical target layer contract is complete and discriminating", () => {
     "ARCH-POLICY-001",
   ]);
   const sourceRuleMutations = [
+    ["ARCH-TARGET-CONFIG-001", "src/backend/planner/project.ts", "configuration.projectFile"],
+    ["ARCH-TARGET-PROGRAM-001", "src/analysis/program/model.ts", "readonly values: Map<string, string>;"],
+    ["ARCH-TARGET-PLAN-001", "src/backend/artifact-model/output.ts", "readonly diagnostics: Diagnostic[];"],
     ["ARCH-TARGET-SESSION-001", "src/backend/compile.ts", "createBackend(context);"],
     ["ARCH-TARGET-SOURCE-001", "src/policy/types.ts", "checker.getSymbolAtLocation(node);"],
     ["ARCH-TARGET-SOURCE-002", "src/analysis/program.ts", "interface Queries extends TypeCheckerQueries {}"],
@@ -70,6 +75,19 @@ test("canonical target layer contract is complete and discriminating", () => {
       `${ruleId} did not reject its mutation`,
     );
   }
+});
+
+test("target test domains and selected-evidence guards have one shared contract", () => {
+  assert.ok(canonicalTargetTestDomains.includes("target-model"));
+  assert.equal(new Set(canonicalTargetTestDomains).size, canonicalTargetTestDomains.length);
+  const prefixes = ["src/policy/operations/members/", "src/analysis/operations/"];
+  const rule = selectedTargetEvidenceRule(prefixes);
+  prefixes.push("src/policy/types/");
+  for (const method of ["propertyInfos", "callSignatures", "constructSignatures"]) {
+    assert.equal(rule.matches("src/analysis/operations/call.ts", `source.types.${method}(type);`), true);
+  }
+  assert.equal(rule.matches("src/policy/types/records.ts", "source.types.propertyInfos(type);"), false);
+  assert.equal(rule.matches("src/analysis/operations/call.ts", "source.selectedCall(node);"), false);
 });
 
 test("architecture layer rules reject every forbidden dependency direction", () => {
