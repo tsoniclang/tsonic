@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hostRoot, resolveWaveLayout } from "../release/npm-wave.mjs";
+import { hostRoot, loadNpmWave, resolveWaveLayout } from "../release/npm-wave.mjs";
 import { snapshotCertificationInputs } from "./inputs.mjs";
 import { hostReportCounts } from "./counts.mjs";
 import { certificationRoot, describeEvidence, validateCertification, writeImmutableJson } from "./records.mjs";
@@ -78,7 +78,16 @@ export function runCertification(entry, layout, { environment = process.env } = 
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [repository, ...extra] = process.argv.slice(2);
-  const layout = resolveWaveLayout();
+  const wave = loadNpmWave();
+  const manifest = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8"));
+  const expectedName = repository === "tsonic"
+    ? JSON.parse(readFileSync(resolve(hostRoot, "package.json"), "utf8")).name
+    : wave.packages.find(entry => entry.repository === repository && entry.directory === ".")?.name;
+  if (manifest.name !== expectedName) throw new Error("Complete certification must run from the selected repository.");
+  const layout = resolveWaveLayout(wave, {
+    workspaceRoot: process.env.TSONICLANG_WORKSPACE_ROOT ?? dirname(process.cwd()),
+    repositoryRoots: new Map([[repository, process.cwd()]]),
+  });
   const entry = layout.certification.find(entry => entry.repository === repository);
   if (entry === undefined || extra.length !== 0) throw new Error("Select one declared complete certification suite.");
   const { record } = runCertification(entry, layout);

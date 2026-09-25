@@ -42,7 +42,8 @@ export function validateCertification(record, entry, current, root, now = Date.n
   }
   const started = Date.parse(record.startedAt);
   const finished = Date.parse(record.finishedAt);
-  if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started || finished > now) {
+  if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started || finished > now ||
+      new Date(started).toISOString() !== record.startedAt || new Date(finished).toISOString() !== record.finishedAt) {
     throw new Error("Invalid certification timestamps.");
   }
   for (const inputs of [record.before, record.after, current]) {

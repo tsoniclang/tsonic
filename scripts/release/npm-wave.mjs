@@ -29,18 +29,12 @@ export function loadNpmWave() {
   });
 }
 
-export function resolveWaveLayout(wave = loadNpmWave()) {
-  const configuredWorkspaceRoot = process.env.TSONICLANG_WORKSPACE_ROOT;
+export function resolveWaveLayout(wave = loadNpmWave(), options = {}) {
+  const configuredWorkspaceRoot = options.workspaceRoot ?? process.env.TSONICLANG_WORKSPACE_ROOT;
   if (configuredWorkspaceRoot !== undefined && !isAbsolute(configuredWorkspaceRoot)) {
     throw new Error("TSONICLANG_WORKSPACE_ROOT must be an absolute path.");
   }
   const workspaceRoot = resolve(configuredWorkspaceRoot ?? dirname(hostRoot));
-  const expectedHostRoot = resolve(workspaceRoot, "tsonic");
-  if (hostRoot !== expectedHostRoot) {
-    throw new Error(
-      `The host checkout '${hostRoot}' is not the tsonic repository in release workspace '${workspaceRoot}'.`,
-    );
-  }
   const repositoryRoots = new Map([["tsonic", hostRoot]]);
   for (const entry of [...wave.packages, ...wave.certification]) {
     if (!repositoryRoots.has(entry.repository)) {
@@ -51,6 +45,12 @@ export function resolveWaveLayout(wave = loadNpmWave()) {
     for (const repository of entry.inputs) {
       if (!repositoryRoots.has(repository)) repositoryRoots.set(repository, resolve(workspaceRoot, repository));
     }
+  }
+  for (const [repository, root] of options.repositoryRoots ?? []) {
+    if (!repositoryRoots.has(repository) || !isAbsolute(root) || repository === "tsonic" && root !== hostRoot) {
+      throw new Error("Invalid explicit certification repository root.");
+    }
+    repositoryRoots.set(repository, resolve(root));
   }
   for (const [repository, repositoryRoot] of repositoryRoots) {
     if (repository !== "tsonic") {

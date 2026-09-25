@@ -96,6 +96,9 @@ process.stdout.write(
 );
 
 function verifyRepositories(selectedWave, options = { fetch: true }) {
+  if (hostRoot !== resolve(selectedWave.layout.workspaceRoot, "tsonic")) {
+    throw new Error("Publication requires the host in the coherent release workspace.");
+  }
   const repositories = [...selectedWave.layout.repositoryRoots.entries()];
   for (const [name, root] of repositories) {
     const hygieneScript = resolve(root, "scripts/check-branch-hygiene.sh");

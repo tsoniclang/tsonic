@@ -8,7 +8,7 @@ import { hostReportCounts, parseBankCounts } from "../../scripts/certification/c
 import { snapshotCertificationInputs, sameCertificationInputs } from "../../scripts/certification/inputs.mjs";
 import { describeEvidence, latestCertification, validateCertification, writeImmutableJson } from "../../scripts/certification/records.mjs";
 import { selectCertification } from "../../scripts/certification/select.mjs";
-import { hostRoot, loadNpmWave } from "../../scripts/release/npm-wave.mjs";
+import { hostRoot, loadNpmWave, resolveWaveLayout } from "../../scripts/release/npm-wave.mjs";
 import { createTestWorkspace } from "../scripts/test-workspaces.mjs";
 
 const entry = validateCertificationEntry({
@@ -34,16 +34,27 @@ test("all release banks explicitly close over their real sibling dependencies", 
   const entries = loadNpmWave().certification;
   for (const suite of entries) assert.doesNotThrow(() => validateCertificationEntry(suite));
   assert.deepEqual(entries.find(suite => suite.repository === "tsonic").inputs,
-    ["tsonic", "tsonic-csharp", "csharp-runtime", "csharp-js", "csharp-nodejs"]);
-  for (const repository of ["tsonic-rust", "rust-nodejs"]) {
-    assert.deepEqual(entries.find(suite => suite.repository === repository).inputs,
-      ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"]);
-  }
+    ["tsonic", "tsonic-csharp", "csharp-runtime", "csharp-js", "csharp-nodejs", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"]);
+  assert.deepEqual(entries.find(suite => suite.repository === "tsonic-rust").inputs,
+    ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs", "tsonic-csharp"]);
+  assert.deepEqual(entries.find(suite => suite.repository === "rust-nodejs").inputs,
+    ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"]);
   for (const invalid of [{ ...entry, inputs: [] }, { ...entry, inputs: ["../outside"] },
     { ...entry, tools: ["guess"] }, { ...entry, command: [] }, { ...entry, skipped: -1 },
     { ...entry, banks: ["node", "node"] }, { ...entry, extra: true }]) {
     assert.throws(() => validateCertificationEntry(invalid));
   }
+});
+
+test("verification preserves explicit checkout roots without relaxing publisher coherence", () => {
+  const workspaceRoot = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-layout-");
+  const root = resolve(workspaceRoot, "selected-target");
+  const layout = resolveWaveLayout(loadNpmWave(), { workspaceRoot, repositoryRoots: new Map([["tsonic-rust", root]]) });
+  assert.equal(layout.repositoryRoots.get("tsonic"), hostRoot);
+  assert.equal(layout.repositoryRoots.get("tsonic-rust"), root);
+  assert.equal(layout.repositoryRoots.get("rust-runtime"), resolve(workspaceRoot, "rust-runtime"));
+  assert.throws(() => resolveWaveLayout(loadNpmWave(), { repositoryRoots: new Map([["unknown", root]]) }));
+  assert.throws(() => resolveWaveLayout(loadNpmWave(), { repositoryRoots: new Map([["tsonic-rust", "relative"]]) }));
 });
 
 test("reuse preflight rejects any missing bank; force reruns only invalid banks", () => {
