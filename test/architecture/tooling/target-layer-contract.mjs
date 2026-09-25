@@ -19,6 +19,18 @@ export const targetLayerNames = Object.freeze([
   "toolchain",
 ]);
 
+export const canonicalTargetTestDomains = Object.freeze([
+  "analysis",
+  "architecture",
+  "backend",
+  "integration",
+  "policy",
+  "providers",
+  "source",
+  "target-model",
+  "toolchain",
+]);
+
 const allowedTargetLayerDependencies = Object.freeze({
   "public-root": ["descriptor", "options", "target-model"],
   "public-provider-sdk": ["provider-model", "provider-implementation", "target-model", "policy"],
@@ -72,6 +84,24 @@ export const canonicalTargetRootPolicies = Object.freeze([
 ]);
 
 export const canonicalTargetSourceRules = Object.freeze([
+  sourceRule(
+    "ARCH-TARGET-CONFIG-001",
+    (file, source) => file.startsWith("src/backend/") &&
+      /\bconfiguration\.projectFile\b|from\s+["'][^"']*\/options\//u.test(source),
+    "Target planning consumes the one normalized target configuration.",
+  ),
+  sourceRule(
+    "ARCH-TARGET-PROGRAM-001",
+    (file, source) => file === "src/analysis/program/model.ts" &&
+      /\b(?:Map|Set|Builder|Registry)\s*</u.test(source),
+    "The sealed target program cannot expose mutable collections or builders.",
+  ),
+  sourceRule(
+    "ARCH-TARGET-PLAN-001",
+    (file, source) => file === "src/backend/artifact-model/output.ts" &&
+      /\bdiagnostic/u.test(source),
+    "Output plans contain complete target artifacts, never stage diagnostics.",
+  ),
   sourceRule(
     "ARCH-TARGET-SESSION-001",
     (_file, source) => /\b(?:TargetBackend|TargetBackendContext|createBackend|createTsonicSemanticSession|compileTargetFromSemanticSession)\b/u.test(source),
@@ -160,6 +190,16 @@ export const canonicalTargetSourceRules = Object.freeze([
     "Target product source must use the canonical artifact-model, target-ast, printer, and host-owned composition boxes.",
   ),
 ]);
+
+export function selectedTargetEvidenceRule(prefixes) {
+  const owners = Object.freeze([...prefixes]);
+  return sourceRule(
+    "ARCH-TARGET-SELECTION-001",
+    (file, source) => owners.some((prefix) => file.startsWith(prefix)) &&
+      /\.types\.(?:propertyInfos|callSignatures|constructSignatures)\s*\(/u.test(source),
+    "Checked operation mapping consumes selected evidence, not structural member or signature reconstruction.",
+  );
+}
 
 export function targetLayerPrefix(pathPrefix, layer) {
   requireTargetLayer(layer);
