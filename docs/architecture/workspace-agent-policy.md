@@ -191,6 +191,16 @@ policy.
   “clean it later” code.
 - When a canonical shape changes, break stale assumptions and repair every
   first-party producer and consumer against the final shape.
+- An API replacement is one complete migration, not an additional supported
+  form. Remove superseded signatures, handlers and adapters; update all owned
+  callers, declarations, facts, documentation, fixtures and tests together.
+  Prove that the removed form is rejected. Temporary compatibility overloads
+  and staged old/new acceptance are prohibited.
+- For example, replacing `add(AttributeType, ...args)` with an inline lambda
+  containing a checked attribute invocation means deleting the flat form, not
+  accepting both. Preserve independent placement selectors and native attribute
+  restrictions; the new argument syntax does not justify losing capabilities
+  or weakening validation.
 
 ### Truth Over Heuristics
 
