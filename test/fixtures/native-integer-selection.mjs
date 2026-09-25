@@ -55,7 +55,20 @@ export function mutableCounter(values: string[]): number {
   return result;
 }
 export function integralFloor(value: int32) { return Math.floor(value); }
-export function fractionalFloor(value: number): number { return Math.floor(value); }
+export function compoundFloor(low: int32, high: int32) { return low + Math.floor((high - low) / 2); }
+export function negatedFloor(low: int32, high: int32) { return Math.floor(-((high - low) / 2)); }
+const firstCount = (): int32 => 7;
+const secondCount = (): int32 => 11;
+export function calledConditionalLiteral(choice: boolean) { return choice ? firstCount() : 0; }
+export function calledConditional(choice: boolean) {
+  try {
+    const count = choice ? firstCount() : secondCount();
+    return count;
+  } catch {
+    return firstCount();
+  }
+}
+export function fractionalFloor(value: number) { return Math.floor(value); }
 export function conditional(left: int32, right: int32, choice: boolean) {
   const value = choice ? left : right;
   return value;
@@ -64,7 +77,7 @@ export function conditionalLiteral(value: int32, choice: boolean) {
   const selected = choice ? value : 0;
   return selected;
 }
-export function conditionalFraction(value: int32, choice: boolean): number { return choice ? value : 0.5; }
+export function conditionalFraction(value: int32, choice: boolean) { return choice ? value : 0.5; }
 export function explicitFloat(left: int32, right: int32, choice: boolean): number {
   const value: number = choice ? left : right;
   return value;
@@ -89,7 +102,10 @@ export function run(): boolean {
     exiting(["a", "b", "c"]) === "b" && counted(["a", "b", "c"]) === "abc" && counted([]) === "" && growing() === "ab" &&
     fractional(["a", "b", "c"]) === 1.5 && annotated(["a", "b", "c"]) === 1.5 &&
     mutableCounter(["a", "b", "c"]) === 1.5 &&
-    integralFloor(-3) === -3 && fractionalFloor(-2.5) === -3 &&
+    integralFloor(-3) === -3 && compoundFloor(2, 9) === 5 && compoundFloor(-9, -2) === -6 &&
+    negatedFloor(2, 9) === -3 &&
+    calledConditional(true) === 7 && calledConditional(false) === 11 &&
+    calledConditionalLiteral(true) === 7 && calledConditionalLiteral(false) === 0 && fractionalFloor(-2.5) === -3 &&
     conditional(17, -9, true) === 17 && conditional(17, -9, false) === -9 &&
     conditionalLiteral(17, false) === 0 && conditionalFraction(17, false) === 0.5 &&
     explicitFloat(1, 2, false) === 2 && promoted(-1, 4294967295, false) === 4294967295 &&
