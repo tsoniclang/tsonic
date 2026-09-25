@@ -69,7 +69,10 @@ export function moduleAttributeBuilderDeclaration(): ProviderExportDeclaration {
     id: "__TsonicModuleAttributeBuilder",
     name: "__TsonicModuleAttributeBuilder",
     kind: "interface",
-    members: [attributeApplicationMember(tsonicAttributeBuilderMemberIds.moduleAdd)],
+    members: [
+      attributeApplicationMember(tsonicAttributeBuilderMemberIds.moduleAdd),
+      unavailableConstructorMember("__TsonicModuleAttributeBuilder"),
+    ],
   };
 }
 
@@ -122,6 +125,7 @@ export function attributeMemberBuilderDeclaration(): ProviderExportDeclaration {
       methodMember(tsonicAttributeBuilderMemberIds.target, "target", [
         { name: "specifier", type: { kind: "string" } },
       ], self),
+      unavailableConstructorMember("__TsonicAttributeMemberBuilder"),
     ],
   };
 }
@@ -136,6 +140,16 @@ function attributeApplicationMember(id: string) {
       returnType: { kind: "unknown" },
     },
   }], { kind: "void" });
+}
+
+function unavailableConstructorMember(ownerId: string) {
+  return {
+    id: `${ownerId}.constructor`,
+    name: "constructor",
+    kind: "property" as const,
+    readonly: true,
+    type: { kind: "never" as const },
+  };
 }
 
 function memberSelector(

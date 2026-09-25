@@ -10,7 +10,10 @@ export declare const providerVirtualCompilerArtifactLookup: unique symbol;
 export declare const providerVirtualCompilerMetadataLookup: unique symbol;
 export declare const providerVirtualStructuredTypeDemand: unique symbol;
 export interface ProviderVirtualCompilerMetadata {
-    readonly directDeclarationIds: readonly string[];
+    readonly directDeclarations: readonly {
+        readonly id: string;
+        readonly localName: string;
+    }[];
     readonly renderedFunctionSignatures: readonly ProviderRenderedFunctionSignature[];
 }
 interface ProviderTypeFamilyVariantIdentity {

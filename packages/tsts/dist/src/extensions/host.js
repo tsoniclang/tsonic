@@ -4407,8 +4407,9 @@ function providerRenderedFunctionSignaturesEqual(left, right) {
         });
 }
 function providerVirtualCompilerMetadataEqual(left, right) {
-    return left.directDeclarationIds.length === right.directDeclarationIds.length
-        && left.directDeclarationIds.every((id, index) => id === right.directDeclarationIds[index])
+    return left.directDeclarations.length === right.directDeclarations.length
+        && left.directDeclarations.every((declaration, index) => declaration.id === right.directDeclarations[index]?.id
+            && declaration.localName === right.directDeclarations[index]?.localName)
         && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures);
 }
 function providerDeclarationMaterializationEquals(left, right) {
@@ -4441,7 +4442,7 @@ function renderProviderDeclarationModel(model, options = {}) {
         typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, typeFamilyGroups),
         exactImportLocalNameByProviderRefKey: new Map([...(options.exactImports ?? new Map())].map(([key, binding]) => [key, binding.localName])),
         exactImportsInTypePositions: options.exactImportsInTypePositions === true,
-        directDeclarationIds: new Set(),
+        directDeclarations: new Map(),
         renderedFunctionSignatures: [],
     };
     const hasDirectDeclarations = model.exports.some((declaration) => !canonicalLocalNameByExportName.has(getProviderSourceExportName(declaration)));
@@ -4535,7 +4536,7 @@ function renderProviderDeclarationModel(model, options = {}) {
 }
 function snapshotProviderVirtualCompilerMetadata(context) {
     return Object.freeze({
-        directDeclarationIds: Object.freeze([...context.directDeclarationIds]),
+        directDeclarations: Object.freeze([...context.directDeclarations].map(([id, localName]) => Object.freeze({ id, localName }))),
         renderedFunctionSignatures: Object.freeze([...context.renderedFunctionSignatures]),
     });
 }
@@ -4585,12 +4586,12 @@ function getProviderCanonicalExportLocalName(exportName) {
     return `__TstsProviderCanonical_${identifier === "" || /^[0-9]/.test(identifier) ? `_${identifier}` : identifier}`;
 }
 function renderProviderExportDeclaration(declaration, context, options = {}) {
-    if (context.directDeclarationIds.has(declaration.id)) {
+    if (context.directDeclarations.has(declaration.id)) {
         throw new Error(`Provider declaration identity '${declaration.id}' was rendered more than once in one virtual artifact.`);
     }
-    context.directDeclarationIds.add(declaration.id);
     const declarationContext = withProviderRenderOwner(context, declaration);
     const declarationName = options.localName ?? declaration.name;
+    context.directDeclarations.set(declaration.id, declarationName);
     const exportName = getProviderExportName(declaration);
     const isDefault = exportName === "default" || declaration.exportKind === "default";
     const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind)

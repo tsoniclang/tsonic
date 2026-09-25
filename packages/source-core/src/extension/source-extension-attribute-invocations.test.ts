@@ -83,9 +83,45 @@ test("the module selector retains the exact authored SourceFile through an alias
   assert.equal(Object.isFrozen(fact), true);
 });
 
+test("module attributes retain exact identity through a namespace import", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import * as core from "@tsonic/core/lang.js";
+    function mark(): void {}
+    core.attribute.module().add(() => mark());
+  `);
+  const fact = getSourceFact(session,
+    propertyCallExpression(session, sourceFile, "add"), tsonicAttributeBuilderFactKey);
+  assert.equal(fact?.kind, "application");
+  assert.equal(fact?.applicationPlacement, "module");
+  assert.equal(fact?.applicationTarget, sourceFile);
+});
+
+test("a same-spelled callable member is not an attribute marker", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    function attribute(): void {}
+    attribute.module = (): void => {};
+    attribute.module();
+  `);
+  assert.equal(getSourceFact(session,
+    propertyCallExpression(session, sourceFile, "module"), tsonicAttributeBuilderFactKey), undefined);
+});
+
 for (const expression of ["attribute.module(1)", "attribute.module<string>()", "attribute.module().constructor()", "attribute.module().property(value => value)"]) {
   test(`module placement rejects invalid selector shape: ${expression}`, () => {
     const { session } = createSourceCoreSession(`import { attribute } from "@tsonic/core/lang.js"; ${expression};`);
+    assert.ok(definedDiagnostics(checkSource(session).diagnostics).length > 0);
+  });
+}
+
+for (const selector of [
+  "attribute<Subject>().constructor()",
+  "attribute<Subject>().property(target => target.value)",
+  "attribute<Subject>().method(target => target.run)",
+]) {
+  test(`member placement does not inherit a second constructor selector: ${selector}`, () => {
+    const { session } = createSourceCoreSession(`${declarations}
+      ${selector}.constructor();
+    `);
     assert.ok(definedDiagnostics(checkSource(session).diagnostics).length > 0);
   });
 }

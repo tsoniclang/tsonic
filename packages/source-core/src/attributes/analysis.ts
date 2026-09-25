@@ -1,5 +1,7 @@
 import {
   attributeFactKey,
+  providerVirtualDeclarationFactKey,
+  sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
   SourceAnalysisContext,
@@ -50,14 +52,6 @@ interface AttributeBuilderRule {
 }
 
 const attributeBuilderRules = Object.freeze([
-  rule(
-    memberSelector(attributeExportId, tsonicAttributeBuilderMemberIds.module, tsonicAttributeBuilderSignatureIds.module),
-    (selected, context) => writeAttributeBuilderFact(selected, context, {
-      kind: "builder-state",
-      applicationTarget: context.sourceFile,
-      applicationPlacement: "module",
-    }),
-  ),
   rule(
     memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleAdd, tsonicAttributeBuilderSignatureIds.moduleAdd),
     analyzeAttributeApplication,
@@ -130,6 +124,14 @@ export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): 
       analyzeAttributeRoot(selected, sourceContext);
       return;
     }
+    if (isAttributeModuleSelector(selected, sourceContext)) {
+      writeAttributeBuilderFact(selected, sourceContext, {
+        kind: "builder-state",
+        applicationTarget: sourceContext.sourceFile,
+        applicationPlacement: "module",
+      });
+      return;
+    }
     for (const candidate of attributeBuilderRules) {
       if (selectedProviderCallMatches(selected, candidate.selector, sourceContext)) {
         candidate.analyze(selected, sourceContext);
@@ -137,6 +139,26 @@ export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): 
       }
     }
   });
+}
+
+function isAttributeModuleSelector(
+  selected: SelectedProviderSourceCall,
+  context: TsonicSourceFileAnalysisContext,
+): boolean {
+  const declaration = selected.declaration;
+  if (declaration.memberId !== tsonicAttributeBuilderMemberIds.module ||
+    declaration.signatureId !== tsonicAttributeBuilderSignatureIds.module ||
+    declaration.memberStatic !== false) return false;
+  const receiver = selected.selection.sourceReceiver?.expression;
+  const marker = readSourceFact(context, receiver, sourceMarkerFactKey);
+  if (marker?.kind !== "call-marker" || marker.marker !== "attribute") return false;
+  const receiverSymbol = context.checker.getTypeSymbol(selected.selection.sourceReceiver?.type);
+  const owner = readSourceFact(context, receiverSymbol, providerVirtualDeclarationFactKey);
+  return owner?.providerId === declaration.providerId &&
+    owner.providerVersion === declaration.providerVersion &&
+    owner.providerModuleId === declaration.providerModuleId &&
+    owner.moduleSpecifier === declaration.moduleSpecifier &&
+    owner.exportId === declaration.exportId && owner.memberId === undefined;
 }
 
 function rule(
