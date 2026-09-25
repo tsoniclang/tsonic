@@ -10,6 +10,7 @@ export function sourceIntegerInduction(
   const list = ast.parent(declaration);
   const statement = list === undefined ? undefined : ast.parent(list);
   if (statement === undefined || !ast.is.IsForStatement(statement)) return undefined;
+  const incrementor = ast.as.AsForStatement(statement)?.Incrementor;
   const loop = navigation.countedLoop(statement);
   if (loop?.counterDeclaration !== declaration || !ast.is.IsNumericLiteral(loop.start) ||
     Number(ast.text(loop.start)) !== 0) return undefined;
@@ -26,12 +27,9 @@ export function sourceIntegerInduction(
     if (parent === undefined) return undefined;
     if (ast.is.IsElementAccessExpression(parent) &&
       ast.as.AsElementAccessExpression(parent)?.ArgumentExpression === expression) continue;
-    if (ast.is.IsCallExpression(parent) || ast.is.IsNewExpression(parent)) {
-      if (use.role === "argument") continue;
-    }
     if ((ast.is.IsPostfixUnaryExpression(parent) || ast.is.IsPrefixUnaryExpression(parent)) &&
       ast.operatorKindName(parent) === "KindPlusPlusToken" &&
-      ast.as.AsForStatement(statement)?.Incrementor === parent) continue;
+      incrementor === parent) continue;
     if (ast.is.IsBinaryExpression(parent) && comparisons.has(ast.operatorKindName(parent) ?? "")) continue;
     return undefined;
   }

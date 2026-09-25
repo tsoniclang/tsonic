@@ -16,6 +16,7 @@ test("bounded induction proves only unchanged zero-based counters with represent
       for (let index = 0; index < values.length; index++) consume(index / 2);
       for (let index = 0; index < values.length; index++) { const alias = index; consume(alias / 2); }
       for (let index = 0; index < values.length; index++) { const captured = () => index; consume(captured()); }
+      for (let index = 0; index < values.length; index++) consume(index);
     }
   ` });
   const navigation = createSourceProgramNavigation(source);
@@ -27,5 +28,5 @@ test("bounded induction proves only unchanged zero-based counters with represent
   };
   visit(file);
   assert.deepEqual(declarations.map(declaration => sourceIntegerInduction(declaration, source.ast, navigation) !== undefined),
-    [true, true, false, false, false, false, false, false, false]);
+    [true, true, false, false, false, false, false, false, false, false]);
 });
