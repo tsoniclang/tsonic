@@ -18,6 +18,9 @@ import {
 } from "./workspace-layout.mjs";
 
 const options = parseArgs(process.argv.slice(2));
+const suiteReportPath = process.env.TSONIC_TEST_SUITE_REPORT;
+delete process.env.TSONIC_TEST_SUITE_REPORT;
+delete process.env.TSONIC_TEST_COUNT_DIRECTORY;
 const resourceBudget = readTestResourceBudget({
   ...process.env,
   ...(options.concurrency === undefined ? {} : { TSONIC_TEST_WORKERS: String(options.concurrency) }),
@@ -83,6 +86,7 @@ const failures = results.filter((result) => result.status !== 0);
 const testCounts = aggregateTestCounts(results);
 const missingTestCountResults = results.filter((result) => result.testCounts === undefined);
 const report = {
+  selection: { complete: options.withPreruns && options.scopes.size === 0 && options.matches.length === 0 && options.groupPrefixes.length === 0 },
   runId,
   createdAt: new Date().toISOString(),
   command: {
@@ -131,6 +135,9 @@ const report = {
     })),
 };
 writeFileSync(resolve(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+if (suiteReportPath !== undefined) {
+  writeFileSync(suiteReportPath, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
+}
 
 console.log(`parallel-run: tasksPassed=${report.taskCounts.passed} tasksFailed=${report.taskCounts.failed} durationMs=${durationMs}`);
 if (testCounts.reportedShards > 0) {

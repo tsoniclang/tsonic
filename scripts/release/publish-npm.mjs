@@ -15,15 +15,17 @@ import {
 } from "./npm-registry.mjs";
 import { inspectRegistry } from "./release-inspection.mjs";
 import { publishStagedWave } from "./npm-publication.mjs";
+import { readCertificationOptions } from "../certification/contract.mjs";
+import { certifyWave } from "../certification/select.mjs";
 import {
   classifyReleaseState,
   compareSemver,
   incrementPatch,
 } from "./release-state.mjs";
 
-const mode = readMode(process.argv.slice(2));
+const options = readCertificationOptions(process.argv.slice(2), { publisher: true });
 const wave = validateWaveManifests();
-if (mode === "verify-only") {
+if (options.validate) {
   process.stdout.write(
     `Verified ${wave.packages.length} release packages at ${wave.version}.\n`,
   );
@@ -47,15 +49,15 @@ if (releaseAction.kind === "current") {
 }
 const npmUsername = requireNpmAuthentication();
 process.stdout.write(`Publishing as npm user '${npmUsername}'.\n`);
-certifyWave(wave);
+certifyWave(wave, options);
 verifyRepositories(wave, { fetch: false });
 const packageResultPath = resolve(
   ensureReleaseScratch(),
   `packed-wave-${wave.version}-${String(process.pid)}.json`,
 );
 run(
-  process.execPath,
-  ["scripts/release/verify-packed-install.mjs"],
+  "bash",
+  ["test/scripts/bounded-run.sh", "host", process.execPath, "scripts/release/verify-packed-install.mjs"],
   {
     cwd: hostRoot,
     env: {
@@ -66,6 +68,7 @@ run(
 );
 verifyRepositories(wave, { fetch: false });
 const packed = JSON.parse(readFileSync(packageResultPath, "utf8"));
+certifyWave(wave, { ...options, check: true });
 if (packed.version !== wave.version || !Array.isArray(packed.packages) ||
     !Number.isSafeInteger(packed.totalFileCount) || packed.totalFileCount < 1) {
   throw new Error("Packed-install certification did not produce the expected release record.");
@@ -92,13 +95,10 @@ process.stdout.write(
   `Staged ${result.published} packages and promoted ${result.promoted} latest tags at ${wave.version}; certified ${packed.packages.length} packages, ${packed.totalFileCount} files, aggregate SHA-256 ${packed.aggregateSha256}.\n`,
 );
 
-function readMode(args) {
-  if (args.length === 0) return "publish";
-  if (args.length === 1 && args[0] === "--verify-only") return "verify-only";
-  throw new Error("Usage: ./scripts/publish-npm.sh [--verify-only]");
-}
-
 function verifyRepositories(selectedWave, options = { fetch: true }) {
+  if (hostRoot !== resolve(selectedWave.layout.workspaceRoot, "tsonic")) {
+    throw new Error("Publication requires the host in the coherent release workspace.");
+  }
   const repositories = [...selectedWave.layout.repositoryRoots.entries()];
   for (const [name, root] of repositories) {
     const hygieneScript = resolve(root, "scripts/check-branch-hygiene.sh");
@@ -216,22 +216,6 @@ function updateDependencyGroups(value, version, packageNames) {
   }
 }
 
-function certifyWave(selectedWave) {
-  for (const entry of selectedWave.certification) {
-    const root = selectedWave.layout.repositoryRoots.get(entry.repository);
-    const [command, ...args] = entry.command;
-    process.stdout.write(`Certifying ${entry.repository}: ${entry.command.join(" ")}\n`);
-    run(command, args, {
-      cwd: root,
-      env: {
-        ...process.env,
-        TSONICLANG_WORKSPACE_ROOT: selectedWave.layout.workspaceRoot,
-        TSONIC_ROOT: hostRoot,
-      },
-    });
-  }
-}
-
 function verifyPublishedIntegrity(name, version, expectedIntegrity) {
   const actualIntegrity = waitForNpmViewPresence(
     name,
@@ -245,7 +229,7 @@ function verifyPublishedIntegrity(name, version, expectedIntegrity) {
 }
 
 function verifyPublicInstall(selection) {
-  run(process.execPath, [
+  run("bash", ["test/scripts/bounded-run.sh", "host", process.execPath,
     "scripts/release/verify-public-install.mjs", "--version", wave.version,
     "--selection", selection,
   ], { cwd: hostRoot });

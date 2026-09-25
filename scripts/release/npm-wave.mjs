@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateSourceInputs } from "./source-provenance.mjs";
+import { validateCertificationEntry } from "../certification/contract.mjs";
+import { validateCertificationChecks } from "../certification/checks.mjs";
 
 const releaseDirectory = dirname(fileURLToPath(import.meta.url));
 export const hostRoot = resolve(releaseDirectory, "../..");
@@ -20,41 +22,37 @@ export function loadNpmWave() {
     requireManifestEntry(entry, "package", ["directory", "name", "repository", "sourceInputs"]);
     entry.sourceInputs = validateSourceInputs(entry);
   }
-  for (const entry of manifest.certification) {
-    requireManifestEntry(entry, "certification", ["command", "repository"]);
-    if (!Array.isArray(entry.command) || entry.command.length === 0 ||
-        !entry.command.every((part) => typeof part === "string" && part.length > 0)) {
-      throw new Error("Every npm certification entry requires a non-empty string command.");
-    }
-  }
   return Object.freeze({
     packages: Object.freeze(manifest.packages.map((entry) => Object.freeze(entry))),
     certification: Object.freeze(
-      manifest.certification.map((entry) => Object.freeze({
-        ...entry,
-        command: Object.freeze(entry.command),
-      })),
+      manifest.certification.map(validateCertificationEntry),
     ),
+    checks: validateCertificationChecks(manifest.checks, new Set(manifest.certification.flatMap(entry => entry.inputs))),
   });
 }
 
-export function resolveWaveLayout(wave = loadNpmWave()) {
-  const configuredWorkspaceRoot = process.env.TSONICLANG_WORKSPACE_ROOT;
+export function resolveWaveLayout(wave = loadNpmWave(), options = {}) {
+  const configuredWorkspaceRoot = options.workspaceRoot ?? process.env.TSONICLANG_WORKSPACE_ROOT;
   if (configuredWorkspaceRoot !== undefined && !isAbsolute(configuredWorkspaceRoot)) {
     throw new Error("TSONICLANG_WORKSPACE_ROOT must be an absolute path.");
   }
   const workspaceRoot = resolve(configuredWorkspaceRoot ?? dirname(hostRoot));
-  const expectedHostRoot = resolve(workspaceRoot, "tsonic");
-  if (hostRoot !== expectedHostRoot) {
-    throw new Error(
-      `The host checkout '${hostRoot}' is not the tsonic repository in release workspace '${workspaceRoot}'.`,
-    );
-  }
   const repositoryRoots = new Map([["tsonic", hostRoot]]);
   for (const entry of [...wave.packages, ...wave.certification]) {
     if (!repositoryRoots.has(entry.repository)) {
       repositoryRoots.set(entry.repository, resolve(workspaceRoot, entry.repository));
     }
+  }
+  for (const entry of wave.certification) {
+    for (const repository of entry.inputs) {
+      if (!repositoryRoots.has(repository)) repositoryRoots.set(repository, resolve(workspaceRoot, repository));
+    }
+  }
+  for (const [repository, root] of options.repositoryRoots ?? []) {
+    if (!repositoryRoots.has(repository) || !isAbsolute(root) || repository === "tsonic" && root !== hostRoot) {
+      throw new Error("Invalid explicit certification repository root.");
+    }
+    repositoryRoots.set(repository, resolve(root));
   }
   for (const [repository, repositoryRoot] of repositoryRoots) {
     if (repository !== "tsonic") {
@@ -75,6 +73,7 @@ export function resolveWaveLayout(wave = loadNpmWave()) {
     repositoryRoots,
     packages: Object.freeze(packages),
     certification: wave.certification,
+    checks: wave.checks,
   });
 }
 
@@ -150,6 +149,7 @@ export function validateWaveManifests(layout = resolveWaveLayout()) {
     version,
     packages: Object.freeze(packages),
     certification: layout.certification,
+    checks: layout.checks,
     layout,
   });
 }

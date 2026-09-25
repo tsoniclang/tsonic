@@ -15,6 +15,11 @@ The closed source use graph determines whether Rust can borrow, move, copy, or
 must own a value. The result is stored in the sealed Rust target program before
 planning. The planner does not re-infer ownership from emitted syntax.
 
+Ownership changes must follow compiler-understood native guarantees, not a list
+of recognized library wrappers. The reference explains the evidence boundary:
+
+- [Ownership evidence](../../../reference/targets/rust/ownership-and-lifetimes.md#evidence-required-for-ownership-changes)
+
 ## Explicit native references
 
 Use Rust source types only when an API contract itself distinguishes a borrow:

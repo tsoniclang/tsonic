@@ -164,9 +164,60 @@
       ]
     }
   ],
+  "checks": [
+    {
+      "name": "check-documentation",
+      "paths": [
+        { "repository": "tsonic", "path": "docs/" },
+        { "repository": "tsonic", "path": "AGENTS.md" },
+        { "repository": "tsonic", "path": "CLAUDE.md" },
+        { "repository": "tsonic", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-csharp", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-rust", "path": "test/architecture/documentation.test.mjs" }
+      ],
+      "tests": [
+        { "repository": "tsonic", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-csharp", "path": "test/architecture/documentation.test.mjs" },
+        { "repository": "tsonic-rust", "path": "test/architecture/documentation.test.mjs" }
+      ]
+    },
+    {
+      "name": "check-release-tooling",
+      "paths": [
+        { "repository": "tsonic", "path": "scripts/certification/" },
+        { "repository": "tsonic", "path": "scripts/release/" },
+        { "repository": "tsonic", "path": "test/architecture/package-artifacts.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification-coverage.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-frameworks.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-parallel.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-provenance.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-publication.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-state.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-wave.test.mjs" }
+      ],
+      "tests": [
+        { "repository": "tsonic", "path": "test/architecture/package-artifacts.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-certification-coverage.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-frameworks.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-parallel.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-provenance.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-publication.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-state.test.mjs" },
+        { "repository": "tsonic", "path": "test/architecture/release-wave.test.mjs" }
+      ]
+    }
+  ],
   "certification": [
     {
       "repository": "tsonic",
+      "profile": "host",
+      "banks": ["host"],
+      "inputs": ["tsonic", "tsonic-csharp", "csharp-runtime", "csharp-js", "csharp-nodejs", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"],
+      "tools": ["node", "npm", "dotnet"],
+      "worker": ["node", "test/scripts/run-parallel.mjs", "--with-preruns"],
+      "skipped": 0,
       "command": [
         "bash",
         "test/scripts/run-all.sh"
@@ -174,6 +225,12 @@
     },
     {
       "repository": "tsonic-rust",
+      "profile": "rust",
+      "banks": ["node"],
+      "inputs": ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs", "tsonic-csharp"],
+      "tools": ["node", "npm", "rustc", "cargo", "rustfmt"],
+      "worker": ["bash", "scripts/test-worker.sh"],
+      "skipped": 0,
       "command": [
         "npm",
         "test"
@@ -181,6 +238,12 @@
     },
     {
       "repository": "rust-runtime",
+      "profile": "native",
+      "banks": ["cargo"],
+      "inputs": ["tsonic", "rust-runtime"],
+      "tools": ["node", "npm", "rustc", "cargo"],
+      "worker": ["bash", "scripts/test-worker.sh"],
+      "skipped": 0,
       "command": [
         "npm",
         "test"
@@ -188,6 +251,12 @@
     },
     {
       "repository": "rust-js",
+      "profile": "native",
+      "banks": ["cargo"],
+      "inputs": ["tsonic", "rust-runtime", "rust-js"],
+      "tools": ["node", "npm", "rustc", "cargo"],
+      "worker": ["bash", "scripts/test-worker.sh"],
+      "skipped": 1,
       "command": [
         "npm",
         "test"
@@ -195,6 +264,12 @@
     },
     {
       "repository": "rust-nodejs",
+      "profile": "rust",
+      "banks": ["cargo", "node"],
+      "inputs": ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"],
+      "tools": ["node", "npm", "rustc", "cargo", "rustfmt"],
+      "worker": ["bash", "scripts/test-worker.sh"],
+      "skipped": 0,
       "command": [
         "npm",
         "test"

@@ -2,8 +2,9 @@
 
 Read and follow `docs/architecture/workspace-agent-policy.md` before any work,
 including its mandatory "Direct Solutions, Not Patch Accumulation" rule and
-example, "Native Semantics and Best-Effort JS Surfaces"
-and "Native Performance From Exact Metadata" contracts for every decision.
+example, "Compiler-Understood Ownership", "Native Semantics and Best-Effort JS
+Surfaces" and "Native Performance From Exact Metadata" contracts for every
+decision.
 This file contains only host-repository deltas.
 
 ## Host Ownership

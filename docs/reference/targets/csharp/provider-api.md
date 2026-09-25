@@ -50,6 +50,13 @@ Providers must not attach target-specific fields to closed TSTS values. They
 publish only through the C# target's public relation, type, policy, and runtime
 contribution contracts.
 
+Ownership optimization has the same evidence boundary as every other target:
+use checked source uses and native compiler-understood types, signatures and
+qualifiers. An exact provider mapping does not authorize an invented wrapper
+or cheap-copy exemption. C# uses its native guarantees, not Rust-specific rules.
+
+- [Compiler-understood ownership](../../../architecture/workspace-agent-policy.md#compiler-understood-ownership)
+
 ## Package shape
 
 A provider package normally contains:

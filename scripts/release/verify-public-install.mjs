@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { hostRoot, validateWaveManifests } from "./npm-wave.mjs";
 import { npmRegistry } from "./npm-registry.mjs";
 import { verifyCsharpFrameworks } from "./verify-csharp-frameworks.mjs";
+import { runReleaseLanes } from "./parallel-lanes.mjs";
 
 const publicRegistryOrigin = new URL(npmRegistry).origin;
 
@@ -77,10 +78,16 @@ export function assertNoLocalDependencySpecifiers(value) {
 
 if (process.argv[1] !== undefined &&
     resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  verifyPublicInstall(readPublicInstallOptions(process.argv.slice(2)));
+  const args = process.argv.slice(2);
+  if (args[0] === "--worker") {
+    if (args.length !== 2) throw new Error("Expected one public-install worker description.");
+    verifyTarget(JSON.parse(readFileSync(args[1], "utf8")));
+  } else {
+    await verifyPublicInstall(readPublicInstallOptions(args));
+  }
 }
 
-function verifyPublicInstall({ version, selection }) {
+async function verifyPublicInstall({ version, selection }) {
   const wave = validateWaveManifests();
   if (version !== wave.version) {
     throw new Error(
@@ -102,9 +109,7 @@ function verifyPublicInstall({ version, selection }) {
     "package-lock=true",
     "",
   ].join("\n"));
-  const environment = createPublicInstallEnvironment(npmConfigPath, npmCachePath);
-
-  verifyTarget({
+  const targets = [{
     name: "public-csharp",
     targetId: "csharp",
     targetPackage: "@tsonic/target-csharp",
@@ -112,7 +117,8 @@ function verifyPublicInstall({ version, selection }) {
     version,
     selection,
     scratchRoot,
-    environment,
+    npmConfigPath,
+    npmCachePath,
     source: [
       'import { ok } from "node:assert";',
       'import { readFileSync } from "node:fs";',
@@ -121,8 +127,7 @@ function verifyPublicInstall({ version, selection }) {
       "",
     ].join("\n"),
     message: "C# public install\n",
-  });
-  verifyTarget({
+  }, {
     name: "public-rust",
     targetId: "rust",
     targetPackage: "@tsonic/target-rust",
@@ -130,7 +135,8 @@ function verifyPublicInstall({ version, selection }) {
     version,
     selection,
     scratchRoot,
-    environment,
+    npmConfigPath,
+    npmCachePath,
     source: [
       'import { ok } from "node:assert";',
       'import { readFileSync } from "node:fs";',
@@ -141,13 +147,22 @@ function verifyPublicInstall({ version, selection }) {
       "",
     ].join("\n"),
     message: "Rust public install\n",
-  });
+  }];
+  await runReleaseLanes(targets.map(target => {
+    const path = resolve(scratchRoot, `${target.name}.json`);
+    writeFileSync(path, `${JSON.stringify(target)}\n`, { flag: "wx", mode: 0o600 });
+    return {
+      id: target.name, command: process.execPath, cwd: hostRoot,
+      args: ["scripts/release/verify-public-install.mjs", "--worker", path],
+    };
+  }), scratchRoot);
   process.stdout.write(
     `Public npm ${selection} install verified for C#, Rust, and both Node capabilities at ${version}.\n`,
   );
 }
 
 function verifyTarget(options) {
+  options = { ...options, environment: createPublicInstallEnvironment(options.npmConfigPath, options.npmCachePath) };
   run(
     "npm",
     [
