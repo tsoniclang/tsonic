@@ -1,5 +1,11 @@
 export const nativeIntegerSelectionSource = `
 import type { int8, int32, uint32 } from "@tsonic/core/types.js";
+function integerCopy(value: int32): int32 { value++; return value; }
+export function forwardedCount(bound: int32): int32 {
+  let sum: int32 = 0;
+  for (let index = 0; index < bound; index++) sum += integerCopy(index);
+  return sum;
+}
 export function boundedCount(bound: int8): int32 {
   let count: int32 = 0;
   for (let counter = 0; counter < bound; counter++) count++;
@@ -77,7 +83,8 @@ export function shadowed(value: number): number {
   return Math.floor(value);
 }
 export function run(): boolean {
-  return boundedCount(127) === 127 && boundedCount(0) === 0 && boundedCount(-1) === 0 &&
+  return forwardedCount(4) === 10 && forwardedCount(0) === 0 &&
+    boundedCount(127) === 127 && boundedCount(0) === 0 && boundedCount(-1) === 0 &&
     reverseCount(["a", "b"]) === 2 && reverseCount([]) === 0 &&
     exiting(["a", "b", "c"]) === "b" && counted(["a", "b", "c"]) === "abc" && counted([]) === "" && growing() === "ab" &&
     fractional(["a", "b", "c"]) === 1.5 && annotated(["a", "b", "c"]) === 1.5 &&
