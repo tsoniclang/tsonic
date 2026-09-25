@@ -1,18 +1,31 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export function bindPackedWorkspaceDependencies(workspaceRoot, manifestPaths, artifacts) {
+export function bindPackedWorkspaceDependencies(workspaceRoot, artifacts) {
   const selected = new Map();
   for (const artifact of artifacts) {
     assert.ok(!selected.has(artifact.name), `Duplicate packed dependency '${artifact.name}'.`);
     assert.ok(isAbsolute(artifact.path) && existsSync(artifact.path), `Missing packed artifact '${artifact.path}'.`);
     selected.set(artifact.name, artifact);
   }
+  const rootManifestPath = resolve(workspaceRoot, "package.json");
+  const { workspaces = [] } = JSON.parse(readFileSync(rootManifestPath, "utf8"));
+  assert.ok(Array.isArray(workspaces) && workspaces.every(pattern =>
+    typeof pattern === "string" && pattern.length > 0 && !isAbsolute(pattern) &&
+    !pattern.startsWith("!") && !pattern.split(/[\\/]/u).includes("..")),
+  "Proof workspaces must be positive relative glob patterns within the staged workspace.");
+  const manifestPaths = [...new Set([
+    rootManifestPath,
+    ...globSync(workspaces.map(pattern => `${pattern}/package.json`), {
+      cwd: workspaceRoot, exclude: ["**/node_modules/**"],
+    }).map(path => resolve(workspaceRoot, path)),
+  ])].sort();
+  const realWorkspaceRoot = realpathSync(workspaceRoot);
   const bindings = [];
   const updates = manifestPaths.map((manifestPath) => {
-    const localPath = relative(workspaceRoot, manifestPath);
+    const localPath = relative(realWorkspaceRoot, realpathSync(manifestPath));
     assert.ok(!isAbsolute(localPath) && localPath !== ".." && !localPath.startsWith(`..${sep}`),
       `Proof manifest escapes its staged workspace: ${manifestPath}`);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
