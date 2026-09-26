@@ -4594,8 +4594,7 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
     context.directDeclarations.set(declaration.id, declarationName);
     const exportName = getProviderExportName(declaration);
     const isDefault = exportName === "default" || declaration.exportKind === "default";
-    const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind)
-        && !(declaration.kind === "function" && (declaration.members?.length ?? 0) > 0);
+    const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind);
     const directNamedExport = options.localOnly !== true && !isDefault && exportName === declarationName;
     const declarationPrefix = directNamedExport
         ? "export declare "
@@ -4619,13 +4618,12 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
             break;
         }
         case "function":
-            rendered = renderProviderSignatures(declarationName, declaration.signatures ?? [], declarationContext)
-                .map((signature) => `${canInlineDefault ? "export default " : declarationPrefix}function ${signature}`)
-                .join("\n");
-            if ((declaration.members?.length ?? 0) > 0) {
-                rendered += `\n${declarationPrefix}namespace ${declarationName} {\n${renderProviderNamespaceMembers(declaration.members ?? [], declarationContext)}\n}`;
-            }
+        case "namespace": {
+            const signatures = renderProviderSignatures("", declaration.signatures ?? [], declarationContext);
+            const members = renderProviderMembers((declaration.members ?? []).map(member => member.kind === "property" || member.kind === "field" ? { ...member, readonly: true } : member), declarationContext);
+            rendered = `${declarationPrefix}const ${declarationName}: {\n${signatures.map(signature => `  ${signature}`).join("\n")}\n${members}\n};`;
             break;
+        }
         case "type": {
             const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
             rendered = `${typePrefix}type ${declarationName}${typeParameters} = ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
@@ -4633,9 +4631,6 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         }
         case "value":
             rendered = `${declarationPrefix}const ${declarationName}: ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
-            break;
-        case "namespace":
-            rendered = `${declarationPrefix}namespace ${declarationName} {\n${renderProviderNamespaceMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
         case "enum":
             rendered = `${declarationPrefix}enum ${declarationName} {\n${(declaration.members ?? []).map((member) => `  ${renderProviderPropertyName(member.name)},`).join("\n")}\n}`;
@@ -4745,9 +4740,6 @@ function renderProviderClassMembers(declaration, context) {
     const nominalMember = `  private readonly ${nominalMemberName}: never;`;
     return members === "" ? nominalMember : `${nominalMember}\n${members}`;
 }
-function renderProviderNamespaceMembers(members, context) {
-    return members.map((member) => `  ${renderProviderNamespaceMember(member, context)}`).join("\n");
-}
 function renderProviderMember(member, context) {
     const memberContext = withProviderRenderOwner(context, context.declaration, member);
     const staticPrefix = member.static === true ? "static " : "";
@@ -4756,7 +4748,7 @@ function renderProviderMember(member, context) {
     const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
         case "constructor":
-            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext).join("\n  ");
+            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext, true).join("\n  ");
         case "method":
             return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
         case "property":
@@ -4770,25 +4762,8 @@ function renderProviderMember(member, context) {
         }
     }
 }
-function renderProviderNamespaceMember(member, context) {
-    const memberContext = withProviderRenderOwner(context, context.declaration, member);
-    const name = renderProviderPropertyName(member.name);
-    switch (member.kind) {
-        case "method":
-            return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `export function ${signature}`).join("\n  ");
-        case "property":
-        case "field":
-            return `export const ${name}: ${renderProviderTypeExpression(member.type, memberContext)};`;
-        case "constructor":
-        case "indexer":
-            return failUnsupportedProviderNamespaceMember(member);
-    }
-}
-function failUnsupportedProviderNamespaceMember(member) {
-    throw new Error(`Unsupported provider namespace member kind '${member.kind}'.`);
-}
 function canRenderInlineDefaultProviderExport(kind) {
-    return kind === "class" || kind === "interface" || kind === "function" || kind === "enum";
+    return kind === "class" || kind === "interface" || kind === "enum";
 }
 function getProviderExportName(declaration) {
     return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
@@ -4821,11 +4796,11 @@ function getProviderPropertyNameText(name) {
             return `Symbol.${name.name}`;
     }
 }
-function renderProviderSignatures(name, signatures, context) {
+function renderProviderSignatures(name, signatures, context, constructor = false) {
     return signatures.map((signature) => {
         const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context);
         const parameters = signature.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ");
-        const returnType = name === "constructor" ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
+        const returnType = constructor ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
         return `${name}${typeParameters}(${parameters})${returnType};`;
     });
 }

@@ -17,6 +17,27 @@ For example:
 import { HashMap } from "@tsonic/rust/std/collections.js";
 ```
 
+Primitive operations use their compiler-provided value imports. Keep their
+type annotations in `types.js`:
+
+```ts
+import type { uint32, float32 } from "@tsonic/core/types.js";
+import { u32, f32 } from "@tsonic/rust/core/index.js";
+
+export function blocks(count: uint32, size: uint32): uint32 {
+  return u32.div_ceil(count, size);
+}
+
+export function magnitude(value: float32): float32 {
+  return f32.abs(value);
+}
+```
+
+These calls emit `core::primitive::u32::div_ceil(count, size)` and
+`core::primitive::f32::abs(value)`. The receiver is the first source argument.
+No numeric wrapper or JavaScript number conversion is introduced. Available
+methods and constants come from the selected native toolchain.
+
 ## Cargo dependencies
 
 `@tsonic/rust/crates/<alias>/<module>.js` addresses a direct dependency alias

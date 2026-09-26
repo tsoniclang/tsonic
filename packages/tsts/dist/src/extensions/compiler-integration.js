@@ -1,9 +1,9 @@
-import { Node_Body, Node_Expression, Node_Locals, Node_Members, Node_ModifierFlags, Node_Parameters, Node_Symbol, Node_Text, Node_Type, SourceFile_FileName, SourceFile_Text } from "../internal/ast/ast.js";
+import { Node_Expression, Node_Locals, Node_Members, Node_ModifierFlags, Node_Parameters, Node_Symbol, Node_Text, Node_Type, SourceFile_FileName, SourceFile_Text } from "../internal/ast/ast.js";
 import { Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { ModifierFlagsPrivate, ModifierFlagsReadonly, ModifierFlagsStatic } from "../internal/ast/modifierflags.js";
 import { GetSymbolId } from "../internal/ast/utilities.js";
 import * as utf8 from "../go/unicode/utf8.js";
-import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindFunctionDeclaration, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindModuleDeclaration, KindNeverKeyword, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindTypeAliasDeclaration, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindClassDeclaration, KindComputedPropertyName, KindConstructSignature, KindConstructor, KindEnumDeclaration, KindEnumMember, KindCallSignature, KindFunctionType, KindIndexSignature, KindInterfaceDeclaration, KindMethodDeclaration, KindMethodSignature, KindNeverKeyword, KindPropertyDeclaration, KindPropertyAccessExpression, KindPropertySignature, KindTypeAliasDeclaration, KindTypeLiteral, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { argumentPassingFactKey, canonicalIdentityFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, } from "./facts.js";
 import { extensionHostRunSourceAnalysis, extensionHostSetFact, getExtensionHost, } from "./host.js";
 import { getProviderVirtualArtifactForCompiler, getProviderVirtualCompilerMetadata, getProviderTypeFamilyVariantNominalMemberName, } from "./provider-virtual-internal.js";
@@ -202,8 +202,7 @@ function getProviderVirtualModuleEvidence(virtualModule) {
         }];
 }
 function recordProviderVirtualMemberFacts(extensionHost, exportSymbol, virtualModule, declaration, evidence) {
-    const directExportDeclarations = (exportSymbol.Declarations ?? []).filter((node) => node !== undefined && (providerExportDeclarationMatchesNode(declaration, node)
-        || declaration.kind === "function" && node.Kind === KindModuleDeclaration));
+    const directExportDeclarations = (exportSymbol.Declarations ?? []).filter((node) => node !== undefined && providerExportDeclarationMatchesNode(declaration, node));
     if (directExportDeclarations.length === 0) {
         throw new Error(`Provider virtual artifact '${virtualModule.fileName}' has no direct declaration for member-owning export identity '${declaration.id}'.`);
     }
@@ -273,13 +272,13 @@ function providerExportDeclarationMatchesNode(declaration, node) {
         case "interface":
             return node.Kind === KindInterfaceDeclaration;
         case "function":
-            return node.Kind === KindFunctionDeclaration;
+            return node.Kind === KindVariableDeclaration;
         case "type":
             return node.Kind === KindTypeAliasDeclaration;
         case "value":
             return node.Kind === KindVariableDeclaration;
         case "namespace":
-            return node.Kind === KindModuleDeclaration;
+            return node.Kind === KindVariableDeclaration;
         case "enum":
             return node.Kind === KindEnumDeclaration;
     }
@@ -343,7 +342,7 @@ function providerMemberKindMatchesNode(member, node) {
         case "constructor":
             return node.Kind === KindConstructor || node.Kind === KindConstructSignature;
         case "method":
-            return node.Kind === KindMethodDeclaration || node.Kind === KindMethodSignature || node.Kind === KindFunctionDeclaration;
+            return node.Kind === KindMethodDeclaration || node.Kind === KindMethodSignature;
         case "property":
         case "field":
             return node.Kind === KindPropertyDeclaration || node.Kind === KindPropertySignature || node.Kind === KindEnumMember || node.Kind === KindVariableDeclaration;
@@ -358,43 +357,32 @@ function getProviderMemberCandidateNodes(exportDeclaration) {
     if (exportDeclaration.Kind === KindClassDeclaration
         || exportDeclaration.Kind === KindInterfaceDeclaration
         || exportDeclaration.Kind === KindEnumDeclaration
-        || exportDeclaration.Kind === KindTypeAliasDeclaration
-        || exportDeclaration.Kind === KindVariableDeclaration) {
+        || exportDeclaration.Kind === KindTypeAliasDeclaration) {
         return Node_Members(exportDeclaration) ?? [];
     }
-    if (exportDeclaration.Kind !== KindModuleDeclaration) {
-        return [];
+    if (exportDeclaration.Kind === KindVariableDeclaration) {
+        const type = Node_Type(exportDeclaration);
+        return type?.Kind === KindTypeLiteral
+            ? (Node_Members(type) ?? []).filter(member => member?.Kind !== KindCallSignature)
+            : [];
     }
-    const candidates = [];
-    collectProviderNamespaceMemberCandidateNodes(Node_Body(exportDeclaration), candidates);
-    return candidates;
-}
-function collectProviderNamespaceMemberCandidateNodes(node, candidates) {
-    if (node === undefined) {
-        return;
-    }
-    switch (node.Kind) {
-        case KindFunctionDeclaration:
-        case KindVariableDeclaration:
-            candidates.push(node);
-            return;
-        default:
-            Node_ForEachChild(node, (child) => {
-                collectProviderNamespaceMemberCandidateNodes(child, candidates);
-                return false;
-            });
-    }
+    return [];
 }
 function recordProviderVirtualSignatureFacts(extensionHost, symbol, virtualModule, declaration, signatures, evidence, member) {
     if (signatures.length === 0) {
         throw new Error(`Provider export identity '${declaration.id}' has no signatures to record.`);
     }
-    const signatureDeclarations = (symbol.Declarations ?? []).filter((candidate) => candidate?.Kind === KindFunctionDeclaration);
+    const signatureDeclarations = (symbol.Declarations ?? []).flatMap(candidate => {
+        const type = candidate?.Kind === KindVariableDeclaration ? Node_Type(candidate) : undefined;
+        return type?.Kind === KindTypeLiteral
+            ? (Node_Members(type) ?? []).filter(member => member?.Kind === KindCallSignature)
+            : [];
+    });
     if (signatureDeclarations.length === 0) {
-        throw new Error(`Provider virtual artifact '${virtualModule.fileName}' has no direct function declarations for export identity '${declaration.id}'.`);
+        throw new Error(`Provider virtual artifact '${virtualModule.fileName}' has no direct call signatures for export identity '${declaration.id}'.`);
     }
     if (signatureDeclarations.length !== signatures.length) {
-        throw new Error(`Provider virtual artifact '${virtualModule.fileName}' bound ${signatureDeclarations.length} function declarations for export identity '${declaration.id}', expected ${signatures.length}.`);
+        throw new Error(`Provider virtual artifact '${virtualModule.fileName}' bound ${signatureDeclarations.length} call signatures for export identity '${declaration.id}', expected ${signatures.length}.`);
     }
     for (let index = 0; index < signatures.length; index++) {
         const signatureDeclaration = signatureDeclarations[index];
