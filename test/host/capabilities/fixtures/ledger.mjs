@@ -192,7 +192,7 @@ const slice4DotnetProviderContractRows = Object.freeze([
     capabilityId: "native.dotnet.contract.default-value-optional-only",
     title: ".NET default parameter values only appear on optional parameters",
     notes:
-      "Reviewed proof: provider contracts reject defaultvalue on non-optional parameters; reflection tests prove supported default values remain target metadata only and source virtual declarations expose optionality without fabricating source default expressions.",
+      "Reviewed proof: provider contracts reject defaultValue on non-optional parameters; reflection tests prove supported default values remain target metadata only and source virtual declarations expose optionality without fabricating source default expressions.",
   },
   {
     capabilityId: "native.dotnet.contract.unsupported-default-exclusive",
@@ -488,7 +488,7 @@ const slice4ProviderCallContractRows = Object.freeze([
     capabilityId: "function.default-rest-optional-params.provider-defaults",
     title: "Provider default parameters are target metadata, not source syntax defaults",
     notes:
-      "Reviewed proof: reflected default metadata is retained only in target facts, source virtual declarations expose optional parameters without defaultvalue expressions, and backend selection consumes target defaults.",
+      "Reviewed proof: reflected default metadata is retained only in target facts, source virtual declarations expose optional parameters without source initializers, and backend selection consumes target defaults.",
   },
   {
     capabilityId: "function.default-rest-optional-params.provider-params-array",
