@@ -55,22 +55,24 @@ All listed modules are compiler-owned virtual declarations, not npm packages.
 
 ## Native macros
 
-Import vector constructors from `@tsonic/rust/std/vec.js` or
-`@tsonic/rust/alloc/vec.js`. They produce the provider's native `Vec<T>`:
+Import macros from their native modules. For example, `vec` is exported by
+`@tsonic/rust/std/index.js` and `@tsonic/rust/alloc/index.js`; the `Vec<T>` type
+is exported by the corresponding `vec.js` module:
 
 ```ts
-import { vec, vecRepeat } from "@tsonic/rust/std/vec.js";
+import { vec } from "@tsonic/rust/std/index.js";
+import type { Vec } from "@tsonic/rust/std/vec.js";
+import { tokens } from "@tsonic/rust/lang.js";
 import type { int32 } from "@tsonic/core/types.js";
 
-const values = vec<int32>(1, 2, 3);
-const copies = vecRepeat<int32>(7, 4);
+const values: Vec<int32> = vec([1, 2, 3]);
+const copies: Vec<int32> = vec(tokens`[7; 4]`);
 ```
 
 The output uses `vec![1, 2, 3]` and `vec![7; 4]`. Repetition follows native
 Rust evaluation and `Clone` requirements, including when the count is zero.
 
-`println` and `eprintln` come from `@tsonic/rust/std/index.js`. The format must
-be a literal and every value must be an explicit argument:
+`println` and `eprintln` come from `@tsonic/rust/std/index.js`:
 
 ```ts
 import { println } from "@tsonic/rust/std/index.js";
@@ -78,9 +80,12 @@ import { println } from "@tsonic/rust/std/index.js";
 println("{} elements", values.len());
 ```
 
-Rust checks the formatting traits and format specifiers. Implicit captures
-such as `"{values}"` are rejected: those names are not checked source arguments.
-No JavaScript argument array or eagerly formatted String is introduced.
+The selected Rust compiler owns the macro grammar, expansion, types and effects.
+This includes formatting traits, literal-format requirements and implicit
+captures such as `"{count}"`. Tsonic does not approximate macro signatures from
+their names. No JavaScript argument array or eagerly formatted String is
+introduced. Exact tokens retain punctuation and delimiters when structured
+TypeScript input does not express the native grammar.
 
 ## Attributes
 
