@@ -33,6 +33,7 @@ import {
   forEachSelectedProviderSourceCall,
   readSourceFact,
   selectedProviderCallMatches,
+  unwrapParenthesizedExpression,
 } from "../analysis/source-call.js";
 import {
   selectInlineSourceMember,
@@ -149,10 +150,10 @@ function isAttributeModuleSelector(
   if (declaration.memberId !== tsonicAttributeBuilderMemberIds.module ||
     declaration.signatureId !== tsonicAttributeBuilderSignatureIds.module ||
     declaration.memberStatic !== false) return false;
-  const receiver = selected.selection.sourceReceiver?.expression;
+  const receiver = unwrapParenthesizedExpression(selected.selection.sourceReceiver?.expression, context);
   const marker = readSourceFact(context, receiver, sourceMarkerFactKey);
   if (marker?.kind !== "call-marker" || marker.marker !== "attribute") return false;
-  const receiverSymbol = context.checker.getTypeSymbol(selected.selection.sourceReceiver?.type);
+  const receiverSymbol = context.checker.getAliasedSymbol(context.checker.getSymbolAtLocation(receiver));
   const owner = readSourceFact(context, receiverSymbol, providerVirtualDeclarationFactKey);
   return owner?.providerId === declaration.providerId &&
     owner.providerVersion === declaration.providerVersion &&

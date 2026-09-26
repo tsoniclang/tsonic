@@ -96,6 +96,41 @@ test("module attributes retain exact identity through a namespace import", () =>
   assert.equal(fact?.applicationTarget, sourceFile);
 });
 
+for (const [name, imported, selector] of [
+  ["direct", 'import { attribute } from "@tsonic/core/lang.js";', "attribute"],
+  ["parenthesized alias", 'import { attribute as annotate } from "@tsonic/core/lang.js";', "((annotate))"],
+  ["parenthesized namespace member", 'import * as core from "@tsonic/core/lang.js";', "(core.attribute)"],
+  ["re-export", 'import { annotate } from "./markers.js";', "annotate"],
+] as const) {
+  test(`module attributes preserve declaration identity for ${name}`, () => {
+    const { session, sourceFile } = createCleanSourceCoreSession(`
+      ${imported}
+      function mark(): void {}
+      ${selector}.module().add(() => mark());
+    `, { "/src/markers.ts": 'export { attribute as annotate } from "@tsonic/core/lang.js";' });
+    const fact = getSourceFact(session,
+      propertyCallExpression(session, sourceFile, "add"), tsonicAttributeBuilderFactKey);
+    assert.equal(fact?.kind, "application");
+    assert.equal(fact?.applicationPlacement, "module");
+    assert.equal(fact?.applicationTarget, sourceFile);
+    assert.equal(Object.isFrozen(fact), true);
+  });
+}
+
+test("a parameter with the attribute callable type does not acquire marker identity", () => {
+  const { session, sourceFile } = createCleanSourceCoreSession(`
+    import { attribute } from "@tsonic/core/lang.js";
+    function mark(): void {}
+    function apply(annotate: typeof attribute): void {
+      annotate.module().add(() => mark());
+    }
+  `);
+  for (const member of ["module", "add"]) {
+    assert.equal(getSourceFact(session,
+      propertyCallExpression(session, sourceFile, member), tsonicAttributeBuilderFactKey), undefined);
+  }
+});
+
 test("a same-spelled callable member is not an attribute marker", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
     function attribute(): void {}
