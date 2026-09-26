@@ -35,8 +35,8 @@ attribute nodes. Marker calls erase from runtime code.
 
 ```ts
 let value: int32 = 1;
-const location = addressOf(value);
-storePointer(location, loadPointer(location) + 1);
+const location = addressof(value);
+storeptr(location, loadptr(location) + 1);
 ```
 
 The C# target lowers this to the closed
@@ -47,18 +47,18 @@ the exact location can be proven.
 ## Native C# pointers
 
 ```ts
-import { loadNativePointer, unsafeContext } from "@tsonic/core/lang.js";
+import { loadnativeptr, unsafecontext } from "@tsonic/core/lang.js";
 import type { NativePointer, int32 } from "@tsonic/core/types.js";
 
 export function read(pointer: NativePointer<int32>): int32 {
-  return unsafeContext(loadNativePointer(pointer));
+  return unsafecontext(loadnativeptr(pointer));
 }
 ```
 
 Native pointer representation, unsafe lexical context, declaration-level
-requires-unsafe, and project permission are separate controls. The target emits
-`AllowUnsafeBlocks` only when the sealed target program contains an authorized
-unsafe requirement. Other marker use does not imply unsafe output.
+`safety<T>().requiresunsafe()`, and project permission are separate controls.
+The target emits `AllowUnsafeBlocks` only when the sealed target program contains
+an authorized unsafe requirement. Other marker use does not imply unsafe output.
 
 `languageDialect` and `memorySafetyRules` independently select the C# language
 and memory-safety specifications. Preview memory-safety rules require the C# 15

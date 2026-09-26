@@ -1,23 +1,23 @@
 export function emptyMemoryRecordProofFiles(includeFrozen = false) {
   return Object.freeze({
   "schema.ts": `
-import { struct, field, memoryLayout, memoryField } from "@tsonic/core/lang.js";
+import { struct, field, memorylayout, memoryfield } from "@tsonic/core/lang.js";
 import { abi } from "test:abi";
 
 export const Empty: {} = struct({});
-export const emptyLayout = memoryLayout<typeof Empty>(abi, 0, 1, 0);
-export const objectLayout = memoryLayout<{}>(abi, 0, 1, 0);
+export const emptyLayout = memorylayout<typeof Empty>({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, fields: [] });
+export const objectLayout = memorylayout<{}>({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, fields: [] });
 export const Parent: { blank: {} } = struct({ blank: field<{}>() });
-export const blankField = memoryField((value: typeof Parent) => value.blank, 0, 1, emptyLayout);
-export const parentLayout = memoryLayout<typeof Parent>(abi, 0, 1, 0, blankField);
+export const blankField = memoryfield({ select: (value: typeof Parent) => value.blank, byteoffset: 0, bytealignment: 1, fieldlayout: emptyLayout });
+export const parentLayout = memorylayout<typeof Parent>({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, fields: [blankField] });
 `,
   "index.ts": `
-import { allocatePointer, addressOf, bindMemoryField, bindMemoryRecord,
-  loadPointer, storePointer, viewPointer, equalPointer, sizeOf } from "@tsonic/core/lang.js";
+import { allocateptr, addressof, bindmemoryfield, bindmemoryrecord,
+  loadptr, storeptr, viewptr, equalptr, sizeof } from "@tsonic/core/lang.js";
 import { Empty, emptyLayout, objectLayout, blankField, parentLayout } from "./schema.js";
 
 ${includeFrozen ? `function frozenIdentity(): boolean {
-  const physical = bindMemoryRecord(emptyLayout);
+  const physical = bindmemoryrecord(emptyLayout);
   const projected: {} = physical;
   const first: {} = {};
   const alias = first;
@@ -32,34 +32,34 @@ function identityAndConversions(): boolean {
   const alias = first;
   const second: {} = {};
   let visits = 0;
-  const read = (): typeof Empty => { visits += 1; return bindMemoryRecord(emptyLayout); };
+  const read = (): typeof Empty => { visits += 1; return bindmemoryrecord(emptyLayout); };
   const projected: {} = read();
   const restored: typeof Empty = projected;
-  const storage = allocatePointer<typeof Empty>(restored);
-  const loaded: {} = loadPointer(storage);
-  const pointer = addressOf(first);
-  const bound = bindMemoryRecord(objectLayout);
-  const other = bindMemoryRecord(objectLayout);
-  return first === alias && first !== second && loadPointer(pointer) === first &&
+  const storage = allocateptr<typeof Empty>(restored);
+  const loaded: {} = loadptr(storage);
+  const pointer = addressof(first);
+  const bound = bindmemoryrecord(objectLayout);
+  const other = bindmemoryrecord(objectLayout);
+  return first === alias && first !== second && loadptr(pointer) === first &&
     visits === 1 && bound !== other && loaded !== projected;
 }
 
 export function run(): boolean {
   let reads = 0;
   let writes = 0;
-  const value = bindMemoryRecord(emptyLayout);
-  const original = allocatePointer<typeof Empty>(value);
-  const view = viewPointer<typeof Empty, {}>(original,
-    () => { reads += 1; return bindMemoryRecord(emptyLayout); },
-    value => { writes += 1; storePointer(original, value); });
-  const record = bindMemoryRecord(parentLayout, bindMemoryField(blankField, view));
-  const captured = addressOf(record.blank);
+  const value = bindmemoryrecord(emptyLayout);
+  const original = allocateptr<typeof Empty>(value);
+  const view = viewptr<typeof Empty, {}>(original,
+    () => { reads += 1; return bindmemoryrecord(emptyLayout); },
+    value => { writes += 1; storeptr(original, value); });
+  const record = bindmemoryrecord(parentLayout, bindmemoryfield(blankField, view));
+  const captured = addressof(record.blank);
   const beforeReads = reads;
   const beforeWrites = writes;
-  loadPointer(captured);
-  storePointer(captured, bindMemoryRecord(emptyLayout));
+  loadptr(captured);
+  storeptr(captured, bindmemoryrecord(emptyLayout));
   return ${includeFrozen ? "frozenIdentity() && " : ""}identityAndConversions() && beforeReads === 0 && beforeWrites === 0 && reads === 1 && writes === 1 &&
-    sizeOf(parentLayout) === 0 && equalPointer(captured, view);
+    sizeof(parentLayout) === 0 && equalptr(captured, view);
 }
 `,
 });

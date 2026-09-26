@@ -56,16 +56,16 @@ export function main(): void {
 }
 `,
   "retained-locations": `
-import { addressOf, loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { addressof, loadptr, storeptr } from "@tsonic/core/lang.js";
 export function main(): void {
   const value = {count: 2, nested: {count: 4}};
-  const pointer = addressOf(value.count);
-  const nested = addressOf(value.nested.count);
+  const pointer = addressof(value.count);
+  const nested = addressof(value.nested.count);
   Object.freeze(value);
   let failed = false;
-  try { storePointer(pointer, 7); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
-  if (!failed || loadPointer(pointer) !== 2) throw new Error("retained location");
-  storePointer(nested, 9);
+  try { storeptr(pointer, 7); } catch (error) { if (!(error instanceof TypeError)) throw error; failed = true; }
+  if (!failed || loadptr(pointer) !== 2) throw new Error("retained location");
+  storeptr(nested, 9);
   if (value.nested.count !== 9) throw new Error("reference projection");
 }
 `,

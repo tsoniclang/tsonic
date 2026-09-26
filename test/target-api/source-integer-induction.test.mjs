@@ -54,7 +54,7 @@ test("bounded induction proves only unchanged zero-based counters with represent
 test("integer call uses require exact project parameter and by-value evidence", async () => {
   const checked = await checkedSource("integer-induction-calls", { "profile.d.ts": profile, "src/index.ts": `
     import type { int32 } from "@tsonic/core/types.js";
-    import { addressOf } from "@tsonic/core/lang.js";
+    import { addressof } from "@tsonic/core/lang.js";
     function copy(value: int32): int32 { value++; return value; }
     function floating(value: number): number { return value; }
     declare function external(value: int32): void;
@@ -62,7 +62,7 @@ test("integer call uses require exact project parameter and by-value evidence", 
       for (let index = 0; index < bound; index++) copy(index);
       for (let index = 0; index < bound; index++) floating(index);
       for (let index = 0; index < bound; index++) external(index);
-      for (let index = 0; index < bound; index++) addressOf(index);
+      for (let index = 0; index < bound; index++) addressof(index);
     }
   ` }, { sourceCore: true });
   assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");

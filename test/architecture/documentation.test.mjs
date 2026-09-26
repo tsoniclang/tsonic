@@ -125,10 +125,31 @@ test("neutral source exports are represented in the canonical reference", () => 
   const missing = (text) => exports.filter((name) =>
     !["`", "(", "<"].some((suffix) => text.includes("`" + name + suffix)));
   assert.deepEqual(missing(reference), []);
-  assert.deepEqual(
-    missing(reference.replaceAll("`reinterpretRawPointer", "`removedExport")),
-    ["reinterpretRawPointer"],
-  );
+  for (const name of ["reinterpretrawptr", "memorylayout", "memoryarraylayout", "memoryfield"]) {
+    assert.deepEqual(
+      missing(reference.replaceAll("`" + name, "`removedExport")),
+      [name],
+    );
+  }
+  for (const signature of [
+    "memorylayout<T>(descriptor)",
+    "memoryarraylayout<T, N>(descriptor)",
+    "memoryfield<T, TField>(descriptor)",
+  ]) {
+    assert.ok(reference.includes("`" + signature + "`"), signature);
+  }
+});
+
+test("shared and target safety documentation names the canonical requiresunsafe builder", () => {
+  for (const path of [
+    "reference/source-core.md",
+    "manual/targets/csharp/interop-and-safety.md",
+    "manual/targets/rust/ownership-and-safety.md",
+  ]) {
+    const reference = readFileSync(resolve(documentationRoot, path), "utf8");
+    assert.match(reference, /\.requiresunsafe\(\)/u, path);
+    assert.doesNotMatch(reference, /\.requiresUnsafe\b/u, path);
+  }
 });
 
 test("the pinned TypeScript utility inventory is represented in the canonical reference", () => {

@@ -93,21 +93,21 @@ export const coreLangIntrinsicModuleSpecifier = "@tsonic/core/lang.js";
 export const coreTypesIntrinsicModuleSpecifier = "@tsonic/core/types.js";
 
 export const coreIntrinsicCoverage = Object.freeze([
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "writeOnlyRef", factSlug: "write-only-ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.write-only-ref" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "readWriteRef", factSlug: "read-write-ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.read-write-ref" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "readOnlyRef", factSlug: "read-only-ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.read-only-ref" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "sharedBorrow", factSlug: "shared-borrow", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.shared-borrow" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "mutableBorrow", factSlug: "mutable-borrow", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.mutable-borrow" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "writeonlyref", factSlug: "write-only-ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.write-only-ref" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "readwriteref", factSlug: "read-write-ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.read-write-ref" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "readonlyref", factSlug: "read-only-ref", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.read-only-ref" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "sharedborrow", factSlug: "shared-borrow", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.shared-borrow" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "mutableborrow", factSlug: "mutable-borrow", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.mutable-borrow" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "move", factSlug: "move", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.move" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "struct", factSlug: "struct", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.struct" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "field", factSlug: "field", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.field" },
   { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "attribute", factSlug: "attribute", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.attribute" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "defaultValue", factSlug: "default-value", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.default-value" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "addressOf", factSlug: "address-of", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.address-of" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "allocatePointer", factSlug: "allocate-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.allocate-pointer" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "loadPointer", factSlug: "load-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.load-pointer" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "storePointer", factSlug: "store-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.store-pointer" },
-  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "equalPointer", factSlug: "equal-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.equal-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "defaultvalue", factSlug: "default-value", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.default-value" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "addressof", factSlug: "address-of", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.address-of" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "allocateptr", factSlug: "allocate-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.allocate-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "loadptr", factSlug: "load-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.load-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "storeptr", factSlug: "store-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.store-pointer" },
+  { moduleSpecifier: coreLangIntrinsicModuleSpecifier, exportName: "equalptr", factSlug: "equal-pointer", sourceKind: "call-marker", capabilityId: "source-core.lang.portable-intrinsics.equal-pointer" },
   { moduleSpecifier: coreTypesIntrinsicModuleSpecifier, exportName: "Pointer", factSlug: "pointer", sourceKind: "type-marker", capabilityId: "source-core.types.portable-intrinsics.pointer" },
   { moduleSpecifier: coreTypesIntrinsicModuleSpecifier, exportName: "FunctionPointer", factSlug: "function-pointer", sourceKind: "type-marker", capabilityId: "source-core.types.portable-intrinsics.function-pointer" },
 ].map(freezeCoreIntrinsicCoverageEntry));
@@ -192,7 +192,7 @@ const slice4DotnetProviderContractRows = Object.freeze([
     capabilityId: "native.dotnet.contract.default-value-optional-only",
     title: ".NET default parameter values only appear on optional parameters",
     notes:
-      "Reviewed proof: provider contracts reject defaultValue on non-optional parameters; reflection tests prove supported default values remain target metadata only and source virtual declarations expose optionality without fabricating source default expressions.",
+      "Reviewed proof: provider contracts reject defaultvalue on non-optional parameters; reflection tests prove supported default values remain target metadata only and source virtual declarations expose optionality without fabricating source default expressions.",
   },
   {
     capabilityId: "native.dotnet.contract.unsupported-default-exclusive",
@@ -317,7 +317,7 @@ const slice4SourceCoreContractRows = Object.freeze([
     capabilityId: "source-core.contract.reference-marker-alias",
     title: "Reference markers preserve facts through imports, aliases, and namespaces",
     notes:
-      "Reviewed proof: writeOnlyRef/readWriteRef/readOnlyRef facts are recorded from direct, aliased, and namespace imports by provider identity rather than source spelling.",
+      "Reviewed proof: writeonlyref/readwriteref/readonlyref facts are recorded from direct, aliased, and namespace imports by provider identity rather than source spelling.",
   },
   {
     capabilityId: "source-core.contract.reference-marker-no-local-guess",
@@ -329,7 +329,7 @@ const slice4SourceCoreContractRows = Object.freeze([
     capabilityId: "source-core.contract.non-storage-reference-diagnostics",
     title: "Reference markers reject non-storage expressions deterministically",
     notes:
-      "Reviewed proof: writeOnlyRef/readWriteRef/readOnlyRef calls on non-storage expressions produce source-core diagnostics and do not produce selected target argument facts for target emission.",
+      "Reviewed proof: writeonlyref/readwriteref/readonlyref calls on non-storage expressions produce source-core diagnostics and do not produce selected target argument facts for target emission.",
   },
   {
     capabilityId: "source-core.contract.struct-field-owner-finalization",
@@ -354,9 +354,9 @@ const slice4SourceCoreContractRows = Object.freeze([
   },
   {
     capabilityId: "source-core.contract.default-value-type-evidence-required",
-    title: "defaultValue markers require explicit type evidence",
+    title: "defaultvalue markers require explicit type evidence",
     notes:
-      "Reviewed proof: defaultValue() without explicit type evidence is diagnosed for direct, namespace, and alias forms; C# default expression emission consumes a C#-owned operation converted from finalized neutral facts.",
+      "Reviewed proof: defaultvalue() without explicit type evidence is diagnosed for direct, namespace, and alias forms; C# default expression emission consumes a C#-owned operation converted from finalized neutral facts.",
   },
   {
     capabilityId: "source-core.contract.pointer-type-marker-evidence",
@@ -383,7 +383,7 @@ const slice4SourceCoreContractRows = Object.freeze([
     capabilityId: "source.marker.contract.reference-passing-facts",
     title: "Reference-passing marker facts are neutral source facts",
     notes:
-      "Reviewed proof: source-core records neutral argument-passing and storage facts for writeOnlyRef/readWriteRef/readOnlyRef without target policy, and C# converts those facts to C# parameter modes only after selected provider signatures require them.",
+      "Reviewed proof: source-core records neutral argument-passing and storage facts for writeonlyref/readwriteref/readonlyref without target policy, and C# converts those facts to C# parameter modes only after selected provider signatures require them.",
   },
   {
     capabilityId: "source.marker.contract.attribute-facts",
@@ -410,7 +410,7 @@ const slice4SourceCoreContractRows = Object.freeze([
     capabilityId: "target.csharp.reference-passing-fact-consumption",
     title: "C# consumes reference-passing only from finalized marker facts",
     notes:
-      "Reviewed proof: C# source semantics converts finalized writeOnlyRef/readWriteRef/readOnlyRef facts into selected C# parameter-mode facts and rejects local/shadowed markers without consuming source spelling.",
+      "Reviewed proof: C# source semantics converts finalized writeonlyref/readwriteref/readonlyref facts into selected C# parameter-mode facts and rejects local/shadowed markers without consuming source spelling.",
   },
   {
     capabilityId: "target.csharp.core-lang.struct-field-carrier",
@@ -488,7 +488,7 @@ const slice4ProviderCallContractRows = Object.freeze([
     capabilityId: "function.default-rest-optional-params.provider-defaults",
     title: "Provider default parameters are target metadata, not source syntax defaults",
     notes:
-      "Reviewed proof: reflected default metadata is retained only in target facts, source virtual declarations expose optional parameters without defaultValue expressions, and backend selection consumes target defaults.",
+      "Reviewed proof: reflected default metadata is retained only in target facts, source virtual declarations expose optional parameters without defaultvalue expressions, and backend selection consumes target defaults.",
   },
   {
     capabilityId: "function.default-rest-optional-params.provider-params-array",
@@ -564,34 +564,34 @@ const baseCapabilityDefinitions = Object.freeze([
   ["source.primitive.numeric", "Neutral source numeric primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.char-bool", "Neutral char and bool primitives attach facts", "complete", "source-core-provider"],
   ["source.primitive.configured-type", "Configured source primitive aliases map to canonical facts", "complete", "source-core-provider"],
-  ["source.marker.reference-passing", "writeOnlyRef, readWriteRef, and readOnlyRef attach storage facts", "complete", "source-core-provider"],
+  ["source.marker.reference-passing", "writeonlyref, readwriteref, and readonlyref attach storage facts", "complete", "source-core-provider"],
   ["source.marker.field", "field marker attaches storage facts", "complete", "source-core-provider"],
   ["source.marker.struct", "struct marker attaches value-type source facts", "complete", "source-core-provider"],
   ["source.marker.attribute", "attribute marker attaches target attribute facts", "complete", "source-core-provider"],
-  ["source.marker.default-value", "defaultValue attaches target default facts", "complete", "source-core-provider"],
+  ["source.marker.default-value", "defaultvalue attaches target default facts", "complete", "source-core-provider"],
   ["source.marker.typed-location-function-pointer", "typed-location and function-pointer markers attach target-validated facts", "complete", "source-core-provider"],
-  ["source.marker.borrow-move", "sharedBorrow, mutableBorrow, and move attach target-validated flow facts", "complete", "source-core-provider"],
-  ["source-core.write-only-reference.storage-binding", "writeOnlyRef resolves to assignable storage", "complete", "source-core-provider"],
-  ["source-core.reference.parameter-mode", "readWriteRef and readOnlyRef resolve to parameter passing facts", "complete", "source-core-provider"],
+  ["source.marker.borrow-move", "sharedborrow, mutableborrow, and move attach target-validated flow facts", "complete", "source-core-provider"],
+  ["source-core.write-only-reference.storage-binding", "writeonlyref resolves to assignable storage", "complete", "source-core-provider"],
+  ["source-core.reference.parameter-mode", "readwriteref and readonlyref resolve to parameter passing facts", "complete", "source-core-provider"],
   ["source-core.struct.field-facts", "struct and field markers combine into value-shape facts", "complete", "source-core-provider"],
   ["source-core.flow.borrow-move-facts", "borrow and move source facts require explicit target behavior", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics", "@tsonic/core/lang.js intrinsics require portable facts and per-target implementation or rejection", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics", "@tsonic/core/types.js type markers require portable facts and per-target implementation or rejection", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.write-only-ref", "writeOnlyRef attaches neutral write-only byref storage facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.read-write-ref", "readWriteRef attaches neutral read-write byref storage facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.read-only-ref", "readOnlyRef attaches neutral read-only byref storage facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.shared-borrow", "sharedBorrow attaches neutral shared-borrow flow facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.mutable-borrow", "mutableBorrow attaches neutral mutable-borrow flow facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.write-only-ref", "writeonlyref attaches neutral write-only byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.read-write-ref", "readwriteref attaches neutral read-write byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.read-only-ref", "readonlyref attaches neutral read-only byref storage facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.shared-borrow", "sharedborrow attaches neutral shared-borrow flow facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.mutable-borrow", "mutableborrow attaches neutral mutable-borrow flow facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.move", "move intrinsic attaches neutral moved-value flow facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.struct", "struct intrinsic attaches neutral value-type shape facts", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.field", "field intrinsic attaches neutral field facts from explicit type evidence", "complete", "source-core-provider"],
   ["source-core.lang.portable-intrinsics.attribute", "attribute intrinsic attaches neutral attribute application facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.default-value", "defaultValue attaches neutral target-default value facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.address-of", "addressOf attaches exact writable-storage location facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.allocate-pointer", "allocatePointer attaches fresh typed-location facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.load-pointer", "loadPointer attaches exact typed-location read facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.store-pointer", "storePointer attaches exact typed-location write facts", "complete", "source-core-provider"],
-  ["source-core.lang.portable-intrinsics.equal-pointer", "equalPointer attaches exact typed-location identity-comparison facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.default-value", "defaultvalue attaches neutral target-default value facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.address-of", "addressof attaches exact writable-storage location facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.allocate-pointer", "allocateptr attaches fresh typed-location facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.load-pointer", "loadptr attaches exact typed-location read facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.store-pointer", "storeptr attaches exact typed-location write facts", "complete", "source-core-provider"],
+  ["source-core.lang.portable-intrinsics.equal-pointer", "equalptr attaches exact typed-location identity-comparison facts", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics.pointer", "Pointer attaches neutral typed-location facts", "complete", "source-core-provider"],
   ["source-core.types.portable-intrinsics.function-pointer", "FunctionPointer attaches neutral function-pointer type facts", "complete", "source-core-provider"],
   ...slice4SourceCoreContractRows.map((row) => [row.capabilityId, row.title, "complete", row.capabilityId.startsWith("target.csharp.") ? "target-provider" : "source-core-provider"]),
@@ -2855,7 +2855,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: imported, aliased, and namespace writeOnlyRef/readWriteRef/readOnlyRef markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts only from @tsonic/core/lang.js identity and proven identifier/property/element storage. Source-core tests prove local and shadowed same-spelling functions do not create marker facts. C# provider tests prove selected method, constructor, indexer, extension receiver, optional/default, params-array, and mutated-fact paths consume those facts rather than source spelling. CLI evidence proves unproven storage like writeOnlyRef(value + 1), readWriteRef(value + 1), and readOnlyRef(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted.",
+      "Reviewed proof: imported, aliased, and namespace writeonlyref/readwriteref/readonlyref markers attach byref-writeonly-must-init, byref-readwrite, and byref-readonly argument-passing facts only from @tsonic/core/lang.js identity and proven identifier/property/element storage. Source-core tests prove local and shadowed same-spelling functions do not create marker facts. C# provider tests prove selected method, constructor, indexer, extension receiver, optional/default, params-array, and mutated-fact paths consume those facts rather than source spelling. CLI evidence proves unproven storage like writeonlyref(value + 1), readwriteref(value + 1), and readonlyref(value + 1) produces TSTS_SOURCE_SEMANTICS_0001 diagnostics before C# artifacts are emitted.",
   }),
   "source.marker.field": Object.freeze({
     positiveTests: Object.freeze([
@@ -2947,7 +2947,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: defaultValue<T>() attaches default-value facts whose type is the finalized source type node, including finalized owner facts on variable declarations. Source-core tests cover primitives, direct/alias/namespace imports, local/shadowed no-guessing, and missing explicit default type evidence through direct, alias, and namespace imports. CLI/toolchain proof emits target default expressions for primitive, source struct, reference class, nullable reference, and provider generic types, and rejects defaultValue() before C# artifacts with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE.",
+      "Reviewed proof: defaultvalue<T>() attaches default-value facts whose type is the finalized source type node, including finalized owner facts on variable declarations. Source-core tests cover primitives, direct/alias/namespace imports, local/shadowed no-guessing, and missing explicit default type evidence through direct, alias, and namespace imports. CLI/toolchain proof emits target default expressions for primitive, source struct, reference class, nullable reference, and provider generic types, and rejects defaultvalue() before C# artifacts with SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE.",
   }),
   "source.marker.typed-location-function-pointer": Object.freeze({
     positiveTests: Object.freeze([
@@ -2989,7 +2989,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: neutral @tsonic/core/lang.js sharedBorrow, mutableBorrow, and move calls attach finalized TSTS flow facts from direct, alias, and namespace imports; local/shadowed same-spelling calls do not attach facts; invalid no-argument and extra-argument calls are rejected by TSTS checking without source-core facts. Source-core keeps flow facts on the exact marker call plus argument subjects rather than marking later use-sites as validated. The C# target explicitly rejects finalized shared/mutable borrow and move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED and rejects missing marker facts with capability-scoped diagnostics instead of silently erasing the marker calls. Rust ownership validation remains a future target implementation and does not keep the C# target rejection contract partial.",
+      "Reviewed proof: neutral @tsonic/core/lang.js sharedborrow, mutableborrow, and move calls attach finalized TSTS flow facts from direct, alias, and namespace imports; local/shadowed same-spelling calls do not attach facts; invalid no-argument and extra-argument calls are rejected by TSTS checking without source-core facts. Source-core keeps flow facts on the exact marker call plus argument subjects rather than marking later use-sites as validated. The C# target explicitly rejects finalized shared/mutable borrow and move facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED and rejects missing marker facts with capability-scoped diagnostics instead of silently erasing the marker calls. Rust ownership validation remains a future target implementation and does not keep the C# target rejection contract partial.",
   }),
   "source-core.write-only-reference.storage-binding": Object.freeze({
     positiveTests: Object.freeze([
@@ -3010,7 +3010,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: writeOnlyRef(value), aliased calls, namespace calls over box.field, and element/property storage record write-only byref facts only when TSTS/source-core proves the target expression is storage. Provider selection tests prove methods, constructors, indexers, extension overloads, and mutated selected-operation facts require the finalized byref-writeonly-must-init fact before C# operation facts are emitted. CLI evidence proves writeOnlyRef(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
+      "Reviewed proof: writeonlyref(value), aliased calls, namespace calls over box.field, and element/property storage record write-only byref facts only when TSTS/source-core proves the target expression is storage. Provider selection tests prove methods, constructors, indexers, extension overloads, and mutated selected-operation facts require the finalized byref-writeonly-must-init fact before C# operation facts are emitted. CLI evidence proves writeonlyref(value + 1) records no usable storage fact and emits TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted.",
   }),
   "source-core.reference.parameter-mode": Object.freeze({
     positiveTests: Object.freeze([
@@ -3031,7 +3031,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ]),
     blockers: Object.freeze([]),
     notes:
-      "Reviewed proof: readWriteRef(value), readOnlyRef(value), aliases, namespace markers, and element/property storage attach readwrite and readonly parameter-mode facts to proven storage only. Provider selection tests prove methods, constructors, indexers, extension overloads, default/optional/params paths, and mutated selected-operation facts consume finalized parameter-mode facts and reject missing/mismatched facts. CLI evidence proves readWriteRef(value + 1) and readOnlyRef(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts.",
+      "Reviewed proof: readwriteref(value), readonlyref(value), aliases, namespace markers, and element/property storage attach readwrite and readonly parameter-mode facts to proven storage only. Provider selection tests prove methods, constructors, indexers, extension overloads, default/optional/params paths, and mutated selected-operation facts consume finalized parameter-mode facts and reject missing/mismatched facts. CLI evidence proves readwriteref(value + 1) and readonlyref(value + 1) fail closed with TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted; local and shadowed functions named like markers do not receive source-core parameter facts.",
   }),
   "source-core.struct.field-facts": Object.freeze({
     positiveTests: Object.freeze([
@@ -3076,10 +3076,10 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
-      "import { writeOnlyRef, readWriteRef, readOnlyRef, sharedBorrow, mutableBorrow, move, struct, field, attribute, defaultValue, addressOf, allocatePointer, loadPointer, storePointer, equalPointer } from \"@tsonic/core/lang.js\";",
-      "writeOnlyRef(value); readWriteRef(value); readOnlyRef(value); sharedBorrow(value); mutableBorrow(value); move(value);",
-      "const Point = struct({ x: field<int32>() }); const zero = defaultValue<int32>(); attribute<Point>().add(() => new RouteAttribute());",
-      "const alias = addressOf(value); const fresh = allocatePointer<int32>(0); storePointer(alias, loadPointer(fresh)); equalPointer(alias, addressOf(value));",
+      "import { writeonlyref, readwriteref, readonlyref, sharedborrow, mutableborrow, move, struct, field, attribute, defaultvalue, addressof, allocateptr, loadptr, storeptr, equalptr } from \"@tsonic/core/lang.js\";",
+      "writeonlyref(value); readwriteref(value); readonlyref(value); sharedborrow(value); mutableborrow(value); move(value);",
+      "const Point = struct({ x: field<int32>() }); const zero = defaultvalue<int32>(); attribute<Point>().add(() => new RouteAttribute());",
+      "const alias = addressof(value); const fresh = allocateptr<int32>(0); storeptr(alias, loadptr(fresh)); equalptr(alias, addressof(value));",
     ]),
     tstsDecision:
       "TSTS checks ordinary imports/calls/types from @tsonic/core/lang.js; source-core attaches marker facts only from the provider-owned module identity.",
@@ -3145,7 +3145,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed proof: @tsonic/core/lang.js exports only the canonical call markers writeOnlyRef/readWriteRef/readOnlyRef/sharedBorrow/mutableBorrow/move/struct/field/attribute/defaultValue/addressOf/allocatePointer/loadPointer/storePointer/equalPointer. Each export has one source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove provider-owned direct, aliased, and namespace facts; invalid arity and missing storage/type evidence fail closed; local and shadowed names do not acquire facts; and unsupported local barrel/export-star forms attach no portable facts. C# maps the five typed-location operations through its target-owned policy and closed runtime carrier; secondary targets reject them deterministically.",
+      "Reviewed proof: this portable-intrinsic coverage group tracks the canonical @tsonic/core/lang.js call markers writeonlyref/readwriteref/readonlyref/sharedborrow/mutableborrow/move/struct/field/attribute/defaultvalue/addressof/allocateptr/loadptr/storeptr/equalptr. Each tracked export has one source-core.lang.portable-intrinsics.* child capability. Source-core package tests prove provider-owned direct, aliased, and namespace facts; invalid arity and missing storage/type evidence fail closed; local and shadowed names do not acquire facts; and unsupported local barrel/export-star forms attach no portable facts. C# maps the five typed-location operations through its target-owned policy and closed runtime carrier; secondary targets reject them deterministically.",
   }),
   "source-core.types.portable-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
@@ -3218,22 +3218,22 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics.write-only-ref": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "writeOnlyRef",
+    exportName: "writeonlyref",
     factSlug: "write-only-ref",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { writeOnlyRef } from \"@tsonic/core/lang.js\";",
-      "let value: int32 = 0; if (values.tryGetValue(key, writeOnlyRef(value))) return value;",
+      "import { writeonlyref } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 0; if (values.tryGetValue(key, writeonlyref(value))) return value;",
     ],
     sourceContract:
-      "Core owns writeOnlyRef(value) as a portable write-only byref marker over proven assignable storage; it does not declare a target parameter mode by spelling.",
+      "Core owns writeonlyref(value) as a portable write-only byref marker over proven assignable storage; it does not declare a target parameter mode by spelling.",
     providerFacts: [
       "sourceCoreWriteOnlyRefMarkerFact",
       "argumentStorageFact",
       "byrefWriteonlyMustInitFact",
     ],
     targetContract:
-      "Targets map finalized write-only storage facts to their own byref/write initialization operation or emit a deterministic unsupported-target diagnostic; backends must not erase writeOnlyRef(value) as an identity call.",
+      "Targets map finalized write-only storage facts to their own byref/write initialization operation or emit a deterministic unsupported-target diagnostic; backends must not erase writeonlyref(value) as an identity call.",
     targetRequiredFacts: [
       "argument-storage",
       "byref-writeonly-must-init",
@@ -3262,19 +3262,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     blockers: [],
     notes:
-      "Reviewed proof: TSTS/source-core records byref-writeonly-must-init only for direct, aliased, or namespaced imported writeOnlyRef calls over proven identifier/property/element storage. Invalid arity is rejected by TSTS checking, local/shadowed calls do not attach facts, and CLI evidence proves writeOnlyRef(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted. C# provider method, constructor, indexer, extension overload, optional/default, params-array, and mutated-fact tests consume the finalized fact rather than source spelling.",
+      "Reviewed proof: TSTS/source-core records byref-writeonly-must-init only for direct, aliased, or namespaced imported writeonlyref calls over proven identifier/property/element storage. Invalid arity is rejected by TSTS checking, local/shadowed calls do not attach facts, and CLI evidence proves writeonlyref(value + 1) reports TSTS_SOURCE_SEMANTICS_0001 before C# artifacts are emitted. C# provider method, constructor, indexer, extension overload, optional/default, params-array, and mutated-fact tests consume the finalized fact rather than source spelling.",
   }),
   "source-core.lang.portable-intrinsics.read-write-ref": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "readWriteRef",
+    exportName: "readwriteref",
     factSlug: "read-write-ref",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { readWriteRef } from \"@tsonic/core/lang.js\";",
-      "let value: int32 = 1; mutate(readWriteRef(value));",
+      "import { readwriteref } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 1; mutate(readwriteref(value));",
     ],
     sourceContract:
-      "Core owns readWriteRef(value) as a portable read-write byref marker over proven assignable storage; targets decide whether that storage can be passed by mutable reference.",
+      "Core owns readwriteref(value) as a portable read-write byref marker over proven assignable storage; targets decide whether that storage can be passed by mutable reference.",
     providerFacts: [
       "sourceCoreReadWriteRefMarkerFact",
       "argumentStorageFact",
@@ -3310,26 +3310,26 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     blockers: [],
     notes:
-      "Reviewed proof: TSTS/source-core records byref-readwrite for direct, aliased, and namespaced imported readWriteRef markers only over proven storage, while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage readWriteRef(value + 1) diagnostics block C# artifacts and invalid arity is rejected by TSTS checking. C# provider tests require finalized readwrite parameter facts before target emission.",
+      "Reviewed proof: TSTS/source-core records byref-readwrite for direct, aliased, and namespaced imported readwriteref markers only over proven storage, while same-spelling local and shadowed functions do not receive marker facts. CLI evidence proves non-storage readwriteref(value + 1) diagnostics block C# artifacts and invalid arity is rejected by TSTS checking. C# provider tests require finalized readwrite parameter facts before target emission.",
   }),
   "source-core.lang.portable-intrinsics.read-only-ref": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "readOnlyRef",
+    exportName: "readonlyref",
     factSlug: "read-only-ref",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { readOnlyRef } from \"@tsonic/core/lang.js\";",
-      "let value: int32 = 1; inspect(readOnlyRef(value));",
+      "import { readonlyref } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 1; inspect(readonlyref(value));",
     ],
     sourceContract:
-      "Core owns readOnlyRef(value) as a portable read-only byref marker over proven storage; targets decide their immutable byref mapping or rejection.",
+      "Core owns readonlyref(value) as a portable read-only byref marker over proven storage; targets decide their immutable byref mapping or rejection.",
     providerFacts: [
       "sourceCoreReadOnlyRefMarkerFact",
       "argumentStorageFact",
       "byrefReadonlyFact",
     ],
     targetContract:
-      "Targets map finalized read-only facts to their own immutable byref operation or emit a deterministic unsupported-target diagnostic; backends must not treat readOnlyRef(value) as an ordinary value call.",
+      "Targets map finalized read-only facts to their own immutable byref operation or emit a deterministic unsupported-target diagnostic; backends must not treat readonlyref(value) as an ordinary value call.",
     targetRequiredFacts: [
       "argument-storage",
       "byref-readonly",
@@ -3357,26 +3357,26 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     blockers: [],
     notes:
-      "Reviewed proof: imported, aliased, and namespace readOnlyRef records byref-readonly on the call marker only when the argument is proven storage; it does not place argument-passing facts on unrelated expressions. CLI evidence proves non-storage readOnlyRef(value + 1) diagnostics block C# artifacts and invalid arity is rejected through TSTS checking. C# provider tests consume finalized read-only facts and reject missing or mismatched parameter-mode evidence.",
+      "Reviewed proof: imported, aliased, and namespace readonlyref records byref-readonly on the call marker only when the argument is proven storage; it does not place argument-passing facts on unrelated expressions. CLI evidence proves non-storage readonlyref(value + 1) diagnostics block C# artifacts and invalid arity is rejected through TSTS checking. C# provider tests consume finalized read-only facts and reject missing or mismatched parameter-mode evidence.",
   }),
   "source-core.lang.portable-intrinsics.shared-borrow": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "sharedBorrow",
+    exportName: "sharedborrow",
     factSlug: "shared-borrow",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { sharedBorrow } from \"@tsonic/core/lang.js\";",
-      "const view = sharedBorrow(value);",
+      "import { sharedborrow } from \"@tsonic/core/lang.js\";",
+      "const view = sharedborrow(value);",
     ],
     sourceContract:
-      "Core owns sharedBorrow(value) as a portable shared-borrow flow marker; it records neutral source-flow state and leaves aliasing rules to the selected target.",
+      "Core owns sharedborrow(value) as a portable shared-borrow flow marker; it records neutral source-flow state and leaves aliasing rules to the selected target.",
     providerFacts: [
       "sourceCoreSharedBorrowMarkerFact",
       "borrowedSharedFlowFact",
       "targetFlowValidationRequiredFact",
     ],
     targetContract:
-      "Targets either validate shared-borrow flow with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not silently erase sharedBorrow(value).",
+      "Targets either validate shared-borrow flow with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not silently erase sharedborrow(value).",
     targetRequiredFacts: [
       "borrowed-shared-flow",
       "target-flow-validation-contract",
@@ -3404,26 +3404,26 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     blockers: [],
     notes:
-      "Reviewed proof: TSTS/source-core records borrowed-shared flow for direct, aliased, and namespace sharedBorrow calls on the exact call and argument subjects, rejects invalid arity without source-core facts, avoids facts for local/shadowed calls, and does not mark later use-sites as source-validated flow. C# rejects finalized shared-borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call.",
+      "Reviewed proof: TSTS/source-core records borrowed-shared flow for direct, aliased, and namespace sharedborrow calls on the exact call and argument subjects, rejects invalid arity without source-core facts, avoids facts for local/shadowed calls, and does not mark later use-sites as source-validated flow. C# rejects finalized shared-borrow facts with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED instead of erasing the call.",
   }),
   "source-core.lang.portable-intrinsics.mutable-borrow": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "mutableBorrow",
+    exportName: "mutableborrow",
     factSlug: "mutable-borrow",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { mutableBorrow } from \"@tsonic/core/lang.js\";",
-      "const writable = mutableBorrow(value);",
+      "import { mutableborrow } from \"@tsonic/core/lang.js\";",
+      "const writable = mutableborrow(value);",
     ],
     sourceContract:
-      "Core owns mutableBorrow(value) as a portable mutable-borrow flow marker; target packs own mutation exclusivity and aliasing diagnostics.",
+      "Core owns mutableborrow(value) as a portable mutable-borrow flow marker; target packs own mutation exclusivity and aliasing diagnostics.",
     providerFacts: [
       "sourceCoreMutableBorrowMarkerFact",
       "borrowedMutFlowFact",
       "targetFlowValidationRequiredFact",
     ],
     targetContract:
-      "Targets either validate mutable-borrow flow with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not compile mutableBorrow as an identity value.",
+      "Targets either validate mutable-borrow flow with target-owned rules or emit a deterministic unsupported-target diagnostic; backends must not compile mutableborrow as an identity value.",
     targetRequiredFacts: [
       "borrowed-mut-flow",
       "target-flow-validation-contract",
@@ -3451,7 +3451,7 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     blockers: [],
     notes:
-      "Reviewed proof: TSTS/source-core records borrowed-mut flow for direct, aliased, and namespace mutableBorrow calls on the exact call and argument subjects, rejects invalid arity without source-core facts, avoids facts for local/shadowed calls, and does not mark later use-sites as source-validated mutable-borrow flow. Selected targets own exclusivity; C# explicitly rejects finalized mutable-borrow facts rather than lowering the marker away.",
+      "Reviewed proof: TSTS/source-core records borrowed-mut flow for direct, aliased, and namespace mutableborrow calls on the exact call and argument subjects, rejects invalid arity without source-core facts, avoids facts for local/shadowed calls, and does not mark later use-sites as source-validated mutable-borrow flow. Selected targets own exclusivity; C# explicitly rejects finalized mutable-borrow facts rather than lowering the marker away.",
   }),
   "source-core.lang.portable-intrinsics.move": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
@@ -3652,15 +3652,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics.default-value": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "defaultValue",
+    exportName: "defaultvalue",
     factSlug: "default-value",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { defaultValue } from \"@tsonic/core/lang.js\";",
-      "export function zero(): int32 { return defaultValue<int32>(); }",
+      "import { defaultvalue } from \"@tsonic/core/lang.js\";",
+      "export function zero(): int32 { return defaultvalue<int32>(); }",
     ],
     sourceContract:
-      "Core owns defaultValue<T>() as a portable default-value marker requiring explicit type evidence; targets own the target default expression or diagnostic.",
+      "Core owns defaultvalue<T>() as a portable default-value marker requiring explicit type evidence; targets own the target default expression or diagnostic.",
     providerFacts: [
       "sourceCoreDefaultValueMarkerFact",
       "defaultValueTypeEvidenceFact",
@@ -3694,19 +3694,19 @@ const reviewedCapabilityEvidence = Object.freeze({
     ],
     blockers: [],
     notes:
-      "Reviewed proof: defaultValue<char>(), defaultValue<int32>(), namespace lang.defaultValue<bool>(), and aliased imports attach neutral default-value facts only from explicit source type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling functions do not attach facts. defaultValue() fails closed through direct, alias, namespace, and CLI paths. C# emits target default expressions only after converting finalized source facts to a C#-owned default-value model.",
+      "Reviewed proof: defaultvalue<char>(), defaultvalue<int32>(), namespace lang.defaultvalue<bool>(), and aliased imports attach neutral default-value facts only from explicit source type evidence and finalize owner facts on variable declarations, while local/shadowed same-spelling functions do not attach facts. defaultvalue() fails closed through direct, alias, namespace, and CLI paths. C# emits target default expressions only after converting finalized source facts to a C#-owned default-value model.",
   }),
   "source-core.lang.portable-intrinsics.address-of": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "addressOf",
+    exportName: "addressof",
     factSlug: "address-of",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { addressOf } from \"@tsonic/core/lang.js\";",
-      "let value: int32 = 1; const pointer = addressOf(value);",
+      "import { addressof } from \"@tsonic/core/lang.js\";",
+      "let value: int32 = 1; const pointer = addressof(value);",
     ],
     sourceContract:
-      "Core owns addressOf(storage) as a portable typed-location operation over exact writable storage; targets own canonical location representation and identity.",
+      "Core owns addressof(storage) as a portable typed-location operation over exact writable storage; targets own canonical location representation and identity.",
     providerFacts: [
       "sourceCorePointerOperationFact",
       "writableStorageDeclarationFact",
@@ -3745,15 +3745,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics.allocate-pointer": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "allocatePointer",
+    exportName: "allocateptr",
     factSlug: "allocate-pointer",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { allocatePointer } from \"@tsonic/core/lang.js\";",
-      "const pointer = allocatePointer<int32>(1);",
+      "import { allocateptr } from \"@tsonic/core/lang.js\";",
+      "const pointer = allocateptr<int32>(1);",
     ],
     sourceContract:
-      "Core owns allocatePointer<T>(initial) as a portable operation that creates one fresh typed location initialized from exact T evidence.",
+      "Core owns allocateptr<T>(initial) as a portable operation that creates one fresh typed location initialized from exact T evidence.",
     providerFacts: [
       "sourceCorePointerOperationFact",
       "pointerPointeeTypeFact",
@@ -3792,15 +3792,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics.load-pointer": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "loadPointer",
+    exportName: "loadptr",
     factSlug: "load-pointer",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { loadPointer } from \"@tsonic/core/lang.js\";",
-      "const value: int32 = loadPointer(pointer);",
+      "import { loadptr } from \"@tsonic/core/lang.js\";",
+      "const value: int32 = loadptr(pointer);",
     ],
     sourceContract:
-      "Core owns loadPointer<T>(pointer) as a portable read from the exact selected Pointer<T> location.",
+      "Core owns loadptr<T>(pointer) as a portable read from the exact selected Pointer<T> location.",
     providerFacts: [
       "sourceCorePointerOperationFact",
       "pointerPointeeTypeFact",
@@ -3839,15 +3839,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics.store-pointer": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "storePointer",
+    exportName: "storeptr",
     factSlug: "store-pointer",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { storePointer } from \"@tsonic/core/lang.js\";",
-      "storePointer(pointer, 2);",
+      "import { storeptr } from \"@tsonic/core/lang.js\";",
+      "storeptr(pointer, 2);",
     ],
     sourceContract:
-      "Core owns storePointer<T>(pointer,value) as a portable write through the exact selected Pointer<T> location after ordinary TypeScript checking proves T.",
+      "Core owns storeptr<T>(pointer,value) as a portable write through the exact selected Pointer<T> location after ordinary TypeScript checking proves T.",
     providerFacts: [
       "sourceCorePointerOperationFact",
       "pointerPointeeTypeFact",
@@ -3886,15 +3886,15 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "source-core.lang.portable-intrinsics.equal-pointer": coreIntrinsicEvidence({
     moduleSpecifier: coreLangIntrinsicModuleSpecifier,
-    exportName: "equalPointer",
+    exportName: "equalptr",
     factSlug: "equal-pointer",
     sourceKind: "call-marker",
     sourceExamples: [
-      "import { equalPointer } from \"@tsonic/core/lang.js\";",
-      "const same = equalPointer(pointer, addressOf(value));",
+      "import { equalptr } from \"@tsonic/core/lang.js\";",
+      "const same = equalptr(pointer, addressof(value));",
     ],
     sourceContract:
-      "Core owns equalPointer<T>(left,right) as portable identity comparison for two Pointer<T> or undefined operands; it compares location identity, not current values or wrapper identity.",
+      "Core owns equalptr<T>(left,right) as portable identity comparison for two Pointer<T> or undefined operands; it compares location identity, not current values or wrapper identity.",
     providerFacts: [
       "sourceCorePointerOperationFact",
       "pointerPointeeTypeFact",
@@ -9495,7 +9495,7 @@ const reviewedCapabilityEvidence = Object.freeze({
   }),
   "diagnostic.source-spans": Object.freeze({
     sourceExamples: Object.freeze([
-      "return defaultValue();",
+      "return defaultvalue();",
       "backend diagnostic at src/index.ts:1:14 for missing selected-target-operation",
     ]),
     tstsDecision:
@@ -9717,12 +9717,12 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/frontend/src/tsonic-extension/source-semantics.test.ts",
     ]),
     notes:
-      "Reviewed proof: C# explicitly rejects sharedBorrow, mutableBorrow, and move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED from finalized TSTS flow facts in unit and CLI paths. The markers are not erased, guessed, or lowered through fallback behavior.",
+      "Reviewed proof: C# explicitly rejects sharedborrow, mutableborrow, and move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED from finalized TSTS flow facts in unit and CLI paths. The markers are not erased, guessed, or lowered through fallback behavior.",
   }),
   "target.csharp.core-lang-intrinsics": Object.freeze({
     sourceExamples: Object.freeze([
-      "import { defaultValue, writeOnlyRef, struct, field, sharedBorrow } from \"@tsonic/core/lang.js\";",
-      "consume(writeOnlyRef(value)); const zero = defaultValue<int32>(); sharedBorrow(value);",
+      "import { defaultvalue, writeonlyref, struct, field, sharedborrow } from \"@tsonic/core/lang.js\";",
+      "consume(writeonlyref(value)); const zero = defaultvalue<int32>(); sharedborrow(value);",
     ]),
     tstsDecision:
       "TSTS/source-core attach portable @tsonic/core/lang.js facts first; the C# target extension must then implement or reject each fact explicitly.",
@@ -9783,7 +9783,7 @@ const reviewedCapabilityEvidence = Object.freeze({
       },
     }),
     notes:
-      "Reviewed proof: C# implements out/ref/inref target aliases only when selected target parameter modes match finalized neutral reference/storage facts, and rejects source-owned by-value calls carrying those markers. C# emits target aliases struct/field/defaultof/ptr/fnptr and source/provider attributes from finalized facts, rejects missing marker facts and unproven local re-export/barrel aliases, and explicitly rejects neutral sharedBorrow/mutableBorrow/move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED. CLI/toolchain tests cover emitted C# for defaults, value structs, typed locations/function pointers, provider out calls, provider attributes, and fail-closed unsupported flow markers without erasing or guessing intrinsic semantics.",
+      "Reviewed proof: C# implements out/ref/inref target aliases only when selected target parameter modes match finalized neutral reference/storage facts, and rejects source-owned by-value calls carrying those markers. C# emits target aliases struct/field/defaultof/ptr/fnptr and source/provider attributes from finalized facts, rejects missing marker facts and unproven local re-export/barrel aliases, and explicitly rejects neutral sharedborrow/mutableborrow/move with CSHARP_SOURCE_FLOW_MARKER_UNSUPPORTED. CLI/toolchain tests cover emitted C# for defaults, value structs, typed locations/function pointers, provider out calls, provider attributes, and fail-closed unsupported flow markers without erasing or guessing intrinsic semantics.",
   }),
   ...slice6WholeProgramClosureEvidence(),
 });

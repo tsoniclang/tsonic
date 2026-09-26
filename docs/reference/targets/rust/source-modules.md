@@ -46,8 +46,8 @@
 | `range<T>(start, end)` | Exclusive native range `start..end` |
 | `propagate(result)` | Native `?` inside a `Result`-returning function |
 
-Portable ownership markers such as `sharedBorrow`, `mutableBorrow`, and
-`move`, safe typed locations, native-pointer operations, `unsafeContext`, and
+Portable ownership markers such as `sharedborrow`, `mutableborrow`, and
+`move`, safe typed locations, native-pointer operations, `unsafecontext`, and
 the safety builder remain owned by `@tsonic/core/*`. The Rust modules above
 exist only for semantic controls that are intrinsically Rust-specific.
 

@@ -78,7 +78,7 @@
     "area": "declarations",
     "source": "class Counter { static total: number; }",
     "classification": "shared-rejection",
-    "action": "retain the exact rejection; use an explicit initializer or defaultValue<T>() instead of silently replacing TypeScript undefined with a target-native default",
+    "action": "retain the exact rejection; use an explicit initializer or defaultvalue<T>() instead of silently replacing TypeScript undefined with a target-native default",
     "csharpReference": "tsonic-csharp/test/backend/planner/declarations/direct-translation-declarations.test.mjs",
     "rustReference": "tsonic-rust/test/backend/planner/declarations/class-static-fields.test.mjs"
   },
@@ -363,7 +363,7 @@
   {
     "id": "safety.typed-locations",
     "area": "safety",
-    "source": "const location = addressOf(value); storePointer(location, loadPointer(location) + 1);",
+    "source": "const location = addressof(value); storeptr(location, loadptr(location) + 1);",
     "classification": "implemented",
     "action": "retain exact storage identity and alias proofs",
     "rustReference": "tsonic-rust/test/backend/planner/expressions/typed-locations.test.mjs"
@@ -371,7 +371,7 @@
   {
     "id": "safety.raw-pointers",
     "area": "safety",
-    "source": "unsafe(() => loadPointer(rawPointerAs<uint8>(address)));",
+    "source": "declare const pointer: NativePointer<uint8>; unsafecontext(loadnativeptr(pointer));",
     "classification": "implemented",
     "action": "retain explicit unsafe contracts and native pointer carriers",
     "rustReference": "tsonic-rust/test/analysis/safety/explicit-safety.test.mjs"

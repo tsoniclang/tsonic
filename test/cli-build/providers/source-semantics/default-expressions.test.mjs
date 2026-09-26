@@ -47,7 +47,7 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { defaultValue, field, struct } from \"@tsonic/core/lang.js\";",
+      "import { defaultvalue, field, struct } from \"@tsonic/core/lang.js\";",
       "import { defaultof as csharpDefaultof } from \"@tsonic/csharp/lang.js\";",
       "import type { bool, int32 } from \"@tsonic/core/types.js\";",
       "import type { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";",
@@ -62,7 +62,7 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       "});",
       "",
       "export function zero(): int32 {",
-      "  return defaultValue<int32>();",
+      "  return defaultvalue<int32>();",
       "}",
       "",
       "export function csharpZero(): int32 {",
@@ -70,19 +70,19 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
       "}",
       "",
       "export function emptyUser(): User {",
-      "  return defaultValue<User>();",
+      "  return defaultvalue<User>();",
       "}",
       "",
       "export function emptyList(): List<int32> {",
-      "  return defaultValue<List<int32>>();",
+      "  return defaultvalue<List<int32>>();",
       "}",
       "",
       "export function emptyMaybeUser(): User | null {",
-      "  return defaultValue<User | null>();",
+      "  return defaultvalue<User | null>();",
       "}",
       "",
       "export function emptyPoint(): typeof Point {",
-      "  return defaultValue<typeof Point>();",
+      "  return defaultvalue<typeof Point>();",
       "}",
       "",
     ].join("\n"),
@@ -104,13 +104,13 @@ test("CLI emits C# default expressions from neutral default facts and C# aliases
   assert.match(generatedSource, /return default\(User\?\)!;/);
   assert.match(generatedSource, /public static Point emptyPoint\(\)/);
   assert.match(generatedSource, /return default\(Point\)!;/);
-  assert.doesNotMatch(generatedSource, /defaultValue|defaultof/u);
+  assert.doesNotMatch(generatedSource, /defaultvalue|defaultof/u);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaults.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI rejects defaultValue without explicit source type evidence before C# output", async () => {
+test("CLI rejects defaultvalue without explicit source type evidence before C# output", async () => {
   const projectDirectory = resolve(tempRoot, "default-value-missing-type-evidence");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -120,10 +120,10 @@ test("CLI rejects defaultValue without explicit source type evidence before C# o
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { defaultValue } from \"@tsonic/core/lang.js\";",
+      "import { defaultvalue } from \"@tsonic/core/lang.js\";",
       "",
       "export function invalid(): unknown {",
-      "  return defaultValue();",
+      "  return defaultvalue();",
       "}",
       "",
     ].join("\n"),
@@ -133,7 +133,7 @@ test("CLI rejects defaultValue without explicit source type evidence before C# o
   assert.equal(build.status, 1);
   assert.match(build.stderr, /tsonic\.source-core:TS9901106/);
   assert.match(build.stderr, /index\.ts:4:10/);
-  assert.match(build.stderr, /defaultValue<T>\(\) requires explicit type evidence/);
+  assert.match(build.stderr, /defaultvalue<T>\(\) requires explicit type evidence/);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI rejects byref source markers for source-owned by-value call parameters", async () => {
@@ -146,7 +146,7 @@ test("CLI rejects byref source markers for source-owned by-value call parameters
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { writeOnlyRef, readWriteRef, readOnlyRef } from \"@tsonic/core/lang.js\";",
+      "import { writeonlyref, readwriteref, readonlyref } from \"@tsonic/core/lang.js\";",
       "import { out, ref, inref } from \"@tsonic/csharp/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
@@ -154,9 +154,9 @@ test("CLI rejects byref source markers for source-owned by-value call parameters
       "}",
       "",
       "export function pass(value: int32): void {",
-      "  consume(writeOnlyRef(value));",
-      "  consume(readWriteRef(value));",
-      "  consume(readOnlyRef(value));",
+      "  consume(writeonlyref(value));",
+      "  consume(readwriteref(value));",
+      "  consume(readonlyref(value));",
       "  consume(out(value));",
       "  consume(ref(value));",
       "  consume(inref(value));",
@@ -182,13 +182,13 @@ test("CLI rejects byref source markers without finalized storage facts", async (
       targets: [{ id: "csharp" }],
     }, null, 2),
     "src/index.ts": [
-      "import { writeOnlyRef, readWriteRef, readOnlyRef } from \"@tsonic/core/lang.js\";",
+      "import { writeonlyref, readwriteref, readonlyref } from \"@tsonic/core/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "export function invalid(value: int32): void {",
-      "  writeOnlyRef(value + 1);",
-      "  readWriteRef(value + 1);",
-      "  readOnlyRef(value + 1);",
+      "  writeonlyref(value + 1);",
+      "  readwriteref(value + 1);",
+      "  readonlyref(value + 1);",
       "}",
       "",
     ].join("\n"),
@@ -201,9 +201,9 @@ test("CLI rejects byref source markers without finalized storage facts", async (
     3,
   );
   assert.match(build.stderr, /requires a storage expression/);
-  assert.match(build.stderr, /writeOnlyRef/u);
-  assert.match(build.stderr, /readWriteRef/u);
-  assert.match(build.stderr, /readOnlyRef/u);
+  assert.match(build.stderr, /writeonlyref/u);
+  assert.match(build.stderr, /readwriteref/u);
+  assert.match(build.stderr, /readonlyref/u);
   assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 test("CLI rejects neutral borrow and move markers before C# output", async () => {
@@ -224,13 +224,13 @@ test("CLI rejects neutral borrow and move markers before C# output", async () =>
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { sharedBorrow } from \"@tsonic/core/lang.js\";",
+      "import { sharedborrow } from \"@tsonic/core/lang.js\";",
       "import * as CoreLang from \"@tsonic/core/lang.js\";",
       "import type { int32 } from \"@tsonic/core/types.js\";",
       "",
       "export function use(value: int32): void {",
-      "  sharedBorrow(value);",
-      "  CoreLang.mutableBorrow(value);",
+      "  sharedborrow(value);",
+      "  CoreLang.mutableborrow(value);",
       "  CoreLang.move(value);",
       "}",
       "",
