@@ -90,6 +90,10 @@ policy.
   exact cleanup.
 - Keep ignored analysis, logs, generated output, build products, and local test
   state untracked.
+- Never commit or push `.analysis` contents. Ignore rules do not untrack files
+  already in Git: remove such entries from the index while preserving the local
+  notes, and verify that no `.analysis` paths remain tracked. Do not rewrite
+  published history as part of this cleanup.
 
 ## Agent Delegation
 
