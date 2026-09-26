@@ -39,12 +39,12 @@ const sourceMarkerRules = Object.freeze([
     "field<T>() requires a proven static field-containing context.",
   ),
   sourceMarkerRule(
-    "defaultValue",
+    "defaultvalue",
     tsonicSourceMarkerSignatureIds.defaultValue,
     defaultValueFactKey,
     "SOURCE_SEMANTICS_MISSING_DEFAULT_TYPE_EVIDENCE",
     9901106,
-    "defaultValue<T>() requires explicit type evidence.",
+    "defaultvalue<T>() requires explicit type evidence.",
   ),
 ] satisfies readonly SourceMarkerRule[]);
 

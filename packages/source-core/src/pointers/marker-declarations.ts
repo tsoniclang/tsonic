@@ -11,17 +11,17 @@ import {
 } from "../identity.js";
 
 export const tsonicPointerMarkerSignatureIds = Object.freeze({
-  addressOf: "addressOf<T>(storage)",
-  allocatePointer: "allocatePointer<T>(initial)",
-  loadPointer: "loadPointer<T>(pointer)",
-  storePointer: "storePointer<T>(pointer,value)",
-  equalPointer: "equalPointer<T>(left,right)",
-  hashPointer: "hashPointer<T>(pointer)",
-  bindPointer: "bindPointer<T>(identity,read,write)",
-  projectPointer: "projectPointer<F,T>(pointer,fromSource,toSource)",
-  projectOptionalPointer: "projectPointer<F,T>(pointer?,fromSource,toSource)",
-  equalRawPointer: "equalRawPointer(left,right)",
-  hashRawPointer: "hashRawPointer(pointer)",
+  addressOf: "addressof<T>(storage)",
+  allocatePointer: "allocateptr<T>(initial)",
+  loadPointer: "loadptr<T>(pointer)",
+  storePointer: "storeptr<T>(pointer,value)",
+  equalPointer: "equalptr<T>(left,right)",
+  hashPointer: "hashptr<T>(pointer)",
+  bindPointer: "bindptr<T>(identity,read,write)",
+  projectPointer: "projectptr<F,T>(pointer,fromSource,toSource)",
+  projectOptionalPointer: "projectptr<F,T>(pointer?,fromSource,toSource)",
+  equalRawPointer: "equalrawptr(left,right)",
+  hashRawPointer: "hashrawptr(pointer)",
 });
 
 export function pointerTypeMarkerDeclaration(

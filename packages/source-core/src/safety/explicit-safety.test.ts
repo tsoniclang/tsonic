@@ -47,11 +47,11 @@ test("source-core publishes one exact neutral native-pointer and safety surface"
   assert.ok(!("category" in types));
   assert.ok(!("category" in lang));
   assert.equal(types.exports.filter((entry) => entry.name === "NativePointer").length, 1);
-  assert.equal(lang.exports.filter((entry) => entry.name === "unsafeContext").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "unsafecontext").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "safety").length, 1);
-  assert.equal(lang.exports.filter((entry) => entry.name === "loadNativePointer").length, 1);
-  assert.equal(lang.exports.filter((entry) => entry.name === "storeNativePointer").length, 1);
-  assert.equal(lang.exports.filter((entry) => entry.name === "offsetNativePointer").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "loadnativeptr").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "storenativeptr").length, 1);
+  assert.equal(lang.exports.filter((entry) => entry.name === "offsetnativeptr").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "__TsonicSafetyBuilder").length, 1);
   assert.equal(lang.exports.filter((entry) => entry.name === "__TsonicSafetyMemberBuilder").length, 1);
 });
@@ -60,18 +60,18 @@ test("native pointer operations retain exact selected pointee and operand eviden
   const { checked, sourceFile } = createCleanSession(`
     import type { NativePointer, int32, nativeInt } from "@tsonic/core/types.js";
     import {
-      loadNativePointer as load,
-      offsetNativePointer,
-      storeNativePointer,
+      loadnativeptr as load,
+      offsetnativeptr,
+      storenativeptr,
     } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
 
     declare const pointer: NativePointer<int32>;
     declare const offset: nativeInt;
     const first = load(pointer);
-    storeNativePointer(pointer, first + 1);
-    const next = offsetNativePointer(pointer, offset);
-    const second = core.loadNativePointer(next);
+    storenativeptr(pointer, first + 1);
+    const next = offsetnativeptr(pointer, offset);
+    const second = core.loadnativeptr(next);
   `);
 
   const loadFact = fact(
@@ -85,7 +85,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
 
   const storeFact = fact(
     checked,
-    call(checked.ast, sourceFile, "storeNativePointer"),
+    call(checked.ast, sourceFile, "storenativeptr"),
     tsonicNativePointerOperationFactKey,
   );
   assert.equal(storeFact?.operation, "store");
@@ -94,7 +94,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
 
   const offsetFact = fact(
     checked,
-    call(checked.ast, sourceFile, "offsetNativePointer"),
+    call(checked.ast, sourceFile, "offsetnativeptr"),
     tsonicNativePointerOperationFactKey,
   );
   assert.equal(offsetFact?.operation, "offset");
@@ -103,7 +103,7 @@ test("native pointer operations retain exact selected pointee and operand eviden
 
   const namespacedLoad = fact(
     checked,
-    call(checked.ast, sourceFile, "core.loadNativePointer"),
+    call(checked.ast, sourceFile, "core.loadnativeptr"),
     tsonicNativePointerOperationFactKey,
   );
   assert.equal(namespacedLoad?.operation, "load");
@@ -113,15 +113,15 @@ test("native pointer operations retain exact selected pointee and operand eviden
 test("native pointer operations ignore local same-spelled calls", () => {
   const { checked, sourceFile } = createCleanSession(`
     import type { NativePointer, int32 } from "@tsonic/core/types.js";
-    import { loadNativePointer as sourceLoad } from "@tsonic/core/lang.js";
-    import { loadNativePointer as localLoad } from "./local.js";
+    import { loadnativeptr as sourceLoad } from "@tsonic/core/lang.js";
+    import { loadnativeptr as localLoad } from "./local.js";
 
     declare const pointer: NativePointer<int32>;
     sourceLoad(pointer);
     localLoad(pointer);
   `, {
     "/src/local.ts": `
-      export function loadNativePointer<T>(pointer: T): T { return pointer; }
+      export function loadnativeptr<T>(pointer: T): T { return pointer; }
     `,
   });
 
@@ -145,12 +145,12 @@ test("native pointer operations ignore local same-spelled calls", () => {
 
 test("unsafe context facts distinguish exact expression and remaining-block forms", () => {
   const { checked, sourceFile } = createCleanSession(`
-    import { unsafeContext as unsafeAlias } from "@tsonic/core/lang.js";
+    import { unsafecontext as unsafeAlias } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
-    import { unsafeContext as localUnsafe } from "./local.js";
+    import { unsafecontext as localUnsafe } from "./local.js";
 
     const direct = unsafeAlias(1 + 2);
-    const namespaced = core.unsafeContext(3 + 4);
+    const namespaced = core.unsafecontext(3 + 4);
     {
       unsafeAlias();
       const inside = 5;
@@ -161,13 +161,13 @@ test("unsafe context facts distinguish exact expression and remaining-block form
       unsafeAlias(7);
     }
   `, {
-    "/src/local.ts": "export function unsafeContext<T>(value: T): T { return value; }",
+    "/src/local.ts": "export function unsafecontext<T>(value: T): T { return value; }",
   });
 
   const expression = fact(checked, call(checked.ast, sourceFile, "unsafeAlias", 0), tsonicUnsafeContextFactKey);
   assert.equal(expression?.kind, "expression");
   assert.ok(expression?.expression !== undefined);
-  const namespaced = fact(checked, call(checked.ast, sourceFile, "core.unsafeContext"), tsonicUnsafeContextFactKey);
+  const namespaced = fact(checked, call(checked.ast, sourceFile, "core.unsafecontext"), tsonicUnsafeContextFactKey);
   assert.equal(namespaced?.kind, "expression");
   const block = fact(checked, call(checked.ast, sourceFile, "unsafeAlias", 1), tsonicUnsafeContextFactKey);
   assert.deepEqual(block, { kind: "remaining-block" });
@@ -177,13 +177,13 @@ test("unsafe context facts distinguish exact expression and remaining-block form
 
 test("unsafe block marker rejects every non-leading or non-statement placement", () => {
   const { checked } = createSession(`
-    import { unsafeContext } from "@tsonic/core/lang.js";
+    import { unsafecontext } from "@tsonic/core/lang.js";
 
     {
       const before = 1;
-      unsafeContext();
+      unsafecontext();
     }
-    const invalid = unsafeContext();
+    const invalid = unsafecontext();
   `);
   assert.deepEqual(
     checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode),
@@ -211,23 +211,23 @@ test("safety facts retain exact function, member, constructor, and accessor subj
       [key: string]: int32;
     }
 
-    safety(read).requiresUnsafe();
-    safety<Box>().method(box => box.method).requiresUnsafe();
+    safety(read).requiresunsafe();
+    safety<Box>().method(box => box.method).requiresunsafe();
     safety<Box>().constructor().safe();
-    safety<Box>().property(box => box.value).requiresUnsafe();
+    safety<Box>().property(box => box.value).requiresunsafe();
     safety<Box>().property(box => box.current).getter().safe();
-    safety<Box>().property(box => box.current).setter().requiresUnsafe();
-    safety<Indexed>().indexer(value => value[""]).getter().requiresUnsafe();
+    safety<Box>().property(box => box.current).setter().requiresunsafe();
+    safety<Indexed>().indexer(value => value[""]).getter().requiresunsafe();
   `);
 
   const applications = [
-    ["requiresUnsafe", 0, "requires-unsafe", "declaration", "read"],
-    ["requiresUnsafe", 1, "requires-unsafe", "declaration", "method"],
+    ["requiresunsafe", 0, "requires-unsafe", "declaration", "read"],
+    ["requiresunsafe", 1, "requires-unsafe", "declaration", "method"],
     ["safe", 0, "safe", "constructor", "Box"],
-    ["requiresUnsafe", 2, "requires-unsafe", "declaration", "value"],
+    ["requiresunsafe", 2, "requires-unsafe", "declaration", "value"],
     ["safe", 1, "safe", "getter", "current"],
-    ["requiresUnsafe", 3, "requires-unsafe", "setter", "current"],
-    ["requiresUnsafe", 4, "requires-unsafe", "getter", undefined],
+    ["requiresunsafe", 3, "requires-unsafe", "setter", "current"],
+    ["requiresunsafe", 4, "requires-unsafe", "getter", undefined],
   ] as const;
   for (const [callee, occurrence, contract, placement, selectedName] of applications) {
     const application = fact(
@@ -267,22 +267,22 @@ test("safety facts are shadow-safe and reject unproven selector chains", () => {
     import { safety as localSafety } from "./local.js";
 
     class Box { value = 1; }
-    sourceSafety<Box>().method(box => box.value).requiresUnsafe();
-    localSafety<Box>().requiresUnsafe();
+    sourceSafety<Box>().method(box => box.value).requiresunsafe();
+    localSafety<Box>().requiresunsafe();
     {
-      const sourceSafety = <T>(_target: T) => ({ requiresUnsafe(): void {} });
-      sourceSafety(new Box()).requiresUnsafe();
+      const sourceSafety = <T>(_target: T) => ({ requiresunsafe(): void {} });
+      sourceSafety(new Box()).requiresunsafe();
     }
   `, {
-    "/src/local.ts": "export function safety<T>() { return { requiresUnsafe(): void {} }; }",
+    "/src/local.ts": "export function safety<T>() { return { requiresunsafe(): void {} }; }",
   });
 
   assert.deepEqual(
     checked.extensionDiagnostics.map((diagnostic) => diagnostic.extensionCode),
     ["SOURCE_CORE_SAFETY_SELECTOR_MEMBER_KIND_INVALID"],
   );
-  assert.equal(fact(checked, propertyCall(checked.ast, sourceFile, "requiresUnsafe", 1), tsonicSafetyBuilderFactKey), undefined);
-  assert.equal(fact(checked, propertyCall(checked.ast, sourceFile, "requiresUnsafe", 2), tsonicSafetyBuilderFactKey), undefined);
+  assert.equal(fact(checked, propertyCall(checked.ast, sourceFile, "requiresunsafe", 1), tsonicSafetyBuilderFactKey), undefined);
+  assert.equal(fact(checked, propertyCall(checked.ast, sourceFile, "requiresunsafe", 2), tsonicSafetyBuilderFactKey), undefined);
 });
 
 function createSession(source: string, extraFiles: Readonly<Record<string, string>> = {}): {

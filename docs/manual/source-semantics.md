@@ -86,7 +86,7 @@ retains their exact source-semantic identities for the target.
 ## Reference arguments
 
 ```ts
-import { readWriteRef, writeOnlyRef } from "@tsonic/core/lang.js";
+import { readwriteref, writeonlyref } from "@tsonic/core/lang.js";
 
 declare function divide(
   numerator: number,
@@ -97,7 +97,7 @@ declare function divide(
 
 let quotient = 0;
 let remainder = 0;
-divide(17, 5, writeOnlyRef(quotient), writeOnlyRef(remainder));
+divide(17, 5, writeonlyref(quotient), writeonlyref(remainder));
 ```
 
 The selected provider signature determines whether a marker is legal. A marker
@@ -107,21 +107,21 @@ does not turn an arbitrary value into a writable native location.
 
 ```ts
 import {
-  addressOf,
-  equalPointer,
-  loadPointer,
-  storePointer,
+  addressof,
+  equalptr,
+  loadptr,
+  storeptr,
 } from "@tsonic/core/lang.js";
 import type { int32, Pointer } from "@tsonic/core/types.js";
 
 function increment(pointer: Pointer<int32>): void {
-  storePointer(pointer, loadPointer(pointer) + 1);
+  storeptr(pointer, loadptr(pointer) + 1);
 }
 
 let value: int32 = 1;
-const pointer = addressOf(value);
+const pointer = addressof(value);
 increment(pointer);
-const sameLocation = equalPointer(pointer, addressOf(value));
+const sameLocation = equalptr(pointer, addressof(value));
 ```
 
 `Pointer<T>` is a typed mutable storage location. It is not a raw address.
@@ -136,9 +136,9 @@ contract:
 
 ```ts
 import {
-  loadNativePointer,
-  offsetNativePointer,
-  unsafeContext,
+  loadnativeptr,
+  offsetnativeptr,
+  unsafecontext,
 } from "@tsonic/core/lang.js";
 import type {
   NativePointer,
@@ -150,7 +150,7 @@ export function read(
   pointer: NativePointer<int32>,
   offset: nativeInt,
 ): int32 {
-  return unsafeContext(loadNativePointer(offsetNativePointer(pointer, offset)));
+  return unsafecontext(loadnativeptr(offsetnativeptr(pointer, offset)));
 }
 ```
 

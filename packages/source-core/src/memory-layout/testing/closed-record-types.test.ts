@@ -8,20 +8,30 @@ test("independently authored inline child records retain exact field/layout memo
   const checked = checkedRecords(`
     const Parent: { child: { count: int64 } } = struct({ child: field<{ count: int64 }>() });
     const Child: { count: int64 } = struct({ count: field<int64>() });
-    const word = memoryLayout<int64>(abi, 8, 8, 8);
-    const childLayout = memoryLayout<typeof Child>(abi, 8, 8, 8,
-      memoryField((child: typeof Child) => child.count, 0, 8, word));
-    const parentLayout = memoryLayout<typeof Parent>(abi, 8, 8, 8,
-      memoryField((parent: typeof Parent) => parent.child, 0, 8, childLayout));
-    const pointer = allocatePointer<{ count: int64 }>({ count: 1n });
-    toRawPointer<{ count: int64 }>(pointer, childLayout);
+    const word = memorylayout<int64>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+    const childLayout = memorylayout<typeof Child>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 8,
+      stride: 8,
+      fields: [memoryfield({ select: (child: typeof Child) => child.count, byteoffset: 0, bytealignment: 8, fieldlayout: word })],
+    });
+    const parentLayout = memorylayout<typeof Parent>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 8,
+      stride: 8,
+      fields: [memoryfield({ select: (parent: typeof Parent) => parent.child, byteoffset: 0, bytealignment: 8, fieldlayout: childLayout })],
+    });
+    const pointer = allocateptr<{ count: int64 }>({ count: 1n });
+    torawptr<{ count: int64 }>(pointer, childLayout);
   `);
-  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1));
+  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1));
   assert.ok(layout);
-  const field = readTsonicMemoryType(checked.sourceFacts, memoryCall(checked, "memoryField", 1));
+  const field = readTsonicMemoryType(checked.sourceFacts, memoryCall(checked, "memoryfield", 1));
   assert.ok(field);
   assert.equal(field.identity, recordIdentity(checked, layout.call));
-  const raw = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "toRawPointer"));
+  const raw = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "torawptr"));
   assert.ok(raw?.kind === "resolved");
   assert.equal(raw.memoryType, field.identity);
   assert.ok(raw.operation.pointeeType !== layout.sourceType);
@@ -38,56 +48,66 @@ for (const [name, declarations, first, second] of [
   test(`equivalent independent ${name} share a memory identity`, () => {
     const checked = checkedRecords(`
       ${declarations}
-      memoryLayout<Pointer<${first}>>(abi, 8, 8, 8);
-      memoryLayout<Pointer<${second}>>(abi, 8, 8, 8);
+      memorylayout<Pointer<${first}>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+      memorylayout<Pointer<${second}>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
     `);
-    const calls = memoryCalls(checked, "memoryLayout");
+    const calls = memoryCalls(checked, "memorylayout");
     assert.equal(recordIdentity(checked, calls[0]!), recordIdentity(checked, calls[1]!));
   });
 }
 
 test("record declaration order and field order do not change source identity", () => {
   const checked = checkedRecords(recordLayouts);
-  assert.equal(recordIdentity(checked, memoryCall(checked, "memoryLayout", 2)),
-    recordIdentity(checked, memoryCall(checked, "memoryLayout", 3)));
+  assert.equal(recordIdentity(checked, memoryCall(checked, "memorylayout", 2)),
+    recordIdentity(checked, memoryCall(checked, "memorylayout", 3)));
 });
 
 test("existing nominal records with methods retain their physical field contracts", () => {
   checkedRecords(`
     interface Header { count: int64; reset(): void }
-    const word = memoryLayout<int64>(abi, 8, 8, 8);
-    const layout = memoryLayout<Header>(abi, 8, 8, 8,
-      memoryField((value: Header) => value.count, 0, 8, word));
+    const word = memorylayout<int64>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+    const layout = memorylayout<Header>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 8,
+      stride: 8,
+      fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 8, fieldlayout: word })],
+    });
     declare const pointer: Pointer<Header>;
-    toRawPointer(pointer, layout);
-    fieldOffsetOf(layout, (value: Header) => value.count);
+    torawptr(pointer, layout);
+    fieldoffsetof(layout, (value: Header) => value.count);
   `);
 });
 
 test("imported layouts join inline pointees, aliases, calls, returns and conditional pointer values", () => {
   const checked = checkedRecords(`
     import { layout } from "./barrel.js";
-    const pointer = allocatePointer<{ count: int64 }>({ count: 1n });
+    const pointer = allocateptr<{ count: int64 }>({ count: 1n });
     const alias = pointer;
     declare function external(): Pointer<{ count: int64 }>;
     function identity<Value>(value: Pointer<Value>): Pointer<Value> { return value; }
     const returned = external();
     declare const flag: boolean;
-    toRawPointer(alias, layout);
-    toRawPointer(identity(pointer), layout);
-    toRawPointer(returned, layout);
-    toRawPointer(flag ? pointer : returned, layout);
-    toRawPointer(reinterpretRawPointer(toRawPointer(pointer, layout), layout), layout);
+    torawptr(alias, layout);
+    torawptr(identity(pointer), layout);
+    torawptr(returned, layout);
+    torawptr(flag ? pointer : returned, layout);
+    torawptr(reinterpretrawptr(torawptr(pointer, layout), layout), layout);
   `, {
     "/src/barrel.ts": 'export { layout } from "./layout.js";',
     "/src/layout.ts": recordPrelude + `
       interface Header { count: int64 }
-      const word = memoryLayout<int64>(abi, 8, 8, 8);
-      export const layout = memoryLayout<Header>(abi, 8, 8, 8,
-        memoryField((value: Header) => value.count, 0, 8, word));
+      const word = memorylayout<int64>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+      export const layout = memorylayout<Header>({
+        datalayout: abi,
+        bytesize: 8,
+        bytealignment: 8,
+        stride: 8,
+        fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 8, fieldlayout: word })],
+      });
     `,
   });
-  const calls = memoryCalls(checked, "toRawPointer");
+  const calls = memoryCalls(checked, "torawptr");
   assert.equal(calls.length, 6);
   for (const call of calls) {
     const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call);
@@ -98,11 +118,11 @@ test("imported layouts join inline pointees, aliases, calls, returns and conditi
 
 test("fixed arrays retain equivalent record children and exact bigint extents", () => {
   const checked = checkedRecords(recordLayouts + `
-    memoryArrayLayout<First, 2n>(abi, 32, 8, 32, first, 2n);
-    memoryArrayLayout<Second, 2n>(abi, 32, 8, 32, second, 2n);
-    memoryArrayLayout<Second, 3n>(abi, 48, 8, 48, second, 3n);
+    memoryarraylayout<First, 2n>({ datalayout: abi, bytesize: 32, bytealignment: 8, stride: 32, elementlayout: first, length: 2n });
+    memoryarraylayout<Second, 2n>({ datalayout: abi, bytesize: 32, bytealignment: 8, stride: 32, elementlayout: second, length: 2n });
+    memoryarraylayout<Second, 3n>({ datalayout: abi, bytesize: 48, bytealignment: 8, stride: 48, elementlayout: second, length: 3n });
   `);
-  const calls = memoryCalls(checked, "memoryArrayLayout");
+  const calls = memoryCalls(checked, "memoryarraylayout");
   assert.equal(recordIdentity(checked, calls[0]!), recordIdentity(checked, calls[1]!));
   assert.notEqual(recordIdentity(checked, calls[0]!), recordIdentity(checked, calls[2]!));
 });
@@ -124,11 +144,11 @@ for (const [name, first, second] of [
     const checked = checkedRecords(`
       interface First { ${first} }
       interface Second { ${second} }
-      memoryLayout<Pointer<First>>(abi, 8, 8, 8);
-      memoryLayout<Pointer<Second>>(abi, 8, 8, 8);
+      memorylayout<Pointer<First>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+      memorylayout<Pointer<Second>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
     `);
-    assert.notEqual(recordIdentity(checked, memoryCall(checked, "memoryLayout")),
-      recordIdentity(checked, memoryCall(checked, "memoryLayout", 1)));
+    assert.notEqual(recordIdentity(checked, memoryCall(checked, "memorylayout")),
+      recordIdentity(checked, memoryCall(checked, "memorylayout", 1)));
   });
 }
 
@@ -137,11 +157,16 @@ for (const [signed, unsigned, size] of [["int32", "uint32", 4], ["int64", "uint6
     checkedRecords(`
       interface Signed { count: ${signed} }
       interface Unsigned { count: ${unsigned} }
-      const word = memoryLayout<${signed}>(abi, ${size}, ${size}, ${size});
-      const layout = memoryLayout<Signed>(abi, ${size}, ${size}, ${size},
-        memoryField((value: Signed) => value.count, 0, ${size}, word));
+      const word = memorylayout<${signed}>({ datalayout: abi, bytesize: ${size}, bytealignment: ${size}, stride: ${size}, fields: [] });
+      const layout = memorylayout<Signed>({
+        datalayout: abi,
+        bytesize: ${size},
+        bytealignment: ${size},
+        stride: ${size},
+        fields: [memoryfield({ select: (value: Signed) => value.count, byteoffset: 0, bytealignment: ${size}, fieldlayout: word })],
+      });
       declare const pointer: Pointer<Unsigned>;
-      toRawPointer(pointer, layout);
+      torawptr(pointer, layout);
     `, {}, ["SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN"]);
   });
 }
@@ -150,9 +175,9 @@ test("open and unproven computed record domains remain rejected", () => {
   checkedRecords(`
     function layout<Value>(value: Value) {
       const record = { value };
-      return memoryLayout<typeof record>(abi, 8, 8, 8);
+      return memorylayout<typeof record>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
     }
     type Computed<Value> = Value extends int64 ? { count: Value } : never;
-    memoryLayout<Computed<int64>>(abi, 8, 8, 8);
+    memorylayout<Computed<int64>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
   `, {}, ["SOURCE_CORE_MEMORY_TYPE_NOT_PROVEN", "SOURCE_CORE_MEMORY_TYPE_NOT_PROVEN"]);
 });

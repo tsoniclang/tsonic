@@ -16,17 +16,17 @@ export interface SourceNativePointerProviderNames {
 }
 
 export const sourceNativePointerSignatureIds = Object.freeze({
-  load: "loadNativePointer<T>(pointer)",
-  store: "storeNativePointer<T>(pointer,value)",
-  offset: "offsetNativePointer<T>(pointer,elementOffset)",
+  load: "loadnativeptr<T>(pointer)",
+  store: "storenativeptr<T>(pointer,value)",
+  offset: "offsetnativeptr<T>(pointer,elementOffset)",
 });
 
 export const tsonicCoreNativePointerProviderNames: SourceNativePointerProviderNames = Object.freeze({
   typesModuleSpecifier: tsonicCoreTypesModule,
   nativePointerExport: "NativePointer",
-  loadExport: "loadNativePointer",
-  storeExport: "storeNativePointer",
-  offsetExport: "offsetNativePointer",
+  loadExport: "loadnativeptr",
+  storeExport: "storenativeptr",
+  offsetExport: "offsetnativeptr",
 });
 
 export function nativePointerProviderDeclaration(

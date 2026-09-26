@@ -17,12 +17,12 @@ export const memoryTestRegistration: TsonicDataLayoutRegistration = Object.freez
 export const memoryTestPrelude = `
 import { abi } from "test:abi";
 import type { Pointer, RawPointer, MemoryLayout, int32, uint32, uint64, nativeUint } from "@tsonic/core/types.js";
-import { memoryLayout, memoryField, sizeOf, alignOf, strideOf, fieldOffsetOf,
-  toRawPointer, reinterpretRawPointer, offsetRawPointer, rawPointerToAddressInteger,
-  addressIntegerToRawPointer, keepAlive, loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { memorylayout, memoryfield, sizeof, alignof, strideof, fieldoffsetof,
+  torawptr, reinterpretrawptr, offsetrawptr, rawptrtoaddressinteger,
+  addressintegertorawptr, keepalive, loadptr, storeptr } from "@tsonic/core/lang.js";
 declare const raw: RawPointer | undefined;
 declare const ordinary: Pointer<uint32> | undefined;
-const uint32Layout = memoryLayout<uint32>(abi, 4, 4, 4);
+const uint32Layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 `;
 
 export function memorySession(sourceText: string, options: {
@@ -91,4 +91,13 @@ export function memoryCall(checked: CheckedSourceProgram, name: string, index = 
   const call = memoryCalls(checked, name)[index];
   assert.ok(call, `Missing ${name} call ${index}.`);
   return call;
+}
+
+export function memoryDescriptorProperty(checked: CheckedSourceProgram, call: Node, name: string): Node {
+  const descriptor = checked.ast.arguments(call)[0];
+  assert.ok(checked.ast.is.IsObjectLiteralExpression(descriptor));
+  const property = checked.ast.properties(descriptor).find(property => checked.ast.text(checked.ast.name(property)) === name);
+  const value = checked.ast.as.AsPropertyAssignment(property)?.Initializer;
+  assert.ok(value, `Missing named descriptor property '${name}'.`);
+  return value;
 }

@@ -17,17 +17,17 @@ export interface SourceSafetyProviderNames {
 }
 
 export const sourceSafetySignatureIds = Object.freeze({
-  unsafeContextBlock: "unsafeContext()",
-  unsafeContextExpression: "unsafeContext<T>(expression)",
+  unsafeContextBlock: "unsafecontext()",
+  unsafeContextExpression: "unsafecontext<T>(expression)",
   safetyTypeRoot: "safety<T>()",
   safetyValueRoot: "safety(target)",
-  requiresUnsafe: "__TsonicSafetyBuilder.requiresUnsafe",
+  requiresUnsafe: "__TsonicSafetyBuilder.requiresunsafe",
   safe: "__TsonicSafetyBuilder.safe",
   method: "__TsonicSafetyBuilder.method",
   property: "__TsonicSafetyBuilder.property",
   indexer: "__TsonicSafetyBuilder.indexer",
   constructor: "__TsonicSafetyBuilder.constructor",
-  memberRequiresUnsafe: "__TsonicSafetyMemberBuilder.requiresUnsafe",
+  memberRequiresUnsafe: "__TsonicSafetyMemberBuilder.requiresunsafe",
   memberSafe: "__TsonicSafetyMemberBuilder.safe",
   getter: "__TsonicSafetyMemberBuilder.getter",
   setter: "__TsonicSafetyMemberBuilder.setter",
@@ -35,7 +35,7 @@ export const sourceSafetySignatureIds = Object.freeze({
 
 export const tsonicCoreSafetyProviderNames: SourceSafetyProviderNames = Object.freeze({
   moduleSpecifier: tsonicCoreLangModule,
-  unsafeContextExport: "unsafeContext",
+  unsafeContextExport: "unsafecontext",
   safetyExport: "safety",
   safetyBuilderExport: "__TsonicSafetyBuilder",
   safetyMemberBuilderExport: "__TsonicSafetyMemberBuilder",
@@ -120,7 +120,7 @@ function safetyBuilderDeclaration(
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      terminalMember("requiresUnsafe", sourceSafetySignatureIds.requiresUnsafe),
+      terminalMember("requiresunsafe", sourceSafetySignatureIds.requiresUnsafe),
       terminalMember("safe", sourceSafetySignatureIds.safe),
       selectorMember("method", sourceSafetySignatureIds.method, owner, memberBuilder),
       selectorMember("property", sourceSafetySignatureIds.property, owner, memberBuilder),
@@ -150,7 +150,7 @@ function safetyMemberBuilderDeclaration(
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      terminalMember("requiresUnsafe", sourceSafetySignatureIds.memberRequiresUnsafe),
+      terminalMember("requiresunsafe", sourceSafetySignatureIds.memberRequiresUnsafe),
       terminalMember("safe", sourceSafetySignatureIds.memberSafe),
       methodMember("getter", sourceSafetySignatureIds.getter, [], self),
       methodMember("setter", sourceSafetySignatureIds.setter, [], self),

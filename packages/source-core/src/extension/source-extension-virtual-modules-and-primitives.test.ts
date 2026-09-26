@@ -45,18 +45,18 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     materialization: { kind: "complete" },
   }));
   assert.deepEqual(declarationModel.exports.map((entry) => entry.name).filter((name) => !name.startsWith("__Tsonic")), [
-    "toRawPointer", "reinterpretRawPointer", "offsetRawPointer",
-    "rawPointerToAddressInteger", "addressIntegerToRawPointer", "memoryLayout", "memoryArrayLayout", "memoryField",
-    "bindMemoryField", "bindMemoryRecord",
-    "sizeOf", "alignOf", "strideOf", "fieldOffsetOf", "keepAlive",
-    "viewPointer",
+    "torawptr", "reinterpretrawptr", "offsetrawptr",
+    "rawptrtoaddressinteger", "addressintegertorawptr", "memorylayout", "memoryarraylayout", "memoryfield",
+    "bindmemoryfield", "bindmemoryrecord",
+    "sizeof", "alignof", "strideof", "fieldoffsetof", "keepalive",
+    "viewptr",
     "comptime",
-    "comptimeIf",
+    "comptimeif",
     "unroll",
-    "loadNativePointer",
-    "storeNativePointer",
-    "offsetNativePointer",
-    "unsafeContext",
+    "loadnativeptr",
+    "storenativeptr",
+    "offsetnativeptr",
+    "unsafecontext",
     "safety",
     ...expectedSourceCoreLangIntrinsics.map((entry) => entry.exportName),
   ]);
@@ -80,7 +80,7 @@ test("source-core virtual module provider owns only neutral core modules", () =>
     ...expectedSourceCorePrimitiveFacts.map((entry) => entry.exportName),
     ...expectedSourceCoreTypeMarkers.map((entry) => entry.exportName),
   ]);
-  assert.equal(typesDeclarationModel.exports.some((entry) => entry.name === "writeOnlyRef"), false);
+  assert.equal(typesDeclarationModel.exports.some((entry) => entry.name === "writeonlyref"), false);
 
   const unownedResolution = provider.resolveModule("@tsonic/csharp/lang.js", {});
   assert.equal(assertExtensionDiagnostic(unownedResolution).extensionCode, "TSONIC_SOURCE_CORE_MODULE_UNOWNED");
@@ -157,7 +157,7 @@ test("source-core records direct provider-owned facts for every core lang intrin
   assert.deepEqual(sourceCoreTypeMarkerExportFacts(), expectedSourceCoreTypeMarkers);
 
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { attribute, sharedBorrow, mutableBorrow, defaultValue, field, readOnlyRef, move, writeOnlyRef, readWriteRef, struct } from "@tsonic/core/lang.js";
+    import { attribute, sharedborrow, mutableborrow, defaultvalue, field, readonlyref, move, writeonlyref, readwriteref, struct } from "@tsonic/core/lang.js";
     import type { bool, FunctionPointer, int32, Pointer } from "@tsonic/core/types.js";
 
     class RouteAttribute {}
@@ -166,27 +166,27 @@ test("source-core records direct provider-owned facts for every core lang intrin
     }
 
     let value = 0;
-    writeOnlyRef(value);
-    readWriteRef(value);
-    readOnlyRef(value);
-    sharedBorrow(value);
-    mutableBorrow(value);
+    writeonlyref(value);
+    readwriteref(value);
+    readonlyref(value);
+    sharedborrow(value);
+    mutableborrow(value);
     move(value);
-    const zero = defaultValue<int32>();
+    const zero = defaultvalue<int32>();
     const Point = struct({ id: field<int32>() });
     attribute<User>().add(() => new RouteAttribute());
     type DirectPointer = Pointer<int32>;
     type DirectFunctionPointer = FunctionPointer<[int32], bool>;
   `);
 
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeOnlyRef")), "byref-writeonly-must-init");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "readWriteRef")), "byref-readwrite");
-  assert.equal(argumentMode(session, callExpression(session, sourceFile, "readOnlyRef")), "byref-readonly");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "sharedBorrow")), "borrowed-shared");
-  assert.equal(flowState(session, callExpression(session, sourceFile, "mutableBorrow")), "borrowed-mut");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "writeonlyref")), "byref-writeonly-must-init");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "readwriteref")), "byref-readwrite");
+  assert.equal(argumentMode(session, callExpression(session, sourceFile, "readonlyref")), "byref-readonly");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "sharedborrow")), "borrowed-shared");
+  assert.equal(flowState(session, callExpression(session, sourceFile, "mutableborrow")), "borrowed-mut");
   assert.equal(flowState(session, callExpression(session, sourceFile, "move")), "moved");
 
-  const defaultFact = sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultValue"));
+  const defaultFact = sourceCoreFacts(session).getDefaultValueFact(callExpression(session, sourceFile, "defaultvalue"));
   assert.equal(typeReferenceName(session, defaultFact?.type as Node | undefined), "int32");
 
   const fieldFact = sourceCoreFacts(session).getFieldFact(callExpression(session, sourceFile, "field"));

@@ -11,21 +11,26 @@ for (const addressWidth of [32, 64] as const) {
   test(`all layout queries compose with ${addressWidth}-bit unsigned byte offsets`, () => {
     const checked = memorySession(memoryTestPrelude + `
       interface Header { count: uint32 }
-      const header = memoryLayout<Header>(abi, 12, 4, 16,
-        memoryField((value: Header) => value.count, 4, 4, uint32Layout));
-      offsetRawPointer(raw, sizeOf(header), abi);
-      offsetRawPointer(raw, alignOf(header), abi);
-      offsetRawPointer(raw, strideOf(header), abi);
-      offsetRawPointer(raw, fieldOffsetOf(header, value => value.count), abi);
+      const header = memorylayout<Header>({
+        datalayout: abi,
+        bytesize: 12,
+        bytealignment: 4,
+        stride: 16,
+        fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
+      });
+      offsetrawptr(raw, sizeof(header), abi);
+      offsetrawptr(raw, alignof(header), abi);
+      offsetrawptr(raw, strideof(header), abi);
+      offsetrawptr(raw, fieldoffsetof(header, value => value.count), abi);
     `, { registrations: [{ ...memoryTestRegistration, descriptor: {
       ...memoryTestRegistration.descriptor, fingerprint: `query-le${addressWidth}`, addressWidth,
     } }] });
     assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"));
     assertMemoryDiagnostics(checked);
     for (const [index, queryName, value] of [
-      [0, "sizeOf", 12], [1, "alignOf", 4], [2, "strideOf", 16], [3, "fieldOffsetOf", 4],
+      [0, "sizeof", 12], [1, "alignof", 4], [2, "strideof", 16], [3, "fieldoffsetof", 4],
     ] as const) {
-      const call = memoryCall(checked, "offsetRawPointer", index);
+      const call = memoryCall(checked, "offsetrawptr", index);
       const operation = readTsonicRawMemoryOperation(checked.sourceFacts, call);
       const queryCall = memoryCall(checked, queryName);
       const observation = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, queryCall);
@@ -46,17 +51,17 @@ for (const addressWidth of [32, 64] as const) {
 
 test("layout-query aliases and erasing wrappers preserve their exact integer results", () => {
   const checked = cleanMemorySession(`
-    import { sizeOf as byteSize } from "@tsonic/core/lang.js";
+    import { sizeof as byteSize } from "@tsonic/core/lang.js";
     import * as memory from "@tsonic/core/lang.js";
     const bytes = byteSize(uint32Layout);
     const copy = bytes;
-    offsetRawPointer(raw, byteSize(uint32Layout), abi);
-    offsetRawPointer(raw, memory.alignOf(uint32Layout), abi);
-    offsetRawPointer(raw, ((copy) satisfies nativeUint)!, abi);
-    offsetRawPointer(raw, (strideOf(uint32Layout)), abi);
-    offsetRawPointer(raw, <nativeUint>sizeOf(uint32Layout), abi);
+    offsetrawptr(raw, byteSize(uint32Layout), abi);
+    offsetrawptr(raw, memory.alignof(uint32Layout), abi);
+    offsetrawptr(raw, ((copy) satisfies nativeUint)!, abi);
+    offsetrawptr(raw, (strideof(uint32Layout)), abi);
+    offsetrawptr(raw, <nativeUint>sizeof(uint32Layout), abi);
   `);
-  const calls = memoryCalls(checked, "offsetRawPointer");
+  const calls = memoryCalls(checked, "offsetrawptr");
   assert.equal(calls.length, 5);
   for (const call of calls) {
     const operation = readTsonicRawMemoryOperation(checked.sourceFacts, call);
@@ -71,18 +76,18 @@ test("layout queries survive cross-file immutable results and descriptors", () =
   const checked = memorySession(memoryTestPrelude + `
     import { bytes, layout } from "./layout.js";
     const alias = bytes;
-    offsetRawPointer(raw, alias, abi);
-    offsetRawPointer(raw, strideOf(layout), abi);
+    offsetrawptr(raw, alias, abi);
+    offsetrawptr(raw, strideof(layout), abi);
   `, { extraFiles: { "/src/layout.ts": `
     import { abi } from "test:abi";
-    import { memoryLayout, sizeOf } from "@tsonic/core/lang.js";
+    import { memorylayout, sizeof } from "@tsonic/core/lang.js";
     import type { uint32 } from "@tsonic/core/types.js";
-    export const layout = memoryLayout<uint32>(abi, 4, 4, 4);
-    export const bytes = sizeOf(layout);
+    export const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+    export const bytes = sizeof(layout);
   ` } });
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"));
   assertMemoryDiagnostics(checked);
-  for (const call of memoryCalls(checked, "offsetRawPointer")) {
+  for (const call of memoryCalls(checked, "offsetrawptr")) {
     const operation = readTsonicRawMemoryOperation(checked.sourceFacts, call);
     assert.ok(operation?.operation === "byte-offset");
     assert.equal(operation.offsetSignedness, "unsigned");
@@ -91,28 +96,28 @@ test("layout queries survive cross-file immutable results and descriptors", () =
 
 test("nested raw offsets and reinterpretation demand exact query producers", () => {
   const checked = cleanMemorySession(`
-    reinterpretRawPointer(offsetRawPointer(
-      offsetRawPointer(raw, sizeOf(uint32Layout), abi),
-      alignOf(uint32Layout), abi), uint32Layout);
+    reinterpretrawptr(offsetrawptr(
+      offsetrawptr(raw, sizeof(uint32Layout), abi),
+      alignof(uint32Layout), abi), uint32Layout);
   `);
-  assert.equal(memoryCalls(checked, "offsetRawPointer").length, 2);
-  for (const call of memoryCalls(checked, "offsetRawPointer")) {
+  assert.equal(memoryCalls(checked, "offsetrawptr").length, 2);
+  for (const call of memoryCalls(checked, "offsetrawptr")) {
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, call)?.operation, "byte-offset");
   }
-  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretRawPointer"))?.operation, "reinterpret");
+  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretrawptr"))?.operation, "reinterpret");
 });
 
 test("query composition retains literal, standalone and annotated controls", () => {
   const checked = cleanMemorySession(`
-    sizeOf(uint32Layout);
-    const bytes: nativeUint = sizeOf(uint32Layout);
-    offsetRawPointer(raw, 4, abi);
-    offsetRawPointer(raw, bytes, abi);
-    offsetRawPointer(raw, sizeOf(uint32Layout), abi);
-    offsetRawPointer(raw, -sizeOf(uint32Layout), abi);
+    sizeof(uint32Layout);
+    const bytes: nativeUint = sizeof(uint32Layout);
+    offsetrawptr(raw, 4, abi);
+    offsetrawptr(raw, bytes, abi);
+    offsetrawptr(raw, sizeof(uint32Layout), abi);
+    offsetrawptr(raw, -sizeof(uint32Layout), abi);
   `);
   for (const [index, signedness] of ["signed", "unsigned", "unsigned", "signed"].entries()) {
-    const operation = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer", index));
+    const operation = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr", index));
     assert.ok(operation?.operation === "byte-offset");
     assert.equal(operation.offsetSignedness, signedness);
   }
@@ -120,18 +125,18 @@ test("query composition retains literal, standalone and annotated controls", () 
 
 test("zero-sized huge arrays supply a zero byte count without expanding their extent", () => {
   const checked = cleanMemorySession(`
-    import { memoryArrayLayout } from "@tsonic/core/lang.js";
+    import { memoryarraylayout } from "@tsonic/core/lang.js";
     interface Empty {}
-    const empty = memoryLayout<Empty>(abi, 0, 1, 0);
-    const huge = memoryArrayLayout(abi, 0, 1, 0, empty, 9007199254740993n);
-    offsetRawPointer(raw, sizeOf(huge), abi);
-    offsetRawPointer(raw, strideOf(huge), abi);
+    const empty = memorylayout<Empty>({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, fields: [] });
+    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, elementlayout: empty, length: 9007199254740993n });
+    offsetrawptr(raw, sizeof(huge), abi);
+    offsetrawptr(raw, strideof(huge), abi);
   `);
-  for (const name of ["sizeOf", "strideOf"]) {
+  for (const name of ["sizeof", "strideof"]) {
     const observation = resolveTsonicMemoryLayoutObservation(checked.sourceFacts, memoryCall(checked, name));
     assert.ok(observation?.kind === "resolved");
     assert.equal(observation.value, 0);
     assert.equal(observation.layout.kind === "array" && observation.layout.fixedArray.length, 9007199254740993n);
   }
-  assert.equal(memoryCalls(checked, "offsetRawPointer").length, 2);
+  assert.equal(memoryCalls(checked, "offsetrawptr").length, 2);
 });

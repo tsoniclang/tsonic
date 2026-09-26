@@ -28,7 +28,7 @@ export function selectedAddressIntegerDomain(
   const explicit = argument.explicitTypeNode === undefined ? undefined
     : addressDomain(readSourcePrimitiveAnnotation(context, argument.explicitTypeNode));
   if (argument.explicitTypeNode !== undefined && explicit === undefined) return undefined;
-  if (name === "rawPointerToAddressInteger") {
+  if (name === "rawptrtoaddressinteger") {
     return explicit?.addressWidth === dataLayout.addressWidth ? explicit : undefined;
   }
   const operand = selected.selection.sourceArguments[0];

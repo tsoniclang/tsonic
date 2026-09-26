@@ -24,8 +24,8 @@ function inspect(text: string) {
 test("memory metadata follows immutable aliases and exact query inputs", () => {
   const { checked, source, index, declaration } = inspect(`
     const alias = (uint32Layout);
-    const size = sizeOf(alias);
-    toRawPointer(ordinary, alias);
+    const size = sizeof(alias);
+    torawptr(ordinary, alias);
   `);
   for (const name of ["uint32Layout", "alias"]) {
     const selected = index.declaration(declaration(name));
@@ -35,24 +35,48 @@ test("memory metadata follows immutable aliases and exact query inputs", () => {
     assert.ok(Object.isFrozen(selected));
   }
   assert.equal(index.declaration(declaration("size")), undefined);
-  const arguments_ = source.ast.arguments(memoryCall(checked, "toRawPointer"));
+  const arguments_ = source.ast.arguments(memoryCall(checked, "torawptr"));
   assert.equal(index.isCompileTimeExpression(arguments_[0]!), false);
   assert.equal(index.isCompileTimeExpression(arguments_[1]!), true);
-  assert.equal(index.isCompileTimeExpression(memoryCall(checked, "memoryLayout")), true);
+  assert.equal(index.isCompileTimeExpression(memoryCall(checked, "memorylayout")), true);
 });
 
 test("memory field selectors are metadata but their query result is a runtime value", () => {
   const { checked, index, declaration, source } = inspect(`
     interface Header { count: uint32 }
-    const field = memoryField((value: Header) => value.count, 0, 4, uint32Layout);
-    const layout = memoryLayout<Header>(abi, 4, 4, 4, field);
-    const offset = fieldOffsetOf(layout, value => value.count);
+    const field = memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout });
+    const layout = memorylayout<Header>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [field] });
+    const offset = fieldoffsetof(layout, value => value.count);
   `);
   assert.deepEqual(index.declaration(declaration("field"))?.issues, []);
   assert.deepEqual(index.declaration(declaration("layout"))?.issues, []);
-  const query = memoryCall(checked, "fieldOffsetOf");
+  const query = memoryCall(checked, "fieldoffsetof");
   assert.equal(index.isCompileTimeExpression(query), false);
   assert.equal(index.isCompileTimeExpression(source.ast.arguments(query)[1]!), true);
+});
+
+test("named descriptor nesting remains erased metadata, not a runtime object or field array escape", () => {
+  const { checked, index, declaration } = inspect(`
+    import { memoryarraylayout } from "@tsonic/core/lang.js";
+    interface Header { count: uint32 }
+    const child = uint32Layout;
+    const countField = memoryfield({ select: (header: Header) => header.count,
+      byteoffset: 0, bytealignment: 4, fieldlayout: child });
+    const fieldAlias = countField;
+    const headerLayout = memorylayout<Header>({ datalayout: abi, bytesize: 4,
+      bytealignment: 4, stride: 4, fields: [fieldAlias] });
+    const arrayLayout = memoryarraylayout({ datalayout: abi, bytesize: 8,
+      bytealignment: 4, stride: 8, elementlayout: headerLayout, length: 2 });
+    sizeof(arrayLayout);
+  `);
+  for (const name of ["uint32Layout", "child", "countField", "fieldAlias", "headerLayout", "arrayLayout"]) {
+    const metadata = index.declaration(declaration(name));
+    assert.ok(metadata);
+    assert.deepEqual(metadata.issues, [], name);
+  }
+  for (const [name, occurrence] of [["memorylayout", 1], ["memoryfield", 0], ["memoryarraylayout", 0]] as const) {
+    assert.equal(index.isCompileTimeExpression(memoryCall(checked, name, occurrence)), true);
+  }
 });
 
 for (const [name, statement] of [
@@ -72,8 +96,8 @@ for (const [name, statement] of [
 test("same-spelled ordinary functions never become compile-time metadata", () => {
   const { index, declaration } = inspect(`
     function demo() {
-      function memoryLayout(value: number): number { return value + 1; }
-      const ordinaryLayout = memoryLayout(4);
+      function memorylayout(value: number): number { return value + 1; }
+      const ordinaryLayout = memorylayout(4);
       return ordinaryLayout;
     }
   `);

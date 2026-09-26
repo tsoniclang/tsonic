@@ -14,9 +14,9 @@ An explicit ABI provider supplies `abi`. Both files use that same provider.
 ```ts
 import { abi } from "example:abi";
 import type { Pointer, uint32 } from "@tsonic/core/types.js";
-import { memoryLayout } from "@tsonic/core/lang.js";
+import { memorylayout } from "@tsonic/core/lang.js";
 
-export const layout = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);
+export const layout = memorylayout<Pointer<uint32> | undefined>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
 ```
 
 `index.ts`:
@@ -24,10 +24,10 @@ export const layout = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);
 ```ts
 import { layout } from "./layout.js";
 import type { Pointer, uint32 } from "@tsonic/core/types.js";
-import { allocatePointer, reinterpretRawPointer, toRawPointer } from "@tsonic/core/lang.js";
+import { allocateptr, reinterpretrawptr, torawptr } from "@tsonic/core/lang.js";
 
-const slot = allocatePointer<Pointer<uint32> | undefined>(allocatePointer<uint32>(3));
-export const view = reinterpretRawPointer(toRawPointer(slot, layout), layout);
+const slot = allocateptr<Pointer<uint32> | undefined>(allocateptr<uint32>(3));
+export const view = reinterpretrawptr(torawptr(slot, layout), layout);
 ```
 
 The layout describes a nullable pointer word in the provider's explicit
@@ -134,7 +134,7 @@ child layouts. The target owns static codec placement, imports, initialization
 ordering, runtime alias preservation, and any target-specific rejection.
 
 Shared backing-demand reconciliation follows the same rule. For example,
-`toRawPointer(pointer, localLayout)` and `toRawPointer(pointer, importedLayout)`
+`torawptr(pointer, localLayout)` and `torawptr(pointer, importedLayout)`
 may demand the same storage even when the layouts were authored in different
 files. Their authenticated memory domains and complete physical layouts must
 agree, including every nested field's exact corresponding member and placement.

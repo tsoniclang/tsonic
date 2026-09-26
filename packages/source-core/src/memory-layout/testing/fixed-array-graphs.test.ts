@@ -10,14 +10,18 @@ import { arrayLayoutAt, arrayMemoryLayout, cleanArraySession } from "./fixed-arr
 
 function graphFixture() {
   const checked = cleanArraySession(`
-    const small = memoryArrayLayout(abi, 0, 4, 0, empty, 2);
-    const huge = memoryArrayLayout(abi, 0, 4, 0, empty, 9007199254740993n);
+    const small = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 2 });
+    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993n });
     interface Pair { left: FixedArray<Empty, 2>; right: FixedArray<Empty, 2> }
-    const pair = memoryLayout<Pair>(abi, 0, 4, 0,
-      memoryField((value: Pair) => value.left, 0, 4, small),
-      memoryField((value: Pair) => value.right, 0, 4, small));
-    const pairs = memoryArrayLayout(abi, 0, 4, 0, pair, 2);
-    sizeOf(pairs);
+    const pair = memorylayout<Pair>({
+      datalayout: abi,
+      bytesize: 0,
+      bytealignment: 4,
+      stride: 0,
+      fields: [memoryfield({ select: (value: Pair) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: small }), memoryfield({ select: (value: Pair) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: small })],
+    });
+    const pairs = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: pair, length: 2 });
+    sizeof(pairs);
   `);
   return { checked, small: arrayLayoutAt(checked), huge: arrayLayoutAt(checked, 1), root: arrayLayoutAt(checked, 2) };
 }
@@ -168,15 +172,19 @@ test("public source-produced array-record DAGs share children without multiplyin
   const declarations = ["type Layer0 = Empty; const layer0 = empty;"];
   for (let depth = 1; depth <= 16; depth += 1) {
     declarations.push(`
-      const array${depth} = memoryArrayLayout(abi, 0, 4, 0, layer${depth - 1}, 9007199254740993n);
+      const array${depth} = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: layer${depth - 1}, length: 9007199254740993n });
       interface Layer${depth} { left: FixedArray<Layer${depth - 1}, 9007199254740993n>; right: FixedArray<Layer${depth - 1}, 9007199254740993n> }
-      const layer${depth} = memoryLayout<Layer${depth}>(abi, 0, 4, 0,
-        memoryField((value: Layer${depth}) => value.left, 0, 4, array${depth}),
-        memoryField((value: Layer${depth}) => value.right, 0, 4, array${depth}));
+      const layer${depth} = memorylayout<Layer${depth}>({
+        datalayout: abi,
+        bytesize: 0,
+        bytealignment: 4,
+        stride: 0,
+        fields: [memoryfield({ select: (value: Layer${depth}) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: array${depth} }), memoryfield({ select: (value: Layer${depth}) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: array${depth} })],
+      });
     `);
   }
   const checked = cleanArraySession(declarations.join("\n"));
-  let current = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 17)));
+  let current = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 17)));
   assert.equal(countTsonicMemoryLayoutValues(current, 131072), undefined);
   const visited = new Set<TsonicMemoryLayoutFact>();
   for (let depth = 16; depth > 0; depth -= 1) {

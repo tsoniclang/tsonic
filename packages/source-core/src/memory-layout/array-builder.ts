@@ -5,24 +5,28 @@ import { memoryLayoutDimensionsError } from "./dimensions.js";
 import { dataLayoutsEqual, memoryLayoutCaptureLimitsError, tsonicMemoryLayoutFactKey } from "./facts.js";
 import type { TsonicArrayMemoryLayoutFact } from "./facts.js";
 import { exactIntegerConstant, exactLayoutSize, selectedDataLayout } from "./source-values.js";
+import { memoryDescriptorKeys } from "./descriptor-declarations.js";
+import { readMemoryDescriptor } from "./descriptors.js";
 
 export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: MemorySourceAnalysis): void {
   const { selected, context } = call;
-  const args = selected.selection.sourceArguments;
-  const dataLayout = args[0] === undefined ? undefined : selectedDataLayout(args[0], context, analysis.registrations);
-  const byteSize = args[1] === undefined ? undefined : exactLayoutSize(args[1].expression, context);
-  const byteAlignment = args[2] === undefined ? undefined : exactLayoutSize(args[2].expression, context);
-  const stride = args[3] === undefined ? undefined : exactLayoutSize(args[3].expression, context);
-  const element = args[4];
-  const count = args[5] === undefined ? undefined : exactIntegerConstant(args[5].expression, context);
-  if (args.length !== 6 || args[0] === undefined || dataLayout === undefined || byteSize === undefined ||
-      byteAlignment === undefined || stride === undefined || element === undefined || count === undefined || count.value < 0n) {
-    memoryDiagnostic(call, "ARRAY_LAYOUT_NOT_PROVEN", "memoryArrayLayout requires an exact registered ABI, whole-array dimensions, selected element layout and non-negative integer literal extent.");
+  const descriptor = readMemoryDescriptor(call, memoryDescriptorKeys.memoryarraylayout);
+  if (descriptor === undefined) return;
+  const dataLayoutExpression = descriptor.get("datalayout")!;
+  const dataLayout = selectedDataLayout(dataLayoutExpression, context, analysis.registrations);
+  const byteSize = exactLayoutSize(descriptor.get("bytesize")!, context);
+  const byteAlignment = exactLayoutSize(descriptor.get("bytealignment")!, context);
+  const stride = exactLayoutSize(descriptor.get("stride")!, context);
+  const elementLayoutExpression = descriptor.get("elementlayout")!;
+  const count = exactIntegerConstant(descriptor.get("length")!, context);
+  if (dataLayout === undefined || byteSize === undefined ||
+      byteAlignment === undefined || stride === undefined || count === undefined || count.value < 0n) {
+    memoryDiagnostic(call, "ARRAY_LAYOUT_NOT_PROVEN", "memoryarraylayout requires an exact registered ABI, whole-array dimensions, selected element layout and non-negative integer literal extent.");
     return;
   }
-  const elementLayout = analysis.layout(element.expression, context);
+  const elementLayout = analysis.layout(elementLayoutExpression, context);
   if (elementLayout === undefined) {
-    memoryDiagnostic(call, "ARRAY_ELEMENT_NOT_PROVEN", "memoryArrayLayout requires a finalized element layout, not an unproduced descriptor.");
+    memoryDiagnostic(call, "ARRAY_ELEMENT_NOT_PROVEN", "memoryarraylayout requires a finalized element layout, not an unproduced descriptor.");
     return;
   }
   const fixedArray = analysis.types.array(call, elementLayout, count);
@@ -36,8 +40,8 @@ export function analyzeMemoryArrayLayout(call: MemorySourceCall, analysis: Memor
   }
   const fact: TsonicArrayMemoryLayoutFact = {
     kind: "array", call: selected.call, sourceType: fixedArray.sourceType,
-    dataLayoutExpression: args[0].expression, dataLayout, byteSize, byteAlignment, stride,
-    fixedArray, elementLayoutExpression: element.expression, elementLayout,
+    dataLayoutExpression, dataLayout, byteSize, byteAlignment, stride,
+    fixedArray, elementLayoutExpression, elementLayout,
   };
   const error = memoryLayoutDimensionsError(fact);
   if (error !== undefined) {

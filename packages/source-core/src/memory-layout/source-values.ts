@@ -201,11 +201,11 @@ export function exactLayoutSize(expression: Node, context: TsonicSourceFileAnaly
 }
 
 export function selectedDataLayout(
-  value: SelectedMemoryValue,
+  expression: Node,
   context: TsonicSourceFileAnalysisContext,
   registrations: ReadonlyMap<string, TsonicDataLayoutFact>,
 ): TsonicDataLayoutFact | undefined {
-  const origin = immutableValueOrigin(value.expression, context);
+  const origin = immutableValueOrigin(expression, context);
   if (origin === undefined) return undefined;
   const resolved = selectedValueSymbol(origin, context);
   const declaration = context.checker.getSymbolValueDeclaration(resolved);
@@ -214,13 +214,16 @@ export function selectedDataLayout(
   if (provider === undefined || provider.memberId !== undefined || provider.signatureId !== undefined) return undefined;
   const layout = registrations.get(dataLayoutIdentityKey(provider));
   if (layout === undefined) return undefined;
-  context.facts.set(value.expression, tsonicDataLayoutFactKey, layout);
+  context.facts.set(expression, tsonicDataLayoutFactKey, layout);
   context.facts.set(origin, tsonicDataLayoutFactKey, layout);
   return layout;
 }
 
 function selectedValueSymbol(expression: Node, context: TsonicSourceFileAnalysisContext): Symbol | undefined {
-  const symbol = context.checker.getSymbolAtLocation(expression);
+  const parent = context.ast.parent(expression);
+  const symbol = parent !== undefined && context.ast.is.IsShorthandPropertyAssignment(parent) &&
+    context.ast.name(parent) === expression ? context.checker.getLexicallyResolvedSymbol(expression)
+      : context.checker.getSymbolAtLocation(expression);
   if (symbol === undefined) return undefined;
   const isAlias = context.checker.getSymbolDeclarations(symbol).some((declaration) =>
     declaration !== undefined && (context.ast.is.IsImportSpecifier(declaration) ||

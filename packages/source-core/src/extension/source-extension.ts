@@ -183,7 +183,7 @@ const sourceCoreExportNamesByModule = new Map(
             tsonicCoreNativePointerProviderNames.loadExport,
             tsonicCoreNativePointerProviderNames.storeExport,
             tsonicCoreNativePointerProviderNames.offsetExport,
-            "viewPointer",
+            "viewptr",
             tsonicCoreSafetyProviderNames.unsafeContextExport,
             tsonicCoreSafetyProviderNames.safetyExport,
             ...Object.keys(tsonicMemorySignatureIds),

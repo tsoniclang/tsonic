@@ -1,22 +1,23 @@
 import type { ProviderExportDeclaration, ProviderParameterDeclaration, ProviderTypeExpression } from "@tsonic/tsts";
 import { tsonicCoreTypesModule } from "../identity.js";
+import { memoryDescriptorDeclarations, memoryDescriptorReference } from "./descriptor-declarations.js";
 
 export const tsonicMemorySignatureIds = Object.freeze({
-  toRawPointer: "toRawPointer<T>(pointer,layout)",
-  reinterpretRawPointer: "reinterpretRawPointer<T>(pointer,layout)",
-  offsetRawPointer: "offsetRawPointer<TOffset>(pointer,byteOffset,dataLayout)",
-  rawPointerToAddressInteger: "rawPointerToAddressInteger<TAddress>(pointer,dataLayout)",
-  addressIntegerToRawPointer: "addressIntegerToRawPointer<TAddress>(address,dataLayout)",
-  memoryLayout: "memoryLayout<T>(dataLayout,byteSize,byteAlignment,stride,...fields)",
-  memoryArrayLayout: "memoryArrayLayout<T,TLength>(dataLayout,byteSize,byteAlignment,stride,elementLayout,length)",
-  memoryField: "memoryField<T,TField>(select,byteOffset,byteAlignment,fieldLayout)",
-  bindMemoryField: "bindMemoryField<T,TField>(field,pointer)",
-  bindMemoryRecord: "bindMemoryRecord<T>(layout,...fields)",
-  sizeOf: "sizeOf<T>(layout)",
-  alignOf: "alignOf<T>(layout)",
-  strideOf: "strideOf<T>(layout)",
-  fieldOffsetOf: "fieldOffsetOf<T,TField>(layout,select)",
-  keepAlive: "keepAlive<T>(value)",
+  torawptr: "torawptr<T>(pointer,layout)",
+  reinterpretrawptr: "reinterpretrawptr<T>(pointer,layout)",
+  offsetrawptr: "offsetrawptr<TOffset>(pointer,byteOffset,dataLayout)",
+  rawptrtoaddressinteger: "rawptrtoaddressinteger<TAddress>(pointer,dataLayout)",
+  addressintegertorawptr: "addressintegertorawptr<TAddress>(address,dataLayout)",
+  memorylayout: "memorylayout<T>(descriptor)",
+  memoryarraylayout: "memoryarraylayout<T,TLength>(descriptor)",
+  memoryfield: "memoryfield<T,TField>(descriptor)",
+  bindmemoryfield: "bindmemoryfield<T,TField>(field,pointer)",
+  bindmemoryrecord: "bindmemoryrecord<T>(layout,...fields)",
+  sizeof: "sizeof<T>(layout)",
+  alignof: "alignof<T>(layout)",
+  strideof: "strideof<T>(layout)",
+  fieldoffsetof: "fieldoffsetof<T,TField>(layout,select)",
+  keepalive: "keepalive<T>(value)",
 });
 
 export const tsonicMemoryTypeExports = Object.freeze(["DataLayout", "MemoryLayout", "MemoryFieldLayout", "MemoryFieldBinding"] as const);
@@ -68,37 +69,31 @@ export function memoryOperationDeclarations(): readonly ProviderExportDeclaratio
     signatures: [{ id: tsonicMemorySignatureIds[name], typeParameters, parameters, returnType }],
   });
   return [
-    declaration("toRawPointer", [{ name: "pointer", type: pointer }, { name: "layout", type: layout }], raw, generic),
-    declaration("reinterpretRawPointer", [{ name: "pointer", type: raw }, { name: "layout", type: layout }], pointer, generic),
-    declaration("offsetRawPointer", [
+    ...memoryDescriptorDeclarations(),
+    declaration("torawptr", [{ name: "pointer", type: pointer }, { name: "layout", type: layout }], raw, generic),
+    declaration("reinterpretrawptr", [{ name: "pointer", type: raw }, { name: "layout", type: layout }], pointer, generic),
+    declaration("offsetrawptr", [
       { name: "pointer", type: raw }, { name: "byteOffset", type: { kind: "type-parameter", name: "TOffset" } }, dataLayout,
     ], raw, [{ name: "TOffset", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] }]),
-    declaration("rawPointerToAddressInteger", [{ name: "pointer", type: raw }, dataLayout], address, addressParameters),
-    declaration("addressIntegerToRawPointer", [{ name: "address", type: address }, dataLayout], raw, addressParameters),
-    declaration("memoryLayout", [dataLayout,
-      ...["byteSize", "byteAlignment", "stride"].map((name) => ({ name, type: nativeUint })),
-      { name: "fields", rest: true, type: { kind: "array", elementType: reference("MemoryFieldLayout", [pointee]) } },
-    ], layout, generic),
-    declaration("memoryArrayLayout", [dataLayout,
-      ...["byteSize", "byteAlignment", "stride"].map((name) => ({ name, type: nativeUint })),
-      { name: "elementLayout", type: layout },
-      { name: "length", type: { kind: "type-parameter", name: "TLength" } },
-    ], reference("MemoryLayout", [reference("FixedArray", [pointee, { kind: "type-parameter", name: "TLength" }])]),
+    declaration("rawptrtoaddressinteger", [{ name: "pointer", type: raw }, dataLayout], address, addressParameters),
+    declaration("addressintegertorawptr", [{ name: "address", type: address }, dataLayout], raw, addressParameters),
+    declaration("memorylayout", [{ name: "descriptor", type: memoryDescriptorReference("memorylayout", [pointee]) }], layout, generic),
+    declaration("memoryarraylayout", [{ name: "descriptor",
+      type: memoryDescriptorReference("memoryarraylayout", [pointee, { kind: "type-parameter", name: "TLength" }]),
+    }], reference("MemoryLayout", [reference("FixedArray", [pointee, { kind: "type-parameter", name: "TLength" }])]),
     [{ name: "T" }, { name: "TLength", constraints: [{ kind: "union", types: [{ kind: "number" }, { kind: "bigint" }] }] }]),
-    declaration("memoryField", [selector("memoryField.selector"),
-      { name: "byteOffset", type: nativeUint }, { name: "byteAlignment", type: nativeUint },
-      { name: "fieldLayout", type: reference("MemoryLayout", [field]) },
-    ], reference("MemoryFieldLayout", [pointee]), [{ name: "T" }, { name: "TField" }]),
-    declaration("bindMemoryField", [
+    declaration("memoryfield", [{ name: "descriptor", type: memoryDescriptorReference("memoryfield", [pointee, field]) }],
+      reference("MemoryFieldLayout", [pointee]), [{ name: "T" }, { name: "TField" }]),
+    declaration("bindmemoryfield", [
       { name: "field", type: reference("MemoryFieldLayout", [pointee]) },
       { name: "pointer", type: reference("Pointer", [field]) },
     ], reference("MemoryFieldBinding", [pointee]), [{ name: "T" }, { name: "TField" }]),
-    declaration("bindMemoryRecord", [
+    declaration("bindmemoryrecord", [
       { name: "layout", type: layout },
       { name: "fields", rest: true, type: { kind: "array", elementType: reference("MemoryFieldBinding", [pointee]) } },
     ], pointee, generic),
-    ...(["sizeOf", "alignOf", "strideOf"] as const).map((name) => declaration(name, [{ name: "layout", type: layout }], nativeUint, generic)),
-    declaration("fieldOffsetOf", [{ name: "layout", type: layout }, selector("fieldOffsetOf.selector")], nativeUint, [{ name: "T" }, { name: "TField" }]),
-    declaration("keepAlive", [{ name: "value", type: pointee }], { kind: "void" }, generic),
+    ...(["sizeof", "alignof", "strideof"] as const).map((name) => declaration(name, [{ name: "layout", type: layout }], nativeUint, generic)),
+    declaration("fieldoffsetof", [{ name: "layout", type: layout }, selector("fieldoffsetof.selector")], nativeUint, [{ name: "T" }, { name: "TField" }]),
+    declaration("keepalive", [{ name: "value", type: pointee }], { kind: "void" }, generic),
   ];
 }

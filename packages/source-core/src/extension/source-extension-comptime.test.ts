@@ -16,7 +16,7 @@ import {
 
 test("source-core records exact compile-time facts for direct, aliased, namespace, and parenthesized calls", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { comptime as compile, comptimeIf as compileIf, unroll as expand } from "@tsonic/core/lang.js";
+    import { comptime as compile, comptimeif as compileIf, unroll as expand } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
 
     const width = compile(4);
@@ -28,7 +28,7 @@ test("source-core records exact compile-time facts for direct, aliased, namespac
         void lane;
       }
     }
-    const selected = core.comptimeIf(true) ? 1 : 0;
+    const selected = core.comptimeif(true) ? 1 : 0;
   `);
 
   const value = getSourceFact(session, callExpression(session, sourceFile, "compile", 0), tsonicCompileTimeFactKey);
@@ -56,7 +56,7 @@ test("source-core records exact compile-time facts for direct, aliased, namespac
     "iteration",
   );
   assert.equal(
-    getSourceFact(session, callExpression(session, sourceFile, "core.comptimeIf"), tsonicCompileTimeFactKey)?.kind,
+    getSourceFact(session, callExpression(session, sourceFile, "core.comptimeif"), tsonicCompileTimeFactKey)?.kind,
     "condition",
   );
 });
@@ -90,11 +90,11 @@ test("source-core compile-time facts are provider-identity exact and shadow safe
 
 test("source-core rejects compile-time condition and iteration markers outside their exact owning syntax", () => {
   const { session } = createSourceCoreSession(`
-    import { comptimeIf, unroll } from "@tsonic/core/lang.js";
+    import { comptimeif, unroll } from "@tsonic/core/lang.js";
 
-    const condition = comptimeIf(true);
+    const condition = comptimeif(true);
     const values = unroll([1, 2]);
-    if (comptimeIf(true) && condition) {}
+    if (comptimeif(true) && condition) {}
     for (const value of [...unroll(values)]) { void value; }
   `);
   const checked = checkSource(session);
@@ -112,7 +112,7 @@ test("source-core rejects compile-time condition and iteration markers outside t
 
 test("source-core rejects re-exporting compile-time intrinsics through a local barrel", () => {
   const { session } = createSourceCoreSession(`
-    export { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+    export { comptime, comptimeif, unroll } from "@tsonic/core/lang.js";
   `);
   const checked = checkSource(session);
   assert.deepEqual(definedDiagnostics(checked.diagnostics), []);
@@ -124,13 +124,13 @@ test("source-core rejects re-exporting compile-time intrinsics through a local b
 
 test("source-core compile-time facts retain exact selected operands, types, and result identities", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+    import { comptime, comptimeif, unroll } from "@tsonic/core/lang.js";
 
     function project<const Width extends number>(): Width {
       return comptime<Width>();
     }
     const nested = comptime(comptime("value"));
-    if (comptimeIf(true)) {
+    if (comptimeif(true)) {
       for (const value of unroll([1, 2] as const)) { void value; }
     }
   `);
@@ -140,7 +140,7 @@ test("source-core compile-time facts retain exact selected operands, types, and 
     callExpression(session, sourceFile, "comptime", 0),
     callExpression(session, sourceFile, "comptime", 1),
     callExpression(session, sourceFile, "comptime", 2),
-    callExpression(session, sourceFile, "comptimeIf"),
+    callExpression(session, sourceFile, "comptimeif"),
     callExpression(session, sourceFile, "unroll"),
   ];
 
@@ -200,14 +200,14 @@ for (const [marker, source, diagnosticCode] of [
   ["unroll", "for (const value of [...unroll(values)]) { void value; }", "SOURCE_CORE_UNROLL_POSITION_INVALID"],
   ["unroll", "for (const value of values) { unroll(values); void value; }", "SOURCE_CORE_UNROLL_POSITION_INVALID"],
   ["unroll", "for (let value = unroll(values); false;) { void value; }", "SOURCE_CORE_UNROLL_POSITION_INVALID"],
-  ["comptimeIf", "while (comptimeIf(false)) {}", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
-  ["comptimeIf", "do {} while (comptimeIf(false));", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
-  ["comptimeIf", "for (; comptimeIf(false);) {}", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
-  ["comptimeIf", "const choice = true ? comptimeIf(true) : false;", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
+  ["comptimeif", "while (comptimeif(false)) {}", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
+  ["comptimeif", "do {} while (comptimeif(false));", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
+  ["comptimeif", "for (; comptimeif(false);) {}", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
+  ["comptimeif", "const choice = true ? comptimeif(true) : false;", "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID"],
 ] as const) {
   test(`source-core rejects an unowned compile-time position without publishing a fact: ${source}`, () => {
     const { session, sourceFile } = createSourceCoreSession(`
-      import { comptimeIf, unroll } from "@tsonic/core/lang.js";
+      import { comptimeif, unroll } from "@tsonic/core/lang.js";
       const values = [1, 2];
       ${source}
     `);
@@ -245,17 +245,17 @@ test("source-core retains separate nested and same-line compile-time occurrences
 
 test("source-core compile-time fact snapshots preserve exact identity and detect conflicting fields", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+    import { comptime, comptimeif, unroll } from "@tsonic/core/lang.js";
     const first = comptime(1); const second = comptime("two");
     const firstType = comptime<4>(); const secondType = comptime<8>();
-    if (comptimeIf(true)) {} if (comptimeIf(false)) {}
+    if (comptimeif(true)) {} if (comptimeif(false)) {}
     for (const value of unroll([1])) { void value; }
     for (const value of unroll(["two"])) { void value; }
   `);
   const facts = [
     ["comptime", 0, 1],
     ["comptime", 2, 3],
-    ["comptimeIf", 0, 1],
+    ["comptimeif", 0, 1],
     ["unroll", 0, 1],
   ] as const;
   const numberFact = getSourceFact(session, callExpression(session, sourceFile, "comptime", 0), tsonicCompileTimeFactKey);
@@ -300,15 +300,15 @@ test("source-core leaves compile-time representability to the target without eva
 
 test("source-core does not publish compile-time facts for inapplicable calls", () => {
   const { session, sourceFile } = createSourceCoreSession(`
-    import { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+    import { comptime, comptimeif, unroll } from "@tsonic/core/lang.js";
     const value = comptime(1, 2);
-    if (comptimeIf("not a boolean")) {}
+    if (comptimeif("not a boolean")) {}
     for (const value of unroll()) { void value; }
   `);
   const checked = checkSource(session);
   assert.ok(definedDiagnostics(checked.diagnostics).length >= 3);
   assert.deepEqual(checked.extensionDiagnostics, []);
-  for (const marker of ["comptime", "comptimeIf", "unroll"]) {
+  for (const marker of ["comptime", "comptimeif", "unroll"]) {
     assert.equal(
       getSourceFact(session, callExpression(session, sourceFile, marker), tsonicCompileTimeFactKey),
       undefined,

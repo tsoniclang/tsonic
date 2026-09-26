@@ -12,14 +12,14 @@ import { assertMemoryDiagnostics, cleanMemorySession, memoryCall, memoryCalls, m
 
 test("raw reinterpretation returns the canonical inferred Pointer and retains nested operation facts", () => {
   const checked = cleanMemorySession(`
-    const pointer: Pointer<uint32> | undefined = reinterpretRawPointer(raw, uint32Layout);
-    const explicit = reinterpretRawPointer<uint32>(raw, uint32Layout);
+    const pointer: Pointer<uint32> | undefined = reinterpretrawptr(raw, uint32Layout);
+    const explicit = reinterpretrawptr<uint32>(raw, uint32Layout);
     const chosen: Pointer<uint32> | undefined = raw === undefined ? ordinary : pointer;
-    if (chosen !== undefined) storePointer(chosen, loadPointer(chosen));
-    const address = toRawPointer(ordinary, uint32Layout);
+    if (chosen !== undefined) storeptr(chosen, loadptr(chosen));
+    const address = torawptr(ordinary, uint32Layout);
   `);
-  const inferred = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretRawPointer"));
-  const explicit = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretRawPointer", 1));
+  const inferred = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretrawptr"));
+  const explicit = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretrawptr", 1));
   assert.equal(inferred?.operation, "reinterpret");
   assert.equal(explicit?.operation, "reinterpret");
   assert.ok(inferred?.operation === "reinterpret" && explicit?.operation === "reinterpret");
@@ -28,22 +28,22 @@ test("raw reinterpretation returns the canonical inferred Pointer and retains ne
   assert.ok(explicit.explicitPointeeTypeNode);
   assert.ok(inferred.pointeeType === explicit.pointeeType);
   assert.equal(readTsonicMemoryLayout(checked.sourceFacts, inferred.layoutExpression)?.byteSize, 4);
-  assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "storePointer"), pointerOperationFactKey)?.operation, "store");
-  assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "loadPointer"), pointerOperationFactKey)?.operation, "load");
-  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "toRawPointer"))?.operation, "to-raw");
+  assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "storeptr"), pointerOperationFactKey)?.operation, "store");
+  assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "loadptr"), pointerOperationFactKey)?.operation, "load");
+  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "torawptr"))?.operation, "to-raw");
   assert.ok(Object.isFrozen(inferred));
 });
 
 test("raw operations support aliases and namespaces without granting same-spelled locals marker facts", () => {
   const checked = cleanMemorySession(`
-    import { reinterpretRawPointer as convert } from "@tsonic/core/lang.js";
+    import { reinterpretrawptr as convert } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
-    convert(raw, uint32Layout); core.reinterpretRawPointer(raw, uint32Layout);
+    convert(raw, uint32Layout); core.reinterpretrawptr(raw, uint32Layout);
     function local(raw: RawPointer | undefined) { return raw; }
-    { const reinterpretRawPointer = local; reinterpretRawPointer(raw); }
+    { const reinterpretrawptr = local; reinterpretrawptr(raw); }
   `);
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "convert"))?.operation, "reinterpret");
-  const calls = memoryCalls(checked, "reinterpretRawPointer");
+  const calls = memoryCalls(checked, "reinterpretrawptr");
   assert.equal(calls.length, 2);
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, calls[0])?.operation, "reinterpret");
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, calls[1]), undefined);
@@ -52,13 +52,17 @@ test("raw operations support aliases and namespaces without granting same-spelle
 test("source memory descriptors retain explicit ABI, physical field identity and exact observations", () => {
   const checked = cleanMemorySession(`
     interface Header { tag: uint32; count: uint32; }
-    const headerLayout = memoryLayout<Header>(abi, 12, 4, 12,
-      memoryField((header: Header) => header.tag, 0, 4, uint32Layout),
-      memoryField((header: Header) => header.count, 8, 4, uint32Layout));
-    sizeOf(headerLayout); alignOf(headerLayout); strideOf(headerLayout);
-    fieldOffsetOf(headerLayout, header => header.count);
+    const headerLayout = memorylayout<Header>({
+      datalayout: abi,
+      bytesize: 12,
+      bytealignment: 4,
+      stride: 12,
+      fields: [memoryfield({ select: (header: Header) => header.tag, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }), memoryfield({ select: (header: Header) => header.count, byteoffset: 8, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
+    sizeof(headerLayout); alignof(headerLayout); strideof(headerLayout);
+    fieldoffsetof(headerLayout, header => header.count);
   `);
-  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1));
+  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1));
   assert.ok(layout);
   assert.ok(layout.kind === "value");
   assert.equal(layout.byteSize, 12);
@@ -68,12 +72,12 @@ test("source memory descriptors retain explicit ABI, physical field identity and
   assert.equal(checked.ast.text(checked.ast.name(layout.fields[1]?.selectedDeclaration)), "count");
   assert.deepEqual(layout.dataLayout.providerDeclaration, memoryTestRegistration.providerDeclaration);
   assert.equal(readTsonicDataLayout(checked.sourceFacts, layout.dataLayoutExpression)?.fingerprint, memoryTestRegistration.descriptor.fingerprint);
-  for (const [name, kind] of [["sizeOf", "size"], ["alignOf", "alignment"], ["strideOf", "stride"], ["fieldOffsetOf", "field-offset"]] as const) {
+  for (const [name, kind] of [["sizeof", "size"], ["alignof", "alignment"], ["strideof", "stride"], ["fieldoffsetof", "field-offset"]] as const) {
     const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, name));
     assert.equal(query?.operation, kind);
     assert.equal(readTsonicMemoryLayout(checked.sourceFacts, query?.layoutExpression)?.call, layout.call);
   }
-  const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldOffsetOf"));
+  const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldoffsetof"));
   assert.equal(query?.selectedFieldDeclaration, layout.fields[1]?.selectedDeclaration);
   assert.ok(Object.isFrozen(layout.fields));
   assert.ok(Object.isFrozen(layout.fields[0]));
@@ -82,9 +86,9 @@ test("source memory descriptors retain explicit ABI, physical field identity and
 test("layout fields infer their selector receiver from the enclosing layout", () => {
   const checked = cleanMemorySession(`
     interface Header { count: uint32; }
-    memoryLayout<Header>(abi, 4, 4, 4, memoryField(header => header.count, 0, 4, uint32Layout));
+    memorylayout<Header>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [memoryfield({ select: header => header.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })] });
   `);
-  assert.ok(checked.sourceFacts.getFact(memoryCall(checked, "memoryField"), tsonicMemoryFieldLayoutFactKey));
+  assert.ok(checked.sourceFacts.getFact(memoryCall(checked, "memoryfield"), tsonicMemoryFieldLayoutFactKey));
 });
 
 test("value-shape layouts consume finalized fields selected through marker aliases and namespaces", () => {
@@ -93,20 +97,24 @@ test("value-shape layouts consume finalized fields selected through marker alias
     import * as core from "@tsonic/core/lang.js";
     const Header = valueShape({ first: slot<uint32>(), second: core.field<uint32>() });
     type HeaderValue = typeof Header;
-    const header = memoryLayout<HeaderValue>(abi, 8, 4, 8,
-      memoryField((value: HeaderValue) => value.first, 0, 4, uint32Layout),
-      memoryField((value: HeaderValue) => value.second, 4, 4, uint32Layout));
-    fieldOffsetOf(header, value => value.first);
-    fieldOffsetOf(header, value => value.second);
+    const header = memorylayout<HeaderValue>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 4,
+      stride: 8,
+      fields: [memoryfield({ select: (value: HeaderValue) => value.first, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }), memoryfield({ select: (value: HeaderValue) => value.second, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
+    fieldoffsetof(header, value => value.first);
+    fieldoffsetof(header, value => value.second);
   `);
-  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1));
+  const layout = readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1));
   assert.ok(layout);
   assert.ok(layout.kind === "value");
   assert.equal(layout.fields.length, 2);
   for (const [index, field] of layout.fields.entries()) {
     assert.equal(checked.ast.kindName(field.selectedDeclaration), "KindPropertyAssignment");
     assert.ok(checked.sourceFacts.getFact(field.selectedDeclaration, fieldFactKey));
-    const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldOffsetOf", index));
+    const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldoffsetof", index));
     assert.equal(query?.selectedFieldDeclaration, field.selectedDeclaration);
     assert.equal(field.byteOffset, index * 4);
     assert.ok(Object.isFrozen(field));
@@ -122,17 +130,21 @@ for (const [label, declaration, receiver] of [
   test(`physical-field selection rejects ${label} in builders and queries`, () => {
     const checked = memorySession(memoryTestPrelude + `
       ${declaration}
-      const shapeLayout = memoryLayout<${receiver}>(abi, 4, 4, 4);
-      memoryField((value: ${receiver}) => value.value, 0, 4,
-        memoryLayout<${label === "optional declaration" ? "uint32 | undefined" : "uint32"}>(abi, 4, 4, 4));
-      fieldOffsetOf(shapeLayout, value => value.value);
+      const shapeLayout = memorylayout<${receiver}>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+      memoryfield({
+        select: (value: ${receiver}) => value.value,
+        byteoffset: 0,
+        bytealignment: 4,
+        fieldlayout: memorylayout<${label === "optional declaration" ? "uint32 | undefined" : "uint32"}>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] }),
+      });
+      fieldoffsetof(shapeLayout, value => value.value);
     `);
     assert.equal(checked.diagnostics.filter(Boolean).length, 0);
     assert.deepEqual(checked.extensionDiagnostics.map(diagnostic => diagnostic.extensionCode).sort(), [
       "SOURCE_CORE_MEMORY_FIELD_NOT_PROVEN", "SOURCE_CORE_MEMORY_QUERY_FIELD_NOT_PROVEN",
     ]);
-    assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "memoryField"), tsonicMemoryFieldLayoutFactKey), undefined);
-    assert.equal(readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldOffsetOf")), undefined);
+    assert.equal(checked.sourceFacts.getFact(memoryCall(checked, "memoryfield"), tsonicMemoryFieldLayoutFactKey), undefined);
+    assert.equal(readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "fieldoffsetof")), undefined);
   });
 }
 
@@ -140,15 +152,15 @@ test("layout aliases demand the exact initializer independent of source-file ord
   const checked = memorySession(memoryTestPrelude + `
     import { layout } from "./layout.js";
     const alias = layout;
-    sizeOf(alias);
+    sizeof(alias);
   `, { extraFiles: { "/src/layout.ts": `
     import { abi } from "test:abi";
     import type { uint32 } from "@tsonic/core/types.js";
-    import { memoryLayout } from "@tsonic/core/lang.js";
-    export const layout = memoryLayout<uint32>(abi, 4, 4, 4);
+    import { memorylayout } from "@tsonic/core/lang.js";
+    export const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
   ` } });
   assertMemoryDiagnostics(checked);
-  const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "sizeOf"));
+  const query = readTsonicMemoryLayoutQuery(checked.sourceFacts, memoryCall(checked, "sizeof"));
   assert.equal(readTsonicMemoryLayout(checked.sourceFacts, query?.layoutExpression)?.byteSize, 4);
 });
 
@@ -164,9 +176,9 @@ for (const [type, value, base, signedness, width] of [
     const checked = cleanMemorySession(`
       import type { ${type} as Offset } from "@tsonic/core/types.js";
       const amount: Offset = ${value};
-      offsetRawPointer(raw, amount, abi);
+      offsetrawptr(raw, amount, abi);
     `);
-    const fact = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer"));
+    const fact = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr"));
     assert.ok(fact?.operation === "byte-offset");
     assert.equal(fact.offsetRuntimeBase, base);
     assert.equal(fact.offsetSignedness, signedness);
@@ -176,8 +188,8 @@ for (const [type, value, base, signedness, width] of [
 
 for (const expression of ["4", "-4", "4n", "-4n"]) {
   test(`byte offsets accept exact in-range unmarked constant ${expression}`, () => {
-    const checked = cleanMemorySession(`offsetRawPointer(raw, ${expression}, abi);`);
-    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer"))?.operation, "byte-offset");
+    const checked = cleanMemorySession(`offsetrawptr(raw, ${expression}, abi);`);
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr"))?.operation, "byte-offset");
   });
 }
 
@@ -188,28 +200,28 @@ for (const [declaration, expression] of [
   ['import type { int8 } from "@tsonic/core/types.js"; const amount: int8 = 256;', "amount"],
 ] as const) {
   test(`byte offsets reject an unproved or out-of-range domain: ${declaration} ${expression}`, () => {
-    const checked = memorySession(memoryTestPrelude + `${declaration} offsetRawPointer(raw, ${expression}, abi);`);
+    const checked = memorySession(memoryTestPrelude + `${declaration} offsetrawptr(raw, ${expression}, abi);`);
     assert.ok(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_OFFSET_INTEGER_NOT_PROVEN"));
-    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer")), undefined);
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr")), undefined);
   });
 }
 
-test("integer conversions and keepAlive retain independent exact operands", () => {
+test("integer conversions and keepalive retain independent exact operands", () => {
   const checked = cleanMemorySession(`
-    const address: uint64 = rawPointerToAddressInteger<uint64>(raw, abi);
-    const restored = addressIntegerToRawPointer(address, abi);
-    keepAlive(ordinary);
+    const address: uint64 = rawptrtoaddressinteger<uint64>(raw, abi);
+    const restored = addressintegertorawptr(address, abi);
+    keepalive(ordinary);
   `);
-  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "rawPointerToAddressInteger"))?.operation, "raw-to-address-integer");
-  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "addressIntegerToRawPointer"))?.operation, "address-integer-to-raw");
-  const call = memoryCall(checked, "keepAlive");
+  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "rawptrtoaddressinteger"))?.operation, "raw-to-address-integer");
+  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "addressintegertorawptr"))?.operation, "address-integer-to-raw");
+  const call = memoryCall(checked, "keepalive");
   assert.equal(readTsonicKeepAlive(checked.sourceFacts, call)?.valueExpression, checked.ast.arguments(call)[0]);
 });
 
 test("nested same-line raw operations have distinct fact subjects", () => {
-  const checked = cleanMemorySession("reinterpretRawPointer(offsetRawPointer(raw, 4, abi), uint32Layout);");
-  const outer = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretRawPointer"));
-  const inner = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetRawPointer"));
+  const checked = cleanMemorySession("reinterpretrawptr(offsetrawptr(raw, 4, abi), uint32Layout);");
+  const outer = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretrawptr"));
+  const inner = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "offsetrawptr"));
   assert.ok(outer?.operation === "reinterpret" && inner?.operation === "byte-offset");
   assert.notEqual(outer.call, inner.call);
   assert.equal(outer.rawExpression, inner.call);
@@ -217,16 +229,16 @@ test("nested same-line raw operations have distinct fact subjects", () => {
 
 test("declaration-only marker occurrences do not produce runtime memory facts", () => {
   const checked = memorySession(memoryTestPrelude + `
-    declare class Ambient { [keepAlive(raw)]: never; }
-    interface Shape { [keepAlive(raw)]: never; }
+    declare class Ambient { [keepalive(raw)]: never; }
+    interface Shape { [keepalive(raw)]: never; }
   `);
-  for (const call of memoryCalls(checked, "keepAlive")) assert.equal(readTsonicKeepAlive(checked.sourceFacts, call), undefined);
+  for (const call of memoryCalls(checked, "keepalive")) assert.equal(readTsonicKeepAlive(checked.sourceFacts, call), undefined);
 });
 
 test("unregistered layout tokens fail without publishing a layout", () => {
   const checked = memorySession(memoryTestPrelude, { registrations: [] });
   assert.ok(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_LAYOUT_NOT_PROVEN"));
-  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout")), undefined);
+  assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout")), undefined);
 });
 
 test("ABI providers cannot publish source-core-owned layout facts or commit the failed transaction", () => {
@@ -249,7 +261,7 @@ test("ABI providers cannot publish source-core-owned layout facts or commit the 
 
 test("missing public source facts stay missing without reconstruction", () => {
   const checked = cleanMemorySession("");
-  const subject = memoryCall(checked, "memoryLayout");
+  const subject = memoryCall(checked, "memorylayout");
   assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, subject), undefined);
   assert.equal(readTsonicKeepAlive(checked.sourceFacts, subject), undefined);
   assert.equal(checked.sourceFacts.getFact(subject, tsonicRawMemoryOperationFactKey), undefined);

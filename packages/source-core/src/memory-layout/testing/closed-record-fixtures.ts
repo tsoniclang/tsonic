@@ -7,8 +7,8 @@ import { assertMemoryDiagnostics, memorySession } from "./fixtures.js";
 export const recordPrelude = `
 import { abi } from "test:abi";
 import type { Pointer, RawPointer, FixedArray, int32, uint32, int64, uint64, uint8 } from "@tsonic/core/types.js";
-import { struct, field, memoryLayout, memoryArrayLayout, memoryField, fieldOffsetOf,
-  allocatePointer, toRawPointer, reinterpretRawPointer, bindMemoryField, bindMemoryRecord } from "@tsonic/core/lang.js";
+import { struct, field, memorylayout, memoryarraylayout, memoryfield, fieldoffsetof,
+  allocateptr, torawptr, reinterpretrawptr, bindmemoryfield, bindmemoryrecord } from "@tsonic/core/lang.js";
 `;
 
 export function checkedRecords(source: string, extraFiles: Readonly<Record<string, string>> = {}, codes: readonly string[] = []): CheckedSourceProgram {
@@ -31,12 +31,20 @@ export function recordIdentity(checked: CheckedSourceProgram, call: Node) {
 export const recordLayouts = `
 interface First { count: int64; tag: uint8 }
 interface Second { tag: uint8; count: int64 }
-const word = memoryLayout<int64>(abi, 8, 8, 8);
-const byte = memoryLayout<uint8>(abi, 1, 1, 1);
-const first = memoryLayout<First>(abi, 16, 8, 16,
-  memoryField((value: First) => value.count, 0, 8, word),
-  memoryField((value: First) => value.tag, 8, 1, byte));
-const second = memoryLayout<Second>(abi, 16, 8, 16,
-  memoryField((value: Second) => value.tag, 8, 1, byte),
-  memoryField((value: Second) => value.count, 0, 8, word));
+const word = memorylayout<int64>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+const byte = memorylayout<uint8>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1, fields: [] });
+const first = memorylayout<First>({
+  datalayout: abi,
+  bytesize: 16,
+  bytealignment: 8,
+  stride: 16,
+  fields: [memoryfield({ select: (value: First) => value.count, byteoffset: 0, bytealignment: 8, fieldlayout: word }), memoryfield({ select: (value: First) => value.tag, byteoffset: 8, bytealignment: 1, fieldlayout: byte })],
+});
+const second = memorylayout<Second>({
+  datalayout: abi,
+  bytesize: 16,
+  bytealignment: 8,
+  stride: 16,
+  fields: [memoryfield({ select: (value: Second) => value.tag, byteoffset: 8, bytealignment: 1, fieldlayout: byte }), memoryfield({ select: (value: Second) => value.count, byteoffset: 0, bytealignment: 8, fieldlayout: word })],
+});
 `;

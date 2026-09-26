@@ -27,7 +27,7 @@ export interface MemoryTypeContracts {
   layout(call: MemorySourceCall): boolean;
   array(call: MemorySourceCall, element: TsonicMemoryLayoutFact,
     count: { readonly value: bigint; readonly runtimeBase: "number" | "bigint" }): TsonicFixedArrayFact | undefined;
-  field(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
+  field(call: MemorySourceCall, declaration: Node, selector: Node, layout: TsonicMemoryLayoutFact): boolean;
   queryField(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact): boolean;
   aggregate(call: MemorySourceCall, fields: readonly Node[]): boolean;
   raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact): boolean;
@@ -166,12 +166,11 @@ export function createMemoryTypeContracts(
       selections.set(call.selected.call, { selection, sourceType: original.sourceType, fixedArray: original });
       return original;
     },
-    field(call: MemorySourceCall, declaration: Node, layout: TsonicMemoryLayoutFact) {
+    field(call: MemorySourceCall, declaration: Node, selector: Node, layout: TsonicMemoryLayoutFact) {
       const child = layouts.get(layout.call);
       const field = readSourceFact(context, declaration, fieldFactKey);
       const annotation = ast.typeNode(declaration) ?? field?.type;
-      const selector = call.selected.selection.sourceArguments[0]?.expression;
-      const parameter = selector === undefined ? undefined : ast.parameters(selector)[0];
+      const parameter = ast.parameters(selector)[0];
       const parent = selected(call, 0, ast.typeNode(parameter));
       const domain = annotation === undefined || parent === undefined ? undefined : domains.member(annotation, parent.domain);
       const selection = domain === undefined ? selected(call, 1, annotation) : selected(call, 1, undefined, domain);
@@ -214,7 +213,7 @@ export function createMemoryTypeContracts(
     raw(call: MemorySourceCall, layout: TsonicMemoryLayoutFact) {
       const child = layouts.get(layout.call);
       if (child === undefined) return false;
-      const domain = call.name === "toRawPointer" ? pointerDomain(call, child.domain) : child.domain;
+      const domain = call.name === "torawptr" ? pointerDomain(call, child.domain) : child.domain;
       if (domain === undefined || !domains.equivalent(domain, child.domain)) return false;
       const selection = selected(call, 0, undefined, domain);
       if (selection?.identity !== child.identity) return false;

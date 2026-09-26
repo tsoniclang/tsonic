@@ -6,16 +6,16 @@ import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixt
 import { createTsonicClosedArrayStorageQueries } from "./array-storage.js";
 
 function inspect(body: string, budget = 4096) {
-  const checked = cleanMemorySession(`import { addressOf } from "@tsonic/core/lang.js";
+  const checked = cleanMemorySession(`import { addressof } from "@tsonic/core/lang.js";
     declare function escape(values: uint32[]): void;
     function exercise() {
       let values: uint32[] = [7, 8];
       const alias = values;
-      const pointer = addressOf(values[0]);
+      const pointer = addressof(values[0]);
       ${body}
       return pointer;
     }`);
-  const call = memoryCall(checked, "addressOf");
+  const call = memoryCall(checked, "addressof");
   const fact = checked.sourceFacts.getFact(call, pointerOperationFactKey);
   assert.ok(fact?.operation === "address-of");
   const queries = createTsonicClosedArrayStorageQueries(createTargetSourceProgram(checked), budget);

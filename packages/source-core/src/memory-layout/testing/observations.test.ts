@@ -8,12 +8,16 @@ import { cleanMemorySession, memoryCall } from "./fixtures.js";
 test("layout observations retain exact dimensions and field declaration identity", () => {
   const source = cleanMemorySession(`
     interface Header { tag: uint32; count: uint32 }
-    const layout = memoryLayout<Header>(abi, 16, 8, 16,
-      memoryField((value: Header) => value.tag, 0, 4, uint32Layout),
-      memoryField((value: Header) => value.count, 8, 4, uint32Layout));
-    sizeOf(layout); alignOf(layout); strideOf(layout); fieldOffsetOf(layout, value => value.count);
+    const layout = memorylayout<Header>({
+      datalayout: abi,
+      bytesize: 16,
+      bytealignment: 8,
+      stride: 16,
+      fields: [memoryfield({ select: (value: Header) => value.tag, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }), memoryfield({ select: (value: Header) => value.count, byteoffset: 8, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
+    sizeof(layout); alignof(layout); strideof(layout); fieldoffsetof(layout, value => value.count);
   `);
-  for (const [name, value] of [["sizeOf", 16], ["alignOf", 8], ["strideOf", 16], ["fieldOffsetOf", 8]] as const) {
+  for (const [name, value] of [["sizeof", 16], ["alignof", 8], ["strideof", 16], ["fieldoffsetof", 8]] as const) {
     const selected = resolveTsonicMemoryLayoutObservation(source.sourceFacts, memoryCall(source, name));
     assert.equal(selected?.kind, "resolved");
     if (selected?.kind !== "resolved") continue;
@@ -23,15 +27,15 @@ test("layout observations retain exact dimensions and field declaration identity
 });
 
 test("missing, relocated and stale ABI evidence cannot produce layout observations", () => {
-  const source = cleanMemorySession("sizeOf(uint32Layout);");
-  const call = memoryCall(source, "sizeOf");
+  const source = cleanMemorySession("sizeof(uint32Layout);");
+  const call = memoryCall(source, "sizeof");
   for (const mutation of ["missing-layout", "relocated-call", "stale-abi"] as const) {
     const facts: ReadonlySourceFactResolver = {
       getFact(subject, key) {
         const value = source.sourceFacts.getFact(subject, key);
         if (mutation === "missing-layout" && Object.is(key, tsonicMemoryLayoutFactKey)) return undefined;
         if (mutation === "relocated-call" && Object.is(key, tsonicMemoryLayoutQueryFactKey) && value !== undefined) {
-          return { ...value, call: memoryCall(source, "memoryLayout") };
+          return { ...value, call: memoryCall(source, "memorylayout") };
         }
         if (mutation === "stale-abi" && Object.is(key, tsonicDataLayoutFactKey) && value !== undefined) {
           return { ...value, fingerprint: "another-ABI-revision" };

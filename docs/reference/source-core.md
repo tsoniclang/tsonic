@@ -3,6 +3,11 @@
 `@tsonic/core` owns target-neutral source semantics. These are compiler-owned
 virtual modules; users do not install an `@tsonic/core` npm package directly.
 
+Operations, builder methods and authored descriptor keys use lowercase without
+underscores; operation names shorten pointer to `ptr`. Type names and authored
+bindings keep their exact spelling. Only the names documented here are exported;
+there are no former-name aliases or positional layout-construction overloads.
+
 ## `@tsonic/core/types.js`
 
 ### Primitive aliases
@@ -59,11 +64,11 @@ see the [C#](targets/csharp/type-mapping.md#fixed-arrays) and
 
 | Export | Meaning |
 | --- | --- |
-| `writeOnlyRef(value)` | Selected argument is writable but not read |
-| `readWriteRef(value)` | Selected argument is read and written |
-| `readOnlyRef(value)` | Selected argument is passed by readonly reference |
-| `sharedBorrow(value)` | Shared-borrow flow intent |
-| `mutableBorrow(value)` | Exclusive mutable-borrow flow intent |
+| `writeonlyref(value)` | Selected argument is writable but not read |
+| `readwriteref(value)` | Selected argument is read and written |
+| `readonlyref(value)` | Selected argument is passed by readonly reference |
+| `sharedborrow(value)` | Shared-borrow flow intent |
+| `mutableborrow(value)` | Exclusive mutable-borrow flow intent |
 | `move(value)` | Ownership-transfer flow intent |
 
 These markers do not manufacture target semantics. The selected signature and
@@ -76,7 +81,7 @@ target policy must independently support the requested mode.
 | `struct(shape)` | Declares an exact value-type shape from proven `field<T>()` members |
 | `field<T>()` | Declares a field with explicit source type evidence |
 | `attribute<T>()` | Starts an exact attribute-application builder |
-| `defaultValue<T>()` | Requests the target default for exact `T` |
+| `defaultvalue<T>()` | Requests the target default for exact `T` |
 
 Example:
 
@@ -119,14 +124,14 @@ this selection rather than treating it as an assembly or CLR module attribute.
 | --- | --- |
 | `comptime(expression)` | Require target compile-time evaluation of the exact expression |
 | `comptime<T>()` | Project an exact selected compile-time parameter or literal type into value position |
-| `comptimeIf(condition)` | Require compile-time selection of the directly enclosing `if` or conditional expression |
+| `comptimeif(condition)` | Require compile-time selection of the directly enclosing `if` or conditional expression |
 | `unroll(iterable)` | Require compile-time expansion of the directly enclosing `for...of` loop |
 
 ```ts
-import { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+import { comptime, comptimeif, unroll } from "@tsonic/core/lang.js";
 
 const enabled = comptime(true);
-if (comptimeIf(enabled)) {
+if (comptimeif(enabled)) {
   for (const value of unroll([1, 2, 3])) {
     consume(value);
   }
@@ -145,8 +150,8 @@ Same-spelled local functions do not become intrinsics. Core intrinsics must be
 imported directly from their owning virtual module, not re-exported through a
 local barrel.
 
-`const decision = comptimeIf(true)` and `const values = unroll([1, 2])` are
-invalid placements. So are `if (comptimeIf(true) && flag)` and
+`const decision = comptimeif(true)` and `const values = unroll([1, 2])` are
+invalid placements. So are `if (comptimeif(true) && flag)` and
 `for (const key in unroll(object))`: the marker must select the exact owning
 condition or for-of iterable, with parentheses permitted.
 
@@ -159,20 +164,20 @@ targets must not rediscover the request from the callee's spelling.
 
 | Export | Meaning |
 | --- | --- |
-| `addressOf(storage)` | Address an existing proven storage location |
-| `allocatePointer(initial)` | Allocate independent typed storage |
-| `loadPointer(pointer)` | Read a typed location |
-| `storePointer(pointer, value)` | Write a typed location |
-| `equalPointer(left, right)` | Compare canonical typed-location identity |
-| `hashPointer(pointer)` | Hash canonical typed-location identity |
-| `bindPointer(identity, read, write)` | Bind a target/provider storage identity to explicit accessors |
-| `projectPointer(pointer, fromSource, toSource)` | Project a typed location through reversible conversions |
-| `viewPointer(pointer, read, write)` | Bind new accessors to the same referent without implicitly reading or writing the original pointee |
+| `addressof(storage)` | Address an existing proven storage location |
+| `allocateptr(initial)` | Allocate independent typed storage |
+| `loadptr(pointer)` | Read a typed location |
+| `storeptr(pointer, value)` | Write a typed location |
+| `equalptr(left, right)` | Compare canonical typed-location identity |
+| `hashptr(pointer)` | Hash canonical typed-location identity |
+| `bindptr(identity, read, write)` | Bind a target/provider storage identity to explicit accessors |
+| `projectptr(pointer, fromSource, toSource)` | Project a typed location through reversible conversions |
+| `viewptr(pointer, read, write)` | Bind new accessors to the same referent without implicitly reading or writing the original pointee |
 
-`projectPointer` may preserve an optional pointer. Its conversions are part of
+`projectptr` may preserve an optional pointer. Its conversions are part of
 the exact projection contract; targets do not infer them from `F` and `T`.
 
-`viewPointer<F, T>` returns `Pointer<T>` for a non-optional `Pointer<F>`, or
+`viewptr<F, T>` returns `Pointer<T>` for a non-optional `Pointer<F>`, or
 `Pointer<T> | undefined` for an optional base. It preserves nil, location
 identity, position, owner and any established raw-address provenance. It does
 not allocate replacement storage, reinterpret bytes or prove a native backing.
@@ -181,7 +186,7 @@ The arguments evaluate once in source order. Construction invokes neither
 callback. Loading the resulting pointer calls only `read(): T`; storing calls
 only `write(value: T): void`. Callback exceptions propagate. Nil still evaluates
 the argument expressions, but invokes no callbacks. In contrast,
-`projectPointer` loads `F` before `fromSource(F)` and writes the result of
+`projectptr` loads `F` before `fromSource(F)` and writes the result of
 `toSource(T)` back to `F`.
 
 For example, an empty view can retain an end position without reading an
@@ -189,13 +194,13 @@ element there:
 
 ```ts
 import type { Pointer, FixedArray } from "@tsonic/core/types.js";
-import { viewPointer } from "@tsonic/core/lang.js";
+import { viewptr } from "@tsonic/core/lang.js";
 
 function emptyView<T>(
   end: Pointer<T> | undefined,
   empty: FixedArray<T, 0>,
 ): Pointer<FixedArray<T, 0>> | undefined {
-  return viewPointer(end, () => empty, replacement => { empty = replacement; });
+  return viewptr(end, () => empty, replacement => { empty = replacement; });
 }
 ```
 
@@ -205,14 +210,14 @@ load or byte codec. Raw address observation still needs an explicit layout and
 the existing backing/lifetime proof. These are shared source contracts. Native
 C#/Rust lowering of callback-backed views is not implemented; a consumer must
 implement their exact semantics or reject them, never substitute
-`projectPointer` or a new allocation.
+`projectptr` or a new allocation.
 
 ### Raw-pointer identity operations
 
 | Export | Meaning |
 | --- | --- |
-| `equalRawPointer(left, right)` | Compare raw-pointer identities, including `undefined` |
-| `hashRawPointer(pointer)` | Hash raw-pointer identity, including `undefined` |
+| `equalrawptr(left, right)` | Compare raw-pointer identities, including `undefined` |
+| `hashrawptr(pointer)` | Hash raw-pointer identity, including `undefined` |
 
 Raw-pointer identity does not authorize dereference or pointer arithmetic.
 An arbitrary object is not a memory address. Raw addresses require an exact
@@ -224,46 +229,58 @@ layout, lifetime and safety requirements before emitting them.
 
 These declarations and their immutable source facts are implemented. C# and
 Rust support layout observations, exact address-integer conversions, byte
-offsets, raw identity, and `keepAlive`. Typed-storage conversion with
-`toRawPointer` and `reinterpretRawPointer` also works for closed scalar layouts.
+offsets, raw identity, and `keepalive`. Typed-storage conversion with
+`torawptr` and `reinterpretrawptr` also works for closed scalar layouts.
 A checked source fact alone does not prove native storage or lifetime safety.
 
 | Export | Source contract |
 | --- | --- |
-| `memoryLayout<T>(abi, size, alignment, stride, ...fields)` | Describe scalar or record storage using a registered ABI token and constant dimensions; not a fixed-array descriptor |
-| `memoryArrayLayout<T, N>(abi, size, alignment, stride, elementLayout: MemoryLayout<T>, length: N): MemoryLayout<FixedArray<T, N>>` | Describe a fixed array using one exact child layout and an extent matching the selected type |
-| `memoryField<T, TField>(select, offset, alignment, fieldLayout)` | Select a non-optional physical field and its exact child layout without executing the selector |
-| `bindMemoryField<T, TField>(field, pointer)` | Bind that exact field layout to a non-nil `Pointer<TField>` |
-| `bindMemoryRecord<T>(layout, ...bindings)` | Construct a typed field view with exactly one explicit location binding per physical field |
-| `sizeOf(layout)` | Observe the selected byte size |
-| `alignOf(layout)` | Observe the selected byte alignment |
-| `strideOf(layout)` | Observe the stride between whole values of the selected layout |
-| `fieldOffsetOf(layout, select)` | Observe the offset of one exact selected field |
-| `toRawPointer(pointer, layout)` | Request the address of the same typed storage, retaining its required owner |
-| `reinterpretRawPointer(raw, layout)` | Interpret an address as the canonical `Pointer<T>`, not `NativePointer<T>` |
-| `offsetRawPointer(raw, byteOffset, abi)` | Offset in bytes using an exact integer domain |
-| `rawPointerToAddressInteger<TAddress>(raw, abi)` | Convert to an explicitly selected `uint32` or `uint64`, without retaining ownership |
-| `addressIntegerToRawPointer<TAddress>(address, abi)` | Recover an address from the exact unsigned domain, without manufacturing ownership; the type argument may be inferred from the operand |
-| `keepAlive(value)` | Require reachability through this call, not pinning |
+| `memorylayout<T>(descriptor)` | Describe scalar or record storage using `datalayout`, `bytesize`, `bytealignment`, `stride`, and `fields`; not a fixed-array descriptor |
+| `memoryarraylayout<T, N>(descriptor)` | Describe `FixedArray<T, N>` using `datalayout`, `bytesize`, `bytealignment`, `stride`, `elementlayout: MemoryLayout<T>`, and `length: N` |
+| `memoryfield<T, TField>(descriptor)` | Select a non-optional physical field using `select`, `byteoffset`, `bytealignment`, and `fieldlayout: MemoryLayout<TField>`, without executing the selector |
+| `bindmemoryfield<T, TField>(field, pointer)` | Bind that exact field layout to a non-nil `Pointer<TField>` |
+| `bindmemoryrecord<T>(layout, ...bindings)` | Construct a typed field view with exactly one explicit location binding per physical field |
+| `sizeof(layout)` | Observe the selected byte size |
+| `alignof(layout)` | Observe the selected byte alignment |
+| `strideof(layout)` | Observe the stride between whole values of the selected layout |
+| `fieldoffsetof(layout, select)` | Observe the offset of one exact selected field |
+| `torawptr(pointer, layout)` | Request the address of the same typed storage, retaining its required owner |
+| `reinterpretrawptr(raw, layout)` | Interpret an address as the canonical `Pointer<T>`, not `NativePointer<T>` |
+| `offsetrawptr(raw, byteOffset, abi)` | Offset in bytes using an exact integer domain |
+| `rawptrtoaddressinteger<TAddress>(raw, abi)` | Convert to an explicitly selected `uint32` or `uint64`, without retaining ownership |
+| `addressintegertorawptr<TAddress>(address, abi)` | Recover an address from the exact unsigned domain, without manufacturing ownership; the type argument may be inferred from the operand |
+| `keepalive(value)` | Require reachability through this call, not pinning |
+
+Each construction takes exactly one direct inline object with all and only its
+listed keys, in any order. `fields` is an inline array, including `[]` for a
+scalar or empty record. Descriptor objects and arrays are erased checked metadata,
+not runtime allocations. Stored descriptor objects/field arrays, spreads, holes,
+computed keys, methods, getters, setters and outer quotation callbacks are not
+accepted. Identifier or quoted-string keys and ordinary property shorthand use
+the same exact schema; each value must independently satisfy its existing proof
+rules. In particular, `select` remains an inline typed member-selection lambda.
+Immutable aliases of already-proven ABI, child-layout and field metadata values
+remain valid; mutable aliases and asserted replacement identities do not.
+Queries and mixed pointer/layout operations retain their direct operands.
 
 ### Explicit field locations
 
 An ordinary getter forwarding to a pointer does not make the getter's property
-location equal to that pointer. `bindMemoryRecord` makes this relationship
-explicit, using existing `memoryField` identities rather than property names:
+location equal to that pointer. `bindmemoryrecord` makes this relationship
+explicit, using existing `memoryfield` identities rather than property names:
 
 ```ts
 interface Header { count: uint32; tag: uint32 }
 
-const countField = memoryField((value: Header) => value.count, 0, 4, word);
-const tagField = memoryField((value: Header) => value.tag, 4, 4, word);
-const layout = memoryLayout<Header>(abi, 8, 4, 8, countField, tagField);
+const countField = memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: word });
+const tagField = memoryfield({ select: (value: Header) => value.tag, byteoffset: 4, bytealignment: 4, fieldlayout: word });
+const layout = memorylayout<Header>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, fields: [countField, tagField] });
 
 const logical: Header = { count: 3, tag: 5 };
-const before = addressOf(logical.count);
-const count = bindMemoryField(countField, before);
-const tag = bindMemoryField(tagField, addressOf(logical.tag));
-const physical = bindMemoryRecord(layout, tag, count);
+const before = addressof(logical.count);
+const count = bindmemoryfield(countField, before);
+const tag = bindmemoryfield(tagField, addressof(logical.tag));
+const physical = bindmemoryrecord(layout, tag, count);
 ```
 
 Here `abi` is the registered ABI token and `word` its `uint32` layout.
@@ -281,12 +298,12 @@ TypeScript represents both `int32` and `uint32` as `number`.
 
 A field can point to another bound record or a fixed array. Its existing child
 layout supplies the nested fields, element layout, exact count and stride. A
-region can form each physical element with `viewPointer(element, read, write)`
-and construct its record with `bindMemoryRecord` inside `read`. No relation is
+region can form each physical element with `viewptr(element, read, write)`
+and construct its record with `bindmemoryrecord` inside `read`. No relation is
 inferred from an arbitrary array getter or a record copy.
 
 For logical-to-physical conversions, compose field bindings with
-`projectPointer` or `viewPointer` at the root. The explicit converters still own
+`projectptr` or `viewptr` at the root. The explicit converters still own
 aggregate copying and descriptor replacement. Binding does not merge separate
 allocations or retarget previously copied descriptors. When a physical root is
 exposed as raw memory, its field offsets must agree with these retained logical
@@ -320,16 +337,16 @@ raw byte offsets. With a registered `abi` and a `RawPointer | undefined` value
 named `raw`:
 
 ```ts
-const word = memoryLayout<uint32>(abi, 4, 4, 4);
-const next = offsetRawPointer(raw, sizeOf(word), abi);
+const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+const next = offsetrawptr(raw, sizeof(word), abi);
 ```
 
-The same applies to `alignOf`, `strideOf` and `fieldOffsetOf`, including immutable
+The same applies to `alignof`, `strideof` and `fieldoffsetof`, including immutable
 aliases of their results. The query must resolve to an exact layout. Integer
 width checks still apply: asserting a byte count of 256 as `uint8` does not make
 it fit, and an authored plain `number` does not supply an integer domain.
 
-`keepAlive(value)` emits `global::System.GC.KeepAlive(value)` for a C# reference
+`keepalive(value)` emits `global::System.GC.KeepAlive(value)` for a C# reference
 owner. Rust borrows the value without consuming or cloning it; the owner
 retains its native drop scope. Neither operation pins storage, reconstructs an
 owner from address bits, or grants an unsafe context.
@@ -338,9 +355,14 @@ Every physical field explicitly selects its own layout. For example:
 
 ```ts
 interface Header { count: uint32 }
-const word = memoryLayout<uint32>(abi, 4, 4, 4);
-const header = memoryLayout<Header>(abi, 8, 4, 8,
-  memoryField((value: Header) => value.count, 4, 4, word));
+const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+const header = memorylayout<Header>({
+  datalayout: abi,
+  bytesize: 8,
+  bytealignment: 4,
+  stride: 8,
+  fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 4, bytealignment: 4, fieldlayout: word })],
+});
 ```
 
 The child type must match the selected field type. Parent and child layouts
@@ -356,11 +378,11 @@ An array descriptor selects one child, even for nested arrays, arrays of records
 or zero elements. Using the same `abi` and `word` as above:
 
 ```ts
-const words = memoryArrayLayout<uint32, 2>(abi, 12, 4, 16, word, 2);
+const words = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 12, bytealignment: 4, stride: 16, elementlayout: word, length: 2 });
 ```
 
-Here `sizeOf(words)` is 12 and `strideOf(words)` is 16; element spacing remains
-`strideOf(word)`, which is 4. The two elements occupy 8 bytes, with explicit
+Here `sizeof(words)` is 12 and `strideof(words)` is 16; element spacing remains
+`strideof(word)`, which is 4. The two elements occupy 8 bytes, with explicit
 trailing padding. Whole-array dimensions are non-negative safe-integer byte
 quantities within the selected address width. For exact count `N`, occupied
 bytes are zero when `N` is zero, otherwise
@@ -373,7 +395,7 @@ describe zero-byte storage without expanding the count into metadata elements.
 
 The length argument must be a proven constant with the same exact value and
 number/bigint runtime base as selected `N`; a type assertion cannot excuse a
-different value. `memoryLayout<FixedArray<T, N>>(...)` is rejected because it
+different value. `memorylayout<FixedArray<T, N>>(...)` is rejected because it
 omits the physical child. Neither builder allocates an array or supplies a
 native codec. C# and Rust reject raw conversion or physical backing requiring
 an inline array, including arrays nested in records; compile-time layout
@@ -395,23 +417,23 @@ For example, given a registered little-endian, 64-bit ABI token exported by
 
 ```ts
 import { abi } from "example:abi";
-import { memoryLayout, addressOf, toRawPointer, reinterpretRawPointer,
-  storePointer, unsafeContext } from "@tsonic/core/lang.js";
+import { memorylayout, addressof, torawptr, reinterpretrawptr,
+  storeptr, unsafecontext } from "@tsonic/core/lang.js";
 import type { uint32 } from "@tsonic/core/types.js";
 
-const layout = memoryLayout<uint32>(abi, 4, 4, 4);
+const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 function write(): uint32 {
-  unsafeContext();
+  unsafecontext();
   let value: uint32 = 1;
-  const raw = toRawPointer(addressOf(value), layout);
-  const pointer = reinterpretRawPointer(raw, layout);
-  if (pointer !== undefined) storePointer(pointer, 7);
+  const raw = torawptr(addressof(value), layout);
+  const pointer = reinterpretrawptr(raw, layout);
+  if (pointer !== undefined) storeptr(pointer, 7);
   return value; // 7
 }
 ```
 
 Analysis gives the demanded local stable native backing before emission. Every
-read and write uses that same storage. `allocatePointer` origins can receive the
+read and write uses that same storage. `allocateptr` origins can receive the
 same backing. Undemanded locals and logical pointers keep their usual form.
 
 Current physical layouts support signed/unsigned 8-, 16-, 32-, 64- and 128-bit
@@ -443,14 +465,14 @@ native backing. For example:
 ```ts
 const cell: { value: uint32 } = { value: 7 };
 const alias = cell;
-const pointer = addressOf(cell.value);
-toRawPointer(pointer, layout);
-storePointer(pointer, 9);
+const pointer = addressof(cell.value);
+torawptr(pointer, layout);
+storeptr(pointer, 9);
 alias.value = 11;
 ```
 
 Both assignments update the same physical field. Independently taking
-`addressOf(alias.value)` gives the same location. Reassigning `cell` to a new
+`addressof(alias.value)` gives the same location. Reassigning `cell` to a new
 object does not retarget the old pointer. The retained location keeps its
 storage alive after the original local returns. This storage choice does not
 change the field's public value type or undemanded object shapes.
@@ -461,11 +483,11 @@ close all local aliases and uses:
 ```ts
 let values: uint32[] = [7, 8];
 const alias = values;
-const pointer = addressOf(values[0]);
-toRawPointer(pointer, layout);
+const pointer = addressof(values[0]);
+torawptr(pointer, layout);
 alias[0] = 11;
 values = [99];
-loadPointer(pointer); // 11, from the original allocation
+loadptr(pointer); // 11, from the original allocation
 ```
 
 The selected element stride determines the distance between adjacent locations.
@@ -503,7 +525,7 @@ returns the target's undefined representation, not an allocated pointer:
 
 ```ts
 function maybe(flag: boolean) {
-  if (flag) return allocatePointer<uint32>(1);
+  if (flag) return allocateptr<uint32>(1);
 }
 const present = maybe(true);
 const absent = maybe(false); // undefined
@@ -512,7 +534,7 @@ const absent = maybe(false); // undefined
 Selected generic helpers that return their pointer arguments also preserve
 the arguments' exact pointee evidence. This is not general inference through
 arbitrary generic bodies. For example, this return query does not close the
-pointee of an operation inside a generic body, such as `allocatePointer<T>(value)`.
+pointee of an operation inside a generic body, such as `allocateptr<T>(value)`.
 An unresolved `T` is not replaced with a guessed native scalar.
 
 An ABI provider supplies the token declaration and a `dataLayouts`
@@ -541,8 +563,8 @@ For example, with a registered 64-bit `abi` token:
 
 ```ts
 const address: uint64 = 9007199254740993n;
-const raw = addressIntegerToRawPointer(address, abi);
-const exact: uint64 = rawPointerToAddressInteger<uint64>(raw, abi);
+const raw = addressintegertorawptr(address, abi);
+const exact: uint64 = rawptrtoaddressinteger<uint64>(raw, abi);
 ```
 
 This round trip works on both native targets with a registered ABI matching
@@ -551,7 +573,7 @@ number/bigint representation.
 Raw-to-integer requires the explicit type argument; the destination annotation
 does not select it. Integer-to-raw can infer it from an exactly annotated
 operand, or accept an explicit argument with an integral constant, such as
-`addressIntegerToRawPointer<uint64>(9007199254740993n, abi)`.
+`addressintegertorawptr<uint64>(9007199254740993n, abi)`.
 Signed types, plain `number`/`bigint` variables, mismatched ABI widths and known
 out-of-range constants are rejected. Targets must range-check values that
 are not proven constant and must never convert 64-bit address bits through
@@ -562,9 +584,9 @@ establish live storage, alignment, pinning or ownership.
 
 | Export | Meaning |
 | --- | --- |
-| `loadNativePointer(pointer)` | Dereference a native typed pointer |
-| `storeNativePointer(pointer, value)` | Store through a native typed pointer |
-| `offsetNativePointer(pointer, elementOffset)` | Offset by pointee elements, not bytes |
+| `loadnativeptr(pointer)` | Dereference a native typed pointer |
+| `storenativeptr(pointer, value)` | Store through a native typed pointer |
+| `offsetnativeptr(pointer, elementOffset)` | Offset by pointee elements, not bytes |
 
 Native pointer access requires an explicit safety context when the target
 language requires one.
@@ -573,9 +595,9 @@ language requires one.
 
 | Form | Meaning |
 | --- | --- |
-| `unsafeContext()` | Marks the remainder of the containing lexical block as unsafe |
-| `unsafeContext(expression)` | Marks exactly one expression as unsafe |
-| `safety<T>().requiresUnsafe()` | Declaration-level unsafe-call requirement |
+| `unsafecontext()` | Marks the remainder of the containing lexical block as unsafe |
+| `unsafecontext(expression)` | Marks exactly one expression as unsafe |
+| `safety<T>().requiresunsafe()` | Declaration-level unsafe-call requirement |
 | `safety<T>().safe()` | Declaration-level safe contract |
 | `.method(selector)` | Select a method declaration |
 | `.property(selector)` | Select a property declaration |
@@ -588,10 +610,10 @@ Example:
 ```ts
 safety<NativeBuffer>()
   .method((buffer) => buffer.read)
-  .requiresUnsafe();
+  .requiresunsafe();
 
 export function read(pointer: NativePointer<int32>): int32 {
-  return unsafeContext(loadNativePointer(pointer));
+  return unsafecontext(loadnativeptr(pointer));
 }
 ```
 

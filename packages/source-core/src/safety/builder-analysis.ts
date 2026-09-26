@@ -173,7 +173,7 @@ function analyzeMemberSelector(
     return;
   }
   const selection = selectInlineSourceMember(
-    selected,
+    selected.selection.sourceArguments[0]?.expression,
     context,
     memberKind === "indexer" ? "element" : "property",
   );

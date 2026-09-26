@@ -81,12 +81,12 @@ export function analyzeTsonicMemoryOperations(
     }
     pending.add(node);
     switch (call.name) {
-      case "memoryField": analyzeMemoryField(call, analysis); break;
-      case "memoryLayout": analyzeMemoryLayout(call, analysis); break;
-      case "memoryArrayLayout": analyzeMemoryArrayLayout(call, analysis); break;
-      case "bindMemoryField": analyzeMemoryFieldBinding(call, analysis); break;
-      case "bindMemoryRecord": analyzeMemoryRecordBinding(call, analysis); break;
-      case "sizeOf": case "alignOf": case "strideOf": case "fieldOffsetOf":
+      case "memoryfield": analyzeMemoryField(call, analysis); break;
+      case "memorylayout": analyzeMemoryLayout(call, analysis); break;
+      case "memoryarraylayout": analyzeMemoryArrayLayout(call, analysis); break;
+      case "bindmemoryfield": analyzeMemoryFieldBinding(call, analysis); break;
+      case "bindmemoryrecord": analyzeMemoryRecordBinding(call, analysis); break;
+      case "sizeof": case "alignof": case "strideof": case "fieldoffsetof":
         analyzeMemoryLayoutQuery(call, analysis); break;
       default: analyzeRawMemoryCall(call, analysis); break;
     }

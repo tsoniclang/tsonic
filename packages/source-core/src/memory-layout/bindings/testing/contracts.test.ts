@@ -9,11 +9,11 @@ import { bindingPrelude, bindingSession, boundRecordSource } from "./fixtures.js
 
 test("bound record selects reordered fields and preserves already captured logical field operands", () => {
   const checked = bindingSession(boundRecordSource + `
-    storePointer(before, 7);
-    const observed = addressOf(physical.count);
-    equalPointer(before, observed);
+    storeptr(before, 7);
+    const observed = addressof(physical.count);
+    equalptr(before, observed);
   `);
-  const call = memoryCall(checked, "bindMemoryRecord");
+  const call = memoryCall(checked, "bindmemoryrecord");
   const selected = selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, call);
   assert.ok(selected?.kind === "resolved");
   const { operation } = selected;
@@ -33,7 +33,7 @@ test("layout metadata is erased only at its binding operand, never at the runtim
   const checked = bindingSession(boundRecordSource);
   const source = createTargetSourceProgram(checked);
   const index = createTsonicMemoryMetadataIndex(source);
-  for (const name of ["bindMemoryField", "bindMemoryRecord"]) {
+  for (const name of ["bindmemoryfield", "bindmemoryrecord"]) {
     const call = memoryCall(checked, name);
     const args = checked.ast.arguments(call);
     assert.equal(index.isCompileTimeExpression(args[0]!), true);
@@ -55,17 +55,17 @@ test("cross-file layouts, type aliases, inherited members and namespace binding 
     import { externalLayout, inheritedField } from "./external.js";
     import * as core from "@tsonic/core/lang.js";
     declare const pointer: Pointer<uint32>;
-    const selected = core.bindMemoryField(inheritedField, pointer);
-    const record = core.bindMemoryRecord<ExternalHeader>(externalLayout, selected);
+    const selected = core.bindmemoryfield(inheritedField, pointer);
+    const record = core.bindmemoryrecord<ExternalHeader>(externalLayout, selected);
   `, {
     "/src/external.ts": bindingPrelude + `
       interface Base { value: uint32 }
       export interface ExternalHeader extends Base {}
-      export const inheritedField = memoryField((value: ExternalHeader) => value.value, 0, 4, word);
-      export const externalLayout = memoryLayout<ExternalHeader>(abi, 4, 4, 4, inheritedField);
+      export const inheritedField = memoryfield({ select: (value: ExternalHeader) => value.value, byteoffset: 0, bytealignment: 4, fieldlayout: word });
+      export const externalLayout = memorylayout<ExternalHeader>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [inheritedField] });
     `,
   });
-  assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindMemoryRecord"))?.kind, "resolved");
+  assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindmemoryrecord"))?.kind, "resolved");
 });
 
 test("field pointers may arrive through parameters, containers, aliases or exact generic returns", () => {
@@ -73,11 +73,11 @@ test("field pointers may arrive through parameters, containers, aliases or exact
     function identity<T>(value: Pointer<T>): Pointer<T> { return value; }
     function bind(pointer: Pointer<uint32>, holders: { value: Pointer<uint32> }[]) {
       const alias = identity(pointer);
-      return bindMemoryRecord(headerLayout,
-        bindMemoryField(countField, alias), bindMemoryField(tagField, holders[0].value));
+      return bindmemoryrecord(headerLayout,
+        bindmemoryfield(countField, alias), bindmemoryfield(tagField, holders[0].value));
     }
   `);
-  for (const call of memoryCalls(checked, "bindMemoryField")) {
+  for (const call of memoryCalls(checked, "bindmemoryfield")) {
     assert.equal(selectTsonicMemoryFieldBinding(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
   }
 });
@@ -85,18 +85,18 @@ test("field pointers may arrive through parameters, containers, aliases or exact
 test("nested bound record results retain exact domains and recursive field locations", () => {
   const checked = bindingSession(boundRecordSource + `
     interface Outer { header: Header }
-    const header = memoryField((value: Outer) => value.header, 0, 4, headerLayout);
-    const outerLayout = memoryLayout<Outer>(abi, 8, 4, 8, header);
+    const header = memoryfield({ select: (value: Outer) => value.header, byteoffset: 0, bytealignment: 4, fieldlayout: headerLayout });
+    const outerLayout = memorylayout<Outer>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, fields: [header] });
     let physicalRoot = physical;
-    let nested = bindMemoryRecord(outerLayout, bindMemoryField(header, addressOf(physicalRoot)));
-    toRawPointer(addressOf(nested), outerLayout);
+    let nested = bindmemoryrecord(outerLayout, bindmemoryfield(header, addressof(physicalRoot)));
+    torawptr(addressof(nested), outerLayout);
     const nestedAlias = nested;
-    addressOf(nestedAlias.header.count);
+    addressof(nestedAlias.header.count);
   `);
-  for (const call of memoryCalls(checked, "bindMemoryRecord")) {
+  for (const call of memoryCalls(checked, "bindmemoryrecord")) {
     assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
   }
-  assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "toRawPointer"))?.kind, "resolved");
+  assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, "torawptr"))?.kind, "resolved");
 });
 
 test("physical descriptor views explicitly bind fields while ordinary accessors remain ordinary locations", () => {
@@ -104,34 +104,34 @@ test("physical descriptor views explicitly bind fields while ordinary accessors 
     interface Descriptor { data: RawPointer | undefined; length: uint32 }
     interface Logical { text: string; count: uint32 }
     interface Physical { text: Descriptor; count: uint32 }
-    const address = memoryLayout<RawPointer | undefined>(abi, 8, 8, 8);
-    const dataField = memoryField((value: Descriptor) => value.data, 0, 8, address);
-    const lengthField = memoryField((value: Descriptor) => value.length, 8, 4, word);
-    const descriptorLayout = memoryLayout<Descriptor>(abi, 16, 8, 16, dataField, lengthField);
-    const textField = memoryField((value: Physical) => value.text, 0, 8, descriptorLayout);
-    const physicalCount = memoryField((value: Physical) => value.count, 16, 4, word);
-    const physicalLayout = memoryLayout<Physical>(abi, 24, 8, 24, textField, physicalCount);
+    const address = memorylayout<RawPointer | undefined>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+    const dataField = memoryfield({ select: (value: Descriptor) => value.data, byteoffset: 0, bytealignment: 8, fieldlayout: address });
+    const lengthField = memoryfield({ select: (value: Descriptor) => value.length, byteoffset: 8, bytealignment: 4, fieldlayout: word });
+    const descriptorLayout = memorylayout<Descriptor>({ datalayout: abi, bytesize: 16, bytealignment: 8, stride: 16, fields: [dataField, lengthField] });
+    const textField = memoryfield({ select: (value: Physical) => value.text, byteoffset: 0, bytealignment: 8, fieldlayout: descriptorLayout });
+    const physicalCount = memoryfield({ select: (value: Physical) => value.count, byteoffset: 16, bytealignment: 4, fieldlayout: word });
+    const physicalLayout = memorylayout<Physical>({ datalayout: abi, bytesize: 24, bytealignment: 8, stride: 24, fields: [textField, physicalCount] });
     declare function encode(value: string): Descriptor;
     declare function decode(value: Descriptor): string;
     let logical: Logical = { text: "old", count: 2 };
-    const originalCount = addressOf(logical.count);
-    const text = projectPointer<string, Descriptor>(addressOf(logical.text), encode, decode);
-    const record = bindMemoryRecord(physicalLayout,
-      bindMemoryField(textField, text), bindMemoryField(physicalCount, originalCount));
-    const root = viewPointer<Logical, Physical>(addressOf(logical), () => record, next => {
-      storePointer(text, next.text); storePointer(originalCount, next.count);
+    const originalCount = addressof(logical.count);
+    const text = projectptr<string, Descriptor>(addressof(logical.text), encode, decode);
+    const record = bindmemoryrecord(physicalLayout,
+      bindmemoryfield(textField, text), bindmemoryfield(physicalCount, originalCount));
+    const root = viewptr<Logical, Physical>(addressof(logical), () => record, next => {
+      storeptr(text, next.text); storeptr(originalCount, next.count);
     });
-    const raw = toRawPointer(root, physicalLayout);
-    const restored = reinterpretRawPointer(raw, physicalLayout);
-    const ordinary = { get count() { return loadPointer(originalCount); },
-      set count(value: uint32) { storePointer(originalCount, value); } };
-    addressOf(ordinary.count);
+    const raw = torawptr(root, physicalLayout);
+    const restored = reinterpretrawptr(raw, physicalLayout);
+    const ordinary = { get count() { return loadptr(originalCount); },
+      set count(value: uint32) { storeptr(originalCount, value); } };
+    addressof(ordinary.count);
   `);
-  assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindMemoryRecord"))?.kind, "resolved");
-  for (const name of ["toRawPointer", "reinterpretRawPointer"]) {
+  assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindmemoryrecord"))?.kind, "resolved");
+  for (const name of ["torawptr", "reinterpretrawptr"]) {
     assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, memoryCall(checked, name))?.kind, "resolved");
   }
-  const addresses = memoryCalls(checked, "addressOf");
+  const addresses = memoryCalls(checked, "addressof");
   const ordinary = addresses[addresses.length - 1]!;
   assert.equal(checked.sourceFacts.getFact(ordinary, pointerOperationFactKey)?.operation, "address-of");
   assert.equal(checked.sourceFacts.getFact(ordinary, tsonicMemoryFieldBindingFactKey), undefined);
@@ -143,19 +143,19 @@ test("zero-count and exact huge fixed-array children remain bounded recursive fi
     const checked = bindingSession(`
       interface Empty {}
       interface Container { entries: FixedArray<Empty, ${length}> }
-      const element = memoryLayout<Empty>(abi, 0, 1, 0);
-      const array = memoryArrayLayout(abi, 0, 1, 0, element, ${length});
-      const entries = memoryField((value: Container) => value.entries, 0, 1, array);
-      const layout = memoryLayout<Container>(abi, 0, 1, 0, entries);
+      const element = memorylayout<Empty>({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, fields: [] });
+      const array = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, elementlayout: element, length: ${length} });
+      const entries = memoryfield({ select: (value: Container) => value.entries, byteoffset: 0, bytealignment: 1, fieldlayout: array });
+      const layout = memorylayout<Container>({ datalayout: abi, bytesize: 0, bytealignment: 1, stride: 0, fields: [entries] });
       declare const pointer: Pointer<FixedArray<Empty, ${length}>>;
-      const bound = bindMemoryRecord(layout, bindMemoryField(entries, pointer));
-      const empty = bindMemoryRecord(element);
+      const bound = bindmemoryrecord(layout, bindmemoryfield(entries, pointer));
+      const empty = bindmemoryrecord(element);
     `);
-    const selected = selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindMemoryRecord"));
+    const selected = selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindmemoryrecord"));
     assert.ok(selected?.kind === "resolved");
     const array = selected.operation.fields[0]!.binding.field.fieldLayout;
     assert.ok(array.kind === "array");
     assert.equal(array.fixedArray.length, length === "0" ? 0n : 9007199254740993n);
-    assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindMemoryRecord", 1))?.kind, "resolved");
+    assert.equal(selectTsonicMemoryRecordBinding(checked.ast, checked.sourceFacts, memoryCall(checked, "bindmemoryrecord", 1))?.kind, "resolved");
   }
 });

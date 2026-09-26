@@ -139,7 +139,7 @@ test("query facts require exact selected field evidence only for field-offset ob
   assert.throws(() => tsonicMemoryLayoutQueryFactKey.snapshot({ ...query, selectedFieldDeclaration: {} as Node }));
 });
 
-test("keepAlive facts preserve the exact lexical call and protected value", () => {
+test("keepalive facts preserve the exact lexical call and protected value", () => {
   const source = { call: {} as Node, valueExpression: {} as Node, valueType: {} as Type, resultType: {} as Type };
   const fact = tsonicKeepAliveFactKey.snapshot(source);
   assert.ok(tsonicKeepAliveFactKey.equals(fact, source));

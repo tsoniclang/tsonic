@@ -164,30 +164,30 @@ test("source-core rejects non-literal and invalid fixed-array lengths", () => {
 
 test("source-core exposes exact typed pointer operation facts without spelling inference", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
-    import { addressOf as takeAddress, allocatePointer, bindPointer, equalPointer, hashPointer, loadPointer, projectPointer, storePointer } from "@tsonic/core/lang.js";
+    import { addressof as takeAddress, allocateptr, bindptr, equalptr, hashptr, loadptr, projectptr, storeptr } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
     import type { int32 } from "@tsonic/core/types.js";
-    import { bindPointer as localBindPointer, equalPointer as localEqualPointer, loadPointer as localLoadPointer } from "./local.js";
+    import { bindptr as localBindPointer, equalptr as localEqualPointer, loadptr as localLoadPointer } from "./local.js";
 
     let value: int32 = 1;
     const borrowed = takeAddress(value);
-    const owned = allocatePointer<int32>(value);
-    const first = loadPointer(borrowed);
-    storePointer(owned, first);
-    const equal = equalPointer(borrowed, borrowed);
-    const nilEqual = equalPointer<int32>(undefined, undefined);
-    const hash = hashPointer(borrowed);
+    const owned = allocateptr<int32>(value);
+    const first = loadptr(borrowed);
+    storeptr(owned, first);
+    const equal = equalptr(borrowed, borrowed);
+    const nilEqual = equalptr<int32>(undefined, undefined);
+    const hash = hashptr(borrowed);
     const storage = { value };
-    const bound = bindPointer<int32>(storage, () => storage.value, next => { storage.value = next; });
+    const bound = bindptr<int32>(storage, () => storage.value, next => { storage.value = next; });
     localBindPointer(storage, () => storage.value, next => { storage.value = next; });
-    const projected = projectPointer<int32, int32>(borrowed, value => value, value => value);
-    const second = lang.loadPointer(owned);
+    const projected = projectptr<int32, int32>(borrowed, value => value, value => value);
+    const second = lang.loadptr(owned);
     localLoadPointer(owned);
     localEqualPointer(owned, owned);
   `, {
-    "/src/local.ts": `export function loadPointer<T>(pointer: T): T { return pointer; }
-export function equalPointer<T>(left: T, right: T): boolean { return left === right; }
-export function bindPointer<T>(_identity: object, read: () => T, _write: (value: T) => void): T { return read(); }`,
+    "/src/local.ts": `export function loadptr<T>(pointer: T): T { return pointer; }
+export function equalptr<T>(left: T, right: T): boolean { return left === right; }
+export function bindptr<T>(_identity: object, read: () => T, _write: (value: T) => void): T { return read(); }`,
   });
 
   const address = getSourceFact(session, callExpression(session, sourceFile, "takeAddress"), pointerOperationFactKey);
@@ -195,30 +195,30 @@ export function bindPointer<T>(_identity: object, read: () => T, _write: (value:
   assert.equal(address?.operation === "address-of" ? sourceAst(session).text(address.storageExpression) : undefined, "value");
   assert.equal(address?.operation === "address-of" ? address.locationIdentity : undefined, address?.operation === "address-of" ? address.storageExpression : undefined);
 
-  const allocation = getSourceFact(session, callExpression(session, sourceFile, "allocatePointer"), pointerOperationFactKey);
+  const allocation = getSourceFact(session, callExpression(session, sourceFile, "allocateptr"), pointerOperationFactKey);
   assert.equal(allocation?.operation, "allocate");
   assert.equal(allocation?.operation === "allocate" ? allocation.locationIdentity : undefined, allocation?.operation === "allocate" ? allocation.call : undefined);
 
-  const load = getSourceFact(session, callExpression(session, sourceFile, "loadPointer"), pointerOperationFactKey);
+  const load = getSourceFact(session, callExpression(session, sourceFile, "loadptr"), pointerOperationFactKey);
   assert.equal(load?.operation, "load");
   assert.equal(load?.operation === "load" ? sourceAst(session).text(load.pointerExpression) : undefined, "borrowed");
 
-  const store = getSourceFact(session, callExpression(session, sourceFile, "storePointer"), pointerOperationFactKey);
+  const store = getSourceFact(session, callExpression(session, sourceFile, "storeptr"), pointerOperationFactKey);
   assert.equal(store?.operation, "store");
   assert.equal(store?.operation === "store" ? sourceAst(session).text(store.pointerExpression) : undefined, "owned");
   assert.equal(store?.operation === "store" ? sourceAst(session).text(store.valueExpression) : undefined, "first");
 
-  const equal = getSourceFact(session, callExpression(session, sourceFile, "equalPointer"), pointerOperationFactKey);
+  const equal = getSourceFact(session, callExpression(session, sourceFile, "equalptr"), pointerOperationFactKey);
   assert.equal(equal?.operation, "equal-pointer");
-  const nilEqual = getSourceFact(session, callExpression(session, sourceFile, "equalPointer", 1), pointerOperationFactKey);
+  const nilEqual = getSourceFact(session, callExpression(session, sourceFile, "equalptr", 1), pointerOperationFactKey);
   assert.equal(nilEqual?.operation, "equal-pointer");
-    assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashPointer"), pointerOperationFactKey)?.operation, "hash-pointer");
-  const bound = getSourceFact(session, callExpression(session, sourceFile, "bindPointer"), pointerOperationFactKey);
+    assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashptr"), pointerOperationFactKey)?.operation, "hash-pointer");
+  const bound = getSourceFact(session, callExpression(session, sourceFile, "bindptr"), pointerOperationFactKey);
   assert.equal(bound?.operation, "bind-pointer");
   assert.equal(bound?.operation === "bind-pointer" ? bound.locationIdentity : undefined, bound?.operation === "bind-pointer" ? bound.identityExpression : undefined);
-    assert.equal(getSourceFact(session, callExpression(session, sourceFile, "projectPointer"), pointerOperationFactKey)?.operation, "project-pointer");
+    assert.equal(getSourceFact(session, callExpression(session, sourceFile, "projectptr"), pointerOperationFactKey)?.operation, "project-pointer");
 
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.loadPointer"), pointerOperationFactKey)?.operation, "load");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.loadptr"), pointerOperationFactKey)?.operation, "load");
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localLoadPointer"), pointerOperationFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localEqualPointer"), pointerOperationFactKey), undefined);
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localBindPointer"), pointerOperationFactKey), undefined);
@@ -227,28 +227,28 @@ export function bindPointer<T>(_identity: object, read: () => T, _write: (value:
 test("source-core exposes raw-pointer equality and hash facts without spelling inference", () => {
   const { session, sourceFile } = createCleanSourceCoreSession(`
     import type { RawPointer } from "@tsonic/core/types.js";
-    import { equalRawPointer, hashRawPointer } from "@tsonic/core/lang.js";
+    import { equalrawptr, hashrawptr } from "@tsonic/core/lang.js";
     import * as lang from "@tsonic/core/lang.js";
-    import { equalRawPointer as localEqualRawPointer } from "./local.js";
+    import { equalrawptr as localEqualRawPointer } from "./local.js";
 
     type Address = RawPointer;
     declare const first: RawPointer;
     declare const second: RawPointer;
-    const equal = equalRawPointer(first, second);
-    const namespaced = lang.equalRawPointer(first, second);
-    const hash = hashRawPointer(first);
+    const equal = equalrawptr(first, second);
+    const namespaced = lang.equalrawptr(first, second);
+    const hash = hashrawptr(first);
     localEqualRawPointer(first, second);
   `, {
-    "/src/local.ts": "export function equalRawPointer(left: object, right: object): boolean { return left === right; }",
+    "/src/local.ts": "export function equalrawptr(left: object, right: object): boolean { return left === right; }",
   });
 
   assert.equal(
     getSourceFact(session, typeAliasType(session, sourceFile, "Address"), rawPointerFactKey)?.representation,
     "opaque-identity",
   );
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "equalRawPointer"), rawPointerOperationFactKey)?.operation, "equal-raw-pointer");
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.equalRawPointer"), rawPointerOperationFactKey)?.operation, "equal-raw-pointer");
-  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashRawPointer"), rawPointerOperationFactKey)?.operation, "hash-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "equalrawptr"), rawPointerOperationFactKey)?.operation, "equal-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "lang.equalrawptr"), rawPointerOperationFactKey)?.operation, "equal-raw-pointer");
+  assert.equal(getSourceFact(session, callExpression(session, sourceFile, "hashrawptr"), rawPointerOperationFactKey)?.operation, "hash-raw-pointer");
   assert.equal(getSourceFact(session, callExpression(session, sourceFile, "localEqualRawPointer"), rawPointerOperationFactKey), undefined);
 });
 

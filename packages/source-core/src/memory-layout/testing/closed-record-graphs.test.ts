@@ -10,11 +10,11 @@ for (const signed of [true, false]) {
     const checked = checkedRecords(`
       interface First { next: Pointer<First> | undefined; count: int64 }
       interface Second { next: Pointer<Second> | undefined; count: ${signed ? "int64" : "uint64"} }
-      memoryLayout<Pointer<First>>(abi, 8, 8, 8);
-      memoryLayout<Pointer<Second>>(abi, 8, 8, 8);
+      memorylayout<Pointer<First>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+      memorylayout<Pointer<Second>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
     `);
-    const first = recordIdentity(checked, memoryCall(checked, "memoryLayout"));
-    const second = recordIdentity(checked, memoryCall(checked, "memoryLayout", 1));
+    const first = recordIdentity(checked, memoryCall(checked, "memorylayout"));
+    const second = recordIdentity(checked, memoryCall(checked, "memorylayout", 1));
     assert.equal(first === second, signed);
   });
 }
@@ -26,11 +26,11 @@ test("shared record subgraphs are compared once per pair rather than expanded as
       `interface Second${depth} { right: Second${depth - 1}; left: Second${depth - 1} }`);
   }
   const checked = checkedRecords(declarations.join("\n") + `
-    memoryLayout<Pointer<First24>>(abi, 8, 8, 8);
-    memoryLayout<Pointer<Second24>>(abi, 8, 8, 8);
+    memorylayout<Pointer<First24>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
+    memorylayout<Pointer<Second24>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
   `);
-  assert.equal(recordIdentity(checked, memoryCall(checked, "memoryLayout")),
-    recordIdentity(checked, memoryCall(checked, "memoryLayout", 1)));
+  assert.equal(recordIdentity(checked, memoryCall(checked, "memorylayout")),
+    recordIdentity(checked, memoryCall(checked, "memorylayout", 1)));
 });
 
 test("many independently authored imported records share one program-scoped identity", () => {
@@ -38,20 +38,20 @@ test("many independently authored imported records share one program-scoped iden
   const files = Object.fromEntries(Array.from({ length: count }, (_, index) => [
     `/src/record${index}.ts`, recordPrelude + `
       export interface Record${index} { count: int64 }
-      export const layout = memoryLayout<Pointer<Record${index}>>(abi, 8, 8, 8);
+      export const layout = memorylayout<Pointer<Record${index}>>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });
     `,
   ]));
   const source = Array.from({ length: count }, (_, index) => `
     import { layout as layout${index} } from "./record${index}.js";
     declare const raw${index}: RawPointer | undefined;
-    reinterpretRawPointer(raw${index}, layout${index});
+    reinterpretrawptr(raw${index}, layout${index});
   `).join("\n");
   const checked = checkedRecords(source, files);
-  const calls = memoryCalls(checked, "reinterpretRawPointer");
+  const calls = memoryCalls(checked, "reinterpretrawptr");
   assert.equal(calls.length, count);
   assert.equal(new Set(calls.map(call => recordIdentity(checked, call))).size, 1);
   const foreign = checkedRecords(source, files);
-  assert.notEqual(recordIdentity(checked, calls[0]!), recordIdentity(foreign, memoryCall(foreign, "reinterpretRawPointer")));
+  assert.notEqual(recordIdentity(checked, calls[0]!), recordIdentity(foreign, memoryCall(foreign, "reinterpretrawptr")));
 });
 
 test("record correspondence beyond the proof depth remains a bounded rejection", () => {

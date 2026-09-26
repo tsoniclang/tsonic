@@ -366,7 +366,7 @@ function selectedInlineMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
 ): Extract<ReturnType<typeof selectInlineSourceMember>, { readonly kind: "selected" }> | undefined {
-  const result = selectInlineSourceMember(selected, context);
+  const result = selectInlineSourceMember(selected.selection.sourceArguments[0]?.expression, context);
   if (result.kind === "selected") {
     return result;
   }

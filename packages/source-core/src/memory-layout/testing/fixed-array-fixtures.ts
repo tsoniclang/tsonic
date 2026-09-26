@@ -11,13 +11,13 @@ export const arrayTestPrelude = `
 import { abi } from "test:abi";
 import type { FixedArray, MemoryLayout, Pointer, RawPointer, uint8, uint32, int32,
   uint64, nativeUint } from "@tsonic/core/types.js";
-import { memoryLayout, memoryArrayLayout, memoryField, sizeOf, alignOf, strideOf,
-  fieldOffsetOf, toRawPointer, reinterpretRawPointer, allocatePointer, addressOf,
-  offsetRawPointer, keepAlive } from "@tsonic/core/lang.js";
+import { memorylayout, memoryarraylayout, memoryfield, sizeof, alignof, strideof,
+  fieldoffsetof, torawptr, reinterpretrawptr, allocateptr, addressof,
+  offsetrawptr, keepalive } from "@tsonic/core/lang.js";
 declare const raw: RawPointer | undefined;
-const word = memoryLayout<uint32>(abi, 4, 4, 4);
+const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 interface Empty {}
-const empty = memoryLayout<Empty>(abi, 0, 4, 0);
+const empty = memorylayout<Empty>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });
 `;
 
 export const arrayTestProfiles = [
@@ -44,7 +44,7 @@ export function arrayMemoryLayout(layout: TsonicMemoryLayoutFact | undefined): T
   return layout;
 }
 
-export function arrayLayoutAt(checked: CheckedSourceProgram, index = 0, name = "memoryArrayLayout"): TsonicArrayMemoryLayoutFact {
+export function arrayLayoutAt(checked: CheckedSourceProgram, index = 0, name = "memoryarraylayout"): TsonicArrayMemoryLayoutFact {
   return arrayMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, name, index)));
 }
 

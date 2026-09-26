@@ -6,9 +6,6 @@ import type {
 import type {
   TsonicSourceFileAnalysisContext,
 } from "./context.js";
-import type {
-  SelectedProviderSourceCall,
-} from "./source-call.js";
 
 export type SelectedInlineSourceMemberResult =
   | {
@@ -24,12 +21,10 @@ export type SelectedInlineSourceMemberResult =
     };
 
 export function selectInlineSourceMember(
-  selected: SelectedProviderSourceCall,
+  inlineFunction: Node | undefined,
   context: TsonicSourceFileAnalysisContext,
   syntax: "element" | "property" = "property",
-  argumentIndex = 0,
 ): SelectedInlineSourceMemberResult {
-  const inlineFunction = selected.selection.sourceArguments[argumentIndex]?.expression;
   if (
     inlineFunction === undefined ||
     (!context.ast.is.IsArrowFunction(inlineFunction) &&
