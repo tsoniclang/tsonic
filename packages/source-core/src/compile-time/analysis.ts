@@ -87,7 +87,7 @@ function analyzeSelectedCompileTimeOperation(
       context,
       "SOURCE_CORE_COMPTIME_CONDITION_POSITION_INVALID",
       9901171,
-      "comptimeIf(...) must be the complete condition of an if statement or conditional expression.",
+      "comptimeif(...) must be the complete condition of an if statement or conditional expression.",
     );
     return;
   }

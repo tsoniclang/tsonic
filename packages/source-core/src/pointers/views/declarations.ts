@@ -2,8 +2,8 @@ import type { ProviderExportDeclaration, ProviderTypeExpression } from "@tsonic/
 import { tsonicCoreTypesModule } from "../../identity.js";
 
 export const tsonicPointerViewSignatureIds = Object.freeze({
-  required: "viewPointer<F,T>(pointer,read,write)",
-  optional: "viewPointer<F,T>(pointer?,read,write)",
+  required: "viewptr<F,T>(pointer,read,write)",
+  optional: "viewptr<F,T>(pointer?,read,write)",
 });
 
 export function pointerViewDeclaration(): ProviderExportDeclaration {
@@ -14,13 +14,13 @@ export function pointerViewDeclaration(): ProviderExportDeclaration {
   });
   const optional = (type: ProviderTypeExpression): ProviderTypeExpression => ({ kind: "union", types: [type, { kind: "undefined" }] });
   return {
-    id: "viewPointer", name: "viewPointer", kind: "function",
+    id: "viewptr", name: "viewptr", kind: "function",
     signatures: (["required", "optional"] as const).map(kind => ({
       id: tsonicPointerViewSignatureIds[kind], typeParameters: [{ name: "F" }, { name: "T" }],
       parameters: [
         { name: "pointer", type: kind === "optional" ? optional(pointer(source)) : pointer(source) },
-        { name: "read", type: { kind: "function", id: `viewPointer.${kind}.read`, parameters: [], returnType: target } },
-        { name: "write", type: { kind: "function", id: `viewPointer.${kind}.write`,
+        { name: "read", type: { kind: "function", id: `viewptr.${kind}.read`, parameters: [], returnType: target } },
+        { name: "write", type: { kind: "function", id: `viewptr.${kind}.write`,
           parameters: [{ name: "value", type: target }], returnType: { kind: "void" } } },
       ],
       returnType: kind === "optional" ? optional(pointer(target)) : pointer(target),

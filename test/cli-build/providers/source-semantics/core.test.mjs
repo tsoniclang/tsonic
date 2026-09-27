@@ -449,7 +449,7 @@ test("CLI keeps neutral and C# source semantics in separate virtual modules", as
       ],
     }, null, 2),
     "src/index.ts": [
-      "import { struct as neutralStruct, field, defaultValue as neutralDefaultValue } from \"@tsonic/core/lang.js\";",
+      "import { struct as neutralStruct, field, defaultvalue as neutralDefaultValue } from \"@tsonic/core/lang.js\";",
       "import { struct, attribute, defaultof } from \"@tsonic/csharp/lang.js\";",
       "",
       "export function smoke(): number {",

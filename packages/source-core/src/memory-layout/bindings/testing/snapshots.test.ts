@@ -11,7 +11,7 @@ import type { TsonicValueMemoryLayoutFact } from "../../facts.js";
 
 test("memory binding snapshots freeze exact relationships without freezing compiler handles", () => {
   const checked = bindingSession(boundRecordSource);
-  const fact = checked.sourceFacts.getFact(memoryCall(checked, "bindMemoryRecord"), tsonicMemoryRecordBindingFactKey)!;
+  const fact = checked.sourceFacts.getFact(memoryCall(checked, "bindmemoryrecord"), tsonicMemoryRecordBindingFactKey)!;
   const field = fact.fields[0]!.binding;
   const captured = tsonicMemoryRecordBindingFactKey.snapshot({ ...fact, fields: [...fact.fields] });
   assert.ok(tsonicMemoryRecordBindingFactKey.equals(fact, captured));
@@ -35,7 +35,7 @@ test("memory binding snapshots freeze exact relationships without freezing compi
 
 test("public binding readers reject missing, substituted and stale relationship evidence", () => {
   const checked = bindingSession(boundRecordSource);
-  const call = memoryCall(checked, "bindMemoryRecord");
+  const call = memoryCall(checked, "bindmemoryrecord");
   const record = checked.sourceFacts.getFact(call, tsonicMemoryRecordBindingFactKey)!;
   for (const mutation of ["missing-field", "missing-layout", "missing-binding", "missing-type", "stale-abi",
     "record-operand", "field-operand", "field-declaration", "child-layout", "duplicate-field"] as const) {
@@ -77,7 +77,7 @@ test("public binding readers reject missing, substituted and stale relationship 
 
 test("binding a deepest valid layout adds no fictitious physical nesting level", () => {
   const checked = bindingSession(boundRecordSource);
-  const fact = checked.sourceFacts.getFact(memoryCall(checked, "bindMemoryRecord"), tsonicMemoryRecordBindingFactKey)!;
+  const fact = checked.sourceFacts.getFact(memoryCall(checked, "bindmemoryrecord"), tsonicMemoryRecordBindingFactKey)!;
   const original = fact.fields[0]!.binding;
   let layout = snapshotMemoryLayout(original.field.fieldLayout) as TsonicValueMemoryLayoutFact;
   for (let depth = 1; depth < maximumMemoryLayoutDepth; depth++) {

@@ -5,14 +5,14 @@ import type {
 
 export const tsonicCompileTimeProviderNames = Object.freeze({
   valueExport: "comptime",
-  conditionExport: "comptimeIf",
+  conditionExport: "comptimeif",
   iterationExport: "unroll",
 });
 
 export const tsonicCompileTimeSignatureIds = Object.freeze({
   value: "comptime<T>(value)",
   type: "comptime<T>()",
-  condition: "comptimeIf(condition)",
+  condition: "comptimeif(condition)",
   iteration: "unroll<T>(iterable)",
 });
 

@@ -66,8 +66,8 @@ commands, and `yield*` are supported when their selected protocol is closed.
 Locations over locals, parameters, fields, array elements, and proven disjoint
 subfields work. An owned-root receiver location remains unsupported.
 
-`hashPointer` uses canonical location identity. `bindPointer` retains a closed
-reference owner, not just its identity token. `projectPointer` preserves
+`hashptr` uses canonical location identity. `bindptr` retains a closed
+reference owner, not just its identity token. `projectptr` preserves
 identity, applies the selected conversions, and preserves optionality.
 Bindings and projections retain their callbacks' exact error contract. Throwing
 callbacks use native `Result` propagation rather than panic transport. Capture

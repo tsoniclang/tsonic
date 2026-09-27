@@ -46,17 +46,17 @@ exact storage identity cannot:
 
 ```ts
 for (let index = 0; index < values.length; index++) {
-  consume(addressOf(index)); // target diagnostic
+  consume(addressof(index)); // target diagnostic
 }
 
 for (const [key, value] of entries) {
-  consume(addressOf(value)); // target diagnostic
+  consume(addressof(value)); // target diagnostic
 }
 ```
 
-`hashPointer` hashes canonical location identity, including `undefined`.
-`bindPointer` requires a closed reference identity and exact read/write
-callbacks. `projectPointer` preserves that identity and applies the selected
+`hashptr` hashes canonical location identity, including `undefined`.
+`bindptr` requires a closed reference identity and exact read/write
+callbacks. `projectptr` preserves that identity and applies the selected
 conversions on reads and writes. Optional projections remain optional, and
 constructing a projection does not execute its callbacks.
 

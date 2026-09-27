@@ -23,15 +23,15 @@ for (const width of [32, 64] as const) {
     test(`${width}-bit ${byteOrder}-endian addresses retain an exact unsigned source result and operand`, () => {
       const type = `uint${width}`;
       const checked = addressSession(`
-        const address: ${type} = rawPointerToAddressInteger<${type}>(raw, abi);
-        const result: RawPointer | undefined = addressIntegerToRawPointer(address, abi);
-        const explicitlySelected = addressIntegerToRawPointer<${type}>(address, abi);
+        const address: ${type} = rawptrtoaddressinteger<${type}>(raw, abi);
+        const result: RawPointer | undefined = addressintegertorawptr(address, abi);
+        const explicitlySelected = addressintegertorawptr<${type}>(address, abi);
       `, width, byteOrder);
       assertClean(checked);
       const sourceFile = checked.getSourceFile("/src/index.ts");
       assert.ok(sourceFile);
       const { checker } = checked.getSourceFileQueries(sourceFile);
-      for (const name of ["rawPointerToAddressInteger", "addressIntegerToRawPointer"] as const) {
+      for (const name of ["rawptrtoaddressinteger", "addressintegertorawptr"] as const) {
         for (const call of memoryCalls(checked, name)) {
           const fact = readTsonicRawMemoryOperation(checked.sourceFacts, call);
           assert.ok(fact?.operation === "raw-to-address-integer" || fact?.operation === "address-integer-to-raw");
@@ -66,12 +66,12 @@ for (const [width, values] of [
   test(`${width}-bit address constants preserve the complete unsigned range`, () => {
     const source = values.map((value, index) => `
       const address${index}: uint${width} = ${value};
-      addressIntegerToRawPointer(address${index}, abi);
-      addressIntegerToRawPointer<uint${width}>(${value}, abi);
+      addressintegertorawptr(address${index}, abi);
+      addressintegertorawptr<uint${width}>(${value}, abi);
     `).join("\n");
     const checked = addressSession(source, width);
     assertClean(checked);
-    const calls = memoryCalls(checked, "addressIntegerToRawPointer");
+    const calls = memoryCalls(checked, "addressintegertorawptr");
     assert.equal(calls.length, values.length * 2);
     for (const call of calls) {
       const fact = readTsonicRawMemoryOperation(checked.sourceFacts, call);
@@ -84,7 +84,7 @@ for (const [width, values] of [
 
 test("address domains survive parameters, fields, returns, selected producers and immutable aliases", () => {
   const checked = addressSession(`
-    import { rawPointerToAddressInteger as address } from "@tsonic/core/lang.js";
+    import { rawptrtoaddressinteger as address } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
     import type { uint64 as Word } from "@tsonic/core/types.js";
     import type * as types from "@tsonic/core/types.js";
@@ -92,23 +92,23 @@ test("address domains survive parameters, fields, returns, selected producers an
     interface State { address: Address; }
     declare const state: State;
     declare function read(): Address;
-    function pass(value: Address) { return addressIntegerToRawPointer(value, abi); }
+    function pass(value: Address) { return addressintegertorawptr(value, abi); }
     const copied = state.address;
-    addressIntegerToRawPointer(copied, abi);
-    addressIntegerToRawPointer(read(), abi);
+    addressintegertorawptr(copied, abi);
+    addressintegertorawptr(read(), abi);
     const result = address<Address>(raw, abi);
     const alias = result;
-    core.addressIntegerToRawPointer(alias, abi);
-    core.addressIntegerToRawPointer(core.rawPointerToAddressInteger<types.uint64>(raw, abi), abi);
+    core.addressintegertorawptr(alias, abi);
+    core.addressintegertorawptr(core.rawptrtoaddressinteger<types.uint64>(raw, abi), abi);
   `, 64);
   assertClean(checked);
-  for (const call of memoryCalls(checked, "addressIntegerToRawPointer")) {
+  for (const call of memoryCalls(checked, "addressintegertorawptr")) {
     const fact = readTsonicRawMemoryOperation(checked.sourceFacts, call);
     assert.ok(fact?.operation === "address-integer-to-raw");
     assert.equal(fact.addressWidth, 64);
     assert.equal(fact.addressRuntimeBase, "bigint");
   }
-  assert.equal(memoryCalls(checked, "addressIntegerToRawPointer").length, 5);
+  assert.equal(memoryCalls(checked, "addressintegertorawptr").length, 5);
 });
 
 for (const width of [32, 64] as const) {
@@ -125,14 +125,14 @@ for (const width of [32, 64] as const) {
         ? valid ? ["0", "4294967295"] : ["-1", "1.5", "1e309", "4294967296"]
         : valid ? ["0n", "9007199254740993n", "18446744073709551615n"] : ["-1n", "18446744073709551616n"];
       const expressions = values.flatMap((value) => wrappers.map((wrap) => wrap(value)));
-      const source = expressions.map((expression) => `addressIntegerToRawPointer<${marker}>(${expression}, abi);`).join("\n");
+      const source = expressions.map((expression) => `addressintegertorawptr<${marker}>(${expression}, abi);`).join("\n");
       const checked = addressSession(source + `
         const original = ${expressions[expressions.length - 1]};
         const alias = original;
-        addressIntegerToRawPointer<${marker}>(((alias as ${marker}) satisfies ${marker})!, abi);
+        addressintegertorawptr<${marker}>(((alias as ${marker}) satisfies ${marker})!, abi);
       `, width);
       assert.equal(checked.diagnostics.filter((entry) => entry !== undefined).length, 0);
-      const calls = memoryCalls(checked, "addressIntegerToRawPointer");
+      const calls = memoryCalls(checked, "addressintegertorawptr");
       assert.equal(calls.length, expressions.length + 1);
       if (valid) assertClean(checked);
       else {
@@ -152,65 +152,65 @@ for (const width of [32, 64] as const) {
 }
 
 for (const [width, source] of [
-  [32, "addressIntegerToRawPointer<uint32>(-1, abi);"],
-  [32, "addressIntegerToRawPointer<uint32>(1.5, abi);"],
-  [32, "addressIntegerToRawPointer<uint32>(1e309, abi);"],
-  [32, "addressIntegerToRawPointer<uint32>(4294967296, abi);"],
-  [32, "addressIntegerToRawPointer<uint32>(9007199254740993, abi);"],
-  [32, "const address: uint32 = 1.5; addressIntegerToRawPointer(address, abi);"],
-  [32, "const address: uint32 = 4294967296; addressIntegerToRawPointer(address, abi);"],
-  [64, "addressIntegerToRawPointer<uint64>(-1n, abi);"],
-  [64, "addressIntegerToRawPointer<uint64>(18446744073709551616n, abi);"],
-  [64, "const address: uint64 = 18446744073709551616n; addressIntegerToRawPointer(address, abi);"],
-  [32, "declare const address: number; addressIntegerToRawPointer<uint32>(address, abi);"],
-  [64, "declare const address: bigint; addressIntegerToRawPointer<uint64>(address, abi);"],
-  [32, "declare const address: nativeUint; addressIntegerToRawPointer(address, abi);"],
-  [64, "declare const address: nativeUint; addressIntegerToRawPointer(address, abi);"],
-  [64, "import type { int64 } from '@tsonic/core/types.js'; declare const address: int64; addressIntegerToRawPointer<uint64>(address, abi);"],
-  [64, "import type { uint128 } from '@tsonic/core/types.js'; declare const address: uint128; addressIntegerToRawPointer<uint64>(address, abi);"],
-  [32, "declare const address: uint64; addressIntegerToRawPointer(address, abi);"],
-  [64, "declare const address: uint32; addressIntegerToRawPointer(address, abi);"],
-  [32, "import type { uint8 } from '@tsonic/core/types.js'; declare const address: uint8; addressIntegerToRawPointer<uint32>(address, abi);"],
-  [32, "addressIntegerToRawPointer(4, abi);"],
-  [64, "addressIntegerToRawPointer(4n, abi);"],
+  [32, "addressintegertorawptr<uint32>(-1, abi);"],
+  [32, "addressintegertorawptr<uint32>(1.5, abi);"],
+  [32, "addressintegertorawptr<uint32>(1e309, abi);"],
+  [32, "addressintegertorawptr<uint32>(4294967296, abi);"],
+  [32, "addressintegertorawptr<uint32>(9007199254740993, abi);"],
+  [32, "const address: uint32 = 1.5; addressintegertorawptr(address, abi);"],
+  [32, "const address: uint32 = 4294967296; addressintegertorawptr(address, abi);"],
+  [64, "addressintegertorawptr<uint64>(-1n, abi);"],
+  [64, "addressintegertorawptr<uint64>(18446744073709551616n, abi);"],
+  [64, "const address: uint64 = 18446744073709551616n; addressintegertorawptr(address, abi);"],
+  [32, "declare const address: number; addressintegertorawptr<uint32>(address, abi);"],
+  [64, "declare const address: bigint; addressintegertorawptr<uint64>(address, abi);"],
+  [32, "declare const address: nativeUint; addressintegertorawptr(address, abi);"],
+  [64, "declare const address: nativeUint; addressintegertorawptr(address, abi);"],
+  [64, "import type { int64 } from '@tsonic/core/types.js'; declare const address: int64; addressintegertorawptr<uint64>(address, abi);"],
+  [64, "import type { uint128 } from '@tsonic/core/types.js'; declare const address: uint128; addressintegertorawptr<uint64>(address, abi);"],
+  [32, "declare const address: uint64; addressintegertorawptr(address, abi);"],
+  [64, "declare const address: uint32; addressintegertorawptr(address, abi);"],
+  [32, "import type { uint8 } from '@tsonic/core/types.js'; declare const address: uint8; addressintegertorawptr<uint32>(address, abi);"],
+  [32, "addressintegertorawptr(4, abi);"],
+  [64, "addressintegertorawptr(4n, abi);"],
 ] as const) {
   test(`address conversion rejects an unproved domain or invalid constant: ${width} ${source}`, () => {
     const checked = addressSession(source, width);
     assert.ok(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN"));
-    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "addressIntegerToRawPointer")), undefined);
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "addressintegertorawptr")), undefined);
     assert.equal(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_ANALYSIS_FAILED"), false);
   });
 }
 
 for (const [width, argument] of [[32, "uint64"], [64, "uint32"], [32, "number"], [64, "bigint"], [64, "nativeUint"], [64, "number | bigint"]] as const) {
   test(`raw-to-address rejects ${argument} on a ${width}-bit ABI`, () => {
-    const checked = addressSession(`rawPointerToAddressInteger<${argument}>(raw, abi);`, width);
+    const checked = addressSession(`rawptrtoaddressinteger<${argument}>(raw, abi);`, width);
     assert.ok(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN"));
-    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "rawPointerToAddressInteger")), undefined);
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "rawptrtoaddressinteger")), undefined);
   });
 }
 
 test("raw-to-address requires an explicit domain rather than guessing from the destination", () => {
   const checked = addressSession(`
-    rawPointerToAddressInteger(raw, abi);
-    const address: uint64 = rawPointerToAddressInteger(raw, abi);
+    rawptrtoaddressinteger(raw, abi);
+    const address: uint64 = rawptrtoaddressinteger(raw, abi);
   `, 64);
   assert.equal(checked.extensionDiagnostics.filter((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN").length, 2);
-  for (const call of memoryCalls(checked, "rawPointerToAddressInteger")) {
+  for (const call of memoryCalls(checked, "rawptrtoaddressinteger")) {
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, call), undefined);
   }
 });
 
 test("address conversions require a registered ABI and exact marker/type identity", () => {
-  const unknown = memorySession(memoryTestPrelude + "rawPointerToAddressInteger<uint64>(raw, abi);", { registrations: [] });
+  const unknown = memorySession(memoryTestPrelude + "rawptrtoaddressinteger<uint64>(raw, abi);", { registrations: [] });
   assert.ok(unknown.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_ABI_NOT_PROVEN"));
-  assert.equal(readTsonicRawMemoryOperation(unknown.sourceFacts, memoryCall(unknown, "rawPointerToAddressInteger")), undefined);
+  assert.equal(readTsonicRawMemoryOperation(unknown.sourceFacts, memoryCall(unknown, "rawptrtoaddressinteger")), undefined);
   const checked = addressSession(`
-    { type uint64 = bigint; rawPointerToAddressInteger<uint64>(raw, abi); }
+    { type uint64 = bigint; rawptrtoaddressinteger<uint64>(raw, abi); }
     function local() { return 0n; }
-    { const rawPointerToAddressInteger = local; rawPointerToAddressInteger(); }
+    { const rawptrtoaddressinteger = local; rawptrtoaddressinteger(); }
   `, 64);
-  const calls = memoryCalls(checked, "rawPointerToAddressInteger");
+  const calls = memoryCalls(checked, "rawptrtoaddressinteger");
   assert.equal(calls.length, 2);
   assert.equal(checked.extensionDiagnostics.filter((entry) => entry.extensionCode === "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN").length, 1);
   for (const call of calls) assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, call), undefined);
@@ -220,13 +220,13 @@ test("imported alias chains retain selected primitive facts without inspecting t
   const checked = memorySession(memoryTestPrelude + `
     import type { Address } from "./address.js";
     declare const input: Address;
-    addressIntegerToRawPointer(input, abi);
-    rawPointerToAddressInteger<Address>(raw, abi);
+    addressintegertorawptr(input, abi);
+    rawptrtoaddressinteger<Address>(raw, abi);
   `, { extraFiles: {
     "/src/address.ts": 'import type { uint64 as Word } from "@tsonic/core/types.js"; type Bits = (Word); export type Address = Bits;',
   } });
   assertClean(checked);
-  for (const name of ["addressIntegerToRawPointer", "rawPointerToAddressInteger"]) {
+  for (const name of ["addressintegertorawptr", "rawptrtoaddressinteger"]) {
     const fact = readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name));
     assert.ok(fact?.operation === "raw-to-address-integer" || fact?.operation === "address-integer-to-raw");
     assert.equal(fact.addressWidth, 64);
@@ -240,8 +240,8 @@ for (const declaration of [
   "type Address = Other; type Other = Address;",
 ]) {
   test(`composite, unmarked or cyclic aliases cannot supply address evidence: ${declaration}`, () => {
-    const checked = addressSession(`${declaration} rawPointerToAddressInteger<Address>(raw, abi);`, 64);
-    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "rawPointerToAddressInteger")), undefined);
+    const checked = addressSession(`${declaration} rawptrtoaddressinteger<Address>(raw, abi);`, 64);
+    assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "rawptrtoaddressinteger")), undefined);
     assert.equal(checked.extensionDiagnostics.some((entry) => entry.extensionCode === "SOURCE_ANALYSIS_FAILED"), false);
     assert.ok(checked.diagnostics.some((entry) => entry !== undefined) || checked.extensionDiagnostics.some((entry) =>
       entry.extensionCode === "SOURCE_CORE_MEMORY_ADDRESS_INTEGER_NOT_PROVEN"));

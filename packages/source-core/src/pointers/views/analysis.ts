@@ -8,7 +8,7 @@ import { tsonicPointerViewFactKey } from "./facts.js";
 export function analyzeTsonicPointerView(selected: SelectedProviderSourceCall, context: TsonicSourceFileAnalysisContext): void {
   const overload = (["required", "optional"] as const).find(kind => selectedProviderCallMatches(selected, {
     kind: "export-signature", providerId: tsonicCoreVirtualModulesProviderId, providerVersion: tsonicCoreProviderVersion,
-    providerModuleId: tsonicCoreLangModule, exportId: "viewPointer", signatureId: tsonicPointerViewSignatureIds[kind],
+    providerModuleId: tsonicCoreLangModule, exportId: "viewptr", signatureId: tsonicPointerViewSignatureIds[kind],
   }, context));
   if (overload === undefined) return;
   const { sourceArguments: arguments_, sourceSelectedMethodTypeArguments: types } = selected.selection;
@@ -21,7 +21,7 @@ export function analyzeTsonicPointerView(selected: SelectedProviderSourceCall, c
       selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value")) {
     context.diagnostics.append({ extensionId: tsonicCoreSourceExtensionId, extensionCode: "SOURCE_CORE_POINTER_VIEW_NOT_PROVEN",
       numericCode: 9901181, category: "error", nodeOrSpan: selected.call,
-      message: "viewPointer requires its exact typed base pointer, read callback and write callback; erased or spread operands are not location evidence." });
+      message: "viewptr requires its exact typed base pointer, read callback and write callback; erased or spread operands are not location evidence." });
     return;
   }
   const result = context.facts.set(selected.call, tsonicPointerViewFactKey, {
