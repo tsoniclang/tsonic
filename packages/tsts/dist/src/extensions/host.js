@@ -4799,7 +4799,9 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
             rendered = `${declarationPrefix}const ${declarationName}: ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
             break;
         case "intrinsic":
-            rendered = `${declarationPrefix}const ${declarationName}: unique symbol;`;
+            rendered = (declaration.members?.length ?? 0) === 0
+                ? `${declarationPrefix}const ${declarationName}: unique symbol;`
+                : `${declarationPrefix}const ${declarationName}: {\n${renderProviderMembers(declaration.members, declarationContext)}\n};`;
             break;
         case "enum":
             rendered = `${declarationPrefix}enum ${declarationName} {\n${(declaration.members ?? []).map((member) => `  ${renderProviderPropertyName(member.name)},`).join("\n")}\n}`;
@@ -4921,6 +4923,8 @@ function renderProviderMember(member, context) {
     const optionalSuffix = member.optional === true ? "?" : "";
     const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
+        case "intrinsic":
+            return `readonly ${name}: unique symbol;`;
         case "constructor":
             return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext, true).join("\n  ");
         case "method":
@@ -5625,9 +5629,11 @@ function isValidProviderExportDeclaration(value) {
         && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
         && (value.kind === "enum"
             ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
-            : value.kind === "namespace" || value.kind === "function"
-                ? (value.members ?? []).every(isValidProviderNamespaceMemberDeclaration)
-                : (value.members ?? []).every(isValidProviderMemberDeclaration));
+            : value.kind === "intrinsic"
+                ? (value.members ?? []).every(member => member.kind === "intrinsic" && isValidProviderNamespaceMemberDeclaration(member))
+                : value.kind === "namespace" || value.kind === "function"
+                    ? (value.members ?? []).every(isValidProviderNamespaceMemberDeclaration)
+                    : (value.members ?? []).every(isValidProviderMemberDeclaration));
 }
 function hasNoUnrenderedProviderExportShape(value) {
     const noType = value.type === undefined;
@@ -5646,7 +5652,7 @@ function hasNoUnrenderedProviderExportShape(value) {
         case "value":
             return noTypeParameters && noHeritage && noMembers && noSignatures;
         case "intrinsic":
-            return noType && noTypeParameters && noHeritage && noMembers && noSignatures;
+            return noType && noTypeParameters && noHeritage && noSignatures;
         case "namespace":
         case "enum":
             return noType && noTypeParameters && noHeritage && noSignatures;
@@ -5826,6 +5832,7 @@ function hasRequiredProviderExportShape(value) {
 }
 function isValidProviderMemberDeclaration(value) {
     return value.id.length > 0
+        && value.kind !== "intrinsic"
         && (value.kind === "constructor" || isValidProviderPropertyName(value.name))
         && hasRequiredProviderMemberShape(value)
         && hasNoUnrenderedProviderMemberShape(value)
@@ -5844,7 +5851,7 @@ function isValidProviderEnumMemberDeclaration(value) {
 function isValidProviderNamespaceMemberDeclaration(value) {
     return value.id.length > 0
         && isValidProviderNamespaceMemberName(value.name)
-        && (value.kind === "method" || value.kind === "property" || value.kind === "field")
+        && (value.kind === "method" || value.kind === "property" || value.kind === "field" || value.kind === "intrinsic")
         && hasRequiredProviderMemberShape(value)
         && hasNoUnrenderedProviderNamespaceMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
@@ -5852,6 +5859,12 @@ function isValidProviderNamespaceMemberDeclaration(value) {
 }
 function hasNoUnrenderedProviderMemberShape(value) {
     switch (value.kind) {
+        case "intrinsic":
+            return value.static === undefined
+                && value.readonly === undefined
+                && value.optional === undefined
+                && value.type === undefined
+                && value.signatures === undefined;
         case "constructor":
             return value.static !== true
                 && value.readonly !== true
@@ -5871,6 +5884,8 @@ function hasNoUnrenderedProviderMemberShape(value) {
     }
 }
 function hasNoUnrenderedProviderNamespaceMemberShape(value) {
+    if (value.kind === "intrinsic")
+        return hasNoUnrenderedProviderMemberShape(value);
     return value.static !== true
         && value.readonly !== true
         && value.optional !== true
@@ -5878,6 +5893,8 @@ function hasNoUnrenderedProviderNamespaceMemberShape(value) {
 }
 function hasRequiredProviderMemberShape(value) {
     switch (value.kind) {
+        case "intrinsic":
+            return true;
         case "method":
             return value.signatures !== undefined
                 && value.signatures.length > 0

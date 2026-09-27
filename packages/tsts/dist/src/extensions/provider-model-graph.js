@@ -850,7 +850,8 @@ function isProviderMemberKind(value) {
         || value === "constructor"
         || value === "property"
         || value === "field"
-        || value === "indexer";
+        || value === "indexer"
+        || value === "intrinsic";
 }
 function isValidProviderTypeFamilyShape(reads, value, path, depth) {
     if (value === undefined) {

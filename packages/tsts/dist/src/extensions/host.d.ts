@@ -394,7 +394,7 @@ export interface ProviderSignatureDeclaration {
 export interface ProviderMemberDeclaration {
     readonly id: string;
     readonly name: ProviderPropertyName;
-    readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
+    readonly kind: "method" | "constructor" | "property" | "field" | "indexer" | "intrinsic";
     readonly static?: boolean;
     readonly readonly?: boolean;
     readonly optional?: boolean;
