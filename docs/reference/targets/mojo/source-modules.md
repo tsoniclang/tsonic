@@ -3,7 +3,7 @@
 | Module | Purpose |
 | --- | --- |
 | `@tsonic/core/types.js` | Neutral numeric, pointer and shared semantic types. |
-| `@tsonic/core/lang.js` | Shared operations such as `comptime`, `comptimeIf`, `unroll` and explicit unsafe regions. |
+| `@tsonic/core/lang.js` | Shared operations such as `comptime`, `comptimeif`, `unroll` and explicit unsafe regions. |
 | `@tsonic/mojo/types.js` | Mojo numeric aliases and origin-bearing reference types. |
 | `@tsonic/mojo/lang.js` | Mojo `copy` and `materialize` operations. |
 | `node:*` | Installed Mojo Node capability declarations. |
