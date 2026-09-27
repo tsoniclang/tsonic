@@ -1,5 +1,6 @@
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
+import type { NodeList } from "../internal/ast/spine.js";
 import type { Kind } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
@@ -34,6 +35,8 @@ export interface AstReader {
     readonly typeArguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly arguments: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly elements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
+    readonly listHasTrailingComma: (list: GoPtr<NodeList>) => boolean;
+    readonly cookedTemplateText: (node: GoPtr<Node>) => string | undefined;
     readonly properties: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     /** Returns the exact `?` token owned by nodes whose schema permits one. */
     readonly questionToken: (node: GoPtr<Node>) => GoPtr<Node>;
