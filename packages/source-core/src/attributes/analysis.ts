@@ -1,5 +1,7 @@
 import {
   attributeFactKey,
+  providerVirtualDeclarationFactKey,
+  sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
   SourceAnalysisContext,
@@ -31,10 +33,12 @@ import {
   forEachSelectedProviderSourceCall,
   readSourceFact,
   selectedProviderCallMatches,
+  unwrapParenthesizedExpression,
 } from "../analysis/source-call.js";
 import {
   selectInlineSourceMember,
 } from "../analysis/selected-source-member.js";
+import { selectedAttributeInvocation } from "./invocation.js";
 
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
 const attributeMemberBuilderExportId = "__TsonicAttributeMemberBuilder";
@@ -49,6 +53,10 @@ interface AttributeBuilderRule {
 }
 
 const attributeBuilderRules = Object.freeze([
+  rule(
+    memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleAdd, tsonicAttributeBuilderSignatureIds.moduleAdd),
+    analyzeAttributeApplication,
+  ),
   rule(
     exportSelector(attributeExportId, tsonicAttributeBuilderSignatureIds.root),
     analyzeAttributeRoot,
@@ -117,6 +125,14 @@ export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): 
       analyzeAttributeRoot(selected, sourceContext);
       return;
     }
+    if (isAttributeModuleSelector(selected, sourceContext)) {
+      writeAttributeBuilderFact(selected, sourceContext, {
+        kind: "builder-state",
+        applicationTarget: sourceContext.sourceFile,
+        applicationPlacement: "module",
+      });
+      return;
+    }
     for (const candidate of attributeBuilderRules) {
       if (selectedProviderCallMatches(selected, candidate.selector, sourceContext)) {
         candidate.analyze(selected, sourceContext);
@@ -124,6 +140,26 @@ export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): 
       }
     }
   });
+}
+
+function isAttributeModuleSelector(
+  selected: SelectedProviderSourceCall,
+  context: TsonicSourceFileAnalysisContext,
+): boolean {
+  const declaration = selected.declaration;
+  if (declaration.memberId !== tsonicAttributeBuilderMemberIds.module ||
+    declaration.signatureId !== tsonicAttributeBuilderSignatureIds.module ||
+    declaration.memberStatic !== false) return false;
+  const receiver = unwrapParenthesizedExpression(selected.selection.sourceReceiver?.expression, context);
+  const marker = readSourceFact(context, receiver, sourceMarkerFactKey);
+  if (marker?.kind !== "call-marker" || marker.marker !== "attribute") return false;
+  const receiverSymbol = context.checker.getAliasedSymbol(context.checker.getSymbolAtLocation(receiver));
+  const owner = readSourceFact(context, receiverSymbol, providerVirtualDeclarationFactKey);
+  return owner?.providerId === declaration.providerId &&
+    owner.providerVersion === declaration.providerVersion &&
+    owner.providerModuleId === declaration.providerModuleId &&
+    owner.moduleSpecifier === declaration.moduleSpecifier &&
+    owner.exportId === declaration.exportId && owner.memberId === undefined;
 }
 
 function rule(
@@ -278,23 +314,20 @@ function analyzeAttributeApplication(
   if (predecessor === undefined) {
     return;
   }
-  const attributeType = selected.selection.sourceArguments[0]?.expression;
-  if (attributeType === undefined) {
+  const invocation = selectedAttributeInvocation(selected, context);
+  if (invocation === undefined) {
     appendDiagnostic(
       selected,
       context,
-      "SOURCE_CORE_ATTRIBUTE_TYPE_NOT_PROVEN",
+      "SOURCE_CORE_ATTRIBUTE_INVOCATION_NOT_PROVEN",
       9901116,
-      "The selected attribute application requires an exact checked attribute type argument.",
+      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one checked call or construction.",
     );
     return;
   }
   writeAttributeBuilderFact(selected, context, {
     kind: "application",
-    attributeType,
-    arguments: selected.selection.sourceArguments
-      .slice(1)
-      .map((argument) => argument.expression),
+    invocation,
     applicationTarget: predecessor.applicationTarget,
     ...(predecessor.selectedMember === undefined
       ? {}
@@ -333,7 +366,7 @@ function selectedInlineMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
 ): Extract<ReturnType<typeof selectInlineSourceMember>, { readonly kind: "selected" }> | undefined {
-  const result = selectInlineSourceMember(selected, context);
+  const result = selectInlineSourceMember(selected.selection.sourceArguments[0]?.expression, context);
   if (result.kind === "selected") {
     return result;
   }

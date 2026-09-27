@@ -10,6 +10,7 @@ import {
   attributeBuilderDeclaration,
   attributeCallMarkerDeclaration,
   attributeMemberBuilderDeclaration,
+  moduleAttributeBuilderDeclaration,
   tsonicAttributeBuilderMemberIds,
   tsonicAttributeBuilderSignatureIds,
 } from "../attributes/provider-declarations.js";
@@ -50,7 +51,7 @@ export {
 
 export const tsonicSourceMarkerSignatureIds = Object.freeze({
   field: "field<T>()",
-  defaultValue: "defaultValue<T>()",
+  defaultValue: "defaultvalue<T>()",
   ...tsonicPointerMarkerSignatureIds,
 });
 
@@ -76,6 +77,7 @@ function sourceSemanticsHelperDeclarations(
     return [
       attributeBuilderDeclaration(),
       attributeMemberBuilderDeclaration(),
+      moduleAttributeBuilderDeclaration(),
       ...memoryOperationDeclarations(),
       pointerViewDeclaration(),
       ...compileTimeProviderDeclarations(),
