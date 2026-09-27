@@ -1,3 +1,4 @@
+import { getProviderMemberSurfaceKey } from "./provider-member-identity.js";
 const providerFunctionMarkerPrefix = "/*@tsts-provider-function:";
 const providerFunctionMarkerSuffix = "*/";
 export const providerFunctionSignatureMarkerMaximumLength = providerFunctionMarkerPrefix.length + 16 + providerFunctionMarkerSuffix.length;
@@ -54,41 +55,13 @@ export function hasUniqueProviderCallableIdentities(model) {
         const memberSurfaces = new Set();
         for (const member of declaration.members ?? []) {
             if (!addUniqueIdentity(memberIds, member.id)
-                || !addUniqueIdentity(memberSurfaces, providerMemberSurfaceKey(member))
+                || !addUniqueIdentity(memberSurfaces, getProviderMemberSurfaceKey(member))
                 || !collectProviderMemberCallableIdentities(member, new Set())) {
                 return false;
             }
         }
     }
     return true;
-}
-function providerMemberSurfaceKey(member) {
-    const staticMember = member.static === true;
-    switch (member.kind) {
-        case "constructor":
-            return "constructor";
-        case "indexer":
-            return "indexer";
-        case "method":
-        case "property":
-        case "field":
-        case "intrinsic":
-            return JSON.stringify([
-                staticMember,
-                providerPropertySourceKey(member.name),
-            ]);
-    }
-}
-function providerPropertySourceKey(name) {
-    if (typeof name !== "string" && name.kind === "well-known-symbol") {
-        return ["well-known-symbol", name.name];
-    }
-    const text = typeof name === "string"
-        ? name
-        : name.kind === "number-literal"
-            ? String(name.value)
-            : name.text;
-    return ["property-key", text];
 }
 function collectProviderExportCallableIdentities(declaration, identities) {
     return collectProviderTypeParameterCallableIdentities(declaration.typeParameters ?? [], identities)

@@ -2,5 +2,6 @@ export { ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, Ex
 export { createSourceSemanticsExtension, sourceSemanticsExtensionId, sourcePrimitive, } from "./source-semantics.js";
 export { SourceFactQueries, createSourceFactQueries, } from "./consumer.js";
 export { defaultSourceElaborationLimits } from "./source-elaboration-model.js";
+export { getProviderMemberSurfaceKey } from "./provider-member-identity.js";
 export { argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerIntrinsicDeclarationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitiveFactKey, sourceMarkerFactKey, structFactKey, } from "./facts.js";
 //# sourceMappingURL=index.js.map
