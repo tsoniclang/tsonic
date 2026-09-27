@@ -6,11 +6,13 @@ import type { CompilerHost } from "../internal/compiler/host.js";
 import type { Program, ProgramOptions } from "../internal/compiler/program.js";
 import type { ParsedCommandLine } from "../internal/tsoptions/parsedcommandline.js";
 import { type ExtensionHostOptions } from "../extensions/host.js";
+import type { SourceElaborationLimits } from "../extensions/source-elaboration-model.js";
 import type { CheckedSourceProgram } from "../extensions/source-program.js";
 export type CompilerDiagnosticKind = "config" | "program" | "global" | "syntactic" | "bind" | "semantic" | "suggestion" | "declaration" | "all";
 export interface CompilerSessionOptions {
     readonly programOptions: ProgramOptions;
     readonly extensionHostOptions?: ExtensionHostOptions;
+    readonly sourceElaborationLimits?: SourceElaborationLimits;
     readonly context?: Context;
 }
 export interface InMemoryCompilerSessionOptions {
@@ -20,6 +22,7 @@ export interface InMemoryCompilerSessionOptions {
     readonly configFileName?: string;
     readonly compilerOptions?: Record<string, unknown>;
     readonly extensionHostOptions?: ExtensionHostOptions;
+    readonly sourceElaborationLimits?: SourceElaborationLimits;
     readonly useCaseSensitiveFileNames?: boolean;
     readonly context?: Context;
 }

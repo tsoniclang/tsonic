@@ -8,12 +8,15 @@ export class SourceFactQueries {
         this.#host = host;
     }
     getFact(subject, key) {
+        this.#host.assertCompilerProgramActive();
         return this.#host.facts.get(subject, key);
     }
     getFacts(subject) {
+        this.#host.assertCompilerProgramActive();
         return this.#host.facts.entries(subject);
     }
     getVirtualDeclarationDocument(uriOrFileName) {
+        this.#host.assertCompilerProgramActive();
         return this.#host.providers.getVirtualDeclarationDocument(uriOrFileName);
     }
     getCanonicalIdentity(subject) {

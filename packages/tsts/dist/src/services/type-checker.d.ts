@@ -3,6 +3,8 @@ import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
+import type { SourceIntrinsicDeclarationInfo } from "../internal/checker/checker/source-intrinsic-evidence.js";
+export type { SourceIntrinsicDeclarationInfo } from "../internal/checker/checker/source-intrinsic-evidence.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
 import type { ContextFlags, ResolvedCallEvidence, Signature, Type } from "../internal/checker/types.js";
@@ -48,6 +50,7 @@ export interface ResolvedSourceStorageInfo {
     readonly writable: boolean;
 }
 export interface TypeCheckerQueries {
+    readonly getIntrinsicDeclarationInfo: (expression: GoPtr<Node>) => SourceIntrinsicDeclarationInfo | undefined;
     readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<Type>;

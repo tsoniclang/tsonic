@@ -2,16 +2,19 @@ import { Background } from "../go/context.js";
 import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
 import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
-import { snapshotExtensionHostOptionsForCompilerSession, } from "../extensions/host.js";
+import { extensionHostAttachElaboration, extensionHostRunElaboration, extensionHostRetireCompilerProgram, snapshotExtensionHostOptionsForCompilerSession, } from "../extensions/host.js";
 import { attachExtensionHost, getExtensionHost } from "../extensions/index.js";
 import { finalizeExtensionSemantics } from "../extensions/compiler-integration.js";
 import { ProviderMaterializationCoordinator, } from "../extensions/provider-materialization.js";
+import { SourceElaborationCoordinator, isSourceElaborationSuspension } from "../extensions/source-elaboration.js";
 import { createSourceFactQueries } from "../extensions/consumer.js";
 import { getProviderVirtualArtifactForCompiler } from "../extensions/provider-virtual-internal.js";
 import { createCompilerHost, createInMemoryFileSystem } from "./embedding-host.js";
+import { createCompilerSessionHost } from "./compiler-session-source.js";
 export function createCompilerSession(options) {
     const context = options.context ?? Background();
-    return createCompilerSessionForProgramOwner(createMaterializingProgramOwner(options.programOptions, options.extensionHostOptions ?? {}, context), options.programOptions.Host, options.programOptions.Config, context);
+    const host = createCompilerSessionHost(options.programOptions.Host);
+    return createCompilerSessionForProgramOwner(createMaterializingProgramOwner({ ...options.programOptions, Host: host }, options.extensionHostOptions ?? {}, context, options.sourceElaborationLimits), host, options.programOptions.Config, context);
 }
 export function createCompilerSessionFromProgram(program, host, config, context = Background()) {
     if (program === undefined) {
@@ -29,26 +32,22 @@ function createCompilerSessionForProgramOwner(owner, host, config, context) {
         config,
         getSourceFilesToEmit: (targetSourceFile, forceDtsEmit = false) => {
             const targetFileName = targetSourceFile === undefined ? undefined : SourceFile_FileName(targetSourceFile);
-            owner.prepareForSemanticQueries();
-            const currentTargetSourceFile = targetFileName === undefined
-                ? undefined
-                : requireCurrentSourceFile(owner.program, targetFileName);
-            return (Program_getSourceFilesToEmit(owner.program, currentTargetSourceFile, forceDtsEmit) ?? [])
-                .filter((file) => getProviderVirtualArtifactForCompiler(requireExtensionHost(owner.program).providers, SourceFile_FileName(file))?.kind
-                !== "canonical-export-owner");
+            return owner.query(program => {
+                const currentTargetSourceFile = targetFileName === undefined ? undefined : requireCurrentSourceFile(program, targetFileName);
+                return (Program_getSourceFilesToEmit(program, currentTargetSourceFile, forceDtsEmit) ?? [])
+                    .filter(file => getProviderVirtualArtifactForCompiler(requireExtensionHost(program).providers, SourceFile_FileName(file))?.kind
+                    !== "canonical-export-owner");
+            });
         },
-        ensureBound: () => Program_BindSourceFiles(owner.program),
+        ensureBound: () => owner.query(program => Program_BindSourceFiles(program)),
         ensureChecked: (sourceFile) => {
             const fileName = sourceFile === undefined ? undefined : SourceFile_FileName(sourceFile);
-            owner.prepareForSemanticQueries();
-            return diagnosticsOrEmpty(Program_GetSemanticDiagnostics(owner.program, context, fileName === undefined ? undefined : requireCurrentSourceFile(owner.program, fileName)));
+            return owner.query(program => diagnosticsOrEmpty(Program_GetSemanticDiagnostics(program, context, fileName === undefined ? undefined : requireCurrentSourceFile(program, fileName))));
         },
         getDiagnostics: (kind = "all", sourceFile) => {
             const fileName = sourceFile === undefined ? undefined : SourceFile_FileName(sourceFile);
-            if (diagnosticKindRequiresSemanticProgram(kind)) {
-                owner.prepareForSemanticQueries();
-            }
-            return getDiagnostics(owner.program, context, kind, fileName === undefined ? undefined : requireCurrentSourceFile(owner.program, fileName));
+            const read = (program) => getDiagnostics(program, context, kind, fileName === undefined ? undefined : requireCurrentSourceFile(program, fileName));
+            return diagnosticKindRequiresSemanticProgram(kind) ? owner.query(read) : read(owner.program);
         },
         checkSource: () => {
             if (checkedSourceProgram !== undefined) {
@@ -77,9 +76,12 @@ function createFixedProgramOwner(program, context) {
     if (getExtensionHost(program) === undefined) {
         attachExtensionHost(program);
     }
+    if (requireExtensionHost(program).hasSourceElaboration) {
+        throw new Error("Source elaboration requires a compiler session that owns fresh program creation.");
+    }
     return {
         program,
-        prepareForSemanticQueries() { },
+        query: operation => operation(program),
         prepareFinalizedProgram() {
             const diagnostics = Object.freeze([...getDiagnostics(program, context, "all", undefined)]);
             return Object.freeze({
@@ -90,29 +92,66 @@ function createFixedProgramOwner(program, context) {
         },
     };
 }
-function createMaterializingProgramOwner(baseProgramOptions, baseExtensionHostOptions, context) {
+function createMaterializingProgramOwner(baseProgramOptions, baseExtensionHostOptions, context, sourceElaborationLimits) {
     const coordinator = new ProviderMaterializationCoordinator();
+    const elaborationCoordinator = new SourceElaborationCoordinator(sourceElaborationLimits);
     const extensionHostOptionsSnapshot = snapshotExtensionHostOptionsForCompilerSession(baseExtensionHostOptions);
-    let state = createProgramMaterializationRound(coordinator, baseProgramOptions, extensionHostOptionsSnapshot);
+    let state = createProgramMaterializationRound(coordinator, elaborationCoordinator, baseProgramOptions, extensionHostOptionsSnapshot);
     let finalized;
+    let failed = false;
+    const fail = (error) => {
+        failed = true;
+        requireExtensionHost(state.program)[extensionHostRetireCompilerProgram]();
+        throw error;
+    };
     const rebuildForPendingDemands = () => {
-        if (!state.round.hasPendingDemands()) {
+        const providerPending = state.round.hasPendingDemands();
+        if (!providerPending && state.elaboration?.needsReplay() !== true) {
             return false;
         }
-        if (!coordinator.finishRound(state.round)) {
+        const providerChanged = coordinator.finishRound(state.round);
+        if (providerPending && !providerChanged) {
             throw new Error("Provider materialization recorded demands without monotonic progress.");
         }
-        state = createProgramMaterializationRound(coordinator, baseProgramOptions, extensionHostOptionsSnapshot);
+        if (state.elaboration !== undefined)
+            elaborationCoordinator.finishRound(state.elaboration, providerChanged);
+        requireExtensionHost(state.program)[extensionHostRetireCompilerProgram]();
+        state = createProgramMaterializationRound(coordinator, elaborationCoordinator, baseProgramOptions, extensionHostOptionsSnapshot);
         return true;
     };
-    const prepareForSemanticQueries = () => {
-        if (finalized !== undefined || !state.round.hasIncrementalProvider()) {
-            return;
-        }
+    const query = (operation) => {
+        if (failed)
+            throw new Error("Compiler session preparation previously failed.");
+        if (finalized !== undefined)
+            return operation(finalized.program);
         while (true) {
-            getDiagnostics(state.program, context, "all", undefined);
-            if (!rebuildForPendingDemands()) {
-                return;
+            try {
+                if (state.elaboration !== undefined)
+                    Program_BindSourceFiles(state.program);
+                requireExtensionHost(state.program)[extensionHostRunElaboration]();
+                if (rebuildForPendingDemands())
+                    continue;
+                if (state.elaboration !== undefined || state.round.hasIncrementalProvider()) {
+                    getDiagnostics(state.program, context, "all", undefined);
+                    if (rebuildForPendingDemands())
+                        continue;
+                }
+                const result = operation(state.program);
+                if (rebuildForPendingDemands())
+                    continue;
+                return result;
+            }
+            catch (error) {
+                if (state.elaboration !== undefined && isSourceElaborationSuspension(error, state.elaboration)) {
+                    try {
+                        if (rebuildForPendingDemands())
+                            continue;
+                    }
+                    catch (replayError) {
+                        return fail(replayError);
+                    }
+                }
+                return fail(error);
             }
         }
     };
@@ -120,33 +159,31 @@ function createMaterializingProgramOwner(baseProgramOptions, baseExtensionHostOp
         get program() {
             return state.program;
         },
-        prepareForSemanticQueries,
+        query,
         prepareFinalizedProgram() {
             if (finalized !== undefined) {
                 return finalized;
             }
-            while (true) {
-                const diagnostics = Object.freeze([...getDiagnostics(state.program, context, "all", undefined)]);
-                if (rebuildForPendingDemands()) {
-                    continue;
-                }
-                const finalizedHost = finalizeExtensionSemantics(state.program);
-                if (rebuildForPendingDemands()) {
-                    continue;
-                }
+            const prepared = query(program => {
+                const diagnostics = Object.freeze([...getDiagnostics(program, context, "all", undefined)]);
+                const finalizedHost = finalizeExtensionSemantics(program);
+                return Object.freeze({ program, diagnostics, finalizedHost });
+            });
+            try {
+                if (state.elaboration !== undefined)
+                    elaborationCoordinator.seal(state.elaboration);
                 coordinator.seal(state.round);
-                finalized = Object.freeze({
-                    program: state.program,
-                    diagnostics,
-                    finalizedHost,
-                });
-                return finalized;
             }
+            catch (error) {
+                return fail(error);
+            }
+            finalized = prepared;
+            return finalized;
         },
     };
     return owner;
 }
-function createProgramMaterializationRound(coordinator, baseProgramOptions, baseExtensionHostOptions) {
+function createProgramMaterializationRound(coordinator, elaborationCoordinator, baseProgramOptions, baseExtensionHostOptions) {
     const extensionHostOptions = Object.freeze({ ...baseExtensionHostOptions });
     const round = coordinator.beginRound(extensionHostOptions);
     const programOptions = { ...baseProgramOptions };
@@ -154,6 +191,12 @@ function createProgramMaterializationRound(coordinator, baseProgramOptions, base
     const program = NewProgram(programOptions);
     if (program === undefined) {
         throw new Error("Compiler sessions require a compiler program.");
+    }
+    const extensionHost = requireExtensionHost(program);
+    if (extensionHost.hasSourceElaboration) {
+        const elaboration = elaborationCoordinator.beginRound(extensionHost.getCompilerQueryContext());
+        extensionHost[extensionHostAttachElaboration](elaboration);
+        return Object.freeze({ program, round, elaboration });
     }
     return Object.freeze({ program, round });
 }
@@ -172,7 +215,8 @@ function requireCurrentSourceFile(program, fileName) {
     return sourceFile;
 }
 function diagnosticKindRequiresSemanticProgram(kind) {
-    return kind === "semantic"
+    return kind === "bind"
+        || kind === "semantic"
         || kind === "suggestion"
         || kind === "declaration"
         || kind === "all";
@@ -200,11 +244,13 @@ export function createCompilerSessionFromFiles(options) {
         const programOptions = { Config: config, Host: host };
         return createCompilerSession({
             programOptions,
+            ...(options.sourceElaborationLimits === undefined ? {} : { sourceElaborationLimits: options.sourceElaborationLimits }),
             ...(options.extensionHostOptions !== undefined ? { extensionHostOptions: options.extensionHostOptions } : {}),
             ...(options.context !== undefined ? { context: options.context } : {}),
         });
     }
     return createCompilerSession({
+        ...(options.sourceElaborationLimits === undefined ? {} : { sourceElaborationLimits: options.sourceElaborationLimits }),
         programOptions: {
             Config: config,
             Host: host,

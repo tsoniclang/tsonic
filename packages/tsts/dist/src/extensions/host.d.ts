@@ -1,6 +1,9 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
+import type { Node } from "../internal/ast/ast.js";
+import type { SourceElaborationContext, SourceElaborationResolver } from "./source-elaboration-model.js";
+import type { SourceElaborationRound } from "./source-elaboration.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
 import type { ProviderVirtualDeclarationFact, SourcePrimitiveKind } from "./facts.js";
@@ -166,6 +169,7 @@ export interface CompilerExtension {
     readonly identity: CompilerExtensionIdentity;
     readonly dependencies?: ExtensionDependencySpec;
     readonly initialize?: (context: ExtensionInitializeContext) => void;
+    readonly elaborateSource?: (context: SourceElaborationContext) => void;
     readonly analyzeSource?: (context: SourceAnalysisContext) => void;
 }
 export interface ExtensionDiagnosticWriter {
@@ -191,6 +195,7 @@ export interface SourceAnalysisContext {
 }
 export interface ExtensionInitializeContext {
     readonly diagnostics: ExtensionDiagnosticWriter;
+    readonly registerSourceElaborator: <T>(key: ExtensionFactKey<T>, resolver: SourceElaborationResolver<T>) => void;
     readonly registerFactResolver: <T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>) => void;
     readonly registerSourceDeclarationProvider: (provider: SourceDeclarationProvider) => boolean;
 }
@@ -282,7 +287,7 @@ export interface ProviderModuleResolution {
     readonly packageVersion?: string;
     readonly evidence?: readonly ExtensionEvidence[];
 }
-export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function" | "class" | "interface" | "enum";
+export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function" | "class" | "interface" | "enum" | "intrinsic";
 export type ProviderExportKind = "named" | "default";
 export interface ProviderTypeFamilyDeclaration {
     readonly exportName: string;
@@ -399,6 +404,7 @@ export interface ProviderMemberDeclaration {
 }
 export interface ProviderExportDeclaration {
     readonly id: string;
+    readonly intrinsicId?: string;
     readonly name: string;
     readonly exportName?: string;
     readonly exportKind?: ProviderExportKind;
@@ -487,6 +493,10 @@ export interface ExtendedProgram<TProgram extends object = object> {
 }
 export declare const extensionHostSetFact: unique symbol;
 export declare const extensionHostRunSourceAnalysis: unique symbol;
+export declare const extensionHostRetireCompilerProgram: unique symbol;
+export declare const extensionHostAttachElaboration: unique symbol;
+export declare const extensionHostRunElaboration: unique symbol;
+export declare const extensionHostRequireElaboration: unique symbol;
 export interface AttachExtensionHostToProgramOptions {
     readonly bindCompilerProgram?: boolean;
 }
@@ -625,6 +635,12 @@ export declare class ExtensionHost {
     constructor(program: object, options?: ExtensionHostOptions);
     get extensions(): readonly CompilerExtension[];
     get program(): object;
+    get hasSourceElaboration(): boolean;
+    assertCompilerProgramActive(): void;
+    [extensionHostAttachElaboration](round: SourceElaborationRound): void;
+    [extensionHostRequireElaboration]<T>(node: Node, key: ExtensionFactKey<T>): T;
+    [extensionHostRunElaboration](): void;
+    [extensionHostRetireCompilerProgram](): void;
     bindCompilerProgram(program: object): void;
     [extensionHostRunSourceAnalysis](): void;
     finalizeSemantics(): void;

@@ -3,6 +3,7 @@ import { ResolvedModule_IsResolved } from "../internal/module/types.js";
 import { createAstReader } from "../services/ast-reader.js";
 import { createTypeCheckerQueries } from "../services/type-checker.js";
 import { createTypeShapeQueries } from "../services/type-shape.js";
+import { assertSemanticProgramActive, assertSemanticSourceFileOwned } from "../services/semantic-query-ownership.js";
 export function createSourceProgramQueries(program, options = {}) {
     if (program === undefined) {
         throw new Error("Source program queries require a compiler program.");
@@ -11,17 +12,23 @@ export function createSourceProgramQueries(program, options = {}) {
     const sourceFileQueries = new WeakMap();
     const moduleSourceFiles = new WeakMap();
     const included = (sourceFile) => options.includeSourceFile?.(sourceFile) !== false;
-    const getSourceFiles = () => (Program_GetSourceFiles(program) ?? []).filter((sourceFile) => sourceFile !== undefined && included(sourceFile));
+    const getSourceFiles = () => {
+        assertSemanticProgramActive(program);
+        return (Program_GetSourceFiles(program) ?? []).filter((sourceFile) => sourceFile !== undefined && included(sourceFile));
+    };
     const getSourceFile = (fileName) => {
+        assertSemanticProgramActive(program);
         const sourceFile = Program_GetSourceFile(program, fileName);
         return sourceFile !== undefined && included(sourceFile)
             ? sourceFile
             : undefined;
     };
     const getSourceFileQueries = (sourceFile) => {
+        assertSemanticProgramActive(program);
         if (sourceFile === undefined || !included(sourceFile)) {
             throw new Error("Source-file queries require an included source file from the checked program.");
         }
+        assertSemanticSourceFileOwned(program, sourceFile);
         const existing = sourceFileQueries.get(sourceFile);
         if (existing !== undefined) {
             return existing;
@@ -44,6 +51,7 @@ export function createSourceProgramQueries(program, options = {}) {
         return created;
     };
     const resolveModuleSourceFile = (moduleSpecifier) => {
+        assertSemanticProgramActive(program);
         if (moduleSpecifier === undefined) {
             return undefined;
         }
@@ -53,6 +61,7 @@ export function createSourceProgramQueries(program, options = {}) {
             containingSourceFile === undefined || !included(containingSourceFile)) {
             return undefined;
         }
+        assertSemanticSourceFileOwned(program, containingSourceFile);
         const cached = moduleSourceFiles.get(moduleSpecifier);
         if (cached !== undefined) {
             return cached ?? undefined;

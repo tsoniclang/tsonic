@@ -9,7 +9,7 @@ import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } 
 import { getProviderVirtualArtifactForCompiler, getProviderTypeFamilyVariantNominalMemberName, getStableProviderVirtualSliceSuffix, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualStructuredTypeDemand, providerVirtualInternalRoot, providerVirtualPublicRoot, } from "./provider-virtual-internal.js";
 import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } from "./provider-model-graph.js";
 import { createProviderRenderedFunctionSignature, hasUniqueProviderCallableIdentities, renderProviderFunctionSignatureMarker, } from "./provider-callable-signatures.js";
-import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
+import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderBoundaryData, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
 import { providerAncillaryDataLimits, providerDeclarationClosureLimits, providerDeclarationModelLimits, providerModuleContextLimits, } from "./provider-resource-limits.js";
 import { getProviderMaterializationRound, } from "./provider-materialization.js";
@@ -98,6 +98,10 @@ const sealProviderRegistrations = Symbol("tsts.provider.sealRegistrations");
 const providerMaxRegisteredProviders = 4_096;
 export const extensionHostSetFact = Symbol("tsts.extensionHost.setFact");
 export const extensionHostRunSourceAnalysis = Symbol("tsts.extensionHost.runSourceAnalysis");
+export const extensionHostRetireCompilerProgram = Symbol("tsts.extensionHost.retireCompilerProgram");
+export const extensionHostAttachElaboration = Symbol("tsts.extensionHost.attachElaboration");
+export const extensionHostRunElaboration = Symbol("tsts.extensionHost.runElaboration");
+export const extensionHostRequireElaboration = Symbol("tsts.extensionHost.requireElaboration");
 const extensionStoreViewToken = Object.freeze({});
 export class ExtensionDiagnosticStore {
     #state;
@@ -2521,6 +2525,10 @@ export class ExtensionHost {
     #mutationAttemptStack = [];
     #ownerAuthority;
     #program;
+    #compilerProgramRetired = false;
+    #elaboration;
+    #elaborationRun = false;
+    #sourceElaborators = new Map();
     #compilerContext;
     #sourceAnalysisState = "pending";
     #semanticFinalizationState = "open";
@@ -2551,6 +2559,8 @@ export class ExtensionHost {
                 continue;
             }
             const attempt = this.#beginFactAttempt();
+            const elaborators = new Map();
+            let elaboratorRegistrationFailed = false;
             try {
                 const capabilities = this.#getOwnerCapabilities(extension.identity.id);
                 let rangeRegistered = false;
@@ -2563,6 +2573,23 @@ export class ExtensionHost {
                     try {
                         extension.initialize?.(Object.freeze({
                             diagnostics: createExtensionDiagnosticWriter(capabilities.diagnostics, scope),
+                            registerSourceElaborator: (key, resolve) => {
+                                assertExtensionCapabilityActive(scope);
+                                try {
+                                    getExtensionFactKeyIdentity(key);
+                                    if (key.extensionId !== extension.identity.id || typeof resolve !== "function") {
+                                        throw new Error("A source elaborator requires its exact owning extension and a resolver.");
+                                    }
+                                    if (elaborators.has(key.id) || this.#sourceElaborators.has(key.id)) {
+                                        throw new Error(`Source elaborator '${key.id}' is already registered.`);
+                                    }
+                                    elaborators.set(key.id, Object.freeze({ key: key, resolve }));
+                                }
+                                catch (error) {
+                                    elaboratorRegistrationFailed = true;
+                                    throw error;
+                                }
+                            },
                             registerFactResolver: (key, resolver) => {
                                 assertExtensionCapabilityActive(scope);
                                 capabilities.factResolver.register(key, resolver);
@@ -2581,7 +2608,11 @@ export class ExtensionHost {
                     this.#discardFactAttemptPreservingDiagnostics(attempt);
                     continue;
                 }
+                if (elaboratorRegistrationFailed)
+                    throw new Error("Source elaborator registration failed during initialization.");
                 this.#commitFactAttempt(attempt);
+                for (const [id, elaborator] of elaborators)
+                    this.#sourceElaborators.set(id, elaborator);
                 this.#extensionsById.set(extension.identity.id, extension);
                 this.#extensions.push(extension);
             }
@@ -2604,7 +2635,137 @@ export class ExtensionHost {
     get program() {
         return this.#program;
     }
+    get hasSourceElaboration() {
+        return this.#sourceElaborators.size !== 0 || this.#extensions.some(extension => extension.elaborateSource !== undefined);
+    }
+    assertCompilerProgramActive() {
+        if (this.#compilerProgramRetired) {
+            throw new Error("Source semantic queries cannot use a retired compiler program or epoch.");
+        }
+        this.#elaboration?.assertNotSuspended();
+    }
+    [extensionHostAttachElaboration](round) {
+        this.assertCompilerProgramActive();
+        if (this.#elaboration !== undefined || this.#ownerAuthority.stack.length !== 0) {
+            throw new Error("Only the compiler session can attach one elaboration round to a program.");
+        }
+        this.#elaboration = round;
+        for (const answer of round.accepted()) {
+            this.#requireSourceElaborator(answer.key);
+            const result = this[extensionHostSetFact](answer.node, answer.key, answer.value);
+            if (result !== "inserted" && result !== "idempotent") {
+                throw new Error("Source elaboration answer conflicts with current source facts.");
+            }
+            const installed = snapshotProviderBoundaryData(this.facts.get(answer.node, answer.key), "sourceElaboration.installed");
+            if (installed.kind === "invalid" || !providerBoundaryDataEquals(installed.value, answer.value)) {
+                throw new Error("Source elaboration answer changed while installing its exact fact snapshot.");
+            }
+        }
+    }
+    [extensionHostRequireElaboration](node, key) {
+        this.assertCompilerProgramActive();
+        if (this.#elaboration === undefined) {
+            throw new Error("Source elaboration requires a compiler session with an elaborating source extension.");
+        }
+        this.#requireSourceElaborator(key);
+        return this.#elaboration.require(node, key);
+    }
+    [extensionHostRunElaboration]() {
+        this.assertCompilerProgramActive();
+        const round = this.#elaboration;
+        if (round === undefined) {
+            if (this.hasSourceElaboration) {
+                throw new Error("Source elaboration requires a replay-capable compiler session.");
+            }
+            return;
+        }
+        if (this.#ownerAuthority.stack.length !== 0)
+            throw new Error("Source elaboration cannot nest extension callbacks.");
+        if (this.#elaborationRun)
+            return;
+        this.#elaborationRun = true;
+        const source = this.getCompilerQueryContext();
+        for (const extension of this.#extensions) {
+            if (extension.elaborateSource === undefined)
+                continue;
+            const scope = createExtensionCapabilityScope();
+            try {
+                runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
+                    extension.elaborateSource(Object.freeze({
+                        source,
+                        request: (node, key) => {
+                            assertExtensionCapabilityActive(scope);
+                            this.#assertSourceAnalyzerFactReadable(extension.identity.id, key);
+                            this.#requireSourceElaborator(key);
+                            round.request(node, key);
+                        },
+                    }));
+                });
+            }
+            finally {
+                revokeExtensionCapabilityScope(scope);
+            }
+        }
+        for (const request of round.ready()) {
+            const elaborator = this.#requireSourceElaborator(request.key);
+            const scope = createExtensionCapabilityScope();
+            const assertReadable = (key) => {
+                assertExtensionCapabilityActive(scope);
+                this.#assertSourceAnalyzerFactReadable(request.key.extensionId, key);
+                this.#requireSourceElaborator(key);
+            };
+            const resolverContext = Object.freeze({
+                source,
+                node: request.node,
+                reference: (node) => {
+                    assertExtensionCapabilityActive(scope);
+                    return round.reference(node);
+                },
+                resolve: (reference) => {
+                    assertExtensionCapabilityActive(scope);
+                    return round.resolveReference(reference);
+                },
+                request: (node, key) => {
+                    assertReadable(key);
+                    round.request(node, key);
+                },
+                require: (node, key) => {
+                    assertReadable(key);
+                    return round.require(node, key);
+                },
+            });
+            try {
+                runWithExtensionOwnerAuthority(this.#ownerAuthority, request.key.extensionId, () => {
+                    round.resolve(request, () => elaborator.resolve(resolverContext));
+                });
+            }
+            finally {
+                revokeExtensionCapabilityScope(scope);
+            }
+        }
+    }
+    #requireSourceElaborator(key) {
+        getExtensionFactKeyIdentity(key);
+        const elaborator = this.#sourceElaborators.get(key.id);
+        if (elaborator === undefined || elaborator.key !== key) {
+            throw new Error(`Source elaboration '${key.id}' has no exact registered owner.`);
+        }
+        return elaborator;
+    }
+    [extensionHostRetireCompilerProgram]() {
+        const activeOwner = this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1];
+        if (activeOwner !== undefined || this.#mutationAttemptStack.length !== 0) {
+            throw new Error("Only the compiler session can retire a program outside extension callbacks.");
+        }
+        if (this.#compilerProgramRetired) {
+            return;
+        }
+        this.#compilerProgramRetired = true;
+        this.#compilerContext = undefined;
+        this.facts[factStoreInvalidate]();
+    }
     bindCompilerProgram(program) {
+        this.assertCompilerProgramActive();
         const activeOwner = this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1];
         if (activeOwner !== undefined) {
             throw new Error(`Extension '${activeOwner}' cannot replace the host compiler program.`);
@@ -2882,6 +3043,7 @@ export class ExtensionHost {
         }
     }
     finalizeSemantics() {
+        this.assertCompilerProgramActive();
         if (this.#semanticFinalizationState === "finalized") {
             return;
         }
@@ -2916,6 +3078,7 @@ export class ExtensionHost {
         return this.#semanticFinalizationState === "finalized";
     }
     getCompilerQueryContext(context) {
+        this.assertCompilerProgramActive();
         if (this.#compilerContext !== undefined) {
             return this.#compilerContext;
         }
@@ -3171,6 +3334,7 @@ function snapshotCompilerExtension(extension) {
         identity,
         ...(dependencies === undefined ? {} : { dependencies }),
         ...(extension.initialize === undefined ? {} : { initialize: extension.initialize }),
+        ...(extension.elaborateSource === undefined ? {} : { elaborateSource: extension.elaborateSource }),
         ...(extension.analyzeSource === undefined ? {} : { analyzeSource: extension.analyzeSource }),
     });
 }
@@ -4407,8 +4571,9 @@ function providerRenderedFunctionSignaturesEqual(left, right) {
         });
 }
 function providerVirtualCompilerMetadataEqual(left, right) {
-    return left.directDeclarationIds.length === right.directDeclarationIds.length
-        && left.directDeclarationIds.every((id, index) => id === right.directDeclarationIds[index])
+    return left.directDeclarations.length === right.directDeclarations.length
+        && left.directDeclarations.every((declaration, index) => declaration.id === right.directDeclarations[index]?.id
+            && declaration.localName === right.directDeclarations[index]?.localName)
         && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures);
 }
 function providerDeclarationMaterializationEquals(left, right) {
@@ -4441,7 +4606,7 @@ function renderProviderDeclarationModel(model, options = {}) {
         typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, typeFamilyGroups),
         exactImportLocalNameByProviderRefKey: new Map([...(options.exactImports ?? new Map())].map(([key, binding]) => [key, binding.localName])),
         exactImportsInTypePositions: options.exactImportsInTypePositions === true,
-        directDeclarationIds: new Set(),
+        directDeclarations: new Map(),
         renderedFunctionSignatures: [],
     };
     const hasDirectDeclarations = model.exports.some((declaration) => !canonicalLocalNameByExportName.has(getProviderSourceExportName(declaration)));
@@ -4535,7 +4700,7 @@ function renderProviderDeclarationModel(model, options = {}) {
 }
 function snapshotProviderVirtualCompilerMetadata(context) {
     return Object.freeze({
-        directDeclarationIds: Object.freeze([...context.directDeclarationIds]),
+        directDeclarations: Object.freeze([...context.directDeclarations].map(([id, localName]) => Object.freeze({ id, localName }))),
         renderedFunctionSignatures: Object.freeze([...context.renderedFunctionSignatures]),
     });
 }
@@ -4573,9 +4738,9 @@ function getProviderExportTypeOnlyMap(exports) {
         if (result.has(exportName)) {
             continue;
         }
-        const typeOnly = declaration.sourceTypeFamily === undefined
+        const typeOnly = declaration.intrinsicId === undefined && (declaration.sourceTypeFamily === undefined
             ? declaration.kind === "interface" || declaration.kind === "type"
-            : typeFamilies.get(exportName)?.variants.every((variant) => variant.kind === "class") !== true;
+            : typeFamilies.get(exportName)?.variants.every((variant) => variant.kind === "class") !== true);
         result.set(exportName, typeOnly);
     }
     return result;
@@ -4585,15 +4750,17 @@ function getProviderCanonicalExportLocalName(exportName) {
     return `__TstsProviderCanonical_${identifier === "" || /^[0-9]/.test(identifier) ? `_${identifier}` : identifier}`;
 }
 function renderProviderExportDeclaration(declaration, context, options = {}) {
-    if (context.directDeclarationIds.has(declaration.id)) {
+    if (context.directDeclarations.has(declaration.id)) {
         throw new Error(`Provider declaration identity '${declaration.id}' was rendered more than once in one virtual artifact.`);
     }
-    context.directDeclarationIds.add(declaration.id);
     const declarationContext = withProviderRenderOwner(context, declaration);
     const declarationName = options.localName ?? declaration.name;
+    context.directDeclarations.set(declaration.id, declarationName);
     const exportName = getProviderExportName(declaration);
     const isDefault = exportName === "default" || declaration.exportKind === "default";
-    const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind);
+    const needsIntrinsicBinding = declaration.intrinsicId !== undefined
+        && (declaration.kind === "interface" || declaration.kind === "type");
+    const canInlineDefault = isDefault && !needsIntrinsicBinding && canRenderInlineDefaultProviderExport(declaration.kind);
     const directNamedExport = options.localOnly !== true && !isDefault && exportName === declarationName;
     const declarationPrefix = directNamedExport
         ? "export declare "
@@ -4617,10 +4784,12 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
             break;
         }
         case "function":
-            rendered = renderProviderSignatures(declarationName, declaration.signatures ?? [], declarationContext)
-                .map((signature) => `${canInlineDefault ? "export default " : declarationPrefix}function ${signature}`)
-                .join("\n");
+        case "namespace": {
+            const signatures = renderProviderSignatures("", declaration.signatures ?? [], declarationContext);
+            const members = renderProviderMembers((declaration.members ?? []).map(member => member.kind === "property" || member.kind === "field" ? { ...member, readonly: true } : member), declarationContext);
+            rendered = `${declarationPrefix}const ${declarationName}: {\n${signatures.map(signature => `  ${signature}`).join("\n")}\n${members}\n};`;
             break;
+        }
         case "type": {
             const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
             rendered = `${typePrefix}type ${declarationName}${typeParameters} = ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
@@ -4629,12 +4798,15 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         case "value":
             rendered = `${declarationPrefix}const ${declarationName}: ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
             break;
-        case "namespace":
-            rendered = `${declarationPrefix}namespace ${declarationName} {\n${renderProviderNamespaceMembers(declaration.members ?? [], declarationContext)}\n}`;
+        case "intrinsic":
+            rendered = `${declarationPrefix}const ${declarationName}: unique symbol;`;
             break;
         case "enum":
             rendered = `${declarationPrefix}enum ${declarationName} {\n${(declaration.members ?? []).map((member) => `  ${renderProviderPropertyName(member.name)},`).join("\n")}\n}`;
             break;
+    }
+    if (needsIntrinsicBinding) {
+        rendered += `\n${declarationPrefix}const ${declarationName}: unique symbol;`;
     }
     if (options.localOnly === true || directNamedExport || canInlineDefault) {
         return rendered;
@@ -4679,7 +4851,9 @@ function renderProviderTypeFamilyLocalVariants(group, context) {
 }
 function renderProviderTypeFamilyValueExport(exportName, variants) {
     if (!variants.every((variant) => variant.kind === "class")) {
-        return "";
+        return variants[0]?.intrinsicId === undefined
+            ? ""
+            : `\nexport declare const ${exportName}: unique symbol;`;
     }
     const valueType = variants
         .map((variant) => `typeof ${getProviderTypeFamilyVariantLocalName(variant)}`)
@@ -4740,9 +4914,6 @@ function renderProviderClassMembers(declaration, context) {
     const nominalMember = `  private readonly ${nominalMemberName}: never;`;
     return members === "" ? nominalMember : `${nominalMember}\n${members}`;
 }
-function renderProviderNamespaceMembers(members, context) {
-    return members.map((member) => `  ${renderProviderNamespaceMember(member, context)}`).join("\n");
-}
 function renderProviderMember(member, context) {
     const memberContext = withProviderRenderOwner(context, context.declaration, member);
     const staticPrefix = member.static === true ? "static " : "";
@@ -4751,7 +4922,7 @@ function renderProviderMember(member, context) {
     const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
         case "constructor":
-            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext).join("\n  ");
+            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext, true).join("\n  ");
         case "method":
             return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
         case "property":
@@ -4765,25 +4936,8 @@ function renderProviderMember(member, context) {
         }
     }
 }
-function renderProviderNamespaceMember(member, context) {
-    const memberContext = withProviderRenderOwner(context, context.declaration, member);
-    const name = renderProviderPropertyName(member.name);
-    switch (member.kind) {
-        case "method":
-            return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `export function ${signature}`).join("\n  ");
-        case "property":
-        case "field":
-            return `export const ${name}: ${renderProviderTypeExpression(member.type, memberContext)};`;
-        case "constructor":
-        case "indexer":
-            return failUnsupportedProviderNamespaceMember(member);
-    }
-}
-function failUnsupportedProviderNamespaceMember(member) {
-    throw new Error(`Unsupported provider namespace member kind '${member.kind}'.`);
-}
 function canRenderInlineDefaultProviderExport(kind) {
-    return kind === "class" || kind === "interface" || kind === "function" || kind === "enum";
+    return kind === "class" || kind === "interface" || kind === "enum";
 }
 function getProviderExportName(declaration) {
     return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
@@ -4816,11 +4970,11 @@ function getProviderPropertyNameText(name) {
             return `Symbol.${name.name}`;
     }
 }
-function renderProviderSignatures(name, signatures, context) {
+function renderProviderSignatures(name, signatures, context, constructor = false) {
     return signatures.map((signature) => {
         const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context);
         const parameters = signature.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ");
-        const returnType = name === "constructor" ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
+        const returnType = constructor ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
         return `${name}${typeParameters}(${parameters})${returnType};`;
     });
 }
@@ -5457,6 +5611,8 @@ function isValidProviderRequestedExport(value) {
 }
 function isValidProviderExportDeclaration(value) {
     return value.id.length > 0
+        && (value.intrinsicId === undefined || (value.kind !== "intrinsic"
+            && value.intrinsicId.length > 0 && value.intrinsicId !== value.id))
         && isIdentifierText(value.name)
         && isValidProviderExportName(value)
         && isValidProviderTypeFamilyDeclaration(value)
@@ -5469,7 +5625,7 @@ function isValidProviderExportDeclaration(value) {
         && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
         && (value.kind === "enum"
             ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
-            : value.kind === "namespace"
+            : value.kind === "namespace" || value.kind === "function"
                 ? (value.members ?? []).every(isValidProviderNamespaceMemberDeclaration)
                 : (value.members ?? []).every(isValidProviderMemberDeclaration));
 }
@@ -5484,11 +5640,13 @@ function hasNoUnrenderedProviderExportShape(value) {
         case "interface":
             return noType && noSignatures;
         case "function":
-            return noType && noTypeParameters && noHeritage && noMembers;
+            return noType && noTypeParameters && noHeritage;
         case "type":
             return noHeritage && noMembers && noSignatures;
         case "value":
             return noTypeParameters && noHeritage && noMembers && noSignatures;
+        case "intrinsic":
+            return noType && noTypeParameters && noHeritage && noMembers && noSignatures;
         case "namespace":
         case "enum":
             return noType && noTypeParameters && noHeritage && noSignatures;
@@ -5578,6 +5736,9 @@ function isValidProviderTypeFamilyDeclarations(moduleSpecifier, exports, imports
             return false;
         }
         publicExports.add(familyName);
+        if (variants.some((variant) => variant.intrinsicId !== variants[0].intrinsicId)) {
+            return false;
+        }
         if (variants.some((variant) => variant.kind === "class") && !variants.every((variant) => variant.kind === "class")) {
             return false;
         }
@@ -5658,6 +5819,8 @@ function hasRequiredProviderExportShape(value) {
         case "interface":
         case "namespace":
         case "enum":
+            return true;
+        case "intrinsic":
             return true;
     }
 }
