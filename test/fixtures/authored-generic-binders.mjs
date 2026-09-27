@@ -3,6 +3,7 @@ export const authoredGenericBinderFiles = Object.freeze({
     export function capture<T>(seed: T) {
       return {
         identity<T>(value: T): T { return value; },
+        reserved<CapturedT>(value: CapturedT): CapturedT { return value; },
         pair<T>(value: T): [typeof seed, T] { return [seed, value]; },
         constrained<T extends { score: number }>(value: T): [typeof seed, number] { return [seed, value.score]; },
       };
@@ -13,6 +14,7 @@ export const authoredGenericBinderFiles = Object.freeze({
         constructor(value: T) { this.value = value; }
         pair(): [typeof seed, T] { return [seed, this.value]; }
         identity<U>(value: U): U { return value; }
+        same<T>(value: T): T { return value; }
       };
     }
     export function identity<T>(value: T): T { return value; }
@@ -35,10 +37,10 @@ export const authoredGenericBinderFiles = Object.freeze({
       const instance = new Entry<number>(17);
       const captured = instance.pair();
       const record = pair(other(identity("record")));
-      return first.identity(true) && second.identity("item") === "item" &&
+      return first.identity(true) && second.identity("item") === "item" && first.reserved(5) === 5 &&
         left[0] === "seed" && left[1] === 9 && right[0] === 7 && right[1] === "value" &&
         constrained[0] === "seed" && constrained[1] === 11 &&
-        captured[0] === "outer" && captured[1] === 17 && instance.identity(false) === false &&
+        captured[0] === "outer" && captured[1] === 17 && instance.identity(false) === false && instance.same("same") === "same" &&
         record.left === "record" && record.right === "record";
     }
   `,
