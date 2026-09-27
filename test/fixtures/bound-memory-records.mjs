@@ -15,32 +15,32 @@ export type Nested = { word: Word };
   return Object.freeze({
     "schema.ts": `
 import type { uint32 } from "@tsonic/core/types.js";
-import { memoryField, memoryLayout } from "@tsonic/core/lang.js";
+import { memoryfield, memorylayout } from "@tsonic/core/lang.js";
 import { abi } from "test:abi";
 ${declarations}
-const scalar = memoryLayout<uint32>(abi, 4, 4, 4);
-export const countField = memoryField((value: Word) => value.count, 0, 4, scalar);
-export const wordLayout = memoryLayout<Word>(abi, 4, 4, 4, countField);
-export const leftField = memoryField((value: Pair) => value.left, 0, 4, scalar);
-export const rightField = memoryField((value: Pair) => value.right, 4, 4, scalar);
-export const pairLayout = memoryLayout<Pair>(abi, 8, 4, 8, leftField, rightField);
-export const nestedField = memoryField((value: Nested) => value.word, 0, 4, wordLayout);
-export const nestedLayout = memoryLayout<Nested>(abi, 4, 4, 4, nestedField);
+const scalar = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+export const countField = memoryfield({ select: (value: Word) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: scalar });
+export const wordLayout = memorylayout<Word>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [countField] });
+export const leftField = memoryfield({ select: (value: Pair) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: scalar });
+export const rightField = memoryfield({ select: (value: Pair) => value.right, byteoffset: 4, bytealignment: 4, fieldlayout: scalar });
+export const pairLayout = memorylayout<Pair>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, fields: [leftField, rightField] });
+export const nestedField = memoryfield({ select: (value: Nested) => value.word, byteoffset: 0, bytealignment: 4, fieldlayout: wordLayout });
+export const nestedLayout = memorylayout<Nested>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [nestedField] });
 `,
     "views.ts": `
-import { addressOf, bindMemoryField, bindMemoryRecord } from "@tsonic/core/lang.js";
+import { addressof, bindmemoryfield, bindmemoryrecord } from "@tsonic/core/lang.js";
 import type { uint32 } from "@tsonic/core/types.js";
 import { countField, wordLayout } from "./schema.js";
 import type { Word } from "./schema.js";
 export function retain(value: Word): Word { return value; }
 export function create(seed: uint32): Word {
   let owned: uint32 = seed;
-  return bindMemoryRecord(wordLayout, bindMemoryField(countField, addressOf(owned)));
+  return bindmemoryrecord(wordLayout, bindmemoryfield(countField, addressof(owned)));
 }
 `,
     "index.ts": `
-import { addressOf, allocatePointer, bindMemoryField, bindMemoryRecord, bindPointer,
-  equalPointer, hashPointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { addressof, allocateptr, bindmemoryfield, bindmemoryrecord, bindptr,
+  equalptr, hashptr, loadptr, storeptr } from "@tsonic/core/lang.js";
 import type { Pointer, uint32 } from "@tsonic/core/types.js";
 import { countField, wordLayout, leftField, rightField, pairLayout,
   nestedField, nestedLayout } from "./schema.js";
@@ -52,19 +52,19 @@ function equalNumber(actual: number, expected: number): boolean { return actual 
 function captureAndOrder(): boolean {
   let left: uint32 = 1;
   let right: uint32 = 2;
-  const original = addressOf(left);
+  const original = addressof(left);
   let selected: Pointer<uint32> = original;
   let visits = 0;
   const capture = (): Pointer<uint32> => { visits += 1; return selected; };
-  const binding = bindMemoryField(leftField, capture());
+  const binding = bindmemoryfield(leftField, capture());
   const alias = binding;
-  selected = addressOf(right);
-  const record = bindMemoryRecord(pairLayout,
-    bindMemoryField(rightField, selected), alias);
-  const location = addressOf(record.left);
-  storePointer(location, 7);
+  selected = addressof(right);
+  const record = bindmemoryrecord(pairLayout,
+    bindmemoryfield(rightField, selected), alias);
+  const location = addressof(record.left);
+  storeptr(location, 7);
   if (visits !== 1 || left !== 7 || right !== 2 ||
-      !equalPointer(location, original) || hashPointer(location) !== hashPointer(original)) return false;
+      !equalptr(location, original) || hashptr(location) !== hashptr(original)) return false;
   record.right = 9;
   left = 11;
   return equalNumber(right, 9) && record.left === 11;
@@ -74,19 +74,19 @@ function readFreeTransport(): boolean {
   let value: uint32 = 3;
   let reads = 0;
   let writes = 0;
-  const pointer = bindPointer<uint32>(
+  const pointer = bindptr<uint32>(
     { identity: 1 },
     () => { reads += 1; return value; },
     next => { writes += 1; value = next; });
-  const record = bindMemoryRecord(wordLayout, bindMemoryField(countField, pointer));
+  const record = bindmemoryrecord(wordLayout, bindmemoryfield(countField, pointer));
   const returned = retain(record);
-  const boxed = allocatePointer<Word>(returned);
-  const restored = loadPointer(boxed);
+  const boxed = allocateptr<Word>(returned);
+  const restored = loadptr(boxed);
   if (reads !== 0 || writes !== 0) return false;
   restored.count = 5;
   if (reads !== 0 || !equalNumber(writes, 1) || value !== 5) return false;
-  const address = addressOf(restored.count);
-  if (reads !== 0 || !equalPointer(address, pointer)) return false;
+  const address = addressof(restored.count);
+  if (reads !== 0 || !equalptr(address, pointer)) return false;
   const observed = record.count;
   return observed === 5 && equalNumber(reads, 1);
 }
@@ -101,11 +101,11 @@ function callbackFailures(): boolean {
   let value: uint32 = 4;
   let rejectRead = true;
   let rejectWrite = true;
-  const pointer = bindPointer<uint32>(
+  const pointer = bindptr<uint32>(
     { identity: 2 },
     () => { if (rejectRead) throw failure; return value; },
     next => { if (rejectWrite) throw failure; value = next; });
-  const record = bindMemoryRecord(wordLayout, bindMemoryField(countField, pointer));
+  const record = bindmemoryrecord(wordLayout, bindmemoryfield(countField, pointer));
   let readCaught = false;
   let writeCaught = false;
   try { const observed = record.count; if (observed !== 4) return false; }
@@ -122,18 +122,18 @@ function callbackFailures(): boolean {
 function nestedRetargeting(): boolean {
   const first = create(19);
   const second = create(23);
-  const child = allocatePointer<Word>(first);
-  const nested = bindMemoryRecord(nestedLayout, bindMemoryField(nestedField, child));
-  const oldAddress = addressOf(nested.word.count);
-  if (!equalPointer(oldAddress, addressOf(first.count))) return false;
+  const child = allocateptr<Word>(first);
+  const nested = bindmemoryrecord(nestedLayout, bindmemoryfield(nestedField, child));
+  const oldAddress = addressof(nested.word.count);
+  if (!equalptr(oldAddress, addressof(first.count))) return false;
   nested.word = second;
-  storePointer(oldAddress, 31);
+  storeptr(oldAddress, 31);
   nested.word.count = 37;
   const before = nested.word.count++;
   const after = ++nested.word.count;
   nested.word.count += 3;
   return before === 37 && after === 39 && first.count === 31 && second.count === 42 &&
-    equalPointer(addressOf(nested.word.count), addressOf(second.count));
+    equalptr(addressof(nested.word.count), addressof(second.count));
 }
 
 export function run(): boolean {

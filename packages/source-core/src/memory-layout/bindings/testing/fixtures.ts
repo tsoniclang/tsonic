@@ -5,23 +5,23 @@ import { assertMemoryDiagnostics, memorySession } from "../../testing/fixtures.j
 export const bindingPrelude = `
 import { abi } from "test:abi";
 import type { Pointer, RawPointer, uint32, int32, FixedArray } from "@tsonic/core/types.js";
-import { memoryLayout, memoryField, memoryArrayLayout, bindMemoryField, bindMemoryRecord,
-  allocatePointer, addressOf, viewPointer, projectPointer, loadPointer, storePointer,
-  toRawPointer, reinterpretRawPointer, equalPointer } from "@tsonic/core/lang.js";
-const word = memoryLayout<uint32>(abi, 4, 4, 4);
+import { memorylayout, memoryfield, memoryarraylayout, bindmemoryfield, bindmemoryrecord,
+  allocateptr, addressof, viewptr, projectptr, loadptr, storeptr,
+  torawptr, reinterpretrawptr, equalptr } from "@tsonic/core/lang.js";
+const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
 interface Header { count: uint32; tag: uint32 }
-const countField = memoryField((value: Header) => value.count, 0, 4, word);
-const tagField = memoryField((value: Header) => value.tag, 4, 4, word);
-const headerLayout = memoryLayout<Header>(abi, 8, 4, 8, countField, tagField);
+const countField = memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: word });
+const tagField = memoryfield({ select: (value: Header) => value.tag, byteoffset: 4, bytealignment: 4, fieldlayout: word });
+const headerLayout = memorylayout<Header>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, fields: [countField, tagField] });
 `;
 
 export const boundRecordSource = `
 const logical: Header = { count: 3, tag: 5 };
-const before = addressOf(logical.count);
-const countBinding = bindMemoryField(countField, before);
-const tagBinding = bindMemoryField(tagField, addressOf(logical.tag));
+const before = addressof(logical.count);
+const countBinding = bindmemoryfield(countField, before);
+const tagBinding = bindmemoryfield(tagField, addressof(logical.tag));
 const alias = countBinding;
-const physical = bindMemoryRecord(headerLayout, tagBinding, alias);
+const physical = bindmemoryrecord(headerLayout, tagBinding, alias);
 `;
 
 export function bindingSession(body: string, extraFiles?: Readonly<Record<string, string>>) {

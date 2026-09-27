@@ -6,9 +6,7 @@ import type {
 import type {
   TsonicSourceFileAnalysisContext,
 } from "./context.js";
-import type {
-  SelectedProviderSourceCall,
-} from "./source-call.js";
+import { unwrapParenthesizedExpression } from "./source-call.js";
 
 export type SelectedInlineSourceMemberResult =
   | {
@@ -24,12 +22,10 @@ export type SelectedInlineSourceMemberResult =
     };
 
 export function selectInlineSourceMember(
-  selected: SelectedProviderSourceCall,
+  inlineFunction: Node | undefined,
   context: TsonicSourceFileAnalysisContext,
   syntax: "element" | "property" = "property",
-  argumentIndex = 0,
 ): SelectedInlineSourceMemberResult {
-  const inlineFunction = selected.selection.sourceArguments[argumentIndex]?.expression;
   if (
     inlineFunction === undefined ||
     (!context.ast.is.IsArrowFunction(inlineFunction) &&
@@ -169,12 +165,12 @@ function singleReturnedExpression(
     return undefined;
   }
   if (!context.ast.is.IsBlock(body)) {
-    return unwrapParentheses(body, context);
+    return unwrapParenthesizedExpression(body, context);
   }
   const returned: Node[] = [];
   collectReturnExpressions(body, context, returned, true);
   return returned.length === 1
-    ? unwrapParentheses(returned[0], context)
+    ? unwrapParenthesizedExpression(returned[0], context)
     : undefined;
 }
 
@@ -211,18 +207,4 @@ function isFunctionBoundary(
     context.ast.is.IsMethodDeclaration(node) ||
     context.ast.is.IsGetAccessorDeclaration(node) ||
     context.ast.is.IsSetAccessorDeclaration(node);
-}
-
-function unwrapParentheses(
-  node: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
-): Node | undefined {
-  let current = node;
-  while (
-    current !== undefined &&
-    context.ast.is.IsParenthesizedExpression(current)
-  ) {
-    current = context.ast.as.AsParenthesizedExpression(current)?.Expression;
-  }
-  return current;
 }

@@ -16,20 +16,30 @@ import {
 function observedArrays() {
   const checked = cleanArraySession(`
     interface Entry { count: uint32 }
-    const entry = memoryLayout<Entry>(abi, 8, 4, 8,
-      memoryField((value: Entry) => value.count, 4, 4, word));
-    const entries = memoryArrayLayout<Entry, 2>(abi, 16, 4, 20, entry, 2);
-    const nested = memoryArrayLayout(abi, 36, 4, 40, entries, 2);
+    const entry = memorylayout<Entry>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 4,
+      stride: 8,
+      fields: [memoryfield({ select: (value: Entry) => value.count, byteoffset: 4, bytealignment: 4, fieldlayout: word })],
+    });
+    const entries = memoryarraylayout<Entry, 2>({ datalayout: abi, bytesize: 16, bytealignment: 4, stride: 20, elementlayout: entry, length: 2 });
+    const nested = memoryarraylayout({ datalayout: abi, bytesize: 36, bytealignment: 4, stride: 40, elementlayout: entries, length: 2 });
     interface Holder { entries: FixedArray<Entry, 2> }
-    const holder = memoryLayout<Holder>(abi, 24, 4, 24,
-      memoryField((value: Holder) => value.entries, 4, 4, entries));
+    const holder = memorylayout<Holder>({
+      datalayout: abi,
+      bytesize: 24,
+      bytealignment: 4,
+      stride: 24,
+      fields: [memoryfield({ select: (value: Holder) => value.entries, byteoffset: 4, bytealignment: 4, fieldlayout: entries })],
+    });
     declare const pointer: Pointer<FixedArray<FixedArray<Entry, 2>, 2>> | undefined;
-    sizeOf(nested); alignOf(nested); strideOf(nested);
-    fieldOffsetOf(holder, value => value.entries);
-    toRawPointer(pointer, nested);
-    reinterpretRawPointer(raw, nested);
-    toRawPointer<FixedArray<FixedArray<Entry, 2>, 2>>(undefined, nested);
-    reinterpretRawPointer<FixedArray<FixedArray<Entry, 2>, 2>>(undefined, nested);
+    sizeof(nested); alignof(nested); strideof(nested);
+    fieldoffsetof(holder, value => value.entries);
+    torawptr(pointer, nested);
+    reinterpretrawptr(raw, nested);
+    torawptr<FixedArray<FixedArray<Entry, 2>, 2>>(undefined, nested);
+    reinterpretrawptr<FixedArray<FixedArray<Entry, 2>, 2>>(undefined, nested);
   `);
   const layout = arrayLayoutAt(checked, 1);
   const child = arrayMemoryLayout(layout.elementLayout);
@@ -39,12 +49,12 @@ function observedArrays() {
 
 test("public array observations and raw conversions preserve the whole selected graph and inferred pointee", () => {
   const { checked, layout } = observedArrays();
-  assertArrayObservation(checked, "sizeOf", 36);
-  assertArrayObservation(checked, "alignOf", 4);
-  assertArrayObservation(checked, "strideOf", 40);
-  assertArrayObservation(checked, "fieldOffsetOf", 4);
+  assertArrayObservation(checked, "sizeof", 36);
+  assertArrayObservation(checked, "alignof", 4);
+  assertArrayObservation(checked, "strideof", 40);
+  assertArrayObservation(checked, "fieldoffsetof", 4);
   assert.equal(layout.elementLayout.stride, 20);
-  for (const name of ["toRawPointer", "reinterpretRawPointer"]) {
+  for (const name of ["torawptr", "reinterpretrawptr"]) {
     for (const call of memoryCalls(checked, name)) {
       const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call);
       assert.ok(selected?.kind === "resolved");
@@ -63,8 +73,8 @@ test("public array observations and raw conversions preserve the whole selected 
 
 test("public observations and raw selectors reject every omitted selected array or descendant witness", () => {
   const { checked, layout, child, field } = observedArrays();
-  const observation = memoryCall(checked, "sizeOf");
-  const conversions = [memoryCall(checked, "toRawPointer"), memoryCall(checked, "reinterpretRawPointer")];
+  const observation = memoryCall(checked, "sizeof");
+  const conversions = [memoryCall(checked, "torawptr"), memoryCall(checked, "reinterpretrawptr")];
   assert.equal(resolveTsonicMemoryLayoutObservation(checked.sourceFacts, observation)?.kind, "resolved");
   for (const call of conversions) assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call)?.kind, "resolved");
   const omissions = [
@@ -124,8 +134,8 @@ test("stale array counts, child layouts, ABI and foreign type identities cannot 
       getFacts: subject => checked.sourceFacts.getFacts(subject),
       getVirtualDeclarationDocument: name => checked.sourceFacts.getVirtualDeclarationDocument(name),
     };
-    assert.equal(resolveTsonicMemoryLayoutObservation(facts, memoryCall(checked, "sizeOf"))?.kind, "rejected", mutation);
-    for (const name of ["toRawPointer", "reinterpretRawPointer"]) {
+    assert.equal(resolveTsonicMemoryLayoutObservation(facts, memoryCall(checked, "sizeof"))?.kind, "rejected", mutation);
+    for (const name of ["torawptr", "reinterpretrawptr"]) {
       assert.equal(selectTsonicRawLocationOperation(checked.ast, facts, memoryCall(checked, name))?.kind, "rejected", mutation);
     }
   }
@@ -133,7 +143,7 @@ test("stale array counts, child layouts, ABI and foreign type identities cannot 
 
 test("an array observation cannot be relocated or converted to a synthetic field-offset query", () => {
   const { checked, layout, field } = observedArrays();
-  const call = memoryCall(checked, "sizeOf");
+  const call = memoryCall(checked, "sizeof");
   const query = checked.sourceFacts.getFact(call, tsonicMemoryLayoutQueryFactKey)!;
   for (const replacement of [
     { ...query, call: layout.call },
@@ -153,13 +163,13 @@ test("an array observation cannot be relocated or converted to a synthetic field
 
 test("coherent root and child substitutions cannot rewrite the authentic array element or exact count", () => {
   const checked = cleanArraySession(`
-    const unsigned = memoryArrayLayout<uint32, 2>(abi, 8, 4, 8, word, 2);
-    const signedWord = memoryLayout<int32>(abi, 4, 4, 4);
-    const signed = memoryArrayLayout(abi, 8, 4, 8, signedWord, 2);
-    const huge = memoryArrayLayout(abi, 0, 4, 0, empty, 9007199254740993n);
-    const otherUnsigned = memoryArrayLayout<uint32, 2>(abi, 8, 4, 8, word, 2);
-    sizeOf(unsigned); sizeOf(huge);
-    reinterpretRawPointer(raw, unsigned); reinterpretRawPointer(raw, huge);
+    const unsigned = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: word, length: 2 });
+    const signedWord = memorylayout<int32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+    const signed = memoryarraylayout({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: signedWord, length: 2 });
+    const huge = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: empty, length: 9007199254740993n });
+    const otherUnsigned = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: word, length: 2 });
+    sizeof(unsigned); sizeof(huge);
+    reinterpretrawptr(raw, unsigned); reinterpretrawptr(raw, huge);
   `);
   const unsigned = arrayLayoutAt(checked);
   const signed = arrayLayoutAt(checked, 1);
@@ -202,8 +212,8 @@ test("coherent root and child substitutions cannot rewrite the authentic array e
       getFacts: subject => checked.sourceFacts.getFacts(subject),
       getVirtualDeclarationDocument: name => checked.sourceFacts.getVirtualDeclarationDocument(name),
     };
-    const observation = memoryCall(checked, "sizeOf", index);
-    const conversion = memoryCall(checked, "reinterpretRawPointer", index);
+    const observation = memoryCall(checked, "sizeof", index);
+    const conversion = memoryCall(checked, "reinterpretrawptr", index);
     assert.equal(resolveTsonicMemoryLayoutObservation(checked.sourceFacts, observation)?.kind, "resolved");
     assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, conversion)?.kind, "resolved");
     assert.equal(resolveTsonicMemoryLayoutObservation(facts, observation)?.kind, "rejected", name);
@@ -213,9 +223,9 @@ test("coherent root and child substitutions cannot rewrite the authentic array e
 
 test("coherent array-to-value replacement cannot erase the authenticated element relationship", () => {
   const checked = cleanArraySession(`
-    const array = memoryArrayLayout(abi, 8, 4, 8, word, 2);
-    sizeOf(array);
-    reinterpretRawPointer(raw, array);
+    const array = memoryarraylayout({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: word, length: 2 });
+    sizeof(array);
+    reinterpretrawptr(raw, array);
   `);
   const array = arrayLayoutAt(checked);
   const { fixedArray, elementLayoutExpression, elementLayout, ...base } = array;
@@ -233,8 +243,8 @@ test("coherent array-to-value replacement cannot erase the authenticated element
     getFacts: subject => checked.sourceFacts.getFacts(subject),
     getVirtualDeclarationDocument: name => checked.sourceFacts.getVirtualDeclarationDocument(name),
   };
-  const observation = memoryCall(checked, "sizeOf");
-  const conversion = memoryCall(checked, "reinterpretRawPointer");
+  const observation = memoryCall(checked, "sizeof");
+  const conversion = memoryCall(checked, "reinterpretrawptr");
   assert.equal(resolveTsonicMemoryLayoutObservation(checked.sourceFacts, observation)?.kind, "resolved");
   assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, conversion)?.kind, "resolved");
   assert.equal(resolveTsonicMemoryLayoutObservation(facts, observation)?.kind, "rejected");
@@ -243,29 +253,29 @@ test("coherent array-to-value replacement cannot erase the authenticated element
 
 test("raw array conversion rejects a different primitive pointee despite identical carrier and total dimensions", () => {
   const checked = arraySession(`
-    const signed = memoryLayout<int32>(abi, 4, 4, 4);
-    const array = memoryArrayLayout(abi, 8, 4, 8, signed, 2);
+    const signed = memorylayout<int32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+    const array = memoryarraylayout({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: signed, length: 2 });
     declare const pointer: Pointer<FixedArray<uint32, 2>>;
-    toRawPointer(pointer, array);
-    reinterpretRawPointer<FixedArray<uint32, 2>>(raw, array);
-    sizeOf(array);
+    torawptr(pointer, array);
+    reinterpretrawptr<FixedArray<uint32, 2>>(raw, array);
+    sizeof(array);
   `);
   assert.equal(checked.diagnostics.filter(Boolean).length, 0);
   assert.equal(checked.extensionDiagnostics.filter(entry => entry.extensionCode === "SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN").length, 2);
-  for (const name of ["toRawPointer", "reinterpretRawPointer"]) {
+  for (const name of ["torawptr", "reinterpretrawptr"]) {
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name)), undefined);
   }
-  assertArrayObservation(checked, "sizeOf", 8);
+  assertArrayObservation(checked, "sizeof", 8);
 });
 
 function metadataFixture(escape = "") {
   const checked = cleanArraySession(`
     const child = (word);
-    const array = memoryArrayLayout(abi, 8, 4, 8, child, 2);
+    const array = memoryarraylayout({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: child, length: 2 });
     const alias = (array);
-    const size = sizeOf(alias);
+    const size = sizeof(alias);
     declare const pointer: Pointer<FixedArray<uint32, 2>>;
-    toRawPointer(pointer, alias);
+    torawptr(pointer, alias);
     ${escape}
   `);
   const source = createTargetSourceProgram(checked);
@@ -294,11 +304,11 @@ test("array metadata erasure follows the selected child and immutable aliases wi
   const metadata = index.value(declaration("alias"));
   assert.ok(metadata?.kind === "memory-layout");
   assert.equal(arrayMemoryLayout(metadata.fact).fixedArray.length, 2n);
-  assert.equal(index.isCompileTimeExpression(memoryCall(checked, "memoryArrayLayout")), true);
-  const operands = source.ast.arguments(memoryCall(checked, "toRawPointer"));
+  assert.equal(index.isCompileTimeExpression(memoryCall(checked, "memoryarraylayout")), true);
+  const operands = source.ast.arguments(memoryCall(checked, "torawptr"));
   assert.equal(index.isCompileTimeExpression(operands[0]!), false);
   assert.equal(index.isCompileTimeExpression(operands[1]!), true);
-  assert.equal(index.isCompileTimeExpression(memoryCall(checked, "sizeOf")), false);
+  assert.equal(index.isCompileTimeExpression(memoryCall(checked, "sizeof")), false);
 });
 
 for (const [name, escape] of [

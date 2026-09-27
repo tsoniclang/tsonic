@@ -12,7 +12,7 @@ import { createTsonicPointerBackingDemands } from "./demands.js";
 const prelude = `
 import { abi } from "test:abi";
 import type { Pointer, uint32 } from "@tsonic/core/types.js";
-import { allocatePointer, memoryLayout, memoryField, toRawPointer } from "@tsonic/core/lang.js";
+import { allocateptr, memorylayout, memoryfield, torawptr } from "@tsonic/core/lang.js";
 import type { Inner, Outer } from "./types.js";
 `;
 
@@ -23,12 +23,21 @@ function recordLayout(options: {
   readonly swapped?: boolean;
 } = {}): string {
   return `
-    const word = memoryLayout<uint32>(abi, 4, 4, ${options.childStride ?? 4});
-    const inner = memoryLayout<Inner>(abi, 8, 4, 8,
-      memoryField((value: Inner) => value.${options.swapped ? "second" : "first"}, 0, 4, word),
-      memoryField((value: Inner) => value.${options.swapped ? "first" : "second"}, 4, 4, word));
-    const layout = memoryLayout<Outer>(abi, 16, 8, 16,
-      memoryField((value: Outer) => value.inner, ${options.offset ?? 0}, ${options.alignment ?? 4}, inner));
+    const word = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: ${options.childStride ?? 4}, fields: [] });
+    const inner = memorylayout<Inner>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 4,
+      stride: 8,
+      fields: [memoryfield({ select: (value: Inner) => value.${options.swapped ? "second" : "first"}, byteoffset: 0, bytealignment: 4, fieldlayout: word }), memoryfield({ select: (value: Inner) => value.${options.swapped ? "first" : "second"}, byteoffset: 4, bytealignment: 4, fieldlayout: word })],
+    });
+    const layout = memorylayout<Outer>({
+      datalayout: abi,
+      bytesize: 16,
+      bytealignment: 8,
+      stride: 16,
+      fields: [memoryfield({ select: (value: Outer) => value.inner, byteoffset: ${options.offset ?? 0}, bytealignment: ${options.alignment ?? 4}, fieldlayout: inner })],
+    });
   `;
 }
 
@@ -37,9 +46,9 @@ function session(local: string, remote: string, type: string, value: string) {
     import { remote } from "./barrel.js";
     ${local}
     const alias = remote;
-    const pointer = allocatePointer<${type}>(${value});
-    toRawPointer(pointer, layout);
-    toRawPointer(pointer, alias);
+    const pointer = allocateptr<${type}>(${value});
+    torawptr(pointer, layout);
+    torawptr(pointer, alias);
   `, { extraFiles: {
     "/src/layout.ts": prelude + remote + "\nexport { layout as remote };",
     "/src/barrel.ts": 'export { remote } from "./layout.js";',
@@ -51,7 +60,7 @@ function session(local: string, remote: string, type: string, value: string) {
   assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics, "/src"));
   assertMemoryDiagnostics(checked);
   const source = createTargetSourceProgram(checked);
-  const calls = memoryCalls(checked, "toRawPointer");
+  const calls = memoryCalls(checked, "torawptr");
   assert.equal(calls.length, 2);
   const layouts = calls.map(call => {
     const selected = selectTsonicRawLocationOperation(source.ast, source.sourceFacts, call);
@@ -61,11 +70,11 @@ function session(local: string, remote: string, type: string, value: string) {
   return { source, calls, layouts };
 }
 
-const scalar = "const layout = memoryLayout<uint32>(abi, 4, 4, 4);";
+const scalar = "const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });";
 const cases = [
   ["scalar", scalar, "uint32", "3"],
-  ["nullable pointer", "const layout = memoryLayout<Pointer<uint32> | undefined>(abi, 8, 8, 8);",
-    "Pointer<uint32> | undefined", "allocatePointer<uint32>(3)"],
+  ["nullable pointer", "const layout = memorylayout<Pointer<uint32> | undefined>({ datalayout: abi, bytesize: 8, bytealignment: 8, stride: 8, fields: [] });",
+    "Pointer<uint32> | undefined", "allocateptr<uint32>(3)"],
   ["nested record", recordLayout(), "Outer", "{ inner: { first: 1, second: 2 } }"],
 ] as const;
 
@@ -97,9 +106,9 @@ for (const [name, layout, type, value] of cases) {
 }
 
 for (const [name, local, remote, type, value] of [
-  ["size", scalar, "const layout = memoryLayout<uint32>(abi, 8, 4, 8);", "uint32", "3"],
-  ["alignment", scalar, "const layout = memoryLayout<uint32>(abi, 4, 2, 4);", "uint32", "3"],
-  ["stride", scalar, "const layout = memoryLayout<uint32>(abi, 4, 4, 8);", "uint32", "3"],
+  ["size", scalar, "const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, fields: [] });", "uint32", "3"],
+  ["alignment", scalar, "const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 2, stride: 4, fields: [] });", "uint32", "3"],
+  ["stride", scalar, "const layout = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 8, fields: [] });", "uint32", "3"],
   ...([
     ["nested stride", { childStride: 8 }],
     ["field offset", { offset: 4 }],

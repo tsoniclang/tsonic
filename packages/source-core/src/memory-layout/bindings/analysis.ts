@@ -15,7 +15,7 @@ export function analyzeMemoryFieldBinding(call: MemorySourceCall, analysis: Memo
       sourceType === undefined || pointeeType === undefined ||
       selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value") ||
       !analysis.types.binding(call, field)) {
-    memoryDiagnostic(call, "FIELD_BINDING_NOT_PROVEN", "bindMemoryField requires one finalized field and a non-nil pointer with that field's exact source memory domain.");
+    memoryDiagnostic(call, "FIELD_BINDING_NOT_PROVEN", "bindmemoryfield requires one finalized field and a non-nil pointer with that field's exact source memory domain.");
     return;
   }
   publishMemoryFact(call, tsonicMemoryFieldBindingFactKey, {
@@ -34,7 +34,7 @@ export function analyzeMemoryRecordBinding(call: MemorySourceCall, analysis: Mem
       arguments_.length !== layout.fields.length ||
       selected.selection.sourceArgumentBindings.some(binding => binding.sourceForm !== "value") ||
       !analysis.types.record(call, layout)) {
-    memoryDiagnostic(call, "RECORD_BINDING_NOT_PROVEN", "bindMemoryRecord requires a closed data record layout and one explicit binding for every field.");
+    memoryDiagnostic(call, "RECORD_BINDING_NOT_PROVEN", "bindmemoryrecord requires a closed data record layout and one explicit binding for every field.");
     return;
   }
   const fields = arguments_.map(operand => ({ expression: operand.expression, binding: analysis.binding(operand.expression, context) }));
