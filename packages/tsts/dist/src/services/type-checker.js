@@ -8,7 +8,7 @@ import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Checker_GetPropertyOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal } from "../internal/checker/checker/state.js";
-import { resolveSourceIntrinsicDeclaration } from "../internal/checker/checker/source-intrinsic-evidence.js";
+import { resolveSourceProviderReference } from "../internal/checker/checker/source-provider-reference.js";
 import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getSymbolOfDeclaration, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
 import { Checker_getApparentTypeOfContextualType, Checker_getContextualType, Checker_getContextualTypeForObjectLiteralElement, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
@@ -47,7 +47,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     const wellKnownSymbolInfos = new WeakMap();
     const resourceManagementInfos = new WeakMap();
     const queries = {
-        getIntrinsicDeclarationInfo: (expression) => withCheckerForNode(program, expression, defaultOptions, checker => resolveSourceIntrinsicDeclaration(checker, expression)),
+        getProviderReferenceInfo: (expression) => withCheckerForNode(program, expression, defaultOptions, checker => resolveSourceProviderReference(checker, expression)),
         getTypeAtLocation: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeAtLocation(checker, node)),
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
         getContextualType: (node, contextFlags = ContextFlagsNone) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getContextualType(checker, node, contextFlags)),

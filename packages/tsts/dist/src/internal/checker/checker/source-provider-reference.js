@@ -6,27 +6,29 @@ import { GetSourceFileOfNode, IsOptionalChain, IsStringLiteralLike, IsVarConst, 
 import { getExtensionHost } from "../../../extensions/host.js";
 import { providerIntrinsicDeclarationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey } from "../../../extensions/facts.js";
 import { Checker_GetAliasedSymbol, Checker_GetSymbolAtLocation } from "./symbols.js";
-export function resolveSourceIntrinsicDeclaration(checker, expression) {
+export function resolveSourceProviderReference(checker, expression) {
     if (checker === undefined || expression === undefined)
         return undefined;
     const sourceFile = GetSourceFileOfNode(expression);
     if (sourceFile === undefined || !checker.fileIndexMap.has(sourceFile)) {
-        throw new Error("Intrinsic identity requires an expression from the owning compiler program.");
+        throw new Error("Provider identity requires an expression from the owning compiler program.");
     }
     const host = getExtensionHost(checker.program);
     if (host === undefined)
         return undefined;
     const symbol = resolveStaticReferenceSymbol(checker, expression, new Set());
-    const declaration = host.facts.get(symbol, providerIntrinsicDeclarationFactKey);
-    if (symbol === undefined || declaration === undefined)
+    if (symbol === undefined)
         return undefined;
+    const intrinsic = host.facts.get(symbol, providerIntrinsicDeclarationFactKey);
     const family = host.facts.get(symbol, providerTypeFamilyFactKey);
     const ordinary = host.facts.get(symbol, providerVirtualDeclarationFactKey);
     const facet = family !== undefined
         ? Object.freeze({ kind: "type-family", family })
-        : ordinary !== undefined && ordinary.exportId !== declaration.exportId
+        : ordinary !== undefined && (intrinsic === undefined || !providerVirtualDeclarationFactKey.equals(ordinary, intrinsic))
             ? Object.freeze({ kind: "declaration", declaration: ordinary }) : undefined;
-    return Object.freeze({ expression, symbol, declaration, ...(facet === undefined ? {} : { ordinary: facet }) });
+    if (intrinsic === undefined)
+        return facet === undefined ? undefined : Object.freeze({ expression, symbol, ordinary: facet });
+    return Object.freeze({ expression, symbol, intrinsic, ...(facet === undefined ? {} : { ordinary: facet }) });
 }
 function resolveStaticReferenceSymbol(checker, expression, aliases) {
     const host = checker === undefined ? undefined : getExtensionHost(checker.program);
@@ -55,7 +57,7 @@ function resolveStaticReferenceSymbol(checker, expression, aliases) {
             : binding;
         if (symbol === undefined)
             return undefined;
-        if (receiver !== undefined && !isExactIntrinsicMember(receiver, host?.facts.get(symbol, providerIntrinsicDeclarationFactKey)))
+        if (receiver !== undefined && !isExactProviderMember(receiver, host?.facts.get(symbol, providerVirtualDeclarationFactKey)))
             return undefined;
         const variable = symbol.ValueDeclaration;
         if (variable === undefined || !IsVariableDeclaration(variable) || !IsVarConst(variable))
@@ -70,11 +72,11 @@ function resolveStaticReferenceSymbol(checker, expression, aliases) {
     }
     return undefined;
 }
-function isExactIntrinsicMember(owner, member) {
+function isExactProviderMember(owner, member) {
     return member !== undefined && member.memberId !== undefined && member.signatureId === undefined
         && member.providerId === owner.providerId && member.providerVersion === owner.providerVersion
         && member.moduleSpecifier === owner.moduleSpecifier && member.providerModuleId === owner.providerModuleId
         && member.artifactFileName === owner.artifactFileName
         && member.exportId === owner.exportId && member.exportName === owner.exportName;
 }
-//# sourceMappingURL=source-intrinsic-evidence.js.map
+//# sourceMappingURL=source-provider-reference.js.map
