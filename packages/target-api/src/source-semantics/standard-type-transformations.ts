@@ -6,13 +6,13 @@ import type {
   TypeSignatureParameterInfo,
 } from "@tsonic/tsts";
 import type {
-  SourceProgramNavigation,
+  SourceReferenceNavigation,
 } from "../source-navigation/index.js";
 import { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utilities.js";
 import type {
   SourceCallableTypeEvidence,
   SourceCallableParameterEvidence,
-  SourceFinalTypeQueries,
+  SourceTypeQueries,
   SourceFileSemantics,
   SourceSelectedDeclarationQueries,
   SourceStandardTypeTransformation,
@@ -21,7 +21,7 @@ import type {
 
 interface StandardTypeTransformationContext {
   readonly ast: AstReader;
-  readonly navigation: SourceProgramNavigation;
+  readonly navigation: Pick<SourceReferenceNavigation, "sourceReferenceFor">;
   semanticsFor(node: Node): SourceFileSemantics;
 }
 
@@ -140,7 +140,7 @@ function isCanonicalTypescriptUtilityDeclaration(
 function selectParameterListTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  types: SourceFinalTypeQueries,
+  types: SourceTypeQueries,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
   const signature = lastDefined(signatures);
@@ -177,7 +177,7 @@ function selectParameterListTransformation(
 function selectResultTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  types: SourceFinalTypeQueries &
+  types: SourceTypeQueries &
     Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
@@ -195,7 +195,7 @@ function selectResultTransformation(
 function selectThisParameterTransformation(
   signatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  types: SourceFinalTypeQueries,
+  types: SourceTypeQueries,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
   const signature = lastDefined(signatures);
@@ -225,7 +225,7 @@ function selectThisParameterTransformation(
 function selectCallableTransformation(
   inputSignatures: readonly (Signature | undefined)[],
   selectedType: Type,
-  types: SourceFinalTypeQueries &
+  types: SourceTypeQueries &
     Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceStandardTypeTransformation {
@@ -272,7 +272,7 @@ function selectCallableTransformation(
 export function selectSourceCallableTypeEvidence(
   type: Type,
   types: Pick<
-    SourceFinalTypeQueries,
+    SourceTypeQueries,
     | "callSignatures"
     | "signatureParameterInfos"
     | "returnType"
@@ -315,7 +315,7 @@ function sourceCallableParameterEvidence(
 
 function signatureResultEvidence(
   signature: Signature,
-  types: Pick<SourceFinalTypeQueries, "returnType"> &
+  types: Pick<SourceTypeQueries, "returnType"> &
     Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceTypeComponentEvidence | undefined {

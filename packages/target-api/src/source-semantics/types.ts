@@ -61,7 +61,7 @@ export interface SourceOperationEvidenceQueries {
   callParameterSlots(source: ResolvedSourceCallInfo): readonly SourceCallParameterSlot[] | undefined;
 }
 
-export interface SourceFinalTypeQueries {
+export interface SourceTypeQueries {
   expressionType(node: Node): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): Type | undefined;
@@ -156,7 +156,7 @@ export interface SourceFactSubjectQueries {
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
   readonly operations: SourceOperationEvidenceQueries;
-  readonly types: SourceFinalTypeQueries;
+  readonly types: SourceTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;
   readonly facts: SourceFactSubjectQueries;
 }
@@ -287,4 +287,8 @@ export interface TargetSourceProgram {
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
   readonly semantics: SourceProgramSemantics;
+}
+
+export interface SourceSemanticFactQueries extends Pick<ReadonlySourceFactResolver, "getFact" | "getVirtualDeclarationDocument"> {
+  hasFacts(subject: ExtensionFactSubject | undefined): boolean;
 }

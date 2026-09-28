@@ -56,6 +56,7 @@ const factStoreApplyDelta = Symbol("tsts.extensionFactStore.applyDelta");
 const factStoreTransactionActive = Symbol("tsts.extensionFactStore.transactionActive");
 const factStoreInvalidate = Symbol("tsts.extensionFactStore.invalidate");
 const factStoreForOwner = Symbol("tsts.extensionFactStore.forOwner");
+const factStoreHasMatchingFact = Symbol("tsts.extensionFactStore.hasMatchingFact");
 const factStoreSetForHost = Symbol("tsts.extensionFactStore.setForHost");
 const factStoreSetSourceAnalyzerAccessGuard = Symbol("tsts.extensionFactStore.setSourceAnalyzerAccessGuard");
 const diagnosticStoreCreateSavepoint = Symbol("tsts.extensionDiagnosticStore.createSavepoint");
@@ -602,6 +603,15 @@ export class ExtensionFactStore {
         }
         return Object.freeze(Array.from(this.#getSubjectFacts(subject)?.values() ?? []));
     }
+    [factStoreHasMatchingFact](subject, accepts) {
+        if (subject === undefined)
+            return false;
+        for (const entry of this.#getSubjectFacts(subject)?.values() ?? []) {
+            if (accepts(entry.key))
+                return true;
+        }
+        return false;
+    }
     seal() {
         if (this.#ownerId !== undefined || this.#effectiveOwnerId() !== undefined) {
             throw new Error("Extension-owned fact capabilities cannot seal the host fact store.");
@@ -965,10 +975,7 @@ export class ExtensionFactResolver {
         this.#state.registrations.push(registration);
     }
     resolve(subject, key) {
-        if (this.#ownerId !== undefined
-            && this.#state.ownerAuthority.stack[this.#state.ownerAuthority.stack.length - 1] !== this.#ownerId) {
-            throw new Error(`Extension fact resolver capability '${this.#ownerId}' was used outside its host-owned callback scope.`);
-        }
+        this.#assertActiveOwner();
         const ownerId = this.#effectiveOwnerId();
         if (ownerId !== undefined)
             this.#services.assertReadable(ownerId, key);
@@ -1003,6 +1010,18 @@ export class ExtensionFactResolver {
             resolving.delete(subject);
             if (resolving.size === 0)
                 this.#state.resolving.delete(keyIdentity);
+        }
+    }
+    hasFacts(subject) {
+        this.#assertActiveOwner();
+        this.#services.source();
+        const ownerId = this.#effectiveOwnerId();
+        return this.#facts[factStoreHasMatchingFact](subject, key => ownerId === undefined || this.#services.isReadable(ownerId, key));
+    }
+    #assertActiveOwner() {
+        if (this.#ownerId !== undefined
+            && this.#state.ownerAuthority.stack[this.#state.ownerAuthority.stack.length - 1] !== this.#ownerId) {
+            throw new Error(`Extension fact resolver capability '${this.#ownerId}' was used outside its host-owned callback scope.`);
         }
     }
     #resolveRegistered(subject, key, resolvers) {
@@ -2577,6 +2596,7 @@ export class ExtensionHost {
         this.factResolver = new ExtensionFactResolver(this.facts, this.diagnostics, {
             source: () => this.getCompilerQueryContext(),
             assertReadable: (ownerId, key) => this.#assertSourceAnalyzerFactReadable(ownerId, key),
+            isReadable: (ownerId, key) => this.#sourceAnalyzerFactReadable(ownerId, key),
             getVirtualDeclarationDocument: name => this.providers.getVirtualDeclarationDocument(name),
         });
         this.providers = new ProviderRegistry(this.diagnostics, options.requiredProviderModules ?? [], getProviderMaterializationRound(options));
@@ -3139,17 +3159,18 @@ export class ExtensionHost {
     }
     #assertSourceAnalyzerFactReadable(extensionId, key) {
         getExtensionFactKeyIdentity(key);
-        if (isHostSourceReadableFactKey(key)) {
+        if (this.#sourceAnalyzerFactReadable(extensionId, key))
             return;
-        }
+        throw new Error(`Source extension '${extensionId}' cannot read or resolve fact key '${formatExtensionFactKeyForDisplay(key)}'; source analyzers may read only host source facts, their own facts, and facts from explicitly declared source dependencies.`);
+    }
+    #sourceAnalyzerFactReadable(extensionId, key) {
+        if (isHostSourceReadableFactKey(key))
+            return true;
         const producer = this.#extensionsById.get(extensionId);
         const ownsKey = key.extensionId === extensionId;
         const declaresSourceDependency = producer?.dependencies?.dependsOn?.includes(key.extensionId) === true
             && this.#extensionsById.has(key.extensionId);
-        if (ownsKey || declaresSourceDependency) {
-            return;
-        }
-        throw new Error(`Source extension '${extensionId}' cannot read or resolve fact key '${formatExtensionFactKeyForDisplay(key)}'; source analyzers may read only host source facts, their own facts, and facts from explicitly declared source dependencies.`);
+        return ownsKey || declaresSourceDependency;
     }
     #assertRegistrationOwner(extensionId, registrationKind) {
         const activeOwner = this.#ownerAuthority.stack[this.#ownerAuthority.stack.length - 1];
@@ -3220,6 +3241,10 @@ function createSourceAnalysisFactAccess(facts, scope) {
 }
 function createSourceFactResolver(factResolver, scope, getVirtualDeclarationDocument) {
     const resolver = {
+        hasFacts(subject) {
+            assertExtensionCapabilityActive(scope);
+            return factResolver.hasFacts(subject);
+        },
         getVirtualDeclarationDocument(name) {
             assertExtensionCapabilityActive(scope);
             return getVirtualDeclarationDocument(name);

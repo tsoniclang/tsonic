@@ -52,6 +52,19 @@ bounded traversal, reusing those selections and preserving source order. Cached
 answers cannot outlive their source epoch. Missing references remain missing;
 lazy selection does not suppress ordinary diagnostics or prove native validity.
 
+Current-epoch source queries and final target-source programs use the same
+`createSourceProgramSemantics` implementation. It accepts the actual source
+queries, exact reference navigation and a fact-query capability. It does not
+fabricate a checked program or certify unfinished native elaboration. Final
+target-source publication still requires `CheckedSourceProgram`.
+
+`factResolver.hasFacts(subject)` reports only currently published metadata
+readable by that extension. It does not expose foreign keys or values, enumerate
+the global store or run every resolver. Authored primitive queries demand their
+exact declaration first, retaining native width and signedness rather than
+following its erased `number` or `bigint` alias. Query caches cannot authorize
+reads from a retired source epoch.
+
 Only the registered owner publishes its result. Nested requests must respect
 each owner's declared dependencies. Cycles fail, callback capabilities expire,
 and a failed or suspended transaction does not retain provisional facts.

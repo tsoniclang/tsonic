@@ -23,7 +23,7 @@ export function selectAuthoredSourceType(
   ast: AstReader,
   types: TypeShapeQueries,
   checker: TypeCheckerQueries,
-  facts: ReadonlySourceFactResolver,
+  facts: Pick<ReadonlySourceFactResolver, "getFact">,
   authoredTypeNode: Node,
   selectedType: Type,
 ): SourceAuthoredTypeSelection {

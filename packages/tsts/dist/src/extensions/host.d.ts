@@ -77,6 +77,7 @@ declare const factStoreApplyDelta: unique symbol;
 declare const factStoreTransactionActive: unique symbol;
 declare const factStoreInvalidate: unique symbol;
 declare const factStoreForOwner: unique symbol;
+declare const factStoreHasMatchingFact: unique symbol;
 declare const factStoreSetForHost: unique symbol;
 declare const factStoreSetSourceAnalyzerAccessGuard: unique symbol;
 declare const diagnosticStoreCreateSavepoint: unique symbol;
@@ -185,6 +186,7 @@ export interface SourceAnalysisFactAccess extends ExtensionFactReader {
 }
 export interface SourceFactResolver {
     readonly getVirtualDeclarationDocument: (uriOrFileName: string) => ProviderVirtualDeclarationDocument | undefined;
+    readonly hasFacts: (subject: ExtensionFactSubject | undefined) => boolean;
     readonly resolve: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>) => T | undefined;
 }
 export interface SourceAnalysisContext {
@@ -566,6 +568,7 @@ export declare class ExtensionFactStore {
     getEntry<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): ExtensionFactEntry<T> | undefined;
     has<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): boolean;
     entries(subject: ExtensionFactSubject | undefined): readonly ExtensionFactEntry<unknown>[];
+    [factStoreHasMatchingFact](subject: ExtensionFactSubject | undefined, accepts: (key: ExtensionFactKey<unknown>) => boolean): boolean;
     seal(): void;
     get sealed(): boolean;
     [factStoreBeginTransaction](): ExtensionFactTransaction;
@@ -599,6 +602,7 @@ interface ExtensionFactResolverState {
 interface ExtensionFactResolverServices {
     readonly source: () => SourceProgramQueries;
     readonly assertReadable: <T>(ownerId: string, key: ExtensionFactKey<T>) => void;
+    readonly isReadable: (ownerId: string, key: ExtensionFactKey<unknown>) => boolean;
     readonly getVirtualDeclarationDocument: SourceFactResolver["getVirtualDeclarationDocument"];
 }
 export declare class ExtensionFactResolver {
@@ -607,6 +611,7 @@ export declare class ExtensionFactResolver {
     [factResolverForOwner](extensionId: string, facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore): ExtensionFactResolver;
     register<T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>): void;
     resolve<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>): T | undefined;
+    hasFacts(subject: ExtensionFactSubject | undefined): boolean;
     [factResolverCreateSavepoint](): ExtensionFactResolverSavepoint;
     [factResolverAssertCanCommitSavepoint](savepoint: ExtensionFactResolverSavepoint): void;
     [factResolverCommitSavepoint](savepoint: ExtensionFactResolverSavepoint): void;

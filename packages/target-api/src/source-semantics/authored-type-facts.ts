@@ -2,19 +2,19 @@ import type {
   AstReader,
   ExtensionFactSubject,
   Node,
-  ReadonlySourceFactResolver,
   TypeCheckerQueries,
 } from "@tsonic/tsts";
 import { sourcePrimitiveFactKey } from "@tsonic/tsts";
 import type {
-  SourceProgramNavigation,
+  SourceReferenceNavigation,
 } from "../source-navigation/index.js";
 import { sourceTypeFactSubjects } from "./fact-subjects.js";
+import type { SourceSemanticFactQueries } from "./types.js";
 
 export function authoredSourceTypeFactDependencies(
   ast: AstReader,
-  navigation: SourceProgramNavigation,
-  facts: ReadonlySourceFactResolver,
+  navigation: Pick<SourceReferenceNavigation, "referenceFor">,
+  facts: SourceSemanticFactQueries,
   checker: TypeCheckerQueries,
   node: Node,
 ): readonly ExtensionFactSubject[] {
@@ -29,8 +29,8 @@ export function authoredSourceTypeFactDependencies(
 
 export function authoredSourceTypeFactNodes(
   ast: AstReader,
-  navigation: SourceProgramNavigation,
-  facts: ReadonlySourceFactResolver,
+  navigation: Pick<SourceReferenceNavigation, "referenceFor">,
+  facts: SourceSemanticFactQueries,
   checker: TypeCheckerQueries,
   node: Node,
 ): readonly Node[] {
@@ -50,8 +50,8 @@ interface AuthoredSourceTypeFactDependencies {
 
 function collectAuthoredSourceTypeFactDependencies(
   ast: AstReader,
-  navigation: SourceProgramNavigation,
-  facts: ReadonlySourceFactResolver,
+  navigation: Pick<SourceReferenceNavigation, "referenceFor">,
+  facts: SourceSemanticFactQueries,
   checker: TypeCheckerQueries,
   node: Node,
 ): AuthoredSourceTypeFactDependencies {
@@ -63,7 +63,10 @@ function collectAuthoredSourceTypeFactDependencies(
       return;
     }
     visited.add(current);
-    const hasFacts = facts.getFacts(current).length > 0;
+    const primitive = ast.is.IsTypeReferenceNode(current)
+      ? facts.getFact(current, sourcePrimitiveFactKey)
+      : undefined;
+    const hasFacts = facts.hasFacts(current);
     if (hasFacts) {
       subjects.push(current);
     }
@@ -71,7 +74,7 @@ function collectAuthoredSourceTypeFactDependencies(
       nodes.push(current);
     }
     ast.forEachChild(current, visit);
-    if (!ast.is.IsTypeReferenceNode(current) || facts.getFact(current, sourcePrimitiveFactKey) !== undefined) {
+    if (!ast.is.IsTypeReferenceNode(current) || primitive !== undefined) {
       return;
     }
     const typeName = ast.as.AsTypeReferenceNode(current)?.TypeName;
@@ -87,7 +90,7 @@ function collectAuthoredSourceTypeFactDependencies(
   const type = checker.getTypeFromTypeNode(node);
   if (type !== undefined) {
     for (const subject of sourceTypeFactSubjects(checker, type)) {
-      if (facts.getFacts(subject).length > 0 && !subjects.includes(subject)) {
+      if (facts.hasFacts(subject) && !subjects.includes(subject)) {
         subjects.push(subject);
       }
     }

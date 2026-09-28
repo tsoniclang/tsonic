@@ -4,11 +4,11 @@ import type {
 } from "@tsonic/tsts";
 import type {
   SourceContextualTupleLiteralSelection,
-  SourceFinalTypeQueries,
+  SourceTypeQueries,
 } from "./types.js";
 
 export function selectSourceContextualTupleLiteral(
-  types: SourceFinalTypeQueries,
+  types: SourceTypeQueries,
   node: Node,
   presentElementCount: number,
 ): SourceContextualTupleLiteralSelection {
