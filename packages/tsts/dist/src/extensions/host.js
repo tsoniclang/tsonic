@@ -4826,17 +4826,9 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
     const isDefault = exportName === "default" || declaration.exportKind === "default";
     const needsIntrinsicBinding = declaration.intrinsicId !== undefined
         && (declaration.kind === "interface" || declaration.kind === "type");
-    const canInlineDefault = isDefault && !needsIntrinsicBinding && canRenderInlineDefaultProviderExport(declaration.kind);
     const directNamedExport = options.localOnly !== true && !isDefault && exportName === declarationName;
-    const declarationPrefix = directNamedExport
-        ? "export declare "
-        : options.localOnly === true
-            ? "declare "
-            : canInlineDefault
-                ? "export default "
-                : "declare ";
-    const typePrefix = directNamedExport ? "export " : options.localOnly === true ? "" : "";
-    const localTypePrefix = directNamedExport ? "export " : options.localOnly === true ? "" : "";
+    const declarationPrefix = directNamedExport ? "export declare " : "declare ";
+    const typePrefix = directNamedExport ? "export " : "";
     let rendered;
     switch (declaration.kind) {
         case "class": {
@@ -4846,7 +4838,7 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         }
         case "interface": {
             const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
-            rendered = `${canInlineDefault && options.localOnly !== true ? "export default " : localTypePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
+            rendered = `${typePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
         }
         case "function":
@@ -4876,12 +4868,10 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
     if (needsIntrinsicBinding) {
         rendered += `\n${declarationPrefix}const ${declarationName}: unique symbol;`;
     }
-    if (options.localOnly === true || directNamedExport || canInlineDefault) {
+    if (options.localOnly === true || directNamedExport) {
         return rendered;
     }
-    return isDefault
-        ? `${rendered}\nexport default ${declarationName};`
-        : `${rendered}\nexport { ${declarationName} as ${exportName} };`;
+    return `${rendered}\nexport { ${declarationName} as ${exportName} };`;
 }
 function withProviderRenderOwner(context, declaration, member) {
     const { declaration: _previousDeclaration, member: _previousMember, ...shared } = context;
@@ -5005,9 +4995,6 @@ function renderProviderMember(member, context) {
             }).join("\n  ");
         }
     }
-}
-function canRenderInlineDefaultProviderExport(kind) {
-    return kind === "class" || kind === "interface" || kind === "enum";
 }
 function getProviderExportName(declaration) {
     return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
@@ -5872,7 +5859,7 @@ function isValidProviderExportName(value) {
     if (exportName !== "default" && !isIdentifierText(exportName)) {
         return false;
     }
-    return exportName !== "default" || value.kind !== "namespace";
+    return true;
 }
 function isValidProviderHeritageDeclaration(value) {
     return (value.kind === "extends" || value.kind === "implements")
