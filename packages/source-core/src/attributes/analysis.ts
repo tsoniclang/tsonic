@@ -54,6 +54,10 @@ interface AttributeBuilderRule {
 
 const attributeBuilderRules = Object.freeze([
   rule(
+    memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleTarget, tsonicAttributeBuilderSignatureIds.moduleTarget),
+    analyzeAttributeTargetSpecifier,
+  ),
+  rule(
     memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleAdd, tsonicAttributeBuilderSignatureIds.moduleAdd),
     analyzeAttributeApplication,
   ),

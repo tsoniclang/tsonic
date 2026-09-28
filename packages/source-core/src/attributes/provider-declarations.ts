@@ -10,6 +10,7 @@ import {
 export const tsonicAttributeBuilderMemberIds = Object.freeze({
   module: "attribute.module",
   moduleAdd: "__TsonicModuleAttributeBuilder.add",
+  moduleTarget: "__TsonicModuleAttributeBuilder.target",
   add: "__TsonicAttributeBuilder.add",
   property: "__TsonicAttributeBuilder.property",
   method: "__TsonicAttributeBuilder.method",
@@ -23,6 +24,7 @@ export const tsonicAttributeBuilderSignatureIds = Object.freeze({
   root: "attribute<T>()",
   module: "attribute.module()",
   moduleAdd: tsonicAttributeBuilderMemberIds.moduleAdd,
+  moduleTarget: tsonicAttributeBuilderMemberIds.moduleTarget,
   add: tsonicAttributeBuilderMemberIds.add,
   property: tsonicAttributeBuilderMemberIds.property,
   method: tsonicAttributeBuilderMemberIds.method,
@@ -71,6 +73,9 @@ export function moduleAttributeBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     members: [
       attributeApplicationMember(tsonicAttributeBuilderMemberIds.moduleAdd),
+      methodMember(tsonicAttributeBuilderMemberIds.moduleTarget, "target", [
+        { name: "specifier", type: { kind: "string" } },
+      ], { kind: "provider-ref", moduleSpecifier: tsonicCoreLangModule, exportName: "__TsonicModuleAttributeBuilder" }),
       unavailableConstructorMember("__TsonicModuleAttributeBuilder"),
     ],
   };

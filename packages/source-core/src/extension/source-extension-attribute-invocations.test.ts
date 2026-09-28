@@ -122,13 +122,53 @@ test("a parameter with the attribute callable type does not acquire marker ident
     import { attribute } from "@tsonic/core/lang.js";
     function mark(): void {}
     function apply(annotate: typeof attribute): void {
-      annotate.module().add(() => mark());
+      annotate.module().target("inner").add(() => mark());
     }
   `);
-  for (const member of ["module", "add"]) {
+  for (const member of ["module", "target", "add"]) {
     assert.equal(getSourceFact(session,
       propertyCallExpression(session, sourceFile, member), tsonicAttributeBuilderFactKey), undefined);
   }
+});
+
+for (const [name, imported, selector] of [
+  ["direct", 'import { attribute } from "@tsonic/core/lang.js";', "attribute"],
+  ["alias", 'import { attribute as annotate } from "@tsonic/core/lang.js";', "annotate"],
+  ["namespace", 'import * as core from "@tsonic/core/lang.js";', "core.attribute"],
+  ["re-export", 'import { annotate } from "./markers.js";', "annotate"],
+] as const) {
+  test(`module target selection preserves exact source identity through ${name}`, () => {
+    const { session, sourceFile } = createCleanSourceCoreSession(`
+      ${imported}
+      function mark(): void {}
+      ${selector}.module().target("inner").add(() => mark());
+      ${selector}.module().target("outer").add(() => mark());
+      ${selector}.module().add(() => mark());
+    `, { "/src/markers.ts": 'export { attribute as annotate } from "@tsonic/core/lang.js";' });
+    for (const [occurrence, specifier] of ["inner", "outer", undefined].entries()) {
+      const fact = getSourceFact(session,
+        propertyCallExpression(session, sourceFile, "add", occurrence), tsonicAttributeBuilderFactKey);
+      assert.equal(fact?.kind, "application");
+      assert.equal(fact?.applicationPlacement, "module");
+      assert.equal(fact?.applicationTarget, sourceFile);
+      assert.equal(fact?.applicationTargetSpecifier, specifier);
+      assert.equal(Object.isFrozen(fact), true);
+      if (specifier === undefined) assert.equal("applicationTargetSpecifier" in fact!, false);
+    }
+  });
+}
+
+test("module target selection uses the same authored-literal proof as member targets", () => {
+  const { session, sourceFile } = createSourceCoreSession(`
+    import { attribute } from "@tsonic/core/lang.js";
+    function mark(): void {}
+    const selected = "inner";
+    attribute.module().target(selected).add(() => mark());
+  `);
+  assert.ok(checkSource(session).extensionDiagnostics.some(
+    diagnostic => diagnostic.extensionCode === "SOURCE_CORE_ATTRIBUTE_TARGET_SPECIFIER_NOT_PROVEN"));
+  assert.equal(getSourceFact(session,
+    propertyCallExpression(session, sourceFile, "add"), tsonicAttributeBuilderFactKey), undefined);
 });
 
 test("a same-spelled callable member is not an attribute marker", () => {
@@ -141,7 +181,9 @@ test("a same-spelled callable member is not an attribute marker", () => {
     propertyCallExpression(session, sourceFile, "module"), tsonicAttributeBuilderFactKey), undefined);
 });
 
-for (const expression of ["attribute.module(1)", "attribute.module<string>()", "attribute.module().constructor()", "attribute.module().property(value => value)"]) {
+for (const expression of ["attribute.module(1)", "attribute.module<string>()", "attribute.module().constructor()", "attribute.module().property(value => value)",
+  "attribute.module().target()", "attribute.module().target(1)", 'attribute.module().target("inner", "outer")',
+  'attribute.module().target<string>("inner")']) {
   test(`module placement rejects invalid selector shape: ${expression}`, () => {
     const { session } = createSourceCoreSession(`import { attribute } from "@tsonic/core/lang.js"; ${expression};`);
     assert.ok(definedDiagnostics(checkSource(session).diagnostics).length > 0);
