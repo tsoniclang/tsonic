@@ -1,5 +1,5 @@
 import { fieldFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallInfo, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
+import type { Node, ResolvedSourceSignatureCallInfo, SourceAnalysisContext, Symbol, Type } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
 import type { MemorySourceCall } from "../analysis-context.js";
@@ -102,7 +102,7 @@ export function createMemoryTypeContracts(
     return result;
   }
 
-  function canonical(call: MemorySourceCall): ResolvedSourceCallInfo | undefined {
+  function canonical(call: MemorySourceCall): ResolvedSourceSignatureCallInfo | undefined {
     const selection = checker.getResolvedCallInfo(call.selected.call);
     if (selection?.outcome !== "applicable" || checker.getSignatureDeclaration(selection.selectedSignature) !==
         call.context.checker.getSignatureDeclaration(call.selected.selection.selectedSignature)) return undefined;
@@ -127,7 +127,7 @@ export function createMemoryTypeContracts(
     return domain === undefined ? undefined : domains.pointee(domain);
   }
 
-  function arrayResult(selection: ResolvedSourceCallInfo, queries: TsonicSourceFileAnalysisContext): TsonicFixedArrayFact | undefined {
+  function arrayResult(selection: ResolvedSourceSignatureCallInfo, queries: TsonicSourceFileAnalysisContext): TsonicFixedArrayFact | undefined {
     const arguments_ = queries.typeShape.getTypeArguments(selection.sourceResultType);
     if (arguments_.length !== 1 || arguments_[0] === undefined) return undefined;
     const array = selectTsonicFixedArray(arguments_[0], queries,

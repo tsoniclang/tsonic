@@ -23,6 +23,14 @@ TSTS parses and checks the complete source program plus virtual declarations.
 It selects the exact `statSync(string)` signature and `Stats.isDirectory()`
 member and retains their source-semantic evidence.
 
+The public `getResolvedCallInfo` query distinguishes ordinary signature calls
+from intrinsic-only provider references. An `outcome: "intrinsic"` selection
+contains the exact provider reference, not a fabricated callable signature,
+result type or execution contract. Selecting it does not check its token inputs
+as an ordinary argument list. Selection alone does not make the call valid:
+without native elaboration, normal source diagnostics still apply. Shared
+parameter/result queries return no ordinary evidence for that selection.
+
 ## 3. Target session
 
 The host creates one explicit target compilation session. The target receives

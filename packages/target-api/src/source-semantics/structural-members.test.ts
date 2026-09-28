@@ -19,7 +19,8 @@ function inspect(text: string, files: Record<string, string> = {}) {
   for (const node of walk(file)) {
     if (!source.ast.is.IsCallExpression(node)) continue;
     const call = semantics.operations.call(node);
-    if (call?.sourceArguments.length !== 1) continue;
+    assert.equal(call?.outcome, "applicable");
+    if (call.sourceArguments.length !== 1) continue;
     const actual = call.sourceArguments[0]?.type;
     const selected = call.sourceSelectedSignatureParameters[0]?.selectedType;
     assert.ok(actual && selected);

@@ -1,6 +1,7 @@
 import { pointerOperationFactKey } from "@tsonic/tsts";
 import type { Node, PointerOperationFact } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
+import type { ResolvedSourceSignatureCallInfo } from "@tsonic/tsts";
 import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
 import type { TsonicRawMemoryOperationFact } from "../raw-memory/facts.js";
 import { createPointerContainerQueries } from "./containers.js";
@@ -188,10 +189,14 @@ export function createTsonicPointerBackingQueries(
             continue;
           }
           const call = semantics.forNode(callNode).operations.call(callNode);
-          const implementation = call === undefined ? undefined : selectedImplementation(call);
-          const selectedParameter = call?.sourceSelectedSignatureParameters.find(parameter =>
+          if (call === undefined || call.outcome === "intrinsic") {
+            reject(callNode, "The incoming call has no selected source signature.");
+            continue;
+          }
+          const implementation = selectedImplementation(call);
+          const selectedParameter = call.sourceSelectedSignatureParameters.find(parameter =>
             parameter.parameterDeclaration === node);
-          if (call === undefined || implementation !== callable || selectedParameter === undefined ||
+          if (implementation !== callable || selectedParameter === undefined ||
             call.sourceArguments.some((_, index) => !call.sourceArgumentBindings.some(binding => binding.sourceArgumentIndex === index))) {
             reject(callNode, "The incoming call does not select this exact implementation parameter.");
             continue;
@@ -220,19 +225,21 @@ export function createTsonicPointerBackingQueries(
       }
       if (ast.is.IsCallExpression(node)) {
         const call = semantics.forNode(node).operations.call(node);
-        const implementation = call === undefined ? undefined : selectedImplementation(call);
+        if (call === undefined || call.outcome === "intrinsic") {
+          reject(node, "The pointer result has no selected source signature.");
+          continue;
+        }
+        const implementation = selectedImplementation(call);
         const body = implementation === undefined ? undefined : ast.body(implementation);
         if (implementation === undefined || body === undefined || !ast.is.IsFunctionDeclaration(implementation)) {
           reject(node, "The pointer result has no exact non-virtual source implementation.");
           continue;
         }
-        if (call !== undefined) {
-          const types = semantics.forNode(node).types;
-          if (types.isNullish(call.sourceResultType) || types.isUnion(call.sourceResultType) &&
-            types.unionOrIntersectionTypes(call.sourceResultType).some(type => types.isNullish(type))) {
-            includesUndefined = true;
-            terminals.add(node);
-          }
+        const types = semantics.forNode(node).types;
+        if (types.isNullish(call.sourceResultType) || types.isUnion(call.sourceResultType) &&
+          types.unionOrIntersectionTypes(call.sourceResultType).some(type => types.isNullish(type))) {
+          includesUndefined = true;
+          terminals.add(node);
         }
         const pending: Node[] = [body];
         let returns = 0;
@@ -280,7 +287,7 @@ export function createTsonicPointerBackingQueries(
     return result;
   }
 
-  function selectedImplementation(call: ResolvedSourceCallInfo): Node | undefined {
+  function selectedImplementation(call: ResolvedSourceSignatureCallInfo): Node | undefined {
     const declaration = semantics.forNode(call.call).declarations.signatureDeclaration(call.selectedSignature);
     if (declaration === undefined) return undefined;
     const result = navigation.callableImplementation(declaration);

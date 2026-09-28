@@ -51,7 +51,7 @@ function isIntegerValueArgument(
   if (facts === undefined || facts.getFact(call, sourceMarkerFactKey) !== undefined) return false;
   const semantics = evidence.semanticsFor(call);
   const selected = semantics.operations.call(call);
-  if (selected?.sourceSelectedSignatureKind !== "resolved" || selected.outcome !== "applicable") return false;
+  if (selected?.outcome !== "applicable" || selected.sourceSelectedSignatureKind !== "resolved") return false;
   const declaration = semantics.declarations.signatureDeclaration(selected.selectedSignature);
   if (declaration === undefined || !navigation.isProjectDeclaration(declaration) || ast.body(declaration) === undefined) return false;
   const argumentIndex = selected.sourceArguments.findIndex(argument => argument.expression === expression);

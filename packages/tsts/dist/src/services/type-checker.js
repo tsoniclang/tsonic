@@ -1,6 +1,6 @@
 import { Background } from "../go/context.js";
 import { assertSemanticNodeOwned, assertSemanticProgramActive, assertSemanticSignatureOwned, assertSemanticSourceFileOwned, assertSemanticSymbolOwned, assertSemanticTypeOwned, } from "./semantic-query-ownership.js";
-import { Node_Text } from "../internal/ast/ast.js";
+import { Node_Expression, Node_Text } from "../internal/ast/ast.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
@@ -65,6 +65,14 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedCallInfo: (node) => memoizeResolvedNodeQuery(program, callInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
             if (!IsCallOrNewExpression(node)) {
                 return undefined;
+            }
+            const reference = resolveSourceProviderReference(checker, Node_Expression(node));
+            if (reference?.intrinsic !== undefined && reference.ordinary === undefined) {
+                return Object.freeze({ outcome: "intrinsic", reference: Object.freeze({
+                        expression: reference.expression,
+                        symbol: reference.symbol,
+                        intrinsic: reference.intrinsic,
+                    }) });
             }
             Checker_getResolvedSignature(checker, node, undefined, CheckModeNormal);
             const sourceResultType = Checker_GetTypeAtLocation(checker, node);

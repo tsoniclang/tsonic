@@ -14,7 +14,14 @@ export interface CreateTypeCheckerQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
 }
-export type ResolvedSourceCallInfo = ResolvedCallEvidence;
+export type ResolvedSourceSignatureCallInfo = ResolvedCallEvidence;
+export type ResolvedSourceCallInfo = ResolvedSourceSignatureCallInfo | {
+    readonly outcome: "intrinsic";
+    readonly reference: Pick<SourceProviderReferenceInfo, "expression" | "symbol"> & {
+        readonly intrinsic: NonNullable<SourceProviderReferenceInfo["intrinsic"]>;
+        readonly ordinary?: never;
+    };
+};
 export interface ResolvedSourceReceiverValueEvidence {
     readonly valueSymbol?: Symbol;
     readonly valueDeclaration?: Node;

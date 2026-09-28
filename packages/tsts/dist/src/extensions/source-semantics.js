@@ -248,8 +248,10 @@ function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourc
             return;
         }
         const callInfo = checker.getResolvedCallInfo(node);
+        if (callInfo === undefined || callInfo.outcome === "intrinsic")
+            return;
         const marker = resolveSelectedSourceSemanticsCallMarker(facts, callInfo);
-        if (marker === undefined || callInfo === undefined) {
+        if (marker === undefined) {
             return;
         }
         recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, node, callInfo, marker);

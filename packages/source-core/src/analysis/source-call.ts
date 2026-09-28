@@ -6,7 +6,7 @@ import type {
   ExtensionFactSubject,
   Node,
   ProviderVirtualDeclarationFact,
-  ResolvedSourceCallInfo,
+  ResolvedSourceSignatureCallInfo,
   SourceAnalysisContext,
 } from "@tsonic/tsts";
 import type {
@@ -18,7 +18,7 @@ import {
 
 export interface SelectedProviderSourceCall {
   readonly call: Node;
-  readonly selection: ResolvedSourceCallInfo;
+  readonly selection: ResolvedSourceSignatureCallInfo;
   readonly declaration: ProviderVirtualDeclarationFact;
 }
 

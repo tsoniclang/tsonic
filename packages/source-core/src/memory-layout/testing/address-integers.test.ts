@@ -43,6 +43,7 @@ for (const width of [32, 64] as const) {
           assert.equal(layout?.addressWidth, width);
           assert.equal(layout?.byteOrder, byteOrder);
           const selection = checker.getResolvedCallInfo(call);
+          assert.equal(selection?.outcome, "applicable");
           assert.ok(fact.resultType === selection?.sourceResultType);
           if (fact.operation === "raw-to-address-integer") {
             assert.equal(checker.typeToString(fact.resultType), width === 32 ? "number" : "bigint");

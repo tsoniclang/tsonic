@@ -2,13 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   Type,
+  ResolvedSourceSignatureCallInfo,
 } from "@tsonic/tsts";
 import {
   selectSourceCallParameterSlots,
 } from "./call-parameter-slots.js";
-import type {
-  ResolvedSourceCallInfo,
-} from "./call-result-selection.js";
 
 test("selected call parameter slots preserve required, optional, and rest forms", () => {
   const required = type();
@@ -59,12 +57,13 @@ test("selected call parameter slots fail closed for untyped or contradictory evi
 });
 
 function call(
-  parameters: readonly ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number][],
-): ResolvedSourceCallInfo {
+  parameters: readonly ResolvedSourceSignatureCallInfo["sourceSelectedSignatureParameters"][number][],
+): ResolvedSourceSignatureCallInfo {
   return {
+    outcome: "applicable",
     sourceSelectedSignatureKind: "resolved",
     sourceSelectedSignatureParameters: parameters,
-  } as ResolvedSourceCallInfo;
+  } as ResolvedSourceSignatureCallInfo;
 }
 
 function parameter(
@@ -73,14 +72,14 @@ function parameter(
   selectedType: Type,
   acceptsOmission: boolean,
   rest: boolean,
-): ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number] {
+): ResolvedSourceSignatureCallInfo["sourceSelectedSignatureParameters"][number] {
   return {
     parameterIndex,
     parameterName,
     selectedType,
     acceptsOmission,
     rest,
-  } as ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number];
+  } as ResolvedSourceSignatureCallInfo["sourceSelectedSignatureParameters"][number];
 }
 
 function type(): Type {

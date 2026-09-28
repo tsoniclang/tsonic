@@ -1,6 +1,6 @@
 import { pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallableCompletionInfo, Type } from "@tsonic/tsts";
-import type { ResolvedSourceCallInfo, TargetSourceProgram } from "@tsonic/target-api/source";
+import type { Node, ResolvedSourceCallableCompletionInfo, ResolvedSourceSignatureCallInfo, Type } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./backing/source-forms.js";
 import { selectTsonicRawLocationOperation } from "./raw-memory/selection.js";
 import { selectTsonicPointerView } from "./views/selection.js";
@@ -16,7 +16,7 @@ export interface TsonicPointerReturnQueries {
 }
 
 interface PointerReturnCallFrame {
-  readonly call: ResolvedSourceCallInfo;
+  readonly call: ResolvedSourceSignatureCallInfo;
   readonly implementation: Node;
   readonly caller: PointerReturnCallFrame | undefined;
   readonly values: Map<Node, PointerReturnValue>;
@@ -223,8 +223,9 @@ function selectTsonicPointerReturnEvidence(
     }
     if (ast.is.IsCallExpression(node)) {
       const call = semantics.forNode(node).operations.call(node);
-      const selected = call === undefined ? undefined : semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
-      if (call === undefined || selected === undefined) return undefined;
+      if (call === undefined || call.outcome === "intrinsic") return undefined;
+      const selected = semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+      if (selected === undefined) return undefined;
       const implementation = navigation.callableImplementation(selected);
       if (implementation.kind !== "resolved" || !ast.is.IsFunctionDeclaration(implementation.implementation.declaration)) return undefined;
       const target = implementation.implementation.declaration;

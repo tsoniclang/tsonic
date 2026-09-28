@@ -1,5 +1,5 @@
 import { fieldFactKey, pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallInfo, Symbol } from "@tsonic/tsts";
+import type { Node, ResolvedSourceSignatureCallInfo, Symbol } from "@tsonic/tsts";
 import type { TsonicSourceFileAnalysisContext } from "../../analysis/context.js";
 import { readSourceFact } from "../../analysis/source-call.js";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "../../pointers/backing/source-forms.js";
@@ -7,7 +7,7 @@ import type { MemoryTypeDomain, MemoryTypeDomains } from "./domains.js";
 import { tsonicPointerViewFactKey } from "../../pointers/views/facts.js";
 
 interface ValueFrame {
-  readonly call: ResolvedSourceCallInfo;
+  readonly call: ResolvedSourceSignatureCallInfo;
   readonly parent: ValueFrame | undefined;
 }
 
@@ -51,7 +51,7 @@ export function createMemoryValueDomains(
       return visit(initializer, frame);
     }
 
-    function returns(selected: ResolvedSourceCallInfo, frame: ValueFrame | undefined): MemoryTypeDomain | undefined {
+    function returns(selected: ResolvedSourceSignatureCallInfo, frame: ValueFrame | undefined): MemoryTypeDomain | undefined {
       const target = checker.getSignatureDeclaration(selected.selectedSignature);
       if (target === undefined) return undefined;
       const annotation = ast.typeNode(target);
