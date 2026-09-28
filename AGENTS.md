@@ -2,7 +2,7 @@
 
 Read and follow `docs/architecture/workspace-agent-policy.md` before any work,
 including its mandatory "One Current Architecture" API-replacement rule,
-"Direct Solutions, Not Patch Accumulation" rule and example,
+"Direct Solutions, Not Patch Accumulation" rule, owning-layer review and examples,
 "Compiler-Understood Ownership", "Native Semantics and Best-Effort JS Surfaces"
 and "Native Performance From Exact Metadata" contracts for every decision.
 This file contains only host-repository deltas.

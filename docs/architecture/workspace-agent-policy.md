@@ -31,6 +31,22 @@ policy.
   owns the decision, update its consumers, and remove superseded logic in the
   same change. A previous fix or passing checkpoint does not justify keeping
   redundant branches, adapters, conversions or competing decisions.
+- Treat surprising user-facing constraints, limitations and required annotations
+  as potential architectural defects before proposing a narrower capability.
+  Trace the dependency through its real owners. Split or redesign modules,
+  semantic layers, phase boundaries and data structures when needed; existing
+  coupling is not a reason to make users repair our implementation's ordering.
+  Apply the same airplane-grade correctness, safety, performance and verification
+  requirements to the complete replacement, not just the local symptom.
+  A claimed unavoidable limitation needs concrete native-language or semantic
+  evidence; a missing API in our current abstraction is not that evidence.
+- For example, if native macro expansion supplies a type needed by source
+  checking, but native construction assumes source checking is already complete,
+  reassess the construction/checking boundary. Do not impose a source annotation,
+  add a second lowering path, or accept erroneous native type results merely to
+  break that implementation cycle. Preserve inferred behavior through the owning
+  semantic phases and prove the actual source-to-native path. An independently
+  ambiguous native program remains distinct from our phase-ordering defect.
 - Prefer the smallest clean, complete canonical mechanism. Reuse genuine common
   requirements; do not hide repeated corrections behind a generic wrapper or
   invent a framework to preserve an accidental design. Independently necessary
