@@ -45,6 +45,13 @@ its target must establish native validity. Without that elaboration, ordinary
 source diagnostics still reject it. C# continues to require an applicable
 attribute construction, not an intrinsic or an arbitrary function call.
 
+Source reference navigation uses the current program's queries, not a fabricated
+finalized program. A forward lookup selects only the requested reference through
+the existing shared selector. Reverse lookups and complete statistics demand one
+bounded traversal, reusing those selections and preserving source order. Cached
+answers cannot outlive their source epoch. Missing references remain missing;
+lazy selection does not suppress ordinary diagnostics or prove native validity.
+
 Only the registered owner publishes its result. Nested requests must respect
 each owner's declared dependencies. Cycles fail, callback capabilities expire,
 and a failed or suspended transaction does not retain provisional facts.

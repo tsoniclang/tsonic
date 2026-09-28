@@ -1,23 +1,15 @@
 import type {
-  AstReader,
-  CheckedSourceProgram,
   Node,
   SourceFile,
-  Symbol,
-  TypeCheckerQueries,
+  SourceProgramQueries,
+  Symbol as SourceSymbol,
 } from "@tsonic/tsts";
-import {
-  createSourceDeclarationReferenceSelector,
-} from "./reference-selection.js";
-import {
-  referenceQueryNode,
-} from "./syntax.js";
-import type {
-  SourceDeclarationReference,
-  SourceReferenceIndexStatistics,
-} from "./types.js";
+import { createSourceDeclarationReferenceSelector } from "./reference-selection.js";
+import { referenceQueryNode } from "./syntax.js";
+import type { SourceDeclarationReference, SourceReferenceIndexStatistics } from "./types.js";
 
 const noSourceReferences: readonly Node[] = Object.freeze([]);
+const resolvingReference = Symbol("resolving-source-reference");
 
 export interface SourceReferenceIndexLimits {
   readonly sourceFiles: number;
@@ -34,313 +26,235 @@ export interface SourceDeclarationReferenceIndex {
   readonly statistics: SourceReferenceIndexStatistics;
   sourceReferenceFor(node: Node | undefined): SourceDeclarationReference | undefined;
   referencesToDeclaration(declaration: Node | undefined): readonly Node[];
-  referencesForSymbol(symbol: Symbol): readonly Node[];
+  referencesForSymbol(symbol: SourceSymbol): readonly Node[];
 }
 
-interface BuiltSourceDeclarationReferenceIndex {
+interface SourceReverseReferences {
   readonly statistics: SourceReferenceIndexStatistics;
-  readonly byReference: WeakMap<Node, SourceDeclarationReference>;
-  readonly referencesByDeclaration: ReadonlyMap<Node, readonly Node[]>;
-  readonly referencesBySymbol: ReadonlyMap<Symbol, readonly Node[]>;
+  readonly byDeclaration: ReadonlyMap<Node, readonly Node[]>;
+  readonly bySymbol: ReadonlyMap<SourceSymbol, readonly Node[]>;
 }
 
-const defaultSourceReferenceIndexLimits: SourceReferenceIndexLimits =
-  Object.freeze({
-    sourceFiles: 65_536,
-    nodesVisited: 16_777_216,
-    referenceCandidates: 8_388_608,
-    selectedReferences: 4_194_304,
-    selectedDeclarations: 2_097_152,
-    reverseEdges: 4_194_304,
-    indexedSymbols: 2_097_152,
-    moduleExportsExamined: 4_194_304,
-  });
+const defaultSourceReferenceIndexLimits: SourceReferenceIndexLimits = Object.freeze({
+  sourceFiles: 65_536,
+  nodesVisited: 16_777_216,
+  referenceCandidates: 8_388_608,
+  selectedReferences: 4_194_304,
+  selectedDeclarations: 2_097_152,
+  reverseEdges: 4_194_304,
+  indexedSymbols: 2_097_152,
+  moduleExportsExamined: 4_194_304,
+});
 
 export function createSourceDeclarationReferenceIndex(
-  source: CheckedSourceProgram,
+  source: SourceProgramQueries,
   sourceFiles: readonly SourceFile[],
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
-  limits: SourceReferenceIndexLimits = defaultSourceReferenceIndexLimits,
+  requestedLimits: SourceReferenceIndexLimits = defaultSourceReferenceIndexLimits,
 ): SourceDeclarationReferenceIndex {
-  validateLimits(limits);
+  const limits = snapshotLimits(requestedLimits);
   if (sourceFiles.length > limits.sourceFiles) {
     throw sourceReferenceLimitError("source files", limits.sourceFiles);
   }
-  const built = buildSourceDeclarationReferenceIndex(
-    source,
-    sourceFiles,
-    isProjectDeclaration,
-    limits,
-  );
-  return sealSourceDeclarationReferenceIndex(
-    source.ast,
-    new Set(sourceFiles),
-    built,
-  );
-}
-
-function buildSourceDeclarationReferenceIndex(
-  source: CheckedSourceProgram,
-  sourceFiles: readonly SourceFile[],
-  isProjectDeclaration: (declaration: Node | undefined) => boolean,
-  limits: SourceReferenceIndexLimits,
-): BuiltSourceDeclarationReferenceIndex {
   const { ast } = source;
-  const byReference = new WeakMap<Node, SourceDeclarationReference>();
-  const pendingByDeclaration = new Map<Node, Node[]>();
-  const pendingDeclarationsBySymbol = new Map<Symbol, Set<Node>>();
-  const factsByDeclaration = new Map<
-    Node,
-    Map<Symbol | undefined, SourceDeclarationReference>
-  >();
-  let nodesVisited = 0;
+  const files = Object.freeze([...sourceFiles]);
+  const fileSet = new Set(files);
+  const byReference = new WeakMap<Node, SourceDeclarationReference | null | typeof resolvingReference>();
+  const byDeclaration = new Map<Node, Map<SourceSymbol | undefined, SourceDeclarationReference>>();
   let referenceCandidates = 0;
   let selectedReferences = 0;
-  let reverseEdges = 0;
   let moduleExportsExamined = 0;
-  const selectReference = createSourceDeclarationReferenceSelector(
-    ast,
-    isProjectDeclaration,
-    (count) => {
-      moduleExportsExamined = reserveAmount(
-        moduleExportsExamined,
-        count,
-        limits.moduleExportsExamined,
-        "module exports examined",
-      );
-    },
-  );
+  let reverse: SourceReverseReferences | undefined;
+  let buildingReverse = false;
+  let failure: { readonly error: unknown } | undefined;
+  const selectReference = createSourceDeclarationReferenceSelector(ast, isProjectDeclaration, count => {
+    moduleExportsExamined = reserveAmount(moduleExportsExamined, count,
+      limits.moduleExportsExamined, "module exports examined");
+  });
 
-  const record = (
-    referenceNode: Node,
-    selected: SourceDeclarationReference,
-  ): void => {
-    if (byReference.has(referenceNode)) {
-      throw new Error(
-        "One exact source occurrence was visited more than once while building the source reference index.",
-      );
+  const assertActive = (): void => {
+    if (failure !== undefined) throw failure.error;
+    const first = files[0];
+    if (first === undefined) source.getSourceFiles();
+    else source.getSourceFileQueries(first);
+  };
+
+  const select = (node: Node): SourceDeclarationReference | undefined => {
+    const cached = byReference.get(node);
+    if (cached === resolvingReference) {
+      throw new Error("Cyclic source reference selection for one exact source occurrence.");
     }
-    selectedReferences = reserveCount(
-      selectedReferences,
-      limits.selectedReferences,
-      "selected references",
-    );
-    let factsBySymbol = factsByDeclaration.get(selected.declaration);
-    if (factsBySymbol === undefined) {
-      if (factsByDeclaration.size >= limits.selectedDeclarations) {
-        throw sourceReferenceLimitError(
-          "selected declarations",
-          limits.selectedDeclarations,
-        );
+    if (cached !== undefined) return cached ?? undefined;
+    referenceCandidates = reserveCount(referenceCandidates, limits.referenceCandidates, "reference candidates");
+    byReference.set(node, resolvingReference);
+    const file = ast.getSourceFile(node);
+    if (file === undefined || !fileSet.has(file)) {
+      throw new Error("Source reference selection requires an exact source file from its program.");
+    }
+    const selected = selectReference(source.getSourceFileQueries(file).checker, node);
+    if (selected === undefined) {
+      byReference.set(node, null);
+      return undefined;
+    }
+    selectedReferences = reserveCount(selectedReferences, limits.selectedReferences, "selected references");
+    let bySymbol = byDeclaration.get(selected.declaration);
+    if (bySymbol === undefined) {
+      if (byDeclaration.size >= limits.selectedDeclarations) {
+        throw sourceReferenceLimitError("selected declarations", limits.selectedDeclarations);
       }
-      factsBySymbol = new Map();
-      factsByDeclaration.set(selected.declaration, factsBySymbol);
+      bySymbol = new Map();
+      byDeclaration.set(selected.declaration, bySymbol);
     }
-    const existing = factsBySymbol.get(selected.symbol);
-    if (
-      existing !== undefined &&
-      (
-        existing.declaration !== selected.declaration ||
-        existing.sourceFile !== selected.sourceFile ||
-        existing.project !== selected.project
-      )
-    ) {
-      throw new Error(
-        "Source reference selection produced conflicting facts for one exact declaration and symbol.",
-      );
+    const existing = bySymbol.get(selected.symbol);
+    if (existing !== undefined && (existing.declaration !== selected.declaration ||
+        existing.sourceFile !== selected.sourceFile || existing.project !== selected.project)) {
+      throw new Error("Source reference selection produced conflicting facts for one exact declaration and symbol.");
     }
     const canonical = existing ?? selected;
-    if (existing === undefined) {
-      factsBySymbol.set(selected.symbol, canonical);
-    }
-    byReference.set(referenceNode, canonical);
-
-    if (ast.name(canonical.declaration) === referenceNode) {
-      return;
-    }
-    reverseEdges = reserveCount(
-      reverseEdges,
-      limits.reverseEdges,
-      "reverse reference edges",
-    );
-    const declarationReferences = pendingByDeclaration.get(
-      canonical.declaration,
-    );
-    if (declarationReferences === undefined) {
-      pendingByDeclaration.set(canonical.declaration, [referenceNode]);
-    } else {
-      declarationReferences.push(referenceNode);
-    }
-    if (canonical.symbol === undefined) {
-      return;
-    }
-    let symbolDeclarations = pendingDeclarationsBySymbol.get(canonical.symbol);
-    if (symbolDeclarations === undefined) {
-      if (pendingDeclarationsBySymbol.size >= limits.indexedSymbols) {
-        throw sourceReferenceLimitError(
-          "indexed symbols",
-          limits.indexedSymbols,
-        );
-      }
-      symbolDeclarations = new Set();
-      pendingDeclarationsBySymbol.set(canonical.symbol, symbolDeclarations);
-    }
-    symbolDeclarations.add(canonical.declaration);
+    if (existing === undefined) bySymbol.set(selected.symbol, canonical);
+    byReference.set(node, canonical);
+    return canonical;
   };
 
-  for (const sourceFile of sourceFiles) {
-    let checker: TypeCheckerQueries | undefined;
-    const pending: Node[] = [sourceFile];
-    while (pending.length > 0) {
-      const node = pending.pop();
-      if (node === undefined) {
-        continue;
+  const complete = (): SourceReverseReferences => {
+    if (reverse !== undefined) return reverse;
+    if (buildingReverse) throw new Error("Cyclic source reverse-reference index construction.");
+    buildingReverse = true;
+    const pendingByDeclaration = new Map<Node, Node[]>();
+    const pendingDeclarationsBySymbol = new Map<SourceSymbol, Set<Node>>();
+    const visitedReferences = new WeakSet<Node>();
+    let nodesVisited = 0;
+    let reverseEdges = 0;
+    for (const file of files) {
+      const pending: Node[] = [file];
+      while (pending.length > 0) {
+        const node = pending.pop();
+        if (node === undefined) continue;
+        nodesVisited = reserveCount(nodesVisited, limits.nodesVisited, "visited nodes");
+        if (referenceQueryNode(ast, node) === node) {
+          if (visitedReferences.has(node)) {
+            throw new Error("One exact source occurrence was visited more than once while building the source reference index.");
+          }
+          visitedReferences.add(node);
+          const selected = select(node);
+          if (selected !== undefined && ast.name(selected.declaration) !== node) {
+            reverseEdges = reserveCount(reverseEdges, limits.reverseEdges, "reverse reference edges");
+            const references = pendingByDeclaration.get(selected.declaration);
+            if (references === undefined) pendingByDeclaration.set(selected.declaration, [node]);
+            else references.push(node);
+            if (selected.symbol !== undefined) {
+              let declarations = pendingDeclarationsBySymbol.get(selected.symbol);
+              if (declarations === undefined) {
+                if (pendingDeclarationsBySymbol.size >= limits.indexedSymbols) {
+                  throw sourceReferenceLimitError("indexed symbols", limits.indexedSymbols);
+                }
+                declarations = new Set();
+                pendingDeclarationsBySymbol.set(selected.symbol, declarations);
+              }
+              declarations.add(selected.declaration);
+            }
+          }
+        }
+        const children = ast.children(node);
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          const child = children[index];
+          if (child !== undefined) pending.push(child);
+        }
       }
-      nodesVisited = reserveCount(
+    }
+    for (const references of pendingByDeclaration.values()) Object.freeze(references);
+    const bySymbol = new Map<SourceSymbol, readonly Node[]>();
+    for (const [symbol, declarations] of pendingDeclarationsBySymbol) {
+      const selected = [...declarations];
+      const sole = selected.length === 1 ? selected[0] : undefined;
+      bySymbol.set(symbol, sole === undefined
+        ? Object.freeze(selected.flatMap(declaration => pendingByDeclaration.get(declaration) ?? noSourceReferences))
+        : pendingByDeclaration.get(sole) ?? noSourceReferences);
+    }
+    reverse = Object.freeze({
+      byDeclaration: pendingByDeclaration,
+      bySymbol,
+      statistics: Object.freeze({
+        constructionPasses: 1,
+        sourceFiles: files.length,
         nodesVisited,
-        limits.nodesVisited,
-        "visited nodes",
-      );
-      const queryNode = referenceQueryNode(ast, node);
-      if (queryNode === node) {
-        checker ??= source.getSourceFileQueries(sourceFile).checker;
-        referenceCandidates = reserveCount(
-          referenceCandidates,
-          limits.referenceCandidates,
-          "reference candidates",
-        );
-        const selected = selectReference(checker, node);
-        if (selected !== undefined) {
-          record(node, selected);
-        }
-      }
-      const children = ast.children(node);
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        const child = children[index];
-        if (child !== undefined) {
-          pending.push(child);
-        }
-      }
-    }
-  }
-
-  for (const references of pendingByDeclaration.values()) {
-    Object.freeze(references);
-  }
-  const referencesBySymbol = new Map<Symbol, readonly Node[]>();
-  for (const [symbol, declarations] of pendingDeclarationsBySymbol) {
-    const selected = [...declarations];
-    if (selected.length === 1) {
-      const declaration = selected[0];
-      if (declaration === undefined) {
-        throw new Error(
-          "A source reference symbol index lost its selected declaration.",
-        );
-      }
-      referencesBySymbol.set(
-        symbol,
-        pendingByDeclaration.get(declaration) ?? noSourceReferences,
-      );
-      continue;
-    }
-    referencesBySymbol.set(
-      symbol,
-      Object.freeze(selected.flatMap((declaration) =>
-        pendingByDeclaration.get(declaration) ?? noSourceReferences)),
-    );
-  }
-  const statistics: SourceReferenceIndexStatistics = Object.freeze({
-    constructionPasses: 1,
-    sourceFiles: sourceFiles.length,
-    nodesVisited,
-    referenceCandidates,
-    selectedReferences,
-    selectedDeclarations: factsByDeclaration.size,
-    reverseEdges,
-    indexedSymbols: referencesBySymbol.size,
-    moduleExportsExamined,
-  });
-
-  return Object.freeze({
-    statistics,
-    byReference,
-    referencesByDeclaration: pendingByDeclaration,
-    referencesBySymbol,
-  });
-}
-
-function sealSourceDeclarationReferenceIndex(
-  ast: AstReader,
-  sourceFileSet: ReadonlySet<SourceFile>,
-  built: BuiltSourceDeclarationReferenceIndex,
-): SourceDeclarationReferenceIndex {
-  const isProjectNode = (node: Node | undefined): node is Node => {
-    const sourceFile = node === undefined ? undefined : ast.getSourceFile(node);
-    return sourceFile !== undefined && sourceFileSet.has(sourceFile);
+        referenceCandidates,
+        selectedReferences,
+        selectedDeclarations: byDeclaration.size,
+        reverseEdges,
+        indexedSymbols: bySymbol.size,
+        moduleExportsExamined,
+      }),
+    });
+    buildingReverse = false;
+    return reverse;
   };
+
+  const query = <Result>(operation: () => Result): Result => {
+    assertActive();
+    try {
+      return operation();
+    } catch (error) {
+      failure = { error };
+      throw error;
+    }
+  };
+
   return Object.freeze({
-    statistics: built.statistics,
+    get statistics() { return query(() => complete().statistics); },
     sourceReferenceFor(node: Node | undefined) {
-      if (!isProjectNode(node)) {
-        return undefined;
-      }
-      const queryNode = referenceQueryNode(ast, node);
-      return queryNode === undefined || !isProjectNode(queryNode)
-        ? undefined
-        : built.byReference.get(queryNode);
+      return query(() => {
+        if (node === undefined) return undefined;
+        const file = ast.getSourceFile(node);
+        if (file === undefined || !fileSet.has(file)) return undefined;
+        const subject = referenceQueryNode(ast, node);
+        return subject === undefined ? undefined : select(subject);
+      });
     },
     referencesToDeclaration(declaration: Node | undefined) {
-      return declaration === undefined
-        ? noSourceReferences
-        : built.referencesByDeclaration.get(declaration) ?? noSourceReferences;
+      return query(() => declaration === undefined
+        ? noSourceReferences : complete().byDeclaration.get(declaration) ?? noSourceReferences);
     },
-    referencesForSymbol(symbol: Symbol) {
-      return built.referencesBySymbol.get(symbol) ?? noSourceReferences;
+    referencesForSymbol(symbol: SourceSymbol) {
+      return query(() => complete().bySymbol.get(symbol) ?? noSourceReferences);
     },
   });
 }
 
-function validateLimits(limits: SourceReferenceIndexLimits): void {
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new Error(
-        `Source reference index limit '${name}' must be a positive safe integer.`,
-      );
-    }
+function snapshotLimits(input: SourceReferenceIndexLimits): SourceReferenceIndexLimits {
+  const fields = Object.keys(defaultSourceReferenceIndexLimits) as (keyof SourceReferenceIndexLimits)[];
+  if (typeof input !== "object" || input === null ||
+      Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null ||
+      Reflect.ownKeys(input).length !== fields.length) {
+    throw new Error("Source reference index limits require the complete plain data budget family.");
   }
+  const limits = {} as Record<keyof SourceReferenceIndexLimits, number>;
+  for (const name of fields) {
+    const descriptor = Object.getOwnPropertyDescriptor(input, name);
+    const value: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`Source reference index limit '${name}' must be a positive safe integer.`);
+    }
+    limits[name] = value;
+  }
+  return Object.freeze(limits);
 }
 
-function reserveCount(
-  current: number,
-  limit: number,
-  subject: string,
-): number {
+function reserveCount(current: number, limit: number, subject: string): number {
   if (!Number.isSafeInteger(current) || current < 0 || current >= limit) {
     throw sourceReferenceLimitError(subject, limit);
   }
   return current + 1;
 }
 
-function reserveAmount(
-  current: number,
-  amount: number,
-  limit: number,
-  subject: string,
-): number {
-  if (
-    !Number.isSafeInteger(current) ||
-    current < 0 ||
-    !Number.isSafeInteger(amount) ||
-    amount < 0 ||
-    current > limit - amount
-  ) {
+function reserveAmount(current: number, amount: number, limit: number, subject: string): number {
+  if (!Number.isSafeInteger(current) || current < 0 || !Number.isSafeInteger(amount) ||
+      amount < 0 || current > limit - amount) {
     throw sourceReferenceLimitError(subject, limit);
   }
   return current + amount;
 }
 
 function sourceReferenceLimitError(subject: string, limit: number): Error {
-  return new Error(
-    `Source reference index exceeds the ${limit.toLocaleString("en-US")} ${subject} limit.`,
-  );
+  return new Error(`Source reference index exceeds the ${limit.toLocaleString("en-US")} ${subject} limit.`);
 }

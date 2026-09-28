@@ -2,6 +2,7 @@ import type {
   CheckedSourceProgram,
   Node,
   SourceFile,
+  SourceProgramQueries,
   Symbol,
 } from "@tsonic/tsts";
 import {
@@ -268,7 +269,7 @@ export function createSourceProgramNavigation(
 
   return Object.freeze({
     sourceFiles,
-    referenceIndexStatistics: references.referenceIndexStatistics,
+    get referenceIndexStatistics() { return references.referenceIndexStatistics; },
     sourceReferenceFor: references.sourceReferenceFor,
     referenceFor: references.referenceFor,
     declarationFor: references.declarationFor,
@@ -369,9 +370,9 @@ export function createSourceProgramNavigation(
 }
 
 export function sourceProjectFiles(
-  source: CheckedSourceProgram,
+  source: SourceProgramQueries,
 ): readonly SourceFile[] {
-  return Object.freeze(source.sourceFiles.filter(
+  return Object.freeze(source.getSourceFiles().filter(
     (sourceFile): sourceFile is SourceFile =>
       sourceFile !== undefined &&
       !sourceFile.IsDeclarationFile &&
