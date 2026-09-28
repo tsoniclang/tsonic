@@ -2,7 +2,7 @@ export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
 import type { Node } from "../internal/ast/ast.js";
-import type { SourceElaborationContext, SourceElaborationResolver } from "./source-elaboration-model.js";
+import type { SourceElaborationContext, SourceElaborationNodeReference, SourceElaborationResolver } from "./source-elaboration-model.js";
 import type { SourceElaborationRound } from "./source-elaboration.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
@@ -497,6 +497,7 @@ export declare const extensionHostRetireCompilerProgram: unique symbol;
 export declare const extensionHostAttachElaboration: unique symbol;
 export declare const extensionHostRunElaboration: unique symbol;
 export declare const extensionHostRequireElaboration: unique symbol;
+export declare const extensionHostResolveElaborationReference: unique symbol;
 export interface AttachExtensionHostToProgramOptions {
     readonly bindCompilerProgram?: boolean;
 }
@@ -639,6 +640,7 @@ export declare class ExtensionHost {
     assertCompilerProgramActive(): void;
     [extensionHostAttachElaboration](round: SourceElaborationRound): void;
     [extensionHostRequireElaboration]<T>(node: Node, key: ExtensionFactKey<T>): T;
+    [extensionHostResolveElaborationReference](reference: SourceElaborationNodeReference): Node;
     [extensionHostRunElaboration](): void;
     [extensionHostRetireCompilerProgram](): void;
     bindCompilerProgram(program: object): void;

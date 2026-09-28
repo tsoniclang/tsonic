@@ -102,6 +102,7 @@ export const extensionHostRetireCompilerProgram = Symbol("tsts.extensionHost.ret
 export const extensionHostAttachElaboration = Symbol("tsts.extensionHost.attachElaboration");
 export const extensionHostRunElaboration = Symbol("tsts.extensionHost.runElaboration");
 export const extensionHostRequireElaboration = Symbol("tsts.extensionHost.requireElaboration");
+export const extensionHostResolveElaborationReference = Symbol("tsts.extensionHost.resolveElaborationReference");
 const extensionStoreViewToken = Object.freeze({});
 export class ExtensionDiagnosticStore {
     #state;
@@ -2669,6 +2670,13 @@ export class ExtensionHost {
         }
         this.#requireSourceElaborator(key);
         return this.#elaboration.require(node, key);
+    }
+    [extensionHostResolveElaborationReference](reference) {
+        this.assertCompilerProgramActive();
+        if (this.#elaboration === undefined) {
+            throw new Error("Source reference resolution requires an owning elaboration session.");
+        }
+        return this.#elaboration.resolveReference(reference);
     }
     [extensionHostRunElaboration]() {
         this.assertCompilerProgramActive();

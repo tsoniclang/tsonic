@@ -4,6 +4,7 @@ import { createAstReader } from "../services/ast-reader.js";
 import { createTypeCheckerQueries } from "../services/type-checker.js";
 import { createTypeShapeQueries } from "../services/type-shape.js";
 import { assertSemanticProgramActive, assertSemanticSourceFileOwned } from "../services/semantic-query-ownership.js";
+import { extensionHostResolveElaborationReference, getExtensionHost } from "./host.js";
 export function createSourceProgramQueries(program, options = {}) {
     if (program === undefined) {
         throw new Error("Source program queries require a compiler program.");
@@ -83,6 +84,20 @@ export function createSourceProgramQueries(program, options = {}) {
         getSourceFile,
         getSourceFileQueries,
         resolveModuleSourceFile,
+        resolveElaborationReference(reference) {
+            assertSemanticProgramActive(program);
+            const host = getExtensionHost(program);
+            if (host === undefined) {
+                throw new Error("Source reference resolution requires an owning elaboration session.");
+            }
+            const node = host[extensionHostResolveElaborationReference](reference);
+            const file = ast.getSourceFile(node);
+            if (file === undefined || !included(file)) {
+                throw new Error("Source reference resolution requires an included source file.");
+            }
+            assertSemanticSourceFileOwned(program, file);
+            return node;
+        },
     });
 }
 //# sourceMappingURL=source-program.js.map

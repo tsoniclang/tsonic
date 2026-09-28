@@ -134,7 +134,10 @@ export class SourceElaborationRound {
         return Object.freeze({ session: this.#session, revision: this.#revision, id });
     }
     resolveReference(reference) {
-        this.#assertActive();
+        if (this.#state !== "active" && this.#state !== "sealed") {
+            throw new Error(`Source elaboration round is ${this.#state}.`);
+        }
+        this.assertNotSuspended();
         if (reference === null || typeof reference !== "object" || Reflect.ownKeys(reference).length !== 3 ||
             Object.getPrototypeOf(reference) !== Object.prototype && Object.getPrototypeOf(reference) !== null) {
             return this.#fail("Source elaboration reference must be an exact issued data record.");

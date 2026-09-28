@@ -343,6 +343,7 @@ export function createTargetSourceProgram(
     forFile,
     forNode,
     selectValueTypeRefinement,
+    resolveElaborationReference: source.resolveElaborationReference,
   });
 
   return Object.freeze({

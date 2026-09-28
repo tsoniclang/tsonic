@@ -105,7 +105,7 @@ test("authored aliases keep their case while exact calls retain the new canonica
     assert.ok(identity?.signatureId?.startsWith(`${name}<`));
     assert.equal(getSourceFact(session, call, pointerOperationFactKey)?.operation, operation);
     const expression = sourceAst(session).as.AsCallExpression(call)?.Expression;
-    assert.equal(sourceAst(session).text(sourceAst(session).name(expression) ?? expression), callee.split(".").at(-1));
+    assert.equal(sourceAst(session).text(sourceAst(session).name(expression) ?? expression), callee.split(".").pop());
   }
 });
 

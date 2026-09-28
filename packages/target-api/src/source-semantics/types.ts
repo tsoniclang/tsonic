@@ -15,6 +15,7 @@ import type {
   ResolvedSourceYieldInfo,
   Signature,
   SourceFile,
+  SourceElaborationNodeReference,
   Symbol,
   TypeSignatureParameterInfo,
   TypeTupleElementInfo,
@@ -220,6 +221,7 @@ export interface SourceProgramSemantics {
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;
   selectValueTypeRefinement(node: Node): SourceValueTypeRefinementSelection;
+  resolveElaborationReference(reference: SourceElaborationNodeReference): Node;
 }
 
 export interface SourceDocument {
