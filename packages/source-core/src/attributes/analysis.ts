@@ -351,7 +351,7 @@ function analyzeAttributeApplication(
       context,
       "SOURCE_CORE_ATTRIBUTE_INVOCATION_NOT_PROVEN",
       9901116,
-      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one checked call or construction.",
+      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one applicable call, construction or exact provider intrinsic invocation.",
     );
     return;
   }

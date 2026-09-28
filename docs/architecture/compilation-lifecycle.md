@@ -38,6 +38,13 @@ final analysis use this same resolver; attribute roots, selectors and
 applications do not have a separate early implementation. A selected fact is
 memoized for that source epoch, not proof that the whole program is valid.
 
+Quoted attribute input can select an applicable ordinary call/construction or
+an exact provider intrinsic invocation. The shared fact retains its original
+source node. An intrinsic has no invented constructor or callable signature;
+its target must establish native validity. Without that elaboration, ordinary
+source diagnostics still reject it. C# continues to require an applicable
+attribute construction, not an intrinsic or an arbitrary function call.
+
 Only the registered owner publishes its result. Nested requests must respect
 each owner's declared dependencies. Cycles fail, callback capabilities expire,
 and a failed or suspended transaction does not retain provisional facts.

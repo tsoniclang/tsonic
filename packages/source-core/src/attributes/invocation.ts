@@ -26,5 +26,8 @@ export function selectedAttributeInvocation(
     return undefined;
   }
   const call = context.checker.getResolvedCallInfo(invocation);
-  return call?.outcome === "applicable" ? invocation : undefined;
+  if (call?.outcome === "applicable") return invocation;
+  return call?.outcome === "intrinsic" && context.ast.is.IsCallExpression(invocation) &&
+    context.ast.as.AsCallExpression(invocation)!.QuestionDotToken === undefined
+    ? invocation : undefined;
 }
