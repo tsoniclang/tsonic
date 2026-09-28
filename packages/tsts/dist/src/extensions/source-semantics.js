@@ -1,3 +1,4 @@
+import { SymbolFlagsAlias } from "../internal/ast/symbolflags.js";
 import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_PropertyName, Node_Properties, SourceFile_Path, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeQueryNode, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
@@ -144,7 +145,7 @@ function recordSourceSemanticsDeclarationAliases(facts, sourceFile, checker, mod
 function recordSourceSemanticsFacts(sourceFile, checker, facts, diagnostics, extensionId, modules, factResolver) {
     recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modules);
     recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker, factResolver);
-    recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules);
+    recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules, factResolver);
 }
 function recordSourceSemanticsImportClause(facts, checker, importDeclaration, moduleIdentity) {
     const importClause = Node_ImportClause(importDeclaration);
@@ -796,7 +797,10 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
         return undefined;
     }
     const typeName = AsTypeReferenceNode(node)?.TypeName;
-    const primitive = resolveRecordedPrimitiveTypeReference(context.facts, node, typeName, modules);
+    const file = GetSourceFileOfNode(node);
+    if (file === undefined)
+        return undefined;
+    const primitive = resolvePrimitiveFromCheckedReference(context.facts, context.source.getSourceFileQueries(file).checker, typeName, modules);
     if (primitive === undefined) {
         return undefined;
     }
@@ -805,7 +809,7 @@ function resolveSourcePrimitiveFact(subject, context, modules) {
         evidence: createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName),
     };
 }
-function recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules) {
+function recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules, factResolver) {
     visitSourceSemanticsNode(sourceFile, (node) => {
         if (node?.Kind !== KindTypeReference) {
             return;
@@ -822,14 +826,17 @@ function recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules
         if (primitive === undefined) {
             return;
         }
+        const primitiveFact = factResolver.resolve(node, sourcePrimitiveFactKey);
+        if (primitiveFact === undefined) {
+            throw new Error("A selected source primitive requires its owning type-reference fact.");
+        }
         const evidence = createPrimitiveEvidence(primitive.moduleIdentity, primitive.exportName);
         const selection = createSourcePrimitiveSelection(primitive.moduleIdentity, primitive.exportName);
         facts.set(node, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
         facts.set(node, canonicalIdentityFactKey, primitive.identity, evidence);
-        facts.set(node, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
         facts.set(typeName, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
         facts.set(typeName, canonicalIdentityFactKey, primitive.identity, evidence);
-        facts.set(typeName, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
+        facts.set(typeName, sourcePrimitiveFactKey, primitiveFact, evidence);
         if (typeName.Kind === KindQualifiedName) {
             const right = AsQualifiedName(typeName).Right;
             if (right === undefined) {
@@ -837,7 +844,7 @@ function recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules
             }
             facts.set(right, selectedSourcePrimitiveDeclarationFactKey, selection, evidence);
             facts.set(right, canonicalIdentityFactKey, primitive.identity, evidence);
-            facts.set(right, sourcePrimitiveFactKey, stripExportName(primitive.primitiveFact), evidence);
+            facts.set(right, sourcePrimitiveFactKey, primitiveFact, evidence);
         }
     });
 }
@@ -1018,6 +1025,20 @@ function resolvePrimitiveFromCheckedReference(facts, checker, typeName, modules)
     if (typeName === undefined) {
         return undefined;
     }
+    const symbol = checker.getSymbolAtLocation(typeName);
+    if (symbol === undefined)
+        return undefined;
+    const direct = resolvePrimitiveFromSelectedSymbol(facts, symbol, modules);
+    if (direct !== undefined)
+        return direct;
+    const selectedSymbol = (symbol.Flags & SymbolFlagsAlias) !== 0
+        ? checker.getAliasedSymbol(symbol)
+        : symbol;
+    if (selectedSymbol === undefined)
+        return undefined;
+    const selected = resolvePrimitiveFromSelectedSymbol(facts, selectedSymbol, modules);
+    if (selected !== undefined)
+        return selected;
     const receiver = typeName.Kind === KindQualifiedName
         ? AsQualifiedName(typeName)?.Left
         : undefined;
@@ -1029,22 +1050,10 @@ function resolvePrimitiveFromCheckedReference(facts, checker, typeName, modules)
         if (receiverIdentity?.kind !== "module") {
             return undefined;
         }
-        const selectedMember = AsQualifiedName(typeName)?.Right;
-        const selectedSymbol = checker.getResolvedSymbolOrNil(typeName)
-            ?? checker.getResolvedSymbolOrNil(selectedMember)
-            ?? checker.getSymbolAtLocation(selectedMember);
-        if (selectedSymbol === undefined) {
-            return undefined;
-        }
         const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === receiverIdentity.id);
         return resolveConfiguredPrimitive(moduleIdentity, checker.getSymbolName(selectedSymbol), selectedSymbol);
     }
-    const localSymbol = checker.getSymbolAtLocation(typeName);
-    const direct = resolvePrimitiveFromSelectedSymbol(facts, localSymbol, modules);
-    if (direct !== undefined) {
-        return direct;
-    }
-    return resolvePrimitiveFromSelectedSymbol(facts, checker.getResolvedSymbolOrNil(typeName), modules);
+    return undefined;
 }
 function resolvePrimitiveFromSelectedSymbol(facts, symbol, modules) {
     if (symbol === undefined) {
@@ -1066,30 +1075,7 @@ function resolvePrimitiveFromSelectedSymbol(facts, symbol, modules) {
     const moduleIdentity = modules.find((candidate) => identity.id === `${candidate.moduleSpecifier}::${identity.exportName}`);
     return resolveConfiguredPrimitive(moduleIdentity, identity.exportName, symbol);
 }
-function resolveRecordedPrimitiveTypeReference(facts, typeReference, typeName, modules) {
-    if (typeName === undefined) {
-        return undefined;
-    }
-    const subjects = typeName.Kind === KindQualifiedName
-        ? [typeReference, typeName, AsQualifiedName(typeName)?.Right]
-        : [typeReference, typeName];
-    for (const subject of subjects) {
-        if (subject === undefined) {
-            continue;
-        }
-        const selection = facts.get(subject, selectedSourcePrimitiveDeclarationFactKey);
-        if (selection === undefined) {
-            continue;
-        }
-        const identity = facts.get(subject, canonicalIdentityFactKey);
-        if (identity === undefined) {
-            throw new Error(`Selected source primitive '${selection.moduleSpecifier}::${selection.exportName}' has no canonical identity.`);
-        }
-        return resolvePrimitiveSelection(selection, modules, undefined, identity);
-    }
-    return undefined;
-}
-function resolvePrimitiveSelection(selection, modules, symbol, identity) {
+function resolvePrimitiveSelection(selection, modules, symbol) {
     const moduleIdentity = modules.find((candidate) => candidate.moduleSpecifier === selection.moduleSpecifier);
     const primitive = moduleIdentity?.primitivesByExportName.get(selection.exportName);
     if (moduleIdentity === undefined || primitive === undefined) {
@@ -1099,9 +1085,7 @@ function resolvePrimitiveSelection(selection, modules, symbol, identity) {
         moduleIdentity,
         exportName: selection.exportName,
         primitiveFact: primitive,
-        identity: identity ?? createExportIdentity(moduleIdentity, selection.exportName, "type", symbol === undefined
-            ? `${selection.moduleSpecifier}::${selection.exportName}`
-            : getSymbolFactId(symbol)),
+        identity: createExportIdentity(moduleIdentity, selection.exportName, "type", getSymbolFactId(symbol)),
     };
 }
 function resolveConfiguredPrimitive(moduleIdentity, exportName, symbol) {
