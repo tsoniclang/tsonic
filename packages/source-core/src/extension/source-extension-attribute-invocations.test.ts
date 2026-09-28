@@ -103,11 +103,15 @@ for (const [name, imported, selector] of [
   ["re-export", 'import { annotate } from "./markers.js";', "annotate"],
 ] as const) {
   test(`module attributes preserve declaration identity for ${name}`, () => {
-    const { session, sourceFile } = createCleanSourceCoreSession(`
+    const { session, sourceFile } = createSourceCoreSession(`
       ${imported}
       function mark(): void {}
       ${selector}.module().add(() => mark());
-    `, { "/src/markers.ts": 'export { attribute as annotate } from "@tsonic/core/lang.js";' });
+    `, name === "re-export" ? { "/src/markers.ts": 'export { attribute as annotate } from "@tsonic/core/lang.js";' } : {});
+    const checked = checkSource(session);
+    assert.deepEqual(definedDiagnostics(checked.diagnostics), []);
+    assert.deepEqual(checked.extensionDiagnostics.map(diagnostic => diagnostic.extensionCode),
+      name === "re-export" ? ["SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED"] : []);
     const fact = getSourceFact(session,
       propertyCallExpression(session, sourceFile, "add"), tsonicAttributeBuilderFactKey);
     assert.equal(fact?.kind, "application");
@@ -138,13 +142,17 @@ for (const [name, imported, selector] of [
   ["re-export", 'import { annotate } from "./markers.js";', "annotate"],
 ] as const) {
   test(`module target selection preserves exact source identity through ${name}`, () => {
-    const { session, sourceFile } = createCleanSourceCoreSession(`
+    const { session, sourceFile } = createSourceCoreSession(`
       ${imported}
       function mark(): void {}
       ${selector}.module().target("inner").add(() => mark());
       ${selector}.module().target("outer").add(() => mark());
       ${selector}.module().add(() => mark());
-    `, { "/src/markers.ts": 'export { attribute as annotate } from "@tsonic/core/lang.js";' });
+    `, name === "re-export" ? { "/src/markers.ts": 'export { attribute as annotate } from "@tsonic/core/lang.js";' } : {});
+    const checked = checkSource(session);
+    assert.deepEqual(definedDiagnostics(checked.diagnostics), []);
+    assert.deepEqual(checked.extensionDiagnostics.map(diagnostic => diagnostic.extensionCode),
+      name === "re-export" ? ["SOURCE_SEMANTICS_CORE_REEXPORT_UNSUPPORTED"] : []);
     for (const [occurrence, specifier] of ["inner", "outer", undefined].entries()) {
       const fact = getSourceFact(session,
         propertyCallExpression(session, sourceFile, "add", occurrence), tsonicAttributeBuilderFactKey);
