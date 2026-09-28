@@ -37,3 +37,4 @@ export type {
   TargetCompilationSessionContext,
 } from "../target/compilation.js";
 export { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utilities.js";
+export { typescriptNoLibCallableDeclarations } from "../typescript-no-lib-callables.js";

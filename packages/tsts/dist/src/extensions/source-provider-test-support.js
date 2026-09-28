@@ -1,7 +1,8 @@
 import { TstsSourceProviderContractVersion, } from "./index.js";
 export const testCoreDeclarations = [
     "interface Object {}",
-    "interface Function {}",
+    "declare const callableIdentity: unique symbol;",
+    "interface Function { readonly [callableIdentity]: never; }",
     "interface CallableFunction extends Function {}",
     "interface NewableFunction extends Function {}",
     "interface IArguments {}",

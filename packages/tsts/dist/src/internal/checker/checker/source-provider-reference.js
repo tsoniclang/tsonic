@@ -51,7 +51,9 @@ function resolveStaticReferenceSymbol(checker, expression, aliases) {
                     return undefined;
             }
         }
-        const binding = Checker_GetSymbolAtLocation(checker, selected);
+        const binding = Checker_GetSymbolAtLocation(checker, IsElementAccessExpression(selected)
+            ? AsElementAccessExpression(selected).ArgumentExpression
+            : selected);
         const symbol = binding !== undefined && (binding.Flags & SymbolFlagsAlias) !== 0
             ? Checker_GetAliasedSymbol(checker, binding)
             : binding;
