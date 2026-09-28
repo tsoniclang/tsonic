@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
-import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
+import type { SourceFileQueries } from "@tsonic/tsts";
 import type { SelectedProviderSourceCall } from "../analysis/source-call.js";
 import { unwrapParenthesizedExpression } from "../analysis/source-call.js";
 
 export function selectedAttributeInvocation(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<SourceFileQueries, "ast" | "checker">,
 ): Node | undefined {
   const callback = unwrapParenthesizedExpression(selected.selection.sourceArguments[0]?.expression, context);
   if (

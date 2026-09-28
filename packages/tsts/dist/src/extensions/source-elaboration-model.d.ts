@@ -1,6 +1,7 @@
 import type { Node } from "../internal/ast/ast.js";
 import type { ExtensionFactKey } from "./fact-key.js";
 import type { SourceProgramQueries } from "./source-program.js";
+import type { ExtensionFactReader, SourceFactResolver } from "./host.js";
 export interface SourceElaborationRequest {
     readonly node: Node;
     readonly key: ExtensionFactKey<unknown>;
@@ -12,6 +13,8 @@ export interface SourceElaborationNodeReference {
 }
 export interface SourceElaborationContext {
     readonly source: SourceProgramQueries;
+    readonly facts: ExtensionFactReader;
+    readonly factResolver: SourceFactResolver;
     readonly request: <T>(node: Node, key: ExtensionFactKey<T>) => void;
 }
 export interface SourceElaborationResolverContext extends SourceElaborationContext {

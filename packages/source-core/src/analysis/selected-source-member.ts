@@ -4,7 +4,7 @@ import type {
   Symbol,
 } from "@tsonic/tsts";
 import type {
-  TsonicSourceFileAnalysisContext,
+  TsonicSourceFileFactContext,
 } from "./context.js";
 import { unwrapParenthesizedExpression } from "./source-call.js";
 
@@ -23,7 +23,7 @@ export type SelectedInlineSourceMemberResult =
 
 export function selectInlineSourceMember(
   inlineFunction: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
   syntax: "element" | "property" = "property",
 ): SelectedInlineSourceMemberResult {
   if (
@@ -67,7 +67,7 @@ function selectPropertyMember(
   returned: Node,
   parameter: Node,
   parameterSymbol: Symbol,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): SelectedInlineSourceMemberResult {
   const property = context.checker.getResolvedPropertyAccessInfo(returned);
   if (
@@ -94,7 +94,7 @@ function selectElementMember(
   returned: Node,
   parameter: Node,
   parameterSymbol: Symbol,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): SelectedInlineSourceMemberResult {
   const element = context.checker.getResolvedElementAccessInfo(returned);
   if (
@@ -121,7 +121,7 @@ function selectedMemberResult(
   expression: Node,
   selectedSymbol: Symbol | undefined,
   selectedDeclaration: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): SelectedInlineSourceMemberResult {
   const selectedMember = selectedDeclaration ?? selectedSymbol;
   const selectedDeclarations = selectedSymbol === undefined
@@ -158,7 +158,7 @@ function selectedReceiverMatchesParameter(
 
 function singleReturnedExpression(
   inlineFunction: Node,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): Node | undefined {
   const body = context.ast.body(inlineFunction);
   if (body === undefined) {
@@ -176,7 +176,7 @@ function singleReturnedExpression(
 
 function collectReturnExpressions(
   node: Node,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
   returned: Node[],
   root: boolean,
 ): void {
@@ -199,7 +199,7 @@ function collectReturnExpressions(
 
 function isFunctionBoundary(
   node: Node,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): boolean {
   return context.ast.is.IsArrowFunction(node) ||
     context.ast.is.IsFunctionExpression(node) ||

@@ -491,7 +491,7 @@ export class ExtensionFactStore {
         this.#state.sourceAnalyzerEnumerationGuard = enumerationGuard;
     }
     set(subject, key, value, evidence = []) {
-        this.#state.sourceAnalyzerAccessGuard?.(subject, key, "write");
+        this.#state.sourceAnalyzerAccessGuard?.(subject, key, "write", this.#effectiveOwnerId());
         getExtensionFactKeyIdentity(key);
         const ownerId = this.#effectiveOwnerId();
         if (this.#state.hostWriteDepth === 0 && (!this.#boundWriterIsActive() || ownerId === undefined)) {
@@ -585,7 +585,7 @@ export class ExtensionFactStore {
         return this.getEntry(subject, key)?.value;
     }
     getEntry(subject, key) {
-        this.#state.sourceAnalyzerAccessGuard?.(subject, key, "read");
+        this.#state.sourceAnalyzerAccessGuard?.(subject, key, "read", this.#effectiveOwnerId());
         if (subject === undefined) {
             return undefined;
         }
@@ -901,9 +901,11 @@ export class ExtensionFactResolver {
     #diagnostics;
     #state;
     #ownerId;
-    constructor(facts, diagnostics, options) {
+    #services;
+    constructor(facts, diagnostics, services, options) {
         this.#facts = facts;
         this.#diagnostics = diagnostics;
+        this.#services = services;
         if (options === undefined) {
             this.#state = {
                 resolvers: new Map(),
@@ -911,6 +913,7 @@ export class ExtensionFactResolver {
                 savepoints: [],
                 savepointStates: new WeakMap(),
                 ownerAuthority: getDiagnosticStoreOwnerAuthority(diagnostics),
+                resolving: new Map(),
                 registrationsSealed: false,
             };
             this.#ownerId = undefined;
@@ -923,7 +926,7 @@ export class ExtensionFactResolver {
         this.#ownerId = options.ownerId;
     }
     [factResolverForOwner](extensionId, facts, diagnostics) {
-        return new ExtensionFactResolver(facts, diagnostics, {
+        return new ExtensionFactResolver(facts, diagnostics, this.#services, {
             state: this.#state,
             ownerId: extensionId,
             token: extensionStoreViewToken,
@@ -966,6 +969,9 @@ export class ExtensionFactResolver {
             && this.#state.ownerAuthority.stack[this.#state.ownerAuthority.stack.length - 1] !== this.#ownerId) {
             throw new Error(`Extension fact resolver capability '${this.#ownerId}' was used outside its host-owned callback scope.`);
         }
+        const ownerId = this.#effectiveOwnerId();
+        if (ownerId !== undefined)
+            this.#services.assertReadable(ownerId, key);
         const explicit = this.#facts.getEntry(subject, key);
         if (explicit !== undefined) {
             return explicit.value;
@@ -973,23 +979,50 @@ export class ExtensionFactResolver {
         if (this.#facts.sealed) {
             return undefined;
         }
-        const resolvers = this.#state.resolvers.get(getExtensionFactKeyIdentity(key));
+        const keyIdentity = getExtensionFactKeyIdentity(key);
+        const resolvers = this.#state.resolvers.get(keyIdentity);
         if (resolvers === undefined) {
             return undefined;
         }
         if (!this.#facts[factStoreTransactionActive]()) {
             throw new Error("Extension fact resolver callbacks require a host-owned mutation transaction.");
         }
+        let resolving = this.#state.resolving.get(keyIdentity);
+        if (resolving?.has(subject)) {
+            throw new Error(`Cyclic source fact resolution for '${formatExtensionFactKeyForDisplay(key)}'.`);
+        }
+        if (resolving === undefined) {
+            resolving = new Set();
+            this.#state.resolving.set(keyIdentity, resolving);
+        }
+        resolving.add(subject);
+        try {
+            return this.#resolveRegistered(subject, key, resolvers);
+        }
+        finally {
+            resolving.delete(subject);
+            if (resolving.size === 0)
+                this.#state.resolving.delete(keyIdentity);
+        }
+    }
+    #resolveRegistered(subject, key, resolvers) {
         for (const registration of resolvers) {
             const diagnostics = this.#diagnostics[diagnosticStoreForOwner](registration.ownerId);
             const facts = this.#facts[factStoreForOwner](registration.ownerId, diagnostics);
+            const resolver = this[factResolverForOwner](registration.ownerId, facts, diagnostics);
             let writeResult;
             const resolved = runWithFactResolverOwnerAuthority(this.#state.ownerAuthority, registration.ownerId, () => {
                 const scope = createExtensionCapabilityScope();
+                const services = this.#services;
                 let resolution;
                 try {
                     resolution = registration.callback(subject, Object.freeze({
+                        get source() {
+                            assertExtensionCapabilityActive(scope);
+                            return services.source();
+                        },
                         facts: createExtensionFactReader(facts, scope),
+                        factResolver: createSourceFactResolver(resolver, scope, services.getVirtualDeclarationDocument),
                         diagnostics: createExtensionDiagnosticWriter(diagnostics, scope),
                     }));
                 }
@@ -2541,7 +2574,11 @@ export class ExtensionHost {
         this.diagnostics = new ExtensionDiagnosticStore();
         this.#ownerAuthority = getDiagnosticStoreOwnerAuthority(this.diagnostics);
         this.facts = new ExtensionFactStore(this.diagnostics);
-        this.factResolver = new ExtensionFactResolver(this.facts, this.diagnostics);
+        this.factResolver = new ExtensionFactResolver(this.facts, this.diagnostics, {
+            source: () => this.getCompilerQueryContext(),
+            assertReadable: (ownerId, key) => this.#assertSourceAnalyzerFactReadable(ownerId, key),
+            getVirtualDeclarationDocument: name => this.providers.getVirtualDeclarationDocument(name),
+        });
         this.providers = new ProviderRegistry(this.diagnostics, options.requiredProviderModules ?? [], getProviderMaterializationRound(options));
         const orderedExtensions = orderExtensions((options.extensions ?? []).map(snapshotCompilerExtension), this.diagnostics);
         for (const extension of orderedExtensions) {
@@ -2696,60 +2733,52 @@ export class ExtensionHost {
         for (const extension of this.#extensions) {
             if (extension.elaborateSource === undefined)
                 continue;
-            const scope = createExtensionCapabilityScope();
-            try {
-                runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
-                    extension.elaborateSource(Object.freeze({
-                        source,
-                        request: (node, key) => {
-                            assertExtensionCapabilityActive(scope);
-                            this.#assertSourceAnalyzerFactReadable(extension.identity.id, key);
-                            this.#requireSourceElaborator(key);
-                            round.request(node, key);
-                        },
-                    }));
-                });
-            }
-            finally {
-                revokeExtensionCapabilityScope(scope);
-            }
+            this.#withSourceFacts(extension.identity.id, (capabilities, scope) => {
+                extension.elaborateSource(Object.freeze({
+                    source,
+                    facts: createExtensionFactReader(capabilities.facts, scope),
+                    factResolver: createSourceFactResolver(capabilities.factResolver, scope, name => this.providers.getVirtualDeclarationDocument(name)),
+                    request: (node, key) => {
+                        assertExtensionCapabilityActive(scope);
+                        this.#assertSourceAnalyzerFactReadable(extension.identity.id, key);
+                        this.#requireSourceElaborator(key);
+                        round.request(node, key);
+                    },
+                }));
+            });
         }
         for (const request of round.ready()) {
             const elaborator = this.#requireSourceElaborator(request.key);
-            const scope = createExtensionCapabilityScope();
-            const assertReadable = (key) => {
-                assertExtensionCapabilityActive(scope);
-                this.#assertSourceAnalyzerFactReadable(request.key.extensionId, key);
-                this.#requireSourceElaborator(key);
-            };
-            const resolverContext = Object.freeze({
-                source,
-                node: request.node,
-                reference: (node) => {
+            this.#withSourceFacts(request.key.extensionId, (capabilities, scope) => {
+                const assertReadable = (key) => {
                     assertExtensionCapabilityActive(scope);
-                    return round.reference(node);
-                },
-                resolve: (reference) => {
-                    assertExtensionCapabilityActive(scope);
-                    return round.resolveReference(reference);
-                },
-                request: (node, key) => {
-                    assertReadable(key);
-                    round.request(node, key);
-                },
-                require: (node, key) => {
-                    assertReadable(key);
-                    return round.require(node, key);
-                },
-            });
-            try {
-                runWithExtensionOwnerAuthority(this.#ownerAuthority, request.key.extensionId, () => {
-                    round.resolve(request, () => elaborator.resolve(resolverContext));
+                    this.#assertSourceAnalyzerFactReadable(request.key.extensionId, key);
+                    this.#requireSourceElaborator(key);
+                };
+                const resolverContext = Object.freeze({
+                    source,
+                    facts: createExtensionFactReader(capabilities.facts, scope),
+                    factResolver: createSourceFactResolver(capabilities.factResolver, scope, name => this.providers.getVirtualDeclarationDocument(name)),
+                    node: request.node,
+                    reference: (node) => {
+                        assertExtensionCapabilityActive(scope);
+                        return round.reference(node);
+                    },
+                    resolve: (reference) => {
+                        assertExtensionCapabilityActive(scope);
+                        return round.resolveReference(reference);
+                    },
+                    request: (node, key) => {
+                        assertReadable(key);
+                        round.request(node, key);
+                    },
+                    require: (node, key) => {
+                        assertReadable(key);
+                        return round.require(node, key);
+                    },
                 });
-            }
-            finally {
-                revokeExtensionCapabilityScope(scope);
-            }
+                round.resolve(request, () => elaborator.resolve(resolverContext));
+            });
         }
     }
     #requireSourceElaborator(key) {
@@ -2999,47 +3028,25 @@ export class ExtensionHost {
                 if (analyzeSource === undefined) {
                     continue;
                 }
-                const attempt = this.#beginFactAttempt();
                 try {
-                    const capabilities = this.#getOwnerCapabilities(extension.identity.id);
-                    this.facts[factStoreSetSourceAnalyzerAccessGuard]((_subject, key, access) => {
-                        if (access === "read") {
-                            this.#assertSourceAnalyzerFactReadable(extension.identity.id, key);
-                        }
-                    }, () => {
-                        throw new Error("Source analyzers cannot enumerate the global extension fact store.");
+                    this.#withSourceFacts(extension.identity.id, (capabilities, scope) => {
+                        analyzeSource(Object.freeze({
+                            source: compiler,
+                            facts: createSourceAnalysisFactAccess(capabilities.facts, scope),
+                            factResolver: createSourceFactResolver(capabilities.factResolver, scope, name => this.providers.getVirtualDeclarationDocument(name)),
+                            diagnostics: createExtensionDiagnosticWriter(capabilities.diagnostics, scope),
+                        }));
                     });
-                    try {
-                        runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
-                            const scope = createExtensionCapabilityScope();
-                            try {
-                                analyzeSource(Object.freeze({
-                                    source: compiler,
-                                    facts: createSourceAnalysisFactAccess(capabilities.facts, scope),
-                                    factResolver: createSourceAnalysisFactResolver(capabilities.factResolver, scope, name => this.providers.getVirtualDeclarationDocument(name)),
-                                    diagnostics: createExtensionDiagnosticWriter(capabilities.diagnostics, scope),
-                                }));
-                            }
-                            finally {
-                                revokeExtensionCapabilityScope(scope);
-                            }
-                        });
-                    }
-                    finally {
-                        this.facts[factStoreSetSourceAnalyzerAccessGuard](undefined, undefined);
-                    }
-                    this.#commitFactAttempt(attempt);
                 }
                 catch (error) {
-                    const settledError = this.#rollbackFactAttemptsAfterFailure(error, attempt);
                     this.diagnostics.append(createHostDiagnostic({
                         extensionCode: "SOURCE_ANALYSIS_FAILED",
                         numericCode: ExtensionHostDiagnosticCode.sourceAnalysisFailed,
                         message: `Extension '${extension.identity.id}' failed while analyzing checked source.`,
-                        evidence: [{ message: "Thrown value", details: settledError }],
+                        evidence: [{ message: "Thrown value", details: error }],
                         identity: encodeIdentityTuple(["source-analysis-failed", extension.identity.id]),
                     }));
-                    throw settledError;
+                    throw error;
                 }
             }
             this.#sourceAnalysisState = "completed";
@@ -3103,6 +3110,32 @@ export class ExtensionHost {
         const facts = this.facts[factStoreForOwner](extensionId, diagnostics);
         const factResolver = this.factResolver[factResolverForOwner](extensionId, facts, diagnostics);
         return Object.freeze({ facts, factResolver, diagnostics });
+    }
+    #withSourceFacts(extensionId, callback) {
+        const attempt = this.#beginFactAttempt();
+        const scope = createExtensionCapabilityScope();
+        try {
+            this.facts[factStoreSetSourceAnalyzerAccessGuard]((_subject, key, access, owner) => {
+                if (access !== "read" || isHostSourceReadableFactKey(key))
+                    return;
+                if (owner === undefined)
+                    throw new Error("Source facts require an active source extension owner.");
+                this.#assertSourceAnalyzerFactReadable(owner, key);
+            }, () => { throw new Error("Source extensions cannot enumerate the global extension fact store."); });
+            let result;
+            try {
+                result = runWithExtensionOwnerAuthority(this.#ownerAuthority, extensionId, () => callback(this.#getOwnerCapabilities(extensionId), scope));
+            }
+            finally {
+                revokeExtensionCapabilityScope(scope);
+                this.facts[factStoreSetSourceAnalyzerAccessGuard](undefined, undefined);
+            }
+            this.#commitFactAttempt(attempt);
+            return result;
+        }
+        catch (error) {
+            throw this.#rollbackFactAttemptsAfterFailure(error, attempt);
+        }
     }
     #assertSourceAnalyzerFactReadable(extensionId, key) {
         getExtensionFactKeyIdentity(key);
@@ -3185,7 +3218,7 @@ function createSourceAnalysisFactAccess(facts, scope) {
     };
     return Object.freeze(access);
 }
-function createSourceAnalysisFactResolver(factResolver, scope, getVirtualDeclarationDocument) {
+function createSourceFactResolver(factResolver, scope, getVirtualDeclarationDocument) {
     const resolver = {
         getVirtualDeclarationDocument(name) {
             assertExtensionCapabilityActive(scope);

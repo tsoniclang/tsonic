@@ -19,7 +19,9 @@ import {
 } from "../compile-time/declarations.js";
 import {
   analyzeTsonicAttributeBuilders,
+  resolveTsonicAttributeBuilder,
 } from "../attributes/analysis.js";
+import { tsonicAttributeBuilderFactKey } from "../attributes/facts.js";
 import {
   sourceSafetySignatureIds,
   tsonicCoreSafetyProviderNames,
@@ -84,6 +86,7 @@ export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensi
     },
     initialize(context): void {
       context.registerSourceDeclarationProvider(createTsonicCoreVirtualModulesProvider());
+      context.registerFactResolver(tsonicAttributeBuilderFactKey, resolveTsonicAttributeBuilder);
     },
     analyzeSource(context): void {
       analyzeTsonicFixedArrayTypes(context);

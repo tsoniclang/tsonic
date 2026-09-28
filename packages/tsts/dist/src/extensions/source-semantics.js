@@ -61,6 +61,7 @@ export function createSourceSemanticsExtension(options) {
         },
         initialize(context) {
             context.registerFactResolver(sourcePrimitiveFactKey, (subject, resolverContext) => resolveSourcePrimitiveFact(subject, resolverContext, modules));
+            context.registerFactResolver(attributeFactKey, (subject, resolverContext) => resolveAttributeMarker(subject, resolverContext, modules));
         },
         analyzeSource(context) {
             const sourceFiles = context.source.getSourceFiles().filter((sourceFile) => sourceFile !== undefined);
@@ -71,7 +72,7 @@ export function createSourceSemanticsExtension(options) {
                 recordSourceSemanticsDeclarationAliases(context.facts, sourceFile, context.source.getSourceFileQueries(sourceFile).checker, modules);
             }
             for (const sourceFile of sourceFiles) {
-                recordSourceSemanticsFacts(sourceFile, context.source.getSourceFileQueries(sourceFile).checker, context.facts, context.diagnostics, sourceSemanticsExtensionId, modules);
+                recordSourceSemanticsFacts(sourceFile, context.source.getSourceFileQueries(sourceFile).checker, context.facts, context.diagnostics, sourceSemanticsExtensionId, modules, context.factResolver);
             }
         },
     };
@@ -140,9 +141,9 @@ function recordSourceSemanticsDeclarationAliases(facts, sourceFile, checker, mod
         facts.set(localSymbol, sourceMarkerFactKey, markerFact, evidence);
     });
 }
-function recordSourceSemanticsFacts(sourceFile, checker, facts, diagnostics, extensionId, modules) {
+function recordSourceSemanticsFacts(sourceFile, checker, facts, diagnostics, extensionId, modules, factResolver) {
     recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modules);
-    recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker);
+    recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker, factResolver);
     recordSourceSemanticsTypeReferences(facts, sourceFile, checker, modules);
 }
 function recordSourceSemanticsImportClause(facts, checker, importDeclaration, moduleIdentity) {
@@ -242,7 +243,7 @@ function recordSourceSemanticsMarkerReferences(facts, sourceFile, checker, modul
         facts.set(node, sourceMarkerFactKey, fact, createMarkerEvidence(marker.exportName));
     });
 }
-function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker) {
+function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourceFile, checker, factResolver) {
     visitSourceSemanticsNodePost(sourceFile, (node) => {
         if (node?.Kind !== KindCallExpression) {
             return;
@@ -254,10 +255,10 @@ function recordSourceSemanticsCallMarkers(facts, diagnostics, extensionId, sourc
         if (marker === undefined) {
             return;
         }
-        recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, node, callInfo, marker);
+        recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, node, callInfo, marker, factResolver);
     });
 }
-function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker) {
+function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checker, callExpression, callInfo, marker, factResolver) {
     const evidence = createMarkerEvidence(marker.exportName);
     switch (marker.marker) {
         case "write-only-reference":
@@ -318,12 +319,12 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
             }
             recordStructMarker(facts, callExpression, evidence);
             return;
-        case "attribute":
-            if (!hasMarkerTypeArgumentCount(callExpression, 1)) {
-                return;
-            }
-            recordAttributeMarker(facts, callExpression, evidence);
+        case "attribute": {
+            const fact = factResolver.resolve(callExpression, attributeFactKey);
+            if (fact !== undefined)
+                recordInitializerOwnerFact(facts, callExpression, attributeFactKey, fact, evidence);
             return;
+        }
         case "default-value":
             if (!hasMarkerArgumentCount(callExpression, 0) || !hasMarkerTypeArgumentCount(callExpression, 1)) {
                 return;
@@ -732,7 +733,18 @@ function recordStructMarker(facts, callExpression, evidence) {
     facts.set(callExpression, structFactKey, fact, evidence);
     recordInitializerOwnerFact(facts, callExpression, structFactKey, fact, evidence);
 }
-function recordAttributeMarker(facts, callExpression, evidence) {
+function resolveAttributeMarker(subject, context, modules) {
+    const callExpression = subject;
+    if (callExpression.Kind !== KindCallExpression || !hasMarkerTypeArgumentCount(callExpression, 1))
+        return undefined;
+    const { checker } = context.source.getSourceFileQueries(GetSourceFileOfNode(callExpression));
+    const call = checker.getResolvedCallInfo(callExpression);
+    if (call === undefined || call.outcome === "intrinsic")
+        return undefined;
+    const marker = resolveSelectedSourceSemanticsCallMarker(context.facts, call)
+        ?? resolveMarkerFromCheckedReference(context.facts, checker, call.sourceCallee.expression, modules, "call-marker");
+    if (marker?.marker !== "attribute")
+        return undefined;
     const target = (Node_TypeArguments(callExpression) ?? [])[0];
     if (target === undefined) {
         return;
@@ -742,8 +754,7 @@ function recordAttributeMarker(facts, callExpression, evidence) {
         attributeName: getTypeReferenceNameText(target),
         arguments: definedNodes(Node_Arguments(callExpression) ?? []),
     };
-    facts.set(callExpression, attributeFactKey, fact, evidence);
-    recordInitializerOwnerFact(facts, callExpression, attributeFactKey, fact, evidence);
+    return { value: fact, evidence: createMarkerEvidence(marker.exportName) };
 }
 function recordDefaultValueMarker(facts, callExpression, evidence) {
     const type = (Node_TypeArguments(callExpression) ?? [])[0];
@@ -924,6 +935,11 @@ function resolveSelectedSourceSemanticsCallMarker(facts, callInfo) {
     return undefined;
 }
 function resolveMarkerFromCheckedReference(facts, checker, node, modules, capability) {
+    const reference = checker.getProviderReferenceInfo(node);
+    const declaration = reference?.ordinary?.kind === "declaration" ? reference.ordinary.declaration : undefined;
+    if (declaration?.exportName !== undefined && declaration.memberId === undefined) {
+        return getModuleMarker(modules.find(module => module.moduleSpecifier === declaration.moduleSpecifier), capability, declaration.exportName);
+    }
     const receiver = node.Kind === KindPropertyAccessExpression
         ? AsPropertyAccessExpression(node)?.Expression
         : node.Kind === KindQualifiedName

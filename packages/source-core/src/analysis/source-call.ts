@@ -11,6 +11,7 @@ import type {
 } from "@tsonic/tsts";
 import type {
   TsonicSourceFileAnalysisContext,
+  TsonicSourceFileFactContext,
 } from "./context.js";
 import {
   forEachTsonicSourceFile,
@@ -45,7 +46,7 @@ export type ProviderSourceCallSelector =
 export function selectedProviderCallMatches(
   selected: SelectedProviderSourceCall,
   selector: ProviderSourceCallSelector,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): boolean {
   const declaration = selected.declaration;
   if (
@@ -75,30 +76,27 @@ export function forEachSelectedProviderSourceCall(
 ): void {
   forEachTsonicSourceFile(context, (sourceContext): void => {
     visitPostOrder(sourceContext.sourceFile, sourceContext, (node): void => {
-      if (!sourceContext.ast.is.IsCallExpression(node) && !sourceContext.ast.is.IsNewExpression(node)) {
-        return;
-      }
-      const selection = sourceContext.checker.getResolvedCallInfo(node);
-      if (selection?.outcome !== "applicable") {
-        return;
-      }
-      const signatureDeclaration = sourceContext.checker.getSignatureDeclaration(selection.selectedSignature);
-      const declaration = readSourceFact(
-        sourceContext,
-        signatureDeclaration,
-        providerVirtualDeclarationFactKey,
-      );
-      if (declaration === undefined) {
-        return;
-      }
-      visitor({ call: node, selection, declaration }, sourceContext);
+      const selected = selectProviderSourceCall(node, sourceContext);
+      if (selected !== undefined) visitor(selected, sourceContext);
     });
   });
 }
 
+export function selectProviderSourceCall(
+  node: Node,
+  context: TsonicSourceFileFactContext,
+): SelectedProviderSourceCall | undefined {
+  if (!context.ast.is.IsCallExpression(node) && !context.ast.is.IsNewExpression(node)) return undefined;
+  const selection = context.checker.getResolvedCallInfo(node);
+  if (selection?.outcome !== "applicable") return undefined;
+  const signatureDeclaration = context.checker.getSignatureDeclaration(selection.selectedSignature);
+  const declaration = readSourceFact(context, signatureDeclaration, providerVirtualDeclarationFactKey);
+  return declaration === undefined ? undefined : { call: node, selection, declaration };
+}
+
 function directImportedModuleSpecifier(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileAnalysisContext,
+  context: TsonicSourceFileFactContext,
 ): string | undefined {
   const callee = unwrapParenthesizedExpression(
     selected.selection.sourceCallee.expression,
@@ -127,7 +125,7 @@ function directImportedModuleSpecifier(
 
 function enclosingImportDeclaration(
   node: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<TsonicSourceFileFactContext, "ast">,
 ): Node | undefined {
   let current = node;
   while (current !== undefined) {
@@ -141,7 +139,7 @@ function enclosingImportDeclaration(
 
 export function unwrapParenthesizedExpression(
   node: Node | undefined,
-  context: TsonicSourceFileAnalysisContext,
+  context: Pick<TsonicSourceFileFactContext, "ast">,
 ): Node | undefined {
   let current = node;
   while (current !== undefined && context.ast.is.IsParenthesizedExpression(current)) {
@@ -151,7 +149,7 @@ export function unwrapParenthesizedExpression(
 }
 
 export function readSourceFact<TFact>(
-  context: Pick<TsonicSourceFileAnalysisContext, "facts" | "factResolver">,
+  context: Pick<TsonicSourceFileFactContext, "facts" | "factResolver">,
   subject: ExtensionFactSubject | undefined,
   key: ExtensionFactKey<TFact>,
 ): TFact | undefined {

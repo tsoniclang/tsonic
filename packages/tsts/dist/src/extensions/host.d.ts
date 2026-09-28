@@ -183,14 +183,14 @@ export interface ExtensionFactReader {
 export interface SourceAnalysisFactAccess extends ExtensionFactReader {
     readonly set: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]) => ExtensionFactWriteResult;
 }
-export interface SourceAnalysisFactResolver {
+export interface SourceFactResolver {
     readonly getVirtualDeclarationDocument: (uriOrFileName: string) => ProviderVirtualDeclarationDocument | undefined;
     readonly resolve: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>) => T | undefined;
 }
 export interface SourceAnalysisContext {
     readonly source: SourceProgramQueries;
     readonly facts: SourceAnalysisFactAccess;
-    readonly factResolver: SourceAnalysisFactResolver;
+    readonly factResolver: SourceFactResolver;
     readonly diagnostics: ExtensionDiagnosticWriter;
 }
 export interface ExtensionInitializeContext {
@@ -214,7 +214,9 @@ export interface ExtensionFactResolution<T> {
 }
 export type ExtensionFactResolverCallback<T> = (subject: ExtensionFactSubject, context: ExtensionFactResolverContext) => ExtensionFactResolution<T> | undefined;
 export interface ExtensionFactResolverContext {
+    readonly source: SourceProgramQueries;
     readonly facts: ExtensionFactReader;
+    readonly factResolver: SourceFactResolver;
     readonly diagnostics: ExtensionDiagnosticWriter;
 }
 export interface ProviderIdentity {
@@ -545,7 +547,7 @@ interface ExtensionFactStoreState {
     readonly transactionStates: WeakMap<ExtensionFactTransaction, ExtensionFactTransactionState>;
     readonly savepointStates: WeakMap<ExtensionFactSavepoint, ExtensionFactSavepointState>;
     readonly ownerAuthority: ExtensionOwnerAuthority;
-    sourceAnalyzerAccessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write") => void) | undefined;
+    sourceAnalyzerAccessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write", ownerId: string | undefined) => void) | undefined;
     sourceAnalyzerEnumerationGuard: (() => void) | undefined;
     activeTransaction: ExtensionFactTransaction | undefined;
     nextObjectSubjectId: number;
@@ -557,7 +559,7 @@ export declare class ExtensionFactStore {
     #private;
     constructor(diagnostics: ExtensionDiagnosticStore, options?: ExtensionStoreViewOptions<ExtensionFactStoreState>);
     [factStoreForOwner](extensionId: string, diagnostics: ExtensionDiagnosticStore): ExtensionFactStore;
-    [factStoreSetSourceAnalyzerAccessGuard](accessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write") => void) | undefined, enumerationGuard: (() => void) | undefined): void;
+    [factStoreSetSourceAnalyzerAccessGuard](accessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write", ownerId: string | undefined) => void) | undefined, enumerationGuard: (() => void) | undefined): void;
     set<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     [factStoreSetForHost]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     get<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
@@ -591,11 +593,17 @@ interface ExtensionFactResolverState {
     readonly savepoints: ExtensionFactResolverSavepoint[];
     readonly savepointStates: WeakMap<ExtensionFactResolverSavepoint, ExtensionFactResolverSavepointState>;
     readonly ownerAuthority: ExtensionOwnerAuthority;
+    readonly resolving: Map<object, Set<ExtensionFactSubject>>;
     registrationsSealed: boolean;
+}
+interface ExtensionFactResolverServices {
+    readonly source: () => SourceProgramQueries;
+    readonly assertReadable: <T>(ownerId: string, key: ExtensionFactKey<T>) => void;
+    readonly getVirtualDeclarationDocument: SourceFactResolver["getVirtualDeclarationDocument"];
 }
 export declare class ExtensionFactResolver {
     #private;
-    constructor(facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore, options?: ExtensionStoreViewOptions<ExtensionFactResolverState>);
+    constructor(facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore, services: ExtensionFactResolverServices, options?: ExtensionStoreViewOptions<ExtensionFactResolverState>);
     [factResolverForOwner](extensionId: string, facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore): ExtensionFactResolver;
     register<T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>): void;
     resolve<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>): T | undefined;

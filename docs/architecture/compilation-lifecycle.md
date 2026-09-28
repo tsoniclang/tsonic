@@ -31,6 +31,20 @@ as an ordinary argument list. Selection alone does not make the call valid:
 without native elaboration, normal source diagnostics still apply. Shared
 parameter/result queries return no ordinary evidence for that selection.
 
+Source extensions register each demand-computed fact with
+`registerFactResolver`. Its callback receives the current `source` queries,
+read-only `facts`, `factResolver` and diagnostic writer. Source elaboration and
+final analysis use this same resolver; attribute roots, selectors and
+applications do not have a separate early implementation. A selected fact is
+memoized for that source epoch, not proof that the whole program is valid.
+
+Only the registered owner publishes its result. Nested requests must respect
+each owner's declared dependencies. Cycles fail, callback capabilities expire,
+and a failed or suspended transaction does not retain provisional facts.
+Replaying an elaboration request creates a fresh source epoch; its data-only
+answer cannot carry old AST objects into that epoch. Final consumers continue
+to read sealed facts without reopening source checking or resolution.
+
 ## 3. Target session
 
 The host creates one explicit target compilation session. The target receives
