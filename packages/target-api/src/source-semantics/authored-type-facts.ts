@@ -4,7 +4,13 @@ import type {
   Node,
   TypeCheckerQueries,
 } from "@tsonic/tsts";
-import { sourcePrimitiveFactKey } from "@tsonic/tsts";
+import {
+  functionPointerFactKey,
+  pointerFactKey,
+  rawPointerFactKey,
+  sourceMarkerFactKey,
+  sourcePrimitiveFactKey,
+} from "@tsonic/tsts";
 import type {
   SourceReferenceNavigation,
 } from "../source-navigation/index.js";
@@ -63,9 +69,13 @@ function collectAuthoredSourceTypeFactDependencies(
       return;
     }
     visited.add(current);
-    const primitive = ast.is.IsTypeReferenceNode(current)
-      ? facts.getFact(current, sourcePrimitiveFactKey)
-      : undefined;
+    const nativeType = ast.is.IsTypeReferenceNode(current) && (
+      facts.getFact(current, sourcePrimitiveFactKey) !== undefined ||
+      facts.getFact(current, pointerFactKey) !== undefined ||
+      facts.getFact(current, rawPointerFactKey) !== undefined ||
+      facts.getFact(current, functionPointerFactKey) !== undefined ||
+      facts.getFact(current, sourceMarkerFactKey)?.kind === "type-marker"
+    );
     const hasFacts = facts.hasFacts(current);
     if (hasFacts) {
       subjects.push(current);
@@ -74,7 +84,7 @@ function collectAuthoredSourceTypeFactDependencies(
       nodes.push(current);
     }
     ast.forEachChild(current, visit);
-    if (!ast.is.IsTypeReferenceNode(current) || primitive !== undefined) {
+    if (!ast.is.IsTypeReferenceNode(current) || nativeType) {
       return;
     }
     const typeName = ast.as.AsTypeReferenceNode(current)?.TypeName;

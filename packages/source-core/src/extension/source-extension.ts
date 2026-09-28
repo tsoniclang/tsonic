@@ -41,7 +41,9 @@ import {
 } from "../pointers/operations.js";
 import {
   analyzeTsonicFixedArrayTypes,
+  resolveTsonicFixedArrayType,
 } from "../fixed-arrays/analysis.js";
+import { tsonicFixedArrayFactKey } from "../fixed-arrays/facts.js";
 import {
   analyzeTsonicSourceMarkerEvidence,
 } from "../analysis/marker-evidence.js";
@@ -87,6 +89,7 @@ export function createTsonicCoreSourceExtension(options: TsonicCoreSourceExtensi
     initialize(context): void {
       context.registerSourceDeclarationProvider(createTsonicCoreVirtualModulesProvider());
       context.registerFactResolver(tsonicAttributeBuilderFactKey, resolveTsonicAttributeBuilder);
+      context.registerFactResolver(tsonicFixedArrayFactKey, resolveTsonicFixedArrayType);
     },
     analyzeSource(context): void {
       analyzeTsonicFixedArrayTypes(context);

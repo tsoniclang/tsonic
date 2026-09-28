@@ -60,10 +60,13 @@ target-source publication still requires `CheckedSourceProgram`.
 
 `factResolver.hasFacts(subject)` reports only currently published metadata
 readable by that extension. It does not expose foreign keys or values, enumerate
-the global store or run every resolver. Authored primitive queries demand their
-exact declaration first, retaining native width and signedness rather than
-following its erased `number` or `bigint` alias. Query caches cannot authorize
-reads from a retired source epoch.
+the global store or run every resolver. Authored primitive and type-marker
+queries demand their exact declaration first, retaining native widths, pointer
+types and authored arguments rather than following an erased provider alias.
+Source-core resolves fixed-array element types and exact lengths through the
+same selector before and during final analysis. These facts do not certify a
+target's storage capacity or memory layout. Query caches cannot authorize reads
+from a retired source epoch.
 
 Only the registered owner publishes its result. Nested requests must respect
 each owner's declared dependencies. Cycles fail, callback capabilities expire,

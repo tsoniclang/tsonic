@@ -33,12 +33,23 @@ const primitiveProvider: CompilerExtension = {
       resolveModule: name => ({ kind: "virtual", moduleSpecifier: name, virtualFileName: "/provider/primitives.d.ts", providerModuleId: "Query.Primitives" }),
       getDeclarationModel: () => ({ moduleSpecifier: nativeModule, providerModuleId: "Query.Primitives", exports: [
         { id: "Word", name: "word", kind: "type", type: { kind: "number" } },
+        { id: "Pointer", name: "Pointer", kind: "class", typeParameters: [{ name: "T" }] },
+        { id: "RawPointer", name: "RawPointer", kind: "type", type: { kind: "number" } },
+        { id: "FunctionPointer", name: "FunctionPointer", kind: "class", typeParameters: [{ name: "Parameters" }, { name: "Result" }] },
+        { id: "FixedArray", name: "FixedArray", kind: "class", typeParameters: [{ name: "Element" }, { name: "Length" }] },
+        { id: "JsString", name: "JsString", kind: "type", type: { kind: "string" } },
       ] }),
     });
   },
 };
 const primitives = createSourceSemanticsExtension({ modules: [{ moduleSpecifier: nativeModule,
-  exports: [sourcePrimitive("word", "int32", "number", true, 32)],
+  exports: [sourcePrimitive("word", "int32", "number", true, 32),
+    { kind: "type-marker", exportName: "Pointer", marker: "pointer" },
+    { kind: "type-marker", exportName: "RawPointer", marker: "raw-pointer" },
+    { kind: "type-marker", exportName: "FunctionPointer", marker: "function-pointer" },
+    { kind: "type-marker", exportName: "FixedArray", marker: "fixed-array" },
+    { kind: "type-marker", exportName: "JsString", marker: "js-string" },
+  ],
 }] });
 
 function currentSemantics(context: SourceElaborationContext): SourceProgramSemantics {
@@ -133,6 +144,50 @@ test("constructing current source semantics does not check unrelated expressions
   assert.match(diagnostics, /not assignable/);
   assert.match(diagnostics, /Cannot find name 'missing'/);
   assert.deepEqual(checked.extensionDiagnostics, []);
+});
+
+test("current source semantics demand native type annotations without following erased implementations", () => {
+  const observations = new Map<Node, readonly Node[]>();
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": `
+      import type { word, Pointer, RawPointer, FunctionPointer, FixedArray, JsString } from "${nativeModule}";
+      type Typed = Pointer<word>;
+      type Raw = RawPointer;
+      type Callback = FunctionPointer<[word], word>;
+      type Array = FixedArray<word, 4>;
+      type Text = JsString;
+    ` },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+    extensionHostOptions: { extensions: [primitiveProvider, primitives, {
+      identity: { id: "test.current-native-types", version: "1" },
+      dependencies: { dependsOn: [sourceSemanticsExtensionId] },
+      elaborateSource(context) {
+        const file = context.source.getSourceFile("/src/index.ts");
+        assert.ok(file);
+        const { ast } = context.source;
+        const semantics = currentSemantics(context).forFile(file);
+        for (const declaration of ast.statements(file)) {
+          if (!ast.is.IsTypeAliasDeclaration(declaration)) continue;
+          const root = ast.typeNode(declaration);
+          assert.ok(root);
+          const nodes = semantics.facts.authoredTypeNodes(root);
+          assert.ok(nodes.includes(root));
+          assert.equal(nodes.some(node => ast.is.IsKeywordTypeNode(node)), false,
+            "A native marker must not expose its erased provider implementation as authored source evidence.");
+          observations.set(root, nodes.filter(node => ast.is.IsTypeReferenceNode(node)));
+        }
+      },
+    }] },
+  }).checkSource();
+  assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)), "");
+  assert.deepEqual(checked.extensionDiagnostics, []);
+  assert.equal(observations.size, 5);
+  const final = createTargetSourceProgram(checked).semantics;
+  for (const [root, nodes] of observations) {
+    assert.deepEqual(final.forNode(root).facts.authoredTypeNodes(root)
+      .filter(node => checked.ast.is.IsTypeReferenceNode(node)), nodes);
+  }
 });
 
 test("cached current source semantics reject foreign files and retired source epochs", () => {
