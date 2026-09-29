@@ -67,7 +67,11 @@ function collectAuthoredSourceTypeFactDependencies(
     if (hasFacts) {
       subjects.push(current);
     }
-    if (hasFacts || ast.is.IsKeywordTypeNode(current) || ast.is.IsIndexedAccessTypeNode(current)) {
+    if (hasFacts || ast.is.IsKeywordTypeNode(current) || ast.is.IsIndexedAccessTypeNode(current) ||
+      ast.is.IsArrayTypeNode(current) || ast.is.IsTupleTypeNode(current) ||
+      ast.is.IsFunctionTypeNode(current) || ast.is.IsConstructorTypeNode(current) ||
+      ast.is.IsUnionTypeNode(current) || ast.is.IsIntersectionTypeNode(current) ||
+      ast.is.IsParenthesizedTypeNode(current)) {
       nodes.push(current);
     }
     ast.forEachChild(current, visit);

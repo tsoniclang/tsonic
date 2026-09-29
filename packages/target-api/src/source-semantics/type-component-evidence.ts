@@ -80,6 +80,8 @@ export function sourceTransformedTypeFactEvidenceNodes(
     (node) => sourceTypeNodeIsExactCandidate(ast, node),
   );
   return Object.freeze(candidates.filter((node) => {
+    const authoredType = semantics.types.authoredType(node);
+    if (authoredType === undefined || !semantics.types.isIdentical(authoredType, selectedType)) return false;
     const selection = semantics.types.authoredSelection(node, selectedType);
     return selection.kind === "authored-members" &&
       selection.nodes.length === 1 && selection.nodes[0] === node &&

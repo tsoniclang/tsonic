@@ -10,6 +10,7 @@ import {
 } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
 import { sourceIndexedPropertyTypeEvidence, sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
+import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({
@@ -34,6 +35,19 @@ function fixture() {
         type Optional = Fields["optional"];
         type Indexed = { [key: string]: number }[string];
         type Deferred<T, K extends keyof T> = T[K];
+        type NativeArray = word[];
+        type TextArray = string[];
+        type Arrays = NativeArray | TextArray;
+        type NativeFactory = () => word;
+        type Composed = Arrays | NativeFactory;
+        type Bound<T> = string | T[];
+        type Applied = Bound<word>;
+        type Wrong = Bound<boolean>;
+        type RecordUnion<T> = { kind: "values"; values: T[] } | { kind: "call"; callback: (value: T) => T };
+        type AppliedRecordUnion = RecordUnion<word>;
+        type WrongRecordUnion = RecordUnion<boolean>;
+        type ForeignRecordUnion<T> = { kind: "values"; values: T[] } | { kind: "call"; callback: (value: T) => T };
+        type ForeignAppliedRecordUnion = ForeignRecordUnion<word>;
       `,
     },
     compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
@@ -128,4 +142,56 @@ test("transformed aliases retain indexed selection syntax without requiring a fa
   const nodes = sourceTransformedTypeFactEvidenceNodes(source.ast, semantics, alias("First"), selected("First"));
   assert.ok(nodes.includes(alias("First")));
   assert.equal(source.sourceFacts.getFacts(alias("First")).length, 0);
+});
+
+test("composed aliases retain container and callable syntax with exact generic arguments", () => {
+  const { source, semantics, alias, selected } = fixture();
+  for (const name of ["NativeArray", "TextArray", "NativeFactory"]) {
+    const nodes = sourceTransformedTypeFactEvidenceNodes(source.ast, semantics, alias("Composed"), selected(name));
+    assert.deepEqual(nodes, [alias(name)]);
+    assert.ok(Object.isFrozen(nodes));
+    assert.equal(source.sourceFacts.getFacts(nodes[0]!).length, 0);
+  }
+  assert.deepEqual(sourceTransformedTypeFactEvidenceNodes(source.ast, semantics, alias("NativeArray"), selected("TextArray")), []);
+});
+
+test("bound source correspondence retains generic union members and rejects changed bindings", () => {
+  const { source, semantics, alias, selected } = fixture();
+  const declaration = source.ast.parent(alias("Bound"));
+  assert.ok(declaration);
+  const application = semantics.types.instantiateAlias(declaration, [selected("Exact")]);
+  assert.ok(application);
+  const binding = (declaration: Node) => application.bindings.find(entry => entry.declaration === declaration)?.argument;
+  assert.equal(sourceBoundTypeRelationship(selected("Bound"), selected("Applied"), semantics, binding), "bound");
+  assert.equal(sourceBoundTypeRelationship(selected("Bound"), selected("Wrong"), semantics, binding), undefined);
+  assert.equal(sourceBoundTypeRelationship(selected("Bound"), selected("Applied"), semantics, () => undefined), undefined);
+  assert.equal(sourceBoundTypeRelationship(selected("NativeArray"), selected("TextArray"), semantics, binding), undefined);
+});
+
+test("bound source members preserve exact record and callable declarations without carrier reconstruction", () => {
+  const { source, semantics, alias, selected } = fixture();
+  const declaration = source.ast.parent(alias("RecordUnion"));
+  assert.ok(declaration);
+  const application = semantics.types.instantiateAlias(declaration, [selected("Exact")]);
+  assert.ok(application);
+  const binding = (declaration: Node) => application.bindings.find(entry => entry.declaration === declaration)?.argument;
+  const original = semantics.types.unionOrIntersectionTypes(selected("RecordUnion"));
+  const applied = semantics.types.unionOrIntersectionTypes(selected("AppliedRecordUnion"));
+  assert.equal(original.length, 2);
+  for (const member of original) {
+    assert.equal(applied.filter(other => sourceBoundTypeRelationship(member, other, semantics, binding) === "bound").length, 1);
+    for (const name of ["WrongRecordUnion", "ForeignAppliedRecordUnion"]) {
+      assert.ok(semantics.types.unionOrIntersectionTypes(selected(name)).every(other =>
+        sourceBoundTypeRelationship(member, other, semantics, binding) === undefined));
+    }
+  }
+  const changed = { ...semantics, types: { ...semantics.types,
+    structuralMembers: (...arguments_: Parameters<typeof semantics.types.structuralMembers>) => {
+      const relation = semantics.types.structuralMembers(...arguments_);
+      return relation.kind !== "available" ? relation : { ...relation, members: relation.members.map(member =>
+        member.kind !== "present" ? member : { ...member, source: { ...member.source,
+          property: { ...member.source.property, optional: !member.source.property.optional } } }) };
+    },
+  } };
+  assert.ok(original.every(member => applied.every(other => sourceBoundTypeRelationship(member, other, changed, binding) === undefined)));
 });

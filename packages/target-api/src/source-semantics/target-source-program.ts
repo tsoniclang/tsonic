@@ -210,6 +210,7 @@ export function createTargetSourceProgram(
       withoutMissingOrUndefined: queries.typeShape.removeMissingOrUndefined,
       constantValue: queries.typeShape.getConstantValue,
       numericLiteralValue: queries.typeShape.getNumericLiteralTypeValue,
+      stringLiteralValue: queries.typeShape.getStringLiteralTypeValue,
       isAny: queries.typeShape.isAny,
       isUnknown: queries.typeShape.isUnknown,
       isNever: queries.typeShape.isNever,

@@ -115,7 +115,7 @@ test("published packages exclude incremental compiler state", async () => {
   }
 });
 
-test("packed TSTS declarations and runtime expose the same bounded encoder contract", async () => {
+test("packed TSTS declarations and runtime expose exact literal and bounded encoder contracts", async () => {
   const scratch = resolve(repoRoot, ".temp/packed-tsts-contract");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(resolve(scratch, "case-"));
@@ -166,6 +166,19 @@ const source = AsSourceFile(checked.sourceFiles.find((entry) =>
   checked.ast.getFileName(entry) === "/project/index.ts"));
 assert.ok(source);
 const sourceFile: SourceFile = source;
+const queries = checked.getSourceFileQueries(sourceFile);
+const literals: string[] = [];
+const visit = (node: Parameters<typeof checked.ast.forEachChild>[0]): void => {
+  if (checked.ast.is.IsStringLiteral(node)) {
+    const value: string | undefined = queries.typeShape.getStringLiteralTypeValue(queries.checker.getTypeAtLocation(node));
+    assert.notEqual(value, undefined);
+    literals.push(value!);
+  }
+  checked.ast.forEachChild(node, visit);
+};
+visit(sourceFile);
+assert.deepEqual(literals, ["😀 é"]);
+assert.equal(queries.typeShape.getStringLiteralTypeValue(undefined), undefined);
 const original: Uint8Array = encodeTargetSourceFileForPrinting(sourceFile);
 const limits: TargetAstEncodingLimits = {
   ...defaultTargetAstEncodingLimits,
