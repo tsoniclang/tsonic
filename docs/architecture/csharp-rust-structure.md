@@ -67,6 +67,7 @@ Paths below are relative to each target's `src/` directory.
 | Class declarations | `backend/planner/declarations/classes/` | CLR class members or Rust struct/impl members |
 | Interfaces and enums | `backend/planner/declarations/interfaces/`, `enums/` | Native declaration forms are not interchangeable |
 | Binding patterns | `backend/planner/bindings/` | Locals and destructuring, not callable signature policy |
+| Generic naming contexts | `backend/planner/names/type-parameters.ts` | Exact binder identities select generated names; type syntax stays under `types/` |
 
 Analysis may need different algorithms. C# selects members and expected types;
 Rust also proves ownership, fallibility, lifetimes and layout. Both must seal
