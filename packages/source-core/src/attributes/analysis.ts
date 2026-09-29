@@ -1,7 +1,5 @@
 import {
   attributeFactKey,
-  providerVirtualDeclarationFactKey,
-  sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
   SourceAnalysisContext,
@@ -33,7 +31,6 @@ import {
   forEachSelectedProviderSourceCall,
   readSourceFact,
   selectedProviderCallMatches,
-  unwrapParenthesizedExpression,
 } from "../analysis/source-call.js";
 import {
   selectInlineSourceMember,
@@ -53,14 +50,6 @@ interface AttributeBuilderRule {
 }
 
 const attributeBuilderRules = Object.freeze([
-  rule(
-    memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleTarget, tsonicAttributeBuilderSignatureIds.moduleTarget),
-    analyzeAttributeTargetSpecifier,
-  ),
-  rule(
-    memberSelector("__TsonicModuleAttributeBuilder", tsonicAttributeBuilderMemberIds.moduleAdd, tsonicAttributeBuilderSignatureIds.moduleAdd),
-    analyzeAttributeApplication,
-  ),
   rule(
     exportSelector(attributeExportId, tsonicAttributeBuilderSignatureIds.root),
     analyzeAttributeRoot,
@@ -129,14 +118,6 @@ export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): 
       analyzeAttributeRoot(selected, sourceContext);
       return;
     }
-    if (isAttributeModuleSelector(selected, sourceContext)) {
-      writeAttributeBuilderFact(selected, sourceContext, {
-        kind: "builder-state",
-        applicationTarget: sourceContext.sourceFile,
-        applicationPlacement: "module",
-      });
-      return;
-    }
     for (const candidate of attributeBuilderRules) {
       if (selectedProviderCallMatches(selected, candidate.selector, sourceContext)) {
         candidate.analyze(selected, sourceContext);
@@ -144,26 +125,6 @@ export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): 
       }
     }
   });
-}
-
-function isAttributeModuleSelector(
-  selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileAnalysisContext,
-): boolean {
-  const declaration = selected.declaration;
-  if (declaration.memberId !== tsonicAttributeBuilderMemberIds.module ||
-    declaration.signatureId !== tsonicAttributeBuilderSignatureIds.module ||
-    declaration.memberStatic !== false) return false;
-  const receiver = unwrapParenthesizedExpression(selected.selection.sourceReceiver?.expression, context);
-  const marker = readSourceFact(context, receiver, sourceMarkerFactKey);
-  if (marker?.kind !== "call-marker" || marker.marker !== "attribute") return false;
-  const receiverSymbol = context.checker.getAliasedSymbol(context.checker.getSymbolAtLocation(receiver));
-  const owner = readSourceFact(context, receiverSymbol, providerVirtualDeclarationFactKey);
-  return owner?.providerId === declaration.providerId &&
-    owner.providerVersion === declaration.providerVersion &&
-    owner.providerModuleId === declaration.providerModuleId &&
-    owner.moduleSpecifier === declaration.moduleSpecifier &&
-    owner.exportId === declaration.exportId && owner.memberId === undefined;
 }
 
 function rule(

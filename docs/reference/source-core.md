@@ -114,14 +114,6 @@ allocates at runtime. Native attribute constant and placement rules still apply.
 This example uses C#'s `InAttribute` on a parameter. Import it from
 `@tsonic/dotnet/System/Runtime/InteropServices.js`.
 
-`attribute.module()` selects the authored source module.
-`attribute.module().target("inner")` also retains an explicit target specifier;
-omitting `.target(...)` does not select one implicitly. Its source fact does
-not itself establish native attribute support: the target must check the exact
-attribute and its placement. C# rejects this selection rather than treating it
-as an assembly or CLR module attribute. General Rust macro-attribute checking
-and expansion are not yet complete.
-
 ### Compile-time intent
 
 | Export | Meaning |

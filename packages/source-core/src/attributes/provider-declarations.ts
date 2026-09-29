@@ -8,9 +8,6 @@ import {
 } from "../identity.js";
 
 export const tsonicAttributeBuilderMemberIds = Object.freeze({
-  module: "attribute.module",
-  moduleAdd: "__TsonicModuleAttributeBuilder.add",
-  moduleTarget: "__TsonicModuleAttributeBuilder.target",
   add: "__TsonicAttributeBuilder.add",
   property: "__TsonicAttributeBuilder.property",
   method: "__TsonicAttributeBuilder.method",
@@ -22,9 +19,6 @@ export const tsonicAttributeBuilderMemberIds = Object.freeze({
 
 export const tsonicAttributeBuilderSignatureIds = Object.freeze({
   root: "attribute<T>()",
-  module: "attribute.module()",
-  moduleAdd: tsonicAttributeBuilderMemberIds.moduleAdd,
-  moduleTarget: tsonicAttributeBuilderMemberIds.moduleTarget,
   add: tsonicAttributeBuilderMemberIds.add,
   property: tsonicAttributeBuilderMemberIds.property,
   method: tsonicAttributeBuilderMemberIds.method,
@@ -42,16 +36,6 @@ export function attributeCallMarkerDeclaration(
     id: exportName,
     name: exportName,
     kind: "function",
-    members: [{
-      id: tsonicAttributeBuilderMemberIds.module,
-      name: "module",
-      kind: "method",
-      signatures: [{
-        id: tsonicAttributeBuilderSignatureIds.module,
-        parameters: [],
-        returnType: { kind: "provider-ref", moduleSpecifier: tsonicCoreLangModule, exportName: "__TsonicModuleAttributeBuilder" },
-      }],
-    }],
     signatures: [{
       id: tsonicAttributeBuilderSignatureIds.root,
       typeParameters: [{ name: "T" }],
@@ -63,21 +47,6 @@ export function attributeCallMarkerDeclaration(
         typeArguments: [typeParameter],
       },
     }],
-  };
-}
-
-export function moduleAttributeBuilderDeclaration(): ProviderExportDeclaration {
-  return {
-    id: "__TsonicModuleAttributeBuilder",
-    name: "__TsonicModuleAttributeBuilder",
-    kind: "interface",
-    members: [
-      attributeApplicationMember(tsonicAttributeBuilderMemberIds.moduleAdd),
-      methodMember(tsonicAttributeBuilderMemberIds.moduleTarget, "target", [
-        { name: "specifier", type: { kind: "string" } },
-      ], { kind: "provider-ref", moduleSpecifier: tsonicCoreLangModule, exportName: "__TsonicModuleAttributeBuilder" }),
-      unavailableConstructorMember("__TsonicModuleAttributeBuilder"),
-    ],
   };
 }
 

@@ -10,7 +10,6 @@ import {
   attributeBuilderDeclaration,
   attributeCallMarkerDeclaration,
   attributeMemberBuilderDeclaration,
-  moduleAttributeBuilderDeclaration,
   tsonicAttributeBuilderMemberIds,
   tsonicAttributeBuilderSignatureIds,
 } from "../attributes/provider-declarations.js";
@@ -77,7 +76,6 @@ function sourceSemanticsHelperDeclarations(
     return [
       attributeBuilderDeclaration(),
       attributeMemberBuilderDeclaration(),
-      moduleAttributeBuilderDeclaration(),
       ...memoryOperationDeclarations(),
       pointerViewDeclaration(),
       ...compileTimeProviderDeclarations(),

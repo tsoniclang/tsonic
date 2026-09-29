@@ -67,8 +67,9 @@ test("attribute indexing preserves original finalized identities and visits each
 test("attribute indexing preserves source-file order, placement and empty selections", () => {
   const sourceText = `
     import { attribute } from "@tsonic/core/lang.js";
+    class Subject { value = ""; }
     function mark(): void {}
-    attribute.module().add(() => mark());
+    attribute<Subject>().property(value => value.value).add(() => mark());
   `;
   const { session, sourceFile } = createCleanSourceCoreSession(sourceText, { "/src/second.ts": sourceText });
   const secondFile = checkSource(session).getSourceFile("/src/second.ts");
@@ -76,12 +77,12 @@ test("attribute indexing preserves source-file order, placement and empty select
   const input = { ast: sourceAst(session), sourceFacts: sourceFacts(session) };
   for (const files of [[sourceFile, secondFile], [secondFile, sourceFile]]) {
     const index = createTsonicAttributeApplicationFactIndex({ ...input, sourceFiles: files });
-    assert.deepEqual(index.all.map(fact => fact.applicationTarget), files);
+    assert.deepEqual(index.all.map(fact => input.ast.getSourceFile(fact.applicationTarget as Node)), files);
     for (const file of files) {
       const [application] = index.forSourceFile(file);
-      assert.equal(application?.applicationPlacement, "module");
-      assert.equal(application?.applicationTarget, file);
-      assert.equal(application, index.all.find(fact => fact.applicationTarget === file));
+      assert.equal(application?.applicationPlacement, "declaration");
+      assert.equal(input.ast.getSourceFile(application?.applicationTarget as Node), file);
+      assert.equal(application, index.all.find(fact => input.ast.getSourceFile(fact.applicationTarget as Node) === file));
     }
   }
   const empty = createTsonicAttributeApplicationFactIndex({ ...input, sourceFiles: [] });

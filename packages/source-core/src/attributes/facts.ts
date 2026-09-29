@@ -9,7 +9,7 @@ import {
 } from "../identity.js";
 
 export type TsonicAttributeApplicationMemberKind = "property" | "method";
-export type TsonicAttributeApplicationPlacement = "declaration" | "constructor" | "module";
+export type TsonicAttributeApplicationPlacement = "declaration" | "constructor";
 
 export interface TsonicAttributeBuilderStateFact {
   readonly kind: "builder-state";
