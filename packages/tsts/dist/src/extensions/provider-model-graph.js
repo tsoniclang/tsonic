@@ -16,7 +16,6 @@ const providerModelFieldNameRecord = {
     localName: true,
     kind: true,
     id: true,
-    intrinsicId: true,
     name: true,
     exportName: true,
     exportKind: true,
@@ -53,7 +52,7 @@ const providerModelShapeFields = {
     model: providerModelFields("moduleSpecifier", "providerModuleId", "imports", "exports", "evidence"),
     import: providerModelFields("moduleSpecifier", "defaultImport", "namespaceImport", "typeOnly", "namedImports"),
     requestedExport: providerModelFields("exportedName", "localName", "kind"),
-    export: providerModelFields("id", "intrinsicId", "name", "kind", "exportName", "exportKind", "sourceTypeFamily", "documentation", "type", "typeParameters", "heritage", "members", "signatures"),
+    export: providerModelFields("id", "name", "kind", "exportName", "exportKind", "sourceTypeFamily", "documentation", "type", "typeParameters", "heritage", "members", "signatures"),
     heritage: providerModelFields("kind", "type"),
     member: providerModelFields("id", "kind", "name", "static", "readonly", "optional", "documentation", "type", "signatures"),
     signature: providerModelFields("id", "name", "documentation", "parameters", "returnType", "typeParameters"),
@@ -284,7 +283,6 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
                 return false;
             }
             const id = readProviderModelField(reads, declaration, "id");
-            const intrinsicId = readProviderModelField(reads, declaration, "intrinsicId");
             const name = readProviderModelField(reads, declaration, "name");
             const declarationKind = readProviderModelField(reads, declaration, "kind");
             const exportName = readProviderModelField(reads, declaration, "exportName");
@@ -297,7 +295,6 @@ function pushProviderModelGraphChildren(reads, stack, frame) {
             const members = readProviderModelField(reads, declaration, "members");
             const signatures = readProviderModelField(reads, declaration, "signatures");
             return typeof id === "string"
-                && isOptionalString(intrinsicId)
                 && typeof name === "string"
                 && isProviderDeclarationKind(declarationKind)
                 && isOptionalString(exportName)
@@ -842,16 +839,14 @@ function isProviderDeclarationKind(value) {
         || value === "function"
         || value === "class"
         || value === "interface"
-        || value === "enum"
-        || value === "intrinsic";
+        || value === "enum";
 }
 function isProviderMemberKind(value) {
     return value === "method"
         || value === "constructor"
         || value === "property"
         || value === "field"
-        || value === "indexer"
-        || value === "intrinsic";
+        || value === "indexer";
 }
 function isValidProviderTypeFamilyShape(reads, value, path, depth) {
     if (value === undefined) {
@@ -1009,7 +1004,6 @@ function snapshotProviderExportDeclaration(context, declaration) {
         return cached;
     }
     const id = readProviderModelField(context.reads, declaration, "id");
-    const intrinsicId = readProviderModelField(context.reads, declaration, "intrinsicId");
     const name = readProviderModelField(context.reads, declaration, "name");
     const exportName = readProviderModelField(context.reads, declaration, "exportName");
     const exportKind = readProviderModelField(context.reads, declaration, "exportKind");
@@ -1023,7 +1017,6 @@ function snapshotProviderExportDeclaration(context, declaration) {
     const documentation = readProviderModelField(context.reads, declaration, "documentation");
     const snapshot = {
         id,
-        ...(intrinsicId === undefined ? {} : { intrinsicId }),
         name,
         ...(exportName === undefined ? {} : { exportName }),
         ...(exportKind === undefined ? {} : { exportKind }),
@@ -1566,7 +1559,6 @@ function canonicalizeProviderAbiExportDeclarationWithContext(context, declaratio
         : "__TstsProvider_" + declaration.sourceTypeFamily.exportName + "_" + declaration.sourceTypeFamily.typeArgumentCount;
     return {
         id: declaration.id,
-        ...(declaration.intrinsicId === undefined ? {} : { intrinsicId: declaration.intrinsicId }),
         name: canonicalName,
         ...(targetExportName === "default"
             ? { exportKind: "default" }

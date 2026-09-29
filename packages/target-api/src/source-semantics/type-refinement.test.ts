@@ -18,8 +18,7 @@ function inspect(sourceText: string) {
     const node = pending.pop()!;
     if (source.ast.is.IsCallExpression(node)) {
       const call = semantics.operations.call(node);
-      assert.equal(call?.outcome, "applicable");
-      const argument = call.sourceArguments[0];
+      const argument = call?.sourceArguments[0];
       const declaration = argument === undefined ? undefined : source.navigation.referenceFor(argument.expression)?.declaration;
       const declared = declaration === undefined ? undefined : semantics.declarations.declaredValueType(declaration);
       if (declared !== undefined && argument?.type !== undefined) {

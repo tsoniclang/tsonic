@@ -1,11 +1,11 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceFileQueries } from "@tsonic/tsts";
+import type { TsonicSourceFileAnalysisContext } from "../analysis/context.js";
 import type { SelectedProviderSourceCall } from "../analysis/source-call.js";
 import { unwrapParenthesizedExpression } from "../analysis/source-call.js";
 
 export function selectedAttributeInvocation(
   selected: SelectedProviderSourceCall,
-  context: Pick<SourceFileQueries, "ast" | "checker">,
+  context: TsonicSourceFileAnalysisContext,
 ): Node | undefined {
   const callback = unwrapParenthesizedExpression(selected.selection.sourceArguments[0]?.expression, context);
   if (
@@ -26,8 +26,5 @@ export function selectedAttributeInvocation(
     return undefined;
   }
   const call = context.checker.getResolvedCallInfo(invocation);
-  if (call?.outcome === "applicable") return invocation;
-  return call?.outcome === "intrinsic" && context.ast.is.IsCallExpression(invocation) &&
-    context.ast.as.AsCallExpression(invocation)!.QuestionDotToken === undefined
-    ? invocation : undefined;
+  return call?.outcome === "applicable" ? invocation : undefined;
 }

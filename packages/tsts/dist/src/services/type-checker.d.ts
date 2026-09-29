@@ -3,8 +3,6 @@ import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
-import type { SourceProviderReferenceInfo } from "../internal/checker/checker/source-provider-reference.js";
-export type { SourceProviderReferenceInfo } from "../internal/checker/checker/source-provider-reference.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
 import type { ContextFlags, ResolvedCallEvidence, Signature, Type } from "../internal/checker/types.js";
@@ -14,14 +12,7 @@ export interface CreateTypeCheckerQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
 }
-export type ResolvedSourceSignatureCallInfo = ResolvedCallEvidence;
-export type ResolvedSourceCallInfo = ResolvedSourceSignatureCallInfo | {
-    readonly outcome: "intrinsic";
-    readonly reference: Pick<SourceProviderReferenceInfo, "expression" | "symbol"> & {
-        readonly intrinsic: NonNullable<SourceProviderReferenceInfo["intrinsic"]>;
-        readonly ordinary?: never;
-    };
-};
+export type ResolvedSourceCallInfo = ResolvedCallEvidence;
 export interface ResolvedSourceReceiverValueEvidence {
     readonly valueSymbol?: Symbol;
     readonly valueDeclaration?: Node;
@@ -57,7 +48,6 @@ export interface ResolvedSourceStorageInfo {
     readonly writable: boolean;
 }
 export interface TypeCheckerQueries {
-    readonly getProviderReferenceInfo: (expression: GoPtr<Node>) => SourceProviderReferenceInfo | undefined;
     readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
     readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<Type>;

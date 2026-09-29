@@ -117,8 +117,7 @@ export function createSourceArrayDensityQuery(
       ast.arguments(call).some(argument => argument === undefined || ast.kindName(argument) === "KindSpreadElement")) return undefined;
     const semantics = semanticsFor(call);
     const selected = semantics.operations.call(call);
-    const signature = selected === undefined || selected.outcome === "intrinsic"
-      ? undefined : semantics.declarations.signatureDeclaration(selected.selectedSignature);
+    const signature = selected === undefined ? undefined : semantics.declarations.signatureDeclaration(selected.selectedSignature);
     if (signature === undefined || !navigation.isProjectDeclaration(signature)) return undefined;
     const target = navigation.callableImplementation(signature);
     if (target?.kind !== "resolved" || ast.kindName(target.implementation.declaration) !== "KindFunctionDeclaration") return undefined;

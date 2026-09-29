@@ -23,7 +23,7 @@ export function selectSourceCallResult(
   source: ResolvedSourceCallInfo,
   providerSignature: (declaration: Node | undefined) => SourceProviderSignatureSelection | undefined,
 ): SourceCallResultSelection | undefined {
-  if (source.outcome === "intrinsic" || source.sourceSelectedSignatureKind !== "resolved") {
+  if (source.sourceSelectedSignatureKind !== "resolved") {
     return undefined;
   }
   const selectedReturnType = checker.getReturnTypeOfSignature(

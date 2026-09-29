@@ -17,7 +17,7 @@ export type SourceTypeRefinement =
 export function selectSourceTypeRefinement(
   types: TypeShapeQueries,
   checker: TypeCheckerQueries,
-  facts: Pick<ReadonlySourceFactResolver, "getFact">,
+  facts: ReadonlySourceFactResolver,
   declaredType: Type,
   selectedType: Type,
 ): SourceTypeRefinement {

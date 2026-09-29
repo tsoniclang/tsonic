@@ -20,7 +20,7 @@ export type SourceTypeRelationship =
 export function sourceTypeRelationship(
   types: TypeShapeQueries,
   checker: TypeCheckerQueries,
-  facts: Pick<ReadonlySourceFactResolver, "getFact">,
+  facts: ReadonlySourceFactResolver,
   left: Type,
   right: Type,
 ): SourceTypeRelationship {
@@ -46,7 +46,7 @@ export function sourceTypeRelationship(
 
 function providerTypeDeclarationIds(
   checker: TypeCheckerQueries,
-  facts: Pick<ReadonlySourceFactResolver, "getFact">,
+  facts: ReadonlySourceFactResolver,
   type: Type,
 ): readonly string[] {
   const ids = new Set<string>();

@@ -101,12 +101,6 @@ export const providerVirtualDeclarationFactKey = markHostSourceReadableFactKey(d
     snapshot: snapshotProviderVirtualDeclarationFact,
     equals: providerDeclarationIdentityEquals,
 }));
-export const providerIntrinsicDeclarationFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
-    extensionId: "tsts.provider",
-    name: "intrinsicDeclaration",
-    snapshot: snapshotProviderVirtualDeclarationFact,
-    equals: providerDeclarationIdentityEquals,
-}));
 export const providerTypeFamilyFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.provider",
     name: "typeFamily",

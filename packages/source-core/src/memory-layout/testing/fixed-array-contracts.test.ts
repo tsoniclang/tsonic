@@ -220,8 +220,12 @@ for (const [name, setup, expression] of [
   test(`array public signature rejects ${name}`, () => {
     const checked = arraySession(`${setup} ${expression}; sizeof(word);`);
     const diagnostics = formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src");
-    assert.match(diagnostics, /not assignable/u);
-    if (name === "missing length") assert.match(diagnostics, /'length' is missing/u);
+    if (name === "missing length") {
+      assert.match(diagnostics, /TS2741/u);
+      assert.match(diagnostics, /'length' is missing/u);
+    } else {
+      assert.match(diagnostics, /not assignable/u);
+    }
     assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryarraylayout")), undefined);
     assertArrayObservation(checked, "sizeof", 4);
   });

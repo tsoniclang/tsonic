@@ -71,7 +71,7 @@ function fixture() {
   const visit = (node: Node): void => {
     if (source.ast.is.IsCallExpression(node)) {
       const call = semantics.operations.call(node);
-      assert.equal(call?.outcome, "applicable");
+      assert.ok(call);
       const result = semantics.operations.callResult(call);
       assert.ok(result);
       const selected = result.providerSignature;

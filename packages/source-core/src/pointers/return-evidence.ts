@@ -1,5 +1,5 @@
 import { pointerFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import type { Node, ResolvedSourceCallableCompletionInfo, ResolvedSourceSignatureCallInfo, Type } from "@tsonic/tsts";
+import type { Node, ResolvedSourceCallableCompletionInfo, ResolvedSourceCallInfo, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "@tsonic/target-api/source";
 import { pointerFlowCallableBoundary, pointerFlowOperand } from "./backing/source-forms.js";
 import { selectTsonicRawLocationOperation } from "./raw-memory/selection.js";
@@ -16,7 +16,7 @@ export interface TsonicPointerReturnQueries {
 }
 
 interface PointerReturnCallFrame {
-  readonly call: ResolvedSourceSignatureCallInfo;
+  readonly call: ResolvedSourceCallInfo;
   readonly implementation: Node;
   readonly caller: PointerReturnCallFrame | undefined;
   readonly values: Map<Node, PointerReturnValue>;
@@ -223,7 +223,7 @@ function selectTsonicPointerReturnEvidence(
     }
     if (ast.is.IsCallExpression(node)) {
       const call = semantics.forNode(node).operations.call(node);
-      if (call === undefined || call.outcome === "intrinsic") return undefined;
+      if (call === undefined) return undefined;
       const selected = semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
       if (selected === undefined) return undefined;
       const implementation = navigation.callableImplementation(selected);

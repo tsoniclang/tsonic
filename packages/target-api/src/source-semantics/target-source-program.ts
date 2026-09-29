@@ -1,43 +1,36 @@
-import type { CheckedSourceProgram, SourceFile } from "@tsonic/tsts";
+import type {
+  CheckedSourceProgram,
+  Node,
+  Signature,
+  SourceFile,
+  Symbol,
+  Type,
+} from "@tsonic/tsts";
 import { createSourceProgramNavigation } from "../source-navigation/index.js";
+import { authoredSourceTypeFactDependencies, authoredSourceTypeFactNodes } from "./authored-type-facts.js";
+import { selectAuthoredSourceType } from "./authored-type-selection.js";
+import { selectSourceCallParameterSlots } from "./call-parameter-slots.js";
+import { selectSourceCallResult } from "./call-result-selection.js";
+import { selectSourceProviderSignature, type SourceProviderSignatureSelection } from "./provider-signature.js";
+import { selectSourceContextualTupleLiteral } from "./contextual-tuple-literal.js";
+import { selectSourceContextualValueType } from "./contextual-type-selection.js";
+import { sourceSelectedFactSubjects, sourceTypeFactSubjects } from "./fact-subjects.js";
 import { createSourceProgramDocuments } from "./source-documents.js";
-import { createSourceProgramSemantics } from "./program-queries.js";
-import type { TargetSourceProgram } from "./types.js";
-
-export type {
+import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformation } from "./standard-type-transformations.js";
+import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
+export type { SourceTypeArgumentBinding } from "./type-arguments.js";
+import { selectSourceTypeRefinement } from "./type-refinement.js";
+import { sourceTypeRelationship } from "./type-relationship.js";
+import { createSourceStructuralMemberQuery } from "./structural-members.js";
+export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
+import type {
   ResolvedSourceCallInfo,
-  SourceCallResultSelection,
-} from "./call-result-selection.js";
-export type {
-  SourceAuthoredTypeSelection,
-  SourceContextualValueTypeSelection,
-  SourceContextualTupleLiteralSelection,
-  SourceAuthoredOccurrence,
-  SourceDocument,
-  SourceFactSubjectQueries,
   SourceFileSemantics,
-  SourceTypeQueries,
-  SourceOccurrence,
-  SourceOccurrenceLookup,
-  SourceOperationEvidenceQueries,
+  SourceFinalTypeQueries,
   SourceProgramSemantics,
-  SourceSemanticFactQueries,
-  SourceProgramDocuments,
-  SourceSelectedDeclarationQueries,
-  SourceSyntheticOccurrence,
-  SourceTypeRelationship,
-  SourceTypeRefinement,
-  SourceCallableTypeEvidence,
-  SourceCallableParameterEvidence,
-  SourceStandardTypeTransformation,
-  SourceTypeComponentEvidence,
   SourceValueTypeRefinementSelection,
   TargetSourceProgram,
 } from "./types.js";
-
-export { createSourceProgramSemantics } from "./program-queries.js";
-export type { SourceTypeArgumentBinding } from "./type-arguments.js";
-export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
 
 export {
   sourceTypeSyntaxIsCompositional,
@@ -66,21 +59,332 @@ export {
   sourceTupleElementTypeEvidenceNodes,
 } from "./type-component-evidence.js";
 
-export function createTargetSourceProgram(source: CheckedSourceProgram): TargetSourceProgram {
+export function createTargetSourceProgram(
+  source: CheckedSourceProgram,
+): TargetSourceProgram {
   const sourceFiles = Object.freeze(
-    source.sourceFiles.filter((file): file is SourceFile => file !== undefined),
+    source.sourceFiles.filter(
+      (sourceFile): sourceFile is SourceFile => sourceFile !== undefined,
+    ),
   );
+  const sourceFileSet = new Set(sourceFiles);
+  const documents = createSourceProgramDocuments(source.ast, sourceFiles);
   const navigation = createSourceProgramNavigation(source);
+  const cache = new WeakMap<SourceFile, SourceFileSemantics>();
+  const providerSignatures = new WeakMap<Node, SourceProviderSignatureSelection | null>();
+  const providerSignature = (declaration: Node | undefined): SourceProviderSignatureSelection | undefined => {
+    if (declaration === undefined) return undefined;
+    const existing = providerSignatures.get(declaration);
+    if (existing !== undefined) return existing ?? undefined;
+    const selected = selectSourceProviderSignature(source.sourceFacts, declaration);
+    providerSignatures.set(declaration, selected ?? null);
+    return selected;
+  };
+
+  const forFile = (sourceFile: SourceFile): SourceFileSemantics => {
+    if (!sourceFileSet.has(sourceFile)) {
+      throw new Error("Source semantics require an exact source file from the checked program.");
+    }
+    const existing = cache.get(sourceFile);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const queries = source.getSourceFileQueries(sourceFile);
+    const operations = Object.freeze({
+      call: queries.checker.getResolvedCallInfo,
+      propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
+      elementAccess: queries.checker.getResolvedElementAccessInfo,
+      iteration: queries.checker.getResolvedIterationInfo,
+      objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
+      storage: queries.checker.getResolvedStorageInfo,
+      callableCompletion: queries.checker.getResolvedCallableCompletionInfo,
+      generator: queries.checker.getResolvedGeneratorInfo,
+      yield: queries.checker.getResolvedYieldInfo,
+      wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
+      resourceManagement: queries.checker.getResolvedResourceManagementInfo,
+      callResult(call: ResolvedSourceCallInfo) {
+        return selectSourceCallResult(source.ast, queries.checker, call, providerSignature);
+      },
+      callParameterSlots(call: ResolvedSourceCallInfo) {
+        return selectSourceCallParameterSlots(call, queries.typeShape);
+      },
+    });
+    const declarations = Object.freeze({
+      declaredValueType(declaration: Node) {
+        if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
+        const name = source.ast.name(declaration);
+        const symbol = queries.checker.getSymbolAtLocation(name ?? declaration);
+        return queries.checker.getTypeOfSymbol(symbol);
+      },
+      declaredType(declaration: Node) {
+        const name = source.ast.name(declaration);
+        const symbol = source.ast.is.IsClassExpression(declaration)
+          ? queries.checker.getTypeSymbol(queries.checker.getTypeAtLocation(declaration))
+          : queries.checker.getSymbolAtLocation(name ?? declaration);
+        return queries.checker.getDeclaredTypeOfSymbol(symbol);
+      },
+      typeSymbol: queries.checker.getTypeSymbol,
+      typeAliasSymbol: queries.checker.getTypeAliasSymbol,
+      symbolName: queries.checker.getSymbolName,
+      symbolDeclarations(symbol: Symbol) {
+        return definedValues(queries.checker.getSymbolDeclarations(symbol));
+      },
+      primarySymbolDeclaration: queries.checker.getPrimarySymbolDeclaration,
+      rootSymbols(symbol: Symbol) {
+        return definedValues(queries.checker.getRootSymbols(symbol));
+      },
+      signatureDeclaration: queries.checker.getSignatureDeclaration,
+      signatureParameters(signature: Signature) {
+        return definedValues(queries.checker.getSignatureParameters(signature));
+      },
+    });
+    const facts = Object.freeze({
+      authoredTypeSubjects(node: Node) {
+        return authoredSourceTypeFactDependencies(
+          source.ast,
+          navigation,
+          source.sourceFacts,
+          queries.checker,
+          node,
+        );
+      },
+      authoredTypeNodes(node: Node) {
+        return authoredSourceTypeFactNodes(
+          source.ast,
+          navigation,
+          source.sourceFacts,
+          queries.checker,
+          node,
+        );
+      },
+      selectedSubjects(symbol: Symbol | undefined, declaration: Node | undefined) {
+        return sourceSelectedFactSubjects(queries.checker, symbol, declaration);
+      },
+      typeSubjects(type: Type) {
+        return sourceTypeFactSubjects(queries.checker, type);
+      },
+    });
+    const types: SourceFinalTypeQueries = Object.freeze({
+      expressionType: queries.checker.getTypeAtLocation,
+      authoredType: queries.checker.getTypeFromTypeNode,
+      contextualType: queries.checker.getContextualType,
+      typeOfSymbol: queries.checker.getTypeOfSymbol,
+      declaredSymbolType: queries.checker.getDeclaredTypeOfSymbol,
+      writeSymbolType: queries.checker.getWriteTypeOfSymbol,
+      effectiveTypeArguments(type: Type) {
+        return getEffectiveSourceTypeArguments(source.ast, queries, type);
+      },
+      typeArgumentBindings(type: Type) {
+        return getSourceTypeArgumentBindings(source.ast, queries, type);
+      },
+      instantiateAlias: queries.typeShape.instantiateTypeAlias,
+      aliasApplication: queries.typeShape.getTypeAliasApplication,
+      typeArguments(type: Type) {
+        return definedValues(queries.typeShape.getTypeArguments(type));
+      },
+      substitutionBaseType: queries.typeShape.getSubstitutionBaseType,
+      typeReferenceTarget: queries.typeShape.getTypeReferenceTarget,
+      tupleElementTypes(type: Type) {
+        return definedValues(queries.typeShape.getTupleElementTypes(type));
+      },
+      tupleElementInfos: queries.typeShape.getTupleElementInfos,
+      unionOrIntersectionTypes(type: Type) {
+        return definedValues(queries.typeShape.getUnionOrIntersectionTypes(type));
+      },
+      propertyInfos: queries.typeShape.getPropertyInfos,
+      structuralMembers: createSourceStructuralMemberQuery(source.ast, queries.checker, queries.typeShape),
+      indexInfos: queries.typeShape.getIndexInfos,
+      indexedAccessComponents: queries.typeShape.getIndexedAccessComponents,
+      selectIndexedAccess: queries.typeShape.selectIndexedAccess,
+      callSignatures(type: Type) {
+        return definedValues(queries.typeShape.getCallSignatures(type));
+      },
+      constructSignatures(type: Type) {
+        return definedValues(queries.typeShape.getConstructSignatures(type));
+      },
+      returnType: queries.typeShape.getReturnTypeOfSignature,
+      signatureParameterInfos: queries.typeShape.getSignatureParameterInfos,
+      signatureThisParameterInfo: queries.typeShape.getSignatureThisParameterInfo,
+      apparentType: queries.typeShape.getApparentType,
+      widenedType: queries.typeShape.getWidenedType,
+      withoutMissingOrUndefined: queries.typeShape.removeMissingOrUndefined,
+      constantValue: queries.typeShape.getConstantValue,
+      numericLiteralValue: queries.typeShape.getNumericLiteralTypeValue,
+      isAny: queries.typeShape.isAny,
+      isUnknown: queries.typeShape.isUnknown,
+      isNever: queries.typeShape.isNever,
+      isVoidLike: queries.typeShape.isVoidLike,
+      isNullish: queries.typeShape.isNullish,
+      isStringLike: queries.typeShape.isStringLike,
+      isNumberLike: queries.typeShape.isNumberLike,
+      isBooleanLike: queries.typeShape.isBooleanLike,
+      isBigIntLike: queries.typeShape.isBigIntLike,
+      isSymbolLike: queries.typeShape.isSymbolLike,
+      isUnion: queries.typeShape.isUnion,
+      isIntersection: queries.typeShape.isIntersection,
+      isTypeReference: queries.typeShape.isTypeReference,
+      isTuple: queries.typeShape.isTuple,
+      isArrayLike: queries.typeShape.isArrayLike,
+      isIdentical: queries.typeShape.isTypeIdenticalTo,
+      couldContainTypeVariables: queries.typeShape.couldContainTypeVariables,
+      authoredSelection(authoredTypeNode: Node, selectedType: Type) {
+        return selectAuthoredSourceType(
+          source.ast,
+          queries.typeShape,
+          queries.checker,
+          source.sourceFacts,
+          authoredTypeNode,
+          selectedType,
+        );
+      },
+      contextualValueSelection(node: Node) {
+        return selectSourceContextualValueType(
+          queries.typeShape,
+          queries.checker,
+          node,
+        );
+      },
+      contextualTupleSelection(node: Node, presentElementCount: number) {
+        return selectSourceContextualTupleLiteral(types, node, presentElementCount);
+      },
+      refinement(declaredType: Type, selectedType: Type) {
+        return selectSourceTypeRefinement(
+          queries.typeShape,
+          queries.checker,
+          source.sourceFacts,
+          declaredType,
+          selectedType,
+        );
+      },
+      relationship(left: Type, right: Type) {
+        return sourceTypeRelationship(
+          queries.typeShape,
+          queries.checker,
+          source.sourceFacts,
+          left,
+          right,
+        );
+      },
+      standardTransformation(authoredTypeNode: Node, selectedType: Type) {
+        return selectStandardSourceTypeTransformation(
+          { ast: source.ast, navigation, semanticsFor: forNode },
+          authoredTypeNode,
+          selectedType,
+        );
+      },
+      callable(type: Type) {
+        return selectSourceCallableTypeEvidence(
+          type,
+          Object.freeze({
+            ...types,
+            signatureDeclaration: declarations.signatureDeclaration,
+          }),
+          source.ast,
+        );
+      },
+    });
+    const semantics: SourceFileSemantics = Object.freeze({
+      sourceFile,
+      operations,
+      types,
+      declarations,
+      facts,
+    });
+    cache.set(sourceFile, semantics);
+    return semantics;
+  };
+
+  const forNode = (node: Node): SourceFileSemantics => {
+    const sourceFile = source.ast.getSourceFile(node);
+    if (sourceFile === undefined) {
+      throw new Error("Source semantics require every source node to belong to the checked program.");
+    }
+    return forFile(sourceFile);
+  };
+
+  const selectValueTypeRefinement = (
+    node: Node,
+  ): SourceValueTypeRefinementSelection => {
+    const reference = navigation.referenceFor(node);
+    if (reference === undefined) {
+      return Object.freeze({ kind: "not-project-reference" });
+    }
+    const declaredType = forFile(reference.sourceFile)
+      .declarations.declaredValueType(reference.declaration);
+    if (declaredType === undefined) {
+      return Object.freeze({
+        kind: "unresolved",
+        reference,
+        missing: "declared-type",
+      });
+    }
+    const selectedSemantics = forNode(node);
+    const selectedType = selectedSemantics.types.expressionType(node);
+    if (selectedType === undefined) {
+      return Object.freeze({
+        kind: "unresolved",
+        reference,
+        missing: "selected-type",
+      });
+    }
+    return Object.freeze({
+      kind: "resolved",
+      reference,
+      declaredType,
+      selectedType,
+      refinement: selectedSemantics.types.refinement(declaredType, selectedType),
+    });
+  };
+
+  const semantics: SourceProgramSemantics = Object.freeze({
+    includes(sourceFile: SourceFile) {
+      return sourceFileSet.has(sourceFile);
+    },
+    forFile,
+    forNode,
+    selectValueTypeRefinement,
+  });
+
   return Object.freeze({
     ast: source.ast,
     sourceFiles,
-    documents: createSourceProgramDocuments(source.ast, sourceFiles),
+    documents,
     sourceFacts: source.sourceFacts,
     navigation,
-    semantics: createSourceProgramSemantics(source, {
-      getFact: (subject, key) => source.sourceFacts.getFact(subject, key),
-      hasFacts: subject => source.sourceFacts.getFacts(subject).length !== 0,
-      getVirtualDeclarationDocument: name => source.sourceFacts.getVirtualDeclarationDocument(name),
-    }, navigation),
+    semantics,
   });
 }
+
+function definedValues<T>(values: readonly (T | undefined)[]): readonly T[] {
+  return Object.freeze(values.filter((value): value is T => value !== undefined));
+}
+
+export type {
+  ResolvedSourceCallInfo,
+  SourceCallResultSelection,
+} from "./call-result-selection.js";
+export type {
+  SourceAuthoredTypeSelection,
+  SourceContextualValueTypeSelection,
+  SourceContextualTupleLiteralSelection,
+  SourceAuthoredOccurrence,
+  SourceDocument,
+  SourceFactSubjectQueries,
+  SourceFileSemantics,
+  SourceFinalTypeQueries,
+  SourceOccurrence,
+  SourceOccurrenceLookup,
+  SourceOperationEvidenceQueries,
+  SourceProgramSemantics,
+  SourceProgramDocuments,
+  SourceSelectedDeclarationQueries,
+  SourceSyntheticOccurrence,
+  SourceTypeRelationship,
+  SourceTypeRefinement,
+  SourceCallableTypeEvidence,
+  SourceCallableParameterEvidence,
+  SourceStandardTypeTransformation,
+  SourceTypeComponentEvidence,
+  SourceValueTypeRefinementSelection,
+  TargetSourceProgram,
+} from "./types.js";

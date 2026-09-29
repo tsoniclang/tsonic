@@ -34,6 +34,8 @@ test("attribute indexing preserves original finalized identities and visits each
         reads.set(subject, (reads.get(subject) ?? 0) + 1);
         return fact;
       },
+      getFacts: subject => facts.getFacts(subject),
+      getVirtualDeclarationDocument: uri => facts.getVirtualDeclarationDocument(uri),
     },
   });
   const calls = [0, 1].map(occurrence => propertyCallExpression(session, sourceFile, "add", occurrence));

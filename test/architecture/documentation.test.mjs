@@ -154,7 +154,7 @@ test("shared and target safety documentation names the canonical requiresunsafe 
 
 test("the pinned TypeScript utility inventory is represented in the canonical reference", () => {
   const source = readFileSync(
-    resolve(repositoryRoot, "packages/target-api/src/typescript-no-lib-utilities.ts"),
+    resolve(repositoryRoot, "packages/target-api/src/source-profiles/typescript-no-lib-utilities.ts"),
     "utf8",
   );
   const reference = readFileSync(

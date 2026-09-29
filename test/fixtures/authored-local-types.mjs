@@ -5,8 +5,8 @@ export const authoredLocalTypesFiles = Object.freeze({
     export class Entry { value: int32 = 0; }
     export function first() {
       class Entry {
-        private value: int32 = 3;
-        readValue(): int32 { return this.value; }
+        #value: int32 = 3;
+        readValue(): int32 { return this.#value; }
       }
       return new Entry();
     }

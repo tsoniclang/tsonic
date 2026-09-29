@@ -1,9 +1,6 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
-import type { Node } from "../internal/ast/ast.js";
-import type { SourceElaborationContext, SourceElaborationNodeReference, SourceElaborationResolver } from "./source-elaboration-model.js";
-import type { SourceElaborationRound } from "./source-elaboration.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
 import type { ProviderVirtualDeclarationFact, SourcePrimitiveKind } from "./facts.js";
@@ -77,7 +74,6 @@ declare const factStoreApplyDelta: unique symbol;
 declare const factStoreTransactionActive: unique symbol;
 declare const factStoreInvalidate: unique symbol;
 declare const factStoreForOwner: unique symbol;
-declare const factStoreHasMatchingFact: unique symbol;
 declare const factStoreSetForHost: unique symbol;
 declare const factStoreSetSourceAnalyzerAccessGuard: unique symbol;
 declare const diagnosticStoreCreateSavepoint: unique symbol;
@@ -170,7 +166,6 @@ export interface CompilerExtension {
     readonly identity: CompilerExtensionIdentity;
     readonly dependencies?: ExtensionDependencySpec;
     readonly initialize?: (context: ExtensionInitializeContext) => void;
-    readonly elaborateSource?: (context: SourceElaborationContext) => void;
     readonly analyzeSource?: (context: SourceAnalysisContext) => void;
 }
 export interface ExtensionDiagnosticWriter {
@@ -184,20 +179,18 @@ export interface ExtensionFactReader {
 export interface SourceAnalysisFactAccess extends ExtensionFactReader {
     readonly set: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]) => ExtensionFactWriteResult;
 }
-export interface SourceFactResolver {
+export interface SourceAnalysisFactResolver {
     readonly getVirtualDeclarationDocument: (uriOrFileName: string) => ProviderVirtualDeclarationDocument | undefined;
-    readonly hasFacts: (subject: ExtensionFactSubject | undefined) => boolean;
     readonly resolve: <T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>) => T | undefined;
 }
 export interface SourceAnalysisContext {
     readonly source: SourceProgramQueries;
     readonly facts: SourceAnalysisFactAccess;
-    readonly factResolver: SourceFactResolver;
+    readonly factResolver: SourceAnalysisFactResolver;
     readonly diagnostics: ExtensionDiagnosticWriter;
 }
 export interface ExtensionInitializeContext {
     readonly diagnostics: ExtensionDiagnosticWriter;
-    readonly registerSourceElaborator: <T>(key: ExtensionFactKey<T>, resolver: SourceElaborationResolver<T>) => void;
     readonly registerFactResolver: <T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>) => void;
     readonly registerSourceDeclarationProvider: (provider: SourceDeclarationProvider) => boolean;
 }
@@ -216,9 +209,7 @@ export interface ExtensionFactResolution<T> {
 }
 export type ExtensionFactResolverCallback<T> = (subject: ExtensionFactSubject, context: ExtensionFactResolverContext) => ExtensionFactResolution<T> | undefined;
 export interface ExtensionFactResolverContext {
-    readonly source: SourceProgramQueries;
     readonly facts: ExtensionFactReader;
-    readonly factResolver: SourceFactResolver;
     readonly diagnostics: ExtensionDiagnosticWriter;
 }
 export interface ProviderIdentity {
@@ -291,7 +282,7 @@ export interface ProviderModuleResolution {
     readonly packageVersion?: string;
     readonly evidence?: readonly ExtensionEvidence[];
 }
-export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function" | "class" | "interface" | "enum" | "intrinsic";
+export type ProviderDeclarationKind = "type" | "value" | "namespace" | "function" | "class" | "interface" | "enum";
 export type ProviderExportKind = "named" | "default";
 export interface ProviderTypeFamilyDeclaration {
     readonly exportName: string;
@@ -398,7 +389,7 @@ export interface ProviderSignatureDeclaration {
 export interface ProviderMemberDeclaration {
     readonly id: string;
     readonly name: ProviderPropertyName;
-    readonly kind: "method" | "constructor" | "property" | "field" | "indexer" | "intrinsic";
+    readonly kind: "method" | "constructor" | "property" | "field" | "indexer";
     readonly static?: boolean;
     readonly readonly?: boolean;
     readonly optional?: boolean;
@@ -408,7 +399,6 @@ export interface ProviderMemberDeclaration {
 }
 export interface ProviderExportDeclaration {
     readonly id: string;
-    readonly intrinsicId?: string;
     readonly name: string;
     readonly exportName?: string;
     readonly exportKind?: ProviderExportKind;
@@ -497,11 +487,6 @@ export interface ExtendedProgram<TProgram extends object = object> {
 }
 export declare const extensionHostSetFact: unique symbol;
 export declare const extensionHostRunSourceAnalysis: unique symbol;
-export declare const extensionHostRetireCompilerProgram: unique symbol;
-export declare const extensionHostAttachElaboration: unique symbol;
-export declare const extensionHostRunElaboration: unique symbol;
-export declare const extensionHostRequireElaboration: unique symbol;
-export declare const extensionHostResolveElaborationReference: unique symbol;
 export interface AttachExtensionHostToProgramOptions {
     readonly bindCompilerProgram?: boolean;
 }
@@ -549,7 +534,7 @@ interface ExtensionFactStoreState {
     readonly transactionStates: WeakMap<ExtensionFactTransaction, ExtensionFactTransactionState>;
     readonly savepointStates: WeakMap<ExtensionFactSavepoint, ExtensionFactSavepointState>;
     readonly ownerAuthority: ExtensionOwnerAuthority;
-    sourceAnalyzerAccessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write", ownerId: string | undefined) => void) | undefined;
+    sourceAnalyzerAccessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write") => void) | undefined;
     sourceAnalyzerEnumerationGuard: (() => void) | undefined;
     activeTransaction: ExtensionFactTransaction | undefined;
     nextObjectSubjectId: number;
@@ -561,14 +546,13 @@ export declare class ExtensionFactStore {
     #private;
     constructor(diagnostics: ExtensionDiagnosticStore, options?: ExtensionStoreViewOptions<ExtensionFactStoreState>);
     [factStoreForOwner](extensionId: string, diagnostics: ExtensionDiagnosticStore): ExtensionFactStore;
-    [factStoreSetSourceAnalyzerAccessGuard](accessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write", ownerId: string | undefined) => void) | undefined, enumerationGuard: (() => void) | undefined): void;
+    [factStoreSetSourceAnalyzerAccessGuard](accessGuard: ((subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<unknown>, access: "read" | "write") => void) | undefined, enumerationGuard: (() => void) | undefined): void;
     set<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     [factStoreSetForHost]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
     get<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): T | undefined;
     getEntry<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): ExtensionFactEntry<T> | undefined;
     has<T>(subject: ExtensionFactSubject | undefined, key: ExtensionFactKey<T>): boolean;
     entries(subject: ExtensionFactSubject | undefined): readonly ExtensionFactEntry<unknown>[];
-    [factStoreHasMatchingFact](subject: ExtensionFactSubject | undefined, accepts: (key: ExtensionFactKey<unknown>) => boolean): boolean;
     seal(): void;
     get sealed(): boolean;
     [factStoreBeginTransaction](): ExtensionFactTransaction;
@@ -596,22 +580,14 @@ interface ExtensionFactResolverState {
     readonly savepoints: ExtensionFactResolverSavepoint[];
     readonly savepointStates: WeakMap<ExtensionFactResolverSavepoint, ExtensionFactResolverSavepointState>;
     readonly ownerAuthority: ExtensionOwnerAuthority;
-    readonly resolving: Map<object, Set<ExtensionFactSubject>>;
     registrationsSealed: boolean;
-}
-interface ExtensionFactResolverServices {
-    readonly source: () => SourceProgramQueries;
-    readonly assertReadable: <T>(ownerId: string, key: ExtensionFactKey<T>) => void;
-    readonly isReadable: (ownerId: string, key: ExtensionFactKey<unknown>) => boolean;
-    readonly getVirtualDeclarationDocument: SourceFactResolver["getVirtualDeclarationDocument"];
 }
 export declare class ExtensionFactResolver {
     #private;
-    constructor(facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore, services: ExtensionFactResolverServices, options?: ExtensionStoreViewOptions<ExtensionFactResolverState>);
+    constructor(facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore, options?: ExtensionStoreViewOptions<ExtensionFactResolverState>);
     [factResolverForOwner](extensionId: string, facts: ExtensionFactStore, diagnostics: ExtensionDiagnosticStore): ExtensionFactResolver;
     register<T>(key: ExtensionFactKey<T>, resolver: ExtensionFactResolverCallback<T>): void;
     resolve<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>): T | undefined;
-    hasFacts(subject: ExtensionFactSubject | undefined): boolean;
     [factResolverCreateSavepoint](): ExtensionFactResolverSavepoint;
     [factResolverAssertCanCommitSavepoint](savepoint: ExtensionFactResolverSavepoint): void;
     [factResolverCommitSavepoint](savepoint: ExtensionFactResolverSavepoint): void;
@@ -649,13 +625,6 @@ export declare class ExtensionHost {
     constructor(program: object, options?: ExtensionHostOptions);
     get extensions(): readonly CompilerExtension[];
     get program(): object;
-    get hasSourceElaboration(): boolean;
-    assertCompilerProgramActive(): void;
-    [extensionHostAttachElaboration](round: SourceElaborationRound): void;
-    [extensionHostRequireElaboration]<T>(node: Node, key: ExtensionFactKey<T>): T;
-    [extensionHostResolveElaborationReference](reference: SourceElaborationNodeReference): Node;
-    [extensionHostRunElaboration](): void;
-    [extensionHostRetireCompilerProgram](): void;
     bindCompilerProgram(program: object): void;
     [extensionHostRunSourceAnalysis](): void;
     finalizeSemantics(): void;

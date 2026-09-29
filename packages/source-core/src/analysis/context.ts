@@ -1,17 +1,12 @@
 import type {
   SourceAnalysisContext,
-  ExtensionFactReader,
   SourceFileQueries,
 } from "@tsonic/tsts";
 
-export interface TsonicSourceFileFactContext extends SourceFileQueries {
-  readonly facts: ExtensionFactReader;
+export interface TsonicSourceFileAnalysisContext extends SourceFileQueries {
+  readonly facts: SourceAnalysisContext["facts"];
   readonly factResolver: SourceAnalysisContext["factResolver"];
   readonly diagnostics: SourceAnalysisContext["diagnostics"];
-}
-
-export interface TsonicSourceFileAnalysisContext extends TsonicSourceFileFactContext {
-  readonly facts: SourceAnalysisContext["facts"];
 }
 
 export function forEachTsonicSourceFile(

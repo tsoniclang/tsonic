@@ -1,5 +1,5 @@
 import type {
-  SourceProgramQueries,
+  CheckedSourceProgram,
   Node,
   SourceFile,
   Symbol,
@@ -30,7 +30,7 @@ export interface SourceReferenceNavigation {
 }
 
 export function createSourceReferenceNavigation(
-  source: SourceProgramQueries,
+  source: CheckedSourceProgram,
   sourceFiles: readonly SourceFile[],
 ): SourceReferenceNavigation {
   const { ast } = source;
@@ -48,13 +48,9 @@ export function createSourceReferenceNavigation(
     !sourceFile.IsDeclarationFile &&
     sourceFileSet.has(sourceFile);
 
-  const isProjectDeclaration = (declaration: Node | undefined): boolean => {
-    if (declaration === undefined) return false;
-    const file = ast.getSourceFile(declaration);
-    if (!isProjectSourceFile(file)) return false;
-    source.getSourceFileQueries(file);
-    return true;
-  };
+  const isProjectDeclaration = (declaration: Node | undefined): boolean =>
+    declaration !== undefined &&
+    isProjectSourceFile(ast.getSourceFile(declaration));
 
   const referenceIndex = createSourceDeclarationReferenceIndex(
     source,
@@ -135,7 +131,7 @@ export function createSourceReferenceNavigation(
   };
 
   return Object.freeze({
-    get referenceIndexStatistics() { return referenceIndex.statistics; },
+    referenceIndexStatistics: referenceIndex.statistics,
     sourceReferenceFor: referenceIndex.sourceReferenceFor,
     referenceFor,
     declarationFor,

@@ -203,7 +203,6 @@ export declare const attributeFactKey: import("./fact-key.js").ExtensionFactKey<
 export declare const defaultValueFactKey: import("./fact-key.js").ExtensionFactKey<DefaultValueFact>;
 export declare const flowStateFactKey: import("./fact-key.js").ExtensionFactKey<FlowStateFact>;
 export declare const providerVirtualDeclarationFactKey: import("./fact-key.js").ExtensionFactKey<ProviderVirtualDeclarationFact>;
-export declare const providerIntrinsicDeclarationFactKey: import("./fact-key.js").ExtensionFactKey<ProviderVirtualDeclarationFact>;
 export declare const providerTypeFamilyFactKey: import("./fact-key.js").ExtensionFactKey<ProviderTypeFamilyFact>;
 export declare const associatedTypeFactKey: import("./fact-key.js").ExtensionFactKey<AssociatedTypeFact>;
 export declare const constGenericFactKey: import("./fact-key.js").ExtensionFactKey<ConstGenericFact>;

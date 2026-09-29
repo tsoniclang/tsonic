@@ -1,17 +1,14 @@
 import {
   attributeFactKey,
+  providerVirtualDeclarationFactKey,
+  sourceMarkerFactKey,
 } from "@tsonic/tsts";
 import type {
   SourceAnalysisContext,
-  ExtensionFactResolverContext,
-  ExtensionFactSubject,
-  ExtensionFactResolution,
 } from "@tsonic/tsts";
-import { isAstNode } from "@tsonic/target-api/source";
 import type {
-  TsonicSourceFileFactContext,
+  TsonicSourceFileAnalysisContext,
 } from "../analysis/context.js";
-import { forEachTsonicSourceFile } from "../analysis/context.js";
 import {
   tsonicAttributeBuilderFactKey,
 } from "./facts.js";
@@ -33,11 +30,10 @@ import {
 import {
   type ProviderSourceCallSelector,
   type SelectedProviderSourceCall,
+  forEachSelectedProviderSourceCall,
   readSourceFact,
   selectedProviderCallMatches,
-  selectProviderSourceCall,
   unwrapParenthesizedExpression,
-  visitPostOrder,
 } from "../analysis/source-call.js";
 import {
   selectInlineSourceMember,
@@ -52,8 +48,8 @@ interface AttributeBuilderRule {
   readonly selector: ProviderSourceCallSelector;
   readonly analyze: (
     selected: SelectedProviderSourceCall,
-    context: TsonicSourceFileFactContext,
-  ) => TsonicAttributeBuilderFact | undefined;
+    context: TsonicSourceFileAnalysisContext,
+  ) => void;
 }
 
 const attributeBuilderRules = Object.freeze([
@@ -128,62 +124,41 @@ const attributeBuilderRules = Object.freeze([
 ] satisfies readonly AttributeBuilderRule[]);
 
 export function analyzeTsonicAttributeBuilders(context: SourceAnalysisContext): void {
-  forEachTsonicSourceFile(context, sourceContext => {
-    visitPostOrder(sourceContext.sourceFile, sourceContext, node => {
-      if (sourceContext.ast.is.IsCallExpression(node)) {
-        sourceContext.factResolver.resolve(node, tsonicAttributeBuilderFactKey);
+  forEachSelectedProviderSourceCall(context, (selected, sourceContext): void => {
+    if (readSourceFact(sourceContext, selected.call, attributeFactKey) !== undefined) {
+      analyzeAttributeRoot(selected, sourceContext);
+      return;
+    }
+    if (isAttributeModuleSelector(selected, sourceContext)) {
+      writeAttributeBuilderFact(selected, sourceContext, {
+        kind: "builder-state",
+        applicationTarget: sourceContext.sourceFile,
+        applicationPlacement: "module",
+      });
+      return;
+    }
+    for (const candidate of attributeBuilderRules) {
+      if (selectedProviderCallMatches(selected, candidate.selector, sourceContext)) {
+        candidate.analyze(selected, sourceContext);
+        return;
       }
-    });
+    }
   });
-}
-
-export function resolveTsonicAttributeBuilder(
-  subject: ExtensionFactSubject,
-  context: ExtensionFactResolverContext,
-): ExtensionFactResolution<TsonicAttributeBuilderFact> | undefined {
-  const { source } = context;
-  if (!isAstNode(source.ast, subject) || !source.ast.is.IsCallExpression(subject)) return undefined;
-  const sourceContext: TsonicSourceFileFactContext = {
-    ...source.getSourceFileQueries(source.ast.getSourceFile(subject)),
-    facts: context.facts,
-    factResolver: context.factResolver,
-    diagnostics: context.diagnostics,
-  };
-  const selected = selectProviderSourceCall(subject, sourceContext);
-  if (selected === undefined) return undefined;
-  const value = selectAttributeBuilder(selected, sourceContext);
-  return value === undefined ? undefined : {
-    value,
-    evidence: [{ message: "Tsonic source-core attribute builder fact derived from the exact selected source call." }],
-  };
-}
-
-function selectAttributeBuilder(
-  selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
-): TsonicAttributeBuilderFact | undefined {
-  if (readSourceFact(context, selected.call, attributeFactKey) !== undefined) {
-    return analyzeAttributeRoot(selected, context);
-  }
-  if (isAttributeModuleSelector(selected, context)) {
-    return { kind: "builder-state", applicationTarget: context.sourceFile, applicationPlacement: "module" };
-  }
-  for (const candidate of attributeBuilderRules) {
-    if (selectedProviderCallMatches(selected, candidate.selector, context)) return candidate.analyze(selected, context);
-  }
-  return undefined;
 }
 
 function isAttributeModuleSelector(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
 ): boolean {
   const declaration = selected.declaration;
-  if (!selectedProviderCallMatches(selected, memberSelector(attributeExportId,
-    tsonicAttributeBuilderMemberIds.module, tsonicAttributeBuilderSignatureIds.module), context)) return false;
+  if (declaration.memberId !== tsonicAttributeBuilderMemberIds.module ||
+    declaration.signatureId !== tsonicAttributeBuilderSignatureIds.module ||
+    declaration.memberStatic !== false) return false;
   const receiver = unwrapParenthesizedExpression(selected.selection.sourceReceiver?.expression, context);
-  const reference = receiver === undefined ? undefined : context.checker.getProviderReferenceInfo(receiver);
-  const owner = reference?.ordinary?.kind === "declaration" ? reference.ordinary.declaration : undefined;
+  const marker = readSourceFact(context, receiver, sourceMarkerFactKey);
+  if (marker?.kind !== "call-marker" || marker.marker !== "attribute") return false;
+  const receiverSymbol = context.checker.getAliasedSymbol(context.checker.getSymbolAtLocation(receiver));
+  const owner = readSourceFact(context, receiverSymbol, providerVirtualDeclarationFactKey);
   return owner?.providerId === declaration.providerId &&
     owner.providerVersion === declaration.providerVersion &&
     owner.providerModuleId === declaration.providerModuleId &&
@@ -231,8 +206,8 @@ function memberSelector(
 
 function analyzeAttributeRoot(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
-): TsonicAttributeBuilderStateFact | undefined {
+  context: TsonicSourceFileAnalysisContext,
+): void {
   const attribute = readSourceFact(context, selected.call, attributeFactKey);
   if (attribute === undefined) {
     appendDiagnostic(
@@ -244,17 +219,17 @@ function analyzeAttributeRoot(
     );
     return;
   }
-  return {
+  writeAttributeBuilderFact(selected, context, {
     kind: "builder-state",
     applicationTarget: attribute.target,
-  };
+  });
 }
 
 function analyzeAttributeSelector(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
   memberKind: TsonicAttributeApplicationMemberKind,
-): TsonicAttributeBuilderStateFact | undefined {
+): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
     return;
@@ -263,33 +238,32 @@ function analyzeAttributeSelector(
   if (selection === undefined) {
     return;
   }
-  return {
+  writeAttributeBuilderFact(selected, context, {
     ...predecessor,
     applicationTarget: selection.expression,
     selectedMember: selection.selectedMember,
     applicationMemberKind: memberKind,
     applicationPlacement: "declaration",
-  };
+  });
 }
 
 function analyzeAttributeConstructor(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
-): TsonicAttributeBuilderStateFact | undefined {
+  context: TsonicSourceFileAnalysisContext,
+): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor !== undefined) {
-    return {
+    writeAttributeBuilderFact(selected, context, {
       ...predecessor,
       applicationPlacement: "constructor",
-    };
+    });
   }
-  return undefined;
 }
 
 function analyzeAttributeParameter(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
-): TsonicAttributeBuilderStateFact | undefined {
+  context: TsonicSourceFileAnalysisContext,
+): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
     return;
@@ -305,16 +279,16 @@ function analyzeAttributeParameter(
     );
     return;
   }
-  return {
+  writeAttributeBuilderFact(selected, context, {
     ...predecessor,
     applicationParameterName: parameterName,
-  };
+  });
 }
 
 function analyzeAttributeTargetSpecifier(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
-): TsonicAttributeBuilderStateFact | undefined {
+  context: TsonicSourceFileAnalysisContext,
+): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
     return;
@@ -330,16 +304,16 @@ function analyzeAttributeTargetSpecifier(
     );
     return;
   }
-  return {
+  writeAttributeBuilderFact(selected, context, {
     ...predecessor,
     applicationTargetSpecifier: targetSpecifier,
-  };
+  });
 }
 
 function analyzeAttributeApplication(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
-): TsonicAttributeBuilderFact | undefined {
+  context: TsonicSourceFileAnalysisContext,
+): void {
   const predecessor = getAttributeBuilderPredecessor(selected, context);
   if (predecessor === undefined) {
     return;
@@ -351,11 +325,11 @@ function analyzeAttributeApplication(
       context,
       "SOURCE_CORE_ATTRIBUTE_INVOCATION_NOT_PROVEN",
       9901116,
-      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one applicable call, construction or exact provider intrinsic invocation.",
+      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one checked call or construction.",
     );
     return;
   }
-  return {
+  writeAttributeBuilderFact(selected, context, {
     kind: "application",
     invocation,
     applicationTarget: predecessor.applicationTarget,
@@ -374,12 +348,12 @@ function analyzeAttributeApplication(
     ...(predecessor.applicationTargetSpecifier === undefined
       ? {}
       : { applicationTargetSpecifier: predecessor.applicationTargetSpecifier }),
-  };
+  });
 }
 
 function getAttributeBuilderPredecessor(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
 ): TsonicAttributeBuilderStateFact | undefined {
   const receiver = selected.selection.sourceReceiver?.expression;
   if (receiver === undefined) {
@@ -394,7 +368,7 @@ function getAttributeBuilderPredecessor(
 
 function selectedInlineMember(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
 ): Extract<ReturnType<typeof selectInlineSourceMember>, { readonly kind: "selected" }> | undefined {
   const result = selectInlineSourceMember(selected.selection.sourceArguments[0]?.expression, context);
   if (result.kind === "selected") {
@@ -429,7 +403,7 @@ function selectedInlineMember(
 
 function authoredStringArgument(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
   index: number,
 ): string | undefined {
   const argument = selected.selection.sourceArguments[index]?.expression;
@@ -443,9 +417,33 @@ function authoredStringArgument(
   return context.ast.text(argument);
 }
 
+function writeAttributeBuilderFact(
+  selected: SelectedProviderSourceCall,
+  context: TsonicSourceFileAnalysisContext,
+  fact: TsonicAttributeBuilderFact,
+): void {
+  const result = context.facts.set(
+    selected.call,
+    tsonicAttributeBuilderFactKey,
+    fact,
+    [{
+      message: "Tsonic source-core attribute builder fact derived from the exact selected source call.",
+    }],
+  );
+  if (result !== "inserted" && result !== "idempotent") {
+    appendDiagnostic(
+      selected,
+      context,
+      "SOURCE_CORE_ATTRIBUTE_FACT_WRITE_FAILED",
+      9901120,
+      `The selected attribute builder fact could not be recorded (${result}).`,
+    );
+  }
+}
+
 function appendSelectorDiagnostic(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
   extensionCode: string,
   numericCode: number,
   message: string,
@@ -455,7 +453,7 @@ function appendSelectorDiagnostic(
 
 function appendDiagnostic(
   selected: SelectedProviderSourceCall,
-  context: TsonicSourceFileFactContext,
+  context: TsonicSourceFileAnalysisContext,
   extensionCode: string,
   numericCode: number,
   message: string,

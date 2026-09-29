@@ -15,7 +15,7 @@ export function selectSourceCallParameterSlots(
   source: ResolvedSourceCallInfo,
   typeShape: Pick<TypeShapeQueries, "isTuple" | "getTupleElementInfos">,
 ): readonly SourceCallParameterSlot[] | undefined {
-  if (source.outcome === "intrinsic" || source.sourceSelectedSignatureKind !== "resolved") {
+  if (source.sourceSelectedSignatureKind !== "resolved") {
     return undefined;
   }
   const slots: SourceCallParameterSlot[] = [];

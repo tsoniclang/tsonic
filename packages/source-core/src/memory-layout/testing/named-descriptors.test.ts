@@ -178,7 +178,7 @@ for (const [label, expression] of [
 for (const [label, expression] of [
   ["spread", `memorylayout<uint32>({ ...${recordDescriptor} })`],
   ["computed key", 'memorylayout<uint32>({ datalayout: abi, ["bytesize"]: 4, bytealignment: 4, stride: 4, fields: [] })'],
-  ["getter", "memorylayout<uint32>({ datalayout: abi, get bytesize() { throw 0; }, bytealignment: 4, stride: 4, fields: [] })"],
+  ["getter", "memorylayout<uint32>({ datalayout: abi, get bytesize() { return 4; }, bytealignment: 4, stride: 4, fields: [] })"],
   ["stored record", `const descriptor = ${recordDescriptor}; memorylayout<uint32>(descriptor);`],
   ["mutated record", `const descriptor = ${recordDescriptor}; descriptor.bytesize = 8; memorylayout<uint32>(descriptor);`],
   ["mutated field", `const descriptor = ${fieldDescriptor}; descriptor.byteoffset = 4; memoryfield(descriptor);`],
@@ -238,7 +238,7 @@ test("mutable aliases cannot replace finalized field or element layout identitie
 
 test("named shape alone does not turn same-spelled ordinary constructors into metadata", () => {
   const checked = cleanMemorySession(`
-    function ordinary() {
+    function inspectOrdinaryConstructors() {
       function memorylayout<T>(descriptor: T): T { return descriptor; }
       function memoryLayout<T>(descriptor: T): T { return descriptor; }
       memorylayout(${recordDescriptor});

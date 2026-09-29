@@ -15,7 +15,6 @@ import type {
   ResolvedSourceYieldInfo,
   Signature,
   SourceFile,
-  SourceElaborationNodeReference,
   Symbol,
   TypeSignatureParameterInfo,
   TypeTupleElementInfo,
@@ -61,7 +60,7 @@ export interface SourceOperationEvidenceQueries {
   callParameterSlots(source: ResolvedSourceCallInfo): readonly SourceCallParameterSlot[] | undefined;
 }
 
-export interface SourceTypeQueries {
+export interface SourceFinalTypeQueries {
   expressionType(node: Node): Type | undefined;
   authoredType(node: Node): Type | undefined;
   contextualType(node: Node): Type | undefined;
@@ -156,7 +155,7 @@ export interface SourceFactSubjectQueries {
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
   readonly operations: SourceOperationEvidenceQueries;
-  readonly types: SourceTypeQueries;
+  readonly types: SourceFinalTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;
   readonly facts: SourceFactSubjectQueries;
 }
@@ -221,7 +220,6 @@ export interface SourceProgramSemantics {
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;
   selectValueTypeRefinement(node: Node): SourceValueTypeRefinementSelection;
-  resolveElaborationReference(reference: SourceElaborationNodeReference): Node;
 }
 
 export interface SourceDocument {
@@ -287,8 +285,4 @@ export interface TargetSourceProgram {
   readonly sourceFacts: ReadonlySourceFactResolver;
   readonly navigation: SourceProgramNavigation;
   readonly semantics: SourceProgramSemantics;
-}
-
-export interface SourceSemanticFactQueries extends Pick<ReadonlySourceFactResolver, "getFact" | "getVirtualDeclarationDocument"> {
-  hasFacts(subject: ExtensionFactSubject | undefined): boolean;
 }

@@ -20,7 +20,7 @@ export interface SourceProviderTypeParameterSelection {
 }
 
 export function selectSourceProviderSignature(
-  facts: Pick<ReadonlySourceFactResolver, "getFact" | "getVirtualDeclarationDocument">,
+  facts: ReadonlySourceFactResolver,
   declaration: Node | undefined,
 ): SourceProviderSignatureSelection | undefined {
   const identity = facts.getFact(declaration, providerVirtualDeclarationFactKey);

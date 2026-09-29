@@ -1,6 +1,4 @@
 export * from "./navigation.js";
-export { createSourceReferenceNavigation } from "./references.js";
-export type { SourceReferenceNavigation } from "./references.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "./lexical-captures.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";

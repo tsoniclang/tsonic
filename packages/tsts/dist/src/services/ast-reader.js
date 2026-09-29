@@ -1,12 +1,11 @@
 import { Node_Arguments, Node_Body, Node_Elements, Node_ImportClause, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_Type, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
-import { Node_End, Node_ForEachChild, Node_Name, Node_Pos, Node_TemplateLiteralLikeData, NodeList_HasTrailingComma } from "../internal/ast/spine.js";
-import { TokenFlagsContainsInvalidEscape, TokenFlagsUnterminated } from "../internal/ast/tokenflags.js";
+import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { KindString } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
 import * as predicates from "../internal/ast/generated/predicates.js";
 import { NodeFlagsBlockScoped, NodeFlagsNone } from "../internal/ast/generated/flags.js";
 import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsAsync, ModifierFlagsConst, ModifierFlagsDefault, ModifierFlagsExport, ModifierFlagsOverride, ModifierFlagsPrivate, ModifierFlagsProtected, ModifierFlagsPublic, ModifierFlagsReadonly, ModifierFlagsStatic, } from "../internal/ast/modifierflags.js";
-import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTemplateLiteralKind, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing, NodeIsSynthesized } from "../internal/ast/utilities.js";
+import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { KindExtendsKeyword, KindImplementsKeyword } from "../internal/ast/generated/kinds.js";
 import { ComputePositionMap, PositionMap_UTF8ToUTF16, } from "../internal/ast/positionmap.js";
 import { GetTokenPosOfNode } from "../internal/scanner/scanner.js";
@@ -36,8 +35,6 @@ export function createAstReader() {
         typeArguments: (node) => Node_TypeArguments(node) ?? [],
         arguments: (node) => Node_Arguments(node) ?? [],
         elements: (node) => Node_Elements(node) ?? [],
-        listHasTrailingComma: (list) => list !== undefined && NodeList_HasTrailingComma(list) === true,
-        cookedTemplateText,
         properties: (node) => Node_Properties(node) ?? [],
         questionToken: (node) => node === undefined ? undefined : Node_QuestionToken(node),
         operatorKindName,
@@ -85,14 +82,6 @@ export function createAstReader() {
         as: casts,
     };
     return Object.freeze(reader);
-}
-function cookedTemplateText(node) {
-    if (node === undefined || !IsTemplateLiteralKind(node.Kind))
-        return undefined;
-    const literal = Node_TemplateLiteralLikeData(node);
-    return literal === undefined || (literal.TemplateFlags & (TokenFlagsContainsInvalidEscape | TokenFlagsUnterminated)) !== 0
-        ? undefined
-        : literal.Text;
 }
 function regularExpressionLiteral(node) {
     if (node === undefined || !predicates.IsRegularExpressionLiteral(node)) {

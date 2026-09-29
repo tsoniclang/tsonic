@@ -204,7 +204,7 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static string summarize\(ObjectShape_5a9c5becb83f<ObjectShape_bec4e12bebdc<double>, double, string\?> __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
+  assert.match(generatedSource, /public static string summarize\(ObjectShape_1e61fc2f669b<ObjectShape_eea9450c666d<double>, double, string\?> __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double> __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "fallback";/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);

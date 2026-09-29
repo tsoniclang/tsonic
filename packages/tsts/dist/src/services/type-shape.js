@@ -1,4 +1,3 @@
-import { assertSemanticNodeOwned, assertSemanticProgramActive, assertSemanticSignatureOwned, assertSemanticSourceFileOwned, assertSemanticTypeOwned, } from "./semantic-query-ownership.js";
 import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
 import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
@@ -18,23 +17,13 @@ export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
     }
-    assertSemanticSourceFileOwned(program, defaultOptions.sourceFile);
-    const ownedType = (type) => {
-        assertSemanticTypeOwned(program, type);
-        return type;
-    };
-    const hasFlags = (type, flags) => typeHasFlags(ownedType(type), flags);
     const queries = {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
         getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
-        instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => {
-            for (const argument of arguments_)
-                assertSemanticTypeOwned(program, argument);
-            return resolveTypeAliasApplication(checker, declaration, arguments_);
-        }),
-        getTypeAliasApplication: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeAliasApplication(checker, ownedType(type))),
-        getIndexedAccessComponents: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeIndexedAccessComponents(checker, ownedType(type))),
-        selectIndexedAccess: (objectType, indexType) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => selectTypeIndexedAccess(checker, ownedType(objectType), ownedType(indexType))),
+        instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
+        getTypeAliasApplication: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeAliasApplication(checker, type)),
+        getIndexedAccessComponents: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeIndexedAccessComponents(checker, type)),
+        selectIndexedAccess: (objectType, indexType) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => selectTypeIndexedAccess(checker, objectType, indexType)),
         getConstantValue: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetConstantValue(checker, node)),
         getNumericLiteralTypeValue: (type) => withCheckerForType(program, type, defaultOptions, () => {
             if (hasFlags(type, TypeFlagsNumberLiteral))
@@ -55,18 +44,18 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isSymbolLike: (type) => hasFlags(type, TypeFlagsESSymbolLike),
         isUnion: (type) => hasFlags(type, TypeFlagsUnion),
         isIntersection: (type) => hasFlags(type, TypeFlagsIntersection),
-        isTypeReference: (type) => ownedType(type) !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0,
-        isTuple: (type) => isTupleType(ownedType(type)),
+        isTypeReference: (type) => type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0,
+        isTuple: isTupleType,
         isArrayLike: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_IsArrayLikeType(checker, type)) === true,
-        isTypeIdenticalTo: (left, right) => withCheckerForType(program, left, defaultOptions, (checker) => Checker_isTypeIdenticalTo(checker, left, ownedType(right))) === true,
+        isTypeIdenticalTo: (left, right) => withCheckerForType(program, left, defaultOptions, (checker) => Checker_isTypeIdenticalTo(checker, left, right)) === true,
         couldContainTypeVariables: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
             if (checker === undefined) {
                 throw new Error("The source type has no owning checker for genericity analysis.");
             }
             return checker.couldContainTypeVariables(type);
         }) === true,
-        getUnionOrIntersectionTypes: (type) => Type_Types(ownedType(type)) ?? [],
-        getTypeReferenceTarget: (type) => Type_Target(ownedType(type)),
+        getUnionOrIntersectionTypes: (type) => Type_Types(type) ?? [],
+        getTypeReferenceTarget: (type) => Type_Target(type),
         getTypeArguments: (type) => withCheckerForType(program, type, defaultOptions, (checker) => hasFlags(type, TypeFlagsObject) && type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0
             ? Checker_GetTypeArguments(checker, type)
             : []) ?? [],
@@ -124,7 +113,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
     };
     return Object.freeze(queries);
 }
-function typeHasFlags(type, flags) {
+function hasFlags(type, flags) {
     return type !== undefined && (type.flags & flags) !== 0;
 }
 function getTypePropertyInfos(checker, type) {
@@ -247,14 +236,12 @@ function isTupleType(type) {
     return type !== undefined && IsTupleType(type);
 }
 function withCheckerForNode(program, node, defaultOptions, callback) {
-    assertSemanticNodeOwned(program, node);
     if (node === undefined) {
         return undefined;
     }
     return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForType(program, type, defaultOptions, callback) {
-    assertSemanticTypeOwned(program, type);
     if (program === undefined || type === undefined) {
         return undefined;
     }
@@ -264,18 +251,15 @@ function withCheckerForType(program, type, defaultOptions, callback) {
     return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSignature(program, signature, defaultOptions, callback) {
-    assertSemanticSignatureOwned(program, signature);
     if (program === undefined || signature === undefined) {
         return undefined;
     }
     return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
 }
 function withCheckerForSourceFile(program, sourceFile, defaultOptions, callback) {
-    assertSemanticProgramActive(program);
-    if (program === undefined || sourceFile === undefined) {
+    if (sourceFile === undefined) {
         return undefined;
     }
-    assertSemanticSourceFileOwned(program, sourceFile);
     const [checker, done] = Program_GetTypeCheckerForFile(program, defaultOptions.context ?? Background(), sourceFile);
     try {
         return callback(checker);

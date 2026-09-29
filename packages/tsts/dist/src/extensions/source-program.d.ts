@@ -7,7 +7,6 @@ import { type AstReader } from "../services/ast-reader.js";
 import { type TypeCheckerQueries } from "../services/type-checker.js";
 import { type TypeShapeQueries } from "../services/type-shape.js";
 import type { ExtensionDiagnostic } from "./host.js";
-import type { SourceElaborationNodeReference } from "./source-elaboration-model.js";
 import type { ReadonlySourceFactResolver } from "./consumer.js";
 export interface SourceFileQueries {
     readonly sourceFile: SourceFile;
@@ -21,7 +20,6 @@ export interface SourceProgramQueries {
     readonly getSourceFile: (fileName: string) => GoPtr<SourceFile>;
     readonly getSourceFileQueries: (sourceFile: GoPtr<SourceFile>) => SourceFileQueries;
     readonly resolveModuleSourceFile: (moduleSpecifier: GoPtr<Node>) => GoPtr<SourceFile>;
-    readonly resolveElaborationReference: (reference: SourceElaborationNodeReference) => Node;
 }
 export interface CheckedSourceProgram extends SourceProgramQueries {
     readonly program: Program;

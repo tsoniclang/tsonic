@@ -19,7 +19,7 @@ export interface TsonicAttributeApplicationFactIndex {
 export function createTsonicAttributeApplicationFactIndex(input: {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
-  readonly sourceFacts: Pick<ReadonlySourceFactResolver, "getFact">;
+  readonly sourceFacts: ReadonlySourceFactResolver;
 }): TsonicAttributeApplicationFactIndex {
   const all: TsonicAttributeApplicationFact[] = [];
   const bySourceFile = new Map<SourceFile, readonly TsonicAttributeApplicationFact[]>();
