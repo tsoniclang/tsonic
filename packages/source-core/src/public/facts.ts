@@ -7,6 +7,8 @@ export {
   tsonicCoreVirtualModulesProviderId,
 } from "../identity.js";
 export { tsonicAttributeBuilderFactKey } from "../attributes/facts.js";
+export { createTsonicAttributeApplicationFactIndex } from "../attributes/application-index.js";
+export type { TsonicAttributeApplicationFactIndex } from "../attributes/application-index.js";
 export type {
   TsonicAttributeApplicationFact,
   TsonicAttributeApplicationMemberKind,

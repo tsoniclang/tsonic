@@ -29,18 +29,18 @@ function backingSession(local: string, remote: string, type: string) {
     ${local}
     const alias = (remote);
     declare const value: ${type};
-    const pointer = allocatePointer<${type}>(value);
-    toRawPointer(pointer, layout);
-    toRawPointer(pointer, alias);
-    const view = reinterpretRawPointer(raw, alias);
-    sizeOf(layout); sizeOf(alias);
+    const pointer = allocateptr<${type}>(value);
+    torawptr(pointer, layout);
+    torawptr(pointer, alias);
+    const view = reinterpretrawptr(raw, alias);
+    sizeof(layout); sizeof(alias);
   `, { extraFiles: {
     "/src/types.ts": sharedTypes,
     "/src/layout.ts": arrayTestPrelude + imports + remote + "\nexport { layout };",
     "/src/barrel.ts": 'export { layout as selected } from "./layout.js";',
   } });
   const source = createTargetSourceProgram(checked);
-  const calls = memoryCalls(checked, "toRawPointer");
+  const calls = memoryCalls(checked, "torawptr");
   assert.equal(calls.length, 2);
   const layouts = calls.map(call => {
     const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call);
@@ -51,28 +51,37 @@ function backingSession(local: string, remote: string, type: string) {
 }
 
 function wordArray(stride = 4): string {
-  return `const child = memoryLayout<uint32>(abi, 4, 4, ${stride});
-    const layout = memoryArrayLayout<uint32, 2>(abi, 16, 4, 16, child, 2);`;
+  return `const child = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: ${stride}, fields: [] });
+    const layout = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 16, bytealignment: 4, stride: 16, elementlayout: child, length: 2 });`;
 }
 
 function recordArray(options: { readonly stride?: number; readonly offset?: number; readonly alignment?: number; readonly swapped?: boolean } = {}): string {
-  return `const child = memoryLayout<uint32>(abi, 4, 4, ${options.stride ?? 4});
-    const entry = memoryLayout<Entry>(abi, 16, 4, 16,
-      memoryField((value: Entry) => value.${options.swapped ? "second" : "first"}, ${options.offset ?? 0}, ${options.alignment ?? 4}, child),
-      memoryField((value: Entry) => value.${options.swapped ? "first" : "second"}, 8, 4, child));
-    const layout = memoryArrayLayout<Entry, 2>(abi, 32, 4, 32, entry, 2);`;
+  return `const child = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: ${options.stride ?? 4}, fields: [] });
+    const entry = memorylayout<Entry>({
+      datalayout: abi,
+      bytesize: 16,
+      bytealignment: 4,
+      stride: 16,
+      fields: [memoryfield({ select: (value: Entry) => value.${options.swapped ? "second" : "first"}, byteoffset: ${options.offset ?? 0}, bytealignment: ${options.alignment ?? 4}, fieldlayout: child }), memoryfield({ select: (value: Entry) => value.${options.swapped ? "first" : "second"}, byteoffset: 8, bytealignment: 4, fieldlayout: child })],
+    });
+    const layout = memoryarraylayout<Entry, 2>({ datalayout: abi, bytesize: 32, bytealignment: 4, stride: 32, elementlayout: entry, length: 2 });`;
 }
 
 function nestedArray(stride = 8): string {
-  return `const row = memoryArrayLayout<uint32, 2>(abi, 8, 4, ${stride}, word, 2);
-    const layout = memoryArrayLayout<Pair, 2>(abi, 32, 4, 32, row, 2);`;
+  return `const row = memoryarraylayout<uint32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: ${stride}, elementlayout: word, length: 2 });
+    const layout = memoryarraylayout<Pair, 2>({ datalayout: abi, bytesize: 32, bytealignment: 4, stride: 32, elementlayout: row, length: 2 });`;
 }
 
 function recordOfArray(stride = 4): string {
-  return `const child = memoryLayout<uint32>(abi, 4, 4, ${stride});
-    const row = memoryArrayLayout(abi, 12, 4, 12, child, 2);
-    const layout = memoryLayout<Holder>(abi, 20, 4, 20,
-      memoryField((value: Holder) => value.items, 4, 4, row));`;
+  return `const child = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: ${stride}, fields: [] });
+    const row = memoryarraylayout({ datalayout: abi, bytesize: 12, bytealignment: 4, stride: 12, elementlayout: child, length: 2 });
+    const layout = memorylayout<Holder>({
+      datalayout: abi,
+      bytesize: 20,
+      bytealignment: 4,
+      stride: 20,
+      fields: [memoryfield({ select: (value: Holder) => value.items, byteoffset: 4, bytealignment: 4, fieldlayout: row })],
+    });`;
 }
 
 for (const [name, declarations, type, size] of [
@@ -89,9 +98,9 @@ for (const [name, declarations, type, size] of [
     assert.equal(first.identity, second.identity);
     assert.notEqual(layouts[0]!.call, layouts[1]!.call);
     assert.equal(tsonicMemoryLayoutFactKey.equals(layouts[0]!, layouts[1]!), false);
-    assertArrayObservation(checked, "sizeOf", size);
-    assertArrayObservation(checked, "sizeOf", size, 1);
-    const conversion = memoryCall(checked, "reinterpretRawPointer");
+    assertArrayObservation(checked, "sizeof", size);
+    assertArrayObservation(checked, "sizeof", size, 1);
+    const conversion = memoryCall(checked, "reinterpretrawptr");
     const operation = readTsonicRawMemoryOperation(source.sourceFacts, conversion);
     assert.ok(operation?.operation === "reinterpret");
     assert.equal(operation.explicitPointeeTypeNode, undefined);
@@ -144,21 +153,21 @@ test("imported huge adjacent array counts remain distinct through aliases and in
   const checked = cleanArraySession(`
     import type { EmptyValue } from "./types.js";
     import { selected } from "./barrel.js";
-    const leaf = memoryLayout<EmptyValue>(abi, 0, 4, 0);
-    const local = memoryArrayLayout(abi, 0, 4, 0, leaf, 9007199254740992n);
+    const leaf = memorylayout<EmptyValue>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });
+    const local = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: leaf, length: 9007199254740992n });
     const alias = selected;
-    sizeOf(local); sizeOf(alias);
-    reinterpretRawPointer(raw, local); reinterpretRawPointer(raw, alias);
+    sizeof(local); sizeof(alias);
+    reinterpretrawptr(raw, local); reinterpretrawptr(raw, alias);
   `, { extraFiles: {
     "/src/types.ts": sharedTypes,
     "/src/layout.ts": arrayTestPrelude + `
       import type { EmptyValue } from "./types.js";
-      const leaf = memoryLayout<EmptyValue>(abi, 0, 4, 0);
-      export const layout = memoryArrayLayout(abi, 0, 4, 0, leaf, 9007199254740993n);
+      const leaf = memorylayout<EmptyValue>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });
+      export const layout = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: leaf, length: 9007199254740993n });
     `,
     "/src/barrel.ts": 'export { layout as selected } from "./layout.js";',
   } });
-  const selections = memoryCalls(checked, "reinterpretRawPointer").map(call => {
+  const selections = memoryCalls(checked, "reinterpretrawptr").map(call => {
     const selected = selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, call);
     assert.ok(selected?.kind === "resolved");
     assert.ok(selected.operation.operation === "reinterpret");
@@ -175,8 +184,8 @@ test("imported huge adjacent array counts remain distinct through aliases and in
   const upperElement = readTsonicMemoryType(checked.sourceFacts, upper.elementLayout.call);
   assert.ok(lowerElement && upperElement);
   assert.equal(lowerElement.identity, upperElement.identity);
-  assertArrayObservation(checked, "sizeOf", 0);
-  assertArrayObservation(checked, "sizeOf", 0, 1);
+  assertArrayObservation(checked, "sizeof", 0);
+  assertArrayObservation(checked, "sizeof", 0, 1);
 });
 
 test("an imported same-carrier signed array cannot replace an unsigned pointer pointee", () => {
@@ -184,40 +193,40 @@ test("an imported same-carrier signed array cannot replace an unsigned pointer p
     import type { Pair } from "./types.js";
     import { layout } from "./layout.js";
     declare const value: Pair;
-    const pointer = allocatePointer<Pair>(value);
-    toRawPointer(pointer, layout);
-    reinterpretRawPointer<Pair>(raw, layout);
-    sizeOf(layout);
+    const pointer = allocateptr<Pair>(value);
+    torawptr(pointer, layout);
+    reinterpretrawptr<Pair>(raw, layout);
+    sizeof(layout);
   `, { extraFiles: {
     "/src/types.ts": sharedTypes,
     "/src/layout.ts": arrayTestPrelude + `
-      const signed = memoryLayout<int32>(abi, 4, 4, 4);
-      export const layout = memoryArrayLayout<int32, 2>(abi, 8, 4, 8, signed, 2);
+      const signed = memorylayout<int32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });
+      export const layout = memoryarraylayout<int32, 2>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, elementlayout: signed, length: 2 });
     `,
   } });
   assert.equal(checked.diagnostics.filter(Boolean).length, 0);
   assert.equal(checked.extensionDiagnostics.filter(entry => entry.extensionCode === "SOURCE_CORE_MEMORY_POINTEE_LAYOUT_NOT_PROVEN").length, 2);
-  for (const name of ["toRawPointer", "reinterpretRawPointer"]) {
+  for (const name of ["torawptr", "reinterpretrawptr"]) {
     assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, name)), undefined);
   }
-  assertArrayObservation(checked, "sizeOf", 8);
+  assertArrayObservation(checked, "sizeof", 8);
 });
 
 test("a raw conversion cannot round an imported adjacent bigint array extent into its selected pointee", () => {
   const checked = arraySession(`
     import type { EmptyValue } from "./types.js";
     import { layout } from "./layout.js";
-    reinterpretRawPointer<FixedArray<EmptyValue, 9007199254740992n>>(raw, layout);
-    sizeOf(layout);
+    reinterpretrawptr<FixedArray<EmptyValue, 9007199254740992n>>(raw, layout);
+    sizeof(layout);
   `, { extraFiles: {
     "/src/types.ts": sharedTypes,
     "/src/layout.ts": arrayTestPrelude + `
       import type { EmptyValue } from "./types.js";
-      const leaf = memoryLayout<EmptyValue>(abi, 0, 4, 0);
-      export const layout = memoryArrayLayout(abi, 0, 4, 0, leaf, 9007199254740993n);
+      const leaf = memorylayout<EmptyValue>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });
+      export const layout = memoryarraylayout({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, elementlayout: leaf, length: 9007199254740993n });
     `,
   } });
   assert.match(formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"), /not assignable/u);
-  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretRawPointer")), undefined);
-  assertArrayObservation(checked, "sizeOf", 0);
+  assert.equal(readTsonicRawMemoryOperation(checked.sourceFacts, memoryCall(checked, "reinterpretrawptr")), undefined);
+  assertArrayObservation(checked, "sizeof", 0);
 });

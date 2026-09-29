@@ -2,7 +2,7 @@ import { sourcePackageGraphFixture } from "./source-package-graph.mjs";
 
 export const falliblePointerFiles = Object.freeze({
   "storage.ts": `
-import { bindPointer, viewPointer, loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { bindptr, viewptr, loadptr, storeptr } from "@tsonic/core/lang.js";
 import type { Pointer } from "@tsonic/core/types.js";
 export class MemoryFailure extends Error {
   code: number;
@@ -26,19 +26,19 @@ export function bound(owner: Storage): Pointer<number> {
     if (value < 0) throw owner.failure;
     owner.value = value;
   };
-  return bindPointer(owner, read, write);
+  return bindptr(owner, read, write);
 }
 export function poison(owner: Storage): Pointer<number> {
-  return bindPointer(owner, (): number => { throw owner.failure; }, (_value: number): void => { throw owner.failure; });
+  return bindptr(owner, (): number => { throw owner.failure; }, (_value: number): void => { throw owner.failure; });
 }
 export function retained<T>(base: Pointer<T>, read: () => T, write: (value: T) => void): Pointer<T> {
-  return viewPointer(base, read, write);
+  return viewptr(base, read, write);
 }
-export function read(pointer: Pointer<number>): number { return loadPointer(pointer); }
-export function write(pointer: Pointer<number>, value: number): void { storePointer(pointer, value); }
+export function read(pointer: Pointer<number>): number { return loadptr(pointer); }
+export function write(pointer: Pointer<number>, value: number): void { storeptr(pointer, value); }
 `,
   "index.ts": `
-import { equalPointer, hashPointer, loadPointer, storePointer, projectPointer, viewPointer } from "@tsonic/core/lang.js";
+import { equalptr, hashptr, loadptr, storeptr, projectptr, viewptr } from "@tsonic/core/lang.js";
 import { bound, poison, retained, read, write, Storage, MemoryFailure } from "./storage.js";
 export function run(): boolean {
   const expected = new MemoryFailure(17);
@@ -53,19 +53,19 @@ export function run(): boolean {
   owner.value = -1;
   try { read(pointer); }
   catch (error) { if (error instanceof MemoryFailure && error === expected) caught += 1; }
-  const projected = projectPointer(pointer, value => { projectedReads += 1; return value + 1; }, value => value - 1);
-  try { loadPointer(projected); }
+  const projected = projectptr(pointer, value => { projectedReads += 1; return value + 1; }, value => value - 1);
+  try { loadptr(projected); }
   catch (error) { if (error instanceof MemoryFailure && error === expected) caught += 1; }
   if (projectedReads !== 0) return false;
   const unreadable = poison(owner);
   const view = retained(unreadable, () => owner.value, next => { owner.value = next; });
-  storePointer(view, 9);
-  if (loadPointer(view) !== 9 || !equalPointer(unreadable, view) || hashPointer(unreadable) !== hashPointer(view)) return false;
-  const badProjection = projectPointer(view, value => value, (_value: number): number => { throw expected; });
-  try { storePointer(badProjection, 11); }
+  storeptr(view, 9);
+  if (loadptr(view) !== 9 || !equalptr(unreadable, view) || hashptr(unreadable) !== hashptr(view)) return false;
+  const badProjection = projectptr(view, value => value, (_value: number): number => { throw expected; });
+  try { storeptr(badProjection, 11); }
   catch (error) { if (error instanceof MemoryFailure && error === expected) caught += 1; }
-  const missing = viewPointer<number, number>(undefined, (): number => { throw expected; }, (_value: number): void => { throw expected; });
-  const missingProjection = projectPointer<number, number>(undefined, (_value: number): number => { throw expected; }, (_value: number): number => { throw expected; });
+  const missing = viewptr<number, number>(undefined, (): number => { throw expected; }, (_value: number): void => { throw expected; });
+  const missingProjection = projectptr<number, number>(undefined, (_value: number): number => { throw expected; }, (_value: number): number => { throw expected; });
   return caught === 4 && owner.value === 9 && missing === undefined && missingProjection === undefined;
 }
 `,

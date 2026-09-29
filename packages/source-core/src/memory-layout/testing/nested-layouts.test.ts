@@ -9,7 +9,7 @@ import {
 import type { TsonicMemoryFieldLayoutFact, TsonicMemoryLayoutFact, TsonicValueMemoryLayoutFact } from "../facts.js";
 import { countTsonicMemoryLayoutValues, readTsonicMemoryFieldLayout, readTsonicMemoryLayout, resolveTsonicMemoryLayoutObservation } from "../readers.js";
 import { selectTsonicRawLocationOperation } from "../../pointers/raw-memory/selection.js";
-import { cleanMemorySession, memoryCall, memorySession, memoryTestPrelude, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
+import { cleanMemorySession, memoryCall, memoryDescriptorProperty, memorySession, memoryTestPrelude, memoryTestRegistration, valueMemoryLayout } from "./fixtures.js";
 
 function scalar(): TsonicValueMemoryLayoutFact {
   return {
@@ -42,52 +42,66 @@ test("layout occurrence counts bound repeated DAG expansion without expanding it
 
 test("nested layouts retain the explicitly chosen child and its authored operand through aliases", () => {
   const checked = cleanMemorySession(`
-    import { memoryField as slot } from "@tsonic/core/lang.js";
+    import { memoryfield as slot } from "@tsonic/core/lang.js";
     import * as core from "@tsonic/core/lang.js";
     interface Inner { count: uint32 }
     interface Outer { left: Inner; right: Inner }
-    const other = memoryLayout<Inner>(abi, 8, 4, 8,
-      slot((value: Inner) => value.count, 4, 4, uint32Layout));
-    const selected = memoryLayout<Inner>(abi, 4, 4, 4,
-      slot((value: Inner) => value.count, 0, 4, uint32Layout));
+    const other = memorylayout<Inner>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 4,
+      stride: 8,
+      fields: [slot({ select: (value: Inner) => value.count, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
+    const selected = memorylayout<Inner>({
+      datalayout: abi,
+      bytesize: 4,
+      bytealignment: 4,
+      stride: 4,
+      fields: [slot({ select: (value: Inner) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
     const alias = selected;
-    const outer = memoryLayout<Outer>(abi, 16, 4, 16,
-      core.memoryField((value: Outer) => value.left, 0, 4, alias),
-      core.memoryField((value: Outer) => value.right, 8, 4, other));
+    const outer = memorylayout<Outer>({
+      datalayout: abi,
+      bytesize: 16,
+      bytealignment: 4,
+      stride: 16,
+      fields: [core.memoryfield({ select: (value: Outer) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: alias }), core.memoryfield({ select: (value: Outer) => value.right, byteoffset: 8, bytealignment: 4, fieldlayout: other })],
+    });
   `);
-  const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 3)));
+  const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 3)));
   assert.ok(layout);
   assert.deepEqual(layout.fields.map(entry => entry.fieldLayout.byteSize), [4, 8]);
   assert.deepEqual(layout.fields.map(entry => valueMemoryLayout(entry.fieldLayout).fields[0]?.byteOffset), [0, 4]);
   for (const [index, entry] of layout.fields.entries()) {
-    const call = memoryCall(checked, "memoryField", index);
-    assert.equal(entry.fieldLayoutExpression, checked.ast.arguments(call)[3]);
+    const call = memoryCall(checked, "memoryfield", index);
+    assert.equal(entry.fieldLayoutExpression, memoryDescriptorProperty(checked, call, "fieldlayout"));
     assert.equal(entry.fieldLayout.call,
       readTsonicMemoryLayout(checked.sourceFacts, entry.fieldLayoutExpression)?.call);
     assert.ok(Object.isFrozen(entry.fieldLayout));
   }
 });
 
-test("memoryField has only the required child-layout contract", () => {
+test("memoryfield has only the required child-layout contract", () => {
   const checked = memorySession(memoryTestPrelude + `
     interface Header { count: uint32 }
-    memoryField((value: Header) => value.count, 0, 4);
+    memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4 });
   `);
-  assert.match(formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"), /Expected 4 arguments, but got 3/u);
-  assert.equal(readTsonicMemoryFieldLayout(checked.sourceFacts, memoryCall(checked, "memoryField")), undefined);
+  assert.match(formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"), /fieldlayout.*missing|missing.*fieldlayout/u);
+  assert.equal(readTsonicMemoryFieldLayout(checked.sourceFacts, memoryCall(checked, "memoryfield")), undefined);
 });
 
 for (const [label, child, checkerRejects] of [
   ["unproduced descriptor", "unproduced", false],
-  ["different selected field type", "memoryLayout<boolean>(abi, 1, 1, 1)", true],
+  ["different selected field type", "memorylayout<boolean>({ datalayout: abi, bytesize: 1, bytealignment: 1, stride: 1, fields: [] })", true],
 ] as const) {
   test(`field layout rejects ${label} without publishing a field`, () => {
     const checked = memorySession(memoryTestPrelude + `
       interface Header { count: uint32 }
       declare const unproduced: MemoryLayout<uint32>;
-      memoryField((value: Header) => value.count, 0, 4, ${child});
+      memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: ${child} });
     `);
-    assert.equal(readTsonicMemoryFieldLayout(checked.sourceFacts, memoryCall(checked, "memoryField")), undefined);
+    assert.equal(readTsonicMemoryFieldLayout(checked.sourceFacts, memoryCall(checked, "memoryfield")), undefined);
     if (checkerRejects) {
       assert.match(formatDiagnostics(checked.diagnostics.filter(entry => entry !== undefined), "/src"), /not assignable/u);
     } else {
@@ -101,24 +115,38 @@ for (const [label, child, checkerRejects] of [
 test("the full child extent must fit and distinct fields cannot overlap", () => {
   const checked = memorySession(memoryTestPrelude + `
     interface Header { first: uint32; second: uint32 }
-    memoryLayout<Header>(abi, 4, 4, 4,
-      memoryField((value: Header) => value.first, 4, 4, uint32Layout));
-    memoryLayout<Header>(abi, 8, 4, 8,
-      memoryField((value: Header) => value.first, 0, 4, uint32Layout),
-      memoryField((value: Header) => value.second, 0, 4, uint32Layout));
+    memorylayout<Header>({
+      datalayout: abi,
+      bytesize: 4,
+      bytealignment: 4,
+      stride: 4,
+      fields: [memoryfield({ select: (value: Header) => value.first, byteoffset: 4, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
+    memorylayout<Header>({
+      datalayout: abi,
+      bytesize: 8,
+      bytealignment: 4,
+      stride: 8,
+      fields: [memoryfield({ select: (value: Header) => value.first, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout }), memoryfield({ select: (value: Header) => value.second, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
   `);
   assert.equal(checked.diagnostics.filter(Boolean).length, 0);
   assert.equal(checked.extensionDiagnostics.filter(entry => entry.extensionCode === "SOURCE_CORE_MEMORY_LAYOUT_DIMENSIONS_INVALID").length, 2);
-  for (const index of [1, 2]) assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", index)), undefined);
+  for (const index of [1, 2]) assert.equal(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", index)), undefined);
 });
 
 test("packed field placement does not replace the selected child type alignment", () => {
   const checked = cleanMemorySession(`
     interface Packed { count: uint32 }
-    memoryLayout<Packed>(abi, 5, 1, 5,
-      memoryField((value: Packed) => value.count, 1, 1, uint32Layout));
+    memorylayout<Packed>({
+      datalayout: abi,
+      bytesize: 5,
+      bytealignment: 1,
+      stride: 5,
+      fields: [memoryfield({ select: (value: Packed) => value.count, byteoffset: 1, bytealignment: 1, fieldlayout: uint32Layout })],
+    });
   `);
-  const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1)));
+  const layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1)));
   assert.equal(layout.fields[0]?.byteAlignment, 1);
   assert.equal(layout.fields[0]?.fieldLayout.byteAlignment, 4);
 });
@@ -126,15 +154,20 @@ test("packed field placement does not replace the selected child type alignment"
 test("consumers reject missing or stale selected children rather than trusting an embedded descriptor", () => {
   const checked = cleanMemorySession(`
     interface Header { count: uint32 }
-    const header = memoryLayout<Header>(abi, 4, 4, 4,
-      memoryField((value: Header) => value.count, 0, 4, uint32Layout));
-    sizeOf(header);
-    reinterpretRawPointer(raw, header);
+    const header = memorylayout<Header>({
+      datalayout: abi,
+      bytesize: 4,
+      bytealignment: 4,
+      stride: 4,
+      fields: [memoryfield({ select: (value: Header) => value.count, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
+    });
+    sizeof(header);
+    reinterpretrawptr(raw, header);
   `);
-  const parent = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 1)));
+  const parent = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 1)));
   const child = parent.fields[0]!;
-  const observation = memoryCall(checked, "sizeOf");
-  const conversion = memoryCall(checked, "reinterpretRawPointer");
+  const observation = memoryCall(checked, "sizeof");
+  const conversion = memoryCall(checked, "reinterpretrawptr");
   assert.equal(resolveTsonicMemoryLayoutObservation(checked.sourceFacts, observation)?.kind, "resolved");
   assert.equal(selectTsonicRawLocationOperation(checked.ast, checked.sourceFacts, conversion)?.kind, "resolved");
   for (const mutation of ["missing-child", "stale-child", "missing-field"] as const) {
@@ -231,15 +264,19 @@ test("independently published field facts keep the same captured child instead o
 });
 
 test("source-produced nested descriptors preserve sharing across all fact publications", () => {
-  const declarations = ["interface Layer0 {} const layer0 = memoryLayout<Layer0>(abi, 0, 4, 0);"];
+  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });"];
   for (let depth = 1; depth <= 24; depth += 1) {
     declarations.push(`interface Layer${depth} { left: Layer${depth - 1}; right: Layer${depth - 1} }
-      const layer${depth} = memoryLayout<Layer${depth}>(abi, 0, 4, 0,
-        memoryField((value: Layer${depth}) => value.left, 0, 4, layer${depth - 1}),
-        memoryField((value: Layer${depth}) => value.right, 0, 4, layer${depth - 1}));`);
+      const layer${depth} = memorylayout<Layer${depth}>({
+        datalayout: abi,
+        bytesize: 0,
+        bytealignment: 4,
+        stride: 0,
+        fields: [memoryfield({ select: (value: Layer${depth}) => value.left, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} }), memoryfield({ select: (value: Layer${depth}) => value.right, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} })],
+      });`);
   }
   const checked = cleanMemorySession(declarations.join("\n"));
-  let layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", 25)));
+  let layout = valueMemoryLayout(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", 25)));
   for (let depth = 24; depth !== 0; depth -= 1) {
     assert.equal(layout.fields[0]?.fieldLayout, layout.fields[1]?.fieldLayout);
     layout = valueMemoryLayout(layout.fields[0]!.fieldLayout);
@@ -280,16 +317,21 @@ test("wide descriptor snapshots fail at the metadata budget", () => {
 });
 
 test("source layout depth failures are diagnosed before a fact transaction is poisoned", () => {
-  const declarations = ["interface Layer0 {} const layer0 = memoryLayout<Layer0>(abi, 0, 4, 0);"];
+  const declarations = ["interface Layer0 {} const layer0 = memorylayout<Layer0>({ datalayout: abi, bytesize: 0, bytealignment: 4, stride: 0, fields: [] });"];
   for (let depth = 1; depth <= maximumMemoryLayoutDepth; depth += 1) {
     declarations.push(`interface Layer${depth} { value: Layer${depth - 1} }
-      const layer${depth} = memoryLayout<Layer${depth}>(abi, 0, 4, 0,
-        memoryField((value: Layer${depth}) => value.value, 0, 4, layer${depth - 1}));`);
+      const layer${depth} = memorylayout<Layer${depth}>({
+        datalayout: abi,
+        bytesize: 0,
+        bytealignment: 4,
+        stride: 0,
+        fields: [memoryfield({ select: (value: Layer${depth}) => value.value, byteoffset: 0, bytealignment: 4, fieldlayout: layer${depth - 1} })],
+      });`);
   }
   const checked = memorySession(memoryTestPrelude + declarations.join("\n"));
   assert.equal(checked.diagnostics.filter(Boolean).length, 0);
   assert.deepEqual(checked.extensionDiagnostics.map(entry => entry.extensionCode), ["SOURCE_CORE_MEMORY_LAYOUT_CAPTURE_LIMIT"]);
   assert.equal(readTsonicMemoryLayout(checked.sourceFacts,
-    memoryCall(checked, "memoryLayout", maximumMemoryLayoutDepth + 1)), undefined);
-  assert.ok(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memoryLayout", maximumMemoryLayoutDepth)));
+    memoryCall(checked, "memorylayout", maximumMemoryLayoutDepth + 1)), undefined);
+  assert.ok(readTsonicMemoryLayout(checked.sourceFacts, memoryCall(checked, "memorylayout", maximumMemoryLayoutDepth)));
 });

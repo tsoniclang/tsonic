@@ -77,7 +77,6 @@ export const sharedRootPolicies = Object.freeze([
     "packages/target-api/src/module-reference.ts",
     "packages/target-api/src/registry.ts",
     "packages/target-api/src/source-profile.ts",
-    "packages/target-api/src/typescript-no-lib-utilities.ts",
   ]),
 ]);
 

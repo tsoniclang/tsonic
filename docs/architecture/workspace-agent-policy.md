@@ -31,6 +31,22 @@ policy.
   owns the decision, update its consumers, and remove superseded logic in the
   same change. A previous fix or passing checkpoint does not justify keeping
   redundant branches, adapters, conversions or competing decisions.
+- Treat surprising user-facing constraints, limitations and required annotations
+  as potential architectural defects before proposing a narrower capability.
+  Trace the dependency through its real owners. Split or redesign modules,
+  semantic layers, phase boundaries and data structures when needed; existing
+  coupling is not a reason to make users repair our implementation's ordering.
+  Apply the same airplane-grade correctness, safety, performance and verification
+  requirements to the complete replacement, not just the local symptom.
+  A claimed unavoidable limitation needs concrete native-language or semantic
+  evidence; a missing API in our current abstraction is not that evidence.
+- For example, if native macro expansion supplies a type needed by source
+  checking, but native construction assumes source checking is already complete,
+  reassess the construction/checking boundary. Do not impose a source annotation,
+  add a second lowering path, or accept erroneous native type results merely to
+  break that implementation cycle. Preserve inferred behavior through the owning
+  semantic phases and prove the actual source-to-native path. An independently
+  ambiguous native program remains distinct from our phase-ordering defect.
 - Prefer the smallest clean, complete canonical mechanism. Reuse genuine common
   requirements; do not hide repeated corrections behind a generic wrapper or
   invent a framework to preserve an accidental design. Independently necessary
@@ -90,6 +106,10 @@ policy.
   exact cleanup.
 - Keep ignored analysis, logs, generated output, build products, and local test
   state untracked.
+- Never commit or push `.analysis` contents. Ignore rules do not untrack files
+  already in Git: remove such entries from the index while preserving the local
+  notes, and verify that no `.analysis` paths remain tracked. Do not rewrite
+  published history as part of this cleanup.
 
 ## Agent Delegation
 
@@ -191,6 +211,92 @@ policy.
   “clean it later” code.
 - When a canonical shape changes, break stale assumptions and repair every
   first-party producer and consumer against the final shape.
+- An API replacement is one complete migration, not an additional supported
+  form. Remove superseded signatures, handlers and adapters; update all owned
+  callers, declarations, facts, documentation, fixtures and tests together.
+  Prove that the removed form is rejected. Temporary compatibility overloads
+  and staged old/new acceptance are prohibited.
+- For example, replacing `add(AttributeType, ...args)` with an inline lambda
+  containing a checked attribute invocation means deleting the flat form, not
+  accepting both. Preserve independent placement selectors and native attribute
+  restrictions; the new argument syntax does not justify losing capabilities
+  or weakening validation.
+
+### Evaluation, Selection, and Declaration Inputs
+
+- Choose syntax by the input's meaning, not a blanket rule that all compiler
+  inputs are lambdas. Do not wrap existing direct value, storage, ownership,
+  compile-time, safety or layout inputs merely for uniformity. Remove
+  unnecessary quotation layers; retain one canonical API per input category,
+  not direct/quoted compatibility alternatives.
+- Attribute construction stays quoted: for example,
+  `attribute<User>().add(() => new ObsoleteAttribute("reason"))`.
+  Retain exact checked calls, constructors, overloads and native restrictions.
+  Do not restore the superseded flat attribute-type/arguments API.
+- Typed member selectors must remain lambdas: `.method(user => user.save)`,
+  `.property(user => user.name)` and layout field selectors select exact checked
+  declarations. Do not replace them with property-name strings or execute
+  getters/methods to find the selected member. This differs from `ref(user.name)`,
+  which selects an existing runtime storage expression and stays direct.
+- Keep lambdas for conditional/deferred behavior such as match guards, match
+  bodies and let-else failure blocks, and for necessary declaration scopes
+  containing type/const/function declarations or generic binders. Do not add
+  an outer lambda to an already scoped input, a match scrutinee/arm collection
+  or a plain descriptor.
+- Genuine runtime callbacks, closures and function types are not compiler
+  quotation. Preserve their execution, capture, ownership and lifetime rules;
+  pointer accessors and ordinary map/event/task callbacks remain callbacks.
+- Inspect the exact source AST and checked identities; never execute user
+  JavaScript to obtain compiler input. Retained quotation and erased metadata
+  add no native closure, allocation, copying, boxing or runtime registration.
+- State Node behavior honestly. A no-op facade does not suppress evaluation of
+  direct arguments or template substitutions. A retained quoted attribute/body
+  is not invoked by its compiler-only facade. Neither rule fabricates native
+  results, generated APIs or loadable imports. Native-only code is not made
+  Node-portable merely by recognizing its syntax.
+
+### Authored Identifier Preservation
+
+- Preserve authored identifier spelling and case across targets. Do not convert
+  `makeValue` into `make_value`, PascalCase or SCREAMING_SNAKE_CASE, or rename
+  authored bindings merely to suppress a native naming/unused warning.
+- Target keyword escaping may change source spelling while preserving the
+  identifier's semantic name, such as Rust `r#type` or C# `@event`. Exact imported
+  native names remain provider-owned. Compiler-generated helpers require their
+  own collision-safe names; they do not authorize renaming authored APIs.
+- Audit declaration, member, reference, import/export and module/file pathways
+  together. An actual target naming or collision constraint needs an explicit
+  supported policy or a precise diagnostic, not an unannounced casing rewrite.
+  Do not invent a name-override feature merely to preserve old transformations.
+
+### Public Marker Naming
+
+- Our public compiler operations, markers, builder methods and authored
+  descriptor keys use lowercase without underscores across shared, C# and Rust
+  APIs. Prefer one clear word; join necessary compound words without separators.
+  Do not introduce camelCase or snake_case variants. Preserve independently
+  controllable semantics rather than collapsing operations merely to shorten them.
+- In operation names, shorten pointer to ptr: `loadPointer` becomes `loadptr`,
+  `loadNativePointer` becomes `loadnativeptr`, and `offsetRawPointer` becomes
+  `offsetrawptr`. Apply the same rule to all corresponding operations, not a
+  special alias for one load operation.
+- Types are excluded from this operation-naming migration. `Pointer`,
+  `RawPointer`, `NativePointer`, `FunctionPointer`, `MemoryFieldLayout` and
+  primitive type aliases keep their type spellings. Do not lowercase named
+  types or abbreviate Pointer within type names under this rule.
+- This is deliberate naming of our compiler API, never automatic recasing of
+  user-authored declarations. Native imports retain their exact exported names,
+  including native underscores. Internal implementation names, protocol fields
+  and generated identity brands are not a blanket renaming target.
+- Distinguish existing exports, proposed exports, generated declaration helpers
+  and imported native symbols. A proposal is not a released capability. A
+  replacement must be valid source syntax; for example, the TypeScript keyword
+  `typeof` cannot serve as a bare callable replacement for a proposed `typeOf`.
+  Remove a redundant helper rather than inventing another spelling for it.
+- Migrate the one canonical declaration/identity owner and all affected owned
+  consumers, artifacts, documentation and tests together. Remove superseded
+  exports, signatures and handlers; prove the old form is rejected. Never retain
+  compatibility aliases or add duplicate target-specific spellings of shared APIs.
 
 ### Truth Over Heuristics
 

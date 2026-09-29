@@ -4407,8 +4407,9 @@ function providerRenderedFunctionSignaturesEqual(left, right) {
         });
 }
 function providerVirtualCompilerMetadataEqual(left, right) {
-    return left.directDeclarationIds.length === right.directDeclarationIds.length
-        && left.directDeclarationIds.every((id, index) => id === right.directDeclarationIds[index])
+    return left.directDeclarations.length === right.directDeclarations.length
+        && left.directDeclarations.every((declaration, index) => declaration.id === right.directDeclarations[index]?.id
+            && declaration.localName === right.directDeclarations[index]?.localName)
         && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures);
 }
 function providerDeclarationMaterializationEquals(left, right) {
@@ -4441,7 +4442,7 @@ function renderProviderDeclarationModel(model, options = {}) {
         typeFamilyVariantByProviderRefKey: getProviderTypeFamilyVariantExportMap(model.moduleSpecifier, typeFamilyGroups),
         exactImportLocalNameByProviderRefKey: new Map([...(options.exactImports ?? new Map())].map(([key, binding]) => [key, binding.localName])),
         exactImportsInTypePositions: options.exactImportsInTypePositions === true,
-        directDeclarationIds: new Set(),
+        directDeclarations: new Map(),
         renderedFunctionSignatures: [],
     };
     const hasDirectDeclarations = model.exports.some((declaration) => !canonicalLocalNameByExportName.has(getProviderSourceExportName(declaration)));
@@ -4535,7 +4536,7 @@ function renderProviderDeclarationModel(model, options = {}) {
 }
 function snapshotProviderVirtualCompilerMetadata(context) {
     return Object.freeze({
-        directDeclarationIds: Object.freeze([...context.directDeclarationIds]),
+        directDeclarations: Object.freeze([...context.directDeclarations].map(([id, localName]) => Object.freeze({ id, localName }))),
         renderedFunctionSignatures: Object.freeze([...context.renderedFunctionSignatures]),
     });
 }
@@ -4585,25 +4586,17 @@ function getProviderCanonicalExportLocalName(exportName) {
     return `__TstsProviderCanonical_${identifier === "" || /^[0-9]/.test(identifier) ? `_${identifier}` : identifier}`;
 }
 function renderProviderExportDeclaration(declaration, context, options = {}) {
-    if (context.directDeclarationIds.has(declaration.id)) {
+    if (context.directDeclarations.has(declaration.id)) {
         throw new Error(`Provider declaration identity '${declaration.id}' was rendered more than once in one virtual artifact.`);
     }
-    context.directDeclarationIds.add(declaration.id);
     const declarationContext = withProviderRenderOwner(context, declaration);
     const declarationName = options.localName ?? declaration.name;
+    context.directDeclarations.set(declaration.id, declarationName);
     const exportName = getProviderExportName(declaration);
     const isDefault = exportName === "default" || declaration.exportKind === "default";
-    const canInlineDefault = isDefault && canRenderInlineDefaultProviderExport(declaration.kind);
     const directNamedExport = options.localOnly !== true && !isDefault && exportName === declarationName;
-    const declarationPrefix = directNamedExport
-        ? "export declare "
-        : options.localOnly === true
-            ? "declare "
-            : canInlineDefault
-                ? "export default "
-                : "declare ";
-    const typePrefix = directNamedExport ? "export " : options.localOnly === true ? "" : "";
-    const localTypePrefix = directNamedExport ? "export " : options.localOnly === true ? "" : "";
+    const declarationPrefix = directNamedExport ? "export declare " : "declare ";
+    const typePrefix = directNamedExport ? "export " : "";
     let rendered;
     switch (declaration.kind) {
         case "class": {
@@ -4613,14 +4606,16 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         }
         case "interface": {
             const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
-            rendered = `${canInlineDefault && options.localOnly !== true ? "export default " : localTypePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
+            rendered = `${typePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
         }
         case "function":
-            rendered = renderProviderSignatures(declarationName, declaration.signatures ?? [], declarationContext)
-                .map((signature) => `${canInlineDefault ? "export default " : declarationPrefix}function ${signature}`)
-                .join("\n");
+        case "namespace": {
+            const signatures = renderProviderSignatures("", declaration.signatures ?? [], declarationContext);
+            const members = renderProviderMembers((declaration.members ?? []).map(member => member.kind === "property" || member.kind === "field" ? { ...member, readonly: true } : member), declarationContext);
+            rendered = `${declarationPrefix}const ${declarationName}: {\n${signatures.map(signature => `  ${signature}`).join("\n")}\n${members}\n};`;
             break;
+        }
         case "type": {
             const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
             rendered = `${typePrefix}type ${declarationName}${typeParameters} = ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
@@ -4629,19 +4624,14 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
         case "value":
             rendered = `${declarationPrefix}const ${declarationName}: ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
             break;
-        case "namespace":
-            rendered = `${declarationPrefix}namespace ${declarationName} {\n${renderProviderNamespaceMembers(declaration.members ?? [], declarationContext)}\n}`;
-            break;
         case "enum":
             rendered = `${declarationPrefix}enum ${declarationName} {\n${(declaration.members ?? []).map((member) => `  ${renderProviderPropertyName(member.name)},`).join("\n")}\n}`;
             break;
     }
-    if (options.localOnly === true || directNamedExport || canInlineDefault) {
+    if (options.localOnly === true || directNamedExport) {
         return rendered;
     }
-    return isDefault
-        ? `${rendered}\nexport default ${declarationName};`
-        : `${rendered}\nexport { ${declarationName} as ${exportName} };`;
+    return `${rendered}\nexport { ${declarationName} as ${exportName} };`;
 }
 function withProviderRenderOwner(context, declaration, member) {
     const { declaration: _previousDeclaration, member: _previousMember, ...shared } = context;
@@ -4740,9 +4730,6 @@ function renderProviderClassMembers(declaration, context) {
     const nominalMember = `  private readonly ${nominalMemberName}: never;`;
     return members === "" ? nominalMember : `${nominalMember}\n${members}`;
 }
-function renderProviderNamespaceMembers(members, context) {
-    return members.map((member) => `  ${renderProviderNamespaceMember(member, context)}`).join("\n");
-}
 function renderProviderMember(member, context) {
     const memberContext = withProviderRenderOwner(context, context.declaration, member);
     const staticPrefix = member.static === true ? "static " : "";
@@ -4751,7 +4738,7 @@ function renderProviderMember(member, context) {
     const name = renderProviderPropertyName(member.name);
     switch (member.kind) {
         case "constructor":
-            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext).join("\n  ");
+            return renderProviderSignatures("constructor", member.signatures ?? [{ id: member.id, parameters: [] }], memberContext, true).join("\n  ");
         case "method":
             return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `${staticPrefix}${signature}`).join("\n  ");
         case "property":
@@ -4764,26 +4751,6 @@ function renderProviderMember(member, context) {
             }).join("\n  ");
         }
     }
-}
-function renderProviderNamespaceMember(member, context) {
-    const memberContext = withProviderRenderOwner(context, context.declaration, member);
-    const name = renderProviderPropertyName(member.name);
-    switch (member.kind) {
-        case "method":
-            return renderProviderSignatures(name, member.signatures ?? [], memberContext).map((signature) => `export function ${signature}`).join("\n  ");
-        case "property":
-        case "field":
-            return `export const ${name}: ${renderProviderTypeExpression(member.type, memberContext)};`;
-        case "constructor":
-        case "indexer":
-            return failUnsupportedProviderNamespaceMember(member);
-    }
-}
-function failUnsupportedProviderNamespaceMember(member) {
-    throw new Error(`Unsupported provider namespace member kind '${member.kind}'.`);
-}
-function canRenderInlineDefaultProviderExport(kind) {
-    return kind === "class" || kind === "interface" || kind === "function" || kind === "enum";
 }
 function getProviderExportName(declaration) {
     return declaration.exportKind === "default" ? "default" : declaration.exportName ?? declaration.name;
@@ -4816,11 +4783,11 @@ function getProviderPropertyNameText(name) {
             return `Symbol.${name.name}`;
     }
 }
-function renderProviderSignatures(name, signatures, context) {
+function renderProviderSignatures(name, signatures, context, constructor = false) {
     return signatures.map((signature) => {
         const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context);
         const parameters = signature.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ");
-        const returnType = name === "constructor" ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
+        const returnType = constructor ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
         return `${name}${typeParameters}(${parameters})${returnType};`;
     });
 }
@@ -5469,7 +5436,7 @@ function isValidProviderExportDeclaration(value) {
         && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
         && (value.kind === "enum"
             ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
-            : value.kind === "namespace"
+            : value.kind === "namespace" || value.kind === "function"
                 ? (value.members ?? []).every(isValidProviderNamespaceMemberDeclaration)
                 : (value.members ?? []).every(isValidProviderMemberDeclaration));
 }
@@ -5484,7 +5451,7 @@ function hasNoUnrenderedProviderExportShape(value) {
         case "interface":
             return noType && noSignatures;
         case "function":
-            return noType && noTypeParameters && noHeritage && noMembers;
+            return noType && noTypeParameters && noHeritage;
         case "type":
             return noHeritage && noMembers && noSignatures;
         case "value":
@@ -5639,7 +5606,7 @@ function isValidProviderExportName(value) {
     if (exportName !== "default" && !isIdentifierText(exportName)) {
         return false;
     }
-    return exportName !== "default" || value.kind !== "type" && value.kind !== "namespace";
+    return true;
 }
 function isValidProviderHeritageDeclaration(value) {
     return (value.kind === "extends" || value.kind === "implements")
@@ -5671,6 +5638,7 @@ function isValidProviderMemberDeclaration(value) {
 }
 function isValidProviderEnumMemberDeclaration(value) {
     return value.id.length > 0
+        && (value.kind === "property" || value.kind === "field")
         && isValidProviderPropertyName(value.name)
         && value.static !== true
         && value.readonly !== true

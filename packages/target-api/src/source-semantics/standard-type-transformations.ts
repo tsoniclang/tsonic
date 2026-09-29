@@ -8,7 +8,7 @@ import type {
 import type {
   SourceProgramNavigation,
 } from "../source-navigation/index.js";
-import { typescriptNoLibUtilityDeclarations } from "../typescript-no-lib-utilities.js";
+import { typescriptNoLibUtilityDeclarations } from "../source-profiles/typescript-no-lib-utilities.js";
 import type {
   SourceCallableTypeEvidence,
   SourceCallableParameterEvidence,

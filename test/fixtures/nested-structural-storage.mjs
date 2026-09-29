@@ -23,7 +23,7 @@ export type MapStorage<Key, Value> = {
 `,
   "cache.ts": `
 import type { Pointer } from "@tsonic/core/types.js";
-import { loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { loadptr, storeptr } from "@tsonic/core/lang.js";
 import type { MapStorage } from "./storage.js";
 export class Entry<Value> {
   value: Value;
@@ -58,16 +58,16 @@ export class Cache<Key, Value> {
 }
 export function read<Value>(entry: Pointer<Entry<Value>> | undefined): Value | undefined {
   if (entry === undefined) return undefined;
-  return loadPointer(entry).value;
+  return loadptr(entry).value;
 }
 export function write<Value>(entry: Pointer<Entry<Value>> | undefined, value: Value): void {
   if (entry === undefined) return;
-  storePointer(entry, new Entry(value));
+  storeptr(entry, new Entry(value));
 }
 `,
   "index.ts": `
 import type { int32, Pointer } from "@tsonic/core/types.js";
-import { addressOf, loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { addressof, loadptr, storeptr } from "@tsonic/core/lang.js";
 import { BrandedKey, Buffer } from "./storage.js";
 import { AlternateCache, AlternateEntry, Cache, Entry, read, write } from "./cache.js";
 import type { CacheStorage } from "./cache.js";
@@ -77,27 +77,27 @@ export function run(): boolean {
   let alternateEntry = new AlternateEntry<int32>(17);
   const numericSource: CacheStorage<int32, int32> = { entries: {
     keys: new Buffer<int32, 1>([1 as int32], 1),
-    values: new Buffer<Pointer<Entry<int32>> | undefined, 1>([addressOf(numericEntry)], 1),
+    values: new Buffer<Pointer<Entry<int32>> | undefined, 1>([addressof(numericEntry)], 1),
   } };
   const textSource: CacheStorage<string, string> = { entries: {
     keys: new Buffer<string, 1>(["key"], 1),
-    values: new Buffer<Pointer<Entry<string>> | undefined, 1>([addressOf(textEntry)], 1),
+    values: new Buffer<Pointer<Entry<string>> | undefined, 1>([addressof(textEntry)], 1),
   } };
   const numeric = Cache.from<int32, int32>(numericSource);
   const text = Cache.from<string, string>(textSource);
   const brandedSource: CacheStorage<BrandedKey, int32> = { entries: {
     keys: new Buffer<string, 1>(["branded"], 1),
-    values: new Buffer<Pointer<Entry<int32>> | undefined, 1>([addressOf(numericEntry)], 1),
+    values: new Buffer<Pointer<Entry<int32>> | undefined, 1>([addressof(numericEntry)], 1),
   } };
   const branded = Cache.from<BrandedKey, int32>(brandedSource);
   if (branded.storage !== brandedSource || branded.storage.entries.keys.values[0] !== "branded" || read(branded.first()) !== 7) return false;
   const alternate = new AlternateCache<int32, int32>({ entries: {
     keys: new Buffer<int32, 1>([2 as int32], 1),
-    values: new Buffer<Pointer<AlternateEntry<int32>> | undefined, 1>([addressOf(alternateEntry)], 1),
+    values: new Buffer<Pointer<AlternateEntry<int32>> | undefined, 1>([addressof(alternateEntry)], 1),
   } });
   const alternatePointer = alternate.first();
-  if (alternatePointer === undefined || loadPointer(alternatePointer).value !== 17) return false;
-  storePointer(alternatePointer, new AlternateEntry<int32>(23));
+  if (alternatePointer === undefined || loadptr(alternatePointer).value !== 17) return false;
+  storeptr(alternatePointer, new AlternateEntry<int32>(23));
   if (alternateEntry.value !== 23) return false;
   if (read(numeric.first()) !== 7 || read(text.first()) !== "first") return false;
   write(numeric.first(), 11 as int32);

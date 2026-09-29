@@ -92,45 +92,45 @@ dotnet build out/csharp/ExampleGenerated.csproj
 ## Neutral source semantics
 
 `@tsonic/core` owns target-neutral source meaning. Target packs may expose
-native aliases, but generic source code uses one canonical TypeScript-style
+native aliases, but generic source code uses one canonical target-neutral
 catalog:
 
 | Contract | Neutral source spelling |
 | --- | --- |
 | Typed mutable location | `Pointer<T>` |
 | Function pointer type | `FunctionPointer<T>` |
-| Write-only argument | `writeOnlyRef(value)` |
-| Read/write argument | `readWriteRef(value)` |
-| Read-only argument | `readOnlyRef(value)` |
-| Shared borrow | `sharedBorrow(value)` |
-| Mutable borrow | `mutableBorrow(value)` |
+| Write-only argument | `writeonlyref(value)` |
+| Read/write argument | `readwriteref(value)` |
+| Read-only argument | `readonlyref(value)` |
+| Shared borrow | `sharedborrow(value)` |
+| Mutable borrow | `mutableborrow(value)` |
 | Move | `move(value)` |
-| Default value | `defaultValue<T>()` |
-| Existing location | `addressOf(storage)` |
-| Fresh location | `allocatePointer<T>(initial)` |
-| Location read | `loadPointer(pointer)` |
-| Location write | `storePointer(pointer, value)` |
-| Location identity | `equalPointer(left, right)` |
+| Default value | `defaultvalue<T>()` |
+| Existing location | `addressof(storage)` |
+| Fresh location | `allocateptr<T>(initial)` |
+| Location read | `loadptr(pointer)` |
+| Location write | `storeptr(pointer, value)` |
+| Location identity | `equalptr(left, right)` |
 
 For example:
 
 ```ts
 import {
-  addressOf,
-  equalPointer,
-  loadPointer,
-  storePointer,
+  addressof,
+  equalptr,
+  loadptr,
+  storeptr,
 } from "@tsonic/core/lang.js";
 import type { int32, Pointer } from "@tsonic/core/types.js";
 
 export function increment(pointer: Pointer<int32>): void {
-  storePointer(pointer, loadPointer(pointer) + 1);
+  storeptr(pointer, loadptr(pointer) + 1);
 }
 
 let value: int32 = 1;
-const pointer = addressOf(value);
+const pointer = addressof(value);
 increment(pointer);
-const stillTheSameLocation = equalPointer(pointer, addressOf(value));
+const stillTheSameLocation = equalptr(pointer, addressof(value));
 ```
 
 TSTS records the exact selected typed-location operations. Each target first
@@ -143,5 +143,5 @@ public marker spelling.
 Target-flavoured aliases remain in their target modules. C# owns
 `out`/`ref`/`inref`, `defaultof`, `ptr`, and `fnptr`; Rust owns explicit
 `Ref`/`Mut` lifetime-bearing types and `ref`/`mut`/`load`/`store` operations.
-Neutral `sharedBorrow`, `mutableBorrow`, and `move` remain
+Neutral `sharedborrow`, `mutableborrow`, and `move` remain
 `@tsonic/core/lang.js` exports.

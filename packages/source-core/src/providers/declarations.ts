@@ -50,7 +50,7 @@ export {
 
 export const tsonicSourceMarkerSignatureIds = Object.freeze({
   field: "field<T>()",
-  defaultValue: "defaultValue<T>()",
+  defaultValue: "defaultvalue<T>()",
   ...tsonicPointerMarkerSignatureIds,
 });
 

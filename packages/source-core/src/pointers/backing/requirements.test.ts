@@ -6,12 +6,12 @@ import { cleanMemorySession, memoryCall } from "../../memory-layout/testing/fixt
 import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
 
 const imports = `
-import { allocatePointer, addressOf, projectPointer } from "@tsonic/core/lang.js";
+import { allocateptr, addressof, projectptr } from "@tsonic/core/lang.js";
 `;
 
 function inspect(sourceText: string, options: { closed?: boolean; budget?: number } = {}) {
   const checked = cleanMemorySession(imports + sourceText);
-  const call = memoryCall(checked, "toRawPointer");
+  const call = memoryCall(checked, "torawptr");
   const operation = checked.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
   assert.ok(operation?.operation === "to-raw");
   const queries = createTsonicPointerBackingQueries(createTargetSourceProgram(checked), {
@@ -28,12 +28,12 @@ for (const [expression, visitedValues] of [
   ["void 0", 1],
   ["(void 0)", 2],
   ["void visit()", 1],
-  ["void projectPointer<uint32, uint32>(ordinary!, item => item, item => item)", 1],
+  ["void projectptr<uint32, uint32>(ordinary!, item => item, item => item)", 1],
 ] as const) {
   test(`void result has no pointer backing: ${expression}`, () => {
     const result = inspect(`
       declare function visit(): void;
-      toRawPointer<uint32>(${expression}, uint32Layout);
+      torawptr<uint32>(${expression}, uint32Layout);
     `, { budget: visitedValues });
     assert.equal(result.kind, "origins");
     if (result.kind !== "origins") return;
@@ -48,9 +48,9 @@ test("void absence survives aliases, selected returns and physical alternatives"
   const result = inspect(`
     function make(condition: boolean): Pointer<uint32> | undefined {
       const absent = void 0;
-      return condition ? allocatePointer<uint32>(1) : absent;
+      return condition ? allocateptr<uint32>(1) : absent;
     }
-    toRawPointer(make(true), uint32Layout);
+    torawptr(make(true), uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -60,11 +60,11 @@ test("void absence survives aliases, selected returns and physical alternatives"
 
 test("void arguments cannot hide a logical default pointer", () => {
   const result = inspect(`
-    const pointer = allocatePointer<uint32>(1);
-    function pass(value: Pointer<uint32> = projectPointer<uint32, uint32>(pointer, item => item, item => item)) {
+    const pointer = allocateptr<uint32>(1);
+    function pass(value: Pointer<uint32> = projectptr<uint32, uint32>(pointer, item => item, item => item)) {
       return value;
     }
-    toRawPointer(pass(void 0), uint32Layout);
+    torawptr(pass(void 0), uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -72,8 +72,8 @@ test("void arguments cannot hide a logical default pointer", () => {
 });
 
 test("void pointer evidence rejects a missing source operand", () => {
-  const checked = cleanMemorySession("toRawPointer<uint32>(void 0, uint32Layout);");
-  const call = memoryCall(checked, "toRawPointer");
+  const checked = cleanMemorySession("torawptr<uint32>(void 0, uint32Layout);");
+  const call = memoryCall(checked, "torawptr");
   const operation = checked.sourceFacts.getFact(call, tsonicRawMemoryOperationFactKey);
   assert.ok(operation?.operation === "to-raw");
   const source = createTargetSourceProgram(checked);
@@ -88,7 +88,7 @@ test("void pointer evidence rejects a missing source operand", () => {
 });
 
 test("void terminals do not bypass the source-value budget", () => {
-  const result = inspect("toRawPointer<uint32>((void 0), uint32Layout);", { budget: 1 });
+  const result = inspect("torawptr<uint32>((void 0), uint32Layout);", { budget: 1 });
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
   assert.ok(result.issues.some(issue => /budget exceeded/u.test(issue.reason)));
@@ -97,12 +97,12 @@ test("void terminals do not bypass the source-value budget", () => {
 test("pointer backing finds every branch, alias and rebinding origin without choosing target storage", () => {
   const result = inspect(`
     let value: uint32 = 1;
-    const original = addressOf(value);
-    const allocated = allocatePointer<uint32>(2);
+    const original = addressof(value);
+    const allocated = allocateptr<uint32>(2);
     let alias = original;
     alias = allocated;
     declare const condition: boolean;
-    toRawPointer(condition ? alias : undefined, uint32Layout);
+    torawptr(condition ? alias : undefined, uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -114,8 +114,8 @@ test("pointer backing follows exact selected generic parameters and source retur
   const result = inspect(`
     function pass<T>(pointer: Pointer<T>): Pointer<T> { return pointer; }
     function again(pointer: Pointer<uint32>): Pointer<uint32> { return pass(pointer); }
-    const pointer = allocatePointer<uint32>(4);
-    toRawPointer(again(pointer), uint32Layout);
+    const pointer = allocateptr<uint32>(4);
+    torawptr(again(pointer), uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -125,11 +125,11 @@ test("pointer backing follows exact selected generic parameters and source retur
 test("pointer backing retains all incoming calls and parameter writes", () => {
   const result = inspect(`
     function pass(pointer: Pointer<uint32>): Pointer<uint32> {
-      pointer = allocatePointer<uint32>(3);
+      pointer = allocateptr<uint32>(3);
       return pointer;
     }
-    pass(allocatePointer<uint32>(1));
-    toRawPointer(pass(allocatePointer<uint32>(2)), uint32Layout);
+    pass(allocateptr<uint32>(1));
+    torawptr(pass(allocateptr<uint32>(2)), uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -138,11 +138,11 @@ test("pointer backing retains all incoming calls and parameter writes", () => {
 
 test("default arguments participate even when undefined is explicitly passed", () => {
   const result = inspect(`
-    const pointer = allocatePointer<uint32>(1);
-    function pass(value: Pointer<uint32> = projectPointer<uint32, uint32>(pointer, item => item, item => item)) {
+    const pointer = allocateptr<uint32>(1);
+    function pass(value: Pointer<uint32> = projectptr<uint32, uint32>(pointer, item => item, item => item)) {
       return value;
     }
-    toRawPointer(pass(undefined), uint32Layout);
+    torawptr(pass(undefined), uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -152,9 +152,9 @@ test("default arguments participate even when undefined is explicitly passed", (
 test("optional returned values retain the implicit undefined branch", () => {
   const result = inspect(`
     function pass(condition: boolean): Pointer<uint32> | undefined {
-      if (condition) return allocatePointer<uint32>(1);
+      if (condition) return allocateptr<uint32>(1);
     }
-    toRawPointer(pass(true), uint32Layout);
+    torawptr(pass(true), uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -165,9 +165,9 @@ test("optional returned values retain the implicit undefined branch", () => {
 test("a logical projection cannot be hidden behind a successful incoming origin", () => {
   const result = inspect(`
     function pass(pointer: Pointer<uint32>): Pointer<uint32> { return pointer; }
-    const pointer = allocatePointer<uint32>(1);
-    pass(projectPointer<uint32, uint32>(pointer, value => value, value => value));
-    toRawPointer(pass(pointer), uint32Layout);
+    const pointer = allocateptr<uint32>(1);
+    pass(projectptr<uint32, uint32>(pointer, value => value, value => value));
+    torawptr(pass(pointer), uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -176,8 +176,8 @@ test("a logical projection cannot be hidden behind a successful incoming origin"
 
 test("raw reinterpretation remains an exact origin with a separate target safety obligation", () => {
   const result = inspect(`
-    const pointer = reinterpretRawPointer(raw, uint32Layout);
-    toRawPointer(pointer, uint32Layout);
+    const pointer = reinterpretrawptr(raw, uint32Layout);
+    torawptr(pointer, uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -185,10 +185,10 @@ test("raw reinterpretation remains an exact origin with a separate target safety
 });
 
 for (const [name, body, pattern] of [
-  ["provider result", `declare function make(): Pointer<uint32>; toRawPointer(make(), uint32Layout);`, /implementation/u],
-  ["open parameter", `function address(pointer: Pointer<uint32>) { return toRawPointer(pointer, uint32Layout); } address(allocatePointer<uint32>(1));`, /open caller/u],
-  ["first-class call", `function pass(pointer: Pointer<uint32>) { return pointer; } const alias = pass; alias(allocatePointer<uint32>(2)); toRawPointer(pass(allocatePointer<uint32>(1)), uint32Layout);`, /first-class/u],
-  ["unanchored recursion", `function recurse(): Pointer<uint32> { return recurse(); } toRawPointer(recurse(), uint32Layout);`, /cyclic/u],
+  ["provider result", `declare function make(): Pointer<uint32>; torawptr(make(), uint32Layout);`, /implementation/u],
+  ["open parameter", `function address(pointer: Pointer<uint32>) { return torawptr(pointer, uint32Layout); } address(allocateptr<uint32>(1));`, /open caller/u],
+  ["first-class call", `function pass(pointer: Pointer<uint32>) { return pointer; } const alias = pass; alias(allocateptr<uint32>(2)); torawptr(pass(allocateptr<uint32>(1)), uint32Layout);`, /first-class/u],
+  ["unanchored recursion", `function recurse(): Pointer<uint32> { return recurse(); } torawptr(recurse(), uint32Layout);`, /cyclic/u],
 ] as const) {
   test(`pointer backing does not invent evidence for ${name}`, () => {
     const result = inspect(body, { closed: name !== "open parameter" });
@@ -200,9 +200,9 @@ for (const [name, body, pattern] of [
 
 test("pointer backing budget exhaustion never returns a partial origin set", () => {
   const result = inspect(`
-    const pointer = allocatePointer<uint32>(1);
+    const pointer = allocateptr<uint32>(1);
     const alias = pointer;
-    toRawPointer(alias, uint32Layout);
+    torawptr(alias, uint32Layout);
   `, { budget: 2 });
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -211,10 +211,10 @@ test("pointer backing budget exhaustion never returns a partial origin set", () 
 
 test("closed pointer arrays retain every possible element origin through local aliases", () => {
   const result = inspect(`
-    const pointers: Pointer<uint32>[] = [allocatePointer<uint32>(1), allocatePointer<uint32>(2)];
+    const pointers: Pointer<uint32>[] = [allocateptr<uint32>(1), allocateptr<uint32>(2)];
     const alias = pointers;
     const again = (alias);
-    toRawPointer(again[0], uint32Layout);
+    torawptr(again[0], uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -225,10 +225,10 @@ test("closed pointer arrays retain every possible element origin through local a
 test("closed pointer object properties use selected identity rather than field spelling", () => {
   const result = inspect(`
     interface Holder { value: Pointer<uint32>; other: Pointer<uint32> }
-    const pointer = allocatePointer<uint32>(1);
-    const holder: Holder = { value: pointer, other: projectPointer<uint32, uint32>(pointer, item => item, item => item) };
+    const pointer = allocateptr<uint32>(1);
+    const holder: Holder = { value: pointer, other: projectptr<uint32, uint32>(pointer, item => item, item => item) };
     const alias = holder;
-    toRawPointer(alias.value, uint32Layout);
+    torawptr(alias.value, uint32Layout);
   `);
   assert.equal(result.kind, "origins", result.kind === "unproven" ? result.issues.map(issue => issue.reason).join("\n") : "");
   if (result.kind !== "origins") return;
@@ -246,11 +246,11 @@ for (const [name, before, after, reason] of [
 ] as const) {
   test(`closed pointer container proof rejects ${name} even after a valid read`, () => {
     const result = inspect(`
-      const original = allocatePointer<uint32>(1);
-      const logical = projectPointer<uint32, uint32>(original, item => item, item => item);
+      const original = allocateptr<uint32>(1);
+      const logical = projectptr<uint32, uint32>(original, item => item, item => item);
       const pointers: Pointer<uint32>[] = [original];
       ${before}
-      toRawPointer(pointers[0], uint32Layout);
+      torawptr(pointers[0], uint32Layout);
       ${after}
     `);
     assert.equal(result.kind, "unproven");
@@ -261,9 +261,9 @@ for (const [name, before, after, reason] of [
 
 test("a logical pointer in any array slot prevents a partial physical proof", () => {
   const result = inspect(`
-    const original = allocatePointer<uint32>(1);
-    const pointers: Pointer<uint32>[] = [original, projectPointer<uint32, uint32>(original, item => item, item => item)];
-    toRawPointer(pointers[0], uint32Layout);
+    const original = allocateptr<uint32>(1);
+    const pointers: Pointer<uint32>[] = [original, projectptr<uint32, uint32>(original, item => item, item => item)];
+    torawptr(pointers[0], uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -273,15 +273,15 @@ test("a logical pointer in any array slot prevents a partial physical proof", ()
 test("selected function returns exclude nested getters methods and class expressions", () => {
   const result = inspect(`
     function make(): Pointer<uint32> {
-      const original = allocatePointer<uint32>(1);
+      const original = allocateptr<uint32>(1);
       const nested = {
-        get value() { return projectPointer<uint32, uint32>(original, item => item, item => item); },
-        method() { return projectPointer<uint32, uint32>(original, item => item, item => item); }
+        get value() { return projectptr<uint32, uint32>(original, item => item, item => item); },
+        method() { return projectptr<uint32, uint32>(original, item => item, item => item); }
       };
-      const Nested = class { method() { return projectPointer<uint32, uint32>(original, item => item, item => item); } };
+      const Nested = class { method() { return projectptr<uint32, uint32>(original, item => item, item => item); } };
       return original;
     }
-    toRawPointer(make(), uint32Layout);
+    torawptr(make(), uint32Layout);
   `);
   assert.equal(result.kind, "origins");
   if (result.kind !== "origins") return;
@@ -290,8 +290,8 @@ test("selected function returns exclude nested getters methods and class express
 
 test("container property getters never masquerade as stored pointer fields", () => {
   const result = inspect(`
-    const holder = { get value(): Pointer<uint32> { return allocatePointer<uint32>(1); } };
-    toRawPointer(holder.value, uint32Layout);
+    const holder = { get value(): Pointer<uint32> { return allocateptr<uint32>(1); } };
+    torawptr(holder.value, uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -300,9 +300,9 @@ test("container property getters never masquerade as stored pointer fields", () 
 
 test("closed pointer container inspection shares the finite proof budget", () => {
   const result = inspect(`
-    const pointers: Pointer<uint32>[] = [allocatePointer<uint32>(1), allocatePointer<uint32>(2)];
+    const pointers: Pointer<uint32>[] = [allocateptr<uint32>(1), allocateptr<uint32>(2)];
     const alias = pointers;
-    toRawPointer(alias[0], uint32Layout);
+    torawptr(alias[0], uint32Layout);
   `, { budget: 3 });
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -311,11 +311,11 @@ test("closed pointer container inspection shares the finite proof budget", () =>
 
 test("closed object pointer fields reject a logical replacement through an alias", () => {
   const result = inspect(`
-    const pointer = allocatePointer<uint32>(1);
+    const pointer = allocateptr<uint32>(1);
     const holder = { pointer };
     const alias = holder;
-    toRawPointer(holder.pointer, uint32Layout);
-    alias.pointer = projectPointer<uint32, uint32>(pointer, item => item, item => item);
+    torawptr(holder.pointer, uint32Layout);
+    alias.pointer = projectptr<uint32, uint32>(pointer, item => item, item => item);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;
@@ -324,43 +324,43 @@ test("closed object pointer fields reject a logical replacement through an alias
 
 for (const [name, body, origins] of [
   ["array writes", `
-    const values: Pointer<uint32>[] = [allocatePointer<uint32>(1)];
+    const values: Pointer<uint32>[] = [allocateptr<uint32>(1)];
     const alias = values;
-    alias[0] = allocatePointer<uint32>(2);
-    values[1] = allocatePointer<uint32>(3);
-    toRawPointer(values[0], uint32Layout);
+    alias[0] = allocateptr<uint32>(2);
+    values[1] = allocateptr<uint32>(3);
+    torawptr(values[0], uint32Layout);
   `, 3],
   ["array rebinding", `
-    let values: Pointer<uint32>[] = [allocatePointer<uint32>(1)];
-    values = [allocatePointer<uint32>(2)];
-    toRawPointer(values[0], uint32Layout);
+    let values: Pointer<uint32>[] = [allocateptr<uint32>(1)];
+    values = [allocateptr<uint32>(2)];
+    torawptr(values[0], uint32Layout);
   `, 2],
   ["object writes", `
     interface Holder { value: Pointer<uint32> }
-    const holder: Holder = { value: allocatePointer<uint32>(1) };
+    const holder: Holder = { value: allocateptr<uint32>(1) };
     const alias = holder;
-    alias.value = allocatePointer<uint32>(2);
-    toRawPointer(holder.value, uint32Layout);
+    alias.value = allocateptr<uint32>(2);
+    torawptr(holder.value, uint32Layout);
   `, 2],
   ["object rebinding", `
     interface Holder { value: Pointer<uint32> }
-    let holder: Holder = { value: allocatePointer<uint32>(1) };
-    holder = { value: allocatePointer<uint32>(2) };
-    toRawPointer(holder.value, uint32Layout);
+    let holder: Holder = { value: allocateptr<uint32>(1) };
+    holder = { value: allocateptr<uint32>(2) };
+    torawptr(holder.value, uint32Layout);
   `, 2],
   ["selected computed field", `
     interface Holder { value: Pointer<uint32>; other: Pointer<uint32> }
-    const pointer = allocatePointer<uint32>(1);
+    const pointer = allocateptr<uint32>(1);
     const holder: Holder = { value: pointer, other: pointer };
-    holder["value"] = allocatePointer<uint32>(2);
-    holder["other"] = projectPointer<uint32, uint32>(pointer, item => item, item => item);
-    toRawPointer(holder["value"], uint32Layout);
+    holder["value"] = allocateptr<uint32>(2);
+    holder["other"] = projectptr<uint32, uint32>(pointer, item => item, item => item);
+    torawptr(holder["value"], uint32Layout);
   `, 2],
   ["captured writes", `
-    const values: Pointer<uint32>[] = [allocatePointer<uint32>(1)];
-    function replace(): void { values[0] = allocatePointer<uint32>(2); }
+    const values: Pointer<uint32>[] = [allocateptr<uint32>(1)];
+    function replace(): void { values[0] = allocateptr<uint32>(2); }
     replace();
-    toRawPointer(values[0], uint32Layout);
+    torawptr(values[0], uint32Layout);
   `, 2],
 ] as const) {
   test(`pointer containers retain every exact origin across ${name}`, () => {
@@ -376,11 +376,11 @@ test("pointer container writes cannot hide behind a distinct asserted property d
   const result = inspect(`
     interface First { value: Pointer<uint32> }
     interface Second { value: Pointer<uint32> }
-    const pointer = allocatePointer<uint32>(1);
+    const pointer = allocateptr<uint32>(1);
     const holder: First = { value: pointer };
     const alias = holder as Second;
-    alias.value = projectPointer<uint32, uint32>(pointer, item => item, item => item);
-    toRawPointer(holder.value, uint32Layout);
+    alias.value = projectptr<uint32, uint32>(pointer, item => item, item => item);
+    torawptr(holder.value, uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
 });
@@ -388,9 +388,9 @@ test("pointer container writes cannot hide behind a distinct asserted property d
 test("pointer container deletes cannot be mistaken for read-only uses", () => {
   const result = inspect(`
     interface Holder { value?: Pointer<uint32> }
-    const holder: Holder = { value: allocatePointer<uint32>(1) };
+    const holder: Holder = { value: allocateptr<uint32>(1) };
     delete holder.value;
-    toRawPointer(holder.value, uint32Layout);
+    torawptr(holder.value, uint32Layout);
   `);
   assert.equal(result.kind, "unproven");
   if (result.kind !== "unproven") return;

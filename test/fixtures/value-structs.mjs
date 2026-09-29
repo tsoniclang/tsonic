@@ -23,7 +23,7 @@ export class Counter {
 export function point(x: uint32, y: uint32): Point { return { x, y }; }
 `,
   "index.ts": `
-import { addressOf, defaultValue, loadPointer, storePointer } from "@tsonic/core/lang.js";
+import { addressof, defaultvalue, loadptr, storeptr } from "@tsonic/core/lang.js";
 import type { uint32 } from "@tsonic/core/types.js";
 import { Cell, Counter, point } from "./records.js";
 import type { Pair, Point, Record } from "./records.js";
@@ -33,7 +33,7 @@ function visits(): uint32 { return receiverVisits; }
 function selected(value: Counter): Counter { receiverVisits += 1; return value; }
 function change(value: Counter): uint32 { value.set(20); return 3; }
 export function run(): boolean {
-  const zero = defaultValue<Point>();
+  const zero = defaultvalue<Point>();
   if (zero.x !== 0 || zero.y !== 0) return false;
   if (point(31, 32).x !== 31) return false;
   const original = point(2, 4);
@@ -63,16 +63,16 @@ export function run(): boolean {
   const assigned = (selected(counter).storage.y = 17);
   if (visits() !== 2 || assigned !== 17 || counter.storage.y !== 17) return false;
   let located = point(1, 2);
-  const pointer = addressOf(located.x);
+  const pointer = addressof(located.x);
   const snapshot: Point = located;
   located.y = 10;
   located.y += 2;
   if (located.y !== 12) return false;
-  storePointer(pointer, 7);
+  storeptr(pointer, 7);
   if (located.x !== 7 || snapshot.x !== 1) return false;
   located = point(21, 22);
-  if (loadPointer(pointer) !== 21) return false;
-  storePointer(pointer, 23);
+  if (loadptr(pointer) !== 21) return false;
+  storeptr(pointer, 23);
   return located.x === 23 && generic<uint32>(19) === 19 && generic<string>("kept") === "kept";
 }
 `,

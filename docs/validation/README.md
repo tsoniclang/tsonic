@@ -40,7 +40,7 @@ A capability needs both:
    semantic boundary.
 
 For example, native-pointer support needs a positive explicit-unsafe program
-and a negative program proving dereference without `unsafeContext` is rejected.
+and a negative program proving dereference without `unsafecontext` is rejected.
 
 ## Generated-code quality
 

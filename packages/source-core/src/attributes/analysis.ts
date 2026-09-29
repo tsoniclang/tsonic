@@ -35,6 +35,7 @@ import {
 import {
   selectInlineSourceMember,
 } from "../analysis/selected-source-member.js";
+import { selectedAttributeInvocation } from "./invocation.js";
 
 const attributeBuilderExportId = "__TsonicAttributeBuilder";
 const attributeMemberBuilderExportId = "__TsonicAttributeMemberBuilder";
@@ -278,23 +279,20 @@ function analyzeAttributeApplication(
   if (predecessor === undefined) {
     return;
   }
-  const attributeType = selected.selection.sourceArguments[0]?.expression;
-  if (attributeType === undefined) {
+  const invocation = selectedAttributeInvocation(selected, context);
+  if (invocation === undefined) {
     appendDiagnostic(
       selected,
       context,
-      "SOURCE_CORE_ATTRIBUTE_TYPE_NOT_PROVEN",
+      "SOURCE_CORE_ATTRIBUTE_INVOCATION_NOT_PROVEN",
       9901116,
-      "The selected attribute application requires an exact checked attribute type argument.",
+      "An attribute application requires an inline synchronous zero-parameter expression arrow containing one checked call or construction.",
     );
     return;
   }
   writeAttributeBuilderFact(selected, context, {
     kind: "application",
-    attributeType,
-    arguments: selected.selection.sourceArguments
-      .slice(1)
-      .map((argument) => argument.expression),
+    invocation,
     applicationTarget: predecessor.applicationTarget,
     ...(predecessor.selectedMember === undefined
       ? {}
@@ -333,7 +331,7 @@ function selectedInlineMember(
   selected: SelectedProviderSourceCall,
   context: TsonicSourceFileAnalysisContext,
 ): Extract<ReturnType<typeof selectInlineSourceMember>, { readonly kind: "selected" }> | undefined {
-  const result = selectInlineSourceMember(selected, context);
+  const result = selectInlineSourceMember(selected.selection.sourceArguments[0]?.expression, context);
   if (result.kind === "selected") {
     return result;
   }

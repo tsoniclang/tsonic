@@ -68,8 +68,8 @@ lifetime types into ordinary TypeScript.
 
 ```ts
 let value: int32 = 1;
-const location = addressOf(value);
-storePointer(location, loadPointer(location) + 1);
+const location = addressof(value);
+storeptr(location, loadptr(location) + 1);
 ```
 
 `Pointer<T>` is a safe, identity-preserving location contract. Rust lowers it
@@ -80,15 +80,15 @@ storage and alias identity are exact.
 ## Native pointers and explicit safety
 
 ```ts
-import { loadNativePointer, unsafeContext } from "@tsonic/core/lang.js";
+import { loadnativeptr, unsafecontext } from "@tsonic/core/lang.js";
 import type { NativePointer, int32 } from "@tsonic/core/types.js";
 
 export function read(pointer: NativePointer<int32>): int32 {
-  return unsafeContext(loadNativePointer(pointer));
+  return unsafecontext(loadnativeptr(pointer));
 }
 ```
 
 The operation lowers to native pointer dereference inside an explicit Rust
-`unsafe` expression or block. A native-pointer carrier, a requires-unsafe API
-contract, and an unsafe use site are independent facts. None is inferred from
-another.
+`unsafe` expression or block. A native-pointer carrier, a declaration-level
+`safety<T>().requiresunsafe()` API contract, and an unsafe use site are
+independent facts. None is inferred from another.

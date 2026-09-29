@@ -37,9 +37,9 @@ test("host supplies target, capability and surface ABI registrations to its sing
   });
   const source = `
     import type { uint32 } from "@tsonic/core/types.js";
-    import { memoryLayout } from "@tsonic/core/lang.js";
+    import { memorylayout } from "@tsonic/core/lang.js";
     ${registrations.map((entry, index) => `import { abi as abi${index} } from "${entry.providerDeclaration.moduleSpecifier}";`).join("\n")}
-    ${registrations.map((_, index) => `const layout${index} = memoryLayout<uint32>(abi${index}, 4, 4, 4);`).join("\n")}
+    ${registrations.map((_, index) => `const layout${index} = memorylayout<uint32>({ datalayout: abi${index}, bytesize: 4, bytealignment: 4, stride: 4, fields: [] });`).join("\n")}
   `;
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src", files: { "/src/index.ts": source },

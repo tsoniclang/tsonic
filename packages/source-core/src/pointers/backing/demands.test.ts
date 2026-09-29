@@ -8,7 +8,7 @@ import { tsonicRawMemoryOperationFactKey } from "../raw-memory/facts.js";
 import { tsonicDataLayoutFactKey } from "../../memory-layout/facts.js";
 
 function collect(text: string) {
-  const checked = cleanMemorySession('import { allocatePointer, addressOf } from "@tsonic/core/lang.js";\n' + text);
+  const checked = cleanMemorySession('import { allocateptr, addressof } from "@tsonic/core/lang.js";\n' + text);
   const source = createTargetSourceProgram(checked);
   const demands = createTsonicPointerBackingDemands(source);
   function visit(node: import("@tsonic/tsts").Node): void {
@@ -23,8 +23,8 @@ test("raw demands close local pointer parameters and return paths without select
   const { demands } = collect(`
     function pass(pointer: Pointer<uint32>): Pointer<uint32> { return pointer; }
     let value: uint32 = 1;
-    const pointer = addressOf(value);
-    toRawPointer(pass(pointer), uint32Layout);
+    const pointer = addressof(value);
+    torawptr(pass(pointer), uint32Layout);
   `);
   assert.deepEqual(demands.issues(), []);
   assert.equal(demands.entries().length, 1);
@@ -35,9 +35,9 @@ test("raw demands close local pointer parameters and return paths without select
 test("raw demands reject exported caller boundaries including export-list aliases", () => {
   for (const exports of ["export { expose };", "export { expose as publicCall };"]) {
     const { demands } = collect(`
-      function expose(pointer: Pointer<uint32>) { return toRawPointer(pointer, uint32Layout); }
+      function expose(pointer: Pointer<uint32>) { return torawptr(pointer, uint32Layout); }
       ${exports}
-      expose(allocatePointer<uint32>(1));
+      expose(allocateptr<uint32>(1));
     `);
     assert.ok(demands.issues().some(issue => issue.reason.includes("open caller boundary")));
   }
@@ -45,10 +45,10 @@ test("raw demands reject exported caller boundaries including export-list aliase
 
 test("one origin cannot silently choose the first incompatible layout demand", () => {
   const { demands } = collect(`
-    const pointer = allocatePointer<uint32>(1);
-    const other = memoryLayout<uint32>(abi, 8, 4, 8);
-    toRawPointer(pointer, uint32Layout);
-    toRawPointer(pointer, other);
+    const pointer = allocateptr<uint32>(1);
+    const other = memorylayout<uint32>({ datalayout: abi, bytesize: 8, bytealignment: 4, stride: 8, fields: [] });
+    torawptr(pointer, uint32Layout);
+    torawptr(pointer, other);
   `);
   assert.ok(demands.issues().some(issue => issue.reason.includes("incompatible physical layout")));
 });
@@ -57,14 +57,24 @@ test("one physical origin reconciles nested child layouts rather than only paren
   for (const stride of [4, 8]) {
     const { demands } = collect(`
       interface RecordValue { value: uint32 }
-      const child = memoryLayout<uint32>(abi, 4, 4, ${stride});
-      const first = memoryLayout<RecordValue>(abi, 4, 4, 4,
-        memoryField((record: RecordValue) => record.value, 0, 4, uint32Layout));
-      const second = memoryLayout<RecordValue>(abi, 4, 4, 4,
-        memoryField((record: RecordValue) => record.value, 0, 4, child));
-      const pointer = allocatePointer<RecordValue>({ value: 1 });
-      toRawPointer(pointer, first);
-      toRawPointer(pointer, second);
+      const child = memorylayout<uint32>({ datalayout: abi, bytesize: 4, bytealignment: 4, stride: ${stride}, fields: [] });
+      const first = memorylayout<RecordValue>({
+        datalayout: abi,
+        bytesize: 4,
+        bytealignment: 4,
+        stride: 4,
+        fields: [memoryfield({ select: (record: RecordValue) => record.value, byteoffset: 0, bytealignment: 4, fieldlayout: uint32Layout })],
+      });
+      const second = memorylayout<RecordValue>({
+        datalayout: abi,
+        bytesize: 4,
+        bytealignment: 4,
+        stride: 4,
+        fields: [memoryfield({ select: (record: RecordValue) => record.value, byteoffset: 0, bytealignment: 4, fieldlayout: child })],
+      });
+      const pointer = allocateptr<RecordValue>({ value: 1 });
+      torawptr(pointer, first);
+      torawptr(pointer, second);
     `);
     assert.equal(demands.issues().some(issue => issue.reason.includes("incompatible physical layout")), stride !== 4);
     assert.equal(demands.entries().length, 1);
@@ -72,8 +82,8 @@ test("one physical origin reconciles nested child layouts rather than only paren
 });
 
 test("raw location selection retains inferred pointee evidence and rejects moved calls and stale ABI facts", () => {
-  const { checked, source } = collect("const pointer = reinterpretRawPointer(undefined, uint32Layout);");
-  const call = memoryCall(checked, "reinterpretRawPointer");
+  const { checked, source } = collect("const pointer = reinterpretrawptr(undefined, uint32Layout);");
+  const call = memoryCall(checked, "reinterpretrawptr");
   const selected = selectTsonicRawLocationOperation(source.ast, source.sourceFacts, call);
   assert.equal(selected?.kind, "resolved");
   if (selected?.kind !== "resolved" || selected.operation.operation !== "reinterpret") return;

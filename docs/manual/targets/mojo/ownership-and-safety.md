@@ -19,14 +19,14 @@ value is cheap depends on that value's native implementation.
 Compile-time values are distinct from runtime locals:
 
 ```ts
-import { comptime, comptimeIf, unroll } from "@tsonic/core/lang.js";
+import { comptime, comptimeif, unroll } from "@tsonic/core/lang.js";
 import { materialize } from "@tsonic/mojo/lang.js";
 
 export function sum(): number {
   const enabled = comptime(true);
   const seed = comptime(0);
   let total = materialize(seed);
-  if (comptimeIf(enabled)) {
+  if (comptimeif(enabled)) {
     for (const value of unroll([1, 2, 3])) total += value;
   }
   return total;
@@ -43,5 +43,5 @@ type is supported. Provider calls must retain the selected argument convention,
 origin and result relationship. Missing evidence is rejected.
 
 Native pointer loads, stores and element offsets require the explicit shared
-`unsafeContext` marker. Do not infer that layout-backed raw memory is supported
+`unsafecontext` marker. Do not infer that layout-backed raw memory is supported
 from the presence of a pointer type; see the [current limitations](../../../reference/targets/mojo/limitations.md).

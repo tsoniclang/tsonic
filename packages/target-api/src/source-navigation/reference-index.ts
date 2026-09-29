@@ -60,9 +60,9 @@ export function createSourceDeclarationReferenceIndex(
   source: CheckedSourceProgram,
   sourceFiles: readonly SourceFile[],
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
-  limits: SourceReferenceIndexLimits = defaultSourceReferenceIndexLimits,
+  requestedLimits: SourceReferenceIndexLimits = defaultSourceReferenceIndexLimits,
 ): SourceDeclarationReferenceIndex {
-  validateLimits(limits);
+  const limits = snapshotLimits(requestedLimits);
   if (sourceFiles.length > limits.sourceFiles) {
     throw sourceReferenceLimitError("source files", limits.sourceFiles);
   }
@@ -300,14 +300,27 @@ function sealSourceDeclarationReferenceIndex(
   });
 }
 
-function validateLimits(limits: SourceReferenceIndexLimits): void {
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isSafeInteger(value) || value <= 0) {
+function snapshotLimits(input: SourceReferenceIndexLimits): SourceReferenceIndexLimits {
+  const fields = Object.keys(defaultSourceReferenceIndexLimits) as (keyof SourceReferenceIndexLimits)[];
+  if (
+    typeof input !== "object" || input === null ||
+    Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null ||
+    Reflect.ownKeys(input).length !== fields.length
+  ) {
+    throw new Error("Source reference index limits require the complete plain data budget family.");
+  }
+  const limits = {} as Record<keyof SourceReferenceIndexLimits, number>;
+  for (const name of fields) {
+    const descriptor = Object.getOwnPropertyDescriptor(input, name);
+    const value: unknown = descriptor !== undefined && "value" in descriptor ? descriptor.value : undefined;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
       throw new Error(
         `Source reference index limit '${name}' must be a positive safe integer.`,
       );
     }
+    limits[name] = value;
   }
+  return Object.freeze(limits);
 }
 
 function reserveCount(

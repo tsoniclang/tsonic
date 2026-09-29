@@ -205,7 +205,7 @@ test("source reference index preserves exact source selections in both direction
       projectFiles,
       (declaration) => projectFileSet.has(ast.getSourceFile(declaration)),
       sourceReferenceLimits({ moduleExportsExamined: 1 }),
-    ),
+    ).statistics,
     /exceeds the 1 module exports examined limit/u,
   );
 });
@@ -288,7 +288,7 @@ test("source reference index construction is transactional and bounded", () => {
       duplicate.source,
       [duplicate.sourceFile],
       (declaration) => declaration === duplicate.declaration,
-    ),
+    ).statistics,
     /visited more than once/u,
   );
   assert.throws(
@@ -297,7 +297,7 @@ test("source reference index construction is transactional and bounded", () => {
       [valid.sourceFile],
       (declaration) => declaration === valid.declaration,
       sourceReferenceLimits({ nodesVisited: 1 }),
-    ),
+    ).statistics,
     /exceeds the 1 visited nodes limit/u,
   );
   assert.throws(
@@ -334,6 +334,29 @@ test("source reference index work scales linearly by deterministic counters", as
       `${key} scaled by ${ratio}, outside the linear envelope`,
     );
   }
+});
+
+test("reference index snapshots the complete independent work-budget family without evaluating accessors", () => {
+  const fixture = fakeSourceReferenceProgram();
+  const create = limits => createSourceDeclarationReferenceIndex(
+    fixture.source, [fixture.sourceFile], declaration => declaration === fixture.declaration, limits,
+  );
+  for (const name of Object.keys(sourceReferenceLimits())) {
+    for (const value of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.throws(() => create(sourceReferenceLimits({ [name]: value })), /positive safe integer/u);
+    }
+    const missing = sourceReferenceLimits();
+    delete missing[name];
+    assert.throws(() => create(missing), /complete plain data budget family/u);
+    let reads = 0;
+    const accessor = sourceReferenceLimits();
+    Object.defineProperty(accessor, name, { get() { reads += 1; return 10_000; } });
+    assert.throws(() => create(accessor), /positive safe integer/u);
+    assert.equal(reads, 0);
+  }
+  assert.throws(() => create(sourceReferenceLimits({ extra: 10_000 })), /complete plain data budget family/u);
+  assert.throws(() => create(Object.create(sourceReferenceLimits())), /complete plain data budget family/u);
+  assert.equal(create(Object.assign(Object.create(null), sourceReferenceLimits())).statistics.nodesVisited, 4);
 });
 
 function allNodes(ast, root, predicate) {

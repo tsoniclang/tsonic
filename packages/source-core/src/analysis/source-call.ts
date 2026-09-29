@@ -139,7 +139,7 @@ function enclosingImportDeclaration(
   return undefined;
 }
 
-function unwrapParenthesizedExpression(
+export function unwrapParenthesizedExpression(
   node: Node | undefined,
   context: TsonicSourceFileAnalysisContext,
 ): Node | undefined {

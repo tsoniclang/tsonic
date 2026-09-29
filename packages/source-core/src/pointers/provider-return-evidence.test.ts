@@ -52,7 +52,7 @@ for (const [name, returnType, expected, generic] of [
     const selectedCall = memoryCalls(checked, "selected")[0];
     assert.ok(selectedCall);
     const call = semantics.operations.call(selectedCall);
-    assert.ok(call);
+    assert.equal(call?.outcome, "applicable");
     const policy = {
       primitive: (kind: string) => kind, raw: () => "raw", pointer: (value: string) => `pointer(${value})`,
       optional: (value: string) => `optional(${value})`, array: (value: string) => `array(${value})`,

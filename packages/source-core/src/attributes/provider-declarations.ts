@@ -18,7 +18,7 @@ export const tsonicAttributeBuilderMemberIds = Object.freeze({
 });
 
 export const tsonicAttributeBuilderSignatureIds = Object.freeze({
-  root: "attribute<T>(...args)",
+  root: "attribute<T>()",
   add: tsonicAttributeBuilderMemberIds.add,
   property: tsonicAttributeBuilderMemberIds.property,
   method: tsonicAttributeBuilderMemberIds.method,
@@ -64,10 +64,7 @@ export function attributeBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      methodMember(tsonicAttributeBuilderMemberIds.add, "add", [
-        { name: "attribute", type: { kind: "object" } },
-        { name: "args", type: { kind: "array", elementType: { kind: "unknown" } }, rest: true },
-      ], { kind: "void" }),
+      attributeApplicationMember(tsonicAttributeBuilderMemberIds.add),
       memberSelector(tsonicAttributeBuilderMemberIds.property, "property", ownerType, memberBuilder),
       memberSelector(tsonicAttributeBuilderMemberIds.method, "method", ownerType, memberBuilder),
       callablePropertyMember(
@@ -95,17 +92,37 @@ export function attributeMemberBuilderDeclaration(): ProviderExportDeclaration {
     kind: "interface",
     typeParameters: [{ name: "TOwner" }],
     members: [
-      methodMember(tsonicAttributeBuilderMemberIds.memberAdd, "add", [
-        { name: "attribute", type: { kind: "object" } },
-        { name: "args", type: { kind: "array", elementType: { kind: "unknown" } }, rest: true },
-      ], { kind: "void" }),
+      attributeApplicationMember(tsonicAttributeBuilderMemberIds.memberAdd),
       methodMember(tsonicAttributeBuilderMemberIds.parameter, "parameter", [
         { name: "name", type: { kind: "string" } },
       ], self),
       methodMember(tsonicAttributeBuilderMemberIds.target, "target", [
         { name: "specifier", type: { kind: "string" } },
       ], self),
+      unavailableConstructorMember("__TsonicAttributeMemberBuilder"),
     ],
+  };
+}
+
+function attributeApplicationMember(id: string) {
+  return methodMember(id, "add", [{
+    name: "invocation",
+    type: {
+      kind: "function",
+      id: `${id}.invocation`,
+      parameters: [],
+      returnType: { kind: "unknown" },
+    },
+  }], { kind: "void" });
+}
+
+function unavailableConstructorMember(ownerId: string) {
+  return {
+    id: `${ownerId}.constructor`,
+    name: "constructor",
+    kind: "property" as const,
+    readonly: true,
+    type: { kind: "never" as const },
   };
 }
 
