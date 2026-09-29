@@ -230,8 +230,7 @@ policy.
   unnecessary quotation layers; retain one canonical API per input category,
   not direct/quoted compatibility alternatives.
 - Attribute construction stays quoted: for example,
-  `attribute<User>().add(() => new ObsoleteAttribute("reason"))`. Rust attribute
-  input uses the same application boundary without another nested quotation.
+  `attribute<User>().add(() => new ObsoleteAttribute("reason"))`.
   Retain exact checked calls, constructors, overloads and native restrictions.
   Do not restore the superseded flat attribute-type/arguments API.
 - Typed member selectors must remain lambdas: `.method(user => user.save)`,
@@ -242,24 +241,14 @@ policy.
 - Keep lambdas for conditional/deferred behavior such as match guards, match
   bodies and let-else failure blocks, and for necessary declaration scopes
   containing type/const/function declarations or generic binders. Do not add
-  an outer lambda to an already scoped input, a match scrutinee/arm collection,
-  a plain descriptor or a simple method-only implementation object.
+  an outer lambda to an already scoped input, a match scrutinee/arm collection
+  or a plain descriptor.
 - Genuine runtime callbacks, closures and function types are not compiler
   quotation. Preserve their execution, capture, ownership and lifetime rules;
   pointer accessors and ordinary map/event/task callbacks remain callbacks.
-- Function-like macros take direct structured/exact-token input, for example
-  `vec([1, 2, 3])`, not `vec(() => [1, 2, 3])` or a finite variadic vector facade.
-  Native identity and compiler evidence own expansion, types and effects.
-  Preserve input delimiters generically; do not hardcode macro names, invent
-  callable signatures, or add an intermediate native array/closure allocation.
-  Exact tokens cover repetition and unusual grammar; no `seq`, `vecRepeat`
-  facade or redundant outer `macro(() => invocation)` alternative is retained.
 - Inspect the exact source AST and checked identities; never execute user
-  JavaScript to obtain compiler input. Direct syntax does not authorize
-  pre-evaluating native macro operands as an ordinary function argument list:
-  the native expansion owns their actual evaluation, borrowing and moves.
-  Retained quotation and erased metadata add no native closure, allocation,
-  copying, boxing or runtime registration.
+  JavaScript to obtain compiler input. Retained quotation and erased metadata
+  add no native closure, allocation, copying, boxing or runtime registration.
 - State Node behavior honestly. A no-op facade does not suppress evaluation of
   direct arguments or template substitutions. A retained quoted attribute/body
   is not invoked by its compiler-only facade. Neither rule fabricates native
