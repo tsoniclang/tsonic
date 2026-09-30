@@ -3,3 +3,4 @@ export { sourceIntegerTruncationFits } from "./integer-truncation.js";
 export { sourceIntegerLiteralValue } from "./integer-literal.js";
 export type { SourceProviderSignatureSelection, SourceProviderTypeParameterSelection } from "./provider-signature.js";
 export { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
+export { sourceCallableInterface } from "./callable-interfaces.js";
