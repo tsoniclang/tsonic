@@ -95,3 +95,66 @@ export async function run(): Promise<boolean> {
 }
 `,
 };
+
+export const nativeAsyncCallableFiles = {
+  "callbacks.ts": `
+export interface Callback { (value: number): Promise<number>; }
+export interface OptionalCallback { (): Promise<number> | undefined; }
+export interface Handler { (): void | Promise<void>; }
+export interface Absent { (): Promise<null | undefined>; }
+export async function invoke(callback: Callback, value: number): Promise<number> { return await callback(value); }
+export async function selected(callback: OptionalCallback): Promise<number> {
+  const result = callback();
+  if (result !== undefined) return await result;
+  return 0;
+}
+export async function settle(callback: Handler): Promise<void> {
+  const result = callback();
+  if (result !== undefined) await result;
+}
+export async function absent(callback: Absent): Promise<boolean> {
+  const result = await callback();
+  return result === null && result === undefined;
+}
+`,
+  "index.ts": `
+import { invoke, selected, settle, absent } from "./callbacks.js";
+import type { Callback, OptionalCallback } from "./callbacks.js";
+function make(offset: number): Callback { return async value => value + offset; }
+export async function run(): Promise<boolean> {
+  const callback = make(3);
+  const alias = callback;
+  const first = callback(2);
+  if (await first !== 5 || await invoke(alias, 4) !== 7) return false;
+  let calls = 0;
+  const count = (): number => calls;
+  const empty: OptionalCallback = () => { calls++; return undefined; };
+  const emptyResult = empty();
+  if (count() !== 1 || emptyResult !== undefined) return false;
+  if (await selected(empty) !== 0 || count() !== 2) return false;
+  const value = await selected(async () => { calls++; return 11; });
+  if (value !== 11 || count() !== 3) return false;
+  await settle(() => {});
+  await settle(async () => {});
+  await settle(async () => { calls++; });
+  if (count() !== 4 || !await absent(async () => null) || !await absent(async () => undefined)) return false;
+  let failed = false;
+  try { await selected(() => { throw new Error("invocation"); }); } catch { failed = true; }
+  let rejected = false;
+  try { await invoke(async value => { throw new Error("awaiting"); }, 1); } catch { rejected = true; }
+  return failed && rejected;
+}
+`,
+};
+
+export const inlineNativeAsyncCallableFiles = {
+  "index.ts": `
+interface Callback { (value: number): Promise<number>; }
+async function invoke(callback: Callback, value: number): Promise<number> { return await callback(value); }
+function make(offset: number): Callback { return async value => value + offset; }
+export async function run(): Promise<boolean> {
+  const callback = make(3);
+  return await invoke(callback, 4) === 7 && await callback(5) === 8;
+}
+`,
+};
