@@ -52,6 +52,22 @@ runtime object projection remain rejected.
 
 See the detailed [support inventory](support-inventory.md).
 
+## Explicit primitive conversions
+
+`String(value)` preserves exact native integer digits, including values beyond
+the floating-point precision boundary. Optional absence produces `"null"`;
+`Number` converts absence to zero and otherwise uses the selected native numeric
+conversion. Explicit conversion to a floating number can round wide integers.
+
+Closed broad values support primitive formatting and comma-separated dense
+arrays. Absent array elements contribute no text; cyclic arrays reject rather
+than recurse indefinitely. Error formatting uses its name/message, not a stack
+capture. Provider-native values use their explicit native string conversion;
+this does not enable reflection or arbitrary object discovery.
+
+With Node selected, Buffer conversion reads its existing byte view using .NET's
+UTF-8 decoder. Ordinary strings remain native .NET strings.
+
 ## Number formatting
 
 `Intl.NumberFormat` uses the deterministic `en`/`en-US` locale. Decimal,

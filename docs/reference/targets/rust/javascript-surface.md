@@ -53,6 +53,23 @@ contract. Unsupported dynamic behavior rejects.
 
 See the detailed [support inventory](support-inventory.md).
 
+## Explicit primitive conversions
+
+`String(value)` preserves exact native integer digits, including values beyond
+the floating-point precision boundary. Optional absence produces `"null"`;
+`Number` converts absence to zero and otherwise uses the selected native numeric
+conversion. Explicit conversion to a floating number can round wide integers.
+
+Closed broad values support primitive formatting and comma-separated dense
+arrays. Absent array elements contribute no text; cyclic arrays reject rather
+than recurse indefinitely. Error formatting uses its name/message, not a stack
+capture. Provider-native values require an explicit string-conversion contract;
+a JSON-only callback is not invoked as a substitute. This does not enable
+reflection or arbitrary object conversion.
+
+With Node selected, Buffer conversion reads its existing byte view and validates
+native UTF-8; invalid UTF-8 rejects. Ordinary strings remain native Rust strings.
+
 ## Number formatting
 
 `Intl.NumberFormat` uses the deterministic `en`/`en-US` locale. Decimal,
