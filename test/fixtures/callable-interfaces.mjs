@@ -56,6 +56,7 @@ export const asyncCallableInterfaceFiles = {
 export interface AsyncCallback<Value> { (value: Value): Promise<Value>; }
 export interface Handler { (): void | Promise<void>; }
 export interface OptionalValue { (): Promise<number> | undefined; }
+export interface AbsentValue { (): Promise<null | undefined>; }
 export async function invoke<Value>(callback: AsyncCallback<Value>, value: Value): Promise<Value> {
   return await callback(value);
 }
@@ -68,21 +69,29 @@ export async function selected(handler: OptionalValue): Promise<number> {
   if (result !== undefined) return await result;
   return 0;
 }
+export async function isAbsent(handler: AbsentValue): Promise<boolean> {
+  const value = await handler();
+  const isNull = value === null;
+  const isUndefined = value === undefined;
+  return isNull && isUndefined;
+}
 `,
   "index.ts": `
-import { invoke, settle, selected } from "./callbacks.js";
+import { invoke, settle, selected, isAbsent } from "./callbacks.js";
 import type { AsyncCallback } from "./callbacks.js";
 export async function run(): Promise<boolean> {
   const callback: AsyncCallback<number> = async value => value + 3;
   await settle(() => {});
   await settle(async () => {});
+  await settle(async () => { return undefined; });
+  await settle(async (): Promise<void> => { return undefined; });
   let calls = 0;
   await settle(async () => { calls++; });
   const firstCount = calls;
   const present = await selected(async () => { calls++; return 11; });
   const absent = await selected(() => undefined);
   return firstCount === 1 && calls === 2 && present === 11 && absent === 0 &&
-    await invoke(callback, 4) === 7;
+    await invoke(callback, 4) === 7 && await isAbsent(async () => null) && await isAbsent(async () => undefined);
 }
 `,
 };
