@@ -20,6 +20,20 @@ policy.
 - Modify only repositories and product scopes the maintainer assigned to the
   task. Read-only inspection may establish a contract; it does not grant change
   ownership.
+- Until the maintainer suspends the policy set on 2026-09-30, park only fixes
+  requiring exceptionally large, deep lower-layer architectural rewrites whose
+  extraordinary scope warrants a decision. Record the demonstrated root cause,
+  correct design, affected layers, dependencies and expected effort; finish
+  independent work, then ask for the maintainer's opinion. Small, medium and
+  ordinary large owner-layer corrections remain automatically approved. This
+  threshold is deliberately exceptional, not a general restriction on rewrites.
+  This is a sequencing rule, never permission to add a workaround, weaken a
+  contract or claim the parked capability complete.
+- When the maintainer suspends that sequencing policy, continue the correct
+  in-scope fix at its owning layer regardless of size or architectural disruption.
+  Size alone must not trigger a pause, parked work or another approval request.
+  Scope, correctness, safety, shared-work protection and complete verification
+  remain mandatory; suspension does not authorize unrelated changes.
 
 ### Direct Solutions, Not Patch Accumulation
 

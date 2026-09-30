@@ -2,6 +2,7 @@ export const nativeAggregateInferenceSource = `
 import type { int8, int32, int64, uint64 } from "@tsonic/core/types.js";
 interface Envelope<T> { values: T[]; }
 interface Deferred<T> { readonly read: () => T; }
+interface MaybeDeferred<T> { readonly read: () => T | null | undefined; }
 interface Value<T> { readonly value: T; }
 function select<T>(values: T[], fallbackValue: T): T {
   return values.length === 0 ? fallbackValue : values[0]!;
@@ -10,12 +11,19 @@ function record<T>(input: Envelope<T>, fallbackValue: T): T { return select(inpu
 function nested<T>(input: T[][], fallbackValue: T): T { return select(select(input, []), fallbackValue); }
 function deferred<T>(input: Deferred<T>): T { return input.read(); }
 function callbacks<T>(input: (() => T)[]): T { return input[0]!(); }
+function maybe<T>(read: () => T | null | undefined, fallbackValue: T): T { return read() ?? fallbackValue; }
+function maybeDeferred<T>(input: MaybeDeferred<T>, fallbackValue: T): T { return input.read() ?? fallbackValue; }
 function value<T>(input: Value<T>): T { return input.value; }
 export function run(): boolean {
   const exact: int64 = 9007199254740993n;
   const maximum: uint64 = 18446744073709551615n;
   const minimum: int8 = -128;
   const values = [exact];
+  let reads: int32 = 0;
+  const absent = maybe(() => { reads++; return null; }, exact);
+  const missing = maybe(function () { reads++; return undefined; }, maximum);
+  const nestedAbsent = maybeDeferred({ read: () => { reads++; return null; } }, exact);
+  if (reads !== 3 || absent !== exact || missing !== maximum || nestedAbsent !== exact) return false;
   return select([exact], 0n) === exact && select([], exact) === exact &&
     select([minimum], 127) === minimum && select([maximum], 0n) === maximum &&
     record({ values: [exact] }, 0n) === exact && nested([[exact]], 0n) === exact &&
