@@ -37,6 +37,9 @@ export const nativeAggregateInferenceRejections = [
   ["out-of-range bigint literal", `const value: int64 = 7n; return select([value], 9223372036854775808n);`],
   ["incompatible signed native carriers", `const signed: int64 = 7n; const unsigned: uint64 = 7n; return select([signed], unsigned);`],
   ["explicit floating operand", `const integer: int32 = 7; const floating: number = 1.5; return select([integer], floating);`],
+  ["unsigned array against an explicit signed type", `const unsigned: uint64 = 7n; return select<int64>([unsigned], 0n);`],
+  ["unsigned tuple against an explicit signed type", `const unsigned: uint64 = 7n; const tuple: [int64] = [unsigned]; return tuple;`],
+  ["unsigned operand against an explicit signed type", `const unsigned: uint64 = 7n; return select<int64>([], unsigned);`],
 ].map(([name, body]) => ({ name, source: `
 import type { int8, int32, int64, uint64 } from "@tsonic/core/types.js";
 function select<T>(values: T[], fallbackValue: T): T { return values.length === 0 ? fallbackValue : values[0]!; }
