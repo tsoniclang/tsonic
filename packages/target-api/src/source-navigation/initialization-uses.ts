@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
+import { sourceBindingScope } from "./lexical-captures.js";
 
 export function sourceMayReadBeforeInitialization(
   declaration: Node,
@@ -9,6 +10,7 @@ export function sourceMayReadBeforeInitialization(
   const file = ast.getSourceFile(declaration);
   const boundary = ast.authoredRange(declaration);
   if (file === undefined || boundary.kind !== "authored") return true;
+  const scope = sourceBindingScope(declaration, ast);
   const pending = [declaration];
   const visited = new Set<Node>();
   while (pending.length > 0) {
@@ -22,11 +24,17 @@ export function sourceMayReadBeforeInitialization(
       if (range.kind !== "authored") return true;
       let current: Node | undefined = use.reference;
       let deferred = false;
-      while (current !== undefined && current !== file) {
+      while (current !== undefined && current !== file && current !== scope) {
         const parent = ast.parent(current);
         if (parent === undefined) return true;
         if ((ast.body(parent) === current || ast.is.IsParameterDeclaration(current)) &&
           isCallable(ast, parent)) {
+          const literal = ast.parent(parent);
+          if (literal !== undefined && ast.is.IsObjectLiteralExpression(literal) &&
+            (ast.is.IsMethodDeclaration(parent) || ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent))) {
+            current = literal;
+            continue;
+          }
           const owner = callableOwner(parent, ast);
           if (owner === undefined) return true;
           if (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) ||

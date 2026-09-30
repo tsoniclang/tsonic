@@ -4,6 +4,8 @@ export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingSc
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
+export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
+export type { SourceCallOnlyAlias } from "./callable-aliases.js";
 export { createSourceArrayDensityQuery } from "./array-density.js";
 export type { SourceArrayDensityOptions, SourceArrayDensityQueries, SourceArrayMemberEffect } from "./array-density.js";
 export { analyzeSourceIntegerRanges } from "./integer-ranges/index.js";
