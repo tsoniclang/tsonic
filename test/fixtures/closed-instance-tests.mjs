@@ -38,11 +38,55 @@ export const closedInstanceAdapterFiles = {
 import { Base, Derived } from "./models.js";
 import type { Choice } from "./models.js";
 class Producer { produce(): Choice { return "none"; } }
-class ChildProducer extends Producer { produce(): Derived { return new Derived(); } }
+interface ProducesBase { produce(): Base; }
+class ChildProducer extends Producer implements ProducesBase {
+  readonly child = new Derived();
+  produce(): Derived { return this.child; }
+}
+class GrandProducer extends ChildProducer { produce(): Derived { return this.child; } }
+abstract class AbstractProducer { abstract produce(): Choice; }
+class ConcreteProducer extends AbstractProducer { produce(): Derived { return new Derived(); } }
+function derivedValue(value: Derived): number { return value.extra; }
+function narrowed(value: Choice): number {
+  if (!(value instanceof Base)) return 0;
+  if (!(value instanceof Derived)) return 0;
+  const selected = value;
+  return derivedValue(selected);
+}
 export function run(): boolean {
-  const producer: Producer = new ChildProducer();
+  const direct = new ChildProducer();
+  const producer: Producer = direct;
   const result = producer.produce();
-  return result instanceof Base && result instanceof Derived && result.extra === 9;
+  if (!(result instanceof Base && result instanceof Derived && result.extra === 9)) return false;
+  if (direct.produce() !== direct.child || direct.produce().extra !== 9) return false;
+  const contract: ProducesBase = direct;
+  if (contract.produce() !== direct.child) return false;
+  const grand = new GrandProducer();
+  const middle: ChildProducer = grand;
+  const root: Producer = grand;
+  if (middle.produce().extra !== 9 || narrowed(root.produce()) !== 9) return false;
+  const abstract: AbstractProducer = new ConcreteProducer();
+  if (narrowed(abstract.produce()) !== 9 || narrowed("none") !== 0) return false;
+  return true;
+}
+`,
+};
+
+export const genericInstanceAdapterFiles = {
+  "models.ts": closedInstanceFiles["models.ts"],
+  "index.ts": `
+import { Derived } from "./models.js";
+class GenericProducer<Value> { produce(value: Value): Value | undefined { return value; } }
+class PresentProducer<Value> extends GenericProducer<Value> { produce(value: Value): Value { return value; } }
+export function run(): boolean {
+  const child = new Derived();
+  const generic = new PresentProducer<Derived>();
+  const genericBase: GenericProducer<Derived> = generic;
+  if (generic.produce(child).extra !== 9 || genericBase.produce(child) !== child) return false;
+  const optional = new PresentProducer<Derived | undefined | null>();
+  const optionalBase: GenericProducer<Derived | undefined | null> = optional;
+  if (optionalBase.produce(child) !== child || optionalBase.produce(undefined) !== undefined) return false;
+  return optional.produce(null) === null;
 }
 `,
 };
