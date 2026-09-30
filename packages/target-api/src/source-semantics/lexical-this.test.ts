@@ -5,6 +5,7 @@ import type {
 } from "@tsonic/tsts";
 import {
   sourceCallableUsesLexicalThis,
+  sourceExpressionUsesLexicalThis,
 } from "./lexical-this.js";
 
 test("lexical-this selection enters arrows and stops at independent callables", () => {
@@ -39,6 +40,20 @@ test("lexical-this selection ignores this owned by nested functions and classes"
   ]);
 
   assert.equal(sourceCallableUsesLexicalThis(ast(), method), false);
+});
+
+test("expression receiver selection retains lexical arrows without mistaking independent roots", () => {
+  assert.equal(sourceExpressionUsesLexicalThis(ast(), node("KindThisKeyword")), true);
+  assert.equal(sourceExpressionUsesLexicalThis(ast(), node("KindArrowFunction", [node("KindThisKeyword")])), true);
+  for (const kind of ["KindFunctionDeclaration", "KindFunctionExpression", "KindMethodDeclaration",
+    "KindGetAccessor", "KindSetAccessor", "KindClassDeclaration", "KindClassExpression"]) {
+    const independent = node(kind, [node("KindThisKeyword")]);
+    assert.equal(sourceExpressionUsesLexicalThis(ast(), independent), false);
+    assert.equal(sourceExpressionUsesLexicalThis(ast(), node("KindObjectLiteralExpression", [independent])), false);
+  }
+  assert.equal(sourceExpressionUsesLexicalThis(ast(), node("KindObjectLiteralExpression", [
+    node("KindMethodDeclaration", [node("KindThisKeyword")]), node("KindArrowFunction", [node("KindThisKeyword")]),
+  ])), true);
 });
 
 function node(kind: string, children: readonly Node[] = []): Node {

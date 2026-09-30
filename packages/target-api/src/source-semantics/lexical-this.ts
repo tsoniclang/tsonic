@@ -24,11 +24,18 @@ export function sourceCallableUsesLexicalThis(
   callable: Node,
 ): boolean {
   const body = ast.body(callable);
-  return body !== undefined && containsLexicalThis(ast, body, body);
+  return body !== undefined && sourceExpressionUsesLexicalThis(ast, body);
+}
+
+export function sourceExpressionUsesLexicalThis(
+  ast: Pick<LexicalThisAstReader, "children" | "kindName">,
+  expression: Node,
+): boolean {
+  return !ownThisBindingKinds.has(ast.kindName(expression)) && containsLexicalThis(ast, expression, expression);
 }
 
 function containsLexicalThis(
-  ast: LexicalThisAstReader,
+  ast: Pick<LexicalThisAstReader, "children" | "kindName">,
   node: Node,
   root: Node,
 ): boolean {

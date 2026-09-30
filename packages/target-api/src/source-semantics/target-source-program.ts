@@ -43,6 +43,7 @@ export {
 } from "./object-literal-accessors.js";
 export {
   sourceCallableUsesLexicalThis,
+  sourceExpressionUsesLexicalThis,
 } from "./lexical-this.js";
 export type {
   SourceObjectLiteralAccessorMember,
