@@ -8,4 +8,5 @@ export { createSourceArrayDensityQuery } from "./array-density.js";
 export type { SourceArrayDensityOptions, SourceArrayDensityQueries, SourceArrayMemberEffect } from "./array-density.js";
 export { analyzeSourceIntegerRanges } from "./integer-ranges/index.js";
 export { sourceIntegerInduction } from "./integer-ranges/induction.js";
+export { sourceIntegerIsNonnegative } from "./integer-ranges/guards.js";
 export type { SourceIntegerRange, SourceIntegerRangeOptions, SourceIntegerRangeQueries } from "./integer-ranges/index.js";
