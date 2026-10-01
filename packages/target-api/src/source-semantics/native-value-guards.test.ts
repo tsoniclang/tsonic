@@ -50,6 +50,8 @@ function run(value: unknown, other: unknown): void {
   assert.ok(nominal?.kind === "nominal");
   assert.equal(source.ast.kindName(nominal.declaration), "KindClassDeclaration");
   assert.equal(source.ast.getFileName(source.ast.getSourceFile(nominal.declaration)), "/src/model.ts");
+  assert.equal(source.ast.text(nominal.sourceConstructor), "Selected");
+  assert.equal(source.navigation.sourceReferenceFor(nominal.sourceConstructor)?.declaration, nominal.declaration);
   assert.equal(guards[guards.length - 1], undefined);
   const select = (reference: Node) => selectSourceGuardedValueMembers(context, reference, ["string", "object", "function", "number"],
     expression => {

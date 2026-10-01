@@ -4,7 +4,7 @@ import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_Operato
 
 export type SourceNativeValueGuard =
   | { readonly kind: "typeof"; readonly sourceOperand: Node; readonly value: string; readonly negated: boolean }
-  | { readonly kind: "nominal"; readonly sourceOperand: Node; readonly declaration: Node };
+  | { readonly kind: "nominal"; readonly sourceOperand: Node; readonly sourceConstructor: Node; readonly declaration: Node };
 
 export function selectSourceNativeValueGuard(
   { ast, navigation }: Pick<SourceValueFlowQueryContext, "ast" | "navigation">,
@@ -24,7 +24,7 @@ export function selectSourceNativeValueGuard(
   const operator = ast.kindName(token);
   if (operator === "KindInstanceOfKeyword") {
     const declaration = navigation.sourceReferenceFor(right)?.declaration;
-    return declaration === undefined ? undefined : Object.freeze({ kind: "nominal", sourceOperand: left, declaration });
+    return declaration === undefined ? undefined : Object.freeze({ kind: "nominal", sourceOperand: left, sourceConstructor: right, declaration });
   }
   const equal = operator === "KindEqualsEqualsEqualsToken" || operator === "KindEqualsEqualsToken";
   const different = operator === "KindExclamationEqualsEqualsToken" || operator === "KindExclamationEqualsToken";

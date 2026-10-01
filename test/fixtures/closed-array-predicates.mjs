@@ -18,6 +18,15 @@ export function first(value: readonly Path[] | null | undefined): number {
   if (Array.isArray(value) && value.length > 0) return total(value[0]);
   return 0;
 }
+export function matches(value: Path | null | undefined, text: string): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value === text;
+  if (value instanceof RegExp) return value.test(text);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) if (matches(value[index], text)) return true;
+  }
+  return false;
+}
 export function rewrite(value: string | readonly string[] | undefined): void {
   if (Array.isArray(value) && value.length > 0) value[0] = "rewritten";
 }
@@ -49,7 +58,7 @@ export class Other {
 }
 `,
   "index.ts": `
-import { isList, broad, total, first, rewrite, bump, update, rebound, Other } from "./paths.js";
+import { isList, broad, total, first, matches, rewrite, bump, update, rebound, Other } from "./paths.js";
 import type { Path } from "./paths.js";
 export function run(): boolean {
   const paths: Path[] = ["route", /pattern/, ["nested"]];
@@ -77,6 +86,7 @@ export function run(): boolean {
   return effect && count === 1 && isList(paths) && paths.length === 4 &&
     total(paths) === 15 && total(alias) === 15 && total(null) === 0 && total(undefined) === 0 &&
     first(paths) === 5 && first(null) === 0 && first(undefined) === 0 && same[0] === "rewritten" && countedAlias[0] === 4 &&
+    matches(paths, "nested") && matches(paths, "pattern") && !matches(paths, "missing") && !matches(null, "route") &&
     updateResult === 35 && updatedAlias[0] === 5 && update(null) === 0 && update(undefined) === 0 && rebound() &&
     !isList("text") && !isList(/pattern/) && !isList(null) && !isList(undefined) &&
     !Array.isArray("text") && Array.isArray(empty) && !Array.isArray(4) && !Array.isArray({ length: 0 }) &&
