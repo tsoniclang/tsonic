@@ -7,3 +7,5 @@ export { sourceCallableInterface } from "./callable-interfaces.js";
 export { sourcePresentCallableType } from "./present-callables.js";
 export { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
 export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-conditions.js";
+export { selectSourceNativeValueGuard } from "./native-value-guards.js";
+export type { SourceNativeValueGuard } from "./native-value-guards.js";
