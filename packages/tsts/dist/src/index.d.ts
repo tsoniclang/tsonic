@@ -15,7 +15,7 @@ export type { BundledLibrarySource, CompilerFileSystem, CompilerHostOptions, Com
 export type { AstAuthoredRange, AstModifierKind, AstReader, AstRegularExpressionLiteralSyntax, AstVariableDeclarationKind, } from "./services/ast-reader.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
 export type { CompilerDiagnosticKind, CompilerSession, CompilerSessionOptions, InMemoryCompilerSessionOptions } from "./services/compiler-session.js";
-export type { TypeIndexInfo, TypePropertyInfo, TypeReferenceArgumentInfo, TypeSignatureParameterInfo, TypeSignatureThisParameterInfo, TypeShapeQueries, TypeTupleElementInfo, } from "./services/type-shape.js";
+export type { TypeIndexInfo, TypePropertyInfo, TypeReferenceArgumentInfo, TypeSignatureParameterInfo, TypeSignatureInfo, TypeSignatureThisParameterInfo, TypeShapeQueries, TypeTupleElementInfo, } from "./services/type-shape.js";
 export type { TypeAliasApplicationInfo, TypeAliasConditionalStep } from "./services/type-applications.js";
 export type { TypeIndexedAccessComponents, TypeIndexedAccessMember, TypeIndexedAccessSelection } from "./services/type-indexed-access.js";
 export type { Node, SourceFile } from "./internal/ast/ast.js";

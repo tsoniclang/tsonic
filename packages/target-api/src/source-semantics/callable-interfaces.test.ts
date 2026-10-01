@@ -11,6 +11,7 @@ test("callable interface evidence accounts for complete inherited and merged sha
       interface Direct { (value: number): number; }
       interface Generic<Value> { (value: Value): Value; }
       interface Inherited extends Direct {}
+      interface Repeated extends Direct, Generic<number> {}
       interface Merged { (value: number): number; }
       interface Merged {}
       interface Tagged extends Direct { tag: string; }
@@ -28,16 +29,50 @@ test("callable interface evidence accounts for complete inherited and merged sha
   const file = checked.getSourceFile("/src/index.ts");
   assert.ok(file);
   const semantics = source.semantics.forFile(file);
-  const expected = [true, true, true, true, true, false, false, false, false, false, false];
+  const expected = [1, 1, 1, 2, 1, 1, 0, 2, 0, 0, 0, 0];
   source.ast.statements(file).forEach((declaration, index) => {
     assert.ok(declaration);
     const type = semantics.declarations.declaredType(declaration);
     const evidence = sourceCallableInterface(type, semantics, source.ast);
-    assert.equal(evidence !== undefined, expected[index], source.ast.text(source.ast.name(declaration)));
+    assert.equal(evidence?.length ?? 0, expected[index], source.ast.text(source.ast.name(declaration)));
     if (evidence !== undefined) {
-      assert.equal(evidence.result.declaration, semantics.types.callable(type!)?.result.declaration);
-      assert.equal(evidence.parameters.length, 1);
+      assert.equal(Object.isFrozen(evidence), true);
+      for (const signature of evidence) {
+        assert.equal(Object.isFrozen(signature), true);
+        assert.equal(signature.parameters.length, 1);
+        assert.ok(signature.returnType);
+      }
     }
   });
   assert.equal(sourceCallableInterface(undefined, semantics, source.ast), undefined);
+});
+
+test("callable evidence retains instantiated signature ownership through re-exports", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/types.ts": `export interface Callback<Value> { (value: Value): Value; }`,
+    "/src/api.ts": `import type { Callback } from "./types.js"; export declare const callback: Callback<number>;`,
+    "/src/bridge.ts": `export { callback as forwarded } from "./api.js";`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.deepEqual(checked.diagnostics, []);
+  const source = createTargetSourceProgram(checked);
+  const apiFile = checked.getSourceFile("/src/api.ts");
+  const bridgeFile = checked.getSourceFile("/src/bridge.ts");
+  assert.ok(apiFile && bridgeFile);
+  const api = source.semantics.forFile(apiFile);
+  const declarations: import("@tsonic/tsts").Node[] = [];
+  const visit = (node: import("@tsonic/tsts").Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) declarations.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(apiFile);
+  const declaration = declarations[0];
+  assert.ok(declaration);
+  const type = api.declarations.declaredValueType(declaration);
+  assert.ok(type);
+  const bridge = source.semantics.forFile(bridgeFile);
+  const selected = bridge.types.callable(type);
+  assert.ok(selected);
+  assert.equal(selected.parameters.length, 1);
+  assert.equal(bridge.types.isNumberLike(selected.parameters[0]!.type), true);
+  assert.equal(bridge.types.isNumberLike(selected.result.selectedType), true);
 });

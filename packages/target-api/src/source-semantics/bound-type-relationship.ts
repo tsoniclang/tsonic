@@ -1,4 +1,4 @@
-import type { Node, Signature, Type } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "./types.js";
 
 export function sourceBoundTypeRelationship(
@@ -8,20 +8,22 @@ export function sourceBoundTypeRelationship(
   bindingFor: (declaration: Node) => Type | undefined,
 ): "bound" | "identity" | undefined {
   const active = new Map<Type, Set<Type>>();
-  const matchSignatures = (left: readonly Signature[], right: readonly Signature[]):
+  const matchSignatures = (leftType: Type, rightType: Type, kind: "call" | "construct"):
     "bound" | "identity" | undefined => {
+    const left = types.signatureInfos(leftType, kind);
+    const right = types.signatureInfos(rightType, kind);
     if (left.length !== right.length) return undefined;
     return combine(left.map((signature, index) => {
       const selected = right[index]!;
-      const declaration = declarations.signatureDeclaration(signature);
-      if (declaration === undefined || declarations.signatureDeclaration(selected) !== declaration) return undefined;
-      const parameters = types.signatureParameterInfos(signature);
-      const selectedParameters = types.signatureParameterInfos(selected);
-      const result = types.returnType(signature);
-      const selectedResult = types.returnType(selected);
+      const declaration = declarations.signatureDeclaration(signature.signature);
+      if (declaration === undefined || declarations.signatureDeclaration(selected.signature) !== declaration) return undefined;
+      const parameters = signature.parameters;
+      const selectedParameters = selected.parameters;
+      const result = signature.returnType;
+      const selectedResult = selected.returnType;
       if (parameters.length !== selectedParameters.length || result === undefined || selectedResult === undefined) return undefined;
-      const receiver = types.signatureThisParameterInfo(signature);
-      const selectedReceiver = types.signatureThisParameterInfo(selected);
+      const receiver = signature.thisParameter;
+      const selectedReceiver = selected.thisParameter;
       if ((receiver === undefined) !== (selectedReceiver === undefined)) return undefined;
       return combine([
         match(result, selectedResult),
@@ -107,8 +109,8 @@ export function sourceBoundTypeRelationship(
               member.destination.declarations.some(node => !member.source.declarations.includes(node))) return undefined;
             return match(member.destination.property.type, member.source.property.type);
           }),
-          matchSignatures(relation.destination.calls, relation.source.calls),
-          matchSignatures(relation.destination.constructs, relation.source.constructs),
+          matchSignatures(left, right, "call"),
+          matchSignatures(left, right, "construct"),
           ...relation.destination.indexes.map((entry, index) => {
             const other = relation.source.indexes[index]!;
             return entry.declaration === undefined || entry.declaration !== other.declaration || entry.readonly !== other.readonly ||

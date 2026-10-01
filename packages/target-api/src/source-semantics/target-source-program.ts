@@ -211,6 +211,7 @@ export function createTargetSourceProgram(
       constructSignatures(type: Type) {
         return definedValues(queries.typeShape.getConstructSignatures(type));
       },
+      signatureInfos: queries.typeShape.getSignatureInfos,
       returnType: queries.typeShape.getReturnTypeOfSignature,
       signatureParameterInfos: queries.typeShape.getSignatureParameterInfos,
       signatureThisParameterInfo: queries.typeShape.getSignatureThisParameterInfo,

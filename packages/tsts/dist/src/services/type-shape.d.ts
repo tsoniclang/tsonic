@@ -43,6 +43,12 @@ export interface TypeSignatureThisParameterInfo {
     readonly type: Type;
     readonly declaration?: Node;
 }
+export interface TypeSignatureInfo {
+    readonly signature: Signature;
+    readonly parameters: readonly TypeSignatureParameterInfo[];
+    readonly thisParameter?: TypeSignatureThisParameterInfo;
+    readonly returnType: Type | undefined;
+}
 export interface CreateTypeShapeQueriesOptions {
     readonly sourceFile: GoPtr<SourceFile>;
     readonly context?: Context;
@@ -82,6 +88,7 @@ export interface TypeShapeQueries {
     readonly getPropertyInfos: (type: GoPtr<Type>) => readonly TypePropertyInfo[];
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
+    readonly getSignatureInfos: (type: GoPtr<Type>, kind: "call" | "construct") => readonly TypeSignatureInfo[];
     readonly getSignatureParameterInfos: (signature: GoPtr<Signature>) => readonly TypeSignatureParameterInfo[];
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;

@@ -1,8 +1,8 @@
 import type {
   AstReader,
   Node,
-  Signature,
   Type,
+  TypeSignatureInfo,
   TypeSignatureParameterInfo,
 } from "@tsonic/tsts";
 import type {
@@ -79,42 +79,42 @@ export function selectStandardSourceTypeTransformation(
   switch (name) {
     case "Parameters":
       return selectParameterListTransformation(
-        semantics.types.callSignatures(inputType),
+        semantics.types.signatureInfos(inputType, "call"),
         selectedType,
         callableQueries,
         context.ast,
       );
     case "ConstructorParameters":
       return selectParameterListTransformation(
-        semantics.types.constructSignatures(inputType),
+        semantics.types.signatureInfos(inputType, "construct"),
         selectedType,
         callableQueries,
         context.ast,
       );
     case "ReturnType":
       return selectResultTransformation(
-        semantics.types.callSignatures(inputType),
+        semantics.types.signatureInfos(inputType, "call"),
         selectedType,
         callableQueries,
         context.ast,
       );
     case "InstanceType":
       return selectResultTransformation(
-        semantics.types.constructSignatures(inputType),
+        semantics.types.signatureInfos(inputType, "construct"),
         selectedType,
         callableQueries,
         context.ast,
       );
     case "ThisParameterType":
       return selectThisParameterTransformation(
-        semantics.types.callSignatures(inputType),
+        semantics.types.signatureInfos(inputType, "call"),
         selectedType,
         semantics.types,
         context.ast,
       );
     case "OmitThisParameter":
       return selectCallableTransformation(
-        semantics.types.callSignatures(inputType),
+        semantics.types.signatureInfos(inputType, "call"),
         selectedType,
         callableQueries,
         context.ast,
@@ -138,7 +138,7 @@ function isCanonicalTypescriptUtilityDeclaration(
 }
 
 function selectParameterListTransformation(
-  signatures: readonly (Signature | undefined)[],
+  signatures: readonly TypeSignatureInfo[],
   selectedType: Type,
   types: SourceFinalTypeQueries,
   ast: AstReader,
@@ -147,7 +147,7 @@ function selectParameterListTransformation(
   if (signature === undefined) {
     return { kind: "unresolved" };
   }
-  const parameters = types.signatureParameterInfos(signature).map(
+  const parameters = signature.parameters.map(
     (parameter) => sourceCallableParameterEvidence(parameter, ast),
   );
   const selectedElements = types.isTuple(selectedType)
@@ -175,7 +175,7 @@ function selectParameterListTransformation(
 }
 
 function selectResultTransformation(
-  signatures: readonly (Signature | undefined)[],
+  signatures: readonly TypeSignatureInfo[],
   selectedType: Type,
   types: SourceFinalTypeQueries &
     Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
@@ -193,7 +193,7 @@ function selectResultTransformation(
 }
 
 function selectThisParameterTransformation(
-  signatures: readonly (Signature | undefined)[],
+  signatures: readonly TypeSignatureInfo[],
   selectedType: Type,
   types: SourceFinalTypeQueries,
   ast: AstReader,
@@ -201,7 +201,7 @@ function selectThisParameterTransformation(
   const signature = lastDefined(signatures);
   const parameter = signature === undefined
     ? undefined
-    : types.signatureThisParameterInfo(signature);
+    : signature.thisParameter;
   if (
     parameter === undefined ||
     !types.isIdentical(parameter.type, selectedType)
@@ -223,7 +223,7 @@ function selectThisParameterTransformation(
 }
 
 function selectCallableTransformation(
-  inputSignatures: readonly (Signature | undefined)[],
+  inputSignatures: readonly TypeSignatureInfo[],
   selectedType: Type,
   types: SourceFinalTypeQueries &
     Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
@@ -238,7 +238,7 @@ function selectCallableTransformation(
   if (input === undefined || output === undefined) {
     return { kind: "unresolved" };
   }
-  const inputParameters = types.signatureParameterInfos(input).map(
+  const inputParameters = input.parameters.map(
     (parameter) => sourceCallableParameterEvidence(parameter, ast),
   );
   const inputResult = signatureResultEvidence(input, types, ast);
@@ -273,14 +273,11 @@ export function selectSourceCallableTypeEvidence(
   type: Type,
   types: Pick<
     SourceFinalTypeQueries,
-    | "callSignatures"
-    | "signatureParameterInfos"
-    | "returnType"
-    | "signatureThisParameterInfo"
+    | "signatureInfos"
   > & Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceCallableTypeEvidence | undefined {
-  const signature = singleDefined(types.callSignatures(type));
+  const signature = singleDefined(types.signatureInfos(type, "call"));
   if (signature === undefined) {
     return undefined;
   }
@@ -289,7 +286,7 @@ export function selectSourceCallableTypeEvidence(
     ? undefined
     : Object.freeze({
         parameters: Object.freeze(
-          types.signatureParameterInfos(signature).map(
+          signature.parameters.map(
             (parameter) => sourceCallableParameterEvidence(parameter, ast),
           ),
         ),
@@ -314,16 +311,15 @@ function sourceCallableParameterEvidence(
 }
 
 function signatureResultEvidence(
-  signature: Signature,
-  types: Pick<SourceFinalTypeQueries, "returnType"> &
-    Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
+  signature: TypeSignatureInfo,
+  types: Pick<SourceSelectedDeclarationQueries, "signatureDeclaration">,
   ast: AstReader,
 ): SourceTypeComponentEvidence | undefined {
-  const selectedType = types.returnType(signature);
+  const selectedType = signature.returnType;
   if (selectedType === undefined) {
     return undefined;
   }
-  const declaration = types.signatureDeclaration(signature);
+  const declaration = types.signatureDeclaration(signature.signature);
   return Object.freeze({
     selectedType,
     ...(declaration === undefined

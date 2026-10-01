@@ -105,6 +105,19 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getPropertyInfos: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypePropertyInfos(checker, type)) ?? [],
         getCallSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
+        getSignatureInfos: (type, kind) => {
+            if (kind !== "call" && kind !== "construct")
+                throw new Error("Unknown signature kind.");
+            return withCheckerForType(program, type, defaultOptions, checker => Object.freeze((Checker_GetSignaturesOfType(checker, type, kind === "call" ? SignatureKindCall : SignatureKindConstruct) ?? [])
+                .map(signature => {
+                if (signature === undefined)
+                    throw new Error("The checker returned an absent type signature.");
+                const thisParameter = getTypeSignatureThisParameterInfo(checker, signature);
+                return Object.freeze({ signature, parameters: getTypeSignatureParameterInfos(checker, signature),
+                    ...(thisParameter === undefined ? {} : { thisParameter }),
+                    returnType: Checker_GetReturnTypeOfSignature(checker, signature) });
+            }))) ?? Object.freeze([]);
+        },
         getSignatureParameterInfos: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureParameterInfos(checker, signature)) ?? [],
         getSignatureThisParameterInfo: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureThisParameterInfo(checker, signature)),
         getReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
