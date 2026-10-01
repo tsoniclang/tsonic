@@ -3,7 +3,7 @@ import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceDeclarationUseSummary } from "./types.js";
 
 export function sourceBindingHasMutableExposure(
-  input: { readonly ast: AstReader; readonly sourceFacts?: ReadonlySourceFactResolver },
+  input: { readonly ast: AstReader; readonly sourceFacts?: Pick<ReadonlySourceFactResolver, "getFact"> },
   summary: SourceDeclarationUseSummary,
   enter: () => boolean,
 ): boolean {

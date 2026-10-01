@@ -2,6 +2,7 @@ export * from "./navigation.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "./lexical-captures.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
+export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";

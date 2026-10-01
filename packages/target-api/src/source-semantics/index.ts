@@ -5,7 +5,8 @@ export type { SourceProviderSignatureSelection, SourceProviderTypeParameterSelec
 export { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
 export { sourceCallableInterface } from "./callable-interfaces.js";
 export { sourcePresentCallableType } from "./present-callables.js";
-export { selectSourceGuardedValueMembers } from "./value-flow-conditions.js";
+export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers } from "./value-flow-conditions.js";
+export { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
 export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-conditions.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
 export type { SourceNativeValueGuard } from "./native-value-guards.js";

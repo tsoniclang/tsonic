@@ -1,4 +1,4 @@
-import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
+import type { AstReader, Node, ReadonlySourceFactResolver, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
@@ -14,6 +14,54 @@ export interface SourceValueFlowQueryContext {
 export interface SourceNativeGuard<Predicate> {
   readonly sourceOperand: Node;
   readonly predicate: Predicate;
+}
+
+export function selectSourceGuardedTypeMembers<Predicate>(
+  context: SourceValueFlowQueryContext,
+  reference: Node,
+  sourceType: Type,
+  selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
+  testType: (type: Type, predicate: Predicate) => boolean | undefined,
+): readonly Type[] | undefined {
+  const types = context.semanticsFor(reference).types;
+  if (!types.isUnion(sourceType)) return undefined;
+  const members = types.unionOrIntersectionTypes(sourceType);
+  let remaining = 2_048;
+  let cyclic = false;
+  const test = (type: Type, predicate: Predicate): boolean | undefined => {
+    const active = new Set<Type>();
+    const results: (boolean | undefined)[] = [];
+    const pending: { readonly type: Type; readonly children?: number }[] = [{ type }];
+    while (pending.length > 0) {
+      if (--remaining < 0) return undefined;
+      const current = pending.pop()!;
+      if (current.children !== undefined) {
+        const parts = results.splice(results.length - current.children);
+        active.delete(current.type);
+        results.push(types.isIntersection(current.type)
+          ? parts.includes(false) ? false : parts.every(value => value === true) ? true : undefined
+          : parts.every(value => value === true) ? true : parts.every(value => value === false) ? false : undefined);
+      } else if (active.has(current.type)) {
+        cyclic = true;
+        return undefined;
+      } else if (!types.isUnion(current.type) && !types.isIntersection(current.type)) {
+        results.push(testType(current.type, predicate));
+      } else {
+        const parts = types.unionOrIntersectionTypes(current.type);
+        if (parts.length === 0 || pending.length + parts.length + 1 > remaining) {
+          remaining = -1;
+          return undefined;
+        }
+        active.add(current.type);
+        pending.push({ type: current.type, children: parts.length });
+        for (const part of parts) pending.push({ type: part });
+      }
+    }
+    return results.length === 1 ? results[0] : undefined;
+  };
+  const selected = selectSourceGuardedValueMembers(context, reference, members, selectGuard,
+    (member, predicate) => test(member, predicate));
+  return remaining >= 0 && !cyclic ? selected : undefined;
 }
 
 export function selectSourceGuardedValueMembers<Member, Predicate>(
