@@ -35,6 +35,21 @@ function generic<Value>(box: Box<Value>): Value | undefined {
   }
   return undefined;
 }
+type Callback = (error: Error | null, value?: string) => void;
+type Engine = (view: string, locals: Record<string, unknown>, callback: Callback) => void;
+function forward(input: Record<string, unknown> | Callback | undefined, maybe: Callback | undefined, engine: Engine): void {
+  let callback = maybe;
+  if (typeof input === "function") callback = input;
+  if (callback === undefined) throw new Error("callback required");
+  engine("view", {}, callback);
+}
+function reassigned(maybe: ((value: string) => string) | undefined): string {
+  let callback = maybe;
+  if (callback === undefined) return "absent";
+  const before = callback("before");
+  callback = undefined;
+  return callback === undefined ? before : "unexpected";
+}
 export function run(): boolean {
   const exact: int64 = 9007199254740993n;
   let calls = 0;
@@ -45,12 +60,19 @@ export function run(): boolean {
   const optionalZero = generic(new Box<int64 | undefined>(0n));
   const isNull = absent === null;
   const isUndefined = absent === undefined;
+  let forwarded = "";
+  const callback: Callback = (error, value) => { if (error === null && value !== undefined) forwarded += value; };
+  const engine: Engine = (view, _locals, callback) => callback(null, view);
+  forward(undefined, callback, engine);
+  forward(callback, undefined, engine);
   return select() === "/" && select({ path: "chosen" }) === "chosen" &&
     select({ path: "" }) === "" && select({ encode }) === "/!" && calls === 1 &&
     wide({ wide: exact }) === exact && wide({ wide: 0n }) === 0n && wide({}) === 0n &&
     !enabled({ enabled: false }) && enabled({ enabled: true }) && enabled({}) &&
     generic(new Box(exact)) === exact && generic(new Box("")) === "" && isNull && isUndefined &&
-    optionalAbsent === undefined && optionalPresent === exact && optionalZero === 0n;
+    optionalAbsent === undefined && optionalPresent === exact && optionalZero === 0n &&
+    forwarded === "viewview" && reassigned(undefined) === "absent" &&
+    reassigned(value => value + "!") === "before!";
 }
 `;
 
