@@ -20,6 +20,7 @@ import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformatio
 import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
 export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
+import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
 export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
@@ -93,7 +94,13 @@ export function createTargetSourceProgram(
     const queries = source.getSourceFileQueries(sourceFile);
     const operations = Object.freeze({
       call: queries.checker.getResolvedCallInfo,
-      propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
+      propertyAccess(node: Node) {
+        const selected = queries.checker.getResolvedPropertyAccessInfo(node);
+        return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
+          ? selected
+          : selectRefinedSourcePropertyAccess(selected,
+            selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts);
+      },
       elementAccess: queries.checker.getResolvedElementAccessInfo,
       iteration: queries.checker.getResolvedIterationInfo,
       objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
