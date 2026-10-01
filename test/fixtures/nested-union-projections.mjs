@@ -6,15 +6,19 @@ export class Entry {
   constructor(value: uint64) { this.value = value; }
   advance(): uint64 { const unit: uint64 = 1n; this.value += unit; return this.value; }
 }
+export class EnhancedEntry extends Entry {
+  readonly bonus: uint64;
+  constructor(value: uint64) { super(value); this.bonus = value; }
+}
 export type Entries = Entry | readonly uint64[];
 export type TextOrAction = string | ((value: uint64) => uint64);
 export type Grouped = Entries | TextOrAction;
 export type OptionalGrouped = Grouped | null | undefined;
 `,
-  "aliases.ts": 'export { Entry } from "./models.js"; export type { Entries, TextOrAction, Grouped, OptionalGrouped } from "./models.js";',
+  "aliases.ts": 'export { Entry, EnhancedEntry } from "./models.js"; export type { Entries, TextOrAction, Grouped, OptionalGrouped } from "./models.js";',
   "index.ts": `
 import type { uint64 } from "@tsonic/core/types.js";
-import { Entry } from "./aliases.js";
+import { Entry, EnhancedEntry } from "./aliases.js";
 import type { Entries, TextOrAction, Grouped, OptionalGrouped } from "./aliases.js";
 function read(value: Entries | TextOrAction): uint64 {
   if (value instanceof Entry) return value.advance();
@@ -28,6 +32,10 @@ function readOptional(value: OptionalGrouped): uint64 {
 }
 function present(value: Entries | TextOrAction | null | undefined): boolean {
   return value instanceof Entry;
+}
+function readBonus(value: Entries | TextOrAction): uint64 {
+  if (value instanceof EnhancedEntry) return value.bonus;
+  return 0n;
 }
 export function run(): boolean {
   const wide: uint64 = 9007199254740993n;
@@ -45,7 +53,8 @@ export function run(): boolean {
     read((value: uint64): uint64 => wide + value) === third &&
     readOptional(null) === 0n && readOptional(undefined) === 0n &&
     readOptional(entry) === second && present(entry) &&
-    !present(null) && !present(undefined) && !present("text");
+    !present(null) && !present(undefined) && !present("text") &&
+    readBonus(new EnhancedEntry(wide)) === wide && readBonus(entry) === 0n && readBonus([wide]) === 0n;
 }
 `,
 };
