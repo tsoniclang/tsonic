@@ -6640,8 +6640,11 @@ export function Checker_getResolvedSourcePropertyAccessInfo(receiver, node) {
         ...(selected.selectedDeclaration === undefined ? {} : { selectedDeclaration: selected.selectedDeclaration }),
         ...(selectedReadDeclaration === undefined ? {} : { selectedReadDeclaration }),
         ...(selectedWriteDeclaration === undefined ? {} : { selectedWriteDeclaration }),
-        writable: selected.selectedSymbol !== undefined
-            && !Checker_isAssignmentToReadonlyEntity(receiver, node, selected.selectedSymbol, AssignmentKindDefinite),
+        ...(selected.selectedIndex === undefined ? {} : { selectedIndex: selected.selectedIndex }),
+        writable: selected.selectedIndex !== undefined
+            ? !selected.selectedIndex.isReadonly
+            : selected.selectedSymbol !== undefined
+                && !Checker_isAssignmentToReadonlyEntity(receiver, node, selected.selectedSymbol, AssignmentKindDefinite),
         ...resolvedSourceAccessTypes(accessMode, sourceReadType, sourceWriteType),
         optionalChain: IsOptionalChain(node),
         callCallee: Checker_isMethodAccessForCall(receiver, node),
@@ -6978,6 +6981,7 @@ function checkPropertyAccessExpressionOrQualifiedNameWithEvidence(receiver, node
         propType = indexInfo.valueType;
         if (selected !== undefined) {
             selectedWriteType = indexInfo.valueType;
+            selected.selectedIndex = indexInfo;
             selectedDeclaration = indexInfo.declaration
                 ?? mappedIndexEvidenceDeclaration(apparentType);
         }

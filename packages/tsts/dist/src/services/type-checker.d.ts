@@ -2,6 +2,7 @@ import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
+import type { TypeIndexInfo } from "./type-shape.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
@@ -18,7 +19,10 @@ export interface ResolvedSourceReceiverValueEvidence {
     readonly valueDeclaration?: Node;
     readonly intrinsic?: "global-object";
 }
-export type ResolvedSourcePropertyAccessInfo = CheckerResolvedSourcePropertyAccessInfo & {
+type PublicSelectedPropertyAccess<Selection> = Selection extends CheckerResolvedSourcePropertyAccessInfo ? Omit<Selection, "selectedIndex"> & {
+    readonly selectedIndex?: TypeIndexInfo;
+} : never;
+export type ResolvedSourcePropertyAccessInfo = PublicSelectedPropertyAccess<CheckerResolvedSourcePropertyAccessInfo> & {
     readonly receiver: CheckerResolvedSourcePropertyAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
 };
 export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo & {

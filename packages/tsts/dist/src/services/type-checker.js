@@ -1,5 +1,6 @@
 import { Background } from "../go/context.js";
 import { Node_Text } from "../internal/ast/ast.js";
+import { readTypeIndexInfo } from "./type-members.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
@@ -54,7 +55,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const sourceResultType = Checker_GetTypeAtLocation(checker, node);
             return Checker_finalizeResolvedCallEvidence(checker, node, sourceResultType);
         })),
-        getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourcePropertyAccessInfo(checker, node)))),
+        getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedPropertyAccessEvidence(checker, Checker_getResolvedSourcePropertyAccessInfo(checker, node)))),
         getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourceElementAccessInfo(checker, node)))),
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node))),
@@ -261,6 +262,20 @@ function getDiagnosticFreeResolvedSymbol(checker, node) {
     return resolved !== undefined && resolved !== checker?.unknownSymbol
         ? resolved
         : undefined;
+}
+function withResolvedPropertyAccessEvidence(checker, selected) {
+    if (checker === undefined || selected === undefined)
+        return undefined;
+    const { selectedIndex, ...access } = selected;
+    const resolved = withResolvedSourceReceiverValueEvidence(checker, access);
+    if (resolved === undefined)
+        return undefined;
+    return Object.freeze({
+        ...resolved,
+        ...(selectedIndex === undefined ? {} : {
+            selectedIndex: Object.freeze(readTypeIndexInfo(checker, selected.receiver.type, selectedIndex)),
+        }),
+    });
 }
 function withResolvedSourceReceiverValueEvidence(checker, selected) {
     if (checker === undefined || selected === undefined) {
