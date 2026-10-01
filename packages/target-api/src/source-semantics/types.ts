@@ -90,6 +90,7 @@ export interface SourceFinalTypeQueries {
   ): import("@tsonic/tsts").TypeSignatureThisParameterInfo | undefined;
   apparentType(type: Type): Type | undefined;
   widenedType(type: Type): Type | undefined;
+  literalBaseType(type: Type): Type | undefined;
   withoutMissingOrUndefined(type: Type): Type | undefined;
   constantValue(node: Node): unknown;
   numericLiteralValue(type: Type): number | bigint | undefined;

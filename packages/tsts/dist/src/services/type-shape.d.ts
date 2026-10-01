@@ -90,6 +90,7 @@ export interface TypeShapeQueries {
     readonly selectIndexedAccess: (objectType: GoPtr<Type>, indexType: GoPtr<Type>) => TypeIndexedAccessSelection | undefined;
     readonly getApparentType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getWidenedType: (type: GoPtr<Type>) => GoPtr<Type>;
+    readonly getBaseTypeOfLiteralType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly removeMissingOrUndefined: (type: GoPtr<Type>) => GoPtr<Type>;
 }
 export declare function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: CreateTypeShapeQueriesOptions): TypeShapeQueries;
