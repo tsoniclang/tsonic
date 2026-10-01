@@ -3,6 +3,17 @@ import type {
   Node,
 } from "@tsonic/tsts";
 
+export function sourceTypeSyntaxRoot(
+  ast: AstReader,
+  node: Node | undefined,
+): Node | undefined {
+  let current = node;
+  while (current !== undefined && ast.is.IsParenthesizedTypeNode(current)) {
+    current = ast.as.AsParenthesizedTypeNode(current)?.Type;
+  }
+  return current;
+}
+
 export function sourceTypeSyntaxIsCompositional(
   ast: AstReader,
   node: Node | undefined,

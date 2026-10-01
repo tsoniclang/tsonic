@@ -5,6 +5,51 @@ import type {
   Type,
   TypeCheckerQueries,
 } from "@tsonic/tsts";
+
+export type SourceReferenceMeaning = "value" | "type" | "namespace";
+
+export function sourceReferenceMeaning(ast: AstReader, node: Node): SourceReferenceMeaning {
+  let reference = node;
+  let parent = ast.parent(reference);
+  while (parent !== undefined && ast.is.IsQualifiedName(parent)) {
+    if (ast.as.AsQualifiedName(parent)?.Left === reference) return "namespace";
+    reference = parent;
+    parent = ast.parent(reference);
+  }
+  if (parent !== undefined && ast.is.IsTypeReferenceNode(parent) &&
+    ast.as.AsTypeReferenceNode(parent)?.TypeName === reference) return "type";
+  if (parent !== undefined && ast.is.IsImportTypeNode(parent) &&
+    ast.as.AsImportTypeNode(parent)?.Qualifier === reference) {
+    return ast.as.AsImportTypeNode(parent)?.IsTypeOf ? "value" : "type";
+  }
+  if (parent !== undefined && ast.is.IsExpressionWithTypeArguments(parent) &&
+    ast.as.AsExpressionWithTypeArguments(parent)?.Expression === reference) {
+    const clause = ast.parent(parent);
+    const owner = ast.parent(clause);
+    if (owner !== undefined && (ast.is.IsInterfaceDeclaration(owner) ||
+      ast.implementsHeritageElements(owner).includes(parent))) return "type";
+  }
+  if (parent !== undefined && ast.name(parent) === reference) {
+    if (ast.is.IsTypeAliasDeclaration(parent) || ast.is.IsInterfaceDeclaration(parent) ||
+      ast.is.IsTypeParameterDeclaration(parent)) return "type";
+    if (ast.is.IsModuleDeclaration(parent)) return "namespace";
+  }
+  return "value";
+}
+
+export function referenceDeclarationForMeaning(
+  ast: AstReader, checker: TypeCheckerQueries, symbol: Symbol | undefined, meaning: SourceReferenceMeaning,
+): Node | undefined {
+  const declaration = primaryDeclaration(checker, symbol);
+  if (meaning === "value") return declaration;
+  const accepts = (candidate: Node | undefined): boolean => candidate !== undefined &&
+    (meaning === "namespace" ? ast.is.IsModuleDeclaration(candidate) || ast.is.IsSourceFile(candidate)
+      : ast.is.IsClassDeclaration(candidate) || ast.is.IsInterfaceDeclaration(candidate) ||
+        ast.is.IsTypeAliasDeclaration(candidate) || ast.is.IsEnumDeclaration(candidate) ||
+        ast.is.IsTypeParameterDeclaration(candidate));
+  return accepts(declaration) ? declaration : checker.getSymbolDeclarations(symbol).find(accepts);
+}
+
 export function semanticTypeForNode(
   ast: AstReader,
   checker: TypeCheckerQueries,

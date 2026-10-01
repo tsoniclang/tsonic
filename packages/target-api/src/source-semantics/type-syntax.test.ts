@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
-import { sourceTypeSyntaxIsCompositional } from "./type-syntax.js";
+import { sourceTypeSyntaxIsCompositional, sourceTypeSyntaxRoot } from "./type-syntax.js";
 
 test("typed object and callback syntax composes without erasing generic member evidence", () => {
   const checked = createCompilerSessionFromFiles({
@@ -36,4 +36,32 @@ test("typed object and callback syntax composes without erasing generic member e
     ["Conditional", false], ["Mapped", false], ["Indexed", false], ["Shadow", false],
     ["Computed", false], ["Nested", false],
   ]);
+});
+
+test("transparent type syntax retains the exact inner node without removing semantic operators", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      type Grouped<Value> = (((Value | readonly Value[])));
+      type ReadonlyArrayType<Value> = readonly Value[];
+      type Indexed<Value> = Value[keyof Value];
+      type Conditional<Value> = (Value extends string ? number : Value);
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.deepEqual(checked.extensionDiagnostics, []);
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.ok(file);
+  const roots = checked.ast.statements(file).map(declaration => {
+    assert.ok(declaration && checked.ast.is.IsTypeAliasDeclaration(declaration));
+    const authored = checked.ast.typeNode(declaration);
+    const root = sourceTypeSyntaxRoot(checked.ast, authored);
+    assert.ok(authored && root);
+    if (!checked.ast.is.IsParenthesizedTypeNode(authored)) assert.equal(root, authored);
+    assert.equal(sourceTypeSyntaxRoot(checked.ast, root), root);
+    const name = checked.ast.name(declaration);
+    return [checked.ast.text(name), checked.ast.kindName(root)];
+  });
+  assert.deepEqual(roots, [["Grouped", "KindUnionType"], ["ReadonlyArrayType", "KindTypeOperator"],
+    ["Indexed", "KindIndexedAccessType"], ["Conditional", "KindConditionalType"]]);
+  assert.equal(sourceTypeSyntaxRoot(checked.ast, undefined), undefined);
 });

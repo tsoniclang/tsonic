@@ -35,6 +35,7 @@ import type {
 
 export {
   sourceTypeSyntaxIsCompositional,
+  sourceTypeSyntaxRoot,
 } from "./type-syntax.js";
 export {
   orderEnumerableOwnStringProperties,

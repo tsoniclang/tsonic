@@ -13,9 +13,12 @@ import type {
 import {
   aliasedSymbol,
   primaryDeclaration,
+  referenceDeclarationForMeaning,
   referenceQueryNode,
   resolvedSymbolAtReferenceNode,
   symbolAtReferenceNode,
+  sourceReferenceMeaning,
+  type SourceReferenceMeaning,
 } from "./syntax.js";
 
 type ImportedDeclarationSelection =
@@ -38,11 +41,16 @@ export function createSourceDeclarationReferenceSelector(
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
   reserveModuleExports: (count: number) => void,
 ): (checker: TypeCheckerQueries, node: Node) => SourceDeclarationReference | undefined {
-  const referencesBySelectedSymbol = new WeakMap<
-    Symbol,
-    SourceDeclarationReference
-  >();
-  const unresolvedImportedSymbols = new WeakSet<Symbol>();
+  const referencesByMeaning = {
+    value: new WeakMap<Symbol, SourceDeclarationReference>(),
+    type: new WeakMap<Symbol, SourceDeclarationReference>(),
+    namespace: new WeakMap<Symbol, SourceDeclarationReference>(),
+  };
+  const unresolvedImportsByMeaning = {
+    value: new WeakSet<Symbol>(),
+    type: new WeakSet<Symbol>(),
+    namespace: new WeakSet<Symbol>(),
+  };
   const exportsByModule = new WeakMap<
     Symbol,
     readonly (Symbol | undefined)[]
@@ -52,8 +60,8 @@ export function createSourceDeclarationReferenceSelector(
     checker,
     node,
     isProjectDeclaration,
-    referencesBySelectedSymbol,
-    unresolvedImportedSymbols,
+    referencesByMeaning,
+    unresolvedImportsByMeaning,
     exportsByModule,
     reserveModuleExports,
   );
@@ -64,8 +72,8 @@ function selectSourceDeclarationReferenceForNode(
   checker: TypeCheckerQueries,
   node: Node,
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
-  referencesBySelectedSymbol: WeakMap<Symbol, SourceDeclarationReference>,
-  unresolvedImportedSymbols: WeakSet<Symbol>,
+  referencesByMeaning: Readonly<Record<SourceReferenceMeaning, WeakMap<Symbol, SourceDeclarationReference>>>,
+  unresolvedImportsByMeaning: Readonly<Record<SourceReferenceMeaning, WeakSet<Symbol>>>,
   exportsByModule: WeakMap<Symbol, readonly (Symbol | undefined)[]>,
   reserveModuleExports: (count: number) => void,
 ): SourceDeclarationReference | undefined {
@@ -73,6 +81,9 @@ function selectSourceDeclarationReferenceForNode(
   if (queryNode === undefined) {
     return undefined;
   }
+  const meaning = sourceReferenceMeaning(ast, queryNode);
+  const referencesBySelectedSymbol = referencesByMeaning[meaning];
+  const unresolvedImportedSymbols = unresolvedImportsByMeaning[meaning];
   if (
     ast.is.IsPropertyAccessExpression(queryNode) ||
     ast.is.IsElementAccessExpression(queryNode)
@@ -109,6 +120,7 @@ function selectSourceDeclarationReferenceForNode(
       isProjectDeclaration,
       exportsByModule,
       reserveModuleExports,
+      meaning,
     );
     if (importedSelection.kind === "resolved") {
       referencesBySelectedSymbol.set(selected, importedSelection.reference);
@@ -124,6 +136,7 @@ function selectSourceDeclarationReferenceForNode(
       checker,
       alias,
       isProjectDeclaration,
+      meaning,
     );
     if (aliasReference !== undefined) {
       referencesBySelectedSymbol.set(selected, aliasReference);
@@ -134,6 +147,7 @@ function selectSourceDeclarationReferenceForNode(
       checker,
       selected,
       isProjectDeclaration,
+      meaning,
     );
     if (directReference !== undefined) {
       referencesBySelectedSymbol.set(selected, directReference);
@@ -150,6 +164,7 @@ function importedDeclarationReference(
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
   exportsByModule: WeakMap<Symbol, readonly (Symbol | undefined)[]>,
   reserveModuleExports: (count: number) => void,
+  meaning: SourceReferenceMeaning,
 ): ImportedDeclarationSelection {
   let imported = false;
   for (const declaration of checker.getSymbolDeclarations(symbol)) {
@@ -214,6 +229,7 @@ function importedDeclarationReference(
         checker,
         candidate,
         isProjectDeclaration,
+        meaning,
       );
       if (reference !== undefined) {
         return Object.freeze({ kind: "resolved", reference });
@@ -327,8 +343,9 @@ function declarationReferenceForSymbol(
   checker: TypeCheckerQueries,
   symbol: Symbol | undefined,
   isProjectDeclaration: (declaration: Node | undefined) => boolean,
+  meaning: SourceReferenceMeaning,
 ): SourceDeclarationReference | undefined {
-  const declaration = primaryDeclaration(checker, symbol);
+  const declaration = referenceDeclarationForMeaning(ast, checker, symbol, meaning);
   const sourceFile = ast.getSourceFile(declaration);
   return symbol !== undefined && declaration !== undefined && sourceFile !== undefined
     ? sourceDeclarationReference(

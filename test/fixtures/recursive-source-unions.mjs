@@ -85,7 +85,7 @@ export function aliases(): boolean {
 
 export const recursiveGenericCollectionUnionFiles = {
   "tree.ts": `
-export type Tree<Value> = Value | readonly Tree<Value>[];
+export type Tree<Value> = ((Value | readonly Tree<Value>[]));
 export function sum(tree: Tree<number>): number {
   if (typeof tree === "number") return tree;
   let total = 0;
