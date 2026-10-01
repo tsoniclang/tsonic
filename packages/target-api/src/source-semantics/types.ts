@@ -5,6 +5,7 @@ import type {
   ReadonlySourceFactResolver,
   ResolvedSourceCallableCompletionInfo,
   ResolvedSourceElementAccessInfo,
+  ResolvedSourceFlowConditionInfo,
   ResolvedSourceGeneratorInfo,
   ResolvedSourceIterationInfo,
   ResolvedSourceObjectLiteralElementInfo,
@@ -47,6 +48,7 @@ import type {
 export interface SourceOperationEvidenceQueries {
   call(node: Node): ResolvedSourceCallInfo | undefined;
   propertyAccess(node: Node): ResolvedSourcePropertyAccessInfo | undefined;
+  flowConditions(node: Node): ResolvedSourceFlowConditionInfo | undefined;
   elementAccess(node: Node): ResolvedSourceElementAccessInfo | undefined;
   iteration(node: Node): ResolvedSourceIterationInfo | undefined;
   objectLiteralElement(node: Node): ResolvedSourceObjectLiteralElementInfo | undefined;

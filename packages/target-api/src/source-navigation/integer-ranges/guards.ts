@@ -1,7 +1,7 @@
-import { argumentPassingFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import type { AstReader, Node, ReadonlySourceFactResolver } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../types.js";
 import { Node_Expression } from "../ast.js";
+import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../binding-mutation-exposure.js";
 
 export function sourceIntegerIsNonnegative(input: {
   readonly ast: AstReader;
@@ -25,17 +25,7 @@ export function sourceIntegerIsNonnegative(input: {
     !ast.is.IsParameterDeclaration(declaration)) return false;
   const summary = navigation.declarationUseSummary(declaration);
   if (summary.bindingWritten || summary.captured || summary.exported || summary.memberWritten) return false;
-  for (const use of summary.uses) {
-    if (!enter()) return false;
-    for (let node: Node | undefined = use.reference; node !== undefined; node = ast.parent(node)) {
-      if (!enter()) return false;
-      const passing = input.sourceFacts?.getFact(node, argumentPassingFactKey);
-      if (passing !== undefined && !immutablePassingModes.has(passing.mode)) return false;
-      const pointer = input.sourceFacts?.getFact(node, pointerOperationFactKey);
-      if (pointer?.operation === "address-of") return false;
-      if (ast.kindName(node).endsWith("Statement") || callableKinds.has(ast.kindName(node))) break;
-    }
-  }
+  if (sourceBindingHasMutableExposure(input, summary, enter)) return false;
   const selectsBinding = (node: Node | undefined): boolean => {
     const selected = unwrap(node);
     return selected !== undefined && ast.is.IsIdentifier(selected) &&
@@ -91,7 +81,7 @@ export function sourceIntegerIsNonnegative(input: {
   };
   for (let current = expression, parent = ast.parent(current); parent !== undefined;
     current = parent, parent = ast.parent(parent)) {
-    if (!enter() || callableKinds.has(ast.kindName(parent))) return false;
+    if (!enter() || sourceBindingCallableKinds.has(ast.kindName(parent))) return false;
     if (ast.is.IsIfStatement(parent)) {
       const branch = ast.as.AsIfStatement(parent);
       if (current === branch?.ThenStatement && proves(branch.Expression, true) ||
@@ -121,9 +111,6 @@ export function sourceIntegerIsNonnegative(input: {
 }
 
 const transparentKinds = new Set(["KindParenthesizedExpression", "KindSatisfiesExpression", "KindNonNullExpression"]);
-const callableKinds = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction",
-  "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const immutablePassingModes = new Set(["by-value", "byref-readonly", "borrow-shared"]);
 const reversedOperators = new Map([
   ["KindGreaterThanToken", "KindLessThanToken"], ["KindGreaterThanEqualsToken", "KindLessThanEqualsToken"],
   ["KindLessThanToken", "KindGreaterThanToken"], ["KindLessThanEqualsToken", "KindGreaterThanEqualsToken"],

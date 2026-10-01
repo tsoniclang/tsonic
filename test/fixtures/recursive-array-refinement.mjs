@@ -28,7 +28,35 @@ function measure(value: Measured): number {
   if (Array.isArray(value)) return value.length + 10;
   return value.length;
 }
+function inverse(value: Measured): number {
+  if (!Array.isArray(value)) return value.length;
+  return value.length + 10;
+}
+function alias(value: Measured): number {
+  const same: Measured = value;
+  if (Array.isArray(same)) return same.length + 10;
+  return same.length;
+}
+function changed(value: Measured): number {
+  if (Array.isArray(value)) {
+    value = { length: 9 };
+    return value.length;
+  }
+  return value.length;
+}
+function later(value: Measured): number {
+  if (Array.isArray(value)) {
+    const result = value.length + 10;
+    value = { length: 99 };
+    return result + value.length - 99;
+  }
+  return value.length;
+}
 export function run(): boolean {
-  return measure({ length: 7 }) === 7 && measure([1, 2]) === 12;
+  return measure({ length: 7 }) === 7 && measure([1, 2]) === 12 &&
+    inverse({ length: 7 }) === 7 && inverse([1, 2]) === 12 &&
+    alias({ length: 7 }) === 7 && alias([1, 2]) === 12 &&
+    changed({ length: 7 }) === 7 && changed([1, 2]) === 9 &&
+    later({ length: 7 }) === 7 && later([1, 2]) === 12;
 }
 `;

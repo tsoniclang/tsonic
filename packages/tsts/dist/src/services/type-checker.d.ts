@@ -7,6 +7,8 @@ import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
 import type { ExtensionCheckedIterationSelection } from "../internal/checker/checker/iteration-evidence.js";
 import type { ContextFlags, ResolvedCallEvidence, Signature, Type } from "../internal/checker/types.js";
+import type { ResolvedSourceFlowConditionInfo } from "./source-flow-conditions.js";
+export type { ResolvedSourceFlowCondition, ResolvedSourceFlowConditionInfo } from "./source-flow-conditions.js";
 export type { ResolvedSourceCallableCompletionInfo, ResolvedSourceGeneratorInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo, } from "./source-control-flow-evidence.js";
 import type { ResolvedSourceCallableCompletionInfo, ResolvedSourceGeneratorInfo, ResolvedSourceResourceManagementInfo, ResolvedSourceWellKnownSymbolInfo, ResolvedSourceYieldInfo } from "./source-control-flow-evidence.js";
 export interface CreateTypeCheckerQueriesOptions {
@@ -71,6 +73,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedObjectLiteralElementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceObjectLiteralElementInfo>;
     readonly getResolvedStorageInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceStorageInfo>;
     readonly getResolvedCallableCompletionInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceCallableCompletionInfo>;
+    readonly getResolvedFlowConditionInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceFlowConditionInfo>;
     readonly getResolvedGeneratorInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceGeneratorInfo>;
     readonly getResolvedYieldInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceYieldInfo>;
     readonly getResolvedWellKnownSymbolInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceWellKnownSymbolInfo>;

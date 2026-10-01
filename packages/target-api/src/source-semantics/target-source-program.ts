@@ -102,6 +102,7 @@ export function createTargetSourceProgram(
             selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts);
       },
       elementAccess: queries.checker.getResolvedElementAccessInfo,
+      flowConditions: queries.checker.getResolvedFlowConditionInfo,
       iteration: queries.checker.getResolvedIterationInfo,
       objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
       storage: queries.checker.getResolvedStorageInfo,
