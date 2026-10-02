@@ -1,6 +1,12 @@
 export const optionalStorageAssignmentSource = `
 import type { int64 } from "@tsonic/core/types.js";
 class Value { text = "before"; }
+type Close = () => void;
+class ReadonlyHolder {
+  readonly action: Close | null | undefined;
+  constructor(action?: Close | null) { this.action = action; }
+  run(): void { this.action?.(); }
+}
 class Holder {
   value?: Value;
   constructor(value?: Value) { this.value = value; }
@@ -23,6 +29,14 @@ function capture(value?: Value): () => Value | undefined {
   };
 }
 export function run(): boolean {
+  let calls = 0;
+  const absent = new ReadonlyHolder();
+  const empty = new ReadonlyHolder(null);
+  const present = new ReadonlyHolder(() => { calls++; });
+  absent.run();
+  empty.run();
+  present.run();
+  if (calls !== 1 || absent.action !== null || empty.action !== undefined) return false;
   const value = new Value();
   const holder = new Holder(value);
   const alias = holder;
