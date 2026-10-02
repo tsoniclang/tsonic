@@ -8,6 +8,9 @@ class Source {
   read(key: string | number): string { calls += 1; return "value"; }
 }
 class Derived extends Source {}
+class Container { get(): Source { return new Derived(); } }
+function container(present: boolean): Container | undefined { return present ? new Container() : undefined; }
+function callable(present: boolean): (() => Source) | undefined { return present ? () => new Derived() : undefined; }
 function receiver(present: boolean): Source | undefined {
   receivers += 1;
   return present ? new Derived() : undefined;
@@ -19,8 +22,18 @@ export function run(): boolean {
   const absent = read(receiver(false));
   const present = read(receiver(true));
   const numeric = new Derived().read(7);
+  const absentContainer = container(false);
+  const absentChain = absentContainer?.get().read(argument());
+  const presentContainer = container(true);
+  const presentChain = presentContainer?.get().read(argument());
+  const absentCallable = callable(false);
+  const presentCallable = callable(true);
+  const absentCallChain = absentCallable?.().read(argument());
+  const presentCallChain = presentCallable?.().read(argument());
   return absent === undefined && present === "value" && numeric === "value" &&
-    observedCalls() === 2 && receivers === 2 && argumentsRead === 1;
+    absentChain === undefined && presentChain === "value" &&
+    absentCallChain === undefined && presentCallChain === "value" &&
+    observedCalls() === 4 && receivers === 2 && argumentsRead === 3;
 }
 `;
 
