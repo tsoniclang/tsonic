@@ -150,8 +150,7 @@ export const invalidGenericObjectMethods = [
   `const value = { score<T extends { score: number }>(item: T): number { return item.score; } }; export const result = value.score({ score: "wrong" });`,
 ];
 
-export const genericObjectMethodValueSource = `
-  interface Identity { identity<T>(value: T): T; }
+const genericObjectMethodFactorySource = `
   function make(seed: number) {
     let count = seed;
     return {
@@ -161,6 +160,11 @@ export const genericObjectMethodValueSource = `
     };
   }
   function returned() { const value = make(3); return value.identity; }
+`;
+
+export const genericObjectMethodValueSource = `
+  interface Identity { identity<T>(value: T): T; }
+  ${genericObjectMethodFactorySource}
   export function run(): boolean {
     const value = make(5);
     const identity = value.identity;
@@ -187,5 +191,44 @@ export const genericObjectMethodValueSource = `
     if (copied.extra !== 17 || projected.extra !== 19 || copied.identity(23) !== 23 || !projected.identity(true)) return false;
     if (copiedAgain.identity("copy") !== "copy" || copiedAgain.read(0) !== value.read(0)) return false;
     return escaped("returned") === "returned" && escaped(11) === 11;
+  }
+`;
+
+export const genericObjectMethodStorageSource = `
+  ${genericObjectMethodFactorySource}
+  export function run(): boolean {
+    const value = make(5);
+    const identity = value.identity;
+    const alias = identity;
+    if (identity(7) !== 7 || alias("value") !== "value" || value.read(false) !== 7) return false;
+    if (identity !== alias || identity !== value.identity || identity === value.other) return false;
+    const second = make(5);
+    if (identity === second.identity) return false;
+    let evaluations = 0;
+    const receiver = () => { evaluations++; return value; };
+    const selected = receiver().identity;
+    if (evaluations !== 1 || selected(9) !== 9 || evaluations !== 1) return false;
+    const escaped = returned();
+    const stored = { call: value.identity };
+    const extracted = stored.call;
+    if (stored.call<number>(13) !== 13 || extracted !== identity || !extracted<boolean>(true)) return false;
+    const copied = { ...value, extra: 17 };
+    const copiedAgain = { ...copied };
+    const { extra, ...rest } = copied;
+    if (copied.identity !== identity || copiedAgain.identity !== identity || rest.identity !== identity) return false;
+    if (extra !== 17 || copied.extra !== 17 || copied.identity(23) !== 23) return false;
+    if (copiedAgain.identity("copy") !== "copy" || rest.identity(true) !== true || rest.read(0) !== value.read(0)) return false;
+    return escaped("returned") === "returned" && escaped(11) === 11;
+  }
+  export function retainedReads(count: number): number {
+    const value = make(0);
+    let result = 0;
+    for (let index = 0; index < count; index++) {
+      const selected = value.identity;
+      const alias = selected;
+      if (selected !== alias || alias !== value.identity) throw new Error("retained method identity");
+      result = selected(index);
+    }
+    return result;
   }
 `;

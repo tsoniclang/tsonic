@@ -44,12 +44,29 @@ function append(target: Record<string, unknown>, key: string, value: string): vo
   target[key] = [String(current), value];
 }
 export function run(): boolean {
-  const backing: unknown[] = ["first"];
+  const backing: string[] = ["first"];
   const target: Record<string, unknown> = { existing: backing };
   append(target, "existing", "second");
   return backing.length === 2 && backing[1] === "second";
 }
 `;
+
+export function incompatibleNativeArrayCastSource(guarded = false) {
+  return `
+export function run(): boolean {
+  const backing: unknown[] = ["first"];
+  const broad: unknown = backing;
+  ${guarded ? 'if (!Array.isArray(broad)) return false;' : ''}
+  try {
+    const restored = broad as string[];
+    restored.push("second");
+    return false;
+  } catch {
+    return backing.length === 1 && backing[0] === "first";
+  }
+}
+`;
+}
 
 export const freshBroadArraySource = `
 import type { uint64 } from "@tsonic/core/types.js";
