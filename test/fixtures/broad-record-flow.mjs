@@ -98,3 +98,32 @@ export function run(): boolean {
     result[0] === "text" && result[1] === value;
 }
 `;
+export const freshTypedArrayRecordSource = `
+function append(target: Record<string, unknown>, key: string, value: string): void {
+  const current = target[key];
+  if (current === undefined) {
+    target[key] = value;
+    return;
+  }
+  if (Array.isArray(current)) {
+    (current as string[]).push(value);
+    return;
+  }
+  target[key] = [String(current), value];
+}
+function fresh(value: string): unknown {
+  return [value, "tail"];
+}
+export function run(): boolean {
+  const record: Record<string, unknown> = {};
+  append(record, "field", "first");
+  append(record, "field", "second");
+  const items = record["field"] as string[];
+  append(record, "field", "third");
+  items[0] = "edited";
+  const alias = record["field"] as string[];
+  const returned = fresh("head") as string[];
+  return items.length === 3 && alias[0] === "edited" && alias[2] === "third" &&
+    returned[0] === "head" && returned[1] === "tail";
+}
+`;

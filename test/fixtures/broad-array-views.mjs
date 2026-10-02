@@ -28,3 +28,18 @@ export function run(): boolean {
     typed(["left", "right"]) === 2 && typed("not an array") === 0 && known(["item"]);
 }
 `;
+
+export const broadArrayCategoryWriteSource = `
+function update(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  let calls = 0;
+  const index = (): number => { calls++; return 0; };
+  value[index()] = 7;
+  return calls === 1 && value[0] === 7 && value.length === 2;
+}
+export function run(): boolean {
+  const values: unknown[] = [1, 2];
+  const alias = values;
+  return update(values) && alias[0] === 7 && !update("not an array");
+}
+`;
