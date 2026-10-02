@@ -1,3 +1,22 @@
+export const authoredObjectMethodEvidenceSource = `
+  function create(start: number) {
+    let total = start;
+    return {
+      identity<T>(value: T): T { return value; },
+      read(): number { return total; },
+      increment(step: number): number { total += step; return total; },
+    };
+  }
+  export function run(): boolean {
+    const first = create(3);
+    const second = create(10);
+    const read = first.read;
+    if (first.identity("first") !== "first" || second.identity(7) !== 7) return false;
+    if (read() !== 3 || first.increment(2) !== 5 || read() !== 5) return false;
+    return second.read() === 10 && second.increment(4) === 14 && first.read() === 5;
+  }
+`;
+
 export const genericObjectMethodFiles = {
   "factory.ts": `
     export interface Identity { identity<T>(value: T): T; }
