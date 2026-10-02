@@ -1,3 +1,15 @@
+export const nativeCallableAdapterCostSource = `
+let total = 0;
+function original(): number { total++; return total; }
+function defaulted(value = 5): number { return value; }
+export function staticCallback(): (unused: number) => number { return original; }
+export function inlineCallback(): (unused: number) => number { return () => original(); }
+export function capturedCallback(initial: number): (unused: number) => number {
+  return (): number => { initial++; return initial; };
+}
+export function defaultCallback(): (value?: number) => number { return defaulted; }
+`;
+
 export const absenceCallableConversionSource = `
 let first = 0;
 let second = 0;
