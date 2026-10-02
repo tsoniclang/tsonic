@@ -1,14 +1,20 @@
 export const partialRecordAbsenceSource = `
 type Headers = Record<string, string[] | undefined>;
 class Store {
-  readonly values: Headers = {};
+  readonly values: Headers;
+  constructor(values?: Headers) { this.values = values ?? {}; }
   read(key: string, fallback: Headers): string[] {
     return [...(this.values[key] ?? fallback[key] ?? [])];
   }
 }
+function fallback(values: Headers | undefined): Headers {
+  return values ?? { label: ["fallback"] };
+}
 export function run(): boolean {
   const store = new Store();
   const native: Headers = { label: ["before"] };
+  const selected = new Store(native);
+  if (selected.values !== native || fallback(native) !== native || fallback(undefined)["label"]?.[0] !== "fallback") return false;
   const missing = store.read("missing", native);
   const copied = store.read("label", native);
   copied.push("copy only");
