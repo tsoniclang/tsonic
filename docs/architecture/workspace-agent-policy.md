@@ -208,6 +208,13 @@ policy.
 - Prove operations statically and emit closed generated code, source-generated
   metadata, or closed runtime carriers. If proof is unavailable, emit a
   deterministic diagnostic.
+- Do not attempt capabilities genuinely incompatible with this native, statically
+  closed architecture. Full dynamic JavaScript `Proxy` interception is not a
+  reason to introduce arbitrary member reflection, hidden emulation or an
+  approximate fallback. Report the unsupported capability explicitly. Establish
+  the architectural conflict before declaring a capability impossible: an absent
+  compiler implementation or incorrect phase boundary is still an owning-layer
+  defect to fix, not an architectural limitation.
 - Open-ended target toolchain settings belong in native target configuration,
   not generic Tsonic configuration. Tsonic configuration is limited to compiler
   semantic input, source/profile/provider selection, and deterministic codegen
