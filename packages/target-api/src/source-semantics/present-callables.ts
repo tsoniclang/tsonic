@@ -12,6 +12,6 @@ export function sourcePresentCallableType(
   if (members.some(member => member === undefined)) return undefined;
   const present = members.filter(member => !semantics.types.isNullish(member!));
   const selected = present.length === 1 ? present[0] : undefined;
-  return selected !== undefined && semantics.types.callable(selected) !== undefined
+  return selected !== undefined && semantics.types.callSignatures(selected).length > 0
     ? selected : undefined;
 }
