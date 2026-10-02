@@ -26,7 +26,7 @@ export function selectSourceCallResult(
   if (source.sourceSelectedSignatureKind !== "resolved") {
     return undefined;
   }
-  const selectedReturnType = checker.getReturnTypeOfSignature(
+  const selectedReturnType = checker.getInvocationReturnTypeOfSignature(
     source.selectedSignature,
   );
   if (selectedReturnType === undefined) {

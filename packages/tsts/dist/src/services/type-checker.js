@@ -1,6 +1,7 @@
 import { Background } from "../go/context.js";
 import { Node_Text } from "../internal/ast/ast.js";
 import { readTypeIndexInfo } from "./type-members.js";
+import { readInvocationReturnType } from "./signature-returns.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
@@ -73,6 +74,7 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedWellKnownSymbolInfo: (node) => memoizeResolvedNodeQuery(wellKnownSymbolInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceWellKnownSymbolInfo(checker, node))),
         getResolvedResourceManagementInfo: (node) => memoizeResolvedNodeQuery(resourceManagementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceResourceManagementInfo(checker, node))),
         getReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
+        getInvocationReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => readInvocationReturnType(checker, signature)),
         getCallSignaturesOfType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
         getConstructSignaturesOfType: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindConstruct)) ?? [],
         getPropertyOfType: (type, name) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetPropertyOfType(checker, type, name)),

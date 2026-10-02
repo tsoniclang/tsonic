@@ -79,6 +79,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedWellKnownSymbolInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceWellKnownSymbolInfo>;
     readonly getResolvedResourceManagementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceResourceManagementInfo>;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
+    readonly getInvocationReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;
     readonly getCallSignaturesOfType: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignaturesOfType: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getPropertyOfType: (type: GoPtr<Type>, name: string) => GoPtr<Symbol>;
