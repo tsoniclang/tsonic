@@ -63,3 +63,45 @@ export function run(): void {
   });
 }
 `;
+
+export const nativeNodeErrorUnionSource = `
+import type { NodeError } from "node:util";
+import { Buffer } from "node:buffer";
+import { gunzip } from "node:zlib";
+
+export function failUnion(error: Error | NodeError): never { throw error; }
+export function failReordered(error: NodeError | Error): never { throw error; }
+export function failOptionalUnion(error: Error | NodeError | undefined): void {
+  if (error !== undefined) failUnion(error);
+}
+export function throwNative(error: NodeError): never { return failUnion(error); }
+export function throwSource(error: Error): never { return failReordered(error); }
+export function rethrowUnion(error: Error | NodeError): void {
+  try { failUnion(error); } catch (failure) { throw failure; }
+}
+`;
+
+export const nativeNodeErrorUnionProofSource = `${nativeNodeErrorUnionSource}
+export class LocalFailure extends Error { readonly tag = "local"; }
+export function failProject(error: LocalFailure | NodeError): never { throw error; }
+export function runUnions(): void {
+  let caught = 0;
+  failOptionalUnion(undefined);
+  try { failUnion(new Error("source")); } catch { caught++; }
+  try { failReordered(new Error("reordered")); } catch { caught++; }
+  try { failProject(new LocalFailure("project")); }
+  catch (failure) { if (failure instanceof LocalFailure && failure.tag === "local") caught++; }
+  if (caught !== 3) throw new Error("source error alternative routes");
+  gunzip(Buffer.from("invalid gzip"), error => {
+    if (error === undefined) throw new Error("native error missing");
+    let nativeCaught = 0;
+    try { failUnion(error); } catch { nativeCaught++; }
+    try { failReordered(error); } catch { nativeCaught++; }
+    try { failProject(error); } catch { nativeCaught++; }
+    try { failOptionalUnion(error); } catch { nativeCaught++; }
+    try { rethrowUnion(error); } catch { nativeCaught++; }
+    if (nativeCaught !== 5) throw new Error("native error alternative routes");
+    console.log("native union routes");
+  });
+}
+`;
