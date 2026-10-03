@@ -1,5 +1,5 @@
 export const nativeWordConversionsSource = `
-import type { int16, int32, nativeInt, nativeUint, uint8, uint16 } from "@tsonic/core/types.js";
+import type { int16, int32, int64, nativeInt, nativeUint, uint8, uint16, uint64 } from "@tsonic/core/types.js";
 let reads: int32 = 0;
 function read(): int32 { reads += 1; return 7; }
 function unsigned(value: int32): nativeUint { return value as nativeUint; }
@@ -16,12 +16,17 @@ export function run(): boolean {
   const end: nativeUint = index as nativeUint;
   const start: nativeUint = end + 1;
   const length: uint16 = 65535;
+  const scaled: nativeUint = (64 * 1024) * 1024;
+  const scaledWide: uint64 = 64n * 1024n * 1024n;
+  const exactWide: nativeUint = 9007199254740993 + 2;
+  const quotient: int64 = -7n / 2n;
   let cursor: nativeUint = 2;
   cursor += fromWord(length);
   return selected === 7 && reads === 1 && signed(selected) === 7 &&
     fromNumber(0) === 0 && fromNumber(65535) === 65535 && signedNumber(-32768) === -32768 &&
     fromByte(255) === 255 && fromWord(length) === 65535 && fromSigned(-32768) === -32768 &&
-    cursor === 65537 && end === 6 && start === 7 &&
+    cursor === 65537 && end === 6 && start === 7 && scaled === 67108864 &&
+    scaledWide === 67108864n && exactWide === 9007199254740995 && quotient === -3n &&
     optional(undefined) === undefined && optional(65535) === 65535;
 }
 `;
