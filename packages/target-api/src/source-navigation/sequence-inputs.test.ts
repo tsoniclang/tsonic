@@ -42,5 +42,5 @@ test("borrowed sequence alternatives retain source order, effects and exact cont
   assert.ok(empty);
   assert.ok(sourceSequenceInputIsEmpty(source.ast, empty.inputs[1]!));
   assert.ok(choice.inputs.every(node => !sourceSequenceInputIsEmpty(source.ast, node)));
-  assert.equal(sourceSequenceConsumptionRoot(source.ast, binaries.at(-1)!), undefined);
+  assert.equal(sourceSequenceConsumptionRoot(source.ast, binaries[binaries.length - 1]!), undefined);
 });
