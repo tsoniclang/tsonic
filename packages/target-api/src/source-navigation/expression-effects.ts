@@ -1,5 +1,6 @@
 import type { CheckedSourceProgram, Node, Type } from "@tsonic/tsts";
 import type { SourceExpressionEffects } from "./types.js";
+import { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 
 const assignmentOperators = new Set([
   "KindEqualsToken",
@@ -61,16 +62,6 @@ const coerciveUnaryOperators = new Set([
   "KindTildeToken",
 ]);
 
-const functionKinds = new Set([
-  "KindArrowFunction",
-  "KindFunctionExpression",
-  "KindFunctionDeclaration",
-  "KindMethodDeclaration",
-  "KindGetAccessor",
-  "KindSetAccessor",
-  "KindConstructor",
-]);
-
 export function sourceExpressionEffects(
   source: CheckedSourceProgram,
   expression: Node,
@@ -82,11 +73,6 @@ export function sourceExpressionEffects(
   }
   const { ast } = source;
   const kind = ast.kindName(expression);
-  if (functionKinds.has(kind ?? "")) {
-    const effects = frozenEffects(false, false, false, false);
-    cache.set(expression, effects);
-    return effects;
-  }
   let invokes = false;
   let mutates = false;
   let suspends = false;
@@ -144,10 +130,7 @@ export function sourceExpressionEffects(
     suspends = true;
     mayThrow = true;
   }
-  ast.forEachChild(expression, (child) => {
-    if (child === undefined) {
-      return;
-    }
+  forEachSourceImmediateEvaluationChild(ast, expression, (child) => {
     const childEffects = sourceExpressionEffects(source, child, cache);
     invokes ||= childEffects.invokes;
     mutates ||= childEffects.mutates;

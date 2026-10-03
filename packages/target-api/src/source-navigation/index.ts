@@ -1,4 +1,5 @@
 export * from "./navigation.js";
+export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "./lexical-captures.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";

@@ -122,6 +122,14 @@ Planning may query:
 - exact target provider relations;
 - artifact dependency contracts.
 
+`@tsonic/target-api/source` owns immediate source evaluation boundaries through
+`forEachSourceImmediateEvaluationChild`. The cached `expressionEffects` query
+uses that same visitor. Callable bodies, parameter defaults and instance field
+initializers are deferred; class heritage, computed member names and static
+initialization remain immediate. Class keys precede static initialization.
+Targets tracing exact invocation footprints consume this visitor rather than
+inventing independent function/class skip lists.
+
 Planning may not:
 
 - re-enter the checker;
