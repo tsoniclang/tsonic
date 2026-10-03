@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
-import { createSourceSingleInvocationQuery, sourceEnclosingCallable } from "./callable-invocations.js";
+import { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused } from "./callable-invocations.js";
 
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -19,7 +19,15 @@ function fixture(body: string) {
   };
   visit(file!);
   const query = createSourceSingleInvocationQuery(source.ast, source.navigation);
-  return { source, select(name: string) {
+  return { source, declaration(name: string) {
+    const declaration = declarations.get(name);
+    assert.equal(declaration !== undefined, true);
+    return declaration!;
+  }, unused(name: string) {
+    const declaration = declarations.get(name);
+    assert.equal(declaration !== undefined, true);
+    return sourceLexicalFunctionIsUnused(declaration!, source.ast, source.navigation);
+  }, select(name: string) {
     const declaration = declarations.get(name);
     assert.equal(declaration !== undefined, true);
     return query(declaration!);
@@ -35,6 +43,35 @@ return value;`);
   assert.equal(current.select("through"), true);
   assert.equal(current.select("outer"), false);
   assert.equal(current.select("read"), true);
+});
+
+test("unused lexical declarations retain every runtime use and module declaration", () => {
+  const current = fixture(`
+function dormant(): number { throw 3; }
+function typed(): number { return 3; }
+type Signature = typeof typed;
+const value: Signature | undefined = undefined;
+function called(): number { return 3; }
+function escaped(): number { return 3; }
+const alias = escaped;
+function captured(): number { return 3; }
+const callback = () => captured();
+function compared(): number { return 3; }
+return called() + alias() + callback() + (compared === compared ? 0 : 1) + (value === undefined ? 0 : 1);`);
+  for (const name of ["dormant", "typed"]) assert.equal(current.unused(name), true, name);
+  for (const name of ["outer", "called", "escaped", "captured", "compared"]) {
+    assert.equal(current.unused(name), false, name);
+  }
+});
+
+test("unused lexical omission rejects unclassified, exported and written summaries", () => {
+  const current = fixture(`function read(): number { return 3; } return 0;`);
+  const declaration = current.declaration("read");
+  const summary = current.source.navigation.declarationUseSummary(declaration);
+  for (const mutation of [{ exported: true }, { bindingWritten: true }, { hasUnclassifiedValueUse: true },
+    { uses: [{ reference: declaration, kind: "source-linkage" as const, role: "source-linkage" as const, captured: false, throughMember: false }] },
+  ]) assert.equal(sourceLexicalFunctionIsUnused(declaration, current.source.ast,
+    { declarationUseSummary: () => ({ ...summary, ...mutation }) }), false);
 });
 
 test("single lexical invocation rejects repeated, recursive, escaping and deferred activation", () => {

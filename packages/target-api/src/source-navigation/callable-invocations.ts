@@ -19,6 +19,18 @@ export function sourceEnclosingCallable(node: Node | undefined, ast: AstReader):
   return undefined;
 }
 
+export function sourceLexicalFunctionIsUnused(
+  declaration: Node,
+  ast: AstReader,
+  navigation: Pick<SourceProgramNavigation, "declarationUseSummary">,
+): boolean {
+  if (!ast.is.IsFunctionDeclaration(declaration) ||
+    sourceEnclosingCallable(ast.parent(declaration), ast) === undefined) return false;
+  const summary = navigation.declarationUseSummary(declaration);
+  return !summary.exported && !summary.bindingWritten && !summary.hasUnclassifiedValueUse &&
+    summary.uses.every(use => use.kind === "type-only");
+}
+
 export function createSourceSingleInvocationQuery(
   ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "declarationUseSummary">,

@@ -21,7 +21,8 @@ export class OrdinaryThrownValue {
   stack: string | undefined = undefined;
 }
 export class StoredError {
-  constructor(public readonly error: Error) {}
+  readonly error: Error;
+  constructor(error: Error) { this.error = error; }
 }
 export function throughBase(error: Error): Error { return error; }
 export function throwBase(error: Error): void { throw error; }
