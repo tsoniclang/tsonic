@@ -101,3 +101,33 @@ export function run(): boolean {
   return alias.name === "Changed" && alias.message === "changed message" && alias.stack === "changed stack";
 }
 `;
+
+export function liveErrorMixedRecoverySource(projectError) {
+  return `
+class Failure extends Error {}
+class Unrelated {
+  name = "Error";
+  message = "not an Error";
+  stack: string | undefined = "not an Error stack";
+}
+function recover(flag: boolean): boolean {
+  const original = ${projectError ? "new Failure" : "new Error"}("before");
+  let excluded = false;
+  try { if (flag) throw original; throw new Unrelated(); }
+  catch (caught) {
+    if (caught instanceof Error) {
+      if (caught !== original) return false;
+      caught.name = "Changed";
+      caught.message = "after";
+      caught.stack = "stack";
+    } else if (caught instanceof Unrelated) {
+      excluded = caught.name === "Error" && caught.message === "not an Error" && caught.stack === "not an Error stack";
+    } else return false;
+  }
+  return flag
+    ? !excluded && original.name === "Changed" && original.message === "after" && original.stack === "stack"
+    : excluded && original.message === "before" && original.stack === undefined;
+}
+export function run(): boolean { return recover(false) && recover(true); }
+`;
+}
