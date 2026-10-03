@@ -322,8 +322,8 @@ export function createTargetSourceProgram(
     if (reference === undefined) {
       return Object.freeze({ kind: "not-project-reference" });
     }
-    const declaredType = forFile(reference.sourceFile)
-      .declarations.declaredValueType(reference.declaration);
+    const selectedSemantics = forNode(node);
+    const declaredType = selectedSemantics.declarations.declaredValueType(reference.declaration);
     if (declaredType === undefined) {
       return Object.freeze({
         kind: "unresolved",
@@ -331,7 +331,6 @@ export function createTargetSourceProgram(
         missing: "declared-type",
       });
     }
-    const selectedSemantics = forNode(node);
     const selectedType = selectedSemantics.types.expressionType(node);
     if (selectedType === undefined) {
       return Object.freeze({

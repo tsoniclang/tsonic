@@ -11,11 +11,28 @@ import {
 import { createTargetSourceProgram } from "./target-source-program.js";
 import { sourceIndexedPropertyTypeEvidence, sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
 import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
+import { typescriptNoLibUtilityDeclarations } from "../source-profiles/typescript-no-lib-utilities.js";
 
-function fixture() {
+function fixture(canonicalUtilities = false) {
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src",
     files: {
+      ...(canonicalUtilities ? {
+        "/src/typescript-utilities.d.ts": typescriptNoLibUtilityDeclarations,
+        "/src/globals.d.ts": `
+          interface Object {}
+          interface Function {}
+          interface CallableFunction extends Function {}
+          interface NewableFunction extends Function {}
+          interface String {}
+          interface Number {}
+          interface Boolean {}
+          interface RegExp {}
+          interface IArguments { length: number; [index: number]: unknown }
+          interface Array<T> { length: number; [index: number]: T }
+          interface ReadonlyArray<T> { readonly length: number; readonly [index: number]: T }
+        `,
+      } : {}),
       "/src/node_modules/@test/native/package.json": JSON.stringify({
         name: "@test/native", version: "1.0.0", type: "module", exports: { "./types.js": "./types.d.ts" },
       }),
@@ -33,6 +50,10 @@ function fixture() {
         type First = Fields["first"];
         type Several = Fields["first" | "second"];
         type Optional = Fields["optional"];
+        type Present = NonNullable<Fields["optional"]>;
+        type PresentAlias = NonNullable<Optional>;
+        type PresentNested = NonNullable<PresentAlias>;
+        type Absent = NonNullable<null | undefined>;
         type Indexed = { [key: string]: number }[string];
         type Deferred<T, K extends keyof T> = T[K];
         type NativeArray = word[];
@@ -50,7 +71,7 @@ function fixture() {
         type ForeignAppliedRecordUnion = ForeignRecordUnion<word>;
       `,
     },
-    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+    compilerOptions: { strict: true, noLib: canonicalUtilities, target: "es2022", module: "esnext", moduleResolution: "bundler" },
     extensionHostOptions: { extensions: [createSourceSemanticsExtension({ modules: [{
       moduleSpecifier: "@test/native/types.js", packageName: "@test/native", subpath: "types.js",
       exports: [sourcePrimitive("word", "int32", "number", true, 32)],
@@ -90,6 +111,29 @@ test("transformed components retain ordinary keyword evidence through exact alia
     assert.deepEqual(nodes, [alias(name)]);
     assert.ok(Object.isFrozen(nodes));
   }
+});
+
+test("canonical nullish removal retains its exact authored component", () => {
+  const { semantics, alias, selected, source } = fixture(true);
+  for (const name of ["Present", "PresentAlias", "PresentNested", "Absent"]) {
+    const node = alias(name);
+    const transformation = semantics.types.standardTransformation(node, selected(name));
+    const expectedKind = name === "PresentNested" ? "component" : "non-nullish";
+    assert.ok(transformation?.kind === expectedKind);
+    assert.ok(Object.isFrozen(transformation));
+    assert.ok(Object.isFrozen(transformation.component));
+    assert.ok(transformation.kind === "component" || transformation.kind === "non-nullish");
+    const inputNode = transformation.component.authoredTypeNode;
+    assert.ok(inputNode);
+    assert.equal(inputNode, source.ast.typeArguments(node)[0]);
+    const inputType = semantics.types.authoredType(inputNode);
+    assert.ok(inputType);
+    assert.ok(semantics.types.isIdentical(transformation.component.selectedType, inputType));
+    assert.deepEqual(semantics.types.standardTransformation(node, selected("TextArray")), { kind: "unresolved" });
+  }
+  assert.equal(semantics.types.isNever(selected("Absent")), true);
+  const ordinary = fixture();
+  assert.equal(ordinary.semantics.types.standardTransformation(ordinary.alias("Present"), ordinary.selected("Present")), undefined);
 });
 
 test("native primitive aliases never expose their erased implementation keyword", () => {

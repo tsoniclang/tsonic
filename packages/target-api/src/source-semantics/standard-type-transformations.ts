@@ -77,6 +77,19 @@ export function selectStandardSourceTypeTransformation(
     signatureDeclaration: semantics.declarations.signatureDeclaration,
   });
   switch (name) {
+    case "NonNullable": {
+      const actual = semantics.types.authoredType(authoredTypeNode);
+      if (actual === undefined || !semantics.types.isIdentical(actual, selectedType)) {
+        return { kind: "unresolved" };
+      }
+      return Object.freeze({
+        kind: semantics.types.isIdentical(inputType, selectedType)
+          ? "component" : "non-nullish",
+        component: Object.freeze({
+          selectedType: inputType, authoredTypeNode: typeArgument,
+        }),
+      });
+    }
     case "Parameters":
       return selectParameterListTransformation(
         semantics.types.signatureInfos(inputType, "call"),

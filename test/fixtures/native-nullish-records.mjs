@@ -16,7 +16,17 @@ function read<Value>(value: Record<string, Value | undefined>): Value | undefine
 function optional(value: Record<string, string | undefined> | null | undefined): string | undefined {
   return value?.present;
 }
+interface QueryInput { query?: Record<string, unknown>; }
+class Query {
+  query: Record<string, unknown> = {};
+  constructor(input: QueryInput) { this.query = input.query ?? {}; }
+}
 export function run(): boolean {
+  const querySource: Record<string, unknown> = { selected: "present" };
+  const query = new Query({ query: querySource });
+  const absentQuery = new Query({});
+  querySource.selected = "changed";
+  if (query.query.selected !== "changed" || absentQuery.query.missing !== undefined) return false;
   const original: Record<string, number> = { answer: 0 };
   const first = selected(original);
   const second = assigned(original);

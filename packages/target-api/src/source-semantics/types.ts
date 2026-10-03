@@ -182,6 +182,10 @@ export interface SourceCallableTypeEvidence {
 
 export type SourceStandardTypeTransformation =
   | {
+      readonly kind: "non-nullish";
+      readonly component: SourceTypeComponentEvidence;
+    }
+  | {
       readonly kind: "component";
       readonly component: SourceTypeComponentEvidence;
     }
