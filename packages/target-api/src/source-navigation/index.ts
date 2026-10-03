@@ -3,6 +3,7 @@ export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "./lexical-captures.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
+export { createSourceSingleInvocationQuery, sourceEnclosingCallable } from "./callable-invocations.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
