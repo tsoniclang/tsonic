@@ -55,3 +55,40 @@ test("authored union aliases retain exact whole groups after undefined narrowing
   assert.equal(selections[1]!.result.kind, "unrelated");
   assert.equal(selections[2]!.result.kind, "ambiguous");
 });
+
+test("authored literal narrowing selects one exact native primitive member", () => {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": `
+      function read(value: string | Error | undefined) {
+        if (value === "route" || value === "router") return value;
+      }
+      function duplicate(value: string | "route" | undefined) {
+        if (value === "route") return value;
+      }
+    ` },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true);
+  for (const [index, declaration] of source.ast.statements(file!).entries()) {
+    const parameter = source.ast.parameters(declaration!)[0];
+    const typeNode = source.ast.typeNode(parameter);
+    const statement = source.ast.statements(source.ast.body(declaration!))[0];
+    const returned = source.ast.as.AsIfStatement(statement!)?.ThenStatement;
+    const expression = returned === undefined ? undefined : Node_Expression(source.ast, returned);
+    const semantics = source.semantics.forFile(file!);
+    const selected = expression === undefined ? undefined : semantics.types.expressionType(expression);
+    assert.equal(typeNode !== undefined && selected !== undefined, true);
+    const result = semantics.types.authoredSelection(typeNode!, selected!);
+    assert.equal(result.kind, index === 0 ? "authored-members" : "ambiguous");
+    if (result.kind === "authored-members") {
+      assert.equal(result.nodes.length, 1);
+      assert.equal(result.nodes[0] === source.ast.children(typeNode!)[0], true);
+      assert.equal(result.selectedNullishTypes.length, 0);
+      assert.equal(Object.isFrozen(result.nodes), true);
+    }
+  }
+});

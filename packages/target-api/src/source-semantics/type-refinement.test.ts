@@ -56,6 +56,34 @@ test("numeric literals retain their declared primitive member, not a new carrier
   assert.deepEqual(entry.result.types, semantics.types.unionOrIntersectionTypes(entry.declared).filter(type => !semantics.types.isNullish(type)));
 });
 
+test("literal refinements retain exact declared primitive members across union branches", () => {
+  const { results, semantics } = inspect(`
+    declare function observe<T>(value: T): void;
+    function read(value: string | Error | undefined): void {
+      if (value === "route" || value === "router") observe(value);
+    }
+    function flag(value: boolean | string): void { if (value === true) observe(value); }
+    function text(value: string): void { if (value === "route") observe(value); }
+    function numeric(value: number | undefined): void { if (value === 7) observe(value); }
+  `);
+  assert.equal(results.length, 4);
+  for (const entry of results) {
+    assert.equal(entry.result.kind === "members" || entry.result.kind === "exact", true);
+    if (entry.result.kind === "members") {
+      assert.equal(entry.result.types.length, 1);
+      assert.equal(semantics.types.isStringLike(entry.result.types[0]!) ||
+        semantics.types.isBooleanLike(entry.result.types[0]!) ||
+        semantics.types.isNumberLike(entry.result.types[0]!), true);
+      assert.equal(semantics.types.isNullish(entry.result.types[0]!), false);
+    }
+  }
+  const text = results.find(entry => semantics.types.isStringLike(entry.declared));
+  const numeric = results.find(entry => semantics.types.isNumberLike(entry.selected));
+  assert.equal(text !== undefined && numeric !== undefined, true);
+  assert.equal(semantics.types.refinement(text!.declared, numeric!.selected).kind, "unrelated");
+  assert.equal(semantics.types.refinement(numeric!.declared, text!.selected).kind, "unrelated");
+});
+
 test("an intersection with two possible source members remains ambiguous", () => {
   const { results, semantics } = inspect(`
     interface Left { left: string; }

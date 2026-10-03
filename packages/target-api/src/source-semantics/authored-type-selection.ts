@@ -9,6 +9,7 @@ import type {
 import {
   sourceTypeRelationship,
 } from "./type-relationship.js";
+import { sourceTypeMemberRefines } from "./type-refinement.js";
 
 export type SourceAuthoredTypeSelection =
   | {
@@ -74,13 +75,7 @@ export function selectAuthoredSourceType(
       const authoredMemberType = authoredMemberTypes.get(authoredMember);
       return retainedUnionMembers.get(authoredMember)?.includes(selectedMember) === true ||
         authoredMemberType !== undefined &&
-        sourceTypeRelationship(
-            types,
-            checker,
-            facts,
-            authoredMemberType,
-            selectedMember,
-          ) !== "unrelated";
+        sourceTypeMemberRefines(types, checker, facts, authoredMemberType, selectedMember);
     });
     if (candidates.length === 0) {
       if (types.isNullish(selectedMember)) {

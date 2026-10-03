@@ -22,13 +22,7 @@ export function selectSourceTypeRefinement(
   selectedType: Type,
 ): SourceTypeRefinement {
   if (
-    sourceTypeRelationship(
-      types,
-      checker,
-      facts,
-      declaredType,
-      selectedType,
-    ) !== "unrelated"
+    sourceTypeMemberRefines(types, checker, facts, declaredType, selectedType)
   ) {
     return { kind: "exact", type: declaredType };
   }
@@ -54,7 +48,7 @@ export function selectSourceTypeRefinement(
   const refined: Type[] = [];
   for (const selectedMember of selectedMembers) {
     const candidates = declaredMembers.filter((declaredMember) =>
-      selectedRefinesMember(declaredMember, selectedMember));
+      sourceTypeMemberRefines(types, checker, facts, declaredMember, selectedMember));
     if (candidates.length === 0) {
       return { kind: "unrelated" };
     }
@@ -67,20 +61,34 @@ export function selectSourceTypeRefinement(
   }
   return { kind: "members", types: Object.freeze(refined) };
 
-  function selectedRefinesMember(declaredMember: Type, selectedMember: Type): boolean {
-    const pending = [selectedMember];
-    const visited = new Set<Type>();
-    while (pending.length > 0) {
-      const member = pending.pop()!;
-      if (visited.has(member)) continue;
-      visited.add(member);
-      if (sourceTypeRelationship(types, checker, facts, declaredMember, member) !== "unrelated") return true;
-      if (types.getNumericLiteralTypeValue(member) !== undefined && types.getNumericLiteralTypeValue(declaredMember) === undefined &&
-        (types.isNumberLike(member) && types.isNumberLike(declaredMember) || types.isBigIntLike(member) && types.isBigIntLike(declaredMember))) return true;
-      if (types.isIntersection(member)) {
-        for (const part of types.getUnionOrIntersectionTypes(member)) if (part !== undefined) pending.push(part);
-      }
+}
+
+export function sourceTypeMemberRefines(
+  types: TypeShapeQueries,
+  checker: TypeCheckerQueries,
+  facts: ReadonlySourceFactResolver,
+  declaredMember: Type,
+  selectedMember: Type,
+): boolean {
+  const pending = [selectedMember];
+  const visited = new Set<Type>();
+  let remaining = 2_048;
+  while (pending.length > 0) {
+    if (--remaining < 0) return false;
+    const member = pending.pop()!;
+    if (visited.has(member)) continue;
+    visited.add(member);
+    if (sourceTypeRelationship(types, checker, facts, declaredMember, member) !== "unrelated") return true;
+    const base = types.getBaseTypeOfLiteralType(member);
+    if (base !== undefined && base !== member &&
+      sourceTypeRelationship(types, checker, facts, declaredMember, base) !== "unrelated") return true;
+    if (types.getNumericLiteralTypeValue(member) !== undefined && types.getNumericLiteralTypeValue(declaredMember) === undefined &&
+      (types.isNumberLike(member) && types.isNumberLike(declaredMember) || types.isBigIntLike(member) && types.isBigIntLike(declaredMember))) return true;
+    if (types.isIntersection(member)) {
+      const parts = types.getUnionOrIntersectionTypes(member);
+      if (parts.some(part => part === undefined) || parts.length > remaining - pending.length) return false;
+      pending.push(...parts as Type[]);
     }
-    return false;
   }
+  return false;
 }
