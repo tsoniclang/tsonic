@@ -5,6 +5,7 @@ class Trace {
   order: int32 = 0;
   mark(step: int32): void { this.order = this.order * 10 + step; }
   value(step: int32): int32 { this.mark(step); return step; }
+  observe(): int32 { return this.order; }
 }
 
 function direct(trace: Trace): int32 { return (trace.mark(1), trace.value(2)); }
@@ -19,23 +20,23 @@ function lazy(trace: Trace, enabled: boolean): int32 { return enabled ? (trace.m
 
 export async function main(): Promise<void> {
   const trace = new Trace();
-  if (direct(trace) !== 2 || trace.order !== 12) throw new Error("sequence order or completion");
+  if (direct(trace) !== 2 || trace.observe() !== 12) throw new Error("sequence order or completion");
   trace.order = 0;
-  if (nested(trace) !== 5 || trace.order !== 345) throw new Error("nested sequence order");
+  if (nested(trace) !== 5 || trace.observe() !== 345) throw new Error("nested sequence order");
   trace.order = 0;
-  if (optional(trace) !== null || trace.order !== 6) throw new Error("sequence absence");
+  if (optional(trace) !== null || trace.observe() !== 6) throw new Error("sequence absence");
   trace.order = 0;
   const value: uint64 = 9007199254740993n;
-  if (wide(trace, value) !== value || trace.order !== 7) throw new Error("sequence native width");
+  if (wide(trace, value) !== value || trace.observe() !== 7) throw new Error("sequence native width");
   trace.order = 0;
-  if (identity(trace) !== trace || trace.order !== 8) throw new Error("sequence identity");
+  if (identity(trace) !== trace || trace.observe() !== 8) throw new Error("sequence identity");
   trace.order = 0;
   let rejected = false;
   try { stopped(trace); } catch { rejected = true; }
-  if (!rejected || trace.order !== 0) throw new Error("divergent sequence evaluated its right");
-  if (await suspended(trace) !== 2 || trace.order !== 12) throw new Error("sequence suspension");
+  if (!rejected || trace.observe() !== 0) throw new Error("divergent sequence evaluated its right");
+  if (await suspended(trace) !== 2 || trace.observe() !== 12) throw new Error("sequence suspension");
   trace.order = 0;
-  if (lazy(trace, false) !== 0 || trace.order !== 0) throw new Error("unselected sequence evaluated");
-  if (lazy(trace, true) !== 2 || trace.order !== 12) throw new Error("selected sequence skipped");
+  if (lazy(trace, false) !== 0 || trace.observe() !== 0) throw new Error("unselected sequence evaluated");
+  if (lazy(trace, true) !== 2 || trace.observe() !== 12) throw new Error("selected sequence skipped");
 }
 `;
