@@ -1,7 +1,7 @@
 # Agent Notes (Tsonic Host)
 
 Read and follow `docs/architecture/workspace-agent-policy.md` before any work,
-including its mandatory "One Current Architecture" API-replacement rule,
+including its mandatory "Agent Delegation" and "One Current Architecture" rules,
 "Direct Solutions, Not Patch Accumulation" rule, owning-layer review and examples,
 "Compiler-Understood Ownership", "Native Semantics and Best-Effort JS Surfaces"
 and "Native Performance From Exact Metadata" contracts for every decision.

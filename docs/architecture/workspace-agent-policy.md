@@ -130,6 +130,9 @@ policy.
 - Do not start parallel agents or delegate new work to subagents unless the
   maintainer explicitly requests it. General task approval or an instruction
   to continue does not authorize agent delegation.
+- Every authorized subagent inherits the full parent context. Always use
+  `fork_context: true`; fresh-context or reduced-context delegation is forbidden.
+  A scoped assignment supplements, never replaces, that inherited context.
 - The coordinating assistant retains full responsibility for integrating,
   reviewing, correcting, and verifying all delegated work. Responsibility is
   not transferred to a worker when a task is assigned or reported complete.
