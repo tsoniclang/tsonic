@@ -181,6 +181,19 @@ policy.
   process, timeout and log guards. Explicitly designated throughput calibration
   runs may be aborted when utilization targets are unmet; they never substitute
   for complete certification or justify weakening tests.
+- Apply the existing process-group memory, swap, task, timeout and log guards
+  to every build and test invocation, including focused pure owner tests and
+  delegated work. JavaScript heap limits and Go runtime limits are not aggregate
+  process-group protection. Never run an unguarded test inside the coordinating
+  Codex process group merely because the fixture is small. The coordinator
+  checks aggregate resource headroom before authorizing concurrent native runs.
+- Keep failure diagnostics bounded without weakening assertions. For AST or
+  Node-bearing proof objects, assert the exact Boolean absence or identity
+  relation and use scalar case labels instead of asking the assertion formatter
+  to render the complete object graph. For example, use
+  `assert.equal(selection === undefined, true, caseName)`, not
+  `assert.equal(selection, undefined)`. Preserve the original assertion's
+  acceptance criterion and fix the demonstrated semantic failure at its owner.
 
 ### Expectation-Only Rerun Exception
 
