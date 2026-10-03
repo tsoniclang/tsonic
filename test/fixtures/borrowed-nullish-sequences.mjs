@@ -16,6 +16,11 @@ export function chooseFromHeaders(authored: string[] | null | undefined,
 export function snapshot(values: readonly string[]): string[] {
   return [...values];
 }
+
+export function chooseLazy(authored: string[] | null | undefined,
+  native: NativeValues | null | undefined, fallback: () => string[]): string[] {
+  return ["before", ...(authored ?? native ?? fallback()), "after"];
+}
 `;
 
 export const incompatibleBorrowedSequenceSource = `
