@@ -20,6 +20,7 @@ import { selectSourceCallableTypeEvidence, selectStandardSourceTypeTransformatio
 import { getEffectiveSourceTypeArguments, getSourceTypeArgumentBindings } from "./type-arguments.js";
 export type { SourceTypeArgumentBinding } from "./type-arguments.js";
 import { selectSourceTypeRefinement } from "./type-refinement.js";
+import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
@@ -93,6 +94,7 @@ export function createTargetSourceProgram(
       return existing;
     }
     const queries = source.getSourceFileQueries(sourceFile);
+    const flowConditions = new WeakMap<Node, import("@tsonic/tsts").ResolvedSourceFlowConditionInfo | null>();
     const operations = Object.freeze({
       call: queries.checker.getResolvedCallInfo,
       propertyAccess(node: Node) {
@@ -103,7 +105,13 @@ export function createTargetSourceProgram(
             selectValueTypeRefinement(selected.receiver.expression), queries.checker, queries.typeShape, source.sourceFacts);
       },
       elementAccess: queries.checker.getResolvedElementAccessInfo,
-      flowConditions: queries.checker.getResolvedFlowConditionInfo,
+      flowConditions(node: Node) {
+        const cached = flowConditions.get(node);
+        if (cached !== undefined) return cached ?? undefined;
+        const selected = resolveSourceFlowConditions({ ast: source.ast, navigation }, node, queries.checker.getResolvedFlowConditionInfo(node));
+        flowConditions.set(node, selected ?? null);
+        return selected;
+      },
       iteration: queries.checker.getResolvedIterationInfo,
       objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
       storage: queries.checker.getResolvedStorageInfo,

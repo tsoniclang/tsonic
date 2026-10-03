@@ -5,6 +5,7 @@ import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_Operato
 export type SourceNativeValueGuard =
   | { readonly kind: "typeof"; readonly sourceOperand: Node; readonly value: string; readonly negated: boolean }
   | { readonly kind: "absence"; readonly sourceOperand: Node; readonly negated: boolean }
+  | { readonly kind: "literal"; readonly sourceOperand: Node; readonly category: "string" | "number" | "bigint" | "boolean"; readonly negated: boolean }
   | { readonly kind: "nominal"; readonly sourceOperand: Node; readonly sourceConstructor: Node; readonly declaration: Node };
 
 export function selectSourceNativeValueGuard(
@@ -35,8 +36,10 @@ export function selectSourceNativeValueGuard(
       return Object.freeze({ kind: "absence", sourceOperand, negated: different });
     }
     if (ast.is.IsIdentifier(absent)) {
-      const semantics = semanticsFor(absent);
-      const type = semantics.types.expressionType(absent);
+      const declaration = navigation.sourceReferenceFor(absent)?.declaration;
+      const semantics = semanticsFor(declaration ?? absent);
+      const type = declaration === undefined ? semantics.types.expressionType(absent)
+        : semantics.declarations.declaredValueType(declaration);
       if (type !== undefined && semantics.types.isNullish(type)) {
         return Object.freeze({ kind: "absence", sourceOperand, negated: different });
       }
@@ -47,6 +50,15 @@ export function selectSourceNativeValueGuard(
     const sourceOperand = transparent(Node_Expression(ast, value));
     if (sourceOperand !== undefined) return Object.freeze({ kind: "typeof", sourceOperand,
       value: ast.text(category), negated: different });
+  }
+  if (operator === "KindEqualsEqualsEqualsToken" || operator === "KindExclamationEqualsEqualsToken") {
+    for (const [sourceOperand, literal] of [[left, right], [right, left]] as const) {
+      const category = ast.is.IsStringLiteral(literal) || ast.kindName(literal) === "KindNoSubstitutionTemplateLiteral" ? "string"
+        : ast.is.IsNumericLiteral(literal) ? "number"
+        : ast.is.IsBigIntLiteral(literal) ? "bigint"
+        : ast.kindName(literal) === "KindTrueKeyword" || ast.kindName(literal) === "KindFalseKeyword" ? "boolean" : undefined;
+      if (category !== undefined) return Object.freeze({ kind: "literal", sourceOperand, category, negated: different });
+    }
   }
   return undefined;
 }

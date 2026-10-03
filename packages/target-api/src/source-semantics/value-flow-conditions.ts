@@ -3,6 +3,7 @@ import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
 import type { SourceFileSemantics } from "./types.js";
+import { sourceGuardPreservesCapturedBinding } from "./guard-preservation.js";
 
 export interface SourceValueFlowQueryContext {
   readonly ast: AstReader;
@@ -117,7 +118,8 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
     !context.ast.is.IsParameterDeclaration(binding.declaration) &&
     !context.ast.is.IsBindingElement(binding.declaration)) return undefined;
   const summary = context.navigation.declarationUseSummary(binding.declaration);
-  if (summary.exported || summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember)) return undefined;
+  if (summary.exported) return undefined;
+  const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   let remaining = 2_048;
   const enter = (): boolean => --remaining >= 0;
   if (sourceBindingHasMutableExposure(context, summary, enter)) return undefined;
@@ -125,35 +127,46 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
   if (flow === undefined || flow.reference !== reference) return undefined;
   let selected = members;
   let consulted = false;
+  const selectCondition = (expression: Node, assumed: boolean, values: readonly Member[]): readonly Member[] | undefined => {
+    if (!enter()) return undefined;
+    if (context.ast.is.IsParenthesizedExpression(expression) || context.ast.is.IsSatisfiesExpression(expression) ||
+      context.ast.is.IsNonNullExpression(expression)) {
+      const inner = Node_Expression(context.ast, expression);
+      return inner === undefined ? undefined : selectCondition(inner, assumed, values);
+    }
+    if (context.ast.is.IsPrefixUnaryExpression(expression) && context.ast.operatorKindName(expression) === "KindExclamationToken") {
+      const operand = context.ast.as.AsPrefixUnaryExpression(expression)?.Operand;
+      return operand === undefined ? undefined : selectCondition(operand, !assumed, values);
+    }
+    const operator = context.ast.operatorKindName(expression);
+    if (context.ast.is.IsBinaryExpression(expression) &&
+      (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken")) {
+      const binary = context.ast.as.AsBinaryExpression(expression);
+      if (binary?.Left === undefined || binary.Right === undefined) return undefined;
+      const left = selectCondition(binary.Left, assumed, values);
+      const right = selectCondition(binary.Right, assumed, values);
+      const intersect = (operator === "KindAmpersandAmpersandToken") === assumed;
+      if (intersect) return left === undefined ? right : right === undefined ? left : left.filter(member => right.includes(member));
+      return left === undefined || right === undefined ? undefined : values.filter(member => left.includes(member) || right.includes(member));
+    }
+    const guard = selectGuard(expression);
+    if (guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand) ||
+      context.navigation.referenceFor(guard.sourceOperand)?.declaration !== binding.declaration) return undefined;
+    return values.filter(member => {
+      const result = testMember(member, guard.predicate);
+      return result === undefined || result === assumed;
+    });
+  };
   for (const condition of flow.conditions) {
     if (!enter()) return undefined;
     if (condition.assignments.some(assignment =>
       context.navigation.bindingWritesWithin(binding.symbol, assignment).length > 0)) continue;
-    let expression = condition.expression;
-    let assumed = condition.assumed;
-    for (;;) {
-      if (!enter()) return undefined;
-      if (context.ast.is.IsParenthesizedExpression(expression) || context.ast.is.IsSatisfiesExpression(expression) ||
-        context.ast.is.IsNonNullExpression(expression)) {
-        const inner = Node_Expression(context.ast, expression);
-        if (inner === undefined) return undefined;
-        expression = inner;
-      } else if (context.ast.is.IsPrefixUnaryExpression(expression) &&
-        context.ast.operatorKindName(expression) === "KindExclamationToken") {
-        const operand = context.ast.as.AsPrefixUnaryExpression(expression)?.Operand;
-        if (operand === undefined) return undefined;
-        expression = operand;
-        assumed = !assumed;
-      } else break;
-    }
-    const guard = selectGuard(expression);
-    if (guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand) ||
-      context.navigation.referenceFor(guard.sourceOperand)?.declaration !== binding.declaration) continue;
+    if (capturedWrites && !sourceGuardPreservesCapturedBinding(context, condition.expression, reference, enter)) continue;
+    const narrowed = selectCondition(condition.expression, condition.assumed, selected);
+    if (remaining < 0) return undefined;
+    if (narrowed === undefined) continue;
     consulted = true;
-    selected = selected.filter(member => {
-      const result = testMember(member, guard.predicate);
-      return result === undefined || result === assumed;
-    });
+    selected = narrowed;
   }
   return consulted ? Object.freeze([...selected]) : undefined;
 }
