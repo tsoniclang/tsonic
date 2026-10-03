@@ -15,6 +15,10 @@ export function run(): boolean {
   const once: (string | number)[] = [...counter.strings(), ...counter.pair()];
   const integers: int16[] = [4, 5];
   const widened: int32[] = [...integers];
+  const optionalIntegers: int16[] | undefined = counter.count === 2 ? integers : undefined;
+  const borrowed: int32[] = [...(optionalIntegers ?? [])];
+  const optionalStrings: string[] | undefined = counter.count === 2 ? strings : undefined;
+  const borrowedUnion: (string | number)[] = [...(optionalStrings ?? [])];
   const copied = copy(strings);
   copied[0] = "copy";
   union[1] = 7;
@@ -22,7 +26,8 @@ export function run(): boolean {
     merged[0] === true && merged[1] === "first" &&
     merged[2] === "source" && merged[3] === 3 && merged[4] === "tuple" && merged[5] === 9 &&
     counter.count === 2 && once[0] === "once" && once[1] === "pair" && once[2] === 8 &&
-    widened[0] === 4 && widened[1] === 5;
+    widened[0] === 4 && widened[1] === 5 && borrowed[0] === 4 && borrowed[1] === 5 &&
+    borrowedUnion[0] === "source";
 }
 `;
 
