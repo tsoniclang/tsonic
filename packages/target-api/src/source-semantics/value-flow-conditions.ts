@@ -16,6 +16,45 @@ export interface SourceNativeGuard<Predicate> {
   readonly predicate: Predicate;
 }
 
+export function selectSourceNativeGuardResult<Member, Predicate>(
+  context: SourceValueFlowQueryContext,
+  expression: Node,
+  membersFor: (reference: Node) => readonly Member[] | undefined,
+  selectGuard: (expression: Node) => SourceNativeGuard<Predicate> | undefined,
+  testMember: (member: Member, predicate: Predicate) => boolean | undefined,
+): boolean | undefined {
+  let current = expression;
+  let negated = false;
+  for (let remaining = 2_048; remaining > 0; remaining -= 1) {
+    if (context.ast.is.IsParenthesizedExpression(current) || context.ast.is.IsSatisfiesExpression(current) ||
+      context.ast.is.IsNonNullExpression(current)) {
+      const inner = Node_Expression(context.ast, current);
+      if (inner === undefined) return undefined;
+      current = inner;
+      continue;
+    }
+    if (context.ast.is.IsPrefixUnaryExpression(current) &&
+      context.ast.operatorKindName(current) === "KindExclamationToken") {
+      const operand = context.ast.as.AsPrefixUnaryExpression(current)?.Operand;
+      if (operand === undefined) return undefined;
+      current = operand;
+      negated = !negated;
+      continue;
+    }
+    const guard = selectGuard(current);
+    if (guard === undefined || !context.ast.is.IsIdentifier(guard.sourceOperand)) return undefined;
+    const members = membersFor(guard.sourceOperand);
+    if (members === undefined || members.length === 0) return undefined;
+    const selected = selectSourceGuardedValueMembers(context, guard.sourceOperand, members, selectGuard, testMember) ?? members;
+    if (selected.length === 0) return undefined;
+    const results = selected.map(member => testMember(member, guard.predicate));
+    const result = results.every(value => value === true) ? true
+      : results.every(value => value === false) ? false : undefined;
+    return result === undefined ? undefined : result !== negated;
+  }
+  return undefined;
+}
+
 export function selectSourceGuardedTypeMembers<Predicate>(
   context: SourceValueFlowQueryContext,
   reference: Node,

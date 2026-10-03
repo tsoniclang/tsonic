@@ -4,10 +4,11 @@ import { BinaryExpression_Left, BinaryExpression_Right, BinaryExpression_Operato
 
 export type SourceNativeValueGuard =
   | { readonly kind: "typeof"; readonly sourceOperand: Node; readonly value: string; readonly negated: boolean }
+  | { readonly kind: "absence"; readonly sourceOperand: Node; readonly negated: boolean }
   | { readonly kind: "nominal"; readonly sourceOperand: Node; readonly sourceConstructor: Node; readonly declaration: Node };
 
 export function selectSourceNativeValueGuard(
-  { ast, navigation }: Pick<SourceValueFlowQueryContext, "ast" | "navigation">,
+  { ast, navigation, semanticsFor }: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "semanticsFor">,
   expression: Node,
 ): SourceNativeValueGuard | undefined {
   const transparent = (node: Node | undefined): Node | undefined => {
@@ -29,6 +30,18 @@ export function selectSourceNativeValueGuard(
   const equal = operator === "KindEqualsEqualsEqualsToken" || operator === "KindEqualsEqualsToken";
   const different = operator === "KindExclamationEqualsEqualsToken" || operator === "KindExclamationEqualsToken";
   if (!equal && !different) return undefined;
+  for (const [sourceOperand, absent] of [[left, right], [right, left]] as const) {
+    if (ast.kindName(absent) === "KindNullKeyword") {
+      return Object.freeze({ kind: "absence", sourceOperand, negated: different });
+    }
+    if (ast.is.IsIdentifier(absent)) {
+      const semantics = semanticsFor(absent);
+      const type = semantics.types.expressionType(absent);
+      if (type !== undefined && semantics.types.isNullish(type)) {
+        return Object.freeze({ kind: "absence", sourceOperand, negated: different });
+      }
+    }
+  }
   for (const [value, category] of [[left, right], [right, left]] as const) {
     if (!ast.is.IsTypeOfExpression(value) || !ast.is.IsStringLiteral(category)) continue;
     const sourceOperand = transparent(Node_Expression(ast, value));
