@@ -30,3 +30,11 @@ export function invalid(values: number[], native: NativeValues): string[] {
   return [...(values ?? native)];
 }
 `;
+
+export const mutableBorrowedHeaderSource = `
+import type { IncomingMessage } from "node:http";
+export function invalid(request: IncomingMessage): void {
+  const values = request.headersDistinct["x-item"];
+  if (values !== undefined) values[0] = "mutated";
+}
+`;
