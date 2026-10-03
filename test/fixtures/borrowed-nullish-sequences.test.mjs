@@ -22,6 +22,12 @@ test("pure Node source consumers retain fresh snapshot, lazy fallback and ordere
   let calls = 0;
   assert.deepEqual(source.chooseLazy(undefined, null, () => { calls++; return []; }), ["before", "after"]);
   assert.equal(calls, 1);
-  assert.equal(source.first(native), "native");
-  assert.equal(source.optionalFirst(undefined), undefined);
+  assert.equal(source.firstFromHeaders({ "x-item": native }, "x-item"), "native");
+  assert.equal(source.firstFromHeaders({}, "missing"), undefined);
+  const snapshot = source.snapshotFromHeaders({ "x-item": native }, "x-item");
+  snapshot[0] = "changed";
+  assert.deepEqual(native, ["native", "tail"]);
+  assert.deepEqual(source.snapshotFromHeaders({}, "missing"), []);
+  assert.equal(source.joinFromHeaders({ "x-item": native }, "x-item"), "nativetail");
+  assert.equal(source.joinFromHeaders({}, "missing"), "");
 });

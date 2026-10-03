@@ -17,12 +17,21 @@ export function snapshot(values: readonly string[]): string[] {
   return [...values];
 }
 
-export function first(values: NativeValues): string {
-  return values[0];
+export function firstFromHeaders(headers: NativeHeaders, key: string): string | undefined {
+  return headers[key]?.[0];
 }
 
-export function optionalFirst(values: NativeValues | null | undefined): string | undefined {
-  return values?.[0];
+export function snapshotFromHeaders(headers: NativeHeaders, key: string): string[] {
+  const values = headers[key];
+  return values === undefined ? [] : [...values];
+}
+
+export function joinFromHeaders(headers: NativeHeaders, key: string): string {
+  const values = headers[key];
+  if (values === undefined) return "";
+  let result = "";
+  for (const value of values) result += value;
+  return result;
 }
 
 export function chooseLazy(authored: string[] | null | undefined,
