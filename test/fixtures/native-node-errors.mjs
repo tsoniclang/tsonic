@@ -18,6 +18,35 @@ export function forward(source: Readable, destination: Writable): void {
 export function message(error: NodeError): string { return error.message; }
 export function fail(error: NodeError): never { throw error; }
 
+export function consume(error: NodeError | undefined): void {
+  if (error === undefined) return;
+  if (error.message.length === 0) throw new Error("empty native error");
+  try { fail(error); } catch (failure) { throw failure; }
+}
+
+export function retained(error: NodeError): string {
+  try { fail(error); } catch { return error.message; }
+}
+
+export function finalized(error: NodeError): string {
+  let result = "";
+  try { fail(error); } catch { } finally { result = error.message; }
+  return result;
+}
+
+export function repeated(error: NodeError): string {
+  for (let index = 0; index < 2; index++) {
+    try { fail(error); } catch { }
+  }
+  return error.message;
+}
+
+export function captured(error: NodeError): boolean {
+  const read = (): string => error.message;
+  try { fail(error); } catch { }
+  return read() === error.message;
+}
+
 export function run(): void {
   gunzip(Buffer.from("invalid gzip"), (error, output) => {
     if (error === undefined || error.message.length === 0 || output !== undefined) {
