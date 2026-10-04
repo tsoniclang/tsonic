@@ -7,6 +7,11 @@ policy.
 
 ## Engineering Standard
 
+- Status and progress requests do not pause an active authorized task. Report
+  the verified state and continue immediately through completion. An interim
+  report is not a handoff or a stopping point. Stop only on an explicit user
+  stop/pause instruction or a concrete external dependency after exhausting
+  independently achievable authorized work.
 - This workspace is airplane-grade: correctness and sound architecture take
   precedence over speed, while iteration should remain deliberate and bounded.
 - WCBUBWHB means “What Can Be, Unburdened By What Has Been.” Design the final
