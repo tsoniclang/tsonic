@@ -16,6 +16,25 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
 const element = Object.freeze([{ kind: "array-element" }]);
 const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
+test("storage origins retain exact projected unknown types through parameters and returns", async () => {
+  const { source, file, demands } = await checked("error-storage-exact-origin-types", `
+export function forward(value: unknown): unknown { return value; }
+export function forwardArray(values: unknown[]): unknown[] { return values; }
+export function forwardTuple(values: [Stored, unknown]): [Stored, unknown] { return values; }
+`);
+  for (const [name, projection] of [["forward", []], ["forwardArray", element], ["forwardTuple", slot(1)]]) {
+    const declaration = namedDeclaration(source.ast, file, name);
+    const parameter = source.ast.parameters(declaration)[0];
+    const origins = demands.storageOriginsFor(declaration, projection);
+    assert.equal(origins.kind === "resolved", true, name);
+    assert.equal(origins.origins.length, 1, name);
+    assert.equal(origins.origins[0].node === parameter, true, name);
+    assert.equal(source.semantics.forNode(parameter).types.isUnknown(origins.origins[0].type), true, name);
+    assert.equal(Object.isFrozen(origins) && Object.isFrozen(origins.origins) &&
+      Object.isFrozen(origins.origins[0]), true, name);
+  }
+});
+
 async function checked(name, body) {
   const result = await checkedSource(name, {
     "globals.d.ts": globals,
@@ -55,8 +74,13 @@ mutate(alias);
   assert.equal(demands.storageFor(variable("alias"), element).kind, "writable");
   const origins = demands.storageOriginsFor(variable("alias"), element);
   assert.equal(origins.kind, "resolved");
-  assert.equal(origins.origins.includes(source.ast.as.AsVariableDeclaration(variable("original")).Initializer), true, "exact original element");
-  assert.equal(origins.origins.includes(source.ast.as.AsVariableDeclaration(variable("untouched")).Initializer), false, "independent value is excluded");
+  assert.equal(origins.origins.some(origin => origin.node === source.ast.as.AsVariableDeclaration(variable("original")).Initializer), true, "exact original element");
+  assert.equal(origins.origins.some(origin => origin.node === source.ast.as.AsVariableDeclaration(variable("untouched")).Initializer), false, "independent value is excluded");
+  assert.equal(origins.origins.every(origin => {
+    const semantics = source.semantics.forNode(origin.node);
+    const selected = semantics.declarations.declaredValueType(origin.node) ?? semantics.types.expressionType(origin.node);
+    return Object.isFrozen(origin) && selected !== undefined && semantics.types.isIdentical(origin.type, selected);
+  }), true, "immutable exact checked origin type");
 });
 
 test("Error tuple storage keeps independently selected positions and nested returned aliases", async () => {

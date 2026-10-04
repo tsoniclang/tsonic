@@ -7,6 +7,19 @@ import type {
   SourceClassConstructorResult,
   SourceClassConstructorSignature,
 } from "./types.js";
+import type { ResolvedSourceCallInfo } from "../source-semantics/call-result-selection.js";
+
+export function sourceConstructorParametersMatch(
+  declared: readonly Pick<SourceClassConstructorParameter, "parameterDeclaration" | "acceptsOmission" | "rest">[],
+  selected: readonly Pick<ResolvedSourceCallInfo["sourceSelectedSignatureParameters"][number], "parameterDeclaration" | "acceptsOmission" | "rest">[],
+): boolean {
+  return declared.length === selected.length && declared.every((parameter, index) => {
+    const candidate = selected[index];
+    return candidate !== undefined && parameter.parameterDeclaration !== undefined &&
+      parameter.parameterDeclaration === candidate.parameterDeclaration &&
+      parameter.acceptsOmission === candidate.acceptsOmission && parameter.rest === candidate.rest;
+  });
+}
 
 export function createSourceClassConstructorNavigation(
   source: CheckedSourceProgram,

@@ -1,4 +1,4 @@
-import type { Node, SourceFile } from "@tsonic/tsts";
+import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild, Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/index.js";
 import { createSourceErrorExecutionRegions } from "./error-execution-regions.js";
 import { createSourceErrorStorageSubjects, type SourceErrorStorageProjection, type SourceErrorStorageSubject } from "./error-storage-subjects.js";
@@ -15,6 +15,11 @@ export type SourceErrorStorageDemand =
   | { readonly kind: "writable"; readonly writes: readonly Node[] }
   | { readonly kind: "unresolved"; readonly reason: string };
 
+export interface SourceErrorStorageOrigin {
+  readonly node: Node;
+  readonly type: Type;
+}
+
 export interface SourceErrorStorageDemandQueries {
   readonly retainedBoundaries: readonly Node[];
   readonly nativeConstructors: readonly Node[];
@@ -22,7 +27,7 @@ export interface SourceErrorStorageDemandQueries {
   storageFor(subject: Node, projection?: readonly SourceErrorStorageProjection[]): SourceErrorStorageDemand;
   isNativeConstructor(subject: Node): boolean;
   receivesWritableNative(subject: Node, projection?: readonly SourceErrorStorageProjection[]): boolean;
-  storageOriginsFor(subject: Node, projection?: readonly SourceErrorStorageProjection[]): { readonly kind: "resolved"; readonly origins: readonly Node[] }
+  storageOriginsFor(subject: Node, projection?: readonly SourceErrorStorageProjection[]): { readonly kind: "resolved"; readonly origins: readonly SourceErrorStorageOrigin[] }
     | { readonly kind: "unresolved"; readonly reason: string };
   invalidationFor(owner: Node, expression: Node, pureInvocations: ReadonlySet<Node>):
     { readonly kind: "preserved" | "invalidated" } | { readonly kind: "unresolved"; readonly reason: string };
@@ -647,9 +652,18 @@ export function createSourceErrorStorageDemandQuery(
     const selected = ancestors(subject, projection);
     if (selected === undefined || failure !== undefined) return Object.freeze({ kind: "unresolved",
       reason: failure ?? "An Error admission has no exact originating storage subject." });
-    const origins = [...new Set([...selected].filter(node => (incoming.get(node)?.size ?? 0) === 0).map(subject => subject.node))];
-    return origins.length === 0 ? Object.freeze({ kind: "unresolved", reason: "An Error storage cycle has no proven original physical owner." })
-      : Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
+    const owners = [...selected].filter(node => (incoming.get(node)?.size ?? 0) === 0);
+    const origins: SourceErrorStorageOrigin[] = [];
+    for (const owner of owners) {
+      if (!step()) break;
+      const type = sourceErrorStorageSubjectType(source, owner);
+      if (type === undefined) return Object.freeze({ kind: "unresolved",
+        reason: "An Error storage origin has no exact checked component type." });
+      origins.push(Object.freeze({ node: owner.node, type }));
+    }
+    return failure !== undefined ? Object.freeze({ kind: "unresolved", reason: failure })
+      : origins.length === 0 ? Object.freeze({ kind: "unresolved", reason: "An Error storage cycle has no proven original physical owner." })
+        : Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
   return Object.freeze({ retainedBoundaries: Object.freeze(retainedBoundaries), nativeConstructors: Object.freeze(nativeConstructors),
     fieldWrites: Object.freeze(fieldWrites), storageFor, isNativeConstructor: (node: Node) => nativeSubjects.has(subject(node)!),
