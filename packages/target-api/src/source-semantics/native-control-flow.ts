@@ -38,7 +38,7 @@ export function sourceNodeIsNativeUnreachable(
       if (current === statement?.ThenStatement && result === false ||
         current === statement?.ElseStatement && result === true) return true;
     }
-    if (ast.is.IsBlock(parent)) {
+    if (ast.is.IsBlock(parent) && !ast.is.IsFunctionDeclaration(current)) {
       const statements = ast.statements(parent);
       if (statements !== undefined) {
         for (const previous of statements) {

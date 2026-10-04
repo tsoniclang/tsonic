@@ -37,7 +37,7 @@ function fixture(body: string) {
     }, (member, predicate) => member === "unknown" ? undefined
       : (predicate.kind === "absence" ? member === "absence"
         : (member === "absence" ? "object" : member) === predicate.value) !== predicate.negated);
-  return { source, conditions, observations, result };
+  return { source, file, conditions, observations, result };
 }
 
 test("native guard results use selected carriers and dominating early exits, not checker never", () => {
@@ -97,4 +97,19 @@ test("native path accounting fails closed and preserves loop or try uncertainty"
     assert.ok(current.observations.every(node => !sourceNodeIsNativeUnreachable(current.source.ast, node,
       expression => current.result(expression, ["string"]))), body);
   }
+});
+
+test("hoisted lexical declarations are not unreachable execution after an exit", () => {
+  const current = fixture('observe(read()); return; function read(): number { observe(value); return 3; } observe(value);');
+  const declarations: Node[] = [];
+  const visit = (node: Node): void => {
+    if (current.source.ast.is.IsFunctionDeclaration(node) &&
+      current.source.ast.text(current.source.ast.name(node)) === "read") declarations.push(node);
+    current.source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(current.file);
+  assert.equal(declarations.length, 1);
+  assert.equal(sourceNodeIsNativeUnreachable(current.source.ast, declarations[0]!, current.result), false);
+  assert.deepEqual(current.observations.map(node => sourceNodeIsNativeUnreachable(current.source.ast, node,
+    current.result)), [false, false, true]);
 });

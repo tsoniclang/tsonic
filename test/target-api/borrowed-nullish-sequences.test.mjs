@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { stripTypeScriptTypes } from "node:module";
-import { borrowedNullishSequencesSource } from "./borrowed-nullish-sequences.mjs";
+import { borrowedNullishSequencesSource } from "../fixtures/borrowed-nullish-sequences.mjs";
 
 test("pure Node source consumers retain fresh snapshot, lazy fallback and ordered mixed contributions", async () => {
   const code = stripTypeScriptTypes(borrowedNullishSequencesSource);
