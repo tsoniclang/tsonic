@@ -20,6 +20,16 @@ export function branchCounter(flag: boolean): (() => int32) | null {
   function next(): int32 { return ++value; }
   return flag ? next : null;
 }
+export function branchIdentity(flag: boolean): (() => int32) | null {
+  let value = 0 as int32;
+  function next(): int32 { return ++value; }
+  if (flag) {
+    const left = next;
+    const right = next;
+    return left === right ? left : null;
+  }
+  return null;
+}
 export function forwarded(value: int32): () => int32 {
   function read(): int32 { return value; }
   function forward(): int32 { return read(); }

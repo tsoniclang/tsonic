@@ -30,23 +30,39 @@ export function sourceLexicalFunctionValueCreation(
       break;
     }
   }
-  const statements = ast.statements(scope);
-  const positions = new Map(statements.flatMap((statement, index) => statement === undefined ? [] : [[statement, index] as const]));
+  const positionsByBlock = new Map<Node, ReadonlyMap<Node, number>>();
   const visited = new Set<Node>();
-  let first = statements.length;
+  let common: Map<Node, { readonly statement: Node; readonly index: number }> | undefined;
   while (pending.length > 0) {
     const reference = pending.pop()!;
     if (visited.has(reference)) continue;
     visited.add(reference);
     let current = reference;
+    const activations = new Map<Node, { readonly statement: Node; readonly index: number }>();
     for (;;) {
       if (++steps > 262_144) return unresolved("Lexical value creation exceeded its finite source accounting budget.");
       const parent = ast.parent(current);
       if (parent === undefined) return unresolved("A lexical value use lost its checked source activation.");
-      if (parent === scope) {
+      if (ast.is.IsBlock(parent)) {
+        let positions = positionsByBlock.get(parent);
+        if (positions === undefined) {
+          const statements = ast.statements(parent);
+          steps += statements.length;
+          if (steps > 262_144) return unresolved("Lexical value creation exceeded its finite source accounting budget.");
+          positions = new Map(statements.flatMap((statement, index) => statement === undefined ? [] : [[statement, index] as const]));
+          positionsByBlock.set(parent, positions);
+        }
         const index = positions.get(current);
         if (index === undefined) return unresolved("A lexical value use has no exact owning statement.");
-        first = Math.min(first, index);
+        activations.set(parent, { statement: current, index });
+      }
+      if (parent === scope) {
+        if (common === undefined) common = activations;
+        else for (const [block, first] of common) {
+          const selected = activations.get(block);
+          if (selected === undefined) common.delete(block);
+          else if (selected.index < first.index) common.set(block, selected);
+        }
         break;
       }
       if (ast.is.IsFunctionDeclaration(parent)) {
@@ -55,10 +71,13 @@ export function sourceLexicalFunctionValueCreation(
         }
         break;
       }
+      if (["KindArrowFunction", "KindFunctionExpression", "KindMethodDeclaration", "KindConstructor",
+        "KindGetAccessor", "KindSetAccessor", "KindForStatement", "KindForInStatement", "KindForOfStatement",
+        "KindWhileStatement", "KindDoStatement"].includes(ast.kindName(parent))) activations.clear();
       current = parent;
     }
   }
-  const statement = statements[first];
+  const statement = common?.values().next().value?.statement;
   return statement === undefined ? { kind: "unused" } : { kind: "resolved", statement,
     ...(inlineReference === undefined ? {} : { inlineReference }) };
 }
