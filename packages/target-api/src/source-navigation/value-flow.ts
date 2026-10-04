@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceNodesEqual } from "./identity.js";
+import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 
 export function sourceExpressionValueFlow(
   ast: AstReader,
@@ -121,7 +122,7 @@ function exactBindingAliasDestination(
     if (parent === undefined) {
       return undefined;
     }
-    if (transparentExpressionContains(ast, parent, current)) {
+    if (transparentExpressionContains(ast, parent, current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
       current = parent;
       continue;
     }
@@ -146,7 +147,8 @@ function transparentExpressionParent(ast: AstReader, expression: Node): Node | u
   let current = expression;
   for (;;) {
     const parent = ast.parent(current);
-    if (parent === undefined || !transparentExpressionContains(ast, parent, current)) {
+    if (parent === undefined || !transparentExpressionContains(ast, parent, current) &&
+      !sourceExpressionSelectsOperandValue(ast, parent, current)) {
       return parent;
     }
     current = parent;

@@ -3,6 +3,7 @@ import type { SourceDeclarationUse } from "./types.js";
 import { sourceNodesEqual } from "./identity.js";
 import { Node_Expression } from "./ast.js";
 import { isTypeSyntaxNode } from "./syntax.js";
+import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 
 const sourceLinkageKinds = new Set([
   "KindImportSpecifier",
@@ -124,7 +125,7 @@ function sourceDeclarationUseRole(
     if (parent === undefined) {
       return { role: receiverPath ? "receiver" : "value", throughMember: receiverPath };
     }
-    if (transparentExpressionContains(ast, parent, current)) {
+    if (transparentExpressionContains(ast, parent, current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
       current = parent;
       continue;
     }

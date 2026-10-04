@@ -1,6 +1,21 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceNodesEqual } from "./identity.js";
 
+export function sourceExpressionSelectsOperandValue(ast: AstReader, expression: Node, operand: Node): boolean {
+  if (ast.is.IsConditionalExpression(expression)) {
+    const conditional = ast.as.AsConditionalExpression(expression);
+    return sourceNodesEqual(ast, conditional?.WhenTrue, operand) ||
+      sourceNodesEqual(ast, conditional?.WhenFalse, operand);
+  }
+  if (!ast.is.IsBinaryExpression(expression)) return false;
+  const binary = ast.as.AsBinaryExpression(expression);
+  const operator = ast.operatorKindName(expression);
+  if (operator === "KindCommaToken") return sourceNodesEqual(ast, binary?.Right, operand);
+  return (operator === "KindQuestionQuestionToken" || operator === "KindAmpersandAmpersandToken" ||
+    operator === "KindBarBarToken") &&
+    (sourceNodesEqual(ast, binary?.Left, operand) || sourceNodesEqual(ast, binary?.Right, operand));
+}
+
 export function sourceExpressionResultUse(
   ast: AstReader,
   expression: Node,

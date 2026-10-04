@@ -18,6 +18,10 @@ function select(options: Options | undefined, effects: Effects) {
 function emptyLast(present: boolean, values: readonly string[]) {
   return present ? values : [];
 }
+function selectedAlias(present: boolean, values: readonly string[]) {
+  const selected = present ? values : [];
+  return selected;
+}
 export function run(): boolean {
   const effects = new Effects();
   const absent = select(undefined, effects);
@@ -27,10 +31,13 @@ export function run(): boolean {
   const sequence = select({ index: ["alpha", "beta"] }, effects);
   const lastEmpty = emptyLast(false, ["unused"]);
   const lastPresent = emptyLast(true, ["present"]);
+  const aliasEmpty = selectedAlias(false, ["unused"]);
+  const aliasPresent = selectedAlias(true, ["alias"]);
   return effects.calls === 2 && count(absent) === 1 && absent[0] === "fallback" &&
     count(emptyOptions) === 1 && emptyOptions[0] === "fallback" && count(disabled) === 0 &&
     count(text) === 1 && text[0] === "manual" && count(sequence) === 2 &&
     sequence[0] === "alpha" && sequence[1] === "beta" && count(lastEmpty) === 0 &&
-    count(lastPresent) === 1 && lastPresent[0] === "present";
+    count(lastPresent) === 1 && lastPresent[0] === "present" && count(aliasEmpty) === 0 &&
+    count(aliasPresent) === 1 && aliasPresent[0] === "alias";
 }
 `;
