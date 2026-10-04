@@ -27,6 +27,8 @@ export function selectSourceNativeGuardResult<Member, Predicate>(
   let current = expression;
   let negated = false;
   for (let remaining = 2_048; remaining > 0; remaining -= 1) {
+    const kind = context.ast.kindName(current);
+    if (kind === "KindTrueKeyword" || kind === "KindFalseKeyword") return (kind === "KindTrueKeyword") !== negated;
     if (context.ast.is.IsParenthesizedExpression(current) || context.ast.is.IsSatisfiesExpression(current) ||
       context.ast.is.IsNonNullExpression(current)) {
       const inner = Node_Expression(context.ast, current);

@@ -23,3 +23,4 @@ export { sourceIntegerIsNonnegative } from "./integer-ranges/guards.js";
 export type { SourceIntegerRange, SourceIntegerRangeOptions, SourceIntegerRangeQueries } from "./integer-ranges/index.js";
 export { sourceSequenceInputChoice, sourceSequenceConsumptionRoot, sourceSequenceInputIsEmpty } from "./sequence-inputs.js";
 export type { SourceSequenceInputChoice } from "./sequence-inputs.js";
+export { sourceControlTransferTarget, sourceNodeIsIteration } from "./control-targets.js";

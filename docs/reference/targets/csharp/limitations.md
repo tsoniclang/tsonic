@@ -95,6 +95,21 @@ Native pointer access requires the exact pointer carrier, lexical safety
 context, declaration safety contract where applicable, and generated/user
 project permission. One control never implies another.
 
+## Cleanup control flow
+
+C# cleanup uses native `finally`. Returning or transferring control outside a
+`finally` body is rejected with `CSHARP_NATIVE_FINALLY_CONTROL_TRANSFER`, as
+required by the native language. Throws and control transfers inside a nested
+loop or callable remain supported; they do not leave the enclosing cleanup.
+Tsonic does not add a state-machine emulation to bypass this native restriction.
+
+```ts
+function choose(): boolean {
+  try { return false; }
+  finally { return true; } // native C# diagnostic
+}
+```
+
 ## Generator boundaries
 
 The target uses native C# iterator syntax when it preserves TypeScript
