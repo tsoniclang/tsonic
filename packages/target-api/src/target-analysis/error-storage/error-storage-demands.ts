@@ -1,7 +1,10 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { forEachSourceImmediateEvaluationChild, IsTypeSyntaxNode, Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/index.js";
+import { forEachSourceImmediateEvaluationChild, Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/index.js";
 import { createSourceErrorExecutionRegions } from "./error-execution-regions.js";
-import { createSourceErrorStorageSubjects, type SourceErrorStorageSubject } from "./error-storage-subjects.js";
+import { createSourceErrorStorageSubjects, type SourceErrorStorageProjection, type SourceErrorStorageSubject } from "./error-storage-subjects.js";
+import { sourceErrorStorageSubjectType } from "./error-storage-components.js";
+import { createSourceErrorStorageProjectionFlow } from "./error-storage-projection-flow.js";
+import { createSourceErrorStorageUnresolvedQuery } from "./error-storage-unresolved.js";
 import { createSourceErrorInvalidationBindings, type SourceErrorInvalidationBindings } from "./error-invalidation-bindings.js";
 import { createSourceErrorStructuralFlow } from "./error-structural-flow.js";
 import type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./protocol.js";
@@ -16,10 +19,10 @@ export interface SourceErrorStorageDemandQueries {
   readonly retainedBoundaries: readonly Node[];
   readonly nativeConstructors: readonly Node[];
   readonly fieldWrites: readonly Node[];
-  storageFor(subject: Node): SourceErrorStorageDemand;
+  storageFor(subject: Node, projection?: readonly SourceErrorStorageProjection[]): SourceErrorStorageDemand;
   isNativeConstructor(subject: Node): boolean;
-  receivesWritableNative(subject: Node): boolean;
-  storageOriginsFor(subject: Node): { readonly kind: "resolved"; readonly origins: readonly Node[] }
+  receivesWritableNative(subject: Node, projection?: readonly SourceErrorStorageProjection[]): boolean;
+  storageOriginsFor(subject: Node, projection?: readonly SourceErrorStorageProjection[]): { readonly kind: "resolved"; readonly origins: readonly Node[] }
     | { readonly kind: "unresolved"; readonly reason: string };
   invalidationFor(owner: Node, expression: Node, pureInvocations: ReadonlySet<Node>):
     { readonly kind: "preserved" | "invalidated" } | { readonly kind: "unresolved"; readonly reason: string };
@@ -40,7 +43,6 @@ export function createSourceErrorStorageDemandQuery(
   const fields = new Set(protocol.fields);
   const constructors = new Set(protocol.constructors);
   const stackCaptures = new Set(protocol.stackCaptures);
-  const subject = createSourceErrorStorageSubjects();
   const incoming = new Map<SourceErrorStorageSubject, Set<SourceErrorStorageSubject>>();
   const subjects = new Map<Node, SourceErrorStorageSubject>();
   const mutationOwners = new Map<Node, SourceErrorStorageSubject>();
@@ -61,6 +63,13 @@ export function createSourceErrorStorageDemandQuery(
   let demandRows = 0;
   let steps = 0;
   let failure: string | undefined;
+  let subjectRows = 0;
+  const subject = createSourceErrorStorageSubjects(cost => {
+    subjectRows += cost;
+    if (subjectRows <= maximumDemandRows && failure === undefined) return true;
+    failure ??= "Error storage transport exceeds its finite subject budget.";
+    return false;
+  }, reason => { failure = reason; });
   const storageMutators = new Map<Node, Set<number>>();
   let mutatorRows = 0;
   for (const mutator of protocol.storageMutators) {
@@ -140,6 +149,24 @@ export function createSourceErrorStorageDemandQuery(
       if (receiver !== undefined) subjects.set(node, receiver);
       return receiver;
     }
+    if (ast.is.IsElementAccessExpression(node)) {
+      const value = projections.indexed(node);
+      if (value !== undefined) {
+        subjects.set(original, value);
+        subjects.set(node, value);
+      }
+      return value;
+    }
+    const reference = ast.is.IsBindingElement(node) ? node : navigation.sourceReferenceFor(node)?.declaration;
+    if (reference !== undefined && ast.is.IsBindingElement(reference)) {
+      const value = projections.binding(reference);
+      if (value !== undefined) {
+        subjects.set(reference, value);
+        subjects.set(node, value);
+        subjects.set(original, value);
+        return value;
+      }
+    }
     const selected = ast.is.IsElementAccessExpression(node) || ast.is.IsCallExpression(node) ? node
       : ast.is.IsPropertyAccessExpression(node)
         ? semantics.forNode(node).operations.propertyAccess(node)?.selectedReadDeclaration
@@ -164,6 +191,8 @@ export function createSourceErrorStorageDemandQuery(
     connectStructuralFlow(origin, destination);
   };
   const connectStructuralFlow = createSourceErrorStructuralFlow(source, step, subject, connect);
+  const projections = createSourceErrorStorageProjectionFlow(source, step, subject, subjectFor, connect,
+    (subject, reason) => unresolvedSubjects.set(subject, reason));
   const recordWrite = (subject: SourceErrorStorageSubject | undefined, write: Node): void => {
     if (subject === undefined) {
       failure = "An admitted Error write has no exact source storage subject.";
@@ -173,7 +202,8 @@ export function createSourceErrorStorageDemandQuery(
     selected.add(write);
     writes.set(subject, selected);
     if (++demandRows > maximumDemandRows) failure = "Error storage demand exceeds its finite selected-write budget.";
-    if (ast.is.IsElementAccessExpression(subject.node) || ast.is.IsBindingElement(subject.node)) {
+    if (subject.projection.length === 0 &&
+      (ast.is.IsElementAccessExpression(subject.node) || ast.is.IsBindingElement(subject.node))) {
       unresolvedSubjects.set(subject, "An admitted Error write has no exact selected scalar storage transport.");
     }
   };
@@ -212,6 +242,10 @@ export function createSourceErrorStorageDemandQuery(
     }
     if (ast.is.IsVariableDeclaration(node)) {
       connectValueFlow(Node_Initializer(ast, node));
+      connect(subjectFor(Node_Initializer(ast, node)), subject(node));
+    }
+    if (ast.is.IsArrayLiteralExpression(node)) {
+      projections.literal(node);
     }
     if (ast.is.IsPropertyDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
@@ -383,7 +417,9 @@ export function createSourceErrorStorageDemandQuery(
         else {
           const bindings = selected?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === index) ?? [];
           for (const binding of bindings) {
-            const argument = subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression);
+            const actual = subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression);
+            const argument = actual === undefined ? undefined
+              : subject(actual.node, actual.kind, [...actual.projection, ...current.projection]);
             if (argument !== undefined) origins.add(argument);
           }
           if (bindings.length === 0) {
@@ -391,14 +427,16 @@ export function createSourceErrorStorageDemandQuery(
             const assignment = access === undefined ? undefined : ast.as.AsBinaryExpression(access);
             const argument = subjectFor(assignment?.Left === invocation && ast.operatorKindName(access) === "KindEqualsToken"
               ? assignment.Right : Node_Initializer(ast, current.node));
-            origins.add(argument ?? current);
+            origins.add(argument === undefined ? current
+              : subject(argument.node, argument.kind, [...argument.projection, ...current.projection]) ?? current);
           }
         }
       } else if (current.kind === "receiver") {
         const receiver = current.node !== candidate ? current : ast.is.IsNewExpression(invocation) ? subject(invocation)
           : subjectFor(selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
             ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression);
-        if (receiver !== undefined) origins.add(receiver);
+        if (receiver !== undefined) origins.add(subject(receiver.node, receiver.kind,
+          [...receiver.projection, ...current.projection]) ?? receiver);
       } else {
         const incomingOrigins = incoming.get(current);
         if (incomingOrigins === undefined || incomingOrigins.size === 0) origins.add(current);
@@ -503,20 +541,15 @@ export function createSourceErrorStorageDemandQuery(
     }
   }
   const selections = new Map<SourceErrorStorageSubject, SourceErrorStorageDemand>();
-  const storageSubject = (node: Node): SourceErrorStorageSubject | undefined => {
-    for (let remaining = 2_048; IsTypeSyntaxNode(ast, node); remaining -= 1) {
-      if (remaining === 0) return undefined;
-      const parent = ast.parent(node);
-      if (parent === undefined) break;
-      node = parent;
-    }
-    return ast.body(node) === undefined ? subjects.get(node) ?? subject(node) : subject(node, "return");
-  };
-  const storageFor = (subject: Node): SourceErrorStorageDemand => {
+  const storageSubject = projections.ownerFor;
+  const unresolvedFor = createSourceErrorStorageUnresolvedQuery(step, subject, incoming, unresolvedSubjects);
+  const storageFor: SourceErrorStorageDemandQueries["storageFor"] = (subject, projection) => {
     if (failure !== undefined) return Object.freeze({ kind: "unresolved", reason: failure });
-    const node = storageSubject(subject);
+    const node = storageSubject(subject, projection);
     if (node === undefined) return Object.freeze({ kind: "unresolved", reason: "Error storage type ancestry exceeds its finite owner-query budget." });
-    const unresolved = unresolvedSubjects.get(node);
+    if (node.projection.length !== 0 && sourceErrorStorageSubjectType(source, node) === undefined)
+      return Object.freeze({ kind: "unresolved", reason: "Error storage projection has no exact checked component type." });
+    const unresolved = unresolvedFor(node) ?? failure;
     if (unresolved !== undefined) return Object.freeze({ kind: "unresolved", reason: unresolved });
     const cached = selections.get(node);
     if (cached !== undefined) return cached;
@@ -527,9 +560,9 @@ export function createSourceErrorStorageDemandQuery(
     return demand;
   };
   const nativeSubjects = new Set(nativeConstructors.map(node => subject(node)!));
-  const receivesWritableNative = (subject: Node): boolean => {
-    const selected = storageSubject(subject);
-    if (selected === undefined || failure !== undefined) return false;
+  const receivesWritableNative: SourceErrorStorageDemandQueries["receivesWritableNative"] = (subject, projection) => {
+    const selected = storageSubject(subject, projection);
+    if (selected === undefined || failure !== undefined || storageFor(subject, projection).kind === "unresolved") return false;
     const pending = [selected];
     const visited = new Set<SourceErrorStorageSubject>();
     for (let index = 0; index < pending.length; index += 1) {
@@ -537,16 +570,18 @@ export function createSourceErrorStorageDemandQuery(
       if (visited.has(current)) continue;
       visited.add(current);
       if (!step()) return false;
-      if (nativeSubjects.has(current) && storageFor(current.node).kind === "writable") return true;
+      if (nativeSubjects.has(current) && storageFor(current.node, current.projection).kind === "writable") return true;
       pending.push(...incoming.get(current) ?? []);
     }
     return false;
   };
-  const ancestors = (subject: Node): ReadonlySet<SourceErrorStorageSubject> | undefined => {
-    const selected = storageSubject(subject);
+  const ancestors = (subject: Node, projection?: readonly SourceErrorStorageProjection[]): ReadonlySet<SourceErrorStorageSubject> | undefined => {
+    const selected = storageSubject(subject, projection);
     return selected === undefined ? undefined : ancestorSubjects(selected);
   };
   const invalidationFor: SourceErrorStorageDemandQueries["invalidationFor"] = (owner, expression, pureInvocations) => {
+    const storage = storageFor(owner);
+    if (storage.kind === "unresolved") return Object.freeze({ kind: "unresolved", reason: storage.reason });
     const sourceOwners = ancestors(owner);
     if (sourceOwners === undefined || failure !== undefined) return Object.freeze({ kind: "unresolved",
       reason: failure ?? "A borrowed Error field has no exact source storage owner." });
@@ -605,8 +640,11 @@ export function createSourceErrorStorageDemandQuery(
     const reason = failure ?? unresolved;
     return reason === undefined ? Object.freeze({ kind: "preserved" }) : Object.freeze({ kind: "unresolved", reason });
   };
-  const storageOriginsFor: SourceErrorStorageDemandQueries["storageOriginsFor"] = subject => {
-    const selected = ancestors(subject);
+  const storageOriginsFor: SourceErrorStorageDemandQueries["storageOriginsFor"] = (subject, projection) => {
+    const owner = storageSubject(subject, projection);
+    const unresolved = owner === undefined ? undefined : unresolvedFor(owner);
+    if (unresolved !== undefined) return Object.freeze({ kind: "unresolved", reason: unresolved });
+    const selected = ancestors(subject, projection);
     if (selected === undefined || failure !== undefined) return Object.freeze({ kind: "unresolved",
       reason: failure ?? "An Error admission has no exact originating storage subject." });
     const origins = [...new Set([...selected].filter(node => (incoming.get(node)?.size ?? 0) === 0).map(subject => subject.node))];

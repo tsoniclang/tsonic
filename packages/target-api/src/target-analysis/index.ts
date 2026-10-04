@@ -40,6 +40,7 @@ export {
 } from "./use-sites.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
+export type { SourceErrorStorageProjection } from "./error-storage/error-storage-subjects.js";
 export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./error-storage/protocol.js";
 export type {
   TargetUseSiteRef,

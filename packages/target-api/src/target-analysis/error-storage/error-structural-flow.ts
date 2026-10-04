@@ -1,31 +1,22 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceErrorStorageSubject } from "./error-storage-subjects.js";
+import type { SourceErrorStorageProjection, SourceErrorStorageSubject, SourceErrorStorageSubjectQuery } from "./error-storage-subjects.js";
+import { sourceErrorPresentStorageType, sourceErrorStorageComponents, sourceErrorStorageComponentType, sourceErrorStorageSubjectType } from "./error-storage-components.js";
 
 export function createSourceErrorStructuralFlow(
   source: TargetSourceProgram,
   step: () => boolean,
-  subject: (node: Node | undefined, kind?: SourceErrorStorageSubject["kind"]) => SourceErrorStorageSubject | undefined,
+  subject: SourceErrorStorageSubjectQuery,
   connect: (origin: SourceErrorStorageSubject | undefined, destination: SourceErrorStorageSubject | undefined) => void,
 ): (origin: SourceErrorStorageSubject, destination: SourceErrorStorageSubject) => void {
   const selectedTypes = new Map<SourceErrorStorageSubject, Type | undefined>();
-  const visited = new WeakMap<Type, WeakSet<Type>>();
+  const visited = new Map<SourceErrorStorageSubject, Set<SourceErrorStorageSubject>>();
   const pending: { readonly origin: SourceErrorStorageSubject; readonly destination: SourceErrorStorageSubject;
     readonly selected?: { readonly from: Type; readonly to: Type; readonly semantics: SourceFileSemantics } }[] = [];
   let draining = false;
   const typeFor = (value: SourceErrorStorageSubject): Type | undefined => {
     if (selectedTypes.has(value)) return selectedTypes.get(value);
-    const file = source.ast.getSourceFile(value.node);
-    if (file === undefined || !source.semantics.includes(file)) {
-      selectedTypes.set(value, undefined);
-      return undefined;
-    }
-    const semantics = source.semantics.forNode(value.node);
-    const nodeType = semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
-    const signatures = value.kind !== "return" || nodeType === undefined ? [] : semantics.types.callSignatures(nodeType)
-      .filter(signature => semantics.declarations.signatureDeclaration(signature) === value.node);
-    const selected = value.kind === "return" ? signatures.length === 1 ? semantics.types.returnType(signatures[0]!) : undefined
-      : value.kind === "receiver" ? semantics.declarations.declaredType(value.node) : nodeType;
+    const selected = sourceErrorStorageSubjectType(source, value);
     selectedTypes.set(value, selected);
     return selected;
   };
@@ -37,12 +28,34 @@ export function createSourceErrorStructuralFlow(
       const selected = pending.pop()!;
       const from = selected.selected?.from ?? typeFor(selected.origin);
       const to = selected.selected?.to ?? typeFor(selected.destination);
-      if (from === undefined || to === undefined || from === to) continue;
-      const targets = visited.get(from) ?? new WeakSet<Type>();
-      if (targets.has(to)) continue;
-      targets.add(to);
-      visited.set(from, targets);
+      if (from === undefined || to === undefined) continue;
+      const targets = visited.get(selected.origin) ?? new Set<SourceErrorStorageSubject>();
+      if (targets.has(selected.destination)) continue;
+      targets.add(selected.destination);
+      visited.set(selected.origin, targets);
       const semantics = selected.selected?.semantics ?? source.semantics.forNode(selected.origin.node);
+      const fromPresent = sourceErrorPresentStorageType(from, semantics);
+      const toPresent = sourceErrorPresentStorageType(to, semantics);
+      if (fromPresent === undefined || toPresent === undefined) continue;
+      for (const component of sourceErrorStorageComponents(toPresent, semantics)) {
+        if (!step()) break;
+        const toComponent = sourceErrorStorageComponentType(toPresent, component, semantics);
+        if (toComponent === undefined) continue;
+        const components: Iterable<SourceErrorStorageProjection> = component.kind === "array-element"
+          ? sourceErrorStorageComponents(fromPresent, semantics)
+          : [semantics.types.isTuple(fromPresent) ? component : { kind: "array-element" }];
+        for (const originalComponent of components) {
+          if (!step()) break;
+          const fromComponent = sourceErrorStorageComponentType(fromPresent, originalComponent, semantics);
+          if (fromComponent === undefined) continue;
+          const origin = subject(selected.origin.node, selected.origin.kind, [...selected.origin.projection, originalComponent]);
+          const destination = subject(selected.destination.node, selected.destination.kind, [...selected.destination.projection, component]);
+          connect(origin, destination);
+          if (origin !== undefined && destination !== undefined) pending.push({ origin, destination,
+            selected: { from: fromComponent, to: toComponent, semantics } });
+        }
+      }
+      if (from === to) continue;
       const relation = semantics.types.structuralMembers(from, to);
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {

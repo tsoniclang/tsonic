@@ -9,7 +9,7 @@ test("structural Error flow never queries a declaration outside checked-file own
   const detached = {};
   const foreign = {};
   const subject = createSourceErrorStorageSubjects();
-  const source = { ast: { getSourceFile: node => node === detached ? undefined : node === foreign ? foreign : file },
+  const source = { ast: { name: () => undefined, getSourceFile: node => node === detached ? undefined : node === foreign ? foreign : file },
     semantics: { includes: selected => selected === file, forNode: node => {
       assert.equal(node === checked, true, "unowned semantic query");
       return { declarations: { declaredValueType: () => undefined }, types: { expressionType: () => undefined } };
@@ -33,13 +33,14 @@ test("recursive structural Error flow retains selected generic property types ev
     source: { read: "property", declarations: [source], property: { type: from } },
     destination: { read: "property", declarations: [destination], property: { type: to } } });
   const semantics = { declarations: { declaredValueType: node => node === roots[0] ? outer[0] : outer[1] },
-    types: { structuralMembers: (from, to) => {
+    types: { isUnion: () => false, isTuple: () => false, isArrayLike: () => false,
+      structuralMembers: (from, to) => {
       queries += 1;
       if (from === outer[0] && to === outer[1]) return { kind: "available", members: [member(fields[0], fields[1], inner[0], inner[1])] };
       assert.equal(from === inner[0] && to === inner[1], true, "exact selected inner types");
       return { kind: "available", members: [member(fields[2], fields[3], inner[0], inner[0])] };
     } } };
-  const source = { ast: { getSourceFile: node => roots.includes(node) ? file : undefined,
+  const source = { ast: { name: () => undefined, getSourceFile: node => roots.includes(node) ? file : undefined,
     is: { IsGetAccessorDeclaration: () => false } },
     semantics: { includes: selected => selected === file, forNode: node => {
       assert.equal(roots.includes(node), true, "synthetic nodes have no checked-file semantic owner");

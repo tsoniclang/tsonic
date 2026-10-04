@@ -1,13 +1,13 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceErrorStorageSubject } from "./error-storage-subjects.js";
+import type { SourceErrorStorageSubject, SourceErrorStorageSubjectQuery } from "./error-storage-subjects.js";
 
 export type SourceErrorInvalidationBindings = ReadonlyMap<SourceErrorStorageSubject, ReadonlySet<SourceErrorStorageSubject>>;
 
 export function createSourceErrorInvalidationBindings(
   source: TargetSourceProgram,
   step: () => boolean,
-  subject: (node: Node | undefined, kind?: SourceErrorStorageSubject["kind"]) => SourceErrorStorageSubject | undefined,
+  subject: SourceErrorStorageSubjectQuery,
   incoming: ReadonlyMap<SourceErrorStorageSubject, ReadonlySet<SourceErrorStorageSubject>>,
   invocationOrigins: (origin: SourceErrorStorageSubject, candidate: Node, invocation: Node) => ReadonlySet<SourceErrorStorageSubject>,
 ) {
@@ -29,6 +29,16 @@ export function createSourceErrorInvalidationBindings(
       checked.add(selected);
       const bound = bindings.get(selected);
       if (bound !== undefined) { for (const actual of bound) origins.add(actual); continue; }
+      const root = selected.projection.length === 0 ? undefined : subject(selected.node, selected.kind);
+      const rootBindings = root === undefined ? undefined : bindings.get(root);
+      if (rootBindings !== undefined) {
+        for (const actual of rootBindings) {
+          if (!step()) break;
+          const projected = subject(actual.node, actual.kind, [...actual.projection, ...selected.projection]);
+          if (projected !== undefined && !checked.has(projected)) remaining.push(projected);
+        }
+        continue;
+      }
       const parents = incoming.get(selected);
       if (parents === undefined || parents.size === 0) origins.add(selected);
       else remaining.push(...parents);
