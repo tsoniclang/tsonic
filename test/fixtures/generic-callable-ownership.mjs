@@ -120,8 +120,8 @@ export const genericCallableOwnershipCases = Object.freeze([
     name: "same-spelling-distinct-binders",
     source: `
       export function create<Item>(seed: Item) {
-        const saved: Item[] = [seed];
-        return <Item>(value: Item): Item => saved.length > 0 ? value : value;
+        const saved: [Item, boolean] = [seed, true];
+        return <Item>(value: Item): Item => saved[1] ? value : value;
       }
       export function main(): void {
         const choose = create(7);

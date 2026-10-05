@@ -131,8 +131,8 @@ export function run(): boolean {
   { name: "generic-callable-nested-owners", asynchronous: false, source: `
 const create = <Outer>(seed: Outer) =>
   <T>(left: T, right: T): T => {
-    const held: Outer[] = [seed];
-    return held.length !== 0 ? left : right;
+    const held: [Outer, boolean] = [seed, true];
+    return held[1] ? left : right;
   };
 export function run(): boolean {
   const first = create(3);

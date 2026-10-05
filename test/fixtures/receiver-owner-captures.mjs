@@ -75,10 +75,11 @@ export const receiverOwnerCaptures = [
     }
   ` },
   { name: "suspended-native-owner", asynchronous: true, source: `
+    async function pause(): Promise<void> {}
     class Counter {
       count = 1;
       advance(): number { this.count += 1; return this.count; }
-      callback(): () => Promise<number> { return async () => { await Promise.resolve(0); return this.advance(); }; }
+      callback(): () => Promise<number> { return async () => { await pause(); return this.advance(); }; }
     }
     export async function run(): Promise<boolean> {
       const callback = new Counter().callback(); return await callback() === 2 && await callback() === 3;
