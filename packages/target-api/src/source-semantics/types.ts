@@ -98,6 +98,7 @@ export interface SourceFinalTypeQueries {
   constantValue(node: Node): unknown;
   numericLiteralValue(type: Type): number | bigint | undefined;
   stringLiteralValue(type: Type): string | undefined;
+  booleanLiteralValue(type: Type): boolean | undefined;
   isAny(type: Type): boolean;
   isUnknown(type: Type): boolean;
   isNever(type: Type): boolean;

@@ -231,6 +231,7 @@ export function createTargetSourceProgram(
       constantValue: queries.typeShape.getConstantValue,
       numericLiteralValue: queries.typeShape.getNumericLiteralTypeValue,
       stringLiteralValue: queries.typeShape.getStringLiteralTypeValue,
+      booleanLiteralValue: queries.typeShape.getBooleanLiteralTypeValue,
       isAny: queries.typeShape.isAny,
       isUnknown: queries.typeShape.isUnknown,
       isNever: queries.typeShape.isNever,

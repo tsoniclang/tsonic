@@ -43,7 +43,7 @@ export function sourceBoundTypeRelationship(
     if (binding !== undefined) {
       if (left === right || binding === right) return "bound";
       if (types.couldContainTypeVariables(binding) || types.couldContainTypeVariables(right)) return undefined;
-      return types.isIdentical(binding, right) ? "bound" : undefined;
+      return (literalTypesIdentical(binding, right, types) ?? types.isIdentical(binding, right)) ? "bound" : undefined;
     }
     if (left === right) return "identity";
     if (active.get(left)?.has(right)) return undefined;
@@ -120,18 +120,22 @@ export function sourceBoundTypeRelationship(
         ]);
       }
       if (types.couldContainTypeVariables(left) || types.couldContainTypeVariables(right)) return undefined;
-      const leftString = types.stringLiteralValue(left);
-      const rightString = types.stringLiteralValue(right);
-      if (leftString !== undefined || rightString !== undefined) {
-        return leftString === rightString ? "identity" : undefined;
-      }
-      return types.isIdentical(left, right) ? "identity" : undefined;
+      return (literalTypesIdentical(left, right, types) ?? types.isIdentical(left, right)) ? "identity" : undefined;
     } finally {
       pairs.delete(right);
       if (pairs.size === 0) active.delete(left);
     }
   };
   return match(authored, selected);
+}
+
+function literalTypesIdentical(left: Type, right: Type, types: SourceFileSemantics["types"]): boolean | undefined {
+  const leftString = types.stringLiteralValue(left);
+  const rightString = types.stringLiteralValue(right);
+  if (leftString !== undefined || rightString !== undefined) return leftString === rightString;
+  const leftBoolean = types.booleanLiteralValue(left);
+  const rightBoolean = types.booleanLiteralValue(right);
+  return leftBoolean === undefined && rightBoolean === undefined ? undefined : leftBoolean === rightBoolean;
 }
 
 function combine(results: readonly ("bound" | "identity" | undefined)[]): "bound" | "identity" | undefined {
