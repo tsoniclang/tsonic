@@ -100,6 +100,7 @@ export interface TypeShapeQueries {
     readonly getWidenedType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly getBaseTypeOfLiteralType: (type: GoPtr<Type>) => GoPtr<Type>;
     readonly removeMissingOrUndefined: (type: GoPtr<Type>) => GoPtr<Type>;
+    readonly getNonNullableType: (type: GoPtr<Type>) => GoPtr<Type>;
 }
 export declare function createTypeShapeQueries(program: GoPtr<Program>, defaultOptions: CreateTypeShapeQueriesOptions): TypeShapeQueries;
 //# sourceMappingURL=type-shape.d.ts.map

@@ -95,6 +95,7 @@ export interface SourceFinalTypeQueries {
   widenedType(type: Type): Type | undefined;
   literalBaseType(type: Type): Type | undefined;
   withoutMissingOrUndefined(type: Type): Type | undefined;
+  nonNullableType(type: Type): Type | undefined;
   constantValue(node: Node): unknown;
   numericLiteralValue(type: Type): number | bigint | undefined;
   stringLiteralValue(type: Type): string | undefined;
