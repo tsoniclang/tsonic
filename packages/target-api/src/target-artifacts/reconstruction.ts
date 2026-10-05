@@ -100,11 +100,27 @@ export function reconstructTargetArtifacts<Facet extends string, Artifact>(
         };
       }
       if (!graph.hasPending()) {
-        const blockedByFailedOwner = [...blockedByOwner.entries()].every(
-          ([_owner, blocked]) => blocked.dependencies.some((dependency) =>
-            failuresByOwner.has(dependency.owner)
-          ),
-        );
+        const dependentsByOwner = new Map<string, Set<string>>();
+        for (const [owner, blocked] of blockedByOwner) {
+          for (const dependency of blocked.dependencies) {
+            let dependents = dependentsByOwner.get(dependency.owner);
+            if (dependents === undefined) {
+              dependents = new Set();
+              dependentsByOwner.set(dependency.owner, dependents);
+            }
+            dependents.add(owner);
+          }
+        }
+        const failedOwners = new Set(failuresByOwner.keys());
+        const failedQueue = [...failedOwners];
+        for (let index = 0; index < failedQueue.length; index += 1) {
+          for (const dependent of dependentsByOwner.get(failedQueue[index]!) ?? []) {
+            if (failedOwners.has(dependent)) continue;
+            failedOwners.add(dependent);
+            failedQueue.push(dependent);
+          }
+        }
+        const blockedByFailedOwner = [...blockedByOwner.keys()].every(owner => failedOwners.has(owner));
         if (failuresByOwner.size > 0 && blockedByFailedOwner) {
           break;
         }

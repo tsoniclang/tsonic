@@ -502,6 +502,51 @@ test("target artifact reconstruction reports the provider failure without publis
   assert.equal(graph.artifact("a-caller"), undefined);
 });
 
+for (const cycle of [false, true]) {
+  test(`target artifact reconstruction preserves the root failure through ${cycle ? "cyclic" : "transitive"} blocked owners`, () => {
+    const graph = createTargetArtifactContractGraph();
+    const result = reconstructTargetArtifacts(graph, ["entry", "middle", "provider"], owner => {
+      if (owner === "provider") return { kind: "rejected", code: "PROVIDER_INVALID", reason: "Exact provider failure." };
+      return { kind: "blocked", reason: "Requires an exact unpublished prerequisite.",
+        dependencies: owner === "entry" ? [dependency("middle", implementation)]
+          : [dependency("provider", signature), ...(cycle ? [dependency("entry", implementation)] : [])] };
+    }, { maximumReconstructionCount: 16 });
+    assert.equal(result.kind, "failed");
+    assert.deepEqual(result.failures, [{ owner: "provider", code: "PROVIDER_INVALID", reason: "Exact provider failure." }]);
+    assert.equal(result.reconstructionCount, 3);
+    for (const owner of ["entry", "middle", "provider"]) {
+      assert.equal(graph.artifact(owner) === undefined, true, `${owner} never publishes partial output`);
+    }
+  });
+}
+
+test("a separate unproducible prerequisite is not hidden by a transitive provider failure", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(graph, ["entry", "middle", "provider", "unrelated"], owner => {
+    if (owner === "provider") return { kind: "rejected", code: "PROVIDER_INVALID", reason: "Exact provider failure." };
+    return { kind: "blocked", reason: "Requires an exact unpublished prerequisite.", dependencies: [
+      dependency(owner === "entry" ? "middle" : owner === "middle" ? "provider" : "unavailable", signature),
+    ] };
+  }, { maximumReconstructionCount: 16 });
+  assert.equal(result.kind, "rejected");
+  assert.equal(result.code, "TARGET_ARTIFACT_BLOCKED_WITHOUT_PROGRESS");
+  for (const owner of ["entry", "middle", "provider", "unrelated"]) {
+    assert.equal(graph.artifact(owner) === undefined, true, `${owner} never publishes partial output`);
+  }
+});
+
+test("an unpublished prerequisite cycle without a failed root remains rejected", () => {
+  const graph = createTargetArtifactContractGraph();
+  const result = reconstructTargetArtifacts(graph, ["entry", "middle"], owner => ({
+    kind: "blocked", reason: "Requires an exact unpublished prerequisite.",
+    dependencies: [dependency(owner === "entry" ? "middle" : "entry", signature)],
+  }), { maximumReconstructionCount: 16 });
+  assert.equal(result.kind, "rejected");
+  assert.equal(result.code, "TARGET_ARTIFACT_BLOCKED_WITHOUT_PROGRESS");
+  assert.equal(result.reconstructionCount, 2);
+  assert.equal(graph.artifact("entry") === undefined && graph.artifact("middle") === undefined, true);
+});
+
 test("target artifact reconstruction rejects blockers without a producible prerequisite", () => {
   const graph = createTargetArtifactContractGraph();
   const result = reconstructTargetArtifacts(

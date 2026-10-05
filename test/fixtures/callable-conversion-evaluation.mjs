@@ -10,6 +10,20 @@ export function capturedCallback(initial: number): (unused: number) => number {
 export function defaultCallback(): (value?: number) => number { return defaulted; }
 `;
 
+export const nativeCallableInputBorrowSource = `
+let reads = 0;
+function count(value: string): number { reads++; return value === "returned" ? 8 : 6; }
+function consume(callback: (value: string) => number, value: string): number {
+  return callback(value);
+}
+export function selected(): (value: string) => number { return count; }
+export function run(): boolean {
+  const saved: (value: string) => number = count;
+  const result = consume(count, "direct") + saved("stored") + selected()("returned");
+  return result === 20 && reads === 3;
+}
+`;
+
 export const absenceCallableConversionSource = `
 let first = 0;
 let second = 0;
