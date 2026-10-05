@@ -1,5 +1,5 @@
 import type { AstReader, Node } from "@tsonic/tsts";
-import type { SourceProgramNavigation } from "./types.js";
+import type { SourceDeclarationUse, SourceProgramNavigation } from "./types.js";
 import { sourceBindingScope } from "./lexical-captures.js";
 
 export function sourceBindingHasSingleCaptureOwner(
@@ -8,7 +8,9 @@ export function sourceBindingHasSingleCaptureOwner(
   entryPoints: readonly Node[],
   ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "declarationUseSummary">,
+  admitsClosedUse: (use: SourceDeclarationUse) => boolean,
 ): boolean {
+  if (typeof admitsClosedUse !== "function") return false;
   const scope = sourceBindingScope(declaration, ast);
   if (scope === undefined || ast.is.IsSourceFile(scope) || entryPoints.length === 0 || entryPoints.length > 65_536) return false;
   const selected = new Set(entryPoints);
@@ -63,9 +65,10 @@ export function sourceBindingHasSingleCaptureOwner(
   }
   if (current !== scope) return false;
   const uses = navigation.declarationUseSummary(declaration);
-  return !uses.exported && !uses.hasUnclassifiedValueUse && uses.uses.every(use => {
+  return uses.declaration === declaration && !uses.exported && uses.uses.every(use => {
     if (++steps > 262_144) return false;
     if (use.kind === "type-only") return true;
+    if (admitsClosedUse(use) !== true) return false;
     for (let current = ast.parent(use.reference); current !== undefined; current = ast.parent(current)) {
       if (++steps > 262_144) return false;
       if (selected.has(current)) return true;

@@ -39,12 +39,12 @@ test("direct lexical calls retain transitive environments, not first-class calla
   assert.equal(selected.captures[0]?.declaration === current.declarations.get("count"), true, "exact shared binding");
   assert.equal(selected.callableRoots.includes(current.declarations.get("next")!), true, "exact native callee root");
   assert.equal(sourceBindingHasSingleCaptureOwner(current.declarations.get("count")!, current.declarations.get("forward")!,
-    selected.callableRoots, current.source.ast, current.source.navigation), true, "one exact direct-call environment");
+    selected.callableRoots, current.source.ast, current.source.navigation, use => use.role !== "value"), true, "one exact direct-call environment");
   assert.equal(sourceBindingHasSingleCaptureOwner(current.declarations.get("count")!, current.declarations.get("forward")!,
-    [...selected.callableRoots, selected.callableRoots[0]!], current.source.ast, current.source.navigation), false,
+    [...selected.callableRoots, selected.callableRoots[0]!], current.source.ast, current.source.navigation, use => use.role !== "value"), false,
     "duplicate roots do not establish ownership");
   assert.equal(sourceBindingHasSingleCaptureOwner(current.declarations.get("count")!, current.declarations.get("forward")!,
-    Array.from({ length: 65_537 }, () => selected.callableRoots[0]!), current.source.ast, current.source.navigation), false,
+    Array.from({ length: 65_537 }, () => selected.callableRoots[0]!), current.source.ast, current.source.navigation, use => use.role !== "value"), false,
     "oversized roots reject before graph construction");
 });
 
@@ -128,11 +128,45 @@ test("single-owner evidence rejects disconnected direct-call cycles and independ
   assert.equal(sourceBindingHasSingleCaptureOwner(disconnected.declarations.get("count")!,
     disconnected.declarations.get("owner")!,
     ["owner", "left", "right"].map(name => disconnected.declarations.get(name)!),
-    disconnected.source.ast, disconnected.source.navigation), false, "disconnected graph is not one retained owner");
+    disconnected.source.ast, disconnected.source.navigation, use => use.role !== "value"), false, "disconnected graph is not one retained owner");
   const independent = fixture(`let count = 0; function next() { return ++count; }
     function owner() { return () => next(); } return owner;`);
   assert.equal(sourceBindingHasSingleCaptureOwner(independent.declarations.get("count")!,
     independent.declarations.get("owner")!,
     ["owner", "next"].map(name => independent.declarations.get(name)!),
-    independent.source.ast, independent.source.navigation), false, "nested independent callable is not a direct owner edge");
+    independent.source.ast, independent.source.navigation, use => use.role !== "value"), false, "nested independent callable is not a direct owner edge");
+});
+
+test("single-owner admission requires exact target evidence without rewriting source-use classification", () => {
+  const current = fixture(`let count = 0; function owner() { count = count + 1; return count; } return owner;`);
+  const declaration = current.declarations.get("count")!;
+  const owner = current.declarations.get("owner")!;
+  const summary = current.source.navigation.declarationUseSummary(declaration);
+  assert.equal(summary.hasUnclassifiedValueUse, true, "source arithmetic is not native ownership evidence");
+  const inputs = [declaration, owner, [owner], current.source.ast, current.source.navigation];
+  assert.equal(sourceBindingHasSingleCaptureOwner(declaration, owner, [owner], current.source.ast,
+    current.source.navigation, use => summary.uses.includes(use)), true, "exact admitted use identities");
+  assert.equal(sourceBindingHasSingleCaptureOwner(declaration, owner, [owner], current.source.ast,
+    current.source.navigation, use => use.role !== "value"), false, "source-only admission stays conservative");
+  for (const admission of [undefined, null, false, 1, () => false, () => 1])
+    assert.equal(Reflect.apply(sourceBindingHasSingleCaptureOwner, undefined, [...inputs, admission]), false,
+      "missing, malformed or non-Boolean admission cannot prove ownership");
+  assert.equal(current.source.navigation.declarationUseSummary(declaration) === summary, true,
+    "immutable source evidence remains canonical");
+});
+
+test("admitted arithmetic retains repeated activation and independent-owner rejection", () => {
+  const repeated = fixture(`let count = 0; for (let index = 0; index < 2; index++) {
+    const owner = () => { count = count + 1; return count; }; owner(); } return count;`);
+  const variable = repeated.declarations.get("owner")!;
+  const owner = repeated.source.ast.as.AsVariableDeclaration(variable)?.Initializer;
+  assert.equal(owner !== undefined, true, "exact repeated closure owner");
+  assert.equal(sourceBindingHasSingleCaptureOwner(repeated.declarations.get("count")!, owner!, [owner!],
+    repeated.source.ast, repeated.source.navigation, () => true), false, "repeated owner is not one activation");
+  const independent = fixture(`let count = 0; function owner() { count = count + 1; return count; }
+    function second() { return count; } return [owner, second];`);
+  assert.equal(sourceBindingHasSingleCaptureOwner(independent.declarations.get("count")!,
+    independent.declarations.get("owner")!, [independent.declarations.get("owner")!],
+    independent.source.ast, independent.source.navigation, () => true), false,
+    "native admission does not merge independent capture owners");
 });
