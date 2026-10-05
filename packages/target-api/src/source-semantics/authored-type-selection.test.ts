@@ -3,6 +3,39 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Expression } from "../public/source.js";
 
+test("authored generic union members preserve exact closed arguments without erasing real ambiguity", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    interface Envelope<Value> { readonly value: Value; }
+    type TextEnvelope = Envelope<string>;
+    type Direct = Envelope<string> | Envelope<number>;
+    type Nested = Envelope<Envelope<string>> | Envelope<Envelope<number>>;
+    type Aliased = TextEnvelope | Envelope<number>;
+    type Duplicate = TextEnvelope | Envelope<string> | undefined;
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true);
+  const declarations = source.ast.statements(file!);
+  for (const position of [2, 3, 4, 5]) {
+    const declaration = declarations[position]!;
+    const typeNode = source.ast.typeNode(declaration);
+    const semantics = source.semantics.forNode(declaration);
+    const declared = semantics.declarations.declaredType(declaration);
+    assert.equal(typeNode !== undefined && declared !== undefined, true);
+    const members = semantics.types.unionOrIntersectionTypes(declared!);
+    for (const member of members.filter(type => !semantics.types.isNullish(type))) {
+      const selection = semantics.types.authoredSelection(typeNode!, member);
+      assert.equal(selection.kind, position === 5 ? "ambiguous" : "authored-members");
+      if (selection.kind !== "authored-members") continue;
+      assert.equal(selection.nodes.length, 1);
+      const authored = semantics.types.authoredType(selection.nodes[0]!);
+      assert.equal(authored === member, true, "the exact instantiated source member survives selection");
+      assert.equal(Object.isFrozen(selection.nodes), true);
+    }
+  }
+});
+
 test("authored union aliases retain exact whole groups after undefined narrowing", () => {
   const checked = createCompilerSessionFromFiles({
     currentDirectory: "/src",

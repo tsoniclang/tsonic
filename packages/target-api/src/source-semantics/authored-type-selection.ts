@@ -10,6 +10,8 @@ import {
   sourceTypeRelationship,
 } from "./type-relationship.js";
 import { sourceTypeMemberRefines } from "./type-refinement.js";
+import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
+import type { SourceFileSemantics } from "./types.js";
 
 export type SourceAuthoredTypeSelection =
   | {
@@ -27,6 +29,7 @@ export function selectAuthoredSourceType(
   facts: ReadonlySourceFactResolver,
   authoredTypeNode: Node,
   selectedType: Type,
+  semantics: SourceFileSemantics,
 ): SourceAuthoredTypeSelection {
   const authoredType = checker.getTypeFromTypeNode(authoredTypeNode);
   if (authoredType === undefined) {
@@ -39,7 +42,11 @@ export function selectAuthoredSourceType(
     authoredType,
     selectedType,
   );
-  if (directRelationship !== "unrelated") {
+  const preservesArguments = (authored: Type, selected: Type): boolean =>
+    authored === selected || !types.isTypeReference(authored) || !types.isTypeReference(selected) ||
+    types.couldContainTypeVariables(authored) || types.couldContainTypeVariables(selected) ||
+    sourceBoundTypeRelationship(authored, selected, semantics, () => undefined) !== undefined;
+  if (directRelationship !== "unrelated" && preservesArguments(authoredType, selectedType)) {
     return {
       kind: "authored-members",
       nodes: Object.freeze([authoredTypeNode]),
@@ -75,6 +82,7 @@ export function selectAuthoredSourceType(
       const authoredMemberType = authoredMemberTypes.get(authoredMember);
       return retainedUnionMembers.get(authoredMember)?.includes(selectedMember) === true ||
         authoredMemberType !== undefined &&
+        preservesArguments(authoredMemberType, selectedMember) &&
         sourceTypeMemberRefines(types, checker, facts, authoredMemberType, selectedMember);
     });
     if (candidates.length === 0) {

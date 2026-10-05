@@ -256,6 +256,7 @@ export function createTargetSourceProgram(
           source.sourceFacts,
           authoredTypeNode,
           selectedType,
+          semantics,
         );
       },
       contextualValueSelection(node: Node) {

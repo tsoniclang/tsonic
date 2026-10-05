@@ -91,3 +91,24 @@ export const contextualAsyncCostSource = `
 import type { int32 } from "@tsonic/core/types.js";
 export function makeEmpty(): () => Promise<int32 | void> { return async () => {}; }
 `;
+
+export const inlineContextualAsyncResultSource = `
+import type { int32 } from "@tsonic/core/types.js";
+class Reply {
+  count: int32;
+  constructor(count: int32) { this.count = count; }
+}
+export function makeEmpty(): () => (void | Reply | Promise<void | Reply>) {
+  return async () => {};
+}
+export function makeOptional(): (present: boolean) => (Promise<void | Reply> | Reply | void) {
+  return async (present: boolean) => { if (present) return new Reply(7); };
+}
+export async function main(): Promise<void> {
+  if (await makeEmpty()() !== undefined) throw new Error("inline empty result");
+  const optional = makeOptional();
+  if (await optional(false) !== null) throw new Error("inline absent result");
+  const present = await optional(true);
+  if (present === undefined || present.count !== 7) throw new Error("inline present result");
+}
+`;
