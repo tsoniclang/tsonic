@@ -929,6 +929,51 @@ test("target source semantics retain authored, contextual, and flow-selected uni
   );
 });
 
+test("contextual values exclude unannotated binding hints but retain authored destinations", async () => {
+  const checked = await checkedSource("binding-contextual-values", {
+    "src/index.ts": `
+interface Counter { index: number }
+export function read(): number {
+  const { index: ordinary } = ({ index: 0 });
+  const [tuple] = [0];
+  for (let { index } = { index: 1 }; index < 3; index++) {}
+  for (let { index }: Counter = { index: 2 }; index < 3; index++) {}
+  return ordinary + tuple;
+}
+export function inferred({ index } = { index: 4 }): number { return index; }
+export function authored({ index }: Counter = { index: 5 }): number { return index; }
+`,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const semantics = source.semantics.forFile(file);
+  const selections = new Map();
+  const visit = node => {
+    if (source.ast.is.IsObjectLiteralExpression(node) || source.ast.is.IsArrayLiteralExpression(node)) {
+      const text = source.ast.getSourceText(file).slice(source.ast.pos(node), source.ast.end(node)).trim();
+      selections.set(text, semantics.types.contextualValueSelection(node));
+      const type = semantics.types.expressionType(node);
+      assert.equal(type !== undefined, true, "checked initializer retains an exact inferred type");
+      if (source.ast.is.IsObjectLiteralExpression(node)) {
+        const properties = semantics.types.propertyInfos(type);
+        assert.equal(properties.length, 1);
+        assert.equal(semantics.types.isNumberLike(properties[0].type), true);
+      }
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.equal(selections.size, 6);
+  for (const text of ["{ index: 0 }", "[0]", "{ index: 1 }", "{ index: 4 }"]) {
+    assert.equal(selections.get(text)?.kind, "unavailable", text);
+  }
+  for (const text of ["{ index: 2 }", "{ index: 5 }"]) {
+    const selection = selections.get(text);
+    assert.equal(selection?.kind, "selected", text);
+    assert.equal(sourceTypeSymbolName(semantics, selection.type), "Counter");
+  }
+});
+
 test("effective type arguments retain merged interface parameter identities", async () => {
   const checked = await checkedSource("effective-merged-type-arguments", {
     "src/index.ts": `

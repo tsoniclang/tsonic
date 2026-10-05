@@ -78,11 +78,11 @@ export const loopCaptureStorageSource = `
     type Callback = (count: number) => number;
     let previous: Callback | undefined;
     for (let index = 0; index < 6; index++) {
-      const current: Callback = function self(count: number): number {
-        const same = self;
-        const identity = (): boolean => same === self;
+      const current: Callback = function recurse(count: number): number {
+        const same = recurse;
+        const identity = (): boolean => same === recurse;
         if (!identity()) return -1;
-        return count === 0 ? index : self(count - 1);
+        return count === 0 ? index : recurse(count - 1);
       };
       if (previous !== undefined && (previous(2) !== index - 1 || previous === current)) return false;
       previous = current;
@@ -90,10 +90,23 @@ export const loopCaptureStorageSource = `
     }
     return previous !== undefined && previous(2) === 5;
   }
+  export function headerEvaluation(): boolean {
+    let calls = 0;
+    const objectSeed = () => { calls += 1; return { index: 0 }; };
+    for (let { index } = objectSeed(); index < 2; index++) {
+      if (calls !== 1) return false;
+    }
+    for (let index = 0, read = () => { const nested = 7; return nested; }; index < 2; index++) {
+      if (read() !== 7) return false;
+    }
+    let index = 0;
+    for (index = 1; index < 3; index++) {}
+    return calls === 1 && index === 3;
+  }
   export function run(): boolean {
     return copiedIterations() && liveIterations() && initializerCapture() &&
       liveConditionCapture() && sharedVarCapture() && incrementorCapture() &&
-      destructuredIterations() && namedSelfIterations();
+      destructuredIterations() && namedSelfIterations() && headerEvaluation();
   }
   export function main(): void {
     if (!run()) throw new Error("lexical loop activation");
