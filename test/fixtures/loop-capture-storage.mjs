@@ -56,9 +56,41 @@ export const loopCaptureStorageSource = `
     }
     return previous !== undefined && previous() === 2 && selected() === 3;
   }
+  export function destructuredIterations(): boolean {
+    let previous: (() => number) | undefined;
+    for (let { index } = { index: 0 }; index < 6; index++) {
+      const read = () => index;
+      if (previous !== undefined && (previous() !== index - 1 || previous === read)) return false;
+      previous = read;
+      index += 1;
+    }
+    if (previous === undefined || previous() !== 5) return false;
+    previous = undefined;
+    for (let [index] = [0]; index < 6; index++) {
+      const read = () => index;
+      if (previous !== undefined && (previous() !== index - 1 || previous === read)) return false;
+      previous = read;
+      index += 1;
+    }
+    return previous !== undefined && previous() === 5;
+  }
+  export function namedSelfIterations(): boolean {
+    type Callback = (own: Callback | undefined) => number;
+    let previous: Callback | undefined;
+    for (let index = 0; index < 6; index++) {
+      const current: Callback = function self(own: Callback | undefined): number {
+        return own === self ? index : -1;
+      };
+      if (previous !== undefined && (previous(previous) !== index - 1 || previous === current)) return false;
+      previous = current;
+      index += 1;
+    }
+    return previous !== undefined && previous(previous) === 5;
+  }
   export function run(): boolean {
     return copiedIterations() && liveIterations() && initializerCapture() &&
-      liveConditionCapture() && sharedVarCapture() && incrementorCapture();
+      liveConditionCapture() && sharedVarCapture() && incrementorCapture() &&
+      destructuredIterations() && namedSelfIterations();
   }
   export function main(): void {
     if (!run()) throw new Error("lexical loop activation");

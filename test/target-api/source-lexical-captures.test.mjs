@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceProgramNavigation, sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "../../packages/target-api/dist/public/source.js";
+import { createSourceProgramNavigation, sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "../../packages/target-api/dist/public/source.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("lexical captures retain exact bindings, exclude types and modules, and include deferred uses", async () => {
@@ -114,4 +114,34 @@ test("captured binding scopes distinguish parameters, lexical blocks, loops and 
   assert.equal(ast.kindName(sourceBindingScope(bound, ast)), "KindBlock");
   const caught = namedVariable(ast, create, "error");
   assert.ok(sourceBindingScope(caught, ast) === ast.as.AsCatchClause(ast.parent(caught)).Block);
+});
+
+test("iteration bindings retain the exact let header through nested destructuring", async () => {
+  const source = await checkedSource("iteration-binding-scopes", { "src/index.ts": `
+    export function create(seed: number) {
+      for (let index = 0; index < 2; index++) { let local = index; local++; }
+      for (let { count, nested: { value } } = { count: 0, nested: { value: 1 } }; count < 2; count++) { value; }
+      for (let [item] = [0]; item < 2; item++) { item; }
+      for (var shared = 0; shared < 2; shared++) { shared; }
+      for (const fixed = 0; fixed < 0;) { fixed; }
+      for (let each of [1, 2]) { each; }
+      return seed;
+    }
+  ` });
+  const ast = source.ast;
+  const create = namedDeclaration(ast, projectSourceFile(source, "src/index.ts"), "create");
+  for (const name of ["index", "count", "value", "item"]) {
+    const binding = requiredNode(ast, create, node =>
+      (ast.is.IsVariableDeclaration(node) || ast.is.IsBindingElement(node)) &&
+      ast.is.IsIdentifier(ast.name(node)) && ast.text(ast.name(node)) === name);
+    const scope = sourceBindingIterationScope(binding, ast);
+    assert.equal(scope !== undefined, true, name);
+    assert.equal(ast.is.IsForStatement(scope), true, name);
+    assert.equal(scope === sourceBindingScope(binding, ast), true, name);
+  }
+  for (const name of ["local", "shared", "fixed", "each"]) {
+    assert.equal(sourceBindingIterationScope(namedVariable(ast, create, name), ast) === undefined, true, name);
+  }
+  assert.equal(sourceBindingIterationScope(ast.parameters(create)[0], ast) === undefined, true, "parameter");
+  assert.equal(sourceBindingIterationScope(ast.body(create), ast) === undefined, true, "nonbinding");
 });

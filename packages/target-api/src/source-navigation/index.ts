@@ -2,7 +2,7 @@ export * from "./navigation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
-export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope } from "./lexical-captures.js";
+export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "./lexical-captures.js";
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";
 export { sourceBindingHasSingleCaptureOwner } from "./capture-ownership.js";
 export { sourceBindingCapturedBeforeInitialization } from "./deferred-captures.js";

@@ -89,13 +89,8 @@ export function sourceDeclarationIsModuleScoped(declaration: Node, ast: AstReade
 }
 
 export function sourceBindingScope(declaration: Node, ast: AstReader): Node | undefined {
-  let binding = declaration;
-  while (ast.is.IsBindingElement(binding)) {
-    const pattern = ast.parent(binding);
-    const owner = pattern === undefined ? undefined : ast.parent(pattern);
-    if (owner === undefined) return undefined;
-    binding = owner;
-  }
+  const binding = rootBindingDeclaration(declaration, ast);
+  if (binding === undefined) return undefined;
   if (ast.is.IsParameterDeclaration(binding)) {
     const callable = ast.parent(binding);
     return callable === undefined ? undefined : ast.body(callable);
@@ -110,6 +105,28 @@ export function sourceBindingScope(declaration: Node, ast: AstReader): Node | un
     if (!functionScoped && ast.is.IsCatchClause(current)) return ast.as.AsCatchClause(current)?.Block;
   }
   return undefined;
+}
+
+export function sourceBindingIterationScope(declaration: Node, ast: AstReader): Node | undefined {
+  const binding = rootBindingDeclaration(declaration, ast);
+  if (binding === undefined || !ast.is.IsVariableDeclaration(binding)) return undefined;
+  const initializer = ast.parent(binding);
+  if (initializer === undefined || !ast.is.IsVariableDeclarationList(initializer) ||
+    ast.variableDeclarationKind(initializer) !== "let") return undefined;
+  const scope = ast.parent(initializer);
+  return scope !== undefined && ast.is.IsForStatement(scope) && ast.as.AsForStatement(scope)?.Initializer === initializer
+    ? scope : undefined;
+}
+
+function rootBindingDeclaration(declaration: Node, ast: AstReader): Node | undefined {
+  let binding = declaration;
+  while (ast.is.IsBindingElement(binding)) {
+    const pattern = ast.parent(binding);
+    const owner = pattern === undefined ? undefined : ast.parent(pattern);
+    if (owner === undefined) return undefined;
+    binding = owner;
+  }
+  return binding;
 }
 
 function within(node: Node, ancestor: Node, ast: AstReader): boolean {
