@@ -1,4 +1,35 @@
 export const receiverFieldCaptureEdges = [
+  { name: "readonly-scalar-copy", asynchronous: false, source: `
+class Value {
+  readonly value = 7;
+  read = (): number => this.value;
+}
+function escaped(): () => number { return new Value().read; }
+export function run(): boolean { const read = escaped(); return read() === 7 && read() === 7; }
+` },
+  { name: "readonly-late-constructor-write", asynchronous: false, source: `
+class Value {
+  readonly value: number = 1;
+  read = (): number => this.value;
+  constructor() { this.value = 7; }
+}
+export function run(): boolean { const value = new Value(); const read = value.read; return read() === 7 && value.value === 7; }
+` },
+  { name: "readonly-overridden-field", asynchronous: false, source: `
+class Base { readonly value: number = 1; read = (): number => this.value; }
+class Derived extends Base { override readonly value: number = 2; }
+export function run(): boolean {
+  const value: Base = new Derived(); const read = value.read;
+  return read() === 2 && value.value === 2;
+}
+` },
+  { name: "readonly-deferred-field", asynchronous: false, source: `
+class Value {
+  read = (): number => this.value;
+  readonly value = 7;
+}
+export function run(): boolean { const read = new Value().read; return read() === 7; }
+` },
   { name: "defaults-private-readonly", asynchronous: false, source: `
 class Value {
   private value = 2;
@@ -99,7 +130,10 @@ export function run(): boolean {
 ` },
   { name: "generic-callable-nested-owners", asynchronous: false, source: `
 const create = <Outer>(seed: Outer) =>
-  <T>(left: T, right: T): T => seed === seed ? left : right;
+  <T>(left: T, right: T): T => {
+    const held: Outer[] = [seed];
+    return held.length !== 0 ? left : right;
+  };
 export function run(): boolean {
   const first = create(3);
   const second = create("seed");
@@ -128,6 +162,16 @@ export async function run(): Promise<boolean> {
 }
 ` },
 ];
+
+export const receiverFieldUnconstrainedEqualitySource = `
+const create = <Outer>(seed: Outer) =>
+  <T>(left: T, right: T): T => seed === seed ? left : right;
+export function run(): boolean {
+  const first = create(3);
+  const second = create("seed");
+  return first("left", "right") === "left" && second(1, 2) === 1;
+}
+`;
 
 export const receiverFieldFreezeSource = `
 class Value {
