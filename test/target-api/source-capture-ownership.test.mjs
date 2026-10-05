@@ -3,6 +3,8 @@ import test from "node:test";
 import { createSourceProgramNavigation, sourceBindingHasSingleCaptureOwner } from "../../packages/target-api/dist/public/source.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
+const admitsClassifiedUse = use => use.role !== "value";
+
 test("single capture ownership follows exact lexical activations and all uses", async () => {
   const source = await checkedSource("single-capture-owner", { "src/index.ts": `
     export function unique(seed: number) { return () => ++seed; }
@@ -21,19 +23,28 @@ test("single capture ownership follows exact lexical activations and all uses", 
   for (const [name, expected] of [["unique", true], ["external", false], ["shared", false], ["repeated", false]]) {
     const declaration = namedDeclaration(ast, file, name);
     const closure = requiredNode(ast, declaration, node => ast.is.IsArrowFunction(node));
-    assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(declaration)[0], closure, [closure], ast, navigation), expected, name);
+    assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(declaration)[0], closure, [closure], ast, navigation,
+      admitsClassifiedUse), expected, name);
   }
   const fresh = namedDeclaration(ast, file, "fresh");
   const closure = requiredNode(ast, fresh, node => ast.is.IsArrowFunction(node));
-  assert.equal(sourceBindingHasSingleCaptureOwner(namedVariable(ast, fresh, "count"), closure, [closure], ast, navigation), true);
+  assert.equal(sourceBindingHasSingleCaptureOwner(namedVariable(ast, fresh, "count"), closure, [closure], ast, navigation,
+    admitsClassifiedUse), true);
+  assert.equal(Reflect.apply(sourceBindingHasSingleCaptureOwner, undefined,
+    [namedVariable(ast, fresh, "count"), closure, [closure], ast, navigation]), false,
+    "the removed public form cannot assert native use admission");
   const nested = namedDeclaration(ast, file, "nested");
   const outer = requiredNode(ast, nested, node => ast.is.IsArrowFunction(node));
   const inner = ast.body(outer);
-  assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(nested)[0], inner, [inner], ast, navigation), false);
+  assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(nested)[0], inner, [inner], ast, navigation,
+    admitsClassifiedUse), false);
   const moduleOwner = requiredNode(ast, namedDeclaration(ast, file, "moduleScope"), node => ast.is.IsArrowFunction(node));
-  assert.equal(sourceBindingHasSingleCaptureOwner(namedVariable(ast, file, "global"), moduleOwner, [moduleOwner], ast, navigation), false);
+  assert.equal(sourceBindingHasSingleCaptureOwner(namedVariable(ast, file, "global"), moduleOwner, [moduleOwner], ast, navigation,
+    admitsClassifiedUse), false);
   const methods = namedDeclaration(ast, file, "methods");
   const object = requiredNode(ast, methods, node => ast.is.IsObjectLiteralExpression(node));
-  assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(methods)[0], object, ast.properties(object), ast, navigation), true);
-  assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(methods)[0], object, [closure], ast, navigation), false);
+  assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(methods)[0], object, ast.properties(object), ast, navigation,
+    admitsClassifiedUse), true);
+  assert.equal(sourceBindingHasSingleCaptureOwner(ast.parameters(methods)[0], object, [closure], ast, navigation,
+    admitsClassifiedUse), false);
 });

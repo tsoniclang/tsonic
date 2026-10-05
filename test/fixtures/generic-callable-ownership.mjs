@@ -121,11 +121,11 @@ export const genericCallableOwnershipCases = Object.freeze([
     source: `
       export function create<Item>(seed: Item) {
         const saved: [Item, boolean] = [seed, true];
-        return <Item>(value: Item): Item => saved[1] ? value : value;
+        return <Item>(value: Item, fallback: Item): Item => saved[1] ? value : fallback;
       }
       export function main(): void {
         const choose = create(7);
-        if (choose("value") !== "value" || choose(3) !== 3) throw new Error("exact nested binder identity");
+        if (choose("value", "other") !== "value" || choose(3, 9) !== 3) throw new Error("exact nested binder identity");
       }
     `,
   },
