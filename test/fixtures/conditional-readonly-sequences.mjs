@@ -1,5 +1,6 @@
 export const conditionalReadonlySequencesSource = `
 interface Options { index?: false | string | readonly string[]; }
+interface MutableOptions { index?: false | string | string[]; }
 class Effects { calls = 0; }
 function count(values: readonly string[]): number {
   let total = 0;
@@ -14,6 +15,15 @@ function select(options: Options | undefined, effects: Effects) {
   const configured = options?.index;
   return configured === false ? [] : typeof configured === "string"
     ? [configured] : configured ?? fallback(effects);
+}
+function mutableFallback(effects: Effects): string[] {
+  effects.calls++;
+  return ["mutable"];
+}
+function selectMutable(options: MutableOptions | undefined, effects: Effects) {
+  const configured = options?.index;
+  return configured === false ? [] : typeof configured === "string"
+    ? [configured] : configured ?? mutableFallback(effects);
 }
 function emptyLast(present: boolean, values: readonly string[]) {
   return present ? values : [];
@@ -33,11 +43,21 @@ export function run(): boolean {
   const lastPresent = emptyLast(true, ["present"]);
   const aliasEmpty = selectedAlias(false, ["unused"]);
   const aliasPresent = selectedAlias(true, ["alias"]);
-  return effects.calls === 2 && count(absent) === 1 && absent[0] === "fallback" &&
+  const mutableAbsent = selectMutable(undefined, effects);
+  const mutableEmpty = selectMutable({}, effects);
+  const mutableDisabled = selectMutable({ index: false }, effects);
+  const mutableText = selectMutable({ index: "manual" }, effects);
+  const mutableSequence = selectMutable({ index: ["left", "right"] }, effects);
+  mutableSequence[1] = "last";
+  return effects.calls === 4 && count(absent) === 1 && absent[0] === "fallback" &&
     count(emptyOptions) === 1 && emptyOptions[0] === "fallback" && count(disabled) === 0 &&
     count(text) === 1 && text[0] === "manual" && count(sequence) === 2 &&
     sequence[0] === "alpha" && sequence[1] === "beta" && count(lastEmpty) === 0 &&
     count(lastPresent) === 1 && lastPresent[0] === "present" && count(aliasEmpty) === 0 &&
-    count(aliasPresent) === 1 && aliasPresent[0] === "alias";
+    count(aliasPresent) === 1 && aliasPresent[0] === "alias" &&
+    count(mutableAbsent) === 1 && mutableAbsent[0] === "mutable" &&
+    count(mutableEmpty) === 1 && mutableEmpty[0] === "mutable" &&
+    count(mutableDisabled) === 0 && count(mutableText) === 1 && mutableText[0] === "manual" &&
+    count(mutableSequence) === 2 && mutableSequence[0] === "left" && mutableSequence[1] === "last";
 }
 `;
