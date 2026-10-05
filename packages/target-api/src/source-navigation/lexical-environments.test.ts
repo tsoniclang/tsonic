@@ -48,6 +48,36 @@ test("direct lexical calls retain transitive environments, not first-class calla
     "oversized roots reject before graph construction");
 });
 
+test("parameter-property member names are not lexical parameter captures", () => {
+  const current = fixture(`class Value {
+    constructor(public value: number) {
+      const read = () => this.value;
+      const input = () => value;
+      const indexed = () => this[key];
+      const key = "value";
+    }
+  } return Value;`);
+  const select = (name: string) => {
+    const declaration = current.declarations.get(name)!;
+    const expression = current.source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    assert.equal(expression !== undefined, true);
+    return sourceLexicalEnvironment(expression!, [expression!], current.source.ast, current.source.navigation);
+  };
+  const read = select("read");
+  const input = select("input");
+  const indexed = select("indexed");
+  assert.equal(read.kind, "resolved");
+  assert.equal(input.kind, "resolved");
+  assert.equal(indexed.kind, "resolved");
+  if (read.kind !== "resolved" || input.kind !== "resolved" || indexed.kind !== "resolved") return;
+  assert.equal(read.captures.length, 0, "member selection does not capture the constructor's lexical parameter");
+  assert.equal(read.receivers.length, 1, "the native receiver remains exact");
+  assert.equal(input.captures.length, 1, "an authored lexical parameter reference remains captured");
+  assert.equal(current.source.ast.is.IsParameterDeclaration(input.captures[0]!.declaration), true);
+  assert.equal(indexed.captures.length, 1, "computed key expressions retain lexical captures");
+  assert.equal(indexed.captures[0]!.declaration === current.declarations.get("key"), true);
+});
+
 test("first-class lexical captures retain callable identity without duplicating its environment", () => {
   const current = fixture(`let count = 0; function get() { return next; }
     function next() { return ++count; } return get;`);

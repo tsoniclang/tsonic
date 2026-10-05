@@ -35,6 +35,8 @@ export function sourceLexicalCaptures(
       }
     }
     if (ast.is.IsIdentifier(node)) {
+      const parent = ast.parent(node);
+      if (parent !== undefined && ast.is.IsPropertyAccessExpression(parent) && ast.name(parent) === node) return;
       const selected = navigation.sourceReferenceFor(node);
       if (selected?.project === true) {
         const declaration = selected.declaration;
