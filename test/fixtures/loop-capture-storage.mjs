@@ -75,17 +75,20 @@ export const loopCaptureStorageSource = `
     return previous !== undefined && previous() === 5;
   }
   export function namedSelfIterations(): boolean {
-    type Callback = (own: Callback | undefined) => number;
+    type Callback = (count: number) => number;
     let previous: Callback | undefined;
     for (let index = 0; index < 6; index++) {
-      const current: Callback = function self(own: Callback | undefined): number {
-        return own === self ? index : -1;
+      const current: Callback = function self(count: number): number {
+        const same = self;
+        const identity = (): boolean => same === self;
+        if (!identity()) return -1;
+        return count === 0 ? index : self(count - 1);
       };
-      if (previous !== undefined && (previous(previous) !== index - 1 || previous === current)) return false;
+      if (previous !== undefined && (previous(2) !== index - 1 || previous === current)) return false;
       previous = current;
       index += 1;
     }
-    return previous !== undefined && previous(previous) === 5;
+    return previous !== undefined && previous(2) === 5;
   }
   export function run(): boolean {
     return copiedIterations() && liveIterations() && initializerCapture() &&
