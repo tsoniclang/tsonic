@@ -234,6 +234,35 @@ const result = holder.read();
   assert.equal(substitution.subjects.length === 1 && source.ast.text(substitution.subjects[0].node) === "7", true, "setter assignment RHS");
 });
 
+test("implicit class construction is closed transport and preserves initializer throws", async () => {
+  const { source, storage, provider, subject } = await checked("source-storage-implicit-construction", `
+const EmptyAlias = Empty;
+try { new EmptyAlias(); throwValue(11); } catch (caught) { const emptyCatch = caught; }
+try { new Derived(); } catch (caught) { const inheritedCatch = caught; }
+try { new Forwarded(17); } catch (caught) { const forwardedCatch = caught; }
+`, `
+export class Empty {}
+export class Initialized { readonly value = throwValue(13); }
+export class Derived extends Initialized {}
+export class Base { constructor(value: number) { throw value; } }
+export class Forwarded extends Base {}
+`, ["Empty", "Derived", "Forwarded"]);
+  for (const [name, value] of [["emptyCatch", "11"], ["inheritedCatch", "13"], ["forwardedCatch", "17"]]) {
+    const selected = subject(name);
+    assert.equal(storage.unresolvedFor(selected) === undefined, true, name);
+    const origins = originSubjects(storage, selected, name);
+    assert.equal(origins.some(origin => source.ast.text(origin.node) === value), true, `${name}: exact thrown origin`);
+  }
+  const implicit = storage.invocations.filter(invocation => source.ast.is.IsNewExpression(invocation) &&
+    source.semantics.forNode(invocation).declarations.signatureDeclaration(
+      source.semantics.forNode(invocation).operations.call(invocation).selectedSignature) === undefined);
+  assert.equal(implicit.length >= 2, true, "implicit signatures genuinely lack authored declarations");
+  assert.equal(storage.boundaries.some(boundary => implicit.includes(boundary.invocation)), false,
+    "owned implicit construction is not an opaque native boundary");
+  const initialized = namedDeclaration(source.ast, provider, "Initialized");
+  assert.equal(source.navigation.classConstructors(initialized).implicit, true);
+});
+
 test("generic thrown-value and catch transport belongs to neutral source storage", async () => {
   const { storage, subject, initializer } = await checked("source-storage-generic-catch", `
 const original = { value: 3 };

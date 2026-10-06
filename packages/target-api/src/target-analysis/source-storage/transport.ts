@@ -1,11 +1,12 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../source-navigation/index.js";
 import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { createSourceStorageSubjects, type SourceStorageSubject } from "./subjects.js";
 import { createSourceStorageProjectionFlow } from "./projections.js";
 import { createSourceStorageStructuralFlow } from "./structural-flow.js";
 import { createSourceStorageExecutionRegions } from "./execution-regions.js";
+import { sourceStorageConstructedClass } from "./construction.js";
 import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
@@ -25,6 +26,7 @@ export function createSourceStorageTransport(
   const invocationTargets = new Map<Node, SourceStorageSubject>();
   const invocationArguments = new Map<Node, readonly Node[]>();
   const invocationDeclarations = new Map<Node, Node>();
+  const implicitConstructions = new Set<Node>();
   const argumentTransports = new Map<Node, readonly SourceStorageArgumentTransport[]>();
   const unresolvedInvocations = new Map<Node, string>();
   const accessorTargets = new Map<Node, readonly Node[]>();
@@ -224,8 +226,20 @@ export function createSourceStorageTransport(
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
       invocations.add(node);
       const selected = semantics.forNode(node).operations.call(node);
-      const signature = selected === undefined ? undefined
+      let signature = selected === undefined ? undefined
         : semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      if (selected !== undefined && signature === undefined && ast.is.IsNewExpression(node)) {
+        const declaration = sourceStorageConstructedClass(node, source, step);
+        const constructors = declaration === undefined ? undefined : navigation.classConstructors(declaration);
+        if (constructors?.kind === "resolved" && constructors.implicit) {
+          const matches = constructors.signatures.filter(candidate =>
+            sourceConstructorParametersMatch(candidate.parameters, selected.sourceSelectedSignatureParameters));
+          if (matches.length === 1) {
+            signature = matches[0]!.declaration ?? declaration;
+            implicitConstructions.add(node);
+          }
+        }
+      }
       if (selected !== undefined && signature !== undefined) {
         invocationDeclarations.set(node, signature);
         const implementation = navigation.callableImplementation(signature);
@@ -310,8 +324,7 @@ export function createSourceStorageTransport(
       if (!step()) return selected;
       if (ast.is.IsParameterDeclaration(origin.node)) complete = false;
       if ((incoming.get(origin)?.size ?? 0) !== 0) continue;
-      const callee = ast.is.IsNewExpression(origin.node) ? Node_Expression(ast, origin.node) : undefined;
-      const concrete = callee === undefined ? undefined : navigation.sourceReferenceFor(callee)?.declaration;
+      const concrete = sourceStorageConstructedClass(origin.node, source, step);
       const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
       if (target?.kind === "resolved") exact.add(target.implementation.declaration);
       else complete = false;
@@ -460,7 +473,8 @@ export function createSourceStorageTransport(
   for (const invocation of invocations) {
     if (!step()) break;
     const reason = unresolvedInvocations.get(invocation);
-    if (reason === undefined && [...invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined)) continue;
+    if (reason === undefined && (implicitConstructions.has(invocation) ||
+      [...invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined))) continue;
     const selected = new Set<SourceStorageSubject>();
     const result = subject(invocation);
     if (result !== undefined) {

@@ -1,6 +1,7 @@
 import type { Node, Type } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, sourceClassFieldIsTypeOnly } from "../../source-navigation/index.js";
+import { Node_Initializer, sourceClassFieldIsTypeOnly } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
+import { sourceStorageConstructedClass } from "./construction.js";
 
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, step: () => boolean) {
   const { ast, semantics, navigation } = source;
@@ -42,8 +43,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     return regions;
   };
   const instance = (invocation: Node): readonly { readonly owner: Node; readonly node: Node }[] => {
-    const callee = Node_Expression(ast, invocation);
-    const declaration = callee === undefined ? undefined : navigation.sourceReferenceFor(callee)?.declaration;
+    const declaration = sourceStorageConstructedClass(invocation, source, step);
     if (declaration === undefined || !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) return [];
     const classes = [declaration];
     const checked = new Set<Node>();
