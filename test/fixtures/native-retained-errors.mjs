@@ -52,6 +52,38 @@ export function run(): void {
 
 export const nativeRetainedErrorSource = nativeRetainedErrorSourceFor();
 
+export const nativeRetainedTerminalErrorSource = `
+import { Readable } from "node:stream";
+
+export function run(): boolean {
+  const stream = Readable.from([]);
+  const original = new Error("original error callback");
+  const later = new Error("later close callback");
+  const supplied = new Error("native terminal input");
+  let errors = 0;
+  let closes = 0;
+  let firstPreserved = false;
+  let laterPreserved = false;
+  stream.once("error", error => {
+    if (error !== supplied) throw new Error("terminal input identity changed");
+    errors++;
+    throw original;
+  });
+  stream.once("close", () => { closes++; throw later; });
+  try { stream.destroy(supplied); }
+  catch (failure) {
+    if (failure instanceof Error) firstPreserved = failure === original;
+  }
+  if (!stream.destroyed || errors !== 1 || closes !== 0) throw new Error("physical cleanup or source order changed");
+  try { stream.destroy(); }
+  catch (failure) {
+    if (failure instanceof Error) laterPreserved = failure === later;
+  }
+  stream.destroy();
+  return firstPreserved && laterPreserved && errors === 1 && closes === 1;
+}
+`;
+
 export const nativeRetainedErrorFlowSource = `
 import { createGzip } from "node:zlib";
 
