@@ -1,5 +1,54 @@
 export const recursiveCallbackProtocolCases = [
   {
+    name: "captured-class-field",
+    source: `
+class Counter {
+  constructor(public seed: number) {}
+  recurse = (count: number): number => count === 0 ? this.seed : this.recurse(count - 1);
+  rebind(seed: number): void {
+    this.seed = seed;
+    this.recurse = (count: number): number => count === 0 ? this.seed + 1 : this.recurse(count - 1);
+  }
+}
+function create(seed: number): (count: number) => number {
+  const value = new Counter(seed);
+  const before = value.recurse;
+  value.rebind(seed + 10);
+  return before;
+}
+export function main(): void {
+  const callback = create(3);
+  if (callback(0) !== 13 || callback(1) !== 14 || callback(8) !== 14)
+    throw new Error("retained class frame fields");
+}
+`,
+  },
+  {
+    name: "shared-class-frame",
+    source: `
+class Counter {
+  constructor(public seed: number) {}
+  recurse = (count: number): number => count === 0 ? this.seed : this.recurse(count - 1);
+  rebind(seed: number): void {
+    this.seed = seed;
+    this.recurse = (count: number): number => count === 0 ? this.seed + 1 : this.recurse(count - 1);
+  }
+}
+function create(seed: number): (count: number) => number {
+  const value = new Counter(seed);
+  const alias = value;
+  const before = alias.recurse;
+  value.rebind(seed + 10);
+  return before;
+}
+export function main(): void {
+  const callback = create(3);
+  if (callback(0) !== 13 || callback(1) !== 14 || callback(8) !== 14)
+    throw new Error("shared class frame fields");
+}
+`,
+  },
+  {
     name: "stable-recursion",
     source: `
 function create(): (count: number, seed: number) => number {
