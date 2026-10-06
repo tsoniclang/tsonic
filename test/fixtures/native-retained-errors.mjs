@@ -51,3 +51,24 @@ export function run(): void {
 }
 
 export const nativeRetainedErrorSource = nativeRetainedErrorSourceFor();
+
+export const nativeRetainedErrorFlowSource = `
+import { createGzip } from "node:zlib";
+
+export function run(): boolean {
+  const original = new Error("original finish failure");
+  const stack = original.stack;
+  const stream = createGzip();
+  stream.once("finish", (): void => { throw original; });
+  let retained = false;
+  try { stream.end(); }
+  catch (failure) {
+    if (failure instanceof Error) {
+      retained = failure === original && failure.message === "original finish failure"
+        && failure.name === "Error" && failure.stack === stack;
+    }
+  }
+  stream.destroy();
+  return retained;
+}
+`;
