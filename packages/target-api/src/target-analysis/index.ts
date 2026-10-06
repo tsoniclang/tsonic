@@ -40,7 +40,17 @@ export {
 } from "./use-sites.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
-export type { SourceErrorStorageProjection } from "./error-storage/error-storage-subjects.js";
+export { createSourceStorageQuery } from "./source-storage/queries.js";
+export { defaultSourceStorageLimits } from "./source-storage/resource-budget.js";
+export type { SourceStorageProjection, SourceStorageSubject } from "./source-storage/subjects.js";
+export type {
+  SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion,
+  SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection,
+  SourceStorageOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection,
+  SourceStorageSubjectsSelection, SourceStorageSubstitution, SourceStorageTypedSubject,
+  SourceStorageTypeSelection, SourceStorageUnresolved,
+  SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary,
+} from "./source-storage/types.js";
 export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./error-storage/protocol.js";
 export type {
   TargetUseSiteRef,

@@ -2,7 +2,7 @@ import type { Node, Type } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, sourceClassFieldIsTypeOnly } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 
-export function createSourceErrorExecutionRegions(source: TargetSourceProgram, step: () => boolean) {
+export function createSourceStorageExecutionRegions(source: TargetSourceProgram, step: () => boolean) {
   const { ast, semantics, navigation } = source;
   const typeMayBeAbsent = (type: Type, owner: Node): boolean => {
     const types = semantics.forNode(owner).types;

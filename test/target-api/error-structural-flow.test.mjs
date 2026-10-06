@@ -1,20 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceErrorStructuralFlow } from "../../packages/target-api/dist/target-analysis/error-storage/error-structural-flow.js";
-import { createSourceErrorStorageSubjects } from "../../packages/target-api/dist/target-analysis/error-storage/error-storage-subjects.js";
+import { createSourceStorageStructuralFlow } from "../../packages/target-api/dist/target-analysis/source-storage/structural-flow.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
 test("structural Error flow never queries a declaration outside checked-file ownership", () => {
   const file = {};
   const checked = {};
   const detached = {};
   const foreign = {};
-  const subject = createSourceErrorStorageSubjects();
+  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
   const source = { ast: { name: () => undefined, getSourceFile: node => node === detached ? undefined : node === foreign ? foreign : file },
     semantics: { includes: selected => selected === file, forNode: node => {
       assert.equal(node === checked, true, "unowned semantic query");
       return { declarations: { declaredValueType: () => undefined }, types: { expressionType: () => undefined } };
     } } };
-  const flow = createSourceErrorStructuralFlow(source, () => true, subject, () => assert.fail("unproven structural edge"));
+  const flow = createSourceStorageStructuralFlow(source, () => true, subject, () => assert.fail("unproven structural edge"));
   flow(subject(detached), subject(checked));
   flow(subject(foreign), subject(checked));
 });
@@ -25,7 +26,7 @@ test("recursive structural Error flow retains selected generic property types ev
   const outer = [{}, {}];
   const inner = [{}, {}];
   const fields = [{}, {}, {}, {}];
-  const subject = createSourceErrorStorageSubjects();
+  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
   const edges = [];
   let queries = 0;
   let flow;
@@ -50,7 +51,7 @@ test("recursive structural Error flow retains selected generic property types ev
     edges.push([from.node, to.node]);
     flow(from, to);
   };
-  flow = createSourceErrorStructuralFlow(source, () => true, subject, connect);
+  flow = createSourceStorageStructuralFlow(source, () => true, subject, connect);
   flow(subject(roots[0]), subject(roots[1]));
   assert.equal(queries, 2);
   assert.equal(edges.length, 2);

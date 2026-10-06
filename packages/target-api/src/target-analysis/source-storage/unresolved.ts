@@ -1,16 +1,16 @@
-import type { SourceErrorStorageSubject, SourceErrorStorageSubjectQuery } from "./error-storage-subjects.js";
+import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 
-export function createSourceErrorStorageUnresolvedQuery(
+export function createSourceStorageUnresolvedQuery(
   step: () => boolean,
-  subject: SourceErrorStorageSubjectQuery,
-  incoming: ReadonlyMap<SourceErrorStorageSubject, ReadonlySet<SourceErrorStorageSubject>>,
-  unresolved: ReadonlyMap<SourceErrorStorageSubject, string>,
-): (selected: SourceErrorStorageSubject) => string | undefined {
-  const selections = new Map<SourceErrorStorageSubject, string | undefined>();
+  subject: SourceStorageSubjectQuery,
+  incoming: ReadonlyMap<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>,
+  unresolved: ReadonlyMap<SourceStorageSubject, string>,
+): (selected: SourceStorageSubject) => string | undefined {
+  const selections = new Map<SourceStorageSubject, string | undefined>();
   return selected => {
     if (selections.has(selected)) return selections.get(selected);
     const pending = [selected];
-    const visited = new Set<SourceErrorStorageSubject>();
+    const visited = new Set<SourceStorageSubject>();
     while (pending.length !== 0 && step()) {
       const current = pending.pop()!;
       if (visited.has(current)) continue;
@@ -23,7 +23,10 @@ export function createSourceErrorStorageUnresolvedQuery(
           return reason;
         }
       }
-      pending.push(...incoming.get(current) ?? []);
+      for (const origin of incoming.get(current) ?? []) {
+        if (!step()) break;
+        pending.push(origin);
+      }
     }
     selections.set(selected, undefined);
     return undefined;

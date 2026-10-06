@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorStorageDemandQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 const profile = `
@@ -38,7 +38,7 @@ async function checked(name) {
 
 function analyze(source, storageMutators) {
   return createSourceErrorStorageDemandQuery(source, { fields: [], constructors: [], stackCaptures: [], storageMutators,
-    retention: () => ({ kind: "ordinary" }) }, source.navigation.sourceFiles);
+    retention: () => ({ kind: "ordinary" }) }, createSourceStorageQuery(source, source.navigation.sourceFiles));
 }
 
 test("physical Error storage mutation follows its exact selected cross-file scalar parameter and alias", async () => {

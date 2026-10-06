@@ -1,22 +1,22 @@
 import type { Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceErrorStorageProjection, SourceErrorStorageSubject, SourceErrorStorageSubjectQuery } from "./error-storage-subjects.js";
-import { sourceErrorPresentStorageType, sourceErrorStorageComponents, sourceErrorStorageComponentType, sourceErrorStorageSubjectType } from "./error-storage-components.js";
+import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType } from "./components.js";
 
-export function createSourceErrorStructuralFlow(
+export function createSourceStorageStructuralFlow(
   source: TargetSourceProgram,
   step: () => boolean,
-  subject: SourceErrorStorageSubjectQuery,
-  connect: (origin: SourceErrorStorageSubject | undefined, destination: SourceErrorStorageSubject | undefined) => void,
-): (origin: SourceErrorStorageSubject, destination: SourceErrorStorageSubject) => void {
-  const selectedTypes = new Map<SourceErrorStorageSubject, Type | undefined>();
-  const visited = new Map<SourceErrorStorageSubject, Set<SourceErrorStorageSubject>>();
-  const pending: { readonly origin: SourceErrorStorageSubject; readonly destination: SourceErrorStorageSubject;
+  subject: SourceStorageSubjectQuery,
+  connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined) => void,
+): (origin: SourceStorageSubject, destination: SourceStorageSubject) => void {
+  const selectedTypes = new Map<SourceStorageSubject, Type | undefined>();
+  const visited = new Map<SourceStorageSubject, Set<SourceStorageSubject>>();
+  const pending: { readonly origin: SourceStorageSubject; readonly destination: SourceStorageSubject;
     readonly selected?: { readonly from: Type; readonly to: Type; readonly semantics: SourceFileSemantics } }[] = [];
   let draining = false;
-  const typeFor = (value: SourceErrorStorageSubject): Type | undefined => {
+  const typeFor = (value: SourceStorageSubject): Type | undefined => {
     if (selectedTypes.has(value)) return selectedTypes.get(value);
-    const selected = sourceErrorStorageSubjectType(source, value);
+    const selected = sourceStorageSubjectType(source, value);
     selectedTypes.set(value, selected);
     return selected;
   };
@@ -29,24 +29,24 @@ export function createSourceErrorStructuralFlow(
       const from = selected.selected?.from ?? typeFor(selected.origin);
       const to = selected.selected?.to ?? typeFor(selected.destination);
       if (from === undefined || to === undefined) continue;
-      const targets = visited.get(selected.origin) ?? new Set<SourceErrorStorageSubject>();
+      const targets = visited.get(selected.origin) ?? new Set<SourceStorageSubject>();
       if (targets.has(selected.destination)) continue;
       targets.add(selected.destination);
       visited.set(selected.origin, targets);
       const semantics = selected.selected?.semantics ?? source.semantics.forNode(selected.origin.node);
-      const fromPresent = sourceErrorPresentStorageType(from, semantics);
-      const toPresent = sourceErrorPresentStorageType(to, semantics);
+      const fromPresent = sourcePresentStorageType(from, semantics);
+      const toPresent = sourcePresentStorageType(to, semantics);
       if (fromPresent === undefined || toPresent === undefined) continue;
-      for (const component of sourceErrorStorageComponents(toPresent, semantics)) {
+      for (const component of sourceStorageComponents(toPresent, semantics)) {
         if (!step()) break;
-        const toComponent = sourceErrorStorageComponentType(toPresent, component, semantics);
+        const toComponent = sourceStorageComponentType(toPresent, component, semantics);
         if (toComponent === undefined) continue;
-        const components: Iterable<SourceErrorStorageProjection> = component.kind === "array-element"
-          ? sourceErrorStorageComponents(fromPresent, semantics)
+        const components: Iterable<SourceStorageProjection> = component.kind === "array-element"
+          ? sourceStorageComponents(fromPresent, semantics)
           : [semantics.types.isTuple(fromPresent) ? component : { kind: "array-element" }];
         for (const originalComponent of components) {
           if (!step()) break;
-          const fromComponent = sourceErrorStorageComponentType(fromPresent, originalComponent, semantics);
+          const fromComponent = sourceStorageComponentType(fromPresent, originalComponent, semantics);
           if (fromComponent === undefined) continue;
           const origin = subject(selected.origin.node, selected.origin.kind, [...selected.origin.projection, originalComponent]);
           const destination = subject(selected.destination.node, selected.destination.kind, [...selected.destination.projection, component]);
@@ -60,7 +60,7 @@ export function createSourceErrorStructuralFlow(
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {
         if (!step()) break;
-        if (member.kind !== "present" || member.source.read === "method" || member.destination.read === "method") continue;
+        if (member.kind !== "present") continue;
         for (const original of member.source.declarations) {
           if (!step()) break;
           const origin = subject(original, source.ast.is.IsGetAccessorDeclaration(original) ? "return" : "value");

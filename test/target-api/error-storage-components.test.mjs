@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceErrorStorageDemandQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceErrorStorageSubjects } from "../../packages/target-api/dist/target-analysis/error-storage/error-storage-subjects.js";
-import { createSourceErrorStorageUnresolvedQuery } from "../../packages/target-api/dist/target-analysis/error-storage/error-storage-unresolved.js";
-import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
+import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
+import { createSourceStorageUnresolvedQuery } from "../../packages/target-api/dist/target-analysis/source-storage/unresolved.js";
+import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
 const globals = `
 interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -55,7 +56,7 @@ export function nested(values: Stored[][]): Stored[] { return values[0]; }
   assert.equal(field !== undefined, true, "checked storage field");
   const demands = createSourceErrorStorageDemandQuery(source,
     { fields: [field], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) },
-    source.navigation.sourceFiles);
+    createSourceStorageQuery(source, source.navigation.sourceFiles));
   return { source, file, provider, demands, variable: name => namedVariable(source.ast, file, name) };
 }
 
@@ -137,8 +138,22 @@ mutate(spread);
   }
 });
 
+test("Error writes through unproved scalar bindings remain unresolved without changing independent storage", async () => {
+  const { source, file, demands, variable } = await checked("error-unproved-scalar-binding", `
+const original: Stored = { message: "original" };
+const container = { value: original };
+const { value: selected } = container;
+const untouched = { message: "untouched" };
+selected.message = "changed";
+`);
+  const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
+  assert.equal(demands.storageFor(binding).kind, "unresolved", "unproved binding is not writable evidence");
+  assert.equal(demands.storageOriginsFor(binding).kind, "unresolved", "unproved binding is not exact origin evidence");
+  assert.equal(demands.storageFor(variable("untouched")).kind, "immutable", "independent owner is unaffected");
+});
+
 test("Error unresolved storage propagates through exact component ancestry without contaminating independent owners", () => {
-  const subject = createSourceErrorStorageSubjects();
+  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
   const root = {};
   const value = subject(root);
   const component = subject(root, "value", element);
@@ -146,7 +161,7 @@ test("Error unresolved storage propagates through exact component ancestry witho
   const independent = subject({}, "value", element);
   const incoming = new Map([[alias, new Set([component])]]);
   const unresolved = new Map([[value, "unproved tuple spread"]]);
-  const reason = createSourceErrorStorageUnresolvedQuery(() => true, subject, incoming, unresolved);
+  const reason = createSourceStorageUnresolvedQuery(() => true, subject, incoming, unresolved);
   assert.equal(reason(component), "unproved tuple spread");
   assert.equal(reason(alias), "unproved tuple spread");
   assert.equal(reason(independent) === undefined, true, "independent storage is not rejected");
@@ -168,7 +183,7 @@ const values: [Stored, Stored] = [original, original];
 test("Error component identities are immutable, interned, dense, data-only and independently bounded", () => {
   let rows = 0;
   let rejected = 0;
-  const subject = createSourceErrorStorageSubjects(cost => (rows += cost) <= 5, () => { rejected += 1; });
+  const subject = createSourceStorageSubjects(cost => (rows += cost) <= 5, () => { rejected += 1; });
   const root = {};
   const first = subject(root, "value", slot(0));
   assert.equal(first !== undefined, true);
