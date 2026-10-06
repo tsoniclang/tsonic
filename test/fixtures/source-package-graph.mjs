@@ -1,6 +1,6 @@
-export function sourcePackageGraphFixture(rootFiles, dependencies) {
+export function sourcePackageGraphFixture(rootFiles, dependencies, rootDependencies = Object.keys(dependencies)) {
   const entries = [{ name: "root", root: "/src", files: rootFiles,
-    dependencies: Object.keys(dependencies) }, ...Object.entries(dependencies).map(([name, entry]) => ({
+    dependencies: rootDependencies }, ...Object.entries(dependencies).map(([name, entry]) => ({
     name, root: `/src/node_modules/${name}`, ...entry,
   }))];
   const packageId = name => `source-package:${name}`;
