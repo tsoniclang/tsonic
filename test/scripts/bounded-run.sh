@@ -86,6 +86,7 @@ set +e
     --user \
     --scope \
     --quiet \
+    --expand-environment=no \
     --unit="${unit%.scope}" \
     --property="MemoryMax=${memory_max}" \
     --property="MemorySwapMax=0" \
