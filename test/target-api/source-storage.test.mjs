@@ -55,6 +55,35 @@ function resolvedSubject(selection, label) {
   return selection.subject;
 }
 
+test("selected expressions retain only their contributing operand origins", async () => {
+  const { source, storage, file, initializer } = await checked("source-storage-selected-operands", `
+declare const condition: boolean;
+declare const left: number | undefined;
+declare const right: number;
+const conditional = condition ? left : right;
+const conjunction = left && right;
+const disjunction = left || right;
+const coalesced = left ?? right;
+const comma = (identity(left), right);
+`);
+  const left = namedVariable(source.ast, file, "left");
+  const right = namedVariable(source.ast, file, "right");
+  const condition = namedVariable(source.ast, file, "condition");
+  for (const name of ["conditional", "conjunction", "disjunction", "coalesced"]) {
+    const subject = resolvedSubject(storage.storageSubjectFor(initializer(name)), name);
+    const origins = storage.originSubjectsFor(subject);
+    assert.equal(origins.kind, "resolved");
+    assert.equal(origins.subjects.length, 2, `${name}: both possible selected operands`);
+    assert.equal(origins.subjects.some(origin => origin.node === left), true, `${name}: exact left declaration`);
+    assert.equal(origins.subjects.some(origin => origin.node === right), true, `${name}: exact right declaration`);
+    assert.equal(origins.subjects.some(origin => origin.node === condition), false, `${name}: condition is not result storage`);
+  }
+  const origins = storage.originSubjectsFor(resolvedSubject(storage.storageSubjectFor(initializer("comma")), "comma"));
+  assert.equal(origins.kind, "resolved");
+  assert.equal(origins.subjects.length, 1, "comma has only its right result");
+  assert.equal(origins.subjects[0].node === right, true);
+});
+
 function originSubjects(storage, subject, label) {
   const selected = storage.originSubjectsFor(subject);
   assert.equal(selected.kind === "resolved", true, label);

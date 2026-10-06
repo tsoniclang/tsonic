@@ -1,5 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value } from "../../source-navigation/index.js";
+import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { createSourceStorageSubjects, type SourceStorageSubject } from "./subjects.js";
 import { createSourceStorageProjectionFlow } from "./projections.js";
@@ -178,6 +179,9 @@ export function createSourceStorageTransport(
       connectValueFlow(Node_Initializer(ast, node));
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
     }
+    const parent = ast.parent(node);
+    if (parent !== undefined && sourceExpressionSelectsOperandValue(ast, parent, node))
+      connect(subjectFor(node), subject(parent));
     if (ast.is.IsArrayLiteralExpression(node)) projections.literal(node);
     if (ast.is.IsPropertyDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
