@@ -67,3 +67,49 @@ export function finallyOverride(): boolean {
   try { return false; } finally { return true; }
 }
 `;
+
+export const nativeDefiniteCompletionSource = `
+function produce(fail: boolean): string {
+  if (fail) throw new Error("selected rejection");
+  return "initialized";
+}
+function simple(fail: boolean): string {
+  let selected: string;
+  try { selected = produce(fail); } catch { return "caught"; }
+  return selected;
+}
+function recover(fail: boolean): string {
+  let selected: string;
+  try { selected = produce(fail); } catch { selected = "caught"; }
+  return selected;
+}
+function multiple(fail: boolean): string {
+  let selected: string;
+  let second: string;
+  try { selected = produce(fail); second = "-second"; }
+  catch { return "caught"; }
+  finally { observe(); }
+  return selected + second;
+}
+function nested(fail: boolean): string {
+  let selected: string;
+  try {
+    try { selected = produce(fail); } catch { return "caught"; }
+  } finally { observe(); }
+  return selected;
+}
+async function suspended(fail: boolean): Promise<string> {
+  let selected: string;
+  try { await pause(); selected = produce(fail); } catch { return "caught"; }
+  return selected;
+}
+function observe(): void {}
+async function pause(): Promise<void> {}
+export async function run(): Promise<boolean> {
+  return simple(false) === "initialized" && simple(true) === "caught" &&
+    recover(false) === "initialized" && recover(true) === "caught" &&
+    multiple(false) === "initialized-second" && multiple(true) === "caught" &&
+    nested(false) === "initialized" && nested(true) === "caught" &&
+    await suspended(false) === "initialized" && await suspended(true) === "caught";
+}
+`;

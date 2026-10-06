@@ -38,6 +38,8 @@ export {
   targetUseSiteIdentity,
   targetUseSiteRef,
 } from "./use-sites.js";
+export { targetStronglyConnectedComponents } from "./graph-components.js";
+export type { TargetGraphComponentsSelection } from "./graph-components.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";

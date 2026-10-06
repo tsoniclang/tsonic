@@ -124,7 +124,7 @@ const rightResult = identity(right);
 });
 
 test("checked array, tuple, nested and spread projections preserve exact source component origins", async () => {
-  const { storage, subject, initializer, variable } = await checked("source-storage-container-projections", `
+  const { source, file, storage, subject, initializer, variable } = await checked("source-storage-container-projections", `
 const left = { value: 3 };
 const right = { value: 7 };
 const values: [Box<number>, Box<number>] = [left, right];
@@ -137,7 +137,9 @@ const [binding] = values;
   const second = originSubjects(storage, subject("secondValue"), "second tuple position");
   assert.equal(second.some(subject => subject.node === initializer("right")), true);
   assert.equal(second.some(subject => subject.node === initializer("left")), false, "tuple positions stay independent");
-  const first = originSubjects(storage, subject("binding"), "array binding");
+  const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node) &&
+    source.ast.text(source.ast.name(node)) === "binding");
+  const first = originSubjects(storage, resolvedSubject(storage.subjectFor(binding), "array binding"), "array binding");
   assert.equal(first.some(subject => subject.node === initializer("left")), true);
   assert.equal(first.some(subject => subject.node === initializer("right")), false);
   const projected = resolvedSubject(storage.storageSubjectFor(variable("outer"), [...element, ...element]), "nested array element");
