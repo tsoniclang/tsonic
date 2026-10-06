@@ -27,6 +27,7 @@ export function main(): void {
     name: "shared-class-frame",
     source: `
 class Counter {
+  extra = 0;
   constructor(public seed: number) {}
   recurse = (count: number): number => count === 0 ? this.seed : this.recurse(count - 1);
   rebind(seed: number): void {
@@ -39,12 +40,74 @@ function create(seed: number): (count: number) => number {
   const alias = value;
   const before = alias.recurse;
   value.rebind(seed + 10);
+  alias.extra = 4;
+  value.extra = 5;
+  if (alias.extra !== 5) throw new Error("native shared instance alias");
   return before;
 }
 export function main(): void {
   const callback = create(3);
   if (callback(0) !== 13 || callback(1) !== 14 || callback(8) !== 14)
     throw new Error("shared class frame fields");
+}
+`,
+  },
+  {
+    name: "shared-class-string-field",
+    source: `
+class Counter {
+  extra = 0;
+  constructor(public seed: string) {}
+  recurse = (count: number): number => count === 0 ? (this.seed === "abcabcdefghij" ? 13 : -1) : this.recurse(count - 1);
+  rebind(seed: string): void {
+    this.seed = seed;
+    this.recurse = (count: number): number => count === 0 ? (this.seed === "abcabcdefghij" ? 14 : -1) : this.recurse(count - 1);
+  }
+}
+function create(seed: string): (count: number) => number {
+  const value = new Counter(seed);
+  const alias = value;
+  const before = alias.recurse;
+  value.rebind(seed + "abcdefghij");
+  alias.extra = 4;
+  value.extra = 5;
+  if (alias.extra !== 5) throw new Error("native shared string instance alias");
+  return before;
+}
+export function main(): void {
+  const callback = create("abc");
+  if (callback(0) !== 13 || callback(1) !== 14 || callback(8) !== 14)
+    throw new Error("shared non-Copy class frame fields");
+}
+`,
+  },
+  {
+    name: "shared-class-construction-writes",
+    source: `
+class Counter {
+  extra = 0;
+  constructor(public seed: number) { this.seed += 1; }
+  recurse = (count: number): number => count === 0 ? this.seed : this.recurse(count - 1);
+  rebind(seed: number): void {
+    this.seed = seed;
+    this.recurse = (count: number): number => count === 0 ? this.seed + 1 : this.recurse(count - 1);
+  }
+}
+function create(seed: number): (count: number) => number {
+  const value = new Counter(seed);
+  const alias = value;
+  if (alias.recurse(0) !== seed + 1) throw new Error("native frame constructor writes");
+  const before = alias.recurse;
+  value.rebind(seed + 10);
+  alias.extra = 4;
+  value.extra = 5;
+  if (alias.extra !== 5) throw new Error("native shared constructor instance alias");
+  return before;
+}
+export function main(): void {
+  const callback = create(3);
+  if (callback(0) !== 13 || callback(1) !== 14 || callback(8) !== 14)
+    throw new Error("shared constructor field writes");
 }
 `,
   },
