@@ -75,7 +75,7 @@ export function createSourceStorageQuery(
     const ancestors = transport.ancestorSubjects(subject);
     if (ancestors === undefined || budget.failure() !== undefined)
       return unresolved(budget.failure() ?? "Source storage ancestry exceeds its finite query budget.");
-    const origins = [...ancestors].filter(owner => (transport.incoming.get(owner)?.size ?? 0) === 0);
+    const origins = [...ancestors].filter(owner => transport.incomingFor(owner).size === 0);
     return origins.length === 0 ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
   };
   return Object.freeze({
@@ -108,7 +108,7 @@ export function createSourceStorageQuery(
     },
     incomingFor(subject) {
       const reason = subjectReason(subject);
-      return reason === undefined ? selectedSubjects(transport.incoming.get(subject) ?? []) : unresolved(reason);
+      return reason === undefined ? selectedSubjects(transport.incomingFor(subject)) : unresolved(reason);
     },
     ancestorsFor(subject) {
       const reason = subjectReason(subject);

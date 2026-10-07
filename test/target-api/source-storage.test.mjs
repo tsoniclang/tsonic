@@ -90,6 +90,31 @@ function originSubjects(storage, subject, label) {
   return selected.subjects;
 }
 
+test("recursive optional collection transport resolves only demanded exact component paths", async () => {
+  const { storage, variable, initializer } = await checked("source-storage-recursive-components", `
+type Children = readonly Children[] | null | undefined;
+const original: Children = [[null]];
+const alias: Children = original;
+const independent: Children = [[undefined]];
+`);
+  const before = storage.subjects.length;
+  assert.ok(before < 200, "recursive type does not expand an unbounded subject graph");
+  for (const depth of [1, 2, 8, 64]) {
+    const projection = Array.from({ length: depth }, () => ({ kind: "array-element" }));
+    const selected = resolvedSubject(storage.storageSubjectFor(variable("alias"), projection), `depth ${depth}`);
+    const parents = storage.incomingFor(selected);
+    assert.equal(parents.kind, "resolved", `exact depth ${depth}`);
+    assert.equal(parents.subjects.some(parent => parent.node === variable("original") && parent.projection.length === depth), true,
+      `exact alias correspondence at depth ${depth}`);
+    assert.equal(parents.subjects.some(parent => parent.node === variable("independent") || parent.node === initializer("independent")), false,
+      "independent container is not an origin");
+  }
+  const exact = resolvedSubject(storage.storageSubjectFor(variable("alias"), [...element, ...element]), "exact nested origin");
+  const origins = originSubjects(storage, exact, "recursive nested origins");
+  assert.equal(origins.some(origin => origin.node === initializer("independent")), false);
+  assert.equal(storage.failureReason() === undefined, true, "bounded recursive query succeeds");
+});
+
 test("neutral source storage preserves directional cross-file argument, return, alias and reassignment evidence", async () => {
   const { source, storage, provider, variable, subject, initializer, call } = await checked("source-storage-alias-return", `
 const original = 3;

@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import type { SourceStorageIncomingQuery } from "./edges.js";
 
 export type SourceStorageSubstitutions = ReadonlyMap<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>;
 
@@ -8,7 +9,7 @@ export function createSourceStorageSubstitutions(
   source: TargetSourceProgram,
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
-  incoming: ReadonlyMap<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>,
+  incoming: SourceStorageIncomingQuery,
   invocationOrigins: (origin: SourceStorageSubject, candidate: Node, invocation: Node) => ReadonlySet<SourceStorageSubject>,
   reserveRow: () => boolean,
 ) {
@@ -43,8 +44,8 @@ export function createSourceStorageSubstitutions(
         }
         continue;
       }
-      const parents = incoming.get(selected);
-      if (parents === undefined || parents.size === 0) origins.add(selected);
+      const parents = incoming(selected);
+      if (parents.size === 0) origins.add(selected);
       else for (const parent of parents) { if (!step()) break; remaining.push(parent); }
     }
     return origins;

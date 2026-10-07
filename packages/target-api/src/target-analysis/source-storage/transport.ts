@@ -5,6 +5,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { createSourceStorageSubjects, type SourceStorageSubject } from "./subjects.js";
 import { createSourceStorageProjectionFlow } from "./projections.js";
 import { createSourceStorageStructuralFlow } from "./structural-flow.js";
+import { createSourceStorageEdges } from "./edges.js";
 import { createSourceStorageExecutionRegions } from "./execution-regions.js";
 import { sourceStorageConstructedClass } from "./construction.js";
 import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
@@ -18,7 +19,6 @@ export function createSourceStorageTransport(
   budget: SourceStorageBudget,
 ) {
   const { ast, navigation, semantics } = source;
-  const incoming = new Map<SourceStorageSubject, Set<SourceStorageSubject>>();
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
@@ -45,6 +45,7 @@ export function createSourceStorageTransport(
     return selected;
   };
   const step = budget.step;
+  const { add: addEdge, incomingFor } = createSourceStorageEdges(source, budget, subject);
   const enclosingCallable = (node: Node): Node | undefined => {
     for (let current = ast.parent(node); current !== undefined && step(); current = ast.parent(current)) {
       if (ast.is.IsFunctionDeclaration(current) || ast.is.IsFunctionExpression(current) ||
@@ -129,13 +130,11 @@ export function createSourceStorageTransport(
   };
   const connect = (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined): void => {
     if (origin === undefined || destination === undefined || origin === destination || budget.failure() !== undefined) return;
-    const origins = incoming.get(destination) ?? new Set<SourceStorageSubject>();
+    const origins = incomingFor(destination);
     if (origins.has(origin)) return;
     if (sealed) { budget.reject("Source storage transport cannot add edges after graph construction is sealed."); return; }
-    if (!budget.edge()) return;
+    if (!addEdge(origin, destination)) return;
     edgeCount += 1;
-    origins.add(origin);
-    incoming.set(destination, origins);
     connectStructuralFlow(origin, destination);
   };
   const connectStructuralFlow = createSourceStorageStructuralFlow(source, step, subject, connect);
@@ -302,7 +301,7 @@ export function createSourceStorageTransport(
       if (visited.has(current)) continue;
       visited.add(current);
       if (!step()) return undefined;
-      for (const origin of incoming.get(current) ?? []) { if (!step()) break; pending.push(origin); }
+      for (const origin of incomingFor(current)) { if (!step()) break; pending.push(origin); }
     }
     return visited;
   };
@@ -325,7 +324,7 @@ export function createSourceStorageTransport(
     for (const origin of origins ?? []) {
       if (!step()) return selected;
       if (ast.is.IsParameterDeclaration(origin.node)) complete = false;
-      if ((incoming.get(origin)?.size ?? 0) !== 0) continue;
+      if (incomingFor(origin).size !== 0) continue;
       const concrete = sourceStorageConstructedClass(origin.node, source, step);
       const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
       if (target?.kind === "resolved") exact.add(target.implementation.declaration);
@@ -389,8 +388,8 @@ export function createSourceStorageTransport(
         if (receiver !== undefined) origins.add(subject(receiver.node, receiver.kind,
           [...receiver.projection, ...current.projection]) ?? receiver);
       } else {
-        const incomingOrigins = incoming.get(current);
-        if (incomingOrigins === undefined || incomingOrigins.size === 0) origins.add(current);
+        const incomingOrigins = incomingFor(current);
+        if (incomingOrigins.size === 0) origins.add(current);
         else for (const incomingOrigin of incomingOrigins) { if (!step()) break; pending.push(incomingOrigin); }
       }
     }
@@ -471,8 +470,8 @@ export function createSourceStorageTransport(
       }
     }
   }
-  const unresolvedFor = createSourceStorageUnresolvedQuery(step, subject, incoming, unresolvedSubjects);
-  const substitutions = createSourceStorageSubstitutions(source, step, subject, incoming, invocationOrigins, budget.row);
+  const unresolvedFor = createSourceStorageUnresolvedQuery(step, subject, incomingFor, unresolvedSubjects);
+  const substitutions = createSourceStorageSubstitutions(source, step, subject, incomingFor, invocationOrigins, budget.row);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;
@@ -501,7 +500,7 @@ export function createSourceStorageTransport(
       ...(reason === undefined ? {} : { reason }) }));
   }
   sealed = true;
-  return { subject, subjectFor, storageSubject: projections.ownerFor, incoming, identities, mutationOwners,
+  return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     invocations, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, invocationOrigins, substitutions, unresolvedFor };
 }

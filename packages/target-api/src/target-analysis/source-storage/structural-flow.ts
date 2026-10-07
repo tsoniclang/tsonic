@@ -9,31 +9,24 @@ export function createSourceStorageStructuralFlow(
   subject: SourceStorageSubjectQuery,
   connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined) => void,
 ): (origin: SourceStorageSubject, destination: SourceStorageSubject) => void {
-  const selectedTypes = new Map<SourceStorageSubject, Type | undefined>();
-  const visited = new Map<SourceStorageSubject, Set<SourceStorageSubject>>();
-  const pending: { readonly origin: SourceStorageSubject; readonly destination: SourceStorageSubject;
-    readonly selected?: { readonly from: Type; readonly to: Type; readonly semantics: SourceFileSemantics } }[] = [];
+  const visited = new Map<Type, Set<Type>>();
+  const pending: { readonly from: Type; readonly to: Type; readonly semantics: SourceFileSemantics }[] = [];
   let draining = false;
-  const typeFor = (value: SourceStorageSubject): Type | undefined => {
-    if (selectedTypes.has(value)) return selectedTypes.get(value);
-    const selected = sourceStorageSubjectType(source, value);
-    selectedTypes.set(value, selected);
-    return selected;
-  };
   return (origin, destination) => {
-    pending.push({ origin, destination });
+    const from = sourceStorageSubjectType(source, origin);
+    const to = sourceStorageSubjectType(source, destination);
+    if (from === undefined || to === undefined) return;
+    pending.push({ from, to, semantics: source.semantics.forNode(origin.node) });
     if (draining) return;
     draining = true;
     while (pending.length !== 0 && step()) {
       const selected = pending.pop()!;
-      const from = selected.selected?.from ?? typeFor(selected.origin);
-      const to = selected.selected?.to ?? typeFor(selected.destination);
-      if (from === undefined || to === undefined) continue;
-      const targets = visited.get(selected.origin) ?? new Set<SourceStorageSubject>();
-      if (targets.has(selected.destination)) continue;
-      targets.add(selected.destination);
-      visited.set(selected.origin, targets);
-      const semantics = selected.selected?.semantics ?? source.semantics.forNode(selected.origin.node);
+      const { from, to, semantics } = selected;
+      if (from === to) continue;
+      const targets = visited.get(from) ?? new Set<Type>();
+      if (targets.has(to)) continue;
+      targets.add(to);
+      visited.set(from, targets);
       const fromPresent = sourcePresentStorageType(from, semantics);
       const toPresent = sourcePresentStorageType(to, semantics);
       if (fromPresent === undefined || toPresent === undefined) continue;
@@ -48,14 +41,9 @@ export function createSourceStorageStructuralFlow(
           if (!step()) break;
           const fromComponent = sourceStorageComponentType(fromPresent, originalComponent, semantics);
           if (fromComponent === undefined) continue;
-          const origin = subject(selected.origin.node, selected.origin.kind, [...selected.origin.projection, originalComponent]);
-          const destination = subject(selected.destination.node, selected.destination.kind, [...selected.destination.projection, component]);
-          connect(origin, destination);
-          if (origin !== undefined && destination !== undefined) pending.push({ origin, destination,
-            selected: { from: fromComponent, to: toComponent, semantics } });
+          pending.push({ from: fromComponent, to: toComponent, semantics });
         }
       }
-      if (from === to) continue;
       const relation = semantics.types.structuralMembers(from, to);
       if (relation.kind !== "available") continue;
       for (const member of relation.members) {
@@ -69,8 +57,8 @@ export function createSourceStorageStructuralFlow(
             const destination = subject(target, source.ast.is.IsGetAccessorDeclaration(target) ? "return" : "value");
             connect(origin, destination);
             if (origin !== undefined && destination !== undefined && member.source.property.type !== undefined &&
-              member.destination.property.type !== undefined) pending.push({ origin, destination,
-                selected: { from: member.source.property.type, to: member.destination.property.type, semantics } });
+              member.destination.property.type !== undefined) pending.push({
+                from: member.source.property.type, to: member.destination.property.type, semantics });
           }
         }
       }

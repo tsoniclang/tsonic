@@ -1,9 +1,10 @@
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import type { SourceStorageIncomingQuery } from "./edges.js";
 
 export function createSourceStorageUnresolvedQuery(
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
-  incoming: ReadonlyMap<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>,
+  incoming: SourceStorageIncomingQuery,
   unresolved: ReadonlyMap<SourceStorageSubject, string>,
 ): (selected: SourceStorageSubject) => string | undefined {
   const selections = new Map<SourceStorageSubject, string | undefined>();
@@ -23,7 +24,7 @@ export function createSourceStorageUnresolvedQuery(
           return reason;
         }
       }
-      for (const origin of incoming.get(current) ?? []) {
+      for (const origin of incoming(current)) {
         if (!step()) break;
         pending.push(origin);
       }
