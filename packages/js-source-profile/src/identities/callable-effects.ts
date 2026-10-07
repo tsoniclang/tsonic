@@ -19,7 +19,7 @@ export function jsSourceInvocationOnlyCallableParameters(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined): readonly number[] {
-  if (identity === undefined || !Object.hasOwn(effects, identity.ownerName)) return none;
+  if (identity === undefined || !Object.prototype.hasOwnProperty.call(effects, identity.ownerName)) return none;
   const owner = effects[identity.ownerName]!;
-  return Object.hasOwn(owner, identity.memberName) ? owner[identity.memberName]! : none;
+  return Object.prototype.hasOwnProperty.call(owner, identity.memberName) ? owner[identity.memberName]! : none;
 }
