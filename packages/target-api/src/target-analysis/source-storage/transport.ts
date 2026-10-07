@@ -15,6 +15,7 @@ import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStora
 import { snapshotSourceStorageCallEffect } from "./call-effects.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import { sourceMemberOwner } from "../../source-navigation/class-members.js";
+import { createSourceStorageMemberFlow } from "./member-flow.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -343,37 +344,62 @@ export function createSourceStorageTransport(
     }
     return visited;
   };
+  const memberFlow = createSourceStorageMemberFlow(source, step, sourceFileFor, retainCheckedContext);
   const implementationsFor = (declaration: Node, invocation: Node,
-    originsFor = ancestorSubjects): ReadonlySet<Node> => {
+    originsFor = ancestorSubjects): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean;
+      readonly slots?: ReadonlySet<SourceStorageSubject> } => {
     const selected = new Set<Node>();
     const implementation = navigation.callableImplementation(declaration);
     if (implementation.kind === "resolved") selected.add(implementation.implementation.declaration);
     if (ast.hasModifierKind(declaration, "static") || ast.hasModifierKind(declaration, "private") ||
       !ast.is.IsMethodDeclaration(declaration) && ast.kindName(declaration) !== "KindMethodSignature" &&
-      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration)) return selected;
+      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration)) return { nodes: selected, exact: false };
     const call = semantics.forNode(invocation).operations.call(invocation);
     const receiver = call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
       ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression;
-    if (ast.kindName(receiver) === "KindSuperKeyword") return selected;
+    if (ast.kindName(receiver) === "KindSuperKeyword") return { nodes: selected, exact: true };
     const receiverSubject = subjectFor(receiver);
     const origins = receiverSubject === undefined ? undefined : originsFor(receiverSubject);
     const exact = new Set<Node>();
+    const slots = new Set<SourceStorageSubject>();
     let complete = origins !== undefined && origins.size !== 0;
     for (const origin of origins ?? []) {
-      if (!step()) return selected;
+      if (!step()) return { nodes: selected, exact: false };
       if (ast.is.IsParameterDeclaration(origin.node)) complete = false;
       if (incomingFor(origin).size !== 0) continue;
       const concrete = sourceStorageConstructedClass(origin.node, source, step);
       const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
       if (target?.kind === "resolved") exact.add(target.implementation.declaration);
-      else complete = false;
+      else if (ast.is.IsObjectLiteralExpression(origin.node)) {
+        const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type
+          ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.type;
+        const members = receiverType === undefined ? undefined : memberFlow.declarationsFor(origin, declaration, receiverType);
+        let resolved = members !== undefined;
+        for (const member of members ?? []) {
+          if (!step()) return { nodes: selected, exact: false };
+          const slot = subject(member);
+          if (slot !== undefined) slots.add(slot);
+          const values = slot === undefined ? undefined : originsFor(slot);
+          let implemented = false;
+          for (const value of values ?? []) {
+            if (!step()) return { nodes: selected, exact: false };
+            if (incomingFor(value).size !== 0) continue;
+            const implementation = navigation.callableImplementation(value.node);
+            if (implementation.kind !== "resolved") { resolved = false; continue; }
+            exact.add(implementation.implementation.declaration);
+            implemented = true;
+          }
+          resolved &&= implemented;
+        }
+        complete &&= resolved;
+      } else complete = false;
     }
-    if (complete && exact.size !== 0) return exact;
+    if (complete && exact.size !== 0) return { nodes: exact, exact: true, slots };
     for (const target of memberImplementations.get(declaration) ?? []) {
       if (!step()) break;
       selected.add(target);
     }
-    return selected;
+    return { nodes: selected, exact: false };
   };
   const invocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> => {
     const implementations = new Set<Node>();
@@ -382,19 +408,27 @@ export function createSourceStorageTransport(
     const member = declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
       ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
     if (member) {
-      for (const implementation of implementationsFor(declaration, invocation, originsFor)) implementations.add(implementation);
+      const selected = implementationsFor(declaration, invocation, originsFor);
+      if (selected.exact) return selected.nodes;
+      for (const implementation of selected.nodes) implementations.add(implementation);
     }
     for (const candidate of target === undefined ? [] : originsFor(target) ?? []) {
       if (!step()) break;
       if (candidate.kind !== "value") continue;
       const owner = member ? sourceMemberOwner(ast, candidate.node) : undefined;
       if (owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsInterfaceDeclaration(owner))) continue;
-      for (const implementation of implementationsFor(candidate.node, invocation, originsFor)) implementations.add(implementation);
+      for (const implementation of implementationsFor(candidate.node, invocation, originsFor).nodes) implementations.add(implementation);
     }
     for (const accessor of accessorTargets.get(invocation) ?? []) {
-      for (const implementation of implementationsFor(accessor, invocation, originsFor)) implementations.add(implementation);
+      for (const implementation of implementationsFor(accessor, invocation, originsFor).nodes) implementations.add(implementation);
     }
     return implementations;
+  };
+  const physicalMemberInputs = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
+    const declaration = invocationDeclarations.get(invocation) ?? accessorTargets.get(invocation)?.[0];
+    if (declaration === undefined) return undefined;
+    const selected = implementationsFor(declaration, invocation, originsFor);
+    return selected.exact ? selected.slots : undefined;
   };
   const invocationOrigins = (origin: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject> => {
     const origins = new Set<SourceStorageSubject>();
@@ -447,6 +481,23 @@ export function createSourceStorageTransport(
   while ((previousEdges !== edgeCount || previousThrows !== throwCount) && step()) {
     previousEdges = edgeCount;
     previousThrows = throwCount;
+    for (const [access, owner] of mutationOwners) {
+      if (!step()) break;
+      const parent = ast.parent(access);
+      if (parent === undefined || !ast.is.IsBinaryExpression(parent) || ast.operatorKindName(parent) !== "KindEqualsToken") continue;
+      const assignment = ast.as.AsBinaryExpression(parent);
+      const selected = semantics.forNode(access).operations.propertyAccess(access);
+      const declaration = selected?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
+      if (assignment?.Left !== access || declaration === undefined || selected === undefined) continue;
+      for (const origin of ancestorSubjects(owner) ?? []) {
+        if (!step()) break;
+        if (!ast.is.IsObjectLiteralExpression(origin.node)) continue;
+        for (const member of memberFlow.declarationsFor(origin, declaration, selected.receiver.type) ?? []) {
+          if (!step()) break;
+          connect(subjectFor(assignment.Right), subject(member));
+        }
+      }
+    }
     for (const invocation of invocationTargets.keys()) {
       for (const candidate of invocationImplementations(invocation)) {
         if (ast.is.IsCallExpression(invocation)) connect(subject(candidate, "return"), subject(invocation));
@@ -467,7 +518,7 @@ export function createSourceStorageTransport(
     }
     for (const [access, accessors] of accessorTargets) {
       for (const accessor of accessors) {
-        for (const candidate of implementationsFor(accessor, access)) {
+        for (const candidate of implementationsFor(accessor, access).nodes) {
           const receiver = semantics.forNode(access).operations.propertyAccess(access)?.receiver.expression;
           connect(subjectFor(receiver), subject(candidate, "receiver"));
           if (ast.is.IsGetAccessorDeclaration(accessor)) connect(subject(candidate, "return"), subjectFor(access));
@@ -596,5 +647,6 @@ export function createSourceStorageTransport(
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
-    accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, invocationOrigins, substitutions, unresolvedFor };
+    accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, physicalMemberInputs,
+    invocationOrigins, substitutions, unresolvedFor };
 }
