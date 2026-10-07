@@ -62,6 +62,8 @@ export function run(): boolean {
   const supplied = new Error("native terminal input");
   let errors = 0;
   let closes = 0;
+  const errorCount = (): number => errors;
+  const closeCount = (): number => closes;
   let firstPreserved = false;
   let laterPreserved = false;
   stream.once("error", error => {
@@ -74,13 +76,13 @@ export function run(): boolean {
   catch (failure) {
     if (failure instanceof Error) firstPreserved = failure === original;
   }
-  if (!stream.destroyed || errors !== 1 || closes !== 0) throw new Error("physical cleanup or source order changed");
+  if (!stream.destroyed || errorCount() !== 1 || closeCount() !== 0) throw new Error("physical cleanup or source order changed");
   try { stream.destroy(); }
   catch (failure) {
     if (failure instanceof Error) laterPreserved = failure === later;
   }
   stream.destroy();
-  return firstPreserved && laterPreserved && errors === 1 && closes === 1;
+  return firstPreserved && laterPreserved && errorCount() === 1 && closeCount() === 1;
 }
 `;
 

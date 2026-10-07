@@ -11,6 +11,7 @@ export function main(): void {
   const emitter = new EventEmitter();
   const original = new DetailedError();
   let completed = 0;
+  const count = (): number => completed;
   emitter.once("data", (): void => { throw original; });
   emitter.once("data", (): void => { completed += 1; });
   let retained = false;
@@ -21,9 +22,9 @@ export function main(): void {
         && failure.message === "original listener failure" && failure.stack === undefined;
     }
   }
-  if (!retained || completed !== 0 || emitter.listenerCount("data") !== 1)
+  if (!retained || count() !== 0 || emitter.listenerCount("data") !== 1)
     throw new Error("original listener failure or pending registration lost");
-  if (!emitter.emit("data") || completed !== 1 || emitter.listenerCount("data") !== 0)
+  if (!emitter.emit("data") || count() !== 1 || emitter.listenerCount("data") !== 0)
     throw new Error("pending once listener was not retained");
   if (emitter.emit("data")) throw new Error("once listener executed twice");
   console.log("native event identity");
