@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { argumentPassingFactKey, flowStateFactKey, formatDiagnostics } from "@tsonic/tsts";
+import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { jsSourceCallStorageEffect, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -16,7 +17,7 @@ interface Iterator<T> { next(): { value: T; done?: boolean }; }
 `;
 
 async function fixture(name, body, options = {}) {
-  const checked = await checkedSource(name, { "globals.d.ts": globals, "src/index.ts": `export {}; ${body}` },
+  const checked = await checkedSource(name, { "globals.d.ts": `${globals}${options.profile ?? ""}`, "src/index.ts": `export {}; ${body}` },
     { sourceCore: options.sourceCore === true });
   assert.equal(checked.diagnostics.length === 0, true, formatDiagnostics(checked.diagnostics, "/src"));
   assert.equal(checked.extensionDiagnostics.length === 0, true, "exact source facts admitted");
@@ -316,6 +317,37 @@ test("source constructor returns retain contextual result transport and opaque i
   open(current.selection("selected"), "opaque-write", "construction does not certify argument preservation");
 });
 
+test("owned native Error call and constructor allocations do not certify external values with the same signatures", async () => {
+  const current = await fixture("storage-domain-owned-constructor-authority", `
+    declare const external: typeof Error;
+    const alias = Error;
+    const direct = new Error("direct");
+    const call = Error("call");
+    const aliased = new alias("alias");
+    const aliasedCall = alias("alias-call");
+    const unknown = new external("unknown");
+    export function fromType(factory: typeof Error): Error { return new factory("external"); }
+    export function fromInterface(factory: ErrorConstructor): Error { return factory("external-call"); }
+  `, { profile: sourceErrorDeclarations, effectsFactory(source) {
+    const profile = projectSourceFile(source, "globals.d.ts");
+    const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
+    const signatures = new Set(source.ast.members(owner));
+    return { call(node, selected) {
+      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      if (!signatures.has(declaration)) return undefined;
+      return jsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call" }, selected);
+    } };
+  } });
+  for (const name of ["direct", "call", "aliased", "aliasedCall"]) complete(current.selection(name), `owned global native allocation: ${name}`);
+  open(current.selection("unknown"), "external-input", "an ambient external value is not the owned native constructor");
+  for (const name of ["fromType", "fromInterface"]) {
+    const callable = namedDeclaration(current.source.ast, current.file, name);
+    const returned = current.storage.subject(callable, "return");
+    assert.equal(returned.kind === "resolved", true);
+    open(current.storage.closedOriginsFor(returned.subject), "external-input", `unknown caller constructor value: ${name}`);
+  }
+});
+
 test("call result aliases and input preservation remain independent semantic proofs", async () => {
   for (const mode of ["alias", "preserve", "both"]) {
     const current = await fixture(`storage-domain-effects-${mode}`, `
@@ -427,6 +459,39 @@ test("complete domains retain finite budget rejection and malformed limit select
     const result = selected.kind === "unresolved" ? selected : current.storage.closedOriginsFor(selected.subject);
     assert.equal(result.kind === "unresolved" && current.storage.failureReason() !== undefined, true, "graph and query accounting both fail closed");
   }
+});
+
+test("complete domains distinguish exported readonly class values from externally writable class slots", async () => {
+  const current = await fixture("storage-domain-exported-classes", `
+    export class Holder { readonly value: {} = {}; }
+    export class Mutable { value: {} = {}; }
+    const holder = new Holder();
+    const mutable = new Mutable();
+    const fixed = holder.value;
+    const exposed = mutable.value;
+  `);
+  complete(current.selection("fixed"), "exported readonly member keeps its exact source initializer");
+  open(current.selection("exposed"), "external-write", "exported writable class slot accepts external replacement");
+});
+
+test("default-library recursive callback publication stays finite without poisoning observed origins", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    export function escaped(seed: number): (count: number) => number {
+      let selected = (count: number): number => count === 0 ? seed : selected(count - 1);
+      const before = selected;
+      selected = (count: number): number => count === 0 ? 2 : selected(count - 1);
+      return before;
+    }
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "unchanged recursive callback source is checked");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const storage = createSourceStorageQuery(source, [file]);
+  const selection = storage.storageSubjectFor(namedVariable(source.ast, file, "selected"));
+  assert.equal(selection.kind === "resolved", true);
+  complete(storage.closedOriginsFor(selection.subject), "recursive callback identity has a finite complete domain");
+  assert.equal(storage.originsFor(selection.subject).kind === "resolved" && storage.failureReason() === undefined, true,
+    "complete query leaves observed origins and default finite accounting valid");
 });
 
 test("recursive contextual transport terminates at its finite owner budget without inventing an original root", async () => {
