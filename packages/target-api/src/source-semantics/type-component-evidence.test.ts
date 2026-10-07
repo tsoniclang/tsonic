@@ -44,6 +44,12 @@ function fixture(canonicalUtilities = false) {
       "/src/index.ts": `
         import type { DerivedStore, word } from "@test/native/types.js";
         type Floating = number;
+        type BroadObject = object;
+        type ReadonlyObject = Readonly<BroadObject>;
+        type PartialObject = Partial<BroadObject>;
+        type RequiredObject = Required<BroadObject>;
+        type ReadonlyFields = Readonly<{ value: number }>;
+        type ReadonlyEmpty = Readonly<{}>;
         type Wide = bigint;
         type Callable = (first: Floating, second: Wide) => string;
         type Indirect = Callable;
@@ -116,6 +122,23 @@ test("transformed components retain ordinary keyword evidence through exact alia
     const nodes = sourceTransformedTypeFactEvidenceNodes(source.ast, semantics, alias("Indirect"), selected(name));
     assert.deepEqual(nodes, [alias(name)]);
     assert.ok(Object.isFrozen(nodes));
+  }
+});
+
+test("homomorphic utilities preserve exact intrinsic object components without empty structural carriers", () => {
+  const { semantics, alias, selected } = fixture(true);
+  for (const name of ["ReadonlyObject", "PartialObject", "RequiredObject"]) {
+    const transformation = semantics.types.standardTransformation(alias(name), selected(name));
+    assert.equal(transformation?.kind, "component", name);
+    if (transformation?.kind !== "component") continue;
+    assert.equal(semantics.types.isNonPrimitive(transformation.component.selectedType), true, name);
+    assert.equal(semantics.types.isIdentical(transformation.component.selectedType, selected(name)), true, name);
+    assert.equal(transformation.component.authoredTypeNode !== undefined, true, name);
+    assert.equal(Object.isFrozen(transformation.component), true, name);
+  }
+  for (const name of ["ReadonlyFields", "ReadonlyEmpty"]) {
+    assert.equal(semantics.types.standardTransformation(alias(name), selected(name))?.kind, "structural", name);
+    assert.equal(semantics.types.isNonPrimitive(selected(name)), false, name);
   }
 });
 

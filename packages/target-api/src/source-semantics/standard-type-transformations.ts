@@ -48,10 +48,18 @@ export function selectStandardSourceTypeTransformation(
   const typeArguments = context.ast.typeArguments(authoredTypeNode).filter(
     (node): node is Node => node !== undefined,
   );
+  const semantics = context.semanticsFor(authoredTypeNode);
   if (
     (name === "Partial" || name === "Required" || name === "Readonly") &&
     typeArguments.length === 1
   ) {
+    const inputType = semantics.types.authoredType(typeArguments[0]!);
+    if (inputType !== undefined && semantics.types.isNonPrimitive(selectedType) &&
+      semantics.types.isIdentical(inputType, selectedType)) {
+      return Object.freeze({ kind: "component", component: Object.freeze({
+        selectedType: inputType, authoredTypeNode: typeArguments[0]!,
+      }) });
+    }
     return { kind: "structural" };
   }
   if (
@@ -67,7 +75,6 @@ export function selectStandardSourceTypeTransformation(
   if (typeArgument === undefined) {
     return { kind: "unresolved" };
   }
-  const semantics = context.semanticsFor(authoredTypeNode);
   const inputType = semantics.types.authoredType(typeArgument);
   if (inputType === undefined) {
     return { kind: "unresolved" };
