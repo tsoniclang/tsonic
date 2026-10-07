@@ -1,4 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
+import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch, sourceLexicalCaptures } from "../../source-navigation/index.js";
 import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
@@ -469,8 +470,8 @@ export function createSourceStorageTransport(
           [...receiver.projection, ...current.projection]) ?? receiver);
       } else {
         const incomingOrigins = incomingFor(current);
-        if (incomingOrigins.size === 0) origins.add(current);
-        else for (const incomingOrigin of incomingOrigins) { if (!step()) break; pending.push(incomingOrigin); }
+        if (incomingOrigins.size === 0 || sourceStorageHasOriginalCallableValue(current, ast)) origins.add(current);
+        for (const incomingOrigin of incomingOrigins) { if (!step()) break; pending.push(incomingOrigin); }
       }
     }
     return origins;

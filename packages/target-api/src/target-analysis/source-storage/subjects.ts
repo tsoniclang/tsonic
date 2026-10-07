@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { AstReader, Node } from "@tsonic/tsts";
 
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
@@ -15,6 +15,12 @@ export type SourceStorageSubjectQuery = (
   kind?: SourceStorageSubject["kind"],
   projection?: readonly SourceStorageProjection[],
 ) => SourceStorageSubject | undefined;
+
+export function sourceStorageHasOriginalCallableValue(subject: SourceStorageSubject, ast: AstReader): boolean {
+  return subject.kind === "value" && subject.projection.length === 0 && ast.body(subject.node) !== undefined &&
+    (ast.is.IsArrowFunction(subject.node) || ast.is.IsFunctionExpression(subject.node) ||
+      ast.is.IsFunctionDeclaration(subject.node) || ast.is.IsMethodDeclaration(subject.node));
+}
 
 export function sourceStorageProjectionPath(projection: readonly SourceStorageProjection[]):
   readonly SourceStorageProjection[] | undefined {

@@ -659,6 +659,40 @@ test("selected invocation receivers exclude unrelated overrides while preserving
   }
 });
 
+test("native method definitions remain original values through reciprocal checked structural transport", async () => {
+  const current = await fixture("storage-domain-method-definition-origin", `
+    class Base {
+      choose(other: Base): this { return other as this; }
+      echo(value: number): number { return value; }
+    }
+    class Derived extends Base {
+      choose(other: Base): this { return other as this; }
+      echo(value: number): number { return value + 1; }
+    }
+    const first = new Derived();
+    const second = new Derived();
+    const selected = first.choose(second);
+    const base: Base = first;
+    base.choose(second);
+    const alias = first.echo;
+    const result = alias(3);
+  `);
+  const methods = ["Base", "Derived"].map(name => current.source.ast.members(namedDeclaration(current.source.ast, current.file, name))
+    .find(node => current.source.ast.is.IsMethodDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "echo"));
+  const subject = current.subject(current.variable("alias"));
+  for (const selected of [current.storage.originSubjectsFor(subject), current.storage.boundOriginsFor(subject, current.storage.emptyBindings)]) {
+    assert.equal(selected.kind === "resolved", true, "authored callable body supplies a real origin");
+    assert.equal(methods.every(method => selected.subjects.some(origin => origin.kind === "value" && origin.node === method)), true,
+      "all contributing native definitions survive the structural cycle");
+    assert.equal(selected.subjects.every(origin => origin.kind === "value" && methods.includes(origin.node)), true,
+      "no invented receiver, call result or signature origin");
+  }
+  const origins = complete(current.storage.closedOriginsFor(subject), "closed checked method definition origins");
+  assert.equal(origins.every(origin => methods.includes(origin.subject.node)), true);
+  assert.equal(methods.every(method => origins.some(origin => origin.subject.node === method)), true);
+  assert.equal(current.storage.failureReason(), undefined);
+});
+
 test("checked method signatures retain structural record callable implementations and replacement origins", async () => {
   const current = await fixture("storage-domain-structural-method-callable", `
     interface Operation { run(): number; }

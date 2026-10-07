@@ -44,6 +44,36 @@ consume(callback satisfies typeof callback);`);
   }
 });
 
+test("inline callable arguments retain their single exact checked invocation without requiring a binding", () => {
+  for (const body of [
+    "consume((value: unknown): void => {});",
+    "consume((((value: unknown): void => {})));",
+    "consume(function(value: unknown): void {});",
+  ]) {
+    const current = fixture(body, true);
+    const selected = current.select();
+    assert.equal(selected?.length, 1, body);
+    assert.equal(Object.isFrozen(selected), true);
+    assert.equal(Object.isFrozen(selected![0]), true);
+    const argument = selected![0]!;
+    const checked = current.source.semantics.forNode(argument.call).operations.call(argument.call);
+    assert.equal(checked?.sourceArguments[argument.argumentIndex]?.expression === argument.argument, true);
+  }
+});
+
+test("inline callable context rejects named recursion, optional invocation and unchecked argument identity", () => {
+  for (const body of [
+    "consume(function recurse(value: unknown): void { recurse(value); });",
+    "declare const optional: typeof consume | undefined; optional?.((value: unknown): void => {});",
+    "consume(...[(value: unknown): void => {}]);",
+  ]) assert.equal(fixture(body, true).select() === undefined, true, body);
+  const current = fixture("consume((value: unknown): void => {});", true);
+  const source = { ...current.source, semantics: { ...current.source.semantics, forNode: () => ({
+    operations: { call: () => undefined },
+  }) } } as unknown as typeof current.source;
+  assert.equal(sourceClosedCallableArguments(current.expression, source) === undefined, true);
+});
+
 test("closed callable arguments reject every unproven transport or mutable alias", () => {
   for (const body of [
     "let callback = (value: unknown): void => {}; consume(callback);",
@@ -85,7 +115,9 @@ test("checked call arguments are selected independently of closed callable ABI e
     assert.equal(current.source.semantics.forNode(selected!.call).operations.call(selected!.call)
       ?.sourceArguments[0]?.expression === selected!.argument, true, body);
     assert.equal(Object.isFrozen(selected), true, body);
-    assert.equal(current.select() === undefined, true, "direct and named callbacks do not close their ABI through this fact");
+    const named = current.source.ast.is.IsFunctionExpression(current.expression) &&
+      current.source.ast.name(current.expression) !== undefined;
+    assert.equal(current.select() === undefined, named, "only anonymous inline callbacks close their checked argument context");
   }
 });
 

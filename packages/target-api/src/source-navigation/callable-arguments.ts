@@ -42,6 +42,8 @@ export function sourceClosedCallableArguments(
   const { ast, navigation } = source;
   if (!ast.is.IsArrowFunction(expression) && !ast.is.IsFunctionExpression(expression) ||
     ast.is.IsFunctionExpression(expression) && ast.name(expression) !== undefined) return undefined;
+  const direct = sourceExpressionCallArgument(expression, source);
+  if (direct !== undefined) return Object.freeze([direct]);
   const flow = navigation.expressionValueFlow(expression);
   if (flow.aliasDeclarations.length === 0 || flow.aliasDeclarations.length > 1_024 ||
     flow.uses.length > 131_072 || flow.memberWritten || flow.receiverUsed ||

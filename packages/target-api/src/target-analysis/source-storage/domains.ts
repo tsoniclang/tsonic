@@ -5,6 +5,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
+import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "./types.js";
@@ -461,7 +462,7 @@ export function createSourceStorageDomains(
         }
       }
       const incoming = effectiveInputs(current.subject, current.bindings);
-      if (current.collect && (incoming.length === 0 || ast.is.IsNewExpression(node) &&
+      if (current.collect && (incoming.length === 0 || sourceStorageHasOriginalCallableValue(current.subject, ast) || ast.is.IsNewExpression(node) &&
         transport.invocationEffects.get(node)?.resultAlias === undefined)) origins.add(current.subject);
       for (const origin of incoming) {
         if (!budget.step()) break;

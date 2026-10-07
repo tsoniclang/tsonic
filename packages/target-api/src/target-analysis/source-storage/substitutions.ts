@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
 import type { SourceStorageIncomingQuery } from "./edges.js";
 
 export interface SourceStorageBoundSelection {
@@ -49,8 +50,8 @@ export function createSourceStorageSubstitutions(
         continue;
       }
       const parents = incoming(selected);
-      if (parents.size === 0) origins.add(selected);
-      else for (const parent of parents) { if (!step()) break; remaining.push(parent); }
+      if (parents.size === 0 || sourceStorageHasOriginalCallableValue(selected, source.ast)) origins.add(selected);
+      for (const parent of parents) { if (!step()) break; remaining.push(parent); }
     }
     return origins;
   };
