@@ -22,3 +22,4 @@ export { jsArrayMemberEffect } from "./identities/array-effects.js";
 export { sourceErrorDeclarations } from "./declarations/errors.js";
 export { jsSourceCallStorageEffect } from "./identities/storage-effects.js";
 export type { JsSourceCallStorageEffect } from "./identities/storage-effects.js";
+export { jsSourceInvocationOnlyCallableParameters } from "./identities/callable-effects.js";
