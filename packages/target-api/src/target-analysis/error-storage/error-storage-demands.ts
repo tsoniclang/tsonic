@@ -1,7 +1,7 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../source-storage/subjects.js";
-import type { SourceStorageQueries, SourceStorageSubjectSelection } from "../source-storage/types.js";
+import type { SourceStorageClosedOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection } from "../source-storage/types.js";
 import { Node_Expression } from "../../source-navigation/index.js";
 import { createSourceErrorInvalidationQuery } from "./error-invalidation.js";
 import type { SourceErrorStorageProtocol } from "./protocol.js";
@@ -25,6 +25,7 @@ export interface SourceErrorStorageDemandQueries {
   receivesWritableNative(subject: Node, projection?: readonly SourceStorageProjection[]): boolean;
   storageOriginsFor(subject: Node, projection?: readonly SourceStorageProjection[]): { readonly kind: "resolved"; readonly origins: readonly SourceErrorStorageOrigin[] }
     | { readonly kind: "unresolved"; readonly reason: string };
+  closedStorageOriginsFor(subject: Node, projection?: readonly SourceStorageProjection[]): SourceStorageClosedOriginsSelection;
   invalidationFor(owner: Node, expression: Node, pureInvocations: ReadonlySet<Node>):
     { readonly kind: "preserved" | "invalidated" } | { readonly kind: "unresolved"; readonly reason: string };
 }
@@ -200,11 +201,17 @@ export function createSourceErrorStorageDemandQuery(
     return origins.kind === "unresolved" ? origins : Object.freeze({ kind: "resolved", origins: Object.freeze(origins.origins
       .map(origin => Object.freeze({ node: origin.subject.node, type: origin.type }))) });
   };
+  const closedStorageOriginsFor: SourceErrorStorageDemandQueries["closedStorageOriginsFor"] = (node, projection) => {
+    const demand = storageFor(node, projection);
+    if (demand.kind === "unresolved") return demand;
+    const selected = storage.storageSubjectFor(node, projection);
+    return selected.kind === "unresolved" ? selected : storage.closedOriginsFor(selected.subject);
+  };
   const invalidationFor = createSourceErrorInvalidationQuery(source, storage, storageFor, nativeSubjects, capturedStackTargets,
     step, failureReason);
   return Object.freeze({ retainedBoundaries: Object.freeze(retainedBoundaries), nativeConstructors: Object.freeze(nativeConstructors),
     fieldWrites: Object.freeze(fieldWrites), storageFor, isNativeConstructor: (node: Node) => {
       const selected = storage.subject(node);
       return selected.kind === "resolved" && nativeSubjects.has(selected.subject);
-    }, receivesWritableNative, storageOriginsFor, invalidationFor });
+    }, receivesWritableNative, storageOriginsFor, closedStorageOriginsFor, invalidationFor });
 }

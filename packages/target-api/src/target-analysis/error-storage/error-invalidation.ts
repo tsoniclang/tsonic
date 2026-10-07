@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "../source-storage/subjects.js";
-import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/types.js";
+import type { SourceStorageBindings, SourceStorageClosedOriginsSelection, SourceStorageQueries } from "../source-storage/types.js";
 import type { SourceErrorStorageDemandQueries } from "./error-storage-demands.js";
 
 export function createSourceErrorInvalidationQuery(
@@ -26,6 +26,32 @@ export function createSourceErrorInvalidationQuery(
     const pending = [{ node: expression, bindings: storage.emptyBindings }];
     const visited = new Map<SourceStorageBindings, Set<Node>>();
     let unresolved: string | undefined;
+    let ownerOrigins: SourceStorageClosedOriginsSelection | undefined;
+    let ownerRoots: Set<SourceStorageSubject> | undefined;
+    const overlapsOwner = (subject: SourceStorageSubject, bindings: SourceStorageBindings) => {
+      const affected = storage.closedOriginsFor(subject, bindings);
+      if (affected.kind === "unresolved") return affected;
+      for (const origin of affected.origins) {
+        if (!step()) return Object.freeze({ kind: "unresolved" as const, reason: failureReason()! });
+        if (sourceOwners.has(origin.subject)) return Object.freeze({ kind: "overlap" as const });
+      }
+      ownerOrigins ??= storage.closedOriginsFor(selectedOwner.subject);
+      if (ownerOrigins.kind === "unresolved") return ownerOrigins;
+      if (ownerRoots === undefined) {
+        ownerRoots = new Set<SourceStorageSubject>();
+        for (const origin of ownerOrigins.origins) {
+          if (!step()) return Object.freeze({ kind: "unresolved" as const, reason: failureReason()! });
+          ownerRoots.add(origin.subject);
+        }
+      }
+      for (const origin of affected.origins) {
+        if (!step()) return Object.freeze({ kind: "unresolved" as const, reason: failureReason()! });
+        if (ownerRoots.has(origin.subject)) return Object.freeze({ kind: "overlap" as const });
+      }
+      return ownerOrigins.kind === "complete" && affected.kind === "complete"
+        ? Object.freeze({ kind: "disjoint" as const })
+        : Object.freeze({ kind: "unresolved" as const, reason: "Error preservation requires complete owner and affected storage origins in the exact invocation context." });
+    };
     const appendCallableRegions = (candidate: Node, invocation: Node | undefined, parent: SourceStorageBindings): boolean => {
       const selected = storage.executionRegionsFor(candidate, invocation);
       const bindings = invocation === undefined ? { kind: "resolved" as const, bindings: parent }
@@ -47,9 +73,9 @@ export function createSourceErrorInvalidationQuery(
       if (ast.is.IsAwaitExpression(node) || ast.is.IsYieldExpression(node)) return Object.freeze({ kind: "invalidated" });
       const mutation = storage.mutationOwnerFor(node) ?? capturedStackTargets.get(node);
       if (mutation !== undefined) {
-        const affected = storage.boundOriginsFor(mutation, bindings);
-        if (affected.kind === "unresolved") return affected;
-        if (affected.subjects.some(subject => sourceOwners.has(subject))) return Object.freeze({ kind: "invalidated" });
+        const affected = overlapsOwner(mutation, bindings);
+        if (affected.kind === "unresolved") unresolved = affected.reason;
+        if (affected.kind === "overlap") return Object.freeze({ kind: "invalidated" });
       }
       if (storage.isAccessorInvocation(node)) {
         const implementations = storage.invocationImplementationsFor(node, bindings);
@@ -60,7 +86,10 @@ export function createSourceErrorInvalidationQuery(
       if ((ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) && !pureInvocations.has(node) && !capturedStackTargets.has(node)) {
         const subject = storage.subject(node);
         if (subject.kind === "unresolved") return subject;
-        if (!nativeSubjects.has(subject.subject)) {
+        const native = nativeSubjects.has(subject.subject) ? storage.closedOriginsFor(subject.subject, bindings) : undefined;
+        if (native?.kind === "unresolved") return native;
+        if (native?.kind === "open") unresolved = "Native Error allocation requires complete checked constructor value provenance.";
+        if (native?.kind !== "complete") {
           const implementations = storage.invocationImplementationsFor(node, bindings);
           if (implementations.kind === "unresolved") return implementations;
           let resolved = false;
@@ -82,7 +111,9 @@ export function createSourceErrorInvalidationQuery(
               if (argumentSubject.kind === "unresolved") return argumentSubject;
               const origins = storage.boundOriginsFor(argumentSubject.subject, bindings);
               if (origins.kind === "unresolved") return origins;
-              if (origins.subjects.some(subject => sourceOwners.has(subject)))
+              const affected = overlapsOwner(argumentSubject.subject, bindings);
+              if (affected.kind === "unresolved") unresolved = affected.reason;
+              if (affected.kind === "overlap")
                 unresolved = "An opaque native invocation can access the borrowed Error owner without an exact mutation footprint.";
               for (const candidate of origins.subjects) {
                 if (candidate.kind === "value") appendCallableRegions(candidate.node, undefined, bindings);
