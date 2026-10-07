@@ -9,7 +9,7 @@ import {
   type Node,
 } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "./target-source-program.js";
-import { sourceIndexedPropertyTypeEvidence, sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
+import { sourceIndexedTypeEvidence, sourceTransformedTypeFactEvidenceNodes } from "./type-component-evidence.js";
 import { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
 import { typescriptNoLibUtilityDeclarations } from "../source-profiles/typescript-no-lib-utilities.js";
 
@@ -36,9 +36,13 @@ function fixture(canonicalUtilities = false) {
       "/src/node_modules/@test/native/package.json": JSON.stringify({
         name: "@test/native", version: "1.0.0", type: "module", exports: { "./types.js": "./types.d.ts" },
       }),
-      "/src/node_modules/@test/native/types.d.ts": "export type word = number;",
+      "/src/node_modules/@test/native/types.d.ts": `
+        export type word = number;
+        export interface Store<T> { readonly [key: string]: T | undefined }
+        export interface DerivedStore<T> extends Store<T> {}
+      `,
       "/src/index.ts": `
-        import type { word } from "@test/native/types.js";
+        import type { DerivedStore, word } from "@test/native/types.js";
         type Floating = number;
         type Wide = bigint;
         type Callable = (first: Floating, second: Wide) => string;
@@ -55,6 +59,8 @@ function fixture(canonicalUtilities = false) {
         type PresentNested = NonNullable<PresentAlias>;
         type Absent = NonNullable<null | undefined>;
         type Indexed = { [key: string]: number }[string];
+        type ImportedIndexed = DerivedStore<word>[string];
+        type NumberIndexed = { readonly [key: number]: word }[number];
         type Deferred<T, K extends keyof T> = T[K];
         type NativeArray = word[];
         type TextArray = string[];
@@ -160,24 +166,49 @@ test("recursive authored closures terminate and return each evidence node once",
   assert.ok(Object.isFrozen(nodes));
 });
 
-test("indexed property evidence retains exact selected symbols and optionality", () => {
+test("indexed member evidence retains exact selected symbols, signatures and optionality", () => {
   const { source, semantics, alias } = fixture();
   for (const [name, count, optional] of [["First", 1, false], ["Several", 2, false], ["Optional", 1, true]] as const) {
-    const evidence = sourceIndexedPropertyTypeEvidence(source.ast, semantics, alias(name));
+    const evidence = sourceIndexedTypeEvidence(source.ast, semantics, alias(name));
     assert.ok(evidence);
-    assert.equal(evidence.properties.length, count);
+    assert.equal(evidence.members.length, count);
     assert.ok(Object.isFrozen(evidence));
-    assert.ok(Object.isFrozen(evidence.properties));
-    for (const member of evidence.properties) {
-      assert.equal(member.property.optional, optional);
-      assert.ok(member.subjects.includes(member.property.symbol));
+    assert.ok(Object.isFrozen(evidence.members));
+    for (const member of evidence.members) {
+      assert.ok(member.selection.kind === "property");
+      assert.equal(member.selection.property.optional, optional);
+      assert.ok(member.subjects.includes(member.selection.property.symbol));
       assert.ok(Object.isFrozen(member));
       assert.ok(Object.isFrozen(member.subjects));
       assert.equal(new Set(member.subjects).size, member.subjects.length);
     }
   }
-  for (const name of ["Indexed", "Deferred", "Floating"]) {
-    assert.equal(sourceIndexedPropertyTypeEvidence(source.ast, semantics, alias(name)), undefined);
+  const index = sourceIndexedTypeEvidence(source.ast, semantics, alias("Indexed"));
+  assert.ok(index?.members.length === 1);
+  const member = index.members[0]!;
+  assert.ok(member.selection.kind === "index");
+  assert.ok(member.subjects.includes(member.selection.index.declaration!));
+  assert.ok(Object.isFrozen(index) && Object.isFrozen(index.members) && Object.isFrozen(member.subjects));
+  for (const name of ["Deferred", "Floating"]) {
+    assert.equal(sourceIndexedTypeEvidence(source.ast, semantics, alias(name)), undefined);
+  }
+});
+
+test("indexed member evidence retains cross-file generic readonly declarations and exact read types", () => {
+  const { source, semantics, alias, selected } = fixture();
+  for (const name of ["ImportedIndexed", "NumberIndexed"]) {
+    const evidence = sourceIndexedTypeEvidence(source.ast, semantics, alias(name));
+    assert.ok(evidence?.members.length === 1);
+    const member = evidence.members[0]!;
+    assert.ok(member.selection.kind === "index");
+    const declaration = member.selection.index.declaration;
+    assert.ok(declaration !== undefined && member.subjects.includes(declaration));
+    assert.equal(member.selection.index.readonly, true);
+    assert.equal(semantics.types.isIdentical(member.selection.readType, selected(name)), true);
+    assert.ok(Object.isFrozen(member.selection) && Object.isFrozen(member.selection.index));
+    if (name === "ImportedIndexed") {
+      assert.equal(source.ast.getFileName(source.ast.getSourceFile(declaration)!), "/src/node_modules/@test/native/types.d.ts");
+    }
   }
 });
 
