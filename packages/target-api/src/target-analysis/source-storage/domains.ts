@@ -250,13 +250,19 @@ export function createSourceStorageDomains(
     }
     return selected;
   };
-  const dispatchInputs = (subject: SourceStorageSubject): readonly SourceStorageSubject[] => {
+  const dispatchInputs = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): readonly SourceStorageSubject[] => {
     const node = subject.node;
     const selected = semantics.forNode(node).operations.call(node);
     const result: SourceStorageSubject[] = [];
     const accessor = transport.accessorTargets.has(node);
     const target = accessor ? undefined : transport.subjectFor(Node_Expression(ast, node));
-    if (target !== undefined) result.push(target);
+    const physical = transport.physicalMemberInputs(node, origin => transport.substitutions.origins(origin, bindings));
+    if (physical !== undefined) {
+      for (const input of physical) {
+        if (!budget.step()) break;
+        result.push(input);
+      }
+    } else if (target !== undefined) result.push(target);
     const declaration = accessor ? transport.accessorTargets.get(node)?.[0] : transport.invocationDeclarations.get(node);
     if (declaration !== undefined && !ast.hasModifierKind(declaration, "static") && !ast.hasModifierKind(declaration, "private") &&
       (ast.is.IsMethodDeclaration(declaration) || ast.kindName(declaration) === "KindMethodSignature" ||
@@ -371,7 +377,7 @@ export function createSourceStorageDomains(
       return selected;
     }
     if (invocation && transport.invocationEffects.get(node)?.resultAlias === undefined && !opaque.has(node) &&
-      (!externalEntry || !dispatchInputs(subject).some(input => externalInput(input, bindings))) &&
+      (!externalEntry || !dispatchInputs(subject, bindings).some(input => externalInput(input, bindings))) &&
       (ast.is.IsCallExpression(node) || transport.accessorTargets.has(node))) {
       const selected: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
       for (const candidate of transport.invocationImplementations(node, origin => transport.substitutions.origins(origin, bindings))) {
@@ -382,7 +388,7 @@ export function createSourceStorageDomains(
       }
       if (selected.length !== 0) return selected;
     }
-    if (invocation && externalEntry && dispatchInputs(subject).some(input => externalInput(input, bindings))) return [];
+    if (invocation && externalEntry && dispatchInputs(subject, bindings).some(input => externalInput(input, bindings))) return [];
     const inputs: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
     for (const input of inputsFor(subject, bindings)) {
       if (!budget.step()) break;
@@ -449,7 +455,7 @@ export function createSourceStorageDomains(
       const node = current.subject.node;
       if (bound === undefined && (transport.invocations.has(node) || transport.accessorTargets.has(node)) &&
         transport.invocationEffects.get(node)?.resultAlias === undefined) {
-        for (const input of dispatchInputs(current.subject)) {
+        for (const input of dispatchInputs(current.subject, current.bindings)) {
           if (!budget.step()) break;
           pending.push({ subject: input, bindings: current.bindings, collect: false });
         }
