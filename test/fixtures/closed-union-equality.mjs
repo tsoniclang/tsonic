@@ -40,3 +40,21 @@ export function run(): boolean {
     arrays(values, values) && !arrays(values, ["a"]) && !arrays(values, true) && evaluation();
 }
 `;
+
+export const borrowedComparisonMutationSource = `
+class Token {}
+export function run(): boolean {
+  let value: string | Token = "first";
+  let calls = 0;
+  const replace = (): string => { value = "second"; calls += 1; return "first"; };
+  const current = (): string | Token => value;
+  const count = (): number => calls;
+  if (typeof value !== "string") return false;
+  const same = value === replace();
+  if (!same || current() !== "second" || count() !== 1) return false;
+  const owner = { text: "before" };
+  const mutate = (): string => { owner.text = "after"; calls += 1; return "before"; };
+  const field = owner.text === mutate();
+  return field && owner.text === "after" && count() === 2;
+}
+`;
