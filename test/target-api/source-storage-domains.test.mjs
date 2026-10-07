@@ -205,6 +205,18 @@ test("readonly storage is shallow and a readonly view cannot erase a writable pr
   open(current.selection("erased"), "external-write", "readonly projection does not remove producer mutability");
 });
 
+test("direct readonly allocation storage remains closed while independently mutable aliases reopen its slots", async () => {
+  const current = await fixture("storage-domain-literal-storage-permissions", `
+    export const fixed: { readonly token: {} } = { token: {} };
+    const selected = fixed.token;
+    const original: { readonly token: {} } = { token: {} };
+    export const writable: { token: {} } = original;
+    const exposed = original.token;
+  `);
+  complete(current.selection("selected"), "direct authored readonly storage is not an inferred mutable producer");
+  open(current.selection("exposed"), "external-write", "independent mutable view still exposes the same allocation slot");
+});
+
 test("external array element writes reach the original tuple storage through a public array view", async () => {
   const current = await fixture("storage-domain-public-array", `
     const tuple: [{}, {}] = [{}, {}];
@@ -494,11 +506,135 @@ test("default-library recursive callback publication stays finite without poison
     "complete query leaves observed origins and default finite accounting valid");
 });
 
-test("recursive contextual transport terminates at its finite owner budget without inventing an original root", async () => {
+test("recursive contextual transport converges without inventing an original root or exhausting the graph", async () => {
   const current = await fixture("storage-domain-context-cycle", `
     function recurse<T>(value: T): T { return recurse(value); }
     const output = recurse({});
   `, { limits: { ...defaultSourceStorageLimits, maximumSteps: 2048 } });
   const result = current.selection("output");
-  assert.equal(result.kind === "unresolved" && current.storage.failureReason() !== undefined, true, "context recursion is bounded and fail closed");
+  assert.equal(result.kind === "unresolved" && current.storage.failureReason() === undefined, true, "a converged rootless cycle fails closed without poisoning the graph");
+  assert.equal(current.storage.subjectFor(current.initializer("output")).kind === "resolved", true, "other graph queries remain usable");
+});
+
+test("recursive and mutually recursive invocation contexts retain exact actual locations and source roots", async () => {
+  const current = await fixture("storage-domain-recursive-actual-context", `
+    function recurse<T>(value: T, count: number): T { return count === 0 ? value : recurse(value, count - 1); }
+    function first<T>(value: T, again: boolean): T { return again ? second(value, false) : value; }
+    function second<T>(value: T, again: boolean): T { return again ? first(value, false) : value; }
+    const original = {};
+    export let exposed: {} = original;
+    const direct = recurse(original, 3);
+    const mutual = first(original, true);
+    const external = first(exposed, true);
+  `);
+  const origin = current.subject(current.initializer("original"));
+  for (const name of ["direct", "mutual"]) {
+    const selected = complete(current.selection(name), `finite exact recursive domain: ${name}`);
+    assert.equal(selected.length === 1 && selected[0].subject === origin, true, "only the checked invocation's source root");
+  }
+  open(current.selection("external"), "external-write", "recursive forwarding cannot erase raw external storage provenance");
+  assert.equal(current.storage.failureReason() === undefined, true, "finite context fixed point keeps independent accounting valid");
+});
+
+test("recursive formal forwarding preserves opaque location writes and captured container input context", async () => {
+  const current = await fixture("storage-domain-recursive-forwarded-location", `
+    import { mutableborrow } from "@tsonic/core/lang.js";
+    declare function outside(value: {}): void;
+    function recurse(value: {}, again: boolean): {} {
+      outside(mutableborrow(value));
+      return again ? recurse(value, false) : value;
+    }
+    function boxed<T>(value: T): { readonly token: T } { return { token: value }; }
+    function nested<T>(value: T): () => T { return () => value; }
+    const original = {};
+    export let exposed: {} = original;
+    const changed = recurse(original, true);
+    const container = boxed(exposed);
+    const contained = container.token;
+    const callback = nested(exposed);
+    const captured = callback();
+  `, { sourceCore: true });
+  open(current.selection("changed"), "opaque-write", "forwarded formal storage still has its exact opaque mutable boundary");
+  open(current.selection("contained"), "external-write", "allocation member input retains parent invocation context");
+  open(current.selection("captured"), "external-write", "returned callable capture retains exact external actual");
+  assert.equal(current.storage.failureReason() === undefined, true, "all independent proofs stay bounded");
+});
+
+test("selected invocation receivers exclude unrelated overrides while preserving each generic actual receiver", async () => {
+  const current = await fixture("storage-domain-invocation-receiver-identity", `
+    function run(): void {
+      class Base { value(): number { return 1; } }
+      class Derived extends Base { override value(): number { return 2; } }
+      function invoke<T extends Base>(owner: T): number { return owner.value(); }
+      const owner: Base = new Base();
+      const other: Base = new Derived();
+      const direct = owner.value();
+      const different = other.value();
+      const first = invoke(new Base());
+      const second = invoke(new Derived());
+    }
+  `);
+  const base = namedDeclaration(current.source.ast, current.file, "Base");
+  const derived = namedDeclaration(current.source.ast, current.file, "Derived");
+  const method = declaration => current.source.ast.members(declaration).find(node => current.source.ast.is.IsMethodDeclaration(node));
+  for (const [name, expected] of [["direct", base], ["different", derived]]) {
+    const selected = current.storage.invocationImplementationsFor(current.initializer(name), current.storage.emptyBindings);
+    assert.equal(selected.kind === "resolved" && selected.nodes.length === 1 && selected.nodes[0] === method(expected), true,
+      `exact concrete receiver: ${name}`);
+  }
+  const invoke = namedDeclaration(current.source.ast, current.file, "invoke");
+  const nested = requiredNode(current.source.ast, invoke, node => current.source.ast.is.IsCallExpression(node));
+  for (const [name, expected] of [["first", base], ["second", derived]]) {
+    const bindings = current.storage.bindingsForInvocation(invoke, current.initializer(name));
+    assert.equal(bindings.kind === "resolved", true, "exact generic invocation bindings");
+    const selected = current.storage.invocationImplementationsFor(nested, bindings.bindings);
+    assert.equal(selected.kind === "resolved" && selected.nodes.length === 1 && selected.nodes[0] === method(expected), true,
+      `exact bound generic receiver: ${name}`);
+  }
+});
+
+test("checked method signatures retain structural record callable implementations and replacement origins", async () => {
+  const current = await fixture("storage-domain-structural-method-callable", `
+    interface Operation { run(): number; }
+    const first = () => 1;
+    const second = () => 2;
+    const record: Operation = { run: first };
+    record.run = second;
+    const selected = record.run();
+  `);
+  const selected = current.storage.invocationImplementationsFor(current.initializer("selected"), current.storage.emptyBindings);
+  assert.equal(selected.kind === "resolved" && selected.nodes.length === 2 &&
+    selected.nodes.includes(current.initializer("first")) && selected.nodes.includes(current.initializer("second")), true,
+    "a structural method-shaped contract does not erase stored callable implementations");
+});
+
+test("abstract external receivers remain open while selected concrete overrides and native method aliases retain their contracts", async () => {
+  const current = await fixture("storage-domain-abstract-receiver-and-method-alias", `
+    abstract class Base { abstract value(): number; }
+    class First extends Base { override value(): number { return 1; } }
+    class Second extends Base { override value(): number { return 2; } }
+    export function read(owner: Base): number { return owner.value(); }
+    const first = read(new First());
+    const second = read(new Second());
+    const owner: Base = new First();
+    const alias = owner.value;
+    const aliased = alias();
+  `);
+  const read = namedDeclaration(current.source.ast, current.file, "read");
+  const returned = current.storage.subject(read, "return");
+  assert.equal(returned.kind === "resolved", true);
+  open(current.storage.closedOriginsFor(returned.subject), "external-input", "an external abstract receiver is not a known concrete implementation");
+  const nested = requiredNode(current.source.ast, read, node => current.source.ast.is.IsCallExpression(node));
+  const methods = ["First", "Second"].map(name => current.source.ast.members(namedDeclaration(current.source.ast, current.file, name))
+    .find(node => current.source.ast.is.IsMethodDeclaration(node)));
+  for (const [index, name] of ["first", "second"].entries()) {
+    const bindings = current.storage.bindingsForInvocation(read, current.initializer(name));
+    assert.equal(bindings.kind === "resolved", true);
+    const selected = current.storage.invocationImplementationsFor(nested, bindings.bindings);
+    assert.equal(selected.kind === "resolved" && selected.nodes.length === 1 && selected.nodes[0] === methods[index], true,
+      "the checked concrete invocation selects only its exact override");
+  }
+  const alias = current.storage.invocationImplementationsFor(current.initializer("aliased"), current.storage.emptyBindings);
+  assert.equal(alias.kind === "resolved" && alias.nodes.length === 2 && methods.every(method => alias.nodes.includes(method)), true,
+    "a receiver-unbound alias conservatively retains both observed native contracts, never just the last structural source");
 });
