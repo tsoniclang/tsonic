@@ -14,7 +14,7 @@ export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexi
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
 export type { SourceCallOnlyAlias } from "./callable-aliases.js";
-export { sourceClosedCallableArguments } from "./callable-arguments.js";
+export { sourceClosedCallableArguments, sourceExpressionCallArgument } from "./callable-arguments.js";
 export type { SourceClosedCallableArgument } from "./callable-arguments.js";
 export { createSourceArrayDensityQuery } from "./array-density.js";
 export type { SourceArrayDensityOptions, SourceArrayDensityQueries, SourceArrayMemberEffect } from "./array-density.js";
