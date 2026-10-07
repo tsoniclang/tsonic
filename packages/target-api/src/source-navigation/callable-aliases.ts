@@ -1,11 +1,13 @@
 import type { Node, ResolvedSourcePropertyAccessInfo } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
+import { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
 
 export interface SourceCallOnlyAlias {
   readonly expression: Node;
   readonly selectedDeclaration: Node;
   readonly property?: ResolvedSourcePropertyAccessInfo;
+  readonly receiverDeclaration?: Node;
   readonly declarations: readonly Node[];
   readonly calls: readonly Node[];
 }
@@ -14,14 +16,8 @@ export function createSourceCallOnlyAliasQuery(source: TargetSourceProgram):
   (declaration: Node) => SourceCallOnlyAlias | undefined {
   const { ast, navigation } = source;
   const cache = new WeakMap<Node, SourceCallOnlyAlias | null>();
-  const unwrap = (node: Node | undefined): Node | undefined => {
-    for (let depth = 0; node !== undefined && depth < 256; depth += 1) {
-      if (ast.is.IsParenthesizedExpression(node)) node = ast.as.AsParenthesizedExpression(node)?.Expression;
-      else if (ast.is.IsSatisfiesExpression(node)) node = ast.as.AsSatisfiesExpression(node)?.Expression;
-      else return node;
-    }
-    return undefined;
-  };
+  const selectValue = createSourceCallableValueQuery(source);
+  const unwrap = (node: Node | undefined): Node | undefined => sourceCallableValueExpression(ast, node);
   const initializer = (node: Node | undefined): Node | undefined =>
     node !== undefined && ast.is.IsVariableDeclaration(node) &&
       ast.variableDeclarationKind(node) === "const" && ast.is.IsIdentifier(ast.name(node))
@@ -30,28 +26,20 @@ export function createSourceCallOnlyAliasQuery(source: TargetSourceProgram):
     const cached = cache.get(declaration);
     if (cached !== undefined) return cached ?? undefined;
     cache.set(declaration, null);
-    let expression = initializer(declaration);
-    const visited = new Set<Node>([declaration]);
-    while (expression !== undefined && ast.is.IsIdentifier(expression)) {
-      const origin = navigation.sourceReferenceFor(expression)?.declaration;
-      const value = initializer(origin);
-      if (value === undefined) break;
-      if (origin === undefined || visited.has(origin) || visited.size >= 1_024) return undefined;
-      visited.add(origin);
-      expression = value;
-    }
+    const initial = initializer(declaration);
+    const selected = initial === undefined ? undefined : selectValue(initial);
+    if (selected === undefined) return undefined;
+    const expression = selected.expression;
     if (expression === undefined || !ast.is.IsIdentifier(expression) && !ast.is.IsPropertyAccessExpression(expression)) return undefined;
     const semantics = source.semantics.forNode(expression);
-    const property = ast.is.IsPropertyAccessExpression(expression)
-      ? semantics.operations.propertyAccess(expression) : undefined;
+    const property = selected.property;
     const reference = navigation.sourceReferenceFor(expression);
-    const selectedDeclaration = property?.selectedDeclaration ?? reference?.declaration;
+    const selectedDeclaration = selected.selectedDeclaration;
     if (selectedDeclaration === undefined || property?.optionalChain ||
       !ast.is.IsFunctionDeclaration(selectedDeclaration) &&
       !ast.is.IsMethodDeclaration(selectedDeclaration) &&
       ast.kindName(selectedDeclaration) !== "KindMethodSignature") return undefined;
-    if (property !== undefined && (!ast.is.IsIdentifier(property.receiver.expression) ||
-      navigation.sourceReferenceFor(property.receiver.expression)?.declaration !== property.receiver.declaration)) return undefined;
+    if (property !== undefined && selected.receiverDeclaration === undefined) return undefined;
     const flow = navigation.expressionValueFlow(expression);
     if (flow.aliasDeclarations.length === 0 || flow.aliasDeclarations.length > 1_024 ||
       flow.uses.length > 131_072 || flow.memberWritten || flow.receiverUsed ||
@@ -88,6 +76,7 @@ export function createSourceCallOnlyAliasQuery(source: TargetSourceProgram):
     }
     const result: SourceCallOnlyAlias = Object.freeze({
       expression, selectedDeclaration, ...(property === undefined ? {} : { property }),
+      ...(selected.receiverDeclaration === undefined ? {} : { receiverDeclaration: selected.receiverDeclaration }),
       declarations: Object.freeze([...aliases]), calls: Object.freeze([...calls]),
     });
     for (const alias of aliases) cache.set(alias, result);
