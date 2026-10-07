@@ -12,6 +12,7 @@ export interface SourceStorageLimits {
 
 export interface SourceStorageCallEffect {
   readonly resultAlias?: Node;
+  readonly resultAllocation?: Node;
   readonly preservedInputs?: readonly Node[];
 }
 
@@ -44,6 +45,19 @@ export type SourceStorageTypeSelection =
 
 export type SourceStorageOriginsSelection =
   | { readonly kind: "resolved"; readonly origins: readonly SourceStorageTypedSubject[] }
+  | SourceStorageUnresolved;
+
+export interface SourceStorageDomainBoundary {
+  readonly kind: "external-input" | "external-write" | "opaque-write" | "opaque-result" | "unclassified-exposure";
+  readonly subject: SourceStorageSubject;
+  readonly exposure: Node;
+  readonly owner?: SourceStorageSubject;
+}
+
+export type SourceStorageClosedOriginsSelection =
+  | { readonly kind: "complete"; readonly origins: readonly SourceStorageTypedSubject[] }
+  | { readonly kind: "open"; readonly origins: readonly SourceStorageTypedSubject[];
+      readonly boundaries: readonly SourceStorageDomainBoundary[] }
   | SourceStorageUnresolved;
 
 export type SourceStorageNodesSelection =
@@ -109,6 +123,7 @@ export interface SourceStorageQueries {
   ancestorsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   originSubjectsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   originsFor(subject: SourceStorageSubject): SourceStorageOriginsSelection;
+  closedOriginsFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageClosedOriginsSelection;
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
   invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageNodesSelection;
   invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
