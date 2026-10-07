@@ -8,6 +8,33 @@ export interface SourceClosedCallableArgument {
   readonly argumentIndex: number;
 }
 
+export function sourceExpressionCallArgument(
+  reference: Node,
+  source: TargetSourceProgram,
+): SourceClosedCallableArgument | undefined {
+  const { ast } = source;
+  let argument = reference;
+  let parent = ast.parent(argument);
+  for (let depth = 0; parent !== undefined && depth < 256; depth += 1) {
+    const expression = ast.is.IsParenthesizedExpression(parent) ? ast.as.AsParenthesizedExpression(parent)?.Expression
+      : ast.is.IsSatisfiesExpression(parent) ? ast.as.AsSatisfiesExpression(parent)?.Expression : undefined;
+    if (expression === undefined) break;
+    if (expression !== argument) return undefined;
+    argument = parent;
+    parent = ast.parent(argument);
+  }
+  if (parent === undefined || !ast.is.IsCallExpression(parent)) return undefined;
+  const call = ast.as.AsCallExpression(parent);
+  if (call === undefined || call.QuestionDotToken !== undefined) return undefined;
+  const arguments_ = ast.arguments(parent);
+  const argumentIndex = arguments_.indexOf(argument);
+  if (argumentIndex < 0 || arguments_.filter(node => node === argument).length !== 1 ||
+    ast.is.IsSpreadElement(argument)) return undefined;
+  const checked = source.semantics.forNode(parent).operations.call(parent);
+  if (checked?.sourceArguments[argumentIndex]?.expression !== argument) return undefined;
+  return Object.freeze({ call: parent, argument, argumentIndex });
+}
+
 export function sourceClosedCallableArguments(
   expression: Node,
   source: TargetSourceProgram,
@@ -39,24 +66,10 @@ export function sourceClosedCallableArguments(
   for (const use of flow.uses) {
     if (use.kind === "type-only" || use.role === "storage") continue;
     if (use.role !== "argument" || use.throughMember) return undefined;
-    let argument = use.reference;
-    let parent = ast.parent(argument);
-    for (let depth = 0; parent !== undefined && unwrap(parent) === unwrap(argument) && depth < 256; depth += 1) {
-      argument = parent;
-      parent = ast.parent(argument);
-    }
-    if (parent === undefined || !ast.is.IsCallExpression(parent)) return undefined;
-    const call = ast.as.AsCallExpression(parent);
-    if (call === undefined || call.QuestionDotToken !== undefined) return undefined;
-    const arguments_ = ast.arguments(parent);
-    const argumentIndex = arguments_.indexOf(argument);
-    if (argumentIndex < 0 || arguments_.filter(node => node === argument).length !== 1 ||
-      ast.is.IsSpreadElement(argument) || seen.has(argument)) return undefined;
-    const semantics = source.semantics.forNode(parent);
-    const checked = semantics.operations.call(parent);
-    if (checked?.sourceArguments[argumentIndex]?.expression !== argument) return undefined;
-    seen.add(argument);
-    result.push(Object.freeze({ call: parent, argument, argumentIndex }));
+    const selected = sourceExpressionCallArgument(use.reference, source);
+    if (selected === undefined || seen.has(selected.argument)) return undefined;
+    seen.add(selected.argument);
+    result.push(selected);
   }
   return result.length === 0 ? undefined : Object.freeze(result);
 
