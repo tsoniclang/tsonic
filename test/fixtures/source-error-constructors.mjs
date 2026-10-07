@@ -61,3 +61,36 @@ export const sourceErrorConstructorCostProof = `
 export function makeOptional(message?: string): Error { return new Error(message); }
 export function makeRequired(message: string): Error { return new Error(message); }
 `;
+
+export const sourceExplicitErrorInitializationProof = `
+class RequiredFailure extends Error { constructor(message: string) { super(message); } }
+class OptionalFailure extends Error { constructor(message?: string) { super(message); } }
+class RetainedFailure extends Error {
+  saved: string;
+  constructor(message: string) { super(message); this.saved = message; }
+}
+let calls = 0;
+function absent(): undefined { calls += 1; return undefined; }
+class EffectFailure extends Error { constructor() { super(absent()); } }
+export function run(): boolean {
+  const required = new RequiredFailure("café😀");
+  const optional = new OptionalFailure("optional");
+  const omitted = new OptionalFailure();
+  const missing = new OptionalFailure(undefined);
+  const retained = new RetainedFailure("retained");
+  const effect = new EffectFailure();
+  return required.message === "café😀" && optional.message === "optional" &&
+    omitted.message === "" && missing.message === "" && effect.message === "" && calls === 1 &&
+    retained.message === "retained" && retained.saved === "retained" && required.stack === undefined;
+}
+`;
+
+export const sourceExplicitErrorInitializationCostProof = `
+export class ImplicitOwnedFailure extends Error {}
+export class RequiredOwnedFailure extends Error { constructor(message: string) { super(message); } }
+export class OptionalOwnedFailure extends Error { constructor(message?: string) { super(message); } }
+export class RetainedOwnedFailure extends Error {
+  saved: string;
+  constructor(message: string) { super(message); this.saved = message; }
+}
+`;
