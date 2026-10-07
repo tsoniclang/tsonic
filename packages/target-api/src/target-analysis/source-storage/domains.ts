@@ -448,8 +448,7 @@ export function createSourceStorageDomains(
       }
       const node = current.subject.node;
       if (bound === undefined && (transport.invocations.has(node) || transport.accessorTargets.has(node)) &&
-        transport.invocationEffects.get(node)?.resultAlias === undefined &&
-        (!opaque.has(node) || ast.is.IsNewExpression(node) || transport.invocationEffects.get(node)?.resultAllocation !== undefined)) {
+        transport.invocationEffects.get(node)?.resultAlias === undefined) {
         for (const input of dispatchInputs(current.subject)) {
           if (!budget.step()) break;
           pending.push({ subject: input, bindings: current.bindings, collect: false });

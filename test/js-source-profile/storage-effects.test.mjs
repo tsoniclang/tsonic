@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { jsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/index.js";
+import { jsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/identities/storage-effects.js";
 
 test("owned native Error construction publishes one exact fresh result without aliasing or input preservation", () => {
   const invocation = Object.freeze({});
