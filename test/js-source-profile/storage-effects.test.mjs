@@ -2,6 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { jsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/index.js";
 
+test("owned native Error construction publishes one exact fresh result without aliasing or input preservation", () => {
+  const invocation = Object.freeze({});
+  const call = { call: invocation, sourceSelectedSignatureKind: "resolved" };
+  for (const ownerName of ["ErrorConstructor", "RangeErrorConstructor", "TypeErrorConstructor", "URIErrorConstructor"]) {
+    for (const memberName of ["constructor", "call"]) {
+      const effect = jsSourceCallStorageEffect({ ownerName, memberName }, call);
+      assert.equal(effect?.resultAllocation === invocation, true, `${ownerName}.${memberName}`);
+      assert.equal(effect.resultAlias === undefined, true);
+      assert.equal(effect.preservedInputs.length, 0);
+      assert.equal(Object.isFrozen(effect) && Object.isFrozen(effect.preservedInputs), true);
+      assert.equal(jsSourceCallStorageEffect({ ownerName, memberName }, { ...call, sourceSelectedSignatureKind: "untyped" }) === undefined, true);
+    }
+  }
+  for (const identity of [undefined, { ownerName: "OtherConstructor", memberName: "constructor" },
+    { ownerName: "ErrorConstructor", memberName: "captureStackTrace" },
+    { ownerName: "Global", memberName: "Error" }]) {
+    assert.equal(jsSourceCallStorageEffect(identity, call) === undefined, true);
+  }
+});
+
 function selectedCall() {
   return {
     sourceSelectedSignatureKind: "resolved",

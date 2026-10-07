@@ -2,16 +2,25 @@ import type { Node, ResolvedSourceCallInfo } from "@tsonic/tsts";
 
 export interface JsSourceCallStorageEffect {
   readonly resultAlias?: Node;
+  readonly resultAllocation?: Node;
   readonly preservedInputs: readonly Node[];
 }
+
+const nativeErrorConstructorOwners = new Set([
+  "ErrorConstructor", "RangeErrorConstructor", "TypeErrorConstructor", "URIErrorConstructor",
+]);
 
 export function jsSourceCallStorageEffect(identity: {
   readonly ownerName: string;
   readonly memberName: string;
 } | undefined, call: ResolvedSourceCallInfo): JsSourceCallStorageEffect | undefined {
+  if (call.sourceSelectedSignatureKind !== "resolved") return undefined;
+  if (identity !== undefined && nativeErrorConstructorOwners.has(identity.ownerName) &&
+    (identity.memberName === "constructor" || identity.memberName === "call")) {
+    return Object.freeze({ resultAllocation: call.call, preservedInputs: Object.freeze([]) });
+  }
   if (identity?.ownerName !== "ObjectConstructor" ||
-    identity.memberName !== "freeze" && identity.memberName !== "isFrozen" ||
-    call.sourceSelectedSignatureKind !== "resolved") return undefined;
+    identity.memberName !== "freeze" && identity.memberName !== "isFrozen") return undefined;
   const bindings = call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === 0);
   const binding = bindings.length === 1 ? bindings[0] : undefined;
   if (binding?.sourceForm !== "value" || binding.sourceParameterForm !== "parameter" ||
