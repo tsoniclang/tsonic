@@ -7,6 +7,7 @@ import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "./value
 function fixture(body: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
     declare function isArray(value: unknown): boolean;
+    declare function isRecord(value: unknown): boolean;
     declare function observe(value: unknown): void;
     declare function consume(value: unknown): void;
     function run(value: unknown, other: unknown, flag: boolean): void { ${body} }
@@ -30,16 +31,17 @@ function fixture(body: string) {
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
-  const guard = (expression: Node): SourceNativeGuard<"array"> | undefined => {
+  const guard = (expression: Node): SourceNativeGuard<"array" | "record"> | undefined => {
     const call = source.semantics.forNode(expression).operations.call(expression);
     const argument = call?.sourceArguments[0];
-    return call === undefined || argument === undefined || source.ast.text(call.sourceCallee.expression) !== "isArray"
-      ? undefined : { sourceOperand: argument.expression, predicate: "array" };
+    const name = source.ast.text(call?.sourceCallee.expression);
+    return call === undefined || argument === undefined || name !== "isArray" && name !== "isRecord"
+      ? undefined : { sourceOperand: argument.expression, predicate: name === "isArray" ? "array" : "record" };
   };
   const select = (members: readonly string[] = ["array", "record"], sourceFacts?: ReadonlySourceFactResolver) => reads.map(reference =>
     selectSourceGuardedValueMembers({ ast: source.ast, navigation: source.navigation,
       sourceFacts: sourceFacts ?? source.sourceFacts, semanticsFor: node => source.semantics.forNode(node) },
-    reference, members, guard, member => member === "unknown" ? undefined : member === "array"));
+    reference, members, guard, (member, predicate) => member === "unknown" ? undefined : member === predicate));
   return { source, reads, calls, select, guard };
 }
 
@@ -61,6 +63,32 @@ test("native flow selection retains original members through branches, negation 
 test("native flow evidence retains unknown members instead of guessing a backing arm", () => {
   const current = fixture("if (isArray(value)) { observe(value); return; } observe(value);");
   assert.deepEqual(current.select(["array", "record", "unknown"]), [["array", "unknown"], ["record", "unknown"]]);
+});
+
+test("uncaptured bindings retain call-bearing disjunctions and their complete native subsets", () => {
+  for (const body of [
+    "if (isArray(value) || isArray(value)) observe(value);",
+    "if (!(isArray(value) || isArray(value))) return; observe(value);",
+    "if (!(isArray(value) || isArray(value))) { value = other; return; } observe(value);",
+    "if (isArray(value) || isArray(value)) { consume(other); } else { throw other; } observe(value);",
+    "(isArray(value) || isArray(value)) ? observe(value) : consume(other);",
+    "if (isArray(value) || isArray(value)) { consume(other); observe(value); }",
+  ]) assert.deepEqual(fixture(body).select(), [["array"]], body);
+  const current = fixture("if (isArray(value) || isRecord(value)) observe(value);");
+  assert.deepEqual(current.select(["array", "record", "other", "unknown"]), [["array", "record", "unknown"]]);
+});
+
+test("lexical disjunction evidence rejects exact rebinding in the condition and evaluation interval", () => {
+  for (const body of [
+    "if (isArray(value) || (value = other, isArray(value))) observe(value);",
+    "if (isArray(value) || isArray(value)) { value = other; observe(value); }",
+    "if (isArray(value) || isArray(value)) { [value] = [other]; observe(value); }",
+    "if (isArray(value) || isArray(value)) { const change = () => { value = other; }; change(); observe(value); }",
+    "if (isArray(value) || isArray(value)) observe((value = other, value));",
+    "if (!(isArray(value) || isArray(value))) return; value = other; observe(value);",
+    "if (!(isArray(value) || isArray(value))) return; const change = () => { value = other; }; change(); observe(value);",
+    "if (!(isArray(value) || isArray(value))) return; else value = other; observe(value);",
+  ]) assert.deepEqual(fixture(body).select(), [undefined], body);
 });
 
 test("native flow selection rejects non-dominating and foreign-operand conditions", () => {

@@ -108,7 +108,7 @@ export function createTargetSourceProgram(
       flowConditions(node: Node) {
         const cached = flowConditions.get(node);
         if (cached !== undefined) return cached ?? undefined;
-        const selected = resolveSourceFlowConditions({ ast: source.ast, navigation }, node, queries.checker.getResolvedFlowConditionInfo(node));
+        const selected = resolveSourceFlowConditions({ ast: source.ast, navigation, sourceFacts: source.sourceFacts }, node, queries.checker.getResolvedFlowConditionInfo(node));
         flowConditions.set(node, selected ?? null);
         return selected;
       },
