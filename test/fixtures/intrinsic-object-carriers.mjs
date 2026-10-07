@@ -10,9 +10,13 @@ export const intrinsicObjectCarrierFiles = Object.freeze({
     export function run(): boolean {
       const empty: Token = {};
       const record: object = { count: 7 };
+      const typed = { count: 7 };
+      const retained = retain(typed);
+      const repeated = retain(typed);
+      typed.count = 9;
       const instance: Token = new Holder();
       return inferred(empty) === empty && readonly(empty) === empty && accept(retain(empty)) === empty &&
         inferred(record) === record && readonly(record) === record && inferred(instance) === instance &&
-        readonly(instance) === instance;
+        readonly(instance) === instance && retained === repeated && retained === typed && typed.count === 9;
     }`,
 });
