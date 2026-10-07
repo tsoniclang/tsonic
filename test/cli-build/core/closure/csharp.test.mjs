@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedCsharpRunner, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("Slice 4 emits source functions, lambdas, block scopes, if/else, and returns from finalized facts", async () => {
   const projectDirectory = resolve(tempRoot, "slice4-functions-statements");
@@ -154,7 +154,7 @@ test("Slice 4 emits classes, constructors, fields, methods, private identifiers,
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("Slice 4 fail-closed diagnostics cover missing callable context, truthiness, and TypeScript-only class modifiers", async () => {
+test("Slice 4 preserves inferred callables and checked visibility while rejecting truthiness", async () => {
   const scenarios = [
     {
       name: "bare-lambda",
@@ -164,7 +164,9 @@ test("Slice 4 fail-closed diagnostics cover missing callable context, truthiness
         "}",
         "",
       ].join("\n"),
-      diagnostic: /Lambda emission requires a contextual function\/delegate type/,
+      expectedEmission: /public static void invalid\(\)\s*\{\s*_ = \(\(\) => 1\);\s*\}/u,
+      runner: "Tsonic.Generated.Index.invalid();",
+      stdout: "completed\n",
     },
     {
       name: "truthy-if",
@@ -187,7 +189,9 @@ test("Slice 4 fail-closed diagnostics cover missing callable context, truthiness
         "}",
         "",
       ].join("\n"),
-      diagnostic: /TypeScript-only modifier 'public'/,
+      expectedEmission: /public class Box[\s\S]*public double value = 1;/u,
+      runner: "Console.WriteLine(new Tsonic.Generated.Box().value);",
+      stdout: "1\ncompleted\n",
     },
   ];
 
@@ -204,8 +208,26 @@ test("Slice 4 fail-closed diagnostics cover missing callable context, truthiness
     });
 
     const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-    assert.equal(build.status, 1);
-    assert.match(build.stderr, scenario.diagnostic);
-    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+    if (scenario.expectedEmission !== undefined) {
+      assert.equal(build.status, 0, build.stdout + build.stderr);
+      const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+      assert.match(generatedSource, scenario.expectedEmission);
+      assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/u);
+      assert.equal(await runGeneratedCsharpRunner(projectDirectory, "TsonicGenerated", [
+        "using System;",
+        "public static class Program",
+        "{",
+        "    public static void Main()",
+        "    {",
+        `        ${scenario.runner}`,
+        "        Console.WriteLine(\"completed\");",
+        "    }",
+        "}",
+      ]), scenario.stdout);
+    } else {
+      assert.equal(build.status, 1);
+      assert.match(build.stderr, scenario.diagnostic);
+      assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+    }
   }
 });

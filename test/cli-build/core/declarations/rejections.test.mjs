@@ -1,6 +1,6 @@
-import { assert, assertGeneratedOutputHasNoReflectionSemantics, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertGeneratedOutputHasNoReflectionSemantics, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
-test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", async () => {
+test("CLI executes checked visibility and readonly annotations through native class members", async () => {
   const projectDirectory = resolve(tempRoot, "typescript-only-modifiers");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -28,11 +28,60 @@ test("CLI rejects TypeScript-only runtime-shape modifiers before C# emission", a
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /TypeScript-only modifier 'public'/);
-  assert.match(build.stderr, /TypeScript-only modifier 'private'/);
-  assert.doesNotMatch(build.stderr, /TypeScript-only modifier 'readonly'/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeScriptOnlyModifiers.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public double visible = 1;/u);
+  assert.match(generatedSource, /private double hidden = 2;/u);
+  assert.match(generatedSource, /public readonly double id = 3;/u);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/u);
+  assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedTypeScriptOnlyModifiers", [
+    "using System;",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        var box = new Smoke.Generated.Box();",
+    "        Console.WriteLine($\"{box.visible}:{box.id}\");",
+    "    }",
+    "}",
+  ]), "1:3\n");
+});
+
+test("CLI preserves checker rejection of external private/protected access and readonly writes", async () => {
+  const cases = [
+    {
+      name: "private-read",
+      source: "class Box { private hidden = 2; }\nexport function read(box: Box) { return box.hidden; }\n",
+      diagnostic: /TS2341: Property 'hidden' is private and only accessible within class 'Box'/u,
+    },
+    {
+      name: "protected-read",
+      source: "class Box { protected hidden = 2; }\nexport function read(box: Box) { return box.hidden; }\n",
+      diagnostic: /TS2445: Property 'hidden' is protected and only accessible within class 'Box' and its subclasses/u,
+    },
+    {
+      name: "readonly-write",
+      source: "class Box { readonly id = 3; }\nexport function write(box: Box): void { box.id = 4; }\n",
+      diagnostic: /TS2540: Cannot assign to 'id' because it is a read-only property/u,
+    },
+  ];
+  for (const current of cases) {
+    const projectDirectory = resolve(tempRoot, `checked-class-${current.name}`);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [{ id: "csharp" }],
+      }, null, 2),
+      "src/index.ts": current.source,
+    });
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1, current.name);
+    assert.match(build.stderr, current.diagnostic);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false, current.name);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false, current.name);
+  }
 });
 
 test("CLI emits sanitized C# names through source-owned provider facts", async () => {
