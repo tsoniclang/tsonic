@@ -18,7 +18,7 @@ function head(values: string[]): string {
   const [value] = values;
   return value === undefined ? "missing" : value;
 }
-function headType(values: string[]): string {
+function headType(values: (string | null | undefined)[]): string {
   const [value] = values;
   return typeof (value);
 }
@@ -78,7 +78,8 @@ export function run(): boolean {
   if (!(read(undefined) == absent()) || count() !== 2) return false;
   if (!(absent() != read("")) || count() !== 4) return false;
   if (head([]) !== "missing" || head(["kept"]) !== "kept" ||
-      headType([]) !== "object" || headType(["kept"]) !== "string" ||
+      headType([]) !== "object" || headType([null]) !== "object" ||
+      headType([undefined]) !== "object" || headType(["kept"]) !== "string" ||
       nullable([]) !== "missing" || nullable([undefined]) !== "missing" ||
       nullable([null]) !== "missing" || nullable(["kept"]) !== "kept") return false;
   if (!broadHead([]) || !broadHead([undefined]) || !broadHead([null]) || broadHead([false])) return false;

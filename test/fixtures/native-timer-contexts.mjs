@@ -14,8 +14,10 @@ import { setTimeout as nodeTimeout } from "node:timers";
 let completed = 0;
 export function schedule(): Error {
   const original = new Error("original timer failure");
-  setTimeout(() => { throw original; }, 0);
-  nodeTimeout(() => { completed += 1; }, 0);
+  setTimeout(() => {
+    nodeTimeout(() => { completed += 1; }, 0);
+    throw original;
+  }, 0);
   return original;
 }
 export function count(): number { return completed; }
