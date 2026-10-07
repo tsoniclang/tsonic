@@ -120,14 +120,15 @@ test("CLI emits closed dynamic-value operations for explicit TypeScript any with
   assert.match(generatedSource, /return value\.ReadDynamicElement\(key\);/);
   assert.match(generatedSource, /value\.WriteDynamicElement\(key, "Grace"\);/);
   assert.match(generatedSource, /return value\.InvokeDynamic\("Ada", 1\);/);
-  assert.match(generatedSource, /return value\.InvokeDynamicSlot\("create", false, false, \(\) => new object\?\[\] \{ "Ada" \}\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.TsValue (?<receiver>__tsonic_value_\d+) = value;\s*return \k<receiver>\.ReadDynamicSlot\("create"\)\.InvokeDynamicWithThis\(\k<receiver>, "Ada"\);/);
+  assert.doesNotMatch(generatedSource, /InvokeDynamicSlot|new object\?\[\]/);
   assert.match(generatedSource, /return value\.ConstructDynamic\("Ada"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicBinary\(value, "\+", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicBinaryBoolean\(value, "===", 2\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.IsDynamicInstanceOf<Marker>\(value\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicUnaryBoolean\(value, "!"\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.ApplyDynamicTypeof\(value\);/);
-  assert.match(generatedSource, /return \(value\.ReadDynamicSlot\("name"\), \(Tsonic\.CSharp\.Runtime\.TsValue\)Tsonic\.CSharp\.Runtime\.TsValue\.from\(null\)\)\.Item2;/);
+  assert.match(generatedSource, /public static Tsonic\.CSharp\.Runtime\.TsValue voidValue\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*value\.ReadDynamicSlot\("name"\);\s*return default\(Tsonic\.CSharp\.Runtime\.TsValue\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
   assert.match(generatedSource, /double result = Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
   assert.match(generatedSource, /result = Tsonic\.CSharp\.Runtime\.TsValue\.CastDynamic<double>\(value\);/);
@@ -236,8 +237,8 @@ test("CLI hard-rejects explicit any array spread without closed array carrier fa
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   const output = build.stdout + build.stderr;
   assert.notEqual(build.status, 0);
-  assert.match(output, /Array spread requires a finalized sequence carrier with the exact target element type before C# emission/u);
-  assert.match(output, /Finalized spread carrier does not prove an enumerable sequence with the exact target element type/u);
+  assert.match(output, /Array spread requires an exact native sequence and sealed destination element conversions/u);
+  assert.match(output, /Artifacts: 0/u);
   assert.match(output, /index\.ts:2:11/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
@@ -304,7 +305,7 @@ test("CLI hard-rejects unsupported explicit any operators ", async () => {
   assert.match(build.stdout + build.stderr, /operator '\*\*'/u);
   assert.match(build.stdout + build.stderr, /operator '\*\*='/u);
   assert.match(build.stdout + build.stderr, /operator ','/u);
-  assert.match(build.stdout + build.stderr, /C# delete requires an exact selected JS Array element access/u);
+  assert.match(build.stdout + build.stderr, /Deletion requires one exact checked element access/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
 });
 

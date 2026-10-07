@@ -82,7 +82,7 @@ test("CLI emits object-shape spread from finalized provider object-shape facts",
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> clone\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> input, double value\)/);
-  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = input\.label,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> (?<input>__tsonic_value_\d+) = input;\s*double (?<value>_*tsonic_value_\d+) = \k<input>\.value;\s*string (?<label>_*tsonic_value_\d+) = \k<input>\.label;\s*\k<value> = value;\s*return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = \k<value>,\s*label = \k<label>,\s*\};/);
   assert.doesNotMatch(generatedSource, /unsupported|invalid/i);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedObjectShapeSpread.csproj"), "--nologo", "--v:minimal"]);

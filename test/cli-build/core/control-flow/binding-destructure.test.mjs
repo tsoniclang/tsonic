@@ -137,8 +137,9 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int> __tsonic_destructure\d+ = input;/);
   assert.match(generatedSource, /value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
-  assert.match(generatedSource, /\(\(System\.Func<int\[\]>\)\(\(\) =>/);
-  assert.match(generatedSource, /\(\(System\.Func<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int>>\)\(\(\) =>/);
+  assert.match(generatedSource, /int\[\] (?<input>__tsonic_destructure\d+) = values;\s*first = \k<input>\[0\];\s*int\[\] returned = \(\k<input>\);/);
+  assert.match(generatedSource, /(?<shape>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int>) (?<input>__tsonic_destructure\d+) = input;\s*value = \k<input>\.value;\s*label = \k<input>\.label;\s*\k<shape> returned = \(\k<input>\);/);
+  assert.doesNotMatch(generatedSource, /System\.Func<|\(\(\) =>/);
   assert.match(generatedSource, /rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*label = __tsonic_destructure\d+\.label,\s*\};/);
   assert.match(generatedSource, /restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);
@@ -204,15 +205,16 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static string summarize\(ObjectShape_1e61fc2f669b<ObjectShape_eea9450c666d<double>, double, string\?> __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
+  assert.match(generatedSource, /public static string summarize\(ObjectShape_[a-f0-9]{12}<ObjectShape_[a-f0-9]{12}<double>, double, string\?> __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double> __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
-  assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "fallback";/);
+  assert.match(generatedSource, /string label = __tsonic_param\d+\.label is string (?<value>__tsonic_value\d+) \? \k<value> : "fallback";/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> spread = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedSource, /label = label,/);
   assert.match(generatedSource, /total = value \+ rest\.count,/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> composed = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[spread\.total\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<double>\(numbers\), Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[rest\.count\]\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> (?<destination>__tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<double>\(\)\.AppendElement\(spread\.total\);\s*Tsonic\.CSharp\.Js\.JSArray<double> (?<source>__tsonic_sequence_\d+) = numbers;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>__tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}\s*Tsonic\.CSharp\.Js\.JSArray<double> composed = \k<destination>\.AppendElement\(rest\.count\);/);
+  assert.doesNotMatch(generatedSource, /\.concat\(/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> tail = __tsonic_destructure\d+\.slice\(2\);/);
   assert.match(generatedSource, /throw new System\.Exception\("missing numbers"\);/);
   assert.match(generatedSource, /catch\s*\{/);

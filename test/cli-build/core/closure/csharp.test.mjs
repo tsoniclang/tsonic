@@ -57,7 +57,7 @@ test("Slice 4 emits source functions, lambdas, block scopes, if/else, and return
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 4;/);
   assert.match(generatedSource, /public static Func<double, double> makeAdder\(double left\)/);
-  assert.match(generatedSource, /return \(double right\) => left \+ right;/);
+  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double right\)\s*\{\s*return left \+ right;\s*\}\s*return new Func<double, double>\(\k<callable>\);/);
   assert.match(generatedSource, /public static T identity<T>\(T value\)/);
   assert.doesNotMatch(generatedSource, /__unsupported|dynamic|object mapper/);
 
@@ -141,8 +141,8 @@ test("Slice 4 emits classes, constructors, fields, methods, private identifiers,
   assert.match(generatedSource, /public T read\(\)/);
   assert.match(generatedSource, /public class NamedBox/);
   assert.match(generatedSource, /public class Derived/);
-  assert.match(generatedSource, /public static double count = 0;/);
-  assert.match(generatedSource, /static Derived\(\)\n\s*\{\n\s*Derived\.count = 1;/);
+  assert.match(generatedSource, /public static double count;/);
+  assert.match(generatedSource, /static Derived\(\)\s*\{\s*Derived\.count = 0;\s*Derived\.count = 1;/);
   const privateName = /private string (__tsonic_private_[a-f0-9]{64});/.exec(generatedSource)?.[1];
   assert.ok(privateName);
   assert.match(generatedSource, /public SecretBox\(string secret\)/);

@@ -457,8 +457,10 @@ test("CLI emits literal default parameters as C# optional parameters", async () 
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double add\(double value = 3, bool enabled = true, string\? __tsonic_param0 = null\)/);
-  assert.match(generatedSource, /string label = __tsonic_param0 \?\? "x";/);
+  assert.match(generatedSource, /public static double add\(double\? __tsonic_param0 = null, bool\? __tsonic_param1 = null, string\? __tsonic_param2 = null\)/);
+  assert.match(generatedSource, /double value = __tsonic_param0 is double (?<value>__tsonic_value\d+) \? \k<value> : 3;/);
+  assert.match(generatedSource, /bool enabled = __tsonic_param1 is bool (?<value>__tsonic_value\d+) \? \k<value> : true;/);
+  assert.match(generatedSource, /string label = __tsonic_param2 is string (?<value>__tsonic_value\d+) \? \k<value> : "x";/);
   assert.match(generatedSource, /return add\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

@@ -180,7 +180,8 @@ test("CLI emits extended Map and Set operations from selected JS surface facts",
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.Map<string, int>\(source\.entries\(\)\)/);
-  assert.match(generatedSource, /copy\.forEach\(/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Map<string, int> (?<receiver>__tsonic_value_\d+) = copy;\s*void (?<callable>__tsonic_callable_\d+)\(int value, string key, Tsonic\.CSharp\.Js\.Map<string, int> __tsonic_param\d+\)\s*\{\s*total = total \+ value;\s*if \(key == "alpha"\)\s*\{\s*total = total \+ 100;\s*\}\s*\}\s*\k<receiver>\.forEach\(new Action<int, string, Tsonic\.CSharp\.Js\.Map<string, int>>\(\k<callable>\)\);/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.Set<string> (?<receiver>__tsonic_value_\d+) = copy;\s*void (?<callable>__tsonic_callable_\d+)\(string item, string __tsonic_param\d+, Tsonic\.CSharp\.Js\.Set<string> __tsonic_param\d+\)\s*\{\s*if \(copy\.has\(item\)\)\s*\{\s*total = total \+ 1;\s*\}\s*\}\s*\k<receiver>\.forEach\(new Action<string, string, Tsonic\.CSharp\.Js\.Set<string>>\(\k<callable>\)\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArrayStatics\.from<int>\(copy\.values\(\)\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArrayStatics\.from<\(string, int\)>\(copy\.entries\(\)\)/);
   assert.match(generatedSource, /copy\.clear\(\);/);
