@@ -20,3 +20,4 @@ export { createJsSourceVirtualModulesProvider } from "./extension/source-virtual
 export { jsRegExpTypeLibraryContract } from "./type-library-contract.js";
 export { jsArrayMemberEffect } from "./identities/array-effects.js";
 export { sourceErrorDeclarations } from "./declarations/errors.js";
+export { jsSourceInvocationOnlyCallableParameters } from "./identities/callable-effects.js";
