@@ -1,6 +1,5 @@
 export const nativeWatcherCompletionSource = `
 import { watchFile, unwatchFile, writeFileSync, unlinkSync } from "node:fs";
-import { log } from "console";
 
 export function main(): void {
   const path = "native-watcher-completion.txt";
@@ -9,7 +8,7 @@ export function main(): void {
     unwatchFile(path);
     unlinkSync(path);
     if (current.size <= previous.size) throw new Error("native stat widths lost");
-    log("native watcher completion");
+    console.log("native watcher completion");
   });
   writeFileSync(path, "native changed contents");
 }

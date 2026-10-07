@@ -4,13 +4,12 @@ const options = `{ key: ${JSON.stringify(key)}, cert: ${JSON.stringify(certifica
 
 export const nativeTlsCompletionSource = `
 import { createServer } from "node:tls";
-import { log } from "console";
 
 export function main(): void {
   const server = createServer(${options}, socket => { socket.end(); });
   server.listen(0, "127.0.0.1", () => {
     server.close();
-    log("native TLS completion");
+    console.log("native TLS completion");
   });
 }
 `;

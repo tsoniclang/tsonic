@@ -1,12 +1,11 @@
 export const nativeNetworkCompletionSource = `
 import { createServer } from "node:net";
-import { log } from "console";
 
 export function main(): void {
   const server = createServer();
   server.listen(0, "127.0.0.1", () => {
     server.close();
-    log("native network completion");
+    console.log("native network completion");
   });
 }
 `;
