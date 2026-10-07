@@ -23,10 +23,27 @@ ${exported ? "export " : ""}function recover(value: unknown): void {
     if (caught instanceof Error) caught.message = "changed";
   }
 }
+
 export function run(): boolean {
   const original = new Error("original");
   recover(original);
   return original.message === "changed";
+}
+`;
+}
+
+export function errorConstructorFootprintSource(footprint) {
+  const body = footprint === "readonly" ? `return "initialized";`
+    : `${footprint === "receiver" ? "this" : footprint === "bound" ? "value" : "original"}.message = "changed"; return "initialized";`;
+  const initializer = footprint === "deferred" ? `() => { ${body} }`
+    : footprint === "bound" ? `((value: Error) => { ${body} })(original)`
+    : `(() => { ${body} })()`;
+  return `
+export function run(): void {
+  const original = new Error("original");
+  class Base extends Error { initialized = ${initializer}; }
+  class Derived extends Base {}
+  const created = new Derived("derived");
 }
 `;
 }
