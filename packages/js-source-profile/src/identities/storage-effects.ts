@@ -1,18 +1,25 @@
-export interface JsSourceCallStorageEffect {
-  readonly resultAliasesParameter?: number;
-  readonly preservedParameters: readonly number[];
-}
+import type { Node, ResolvedSourceCallInfo } from "@tsonic/tsts";
 
-const freeze: JsSourceCallStorageEffect = Object.freeze({
-  resultAliasesParameter: 0,
-  preservedParameters: Object.freeze([0]),
-});
-const inspect: JsSourceCallStorageEffect = Object.freeze({ preservedParameters: Object.freeze([0]) });
+export interface JsSourceCallStorageEffect {
+  readonly resultAlias?: Node;
+  readonly preservedInputs: readonly Node[];
+}
 
 export function jsSourceCallStorageEffect(identity: {
   readonly ownerName: string;
   readonly memberName: string;
-} | undefined): JsSourceCallStorageEffect | undefined {
-  if (identity?.ownerName !== "ObjectConstructor") return undefined;
-  return identity.memberName === "freeze" ? freeze : identity.memberName === "isFrozen" ? inspect : undefined;
+} | undefined, call: ResolvedSourceCallInfo): JsSourceCallStorageEffect | undefined {
+  if (identity?.ownerName !== "ObjectConstructor" ||
+    identity.memberName !== "freeze" && identity.memberName !== "isFrozen" ||
+    call.sourceSelectedSignatureKind !== "resolved") return undefined;
+  const bindings = call.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === 0);
+  const binding = bindings.length === 1 ? bindings[0] : undefined;
+  if (binding?.sourceForm !== "value" || binding.sourceParameterForm !== "parameter" ||
+    !Number.isInteger(binding.sourceArgumentIndex) || binding.sourceArgumentIndex < 0) return undefined;
+  const argument = call.sourceArguments[binding.sourceArgumentIndex]?.expression;
+  if (argument === undefined) return undefined;
+  return Object.freeze({
+    ...(identity.memberName === "freeze" ? { resultAlias: argument } : {}),
+    preservedInputs: Object.freeze([argument]),
+  });
 }
