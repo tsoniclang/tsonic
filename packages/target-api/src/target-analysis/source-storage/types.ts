@@ -10,6 +10,15 @@ export interface SourceStorageLimits {
   readonly maximumSteps: number;
 }
 
+export interface SourceStorageCallEffect {
+  readonly resultAlias?: Node;
+  readonly preservedInputs?: readonly Node[];
+}
+
+export interface SourceStorageEffects {
+  readonly call?: (node: Node, selected: ResolvedSourceCallInfo) => SourceStorageCallEffect | undefined;
+}
+
 export interface SourceStorageUnresolved {
   readonly kind: "unresolved";
   readonly reason: string;
