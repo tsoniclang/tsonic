@@ -164,7 +164,7 @@ test("Slice 4 preserves inferred callables and checked visibility while rejectin
         "}",
         "",
       ].join("\n"),
-      expectedEmission: /public static void invalid\(\)\s*\{\s*_ = \(\(\) => 1\);\s*\}/u,
+      expectedEmission: /public static void invalid\(\)\s*\{\s*\}/u,
       runner: "Tsonic.Generated.Index.invalid();",
       stdout: "completed\n",
     },

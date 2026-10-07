@@ -238,7 +238,7 @@ test("CLI executes inferred callable expressions without requiring a contextual 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static void bare\(\)\s*\{\s*_ = \(\(\) => 1\);\s*\}/u);
+  assert.match(generatedSource, /public static void bare\(\)\s*\{\s*\}/u);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/u);
   assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedLambdaFacts", [
     "using System;",

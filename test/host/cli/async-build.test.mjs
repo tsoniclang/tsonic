@@ -408,7 +408,7 @@ test("CLI emits and executes inferred async lambda statements", async () => {
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static void bare\(\)\s*\{\s*_ = \(async \(\) => 1\);\s*\}/u);
+  assert.match(generatedSource, /public static void bare\(\)\s*\{\s*\}/u);
   assert.doesNotMatch(generatedSource, /__unsupported|System\.Reflection|\bdynamic\b/u);
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
     "using System;",
