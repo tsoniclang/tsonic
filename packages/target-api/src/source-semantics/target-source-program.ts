@@ -236,6 +236,7 @@ export function createTargetSourceProgram(
       isAny: queries.typeShape.isAny,
       isUnknown: queries.typeShape.isUnknown,
       isNever: queries.typeShape.isNever,
+      isNonPrimitive: queries.typeShape.isNonPrimitive,
       isVoidLike: queries.typeShape.isVoidLike,
       isNullish: queries.typeShape.isNullish,
       isStringLike: queries.typeShape.isStringLike,

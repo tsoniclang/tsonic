@@ -65,6 +65,7 @@ export interface TypeShapeQueries {
     readonly isAny: (type: GoPtr<Type>) => boolean;
     readonly isUnknown: (type: GoPtr<Type>) => boolean;
     readonly isNever: (type: GoPtr<Type>) => boolean;
+    readonly isNonPrimitive: (type: GoPtr<Type>) => boolean;
     readonly isVoidLike: (type: GoPtr<Type>) => boolean;
     readonly isNullish: (type: GoPtr<Type>) => boolean;
     readonly isStringLike: (type: GoPtr<Type>) => boolean;

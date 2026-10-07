@@ -103,6 +103,7 @@ export interface SourceFinalTypeQueries {
   isAny(type: Type): boolean;
   isUnknown(type: Type): boolean;
   isNever(type: Type): boolean;
+  isNonPrimitive(type: Type): boolean;
   isVoidLike(type: Type): boolean;
   isNullish(type: Type): boolean;
   isStringLike(type: Type): boolean;
