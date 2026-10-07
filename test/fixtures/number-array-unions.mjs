@@ -9,12 +9,18 @@ export function read(values: Uint8Array | readonly number[], index: number): num
 export function length(values: Uint8Array | readonly number[]): number {
   return values.length;
 }
+let fallbackCalls = 0;
+function fallback(): number { fallbackCalls += 1; return 17; }
+export function lazy(values: Uint8Array | readonly number[], index: number): number {
+  return values[index] ?? fallback();
+}
+export function fallbackCount(): number { return fallbackCalls; }
 export function wide(values: Int16Array | readonly number[]): number[] {
   return Array.from(values);
 }
 `,
   "index.ts": `
-import { copy, length, read, wide } from "./arrays.js";
+import { copy, length, read, wide, lazy, fallbackCount } from "./arrays.js";
 export function run(): boolean {
   const bytes = new Uint8Array([1, 2, 255]);
   const values: number[] = [4, 5, 6];
@@ -28,6 +34,8 @@ export function run(): boolean {
   if (read(bytes, 0) !== 9 || read(values, 0) !== 8) return false;
   if (read(bytes, -1) !== 0 || read(values, 10) !== 0) return false;
   if (read(bytes, 0.5) !== 0) return false;
+  if (lazy(bytes, 0) !== 9 || fallbackCount() !== 0) return false;
+  if (lazy(values, 10) !== 17 || fallbackCount() !== 1) return false;
   if (length(bytes) !== 3 || length(values) !== 3) return false;
   const signed = wide(new Int16Array([-3, 32767]));
   return signed[0] === -3 && signed[1] === 32767;
