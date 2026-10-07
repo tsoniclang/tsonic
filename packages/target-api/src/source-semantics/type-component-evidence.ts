@@ -3,6 +3,7 @@ import type {
   ExtensionFactSubject,
   Node,
   Type,
+  TypeIndexedAccessMember,
   TypePropertyInfo,
   TypeTupleElementInfo,
 } from "@tsonic/tsts";
@@ -10,19 +11,19 @@ import type {
   SourceFileSemantics,
 } from "./types.js";
 
-interface SourceIndexedPropertyTypeEvidence {
+interface SourceIndexedTypeEvidence {
   readonly owner: Node;
-  readonly properties: readonly {
-    readonly property: TypePropertyInfo;
+  readonly members: readonly {
+    readonly selection: TypeIndexedAccessMember;
     readonly subjects: readonly ExtensionFactSubject[];
   }[];
 }
 
-export function sourceIndexedPropertyTypeEvidence(
+export function sourceIndexedTypeEvidence(
   ast: AstReader,
   semantics: SourceFileSemantics,
   node: Node,
-): SourceIndexedPropertyTypeEvidence | undefined {
+): SourceIndexedTypeEvidence | undefined {
   if (!ast.is.IsIndexedAccessTypeNode(node)) return undefined;
   const syntax = ast.as.AsIndexedAccessTypeNode(node);
   if (syntax?.ObjectType === undefined || syntax.IndexType === undefined) return undefined;
@@ -30,14 +31,18 @@ export function sourceIndexedPropertyTypeEvidence(
   const key = semantics.types.authoredType(syntax.IndexType);
   if (owner === undefined || key === undefined) return undefined;
   const selection = semantics.types.selectIndexedAccess(owner, key);
-  if (selection?.kind !== "resolved" || selection.members.some(member => member.kind !== "property")) return undefined;
-  const properties = selection.members.flatMap(member => member.kind !== "property" ? [] : [Object.freeze({
-    property: member.property,
-    subjects: Object.freeze([...new Set([member.property.symbol, ...member.property.rootSymbols].flatMap(
-      symbol => semantics.facts.selectedSubjects(symbol, undefined),
-    ))]),
-  })]);
-  return Object.freeze({ owner: syntax.ObjectType, properties: Object.freeze(properties) });
+  if (selection?.kind !== "resolved" || selection.members.length === 0) return undefined;
+  const members = selection.members.map(member => Object.freeze({
+    selection: member,
+    subjects: Object.freeze([...new Set(member.kind === "property"
+      ? [member.property.symbol, ...member.property.rootSymbols].flatMap(
+          symbol => semantics.facts.selectedSubjects(symbol, undefined),
+        )
+      : [member.index.declaration, ...member.index.components,
+          ...semantics.facts.selectedSubjects(member.index.symbol, member.index.declaration)]
+          .filter((subject): subject is ExtensionFactSubject => subject !== undefined))]),
+  }));
+  return Object.freeze({ owner: syntax.ObjectType, members: Object.freeze(members) });
 }
 
 export function sourcePropertyTypeEvidenceNodes(
