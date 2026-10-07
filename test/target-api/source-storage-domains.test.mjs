@@ -3,7 +3,7 @@ import test from "node:test";
 import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { jsSourceCallStorageEffect, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { createJsSourceCallStorageEffects, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -344,11 +344,11 @@ test("owned native Error call and constructor allocations do not certify externa
     const profile = projectSourceFile(source, "globals.d.ts");
     const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
     const signatures = new Set(source.ast.members(owner));
-    return { call(node, selected) {
+    return createJsSourceCallStorageEffects(source, (node, selected) => {
       const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       if (!signatures.has(declaration)) return undefined;
-      return jsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call" }, selected);
-    } };
+      return { ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration };
+    });
   } });
   for (const name of ["direct", "call", "aliased", "aliasedCall"]) complete(current.selection(name), `owned global native allocation: ${name}`);
   open(current.selection("unknown"), "external-input", "an ambient external value is not the owned native constructor");
