@@ -11,18 +11,21 @@ import { sourceStorageConstructedClass } from "./construction.js";
 import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
-import type { SourceStorageArgumentTransport, SourceStorageBoundary } from "./types.js";
+import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
+import { snapshotSourceStorageCallEffect } from "./call-effects.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
   sourceFiles: readonly SourceFile[],
   budget: SourceStorageBudget,
+  effects: SourceStorageEffects = {},
 ) {
   const { ast, navigation, semantics } = source;
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
   const invocations = new Set<Node>();
+  const invocationEffects = new Map<Node, SourceStorageCallEffect>();
   const invocationTargets = new Map<Node, SourceStorageSubject>();
   const invocationArguments = new Map<Node, readonly Node[]>();
   const invocationDeclarations = new Map<Node, Node>();
@@ -239,6 +242,14 @@ export function createSourceStorageTransport(
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
       invocations.add(node);
       const selected = semantics.forNode(node).operations.call(node);
+      const contributed = selected === undefined ? undefined : effects.call?.(node, selected);
+      if (contributed !== undefined && selected !== undefined) {
+        const effect = snapshotSourceStorageCallEffect(contributed, selected, budget);
+        if (effect !== undefined) {
+          invocationEffects.set(node, effect);
+          if (effect.resultAlias !== undefined) connect(subjectFor(effect.resultAlias), subjectFor(node));
+        }
+      }
       let signature = selected === undefined ? undefined
         : semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       if (selected !== undefined && signature === undefined && ast.is.IsNewExpression(node)) {
@@ -523,6 +534,6 @@ export function createSourceStorageTransport(
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     sourceFileFor,
-    invocations, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
+    invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, invocationOrigins, substitutions, unresolvedFor };
 }

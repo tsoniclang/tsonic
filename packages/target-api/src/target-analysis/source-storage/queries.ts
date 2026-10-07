@@ -6,7 +6,7 @@ import { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
-  SourceStorageBindings, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection,
+  SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved,
 } from "./types.js";
 
@@ -14,9 +14,10 @@ export function createSourceStorageQuery(
   source: TargetSourceProgram,
   sourceFiles: readonly SourceFile[],
   limits: SourceStorageLimits = defaultSourceStorageLimits,
+  effects: SourceStorageEffects = {},
 ): SourceStorageQueries {
   const budget = createSourceStorageBudget(limits);
-  const transport = createSourceStorageTransport(source, sourceFiles, budget);
+  const transport = createSourceStorageTransport(source, sourceFiles, budget, effects);
   const bindingStates = new WeakMap<SourceStorageBindings, SourceStorageSubstitutions>();
   const bindingViews = new Map<SourceStorageSubstitutions, SourceStorageBindings>();
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
