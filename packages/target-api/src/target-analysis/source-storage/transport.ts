@@ -69,9 +69,11 @@ export function createSourceStorageTransport(
       if (ast.is.IsFunctionDeclaration(parent) || ast.is.IsFunctionExpression(parent) || ast.is.IsArrowFunction(parent) ||
         ast.is.IsMethodDeclaration(parent) || ast.is.IsConstructorDeclaration(parent) ||
         ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent)) return undefined;
+      if (!ast.is.IsTryStatement(parent)) continue;
       const selected = ast.as.AsTryStatement(parent);
       if (selected !== undefined && selected.TryBlock === child) {
-        const caught = selected.CatchClause === undefined ? undefined : ast.as.AsCatchClause(selected.CatchClause)?.VariableDeclaration;
+        const caught = selected.CatchClause === undefined || !ast.is.IsCatchClause(selected.CatchClause)
+          ? undefined : ast.as.AsCatchClause(selected.CatchClause)?.VariableDeclaration;
         if (caught !== undefined) return caught;
       }
     }
@@ -372,7 +374,8 @@ export function createSourceStorageTransport(
           }
           if (bindings.length === 0) {
             const access = accessorTargets.has(invocation) ? ast.parent(invocation) : undefined;
-            const assignment = access === undefined ? undefined : ast.as.AsBinaryExpression(access);
+            const assignment = access === undefined || !ast.is.IsBinaryExpression(access)
+              ? undefined : ast.as.AsBinaryExpression(access);
             const argument = subjectFor(assignment?.Left === invocation && ast.operatorKindName(access) === "KindEqualsToken"
               ? assignment.Right : Node_Initializer(ast, current.node));
             origins.add(argument === undefined ? current
@@ -425,7 +428,8 @@ export function createSourceStorageTransport(
           if (ast.is.IsGetAccessorDeclaration(accessor)) connect(subject(candidate, "return"), subjectFor(access));
           else {
             const parent = ast.parent(access);
-            const assignment = parent === undefined ? undefined : ast.as.AsBinaryExpression(parent);
+            const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent)
+              ? undefined : ast.as.AsBinaryExpression(parent);
             if (assignment?.Left === access && ast.operatorKindName(parent) === "KindEqualsToken") {
               connect(subjectFor(assignment.Right), subject(ast.parameters(candidate)[0]));
             }

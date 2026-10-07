@@ -13,7 +13,7 @@ export function forEachSourceImmediateEvaluationChild(
   if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
     visitDecorators(ast, node, visit);
     for (const heritage of ast.extendsHeritageElements(node)) {
-      if (heritage === undefined) continue;
+      if (heritage === undefined || !ast.is.IsExpressionWithTypeArguments(heritage)) continue;
       const expression = ast.as.AsExpressionWithTypeArguments(heritage)?.Expression;
       if (expression !== undefined) visit(expression);
     }

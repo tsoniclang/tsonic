@@ -59,6 +59,7 @@ test("parameter-property member names are not lexical parameter captures", () =>
   } return Value;`);
   const select = (name: string) => {
     const declaration = current.declarations.get(name)!;
+    assert.equal(current.source.ast.is.IsVariableDeclaration(declaration), true);
     const expression = current.source.ast.as.AsVariableDeclaration(declaration)?.Initializer;
     assert.equal(expression !== undefined, true);
     return sourceLexicalEnvironment(expression!, [expression!], current.source.ast, current.source.navigation);
@@ -159,6 +160,7 @@ test("admitted arithmetic retains repeated activation and independent-owner reje
   const repeated = fixture(`let count = 0; for (let index = 0; index < 2; index++) {
     const owner = () => { count = count + 1; return count; }; owner(); } return count;`);
   const variable = repeated.declarations.get("owner")!;
+  assert.equal(repeated.source.ast.is.IsVariableDeclaration(variable), true);
   const owner = repeated.source.ast.as.AsVariableDeclaration(variable)?.Initializer;
   assert.equal(owner !== undefined, true, "exact repeated closure owner");
   assert.equal(sourceBindingHasSingleCaptureOwner(repeated.declarations.get("count")!, owner!, [owner!],

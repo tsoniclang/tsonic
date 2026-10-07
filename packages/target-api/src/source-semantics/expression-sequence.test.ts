@@ -21,7 +21,10 @@ declare function fourth(): number;
   const expressions = source.ast.statements(file).slice(4).map(statement => source.ast.as.AsExpressionStatement(statement!)?.Expression);
   assert.ok(expressions[0] && expressions[1]);
   const sequence = sourceExpressionSequence(source.ast, expressions[0]);
-  assert.deepEqual(sequence.map(expression => source.ast.text(source.ast.as.AsCallExpression(expression)?.Expression!)),
+  assert.deepEqual(sequence.map(expression => {
+    assert.equal(source.ast.is.IsCallExpression(expression), true);
+    return source.ast.text(source.ast.as.AsCallExpression(expression)?.Expression!);
+  }),
     ["first", "second", "third", "fourth"]);
   assert.ok(Object.isFrozen(sequence));
   const single = sourceExpressionSequence(source.ast, expressions[1]);

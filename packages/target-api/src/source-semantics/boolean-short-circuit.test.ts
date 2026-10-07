@@ -22,6 +22,7 @@ test("boolean short-circuit selection preserves literal, wrapped, sequenced and 
   const visit = (node: Node): void => {
     const operator = ast.operatorKindName(node);
     if (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken") {
+      assert.equal(ast.is.IsBinaryExpression(node), true);
       const left = ast.as.AsBinaryExpression(node)?.Left;
       assert.equal(left !== undefined, true);
       selected.push(sourceBooleanShortCircuitBranch(ast, left!, operator === "KindAmpersandAmpersandToken" ? "&&" : "||"));

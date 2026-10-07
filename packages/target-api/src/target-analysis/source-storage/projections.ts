@@ -30,7 +30,8 @@ export function createSourceStorageProjectionFlow(
   const binding = (reference: Node): SourceStorageSubject | undefined => {
     const pattern = ast.parent(reference);
     const owner = pattern === undefined ? undefined : ast.parent(pattern);
-    if (pattern === undefined || owner === undefined || !ast.is.IsArrayBindingPattern(pattern)) return undefined;
+    if (pattern === undefined || owner === undefined || !ast.is.IsArrayBindingPattern(pattern) ||
+      !ast.is.IsBindingElement(reference)) return undefined;
     const originalOwner = subjectFor(owner);
     const ownerType = originalOwner === undefined ? undefined : sourceStorageSubjectType(source, originalOwner);
     const queries = semantics.forNode(owner);

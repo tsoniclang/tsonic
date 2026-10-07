@@ -81,7 +81,8 @@ export function createSourceErrorStorageDemandQuery(
       break;
     }
     const parameterNode = ast.parameters(mutator.signature)[mutator.sourceParameterIndex];
-    const parameter = parameterNode === undefined ? undefined : ast.as.AsParameterDeclaration(parameterNode);
+    const parameter = parameterNode === undefined || !ast.is.IsParameterDeclaration(parameterNode)
+      ? undefined : ast.as.AsParameterDeclaration(parameterNode);
     if (parameter === undefined || parameter.DotDotDotToken !== undefined) {
       reject("An Error storage mutator requires an exact scalar signature parameter.");
       break;

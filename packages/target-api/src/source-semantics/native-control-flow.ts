@@ -20,7 +20,7 @@ export function sourceNodeIsNativeUnreachable(
       }
       return false;
     }
-    if (kind !== "KindIfStatement") return false;
+    if (!ast.is.IsIfStatement(statement)) return false;
     const selected = ast.as.AsIfStatement(statement);
     if (selected?.Expression === undefined) return false;
     const result = conditionResult(selected.Expression);

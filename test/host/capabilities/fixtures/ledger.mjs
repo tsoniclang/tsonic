@@ -3829,7 +3829,6 @@ const reviewedCapabilityEvidence = Object.freeze({
       "packages/source-core/src/extension/source-extension-flow-and-structure.test.ts",
       "packages/source-core/src/extension/source-extension-pointers-and-fixed-arrays.test.ts",
       "packages/source-core/src/extension/source-extension-virtual-modules-and-primitives.test.ts",
-      "../tsonic-gpu/test/marker-contract.test.mjs",
     ],
     oldEvidence: [],
     oldEvidenceAbsence: pointerOperationOldEvidenceAbsence,

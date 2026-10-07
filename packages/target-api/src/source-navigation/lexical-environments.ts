@@ -27,11 +27,19 @@ export function sourceLexicalEnvironment(
     const { owner, roots: selectedRoots } = pending.pop()!;
     if (callableRoots.has(owner)) continue;
     callableRoots.add(owner);
-    const evaluationPending = selectedRoots.flatMap(root => ast.is.IsFunctionDeclaration(root)
-      ? [...ast.parameters(root).flatMap(parameter => {
-          const initializer = ast.as.AsParameterDeclaration(parameter)?.Initializer;
-          return initializer === undefined ? [] : [initializer];
-        }), ...(ast.body(root) === undefined ? [] : [ast.body(root)!])] : [root]);
+    const evaluationPending: Node[] = [];
+    for (const root of selectedRoots) {
+      if (!ast.is.IsFunctionDeclaration(root)) { evaluationPending.push(root); continue; }
+      for (const parameter of ast.parameters(root)) {
+        if (!ast.is.IsParameterDeclaration(parameter)) return {
+          kind: "unresolved", reason: "A lexical callable has no exact parameter declaration.",
+        };
+        const initializer = ast.as.AsParameterDeclaration(parameter)?.Initializer;
+        if (initializer !== undefined) evaluationPending.push(initializer);
+      }
+      const body = ast.body(root);
+      if (body !== undefined) evaluationPending.push(body);
+    }
     while (evaluationPending.length > 0) {
       if (++evaluationSteps > 4_194_304) return exhausted();
       const node = evaluationPending.pop()!;
