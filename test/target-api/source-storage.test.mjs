@@ -55,6 +55,35 @@ function resolvedSubject(selection, label) {
   return selection.subject;
 }
 
+test("fresh storage allocations preserve exact expression types independently of declared bindings", async () => {
+  const { source, storage, variable, initializer } = await checked("source-storage-fresh-allocation-types", `
+const empty: { value?: number } = {};
+const array: readonly number[] = [3];
+const record = { value: 7 };
+`);
+  for (const name of ["empty", "array", "record"]) {
+    const allocation = initializer(name);
+    const semantics = source.semantics.forNode(allocation);
+    const selected = resolvedSubject(storage.subject(allocation), `${name}: allocation`);
+    assert.equal(selected.node === allocation, true, `${name}: exact allocation subject`);
+    const type = storage.typeFor(selected);
+    assert.equal(type.kind, "resolved", `${name}: exact allocation type`);
+    assert.equal(semantics.types.isIdentical(type.type, semantics.types.expressionType(allocation)), true, `${name}: exact checker expression identity`);
+    const binding = storage.typeFor(resolvedSubject(storage.subjectFor(variable(name)), `${name}: binding`));
+    assert.equal(binding.kind, "resolved", `${name}: exact binding type`);
+    assert.equal(semantics.types.isIdentical(binding.type, semantics.declarations.declaredValueType(variable(name))), true, `${name}: declared storage retained`);
+    if (name === "empty") {
+      assert.equal(semantics.types.propertyInfos(type.type).length, 0, "fresh empty producer has no invented contextual members");
+      assert.equal(semantics.types.propertyInfos(binding.type).length, 1, "declared optional member belongs to binding only");
+    }
+    const origins = storage.originsFor(selected);
+    assert.equal(origins.kind, "resolved", `${name}: allocation origin`);
+    assert.equal(origins.origins.length, 1, `${name}: one producer`);
+    assert.equal(origins.origins[0].subject.node === allocation, true, `${name}: exact producer node`);
+    assert.equal(semantics.types.isIdentical(origins.origins[0].type, type.type), true, `${name}: exact checker origin identity`);
+  }
+});
+
 test("selected expressions retain only their contributing operand origins", async () => {
   const { source, storage, file, initializer } = await checked("source-storage-selected-operands", `
 declare const condition: boolean;

@@ -562,9 +562,13 @@ policy.
 - Product TypeScript is a type-annotation layer over standard modern
   JavaScript. Do not use TypeScript-only runtime-shape features as compiler
   signals or implementation mechanisms.
-- In particular, do not use explicit `public`, parameter properties,
-  namespaces, decorators, or non-ECMAScript class modifiers as compiler
-  signals, test aids, or source-package workarounds.
+- Checked class visibility, `override`, abstract declarations, readonly fields
+  and constructor parameter properties describe native members through the
+  existing declaration contracts. Preserve checker access restrictions and
+  native dispatch; do not infer runtime representations from modifier spelling.
+  Namespaces, decorators, auto-accessors and ambient runtime declarations remain
+  outside the supported runtime-shape subset; never use them as compiler signals,
+  test aids or source-package workarounds.
 - Type-only annotations, interfaces, imports, and deterministic assertions
   remain checked source evidence. Generated runtime behavior follows the
   selected target's semantics under the target-native contract above; source
