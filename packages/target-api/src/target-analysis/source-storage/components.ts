@@ -1,4 +1,4 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
@@ -43,10 +43,10 @@ export function* sourceStorageComponents(
     yield { kind: "array-element" };
 }
 
-export function sourceStorageSubjectType(source: TargetSourceProgram, value: SourceStorageSubject): Type | undefined {
-  const file = source.ast.getSourceFile(value.node);
+export function sourceStorageSubjectType(source: TargetSourceProgram, value: SourceStorageSubject, sourceFile?: SourceFile): Type | undefined {
+  const file = sourceFile ?? source.ast.getSourceFile(value.node);
   if (file === undefined || !source.semantics.includes(file)) return undefined;
-  const semantics = source.semantics.forNode(value.node);
+  const semantics = source.semantics.forFile(file);
   const name = source.ast.name(value.node);
   const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
     (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));

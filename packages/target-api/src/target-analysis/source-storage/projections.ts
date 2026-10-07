@@ -1,4 +1,4 @@
-import type { Node } from "@tsonic/tsts";
+import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { IsTypeSyntaxNode, Node_Expression } from "../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
@@ -12,6 +12,7 @@ export function createSourceStorageProjectionFlow(
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
   connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined) => void,
   unresolved: (subject: SourceStorageSubject, reason: string) => void,
+  sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
 ) {
   const { ast, semantics } = source;
   const project = (owner: SourceStorageSubject | undefined, component: SourceStorageProjection):
@@ -33,7 +34,7 @@ export function createSourceStorageProjectionFlow(
     if (pattern === undefined || owner === undefined || !ast.is.IsArrayBindingPattern(pattern) ||
       !ast.is.IsBindingElement(reference)) return undefined;
     const originalOwner = subjectFor(owner);
-    const ownerType = originalOwner === undefined ? undefined : sourceStorageSubjectType(source, originalOwner);
+    const ownerType = originalOwner === undefined ? undefined : sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
     const queries = semantics.forNode(owner);
     const index = ast.elements(pattern).indexOf(reference);
     const component: SourceStorageProjection | undefined = ownerType === undefined || index < 0 ? undefined
@@ -59,7 +60,7 @@ export function createSourceStorageProjectionFlow(
       if (element === undefined || ast.is.IsOmittedExpression(element)) { tupleIndex += 1; continue; }
       if (ast.is.IsSpreadElement(element)) {
         const spread = subjectFor(Node_Expression(ast, element));
-        const spreadType = spread === undefined ? undefined : sourceStorageSubjectType(source, spread);
+        const spreadType = spread === undefined ? undefined : sourceStorageSubjectType(source, spread, sourceFileFor(spread));
         if (spreadType !== undefined && (!tuple || queries.types.isTuple(spreadType))) {
           for (const component of sourceStorageComponents(spreadType, queries)) {
             if (!step()) break;

@@ -28,6 +28,7 @@ export function createSourceStorageTransport(
   const invocationDeclarations = new Map<Node, Node>();
   const implicitConstructions = new Set<Node>();
   const argumentTransports = new Map<Node, readonly SourceStorageArgumentTransport[]>();
+  const checkedSourceFiles = new Map<Node, SourceFile>();
   const unresolvedInvocations = new Map<Node, string>();
   const accessorTargets = new Map<Node, readonly Node[]>();
   const memberImplementations = new Map<Node, Set<Node>>();
@@ -45,7 +46,17 @@ export function createSourceStorageTransport(
     return selected;
   };
   const step = budget.step;
-  const { add: addEdge, incomingFor } = createSourceStorageEdges(source, budget, subject);
+  const retainCheckedContext = (node: Node, sourceFile: SourceFile): boolean => {
+    if (!semantics.includes(sourceFile)) return false;
+    const file = ast.getSourceFile(node);
+    if (file !== undefined && semantics.includes(file) || checkedSourceFiles.has(node)) return true;
+    if (!budget.row()) return false;
+    checkedSourceFiles.set(node, sourceFile);
+    return true;
+  };
+  const sourceFileFor = (subject: SourceStorageSubject): SourceFile | undefined =>
+    checkedSourceFiles.get(subject.node) ?? ast.getSourceFile(subject.node);
+  const { add: addEdge, incomingFor } = createSourceStorageEdges(source, budget, subject, sourceFileFor);
   const enclosingCallable = (node: Node): Node | undefined => {
     for (let current = ast.parent(node); current !== undefined && step(); current = ast.parent(current)) {
       if (ast.is.IsFunctionDeclaration(current) || ast.is.IsFunctionExpression(current) ||
@@ -137,9 +148,10 @@ export function createSourceStorageTransport(
     edgeCount += 1;
     connectStructuralFlow(origin, destination);
   };
-  const connectStructuralFlow = createSourceStorageStructuralFlow(source, step, subject, connect);
+  const connectStructuralFlow = createSourceStorageStructuralFlow(source, step, subject, connect,
+    sourceFileFor, retainCheckedContext);
   const projections = createSourceStorageProjectionFlow(source, step, subject, subjectFor, connect,
-    (subject, reason) => unresolvedSubjects.set(subject, reason));
+    (subject, reason) => unresolvedSubjects.set(subject, reason), sourceFileFor);
   const connectValueFlow = (expression: Node | undefined): void => {
     if (expression === undefined) return;
     const subject = subjectFor(expression);
@@ -264,6 +276,15 @@ export function createSourceStorageTransport(
           }
           const destination = subject(formal);
           if (destination === undefined || !budget.row()) break;
+          const formalFile = ast.getSourceFile(formal);
+          if (formalFile === undefined || !semantics.includes(formalFile)) {
+            const checkedFile = ast.getSourceFile(node);
+            if (checkedFile === undefined || !semantics.includes(checkedFile)) {
+              unresolvedInvocations.set(node, "A selected formal requires its exact checked invocation source-file owner.");
+              continue;
+            }
+            if (!retainCheckedContext(formal, checkedFile)) break;
+          }
           arguments_.push(Object.freeze({ actual, formal: destination, selectedParameterDeclaration: formal,
             binding: Object.freeze({ ...binding }) }));
           connect(actual, destination);
@@ -501,6 +522,7 @@ export function createSourceStorageTransport(
   }
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
+    sourceFileFor,
     invocations, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, invocationOrigins, substitutions, unresolvedFor };
 }

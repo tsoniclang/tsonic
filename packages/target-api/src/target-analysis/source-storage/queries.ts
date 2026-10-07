@@ -28,14 +28,14 @@ export function createSourceStorageQuery(
   const selectedSubject = (subject: SourceStorageSubject | undefined): SourceStorageSubjectSelection => {
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
     if (subject === undefined) return unresolved("A source storage query has no exact checked subject.");
-    if (subject.projection.length !== 0 && sourceStorageSubjectType(source, subject) === undefined)
+    if (subject.projection.length !== 0 && sourceStorageSubjectType(source, subject, transport.sourceFileFor(subject)) === undefined)
       return unresolved("A source storage projection has no exact checked component type.");
     return Object.freeze({ kind: "resolved", subject });
   };
   const subjectReason = (subject: SourceStorageSubject): string | undefined => {
     if (budget.failure() !== undefined) return budget.failure();
     if (!transport.identities.has(subject)) return "A source storage subject belongs to a different transport graph.";
-    if (subject.projection.length !== 0 && sourceStorageSubjectType(source, subject) === undefined)
+    if (subject.projection.length !== 0 && sourceStorageSubjectType(source, subject, transport.sourceFileFor(subject)) === undefined)
       return "A source storage projection has no exact checked component type.";
     return transport.unresolvedFor(subject) ?? budget.failure();
   };
@@ -102,9 +102,10 @@ export function createSourceStorageQuery(
     typeFor(subject) {
       const reason = subjectReason(subject);
       if (reason !== undefined) return unresolved(reason);
-      const type = sourceStorageSubjectType(source, subject);
-      return type === undefined ? unresolved("A source storage subject has no exact checked component type.")
-        : Object.freeze({ kind: "resolved", type });
+      const sourceFile = transport.sourceFileFor(subject);
+      const type = sourceStorageSubjectType(source, subject, sourceFile);
+      return type === undefined || sourceFile === undefined ? unresolved("A source storage subject has no exact checked component type.")
+        : Object.freeze({ kind: "resolved", type, sourceFile });
     },
     incomingFor(subject) {
       const reason = subjectReason(subject);
@@ -121,9 +122,10 @@ export function createSourceStorageQuery(
       const origins: SourceStorageTypedSubject[] = [];
       for (const origin of selected.subjects) {
         if (!budget.step()) return unresolved(budget.failure()!);
-        const type = sourceStorageSubjectType(source, origin);
-        if (type === undefined) return unresolved("A source storage origin has no exact checked component type.");
-        origins.push(Object.freeze({ subject: origin, type }));
+        const sourceFile = transport.sourceFileFor(origin);
+        const type = sourceStorageSubjectType(source, origin, sourceFile);
+        if (type === undefined || sourceFile === undefined) return unresolved("A source storage origin has no exact checked component type.");
+        origins.push(Object.freeze({ subject: origin, type, sourceFile }));
       }
       return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
     },

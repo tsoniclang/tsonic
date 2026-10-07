@@ -1,4 +1,4 @@
-import type { Type } from "@tsonic/tsts";
+import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType } from "./components.js";
@@ -8,15 +8,19 @@ export function createSourceStorageStructuralFlow(
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
   connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined) => void,
+  sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
+  retainCheckedContext: (node: Node, sourceFile: SourceFile) => boolean,
 ): (origin: SourceStorageSubject, destination: SourceStorageSubject) => void {
   const visited = new Map<Type, Set<Type>>();
   const pending: { readonly from: Type; readonly to: Type; readonly semantics: SourceFileSemantics }[] = [];
   let draining = false;
   return (origin, destination) => {
-    const from = sourceStorageSubjectType(source, origin);
-    const to = sourceStorageSubjectType(source, destination);
-    if (from === undefined || to === undefined) return;
-    pending.push({ from, to, semantics: source.semantics.forNode(origin.node) });
+    const fromFile = sourceFileFor(origin);
+    const toFile = sourceFileFor(destination);
+    const from = sourceStorageSubjectType(source, origin, fromFile);
+    const to = sourceStorageSubjectType(source, destination, toFile);
+    if (from === undefined || to === undefined || fromFile === undefined) return;
+    pending.push({ from, to, semantics: source.semantics.forFile(fromFile) });
     if (draining) return;
     draining = true;
     while (pending.length !== 0 && step()) {
@@ -50,10 +54,10 @@ export function createSourceStorageStructuralFlow(
         if (!step()) break;
         if (member.kind !== "present") continue;
         for (const original of member.source.declarations) {
-          if (!step()) break;
+          if (!step() || !retainCheckedContext(original, semantics.sourceFile)) break;
           const origin = subject(original, source.ast.is.IsGetAccessorDeclaration(original) ? "return" : "value");
           for (const target of member.destination.declarations) {
-            if (!step()) break;
+            if (!step() || !retainCheckedContext(target, semantics.sourceFile)) break;
             const destination = subject(target, source.ast.is.IsGetAccessorDeclaration(target) ? "return" : "value");
             connect(origin, destination);
             if (origin !== undefined && destination !== undefined && member.source.property.type !== undefined &&

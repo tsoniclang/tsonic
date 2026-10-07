@@ -26,10 +26,11 @@ export type SourceStorageSubjectsSelection =
 export interface SourceStorageTypedSubject {
   readonly subject: SourceStorageSubject;
   readonly type: Type;
+  readonly sourceFile: SourceFile;
 }
 
 export type SourceStorageTypeSelection =
-  | { readonly kind: "resolved"; readonly type: Type }
+  | { readonly kind: "resolved"; readonly type: Type; readonly sourceFile: SourceFile }
   | SourceStorageUnresolved;
 
 export type SourceStorageOriginsSelection =

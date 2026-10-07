@@ -1,4 +1,4 @@
-import type { Node, Type } from "@tsonic/tsts";
+import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageComponentType, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
@@ -15,6 +15,7 @@ export function createSourceStorageEdges(
   source: TargetSourceProgram,
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
+  sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
 ) {
   const destinations = new Map<Node, Map<SourceStorageSubject["kind"], SourceStorageDestinationEdges>>();
   const selections = new Map<SourceStorageSubject, { readonly revision: number; readonly origins: ReadonlySet<SourceStorageSubject> }>();
@@ -46,10 +47,12 @@ export function createSourceStorageEdges(
       for (const origin of origins) {
         if (!budget.step()) break;
         if (remaining.length === 0) { result.add(origin); continue; }
-        const from = sourceStorageSubjectType(source, origin);
-        const to = sourceStorageSubjectType(source, destination);
-        if (from === undefined || to === undefined) continue;
-        const semantics = source.semantics.forNode(origin.node);
+        const fromFile = sourceFileFor(origin);
+        const toFile = sourceFileFor(destination);
+        const from = sourceStorageSubjectType(source, origin, fromFile);
+        const to = sourceStorageSubjectType(source, destination, toFile);
+        if (from === undefined || to === undefined || fromFile === undefined) continue;
+        const semantics = source.semantics.forFile(fromFile);
         let candidates: { readonly projection: readonly SourceStorageProjection[]; readonly from: Type; readonly to: Type }[] =
           [{ projection: origin.projection, from, to }];
         for (const component of remaining) {
