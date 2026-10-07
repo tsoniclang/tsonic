@@ -26,7 +26,8 @@ export function sourceLexicalCaptures(
   const visit = (node: Node): void => {
     if (visited.has(node) || isTypeSyntaxNode(ast, node)) return;
     visited.add(node);
-    if (ast.kindName(node) === "KindThisKeyword") {
+    const nodeKind = ast.kindName(node);
+    if (nodeKind === "KindThisKeyword" || nodeKind === "KindSuperKeyword") {
       const owner = receiverOwner(node, ast);
       if (owner !== undefined && !within(owner, scope, ast)) {
         const references = receivers.get(owner) ?? [];
