@@ -170,7 +170,8 @@ export function createSourceStorageDomains(
           const declaration = ownerContext.declarations.signatureDeclaration(signature);
           if (declaration !== undefined) callable(declaration, publication.exposure);
         }
-        const relation = ownerContext.types.structuralMembers(type, present);
+        const contextual = ast.is.IsObjectLiteralExpression(owner.node) ? ownerContext.types.contextualType(owner.node) : undefined;
+        const relation = ownerContext.types.structuralMembers(contextual ?? type, present);
         if (relation.kind === "available") for (const member of relation.members) {
           if (!budget.step()) return;
           if (member.kind !== "present") continue;
@@ -426,6 +427,13 @@ export function createSourceStorageDomains(
       checked.set(current.subject, previous | flag);
       visited.set(current.bindings, checked);
       const bound = transport.substitutions.selection(current.subject, current.bindings);
+      for (const forwarded of bound?.forwarded ?? []) {
+        if (!budget.step()) break;
+        for (const boundary of boundariesFor(forwarded)) {
+          if (!budget.step()) break;
+          if (boundary.kind !== "external-input") boundaries.add(boundary);
+        }
+      }
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
         const ownerBinding = boundary.kind !== "external-input" ? undefined : returnReceiver(current.subject, current.bindings)

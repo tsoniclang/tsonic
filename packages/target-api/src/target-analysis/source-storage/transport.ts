@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch, sourceLexicalCaptures } from "../../source-navigation/index.js";
 import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { createSourceStorageSubjects, type SourceStorageSubject } from "./subjects.js";
@@ -13,6 +13,8 @@ import { createSourceStorageSubstitutions } from "./substitutions.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
 import { snapshotSourceStorageCallEffect } from "./call-effects.js";
+import { sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
+import { sourceMemberOwner } from "../../source-navigation/class-members.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -375,10 +377,18 @@ export function createSourceStorageTransport(
   };
   const invocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> => {
     const implementations = new Set<Node>();
+    const declaration = invocationDeclarations.get(invocation);
     const target = invocationTargets.get(invocation);
+    const member = declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
+      ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
+    if (member) {
+      for (const implementation of implementationsFor(declaration, invocation, originsFor)) implementations.add(implementation);
+    }
     for (const candidate of target === undefined ? [] : originsFor(target) ?? []) {
       if (!step()) break;
       if (candidate.kind !== "value") continue;
+      const owner = member ? sourceMemberOwner(ast, candidate.node) : undefined;
+      if (owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsInterfaceDeclaration(owner))) continue;
       for (const implementation of implementationsFor(candidate.node, invocation, originsFor)) implementations.add(implementation);
     }
     for (const accessor of accessorTargets.get(invocation) ?? []) {
@@ -507,7 +517,54 @@ export function createSourceStorageTransport(
     }
   }
   const unresolvedFor = createSourceStorageUnresolvedQuery(step, subject, incomingFor, unresolvedSubjects);
-  const substitutions = createSourceStorageSubstitutions(source, step, subject, incomingFor, invocationOrigins, budget.row);
+  const contextualSelections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
+  const contextualInputs = (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> => {
+    const cached = contextualSelections.get(origin);
+    if (cached !== undefined) return cached;
+    const inputs = new Set(incomingFor(origin));
+    const add = (selected: SourceStorageSubject | undefined): void => {
+      if (selected !== undefined && !inputs.has(selected) && budget.row()) inputs.add(selected);
+    };
+    const node = origin.node;
+    if (origin.kind === "value" && origin.projection.length === 0) {
+      if (ast.is.IsObjectLiteralExpression(node)) for (const property of ast.properties(node)) {
+        if (!step()) break;
+        add(subject(property));
+      }
+      if (ast.is.IsArrayLiteralExpression(node)) {
+        const file = sourceFileFor(origin);
+        const type = sourceStorageSubjectType(source, origin, file);
+        if (file !== undefined && type !== undefined) for (const component of sourceStorageComponents(type, semantics.forFile(file))) {
+          if (!step()) break;
+          add(subject(node, "value", [component]));
+        }
+      }
+      if ((ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) || ast.is.IsFunctionDeclaration(node)) && ast.body(node) !== undefined) {
+        const captures = sourceLexicalCaptures(node, [ast.body(node)!], ast, navigation);
+        for (const capture of captures.captures) {
+          if (!step()) break;
+          add(subjectFor(capture.declaration));
+        }
+        for (const receiver of captures.receivers) {
+          if (!step()) break;
+          add(subject(receiver.owner, "receiver"));
+        }
+      }
+    }
+    if (invocations.has(node) || accessorTargets.has(node)) {
+      const call = semantics.forNode(node).operations.call(node);
+      add(subjectFor(Node_Expression(ast, node)));
+      add(subjectFor(call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
+        ?? semantics.forNode(node).operations.propertyAccess(node)?.receiver.expression));
+      for (const input of invocationArguments.get(node) ?? []) {
+        if (!step()) break;
+        add(subjectFor(input));
+      }
+    }
+    contextualSelections.set(origin, inputs);
+    return inputs;
+  };
+  const substitutions = createSourceStorageSubstitutions(source, step, subject, incomingFor, invocationOrigins, budget.row, contextualInputs);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;

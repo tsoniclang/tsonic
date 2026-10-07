@@ -6,6 +6,7 @@ import type { SourceStorageIncomingQuery } from "./edges.js";
 export interface SourceStorageBoundSelection {
   readonly actuals: ReadonlySet<SourceStorageSubject>;
   readonly inputs: ReadonlySet<SourceStorageSubject>;
+  readonly forwarded: ReadonlySet<SourceStorageSubject>;
   readonly context: SourceStorageSubstitutions;
 }
 
@@ -18,6 +19,7 @@ export function createSourceStorageSubstitutions(
   incoming: SourceStorageIncomingQuery,
   invocationOrigins: (origin: SourceStorageSubject, candidate: Node, invocation: Node) => ReadonlySet<SourceStorageSubject>,
   reserveRow: () => boolean,
+  contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
 ) {
   const empty: SourceStorageSubstitutions = new Map();
   const bindingSets = new Map<string, SourceStorageSubstitutions>();
@@ -70,11 +72,70 @@ export function createSourceStorageSubstitutions(
       }
       return result;
     };
-    const selected = Object.freeze({ actuals: project(binding.actuals), inputs: project(binding.inputs), context: binding.context });
+    const selected = Object.freeze({ actuals: project(binding.actuals), inputs: project(binding.inputs), forwarded: project(binding.forwarded), context: binding.context });
     const selections = projectedSelections.get(bindings) ?? new Map<SourceStorageSubject, SourceStorageBoundSelection>();
     selections.set(origin, selected);
     projectedSelections.set(bindings, selections);
     return selected;
+  };
+  const intern = (selected: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
+    if (selected.size === 0) return empty;
+    const entries: { readonly formal: number; readonly actuals: readonly number[]; readonly inputs: readonly number[];
+      readonly forwarded: readonly number[]; readonly context: number }[] = [];
+    for (const [formal, binding] of selected) {
+      if (!step()) return undefined;
+      const indexes: number[] = [];
+      const inputIndexes: number[] = [];
+      const forwardedIndexes: number[] = [];
+      for (const actual of binding.actuals) {
+        if (!step()) return undefined;
+        indexes.push(identity(actual));
+      }
+      for (const input of binding.inputs) {
+        if (!step()) return undefined;
+        inputIndexes.push(identity(input));
+      }
+      for (const input of binding.forwarded) {
+        if (!step()) return undefined;
+        forwardedIndexes.push(identity(input));
+      }
+      const context = contexts.get(binding.context);
+      if (context === undefined) return undefined;
+      entries.push({ formal: identity(formal), actuals: indexes.sort((left, right) => left - right),
+        inputs: inputIndexes.sort((left, right) => left - right), forwarded: forwardedIndexes.sort((left, right) => left - right), context });
+    }
+    entries.sort((left, right) => left.formal - right.formal);
+    const key = entries.map(entry => `${entry.formal}:${entry.actuals.join(",")}:${entry.inputs.join(",")}:${entry.forwarded.join(",")}:${entry.context}`).join(";");
+    const cached = bindingSets.get(key);
+    if (cached !== undefined) return cached;
+    for (const entry of entries) {
+      if (!reserveRow()) return undefined;
+      for (let index = 0; index < entry.actuals.length; index += 1) if (!reserveRow()) return undefined;
+      for (let index = 0; index < entry.inputs.length; index += 1) if (!reserveRow()) return undefined;
+      for (let index = 0; index < entry.forwarded.length; index += 1) if (!reserveRow()) return undefined;
+    }
+    contexts.set(selected, bindingSets.size + 1);
+    bindingSets.set(key, selected);
+    return selected;
+  };
+  const contextFor = (inputs: ReadonlySet<SourceStorageSubject>, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
+    if (parent.size === 0) return empty;
+    const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
+    const pending = [...inputs];
+    const checked = new Set<SourceStorageSubject>();
+    while (pending.length !== 0 && step()) {
+      const current = pending.pop()!;
+      if (checked.has(current)) continue;
+      if (!reserveRow()) return undefined;
+      checked.add(current);
+      const bound = selection(current, parent);
+      if (bound !== undefined) selected.set(current, bound);
+      else for (const input of contextualInputs(current)) {
+        if (!step()) return undefined;
+        pending.push(input);
+      }
+    }
+    return intern(selected);
   };
   const forInvocation = (candidate: Node, invocation: Node, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
     const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
@@ -88,46 +149,25 @@ export function createSourceStorageSubstitutions(
       if (parameter === undefined || !step()) continue;
       const formal = subject(parameter, parameter === candidate ? "receiver" : "value");
       if (formal === undefined) return undefined;
-      const actual = new Set<SourceStorageSubject>();
+      const actuals = new Set<SourceStorageSubject>();
       const inputs = invocationOrigins(formal, candidate, invocation);
       for (const origin of inputs) {
         for (const value of origins(origin, parent)) {
           if (!step()) return undefined;
-          actual.add(value);
+          actuals.add(value);
         }
       }
-      selected.set(formal, Object.freeze({ actuals: actual, inputs, context: parent }));
-    }
-    const entries: { readonly formal: number; readonly actuals: readonly number[]; readonly inputs: readonly number[]; readonly context: number }[] = [];
-    for (const [formal, binding] of selected) {
-      if (!step()) return undefined;
-      const indexes: number[] = [];
-      const inputIndexes: number[] = [];
-      for (const actual of binding.actuals) {
-        if (!step()) return undefined;
-        indexes.push(identity(actual));
+      const input = inputs.size === 1 ? inputs.values().next().value : undefined;
+      const forwarded = input === undefined ? undefined : selection(input, parent);
+      if (forwarded !== undefined) selected.set(formal, Object.freeze({ actuals, inputs: forwarded.inputs,
+        forwarded: new Set([...forwarded.forwarded, input!]), context: forwarded.context }));
+      else {
+        const context = contextFor(inputs, parent);
+        if (context === undefined) return undefined;
+        selected.set(formal, Object.freeze({ actuals, inputs, forwarded: new Set<SourceStorageSubject>(), context }));
       }
-      for (const input of binding.inputs) {
-        if (!step()) return undefined;
-        inputIndexes.push(identity(input));
-      }
-      const context = contexts.get(binding.context);
-      if (context === undefined) return undefined;
-      entries.push({ formal: identity(formal), actuals: indexes.sort((left, right) => left - right),
-        inputs: inputIndexes.sort((left, right) => left - right), context });
     }
-    entries.sort((left, right) => left.formal - right.formal);
-    const key = entries.map(entry => `${entry.formal}:${entry.actuals.join(",")}:${entry.inputs.join(",")}:${entry.context}`).join(";");
-    const cached = bindingSets.get(key);
-    if (cached !== undefined) return cached;
-    for (const entry of entries) {
-      if (!reserveRow()) return undefined;
-      for (let index = 0; index < entry.actuals.length; index += 1) if (!reserveRow()) return undefined;
-      for (let index = 0; index < entry.inputs.length; index += 1) if (!reserveRow()) return undefined;
-    }
-    contexts.set(selected, bindingSets.size + 1);
-    bindingSets.set(key, selected);
-    return selected;
+    return intern(selected);
   };
   return Object.freeze({ empty, origins, forInvocation, selection });
 }
