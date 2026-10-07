@@ -258,14 +258,14 @@ export function createSourceStorageTransport(
       }
       let signature = selected === undefined ? undefined
         : semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
-      if (selected !== undefined && signature === undefined && ast.is.IsNewExpression(node)) {
+      if (selected !== undefined && ast.is.IsNewExpression(node)) {
         const declaration = sourceStorageConstructedClass(node, source, step);
         const constructors = declaration === undefined ? undefined : navigation.classConstructors(declaration);
         if (constructors?.kind === "resolved" && constructors.implicit) {
           const matches = constructors.signatures.filter(candidate =>
             sourceConstructorParametersMatch(candidate.parameters, selected.sourceSelectedSignatureParameters));
           if (matches.length === 1) {
-            signature = matches[0]!.declaration ?? declaration;
+            signature ??= matches[0]!.declaration ?? declaration;
             implicitConstructions.add(node);
           }
         }
