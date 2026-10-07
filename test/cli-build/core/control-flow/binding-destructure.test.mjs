@@ -211,7 +211,8 @@ test("CLI runs non-Node carrier binding spread nullish and exception flow", asyn
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string summarize\(ObjectShape_[a-f0-9]{12}<ObjectShape_[a-f0-9]{12}<double>, double, string\?> __tsonic_param\d+, Tsonic\.CSharp\.Js\.JSArray<double> numbers\)/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double> __tsonic_destructure\d+ = __tsonic_param\d+\.child;/);
-  assert.match(generatedSource, /string label = __tsonic_param\d+\.label is string (?<value>__tsonic_value\d+) \? \k<value> : "fallback";/);
+  assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "fallback";/);
+  assert.doesNotMatch(generatedSource, /\bis string __tsonic_value\d+/);
   assert.match(generatedSource, /double value = __tsonic_destructure\d+\.value;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double> spread = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);

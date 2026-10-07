@@ -298,7 +298,8 @@ test("CLI emits tuple rest/default forms from finalized tuple carrier facts", as
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1 is string (?<value>__tsonic_value\d+) \? \k<value> : "fallback";/);
+  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1 \?\? "fallback";/);
+  assert.doesNotMatch(generatedSource, /\bis string __tsonic_value\d+/);
   assert.match(generatedSource, /System\.ValueTuple<double> rest = new System\.ValueTuple<double>\(__tsonic_destructure\d+\.Item2\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 

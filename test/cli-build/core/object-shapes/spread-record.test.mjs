@@ -90,7 +90,8 @@ test("CLI runs object rest defaults with nested object spread from finalized fac
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string rewrite\(ObjectShape_[a-f0-9]{12}<ObjectShape_[a-f0-9]{12}<double, double>, double, double, string\?, string> __tsonic_param\d+, double value\)/);
-  assert.match(generatedSource, /string label = __tsonic_param\d+\.label is string (?<label>__tsonic_value\d+) \? \k<label> : "missing";/);
+  assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "missing";/);
+  assert.doesNotMatch(generatedSource, /\bis string __tsonic_value\d+/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double> child = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*note = __tsonic_param\d+\.note,\s*extra = __tsonic_param\d+\.extra,\s*\};/);
   assert.match(generatedSource, /(?<shape>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double>) (?<child>__tsonic_value_\d+) = child;\s*double (?<id>_*tsonic_value_\d+) = \k<child>\.id;\s*double (?<value>_*tsonic_value_\d+) = \k<child>\.value;\s*\k<value> = value;\s*\k<shape> updatedChild = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = \k<id>,\s*value = \k<value>,\s*\};/);
