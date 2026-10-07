@@ -1,6 +1,6 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import { Node_Expression } from "../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
@@ -54,12 +54,6 @@ export function createSourceStorageDomains(
   const callable = (declaration: Node, exposure: Node): void => {
     const selected = navigation.callableImplementation(declaration);
     const owner = selected.kind === "resolved" ? selected.implementation.declaration : declaration;
-    for (const parameter of ast.parameters(owner)) {
-      if (!budget.step()) return;
-      const formal = transport.subject(parameter);
-      add(formal, "external-input", exposure);
-      publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
-    }
     if (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner)) {
       const constructors = navigation.classConstructors(owner);
       if (constructors.kind === "resolved") for (const signature of constructors.signatures) {
@@ -72,10 +66,18 @@ export function createSourceStorageDomains(
         }
       }
       publish(transport.subject(owner, "receiver"), exposure);
-    } else if (ast.body(owner) !== undefined) {
-      if (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner))
-        add(transport.subject(owner, "receiver"), "external-input", exposure);
-      publish(transport.subject(owner, "return"), exposure, true, "external-write", undefined, undefined, true);
+    } else {
+      for (const parameter of ast.parameters(owner)) {
+        if (!budget.step()) return;
+        const formal = transport.subject(parameter);
+        add(formal, "external-input", exposure);
+        publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
+      }
+      if (ast.body(owner) !== undefined) {
+        if (ast.is.IsMethodDeclaration(owner) || ast.is.IsGetAccessorDeclaration(owner) || ast.is.IsSetAccessorDeclaration(owner))
+          add(transport.subject(owner, "receiver"), "external-input", exposure);
+        publish(transport.subject(owner, "return"), exposure, true, "external-write", undefined, undefined, true);
+      }
     }
   };
   const accessible = (declaration: Node): boolean => !ast.hasModifierKind(declaration, "private");
@@ -85,6 +87,15 @@ export function createSourceStorageDomains(
     for (const node of transport.visitedNodes) {
       if (!budget.step()) return;
       if (!ast.is.IsVariableDeclaration(node) && !ast.is.IsFunctionDeclaration(node) && !ast.is.IsClassDeclaration(node)) continue;
+      if (ast.is.IsVariableDeclaration(node) && navigation.isProjectDeclaration(node) && Node_Initializer(ast, node) === undefined) {
+        for (let owner: Node | undefined = node; owner !== undefined && !ast.is.IsSourceFile(owner) && budget.step(); owner = ast.parent(owner)) {
+          if (!ast.hasModifierKind(owner, "ambient")) continue;
+          const subject = transport.subjectFor(node);
+          add(subject, "external-input", node);
+          publish(subject, node, false, "external-write", undefined, undefined, true, subject);
+          break;
+        }
+      }
       const summary = navigation.declarationUseSummary(node);
       if (summary.exported) {
         const subject = transport.subjectFor(node);
@@ -145,6 +156,9 @@ export function createSourceStorageDomains(
         }
         continue;
       }
+      if (context.types.isStringLike(present) || context.types.isNumberLike(present) || context.types.isBooleanLike(present) ||
+        context.types.isBigIntLike(present) || context.types.isSymbolLike(present) || context.types.isNullish(present) ||
+        context.types.isVoidLike(present) || context.types.isNever(present)) continue;
       for (const owner of publicationOrigins(publication.subject, publication.externalEntry)) {
         if (!budget.step()) return;
         const file = transport.sourceFileFor(owner);
