@@ -327,13 +327,14 @@ function sourceReferenceIsCaptured(
   declaration: Node,
   reference: Node,
 ): boolean {
-  const declarationOwner = enclosingCallable(ast, declaration);
+  const declarationOwner = enclosingValueEvaluation(ast, declaration);
   return declarationOwner !== undefined &&
-    enclosingCallable(ast, reference) !== declarationOwner;
+    enclosingValueEvaluation(ast, reference) !== declarationOwner;
 }
 
-function enclosingCallable(ast: AstReader, node: Node): Node | undefined {
+function enclosingValueEvaluation(ast: AstReader, node: Node): Node | undefined {
   let current: Node | undefined = node;
+  let child: Node | undefined;
   while (current !== undefined) {
     if (ast.is.IsFunctionDeclaration(current) ||
       ast.is.IsFunctionExpression(current) ||
@@ -344,6 +345,10 @@ function enclosingCallable(ast: AstReader, node: Node): Node | undefined {
       ast.is.IsSetAccessorDeclaration(current)) {
       return current;
     }
+    if (child !== undefined && ast.is.IsPropertyDeclaration(current) &&
+      !ast.hasModifierKind(current, "static") &&
+      sourceNodesEqual(ast, ast.as.AsPropertyDeclaration(current)?.Initializer, child)) return current;
+    child = current;
     current = ast.parent(current);
   }
   return undefined;

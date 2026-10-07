@@ -46,6 +46,37 @@ test("field flow does not escape its receiver but returning and capturing the re
   assert.equal(summary("captured").captured, true);
 });
 
+test("instance initializers retain captured bindings without capturing immediate class evaluation", async () => {
+  const checked = await checkedSource("class-initializer-capture", { "src/index.ts": `
+    class Base {}
+    function instance<Value>(value: Value) { return class { readonly field = value; }; }
+    function declared<Value>(value: Value) { class Entry { field = value; } return Entry; }
+    function staticValue<Value>(value: Value) { return class { static field = value; }; }
+    function computed(name: "field") { return class { [name] = 1; }; }
+    function inherited(base: typeof Base) { return class extends base {}; }
+    function method<Value>(value: Value) { return class { read(): Value { return value; } }; }
+    function closure<Value>(value: Value) { return class { static read = () => value; }; }
+    function mixed<Value>(value: Value) { return class { static eager = value; deferred = value; }; }
+  ` });
+  const source = createTargetSourceProgram(checked);
+  const { ast, navigation } = source;
+  const file = projectSourceFile(source, "src/index.ts");
+  for (const [name, expected] of [["instance", true], ["declared", true], ["staticValue", false],
+    ["computed", false], ["inherited", false], ["method", true], ["closure", true]]) {
+    const parameter = ast.parameters(namedDeclaration(ast, file, name))[0];
+    assert.equal(parameter !== undefined, true, name);
+    const uses = navigation.declarationUses(parameter).filter(use => use.kind !== "type-only");
+    assert.equal(uses.length, 1, name);
+    assert.equal(uses[0].captured, expected, name);
+    assert.equal(navigation.declarationUseSummary(parameter).captured, expected, name);
+    assert.equal(navigation.parameterUseSummary(parameter).captured, expected, name);
+  }
+  const mixed = ast.parameters(namedDeclaration(ast, file, "mixed"))[0];
+  assert.equal(mixed !== undefined, true, "mixed");
+  assert.deepEqual(navigation.declarationUses(mixed).filter(use => use.kind !== "type-only")
+    .map(use => use.captured), [false, true]);
+});
+
 test("initialization proof follows deferred bodies and exact early invocation roots", async () => {
   const cases = [
     ["function read(): number { return value; } const value = 3; export const result = read();", false],
