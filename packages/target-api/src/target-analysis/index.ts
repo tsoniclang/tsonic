@@ -43,6 +43,8 @@ export type { TargetGraphComponentsSelection } from "./graph-components.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
+export { createSourceGlobalCallStorageEffects } from "./source-storage/global-call-effects.js";
+export type { SourceGlobalCallStorageEffect } from "./source-storage/global-call-effects.js";
 export { defaultSourceStorageLimits } from "./source-storage/resource-budget.js";
 export type { SourceStorageProjection, SourceStorageSubject } from "./source-storage/subjects.js";
 export type {

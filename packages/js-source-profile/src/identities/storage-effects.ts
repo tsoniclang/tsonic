@@ -1,4 +1,11 @@
 import type { Node, ResolvedSourceCallInfo } from "@tsonic/tsts";
+import { jsSourceSemanticsIdentity } from "./source.js";
+
+export interface JsSourceStorageOperationIdentity {
+  readonly ownerName: string;
+  readonly memberName: string;
+  readonly declaration: Node;
+}
 
 export interface JsSourceCallStorageEffect {
   readonly resultAlias?: Node;
@@ -9,6 +16,27 @@ export interface JsSourceCallStorageEffect {
 const nativeErrorConstructorOwners = new Set([
   "ErrorConstructor", "RangeErrorConstructor", "TypeErrorConstructor", "URIErrorConstructor",
 ]);
+
+const nativeOperationBindings = new Map([
+  ["ObjectConstructor", "Object"],
+  ["ErrorConstructor", "Error"],
+  ["RangeErrorConstructor", "RangeError"],
+  ["TypeErrorConstructor", "TypeError"],
+  ["URIErrorConstructor", "URIError"],
+]);
+
+export function selectJsSourceCallStorageEffect(
+  identity: JsSourceStorageOperationIdentity | undefined,
+  call: ResolvedSourceCallInfo,
+) {
+  const effect = jsSourceCallStorageEffect(identity, call);
+  const name = identity === undefined ? undefined : nativeOperationBindings.get(identity.ownerName);
+  if (identity === undefined || name === undefined || effect === undefined) return undefined;
+  const form: "member" | "value" = identity.memberName === "constructor" || identity.memberName === "call"
+    ? "value" : "member";
+  return Object.freeze({ declaration: identity.declaration, form, effect,
+    binding: Object.freeze({ name, providerId: jsSourceSemanticsIdentity.providerId }) });
+}
 
 export function jsSourceCallStorageEffect(identity: {
   readonly ownerName: string;

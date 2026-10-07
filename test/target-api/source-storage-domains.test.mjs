@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics } from "@tsonic/tsts";
+import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { createJsSourceCallStorageEffects, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { createSourceGlobalCallStorageEffects, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { selectJsSourceCallStorageEffect, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -344,10 +344,10 @@ test("owned native Error call and constructor allocations do not certify externa
     const profile = projectSourceFile(source, "globals.d.ts");
     const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
     const signatures = new Set(source.ast.members(owner));
-    return createJsSourceCallStorageEffects(source, (node, selected) => {
+    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
       const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       if (!signatures.has(declaration)) return undefined;
-      return { ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration };
+      return selectJsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration }, selected);
     });
   } });
   for (const name of ["direct", "call", "aliased", "aliasedCall"]) complete(current.selection(name), `owned global native allocation: ${name}`);
@@ -376,6 +376,72 @@ test("call result aliases and input preservation remain independent semantic pro
     if (mode === "alias") open(current.selection("selected"), "opaque-write", "alias does not prove preservation");
     else complete(current.selection("selected"), "exact input preservation");
   }
+});
+
+test("owned native global members require their actual immutable receiver and selected declaration", async () => {
+  const profile = `
+    interface ObjectConstructor { freeze<T>(value: T): T; isFrozen(value: {}): boolean; }
+    declare var Object: ObjectConstructor;
+  `;
+  const selectEffects = source => {
+    const owner = namedDeclaration(source.ast, projectSourceFile(source, "globals.d.ts"), "ObjectConstructor");
+    const members = new Set(source.ast.members(owner));
+    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
+      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      return !members.has(declaration) ? undefined : selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor",
+        memberName: source.ast.text(source.ast.name(declaration)), declaration }, selected);
+    });
+  };
+  const current = await fixture("storage-domain-global-members", `
+    declare const external: ObjectConstructor;
+    const owner = Object;
+    const freeze = owner.freeze;
+    const token = {};
+    const direct = Object.freeze(token);
+    const aliased = owner.freeze(token);
+    const method = freeze(token);
+    const indexed = Object["freeze"](token);
+    const unknown = external.freeze({});
+  `, { profile, effectsFactory: selectEffects });
+  for (const name of ["direct", "aliased", "method", "indexed"])
+    complete(current.selection(name), `exact global member identity: ${name}`);
+  open(current.selection("unknown"), "opaque-result", "matching member signature does not prove the global receiver");
+  const changed = await fixture("storage-domain-global-members-mutated", `
+    declare const external: ObjectConstructor;
+    const owner = Object;
+    owner.freeze = external.freeze;
+    const selected = Object.freeze({});
+  `, { profile, effectsFactory: selectEffects });
+  open(changed.selection("selected"), "opaque-result", "mutated receiver is not a native-operation guarantee");
+});
+
+test("native global effects reject foreign provider artifacts and operation declarations independently", async () => {
+  const current = await fixture("storage-domain-global-provider-authority", `const selected = new Error("message");`,
+    { profile: sourceErrorDeclarations });
+  const { source } = current;
+  const node = current.initializer("selected");
+  const call = source.semantics.forNode(node).operations.call(node);
+  assert.equal(call !== undefined, true);
+  const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(call.selectedSignature);
+  const binding = namedVariable(source.ast, projectSourceFile(source, "globals.d.ts"), "Error");
+  const artifact = { providerId: "selected-profile", providerVersion: "1", providerModuleId: "globals",
+    moduleSpecifier: "@profile/globals", artifactFileName: "/virtual/globals.d.ts" };
+  const operation = { ...artifact, exportName: "ErrorConstructor", memberName: "new", signatureId: "selected" };
+  const global = { ...artifact, exportName: "Error" };
+  const effects = (globalFact, operationDeclaration = declaration) => createSourceGlobalCallStorageEffects({ ...source,
+    sourceFacts: { ...source.sourceFacts, getFact(subject, key) {
+      if (key !== providerVirtualDeclarationFactKey) return source.sourceFacts.getFact(subject, key);
+      return subject === declaration ? operation : subject === binding ? globalFact : undefined;
+    } },
+  }, () => ({ declaration: operationDeclaration, binding: { name: "Error", providerId: artifact.providerId },
+    form: "value", effect: { resultAllocation: node } }));
+  assert.equal(effects(global).call(node, call).resultAllocation === node, true);
+  assert.equal(effects(global, binding).call(node, call) === undefined, true, "the selected operation declaration is authoritative");
+  for (const field of ["providerId", "providerVersion", "providerModuleId", "moduleSpecifier", "artifactFileName", "exportName"])
+    assert.equal(effects({ ...global, [field]: "different" }).call(node, call) === undefined, true, field);
+  for (const field of ["memberName", "memberKey", "memberId", "signatureId"])
+    assert.equal(effects({ ...global, [field]: "member" }).call(node, call) === undefined, true, field);
+  assert.equal(effects(undefined).call(node, call) === undefined, true, "missing owned global fact");
 });
 
 test("one preserved input does not suppress a second unpreserved alias", async () => {

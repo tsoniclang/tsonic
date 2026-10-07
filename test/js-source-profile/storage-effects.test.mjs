@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { jsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/identities/storage-effects.js";
+import { selectJsSourceCallStorageEffect } from "../../packages/js-source-profile/dist/index.js";
 
 test("owned native Error construction publishes one exact fresh result without aliasing or input preservation", () => {
   const invocation = Object.freeze({});
@@ -77,4 +78,21 @@ test("effect selection snapshots containers while retaining exact checked operan
   call.sourceArgumentBindings.length = 0;
   assert.equal(effect.resultAlias === argument, true);
   assert.equal(effect.preservedInputs[0] === argument, true);
+});
+
+test("public catalogue selection retains semantic declaration and global identity without program navigation", () => {
+  const call = selectedCall();
+  const declaration = Object.freeze({});
+  const selected = selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor", memberName: "freeze", declaration }, call);
+  assert.equal(selected.declaration === declaration, true);
+  assert.equal(selected.form, "member");
+  assert.equal(selected.binding.name, "Object");
+  assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.binding), true);
+  assert.equal(selected.effect.resultAlias === call.sourceArguments[1].expression, true);
+  for (const ownerName of ["ErrorConstructor", "RangeErrorConstructor", "TypeErrorConstructor", "URIErrorConstructor"]) {
+    const constructor = selectJsSourceCallStorageEffect({ ownerName, memberName: "constructor", declaration }, call);
+    assert.equal(constructor.form, "value");
+    assert.equal(constructor.effect.resultAllocation === call.call, true);
+  }
+  assert.equal(selectJsSourceCallStorageEffect({ ownerName: "ExternalConstructor", memberName: "freeze", declaration }, call) === undefined, true);
 });
