@@ -58,7 +58,7 @@ export type {
 } from "./call-parameter-slots.js";
 export {
   sourcePropertyTypeEvidenceNodes,
-  sourceIndexedPropertyTypeEvidence,
+  sourceIndexedTypeEvidence,
   sourceTransformedTypeFactEvidenceNodes,
   sourceTupleElementTypeEvidenceNodes,
 } from "./type-component-evidence.js";
