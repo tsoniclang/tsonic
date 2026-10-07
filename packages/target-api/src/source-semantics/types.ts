@@ -86,6 +86,7 @@ export interface SourceFinalTypeQueries {
   callSignatures(type: Type): readonly Signature[];
   constructSignatures(type: Type): readonly Signature[];
   signatureInfos(type: Type, kind: "call" | "construct"): readonly import("@tsonic/tsts").TypeSignatureInfo[];
+  declarationSignatureInfo(declaration: Node): import("@tsonic/tsts").TypeSignatureInfo | undefined;
   returnType(signature: Signature): Type | undefined;
   signatureParameterInfos(signature: Signature): readonly TypeSignatureParameterInfo[];
   signatureThisParameterInfo(

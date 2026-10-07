@@ -96,5 +96,10 @@ function typeShape(
   return {
     isTuple: (value: Type) => tuples.has(value),
     getTupleElementInfos: (value: Type) => tuples.get(value) ?? [],
+    getSignatureParameterInfos: () => [...tuples.values()].flat().map(element => ({
+      type: element.type,
+      parameterKind: element.elementKind === "variadic" ? "rest" : element.elementKind,
+      acceptsOmission: element.elementKind === "optional" || element.elementKind === "rest" || element.elementKind === "variadic",
+    })),
   } as never;
 }

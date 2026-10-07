@@ -99,3 +99,16 @@ export function sourceExpressionResultUse(
     return "consumed";
   }
 }
+
+export function sourceCallableDefinitionIsDiscarded(declaration: Node, ast: AstReader): boolean {
+  const visited = new Set<Node>();
+  for (let current: Node | undefined = declaration; current !== undefined; current = ast.parent(current)) {
+    if (visited.has(current) || visited.size >= 262_144) {
+      throw new Error("Callable creation demand exceeded its finite acyclic source boundary.");
+    }
+    visited.add(current);
+    if ((ast.is.IsArrowFunction(current) || ast.is.IsFunctionExpression(current)) &&
+      sourceExpressionResultUse(ast, current) === "discarded") return true;
+  }
+  return false;
+}

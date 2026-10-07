@@ -1,6 +1,7 @@
 export * from "./navigation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
+export { sourceCallableDefinitionIsDiscarded } from "./expression-use.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";
 export { sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "./lexical-captures.js";
 export { sourceLexicalEnvironment, type SourceLexicalEnvironment } from "./lexical-environments.js";

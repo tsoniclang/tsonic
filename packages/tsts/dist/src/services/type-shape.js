@@ -1,6 +1,7 @@
 import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
 import { readTypeIndexedAccessComponents, selectTypeIndexedAccess } from "./type-indexed-access.js";
 import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-applications.js";
+import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Background } from "../go/context.js";
@@ -8,9 +9,10 @@ import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetInde
 import { Checker_getTypeOfSymbol, } from "../internal/checker/checker/symbols.js";
 import { Checker_getBaseTypeOfLiteralType, Checker_GetNonNullableType } from "../internal/checker/checker/types.js";
 import { Checker_isOptionalParameter } from "../internal/checker/utilities.js";
+import { Checker_getSignatureFromDeclaration } from "../internal/checker/checker/signatures.js";
 import { getBigIntLiteralValue, getNumberLiteralValue, getStringLiteralValue, signatureHasRestParameter, } from "../internal/checker/checker/state.js";
 import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
-import { Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
+import { Checker_getMinArgumentCount, Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
 import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsSubstitution, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsSubstitutionType, Type_AsInterfaceType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
@@ -119,12 +121,13 @@ export function createTypeShapeQueries(program, defaultOptions) {
                 .map(signature => {
                 if (signature === undefined)
                     throw new Error("The checker returned an absent type signature.");
-                const thisParameter = getTypeSignatureThisParameterInfo(checker, signature);
-                return Object.freeze({ signature, parameters: getTypeSignatureParameterInfos(checker, signature),
-                    ...(thisParameter === undefined ? {} : { thisParameter }),
-                    returnType: Checker_GetReturnTypeOfSignature(checker, signature) });
+                return getTypeSignatureInfo(checker, signature);
             }))) ?? Object.freeze([]);
         },
+        getDeclarationSignatureInfo: declaration => !IsFunctionLike(declaration) ? undefined : withCheckerForSourceFile(program, GetSourceFileOfNode(declaration), defaultOptions, checker => {
+            const signature = Checker_getSignatureFromDeclaration(checker, declaration);
+            return signature === undefined ? undefined : getTypeSignatureInfo(checker, signature);
+        }),
         getSignatureParameterInfos: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureParameterInfos(checker, signature)) ?? [],
         getSignatureThisParameterInfo: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => getTypeSignatureThisParameterInfo(checker, signature)),
         getReturnTypeOfSignature: (signature) => withCheckerForSignature(program, signature, defaultOptions, (checker) => Checker_GetReturnTypeOfSignature(checker, signature)),
@@ -175,6 +178,12 @@ function getTypeTupleElementInfos(checker, type) {
         });
     }));
 }
+function getTypeSignatureInfo(checker, signature) {
+    const thisParameter = getTypeSignatureThisParameterInfo(checker, signature);
+    return Object.freeze({ signature, parameters: getTypeSignatureParameterInfos(checker, signature),
+        ...(thisParameter === undefined ? {} : { thisParameter }),
+        returnType: Checker_GetReturnTypeOfSignature(checker, signature) });
+}
 function getTypeSignatureParameterInfos(checker, signature) {
     if (checker === undefined || signature === undefined) {
         return [];
@@ -197,6 +206,7 @@ function getTypeSignatureParameterInfos(checker, signature) {
         : getTypeTupleElementInfos(checker, restType);
     const tupleExpanded = restIndex >= 0 && tupleElements.length > 0 &&
         effectiveParameters.length === restIndex + tupleElements.length;
+    const minimumArgumentCount = Checker_getMinArgumentCount(checker, signature);
     return Object.freeze(effectiveParameters.map((parameter, index) => {
         if (parameter === undefined) {
             throw new Error("The checker returned an absent effective signature parameter.");
@@ -233,6 +243,7 @@ function getTypeSignatureParameterInfos(checker, signature) {
             sourceSymbol,
             type,
             parameterKind,
+            acceptsOmission: index >= minimumArgumentCount,
             ...(declaration === undefined ? {} : { declaration }),
         });
     }));

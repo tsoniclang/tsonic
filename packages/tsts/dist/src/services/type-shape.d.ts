@@ -36,6 +36,7 @@ export interface TypeSignatureParameterInfo {
     readonly sourceSymbol: Symbol;
     readonly type: Type;
     readonly parameterKind: "required" | "optional" | "rest";
+    readonly acceptsOmission: boolean;
     readonly declaration?: Node;
 }
 export interface TypeSignatureThisParameterInfo {
@@ -91,6 +92,7 @@ export interface TypeShapeQueries {
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getConstructSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];
     readonly getSignatureInfos: (type: GoPtr<Type>, kind: "call" | "construct") => readonly TypeSignatureInfo[];
+    readonly getDeclarationSignatureInfo: (declaration: GoPtr<Node>) => TypeSignatureInfo | undefined;
     readonly getSignatureParameterInfos: (signature: GoPtr<Signature>) => readonly TypeSignatureParameterInfo[];
     readonly getSignatureThisParameterInfo: (signature: GoPtr<Signature>) => TypeSignatureThisParameterInfo | undefined;
     readonly getReturnTypeOfSignature: (signature: GoPtr<Signature>) => GoPtr<Type>;

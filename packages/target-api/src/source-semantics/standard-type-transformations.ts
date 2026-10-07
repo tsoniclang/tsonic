@@ -9,9 +9,9 @@ import type {
   SourceProgramNavigation,
 } from "../source-navigation/index.js";
 import { typescriptNoLibUtilityDeclarations } from "../source-profiles/typescript-no-lib-utilities.js";
+import { sourceCallableParameterEvidence } from "./callable-parameters.js";
 import type {
   SourceCallableTypeEvidence,
-  SourceCallableParameterEvidence,
   SourceFinalTypeQueries,
   SourceFileSemantics,
   SourceSelectedDeclarationQueries,
@@ -271,6 +271,7 @@ function selectCallableTransformation(
     ) ||
     inputParameters.some((parameter, index) =>
       parameter.parameterKind !== output.parameters[index]?.parameterKind ||
+      parameter.acceptsOmission !== output.parameters[index]?.acceptsOmission ||
       parameter.omissionKind !== output.parameters[index]?.omissionKind ||
       !types.isIdentical(
         parameter.type,
@@ -312,22 +313,6 @@ export function selectSourceCallableTypeEvidence(
         ),
         result,
       });
-}
-
-function sourceCallableParameterEvidence(
-  parameter: TypeSignatureParameterInfo,
-  ast: AstReader,
-): SourceCallableParameterEvidence {
-  const omissionKind = parameter.parameterKind === "rest"
-    ? "rest"
-    : parameter.parameterKind !== "optional"
-      ? "required"
-      : parameter.declaration !== undefined &&
-          ast.is.IsParameterDeclaration(parameter.declaration) &&
-          ast.as.AsParameterDeclaration(parameter.declaration)?.Initializer !== undefined
-        ? "initializer"
-        : "undefined";
-  return Object.freeze({ ...parameter, omissionKind });
 }
 
 function signatureResultEvidence(

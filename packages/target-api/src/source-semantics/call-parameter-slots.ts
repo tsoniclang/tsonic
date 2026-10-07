@@ -1,5 +1,6 @@
 import type {
   TypeShapeQueries,
+  TypeSignatureParameterInfo,
 } from "@tsonic/tsts";
 import type {
   ResolvedSourceCallInfo,
@@ -13,13 +14,14 @@ export interface SourceCallParameterSlot {
 
 export function selectSourceCallParameterSlots(
   source: ResolvedSourceCallInfo,
-  typeShape: Pick<TypeShapeQueries, "isTuple" | "getTupleElementInfos">,
+  typeShape: Pick<TypeShapeQueries, "isTuple" | "getTupleElementInfos" | "getSignatureParameterInfos">,
 ): readonly SourceCallParameterSlot[] | undefined {
   if (source.sourceSelectedSignatureKind !== "resolved") {
     return undefined;
   }
   const slots: SourceCallParameterSlot[] = [];
   const indexes = new Set<number>();
+  let effectiveParameters: readonly TypeSignatureParameterInfo[] | undefined;
   for (const parameter of source.sourceSelectedSignatureParameters) {
     if (!Number.isSafeInteger(parameter.parameterIndex) ||
       parameter.parameterIndex < 0 || indexes.has(parameter.parameterIndex)) {
@@ -37,17 +39,19 @@ export function selectSourceCallParameterSlots(
       continue;
     }
     const elements = typeShape.getTupleElementInfos(parameter.selectedType);
-    for (const [index, element] of elements.entries()) {
+    effectiveParameters ??= typeShape.getSignatureParameterInfos(source.selectedSignature);
+    const start = slots.length;
+    for (const index of elements.keys()) {
+      const effective = effectiveParameters[start + index];
+      if (effective === undefined) return undefined;
       slots.push(Object.freeze({
         sourceParameterIndex: parameter.parameterIndex,
         sourceParameterName: `${parameter.parameterName || "arg"}${index}`,
-        form: element.elementKind === "optional"
-          ? "optional"
-          : element.elementKind === "rest" || element.elementKind === "variadic"
-            ? "rest"
-            : "required",
+        form: effective.parameterKind === "rest"
+          ? "rest" : effective.acceptsOmission ? "optional" : "required",
       }));
     }
   }
+  if (effectiveParameters !== undefined && slots.length !== effectiveParameters.length) return undefined;
   return Object.freeze(slots);
 }
