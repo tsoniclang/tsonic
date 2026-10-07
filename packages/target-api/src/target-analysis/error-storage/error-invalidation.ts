@@ -89,35 +89,33 @@ export function createSourceErrorInvalidationQuery(
         const native = nativeSubjects.has(subject.subject) ? storage.closedOriginsFor(subject.subject, bindings) : undefined;
         if (native?.kind === "unresolved") return native;
         if (native?.kind === "open") unresolved = "Native Error allocation requires complete checked constructor value provenance.";
-        if (native?.kind !== "complete") {
-          const implementations = storage.invocationImplementationsFor(node, bindings);
-          if (implementations.kind === "unresolved") return implementations;
-          let resolved = false;
-          for (const candidate of implementations.nodes) resolved = appendCallableRegions(candidate, node, bindings) || resolved;
-          if (ast.is.IsNewExpression(node)) {
-            const regions = storage.instanceRegionsFor(node);
-            if (regions.kind === "unresolved") return regions;
-            for (const region of regions.regions) {
-              const selected = storage.bindingsForInvocation(region.owner, node, bindings);
-              if (selected.kind === "unresolved") return selected;
-              pending.push({ node: region.node, bindings: selected.bindings });
-            }
+        const implementations = storage.invocationImplementationsFor(node, bindings);
+        if (implementations.kind === "unresolved") return implementations;
+        let resolved = false;
+        for (const candidate of implementations.nodes) resolved = appendCallableRegions(candidate, node, bindings) || resolved;
+        if (ast.is.IsNewExpression(node)) {
+          const regions = storage.instanceRegionsFor(node);
+          if (regions.kind === "unresolved") return regions;
+          for (const region of regions.regions) {
+            const selected = storage.bindingsForInvocation(region.owner, node, bindings);
+            if (selected.kind === "unresolved") return selected;
+            pending.push({ node: region.node, bindings: selected.bindings });
           }
-          if (!resolved) {
-            const arguments_ = storage.invocationArgumentsFor(node);
-            if (arguments_.kind === "unresolved") return arguments_;
-            for (const argument of arguments_.nodes) {
-              const argumentSubject = storage.subjectFor(argument);
-              if (argumentSubject.kind === "unresolved") return argumentSubject;
-              const origins = storage.boundOriginsFor(argumentSubject.subject, bindings);
-              if (origins.kind === "unresolved") return origins;
-              const affected = overlapsOwner(argumentSubject.subject, bindings);
-              if (affected.kind === "unresolved") unresolved = affected.reason;
-              if (affected.kind === "overlap")
-                unresolved = "An opaque native invocation can access the borrowed Error owner without an exact mutation footprint.";
-              for (const candidate of origins.subjects) {
-                if (candidate.kind === "value") appendCallableRegions(candidate.node, undefined, bindings);
-              }
+        }
+        if (!resolved && native?.kind !== "complete") {
+          const arguments_ = storage.invocationArgumentsFor(node);
+          if (arguments_.kind === "unresolved") return arguments_;
+          for (const argument of arguments_.nodes) {
+            const argumentSubject = storage.subjectFor(argument);
+            if (argumentSubject.kind === "unresolved") return argumentSubject;
+            const origins = storage.boundOriginsFor(argumentSubject.subject, bindings);
+            if (origins.kind === "unresolved") return origins;
+            const affected = overlapsOwner(argumentSubject.subject, bindings);
+            if (affected.kind === "unresolved") unresolved = affected.reason;
+            if (affected.kind === "overlap")
+              unresolved = "An opaque native invocation can access the borrowed Error owner without an exact mutation footprint.";
+            for (const candidate of origins.subjects) {
+              if (candidate.kind === "value") appendCallableRegions(candidate.node, undefined, bindings);
             }
           }
         }
