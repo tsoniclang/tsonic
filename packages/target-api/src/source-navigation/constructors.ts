@@ -90,6 +90,8 @@ function resolveSourceClassConstructors(
   const resolved: SourceClassConstructorSignature[] = [];
   for (const signature of signatures) {
     const parameters: SourceClassConstructorParameter[] = [];
+    const effectiveParameters = queries.typeShape.getSignatureParameterInfos(signature);
+    const requiredParameterCount = effectiveParameters.filter(parameter => !parameter.acceptsOmission).length;
     const signatureParameters = queries.checker.getSignatureParameters(
       signature,
     );
@@ -139,10 +141,7 @@ function resolveSourceClassConstructors(
           ? {}
           : { authoredTypeNode: parameter.Type }),
         selectedType,
-        acceptsOmission:
-          rest ||
-          parameter.QuestionToken !== undefined ||
-          parameter.Initializer !== undefined,
+        acceptsOmission: index >= requiredParameterCount,
         rest,
       }));
     }

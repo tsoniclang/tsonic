@@ -26,3 +26,38 @@ export function run(): boolean {
     first.method(false) === false && first.method(0) === 0 && first.method("") === "";
 }
 `;
+
+export const orderedParameterDefaultsSource = `
+let calls = 0;
+function next(): unknown { calls++; return "default"; }
+function nextNumber(): number { calls++; return 9; }
+function count(): number { return calls; }
+function ordered(value: unknown = next(), required: number): unknown {
+  return required === 7 ? value : false;
+}
+function constant(value: number = 3, required: number): number { return value + required; }
+function destructured({ value }: { value: number } = { value: nextNumber() }, required: number): number {
+  return value + required;
+}
+function positional([value]: [number] = [11], required: number): number {
+  return value + required;
+}
+const deferred = (value: unknown = next(), required: number): unknown => required === 7 ? value : false;
+class Holder {
+  value: unknown;
+  constructor(value: unknown = next(), required: number) { this.value = required === 7 ? value : false; }
+  method(value: unknown = next(), required: number): unknown { return required === 7 ? value : false; }
+}
+export function run(): boolean {
+  if (count() !== 0 || ordered(0, 7) !== 0 || deferred(false, 7) !== false) return false;
+  if (constant(0, 7) !== 7 || constant(undefined, 7) !== 10) return false;
+  if (destructured({ value: 0 }, 7) !== 7 || count() !== 0) return false;
+  if (positional([0], 7) !== 7 || positional(undefined, 7) !== 18) return false;
+  if (ordered(undefined, 7) !== "default" || ordered(null, 7) !== "default") return false;
+  if (deferred(undefined, 7) !== "default" || deferred(null, 7) !== "default") return false;
+  if (destructured(undefined, 7) !== 16) return false;
+  const holder = new Holder(undefined, 7);
+  if (holder.value !== "default" || holder.method(0, 7) !== 0 || holder.method(undefined, 7) !== "default") return false;
+  return count() === 7;
+}
+`;

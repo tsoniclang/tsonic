@@ -15,7 +15,7 @@ export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexi
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
 export type { SourceCallOnlyAlias } from "./callable-aliases.js";
-export { createSourceCallableValueQuery } from "./callable-values.js";
+export { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
 export type { SourceCallableValue } from "./callable-values.js";
 export { sourceClosedCallableArguments, sourceExpressionCallArgument } from "./callable-arguments.js";
 export type { SourceClosedCallableArgument } from "./callable-arguments.js";

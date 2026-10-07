@@ -207,7 +207,7 @@ test("CLI consumes expanded TSTS source meaning across flow, contextual callback
   assert.match(generatedSource, /return \$"\{\(\(DerivedValue\)value!\)\.name\}:\{\(\(DerivedValue\)value!\)\.score\}";/);
   assert.match(generatedSource, /public static U apply<T, U>\(T value, Func<T, U> callback\)/);
   assert.match(generatedSource, /Func<double, string> render = \(double input\) => \$"\{input\}";/);
-  assert.match(generatedSource, /double (?<argument>__tsonic_value_\d+) = value;\s*string (?<callable>__tsonic_callable_\d+)\(double input\)\s*\{\s*return \$"\{input \+ 1\}";\s*\}\s*string direct = apply<double, string>\(\k<argument>, new Func<double, string>\(\k<callable>\)\);/);
+  assert.match(generatedSource, /double (?<argument>__tsonic_value_\d+) = value;\s*static string (?<callable>__tsonic_callable_\d+)\(double input\)\s*\{\s*return \$"\{input \+ 1\}";\s*\}\s*string direct = apply<double, string>\(\k<argument>, new Func<double, string>\(\k<callable>\)\);/);
   assert.match(generatedSource, /return \$"\{render\(value\)\}:\{direct\}";/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

@@ -1,13 +1,16 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceBindingScope } from "./lexical-captures.js";
+import { sourceCallableValueExpression } from "./callable-values.js";
 
 export function sourceBindingCapturedBeforeInitialization(
   declaration: Node,
   ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "declarationUses">,
 ): boolean {
-  if (!ast.is.IsVariableDeclaration(declaration) || ast.as.AsVariableDeclaration(declaration)?.Initializer === undefined) return false;
+  if (!ast.is.IsVariableDeclaration(declaration)) return false;
+  const initializer = sourceCallableValueExpression(ast, ast.as.AsVariableDeclaration(declaration)?.Initializer);
+  if (initializer === undefined) return false;
   const scope = sourceBindingScope(declaration, ast);
   const boundary = ast.authoredRange(declaration);
   if (scope === undefined || ast.is.IsSourceFile(scope) || boundary.kind !== "authored") return false;
@@ -41,6 +44,7 @@ export function sourceBindingCapturedBeforeInitialization(
         continue;
       }
       if (!captured || current !== scope) continue;
+      if (creation === initializer && (ast.is.IsArrowFunction(creation) || ast.is.IsFunctionExpression(creation))) continue;
       const range = ast.authoredRange(creation);
       if (range.kind === "authored" && range.start < boundary.end) return true;
     }

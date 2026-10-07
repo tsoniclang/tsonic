@@ -54,9 +54,8 @@ test("callable evidence preserves omission, syntax and initializers independentl
       ({ parameterKind, acceptsOmission, omissionKind })), expected[index], source.ast.text(name));
     assert.equal(Object.isFrozen(callable.parameters) && parameters.every(Object.isFrozen), true);
   }
-  const calls = source.ast.statements(file).filter((node): node is Node =>
-    node !== undefined && source.ast.is.IsExpressionStatement(node));
-  for (const statement of calls) {
+  for (const statement of source.ast.statements(file)) {
+    if (statement === undefined || !source.ast.is.IsExpressionStatement(statement)) continue;
     const node = source.ast.as.AsExpressionStatement(statement)?.Expression;
     assert.ok(node);
     const call = semantics.operations.call(node);

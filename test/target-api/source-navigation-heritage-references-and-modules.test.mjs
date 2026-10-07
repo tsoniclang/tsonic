@@ -98,6 +98,42 @@ test("shared source navigation resolves exact generic and transitive declared he
   );
 });
 
+test("shared constructors retain checked mandatory arity independently of defaults and rest syntax", async () => {
+  const checked = await checkedSource("constructor-omission-identity", {
+    "src/base.ts": `export class Base {
+      constructor(value: unknown = "default", required: number) { void value; void required; }
+    }`,
+    "src/index.ts": `
+      import { Base } from "./base.js";
+      export class Derived extends Base {}
+      export class Optional { constructor(value: number, label: string = "default") { void value; void label; } }
+      export class TupleRest { constructor(...input: [first: number, second?: string]) { void input; } }
+      export class EmptyRest { constructor(...input: []) { void input; } }
+      new Derived(undefined, 7); new Optional(1); new TupleRest(1); new EmptyRest();
+    `,
+  });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const expected = new Map([["Derived", [false, false]], ["Optional", [false, true]],
+    ["TupleRest", [false]], ["EmptyRest", [true]]]);
+  for (const [name, omission] of expected) {
+    const declaration = namedDeclaration(source.ast, file, name);
+    const constructors = source.navigation.classConstructors(declaration);
+    assert.equal(constructors.kind, "resolved", name);
+    assert.deepEqual(constructors.signatures[0].parameters.map(parameter => parameter.acceptsOmission), omission, name);
+    assert.equal(Object.isFrozen(constructors.signatures[0].parameters), true, name);
+  }
+  const visit = node => {
+    if (source.ast.is.IsNewExpression(node)) {
+      const call = source.semantics.forNode(node).operations.call(node);
+      const name = source.ast.text(call.sourceCallee.expression);
+      assert.deepEqual(call.sourceSelectedSignatureParameters.map(parameter => parameter.acceptsOmission), expected.get(name), name);
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+});
+
 test("shared source navigation exposes exact effective class constructors", async () => {
   const checked = await checkedSource("effective-constructors", {
     "src/index.ts": [

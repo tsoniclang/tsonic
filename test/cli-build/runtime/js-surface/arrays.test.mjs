@@ -217,7 +217,7 @@ test("CLI emits array length and indexer access from TSTS provider facts", async
   assert.match(generatedSource, /public static int lastPositionOfFrom\(Tsonic\.CSharp\.Js\.JSArray<int> values, int value, int start\)/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.Array\.lastIndexOf\(values, value, start\);/);
   assert.match(generatedSource, /public static int sumEach\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> (?<receiver>__tsonic_value_\d+) = values;\s*void (?<callable>__tsonic_callable_\d+)\(int value, int index, Tsonic\.CSharp\.Js\.JSArray<int> source\)\s*\{\s*total \+= value \+ index \+ source\.length;\s*\}\s*\k<receiver>\.forEach\(new Action<int, int, Tsonic\.CSharp\.Js\.JSArray<int>>\(\k<callable>\)\);/);
+  assert.match(generatedSource, /values\.forEach\(\(int value, int index, Tsonic\.CSharp\.Js\.JSArray<int> source\) =>\s*\{\s*total \+= value \+ index \+ source\.length;\s*\}\);/u);
   assert.match(generatedSource, /total \+= value \+ index \+ source\.length;/);
   assert.match(generatedSource, /public static bool hasPositive\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assertArrayPredicate(generatedSource, "some", /value > 0 && index > 0/u, "__tsonic_param\\d+");
@@ -681,5 +681,5 @@ function assertArrayPredicate(source, operation, predicate, arrayParameter, stat
     ? `Tsonic\\.CSharp\\.Js\\.Array\\.${operation}\\(\\k<receiver>, `
     : `\\k<receiver>\\.${operation}\\(`;
   const suffix = resultSuffix.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  assert.match(source, new RegExp(`Tsonic\\.CSharp\\.Js\\.JSArray<int> (?<receiver>__tsonic_value_\\d+) = values;\\s*bool (?<callable>__tsonic_callable_\\d+)\\(int value, int index, Tsonic\\.CSharp\\.Js\\.JSArray<int> ${arrayParameter}\\)\\s*\\{\\s*return ${predicate.source};\\s*\\}\\s*return ${invocation}new Func<int, int, Tsonic\\.CSharp\\.Js\\.JSArray<int>, bool>\\(\\k<callable>\\)\\)${suffix};`, "u"));
+  assert.match(source, new RegExp(`Tsonic\\.CSharp\\.Js\\.JSArray<int> (?<receiver>__tsonic_value_\\d+) = values;\\s*static bool (?<callable>__tsonic_callable_\\d+)\\(int value, int index, Tsonic\\.CSharp\\.Js\\.JSArray<int> ${arrayParameter}\\)\\s*\\{\\s*return ${predicate.source};\\s*\\}\\s*return ${invocation}\\(Func<int, int, Tsonic\\.CSharp\\.Js\\.JSArray<int>, bool>\\)\\k<callable>\\)${suffix};`, "u"));
 }
