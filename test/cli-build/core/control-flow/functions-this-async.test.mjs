@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 test("CLI emits async functions and lambdas from TSTS Promise carriers", async () => {
   const projectDirectory = resolve(tempRoot, "async-promise-carriers");
@@ -167,7 +167,7 @@ test("CLI emits object-literal lexical this through a receiver-bound generated s
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects class-field this without a finalized field-initializer receiver contract", async () => {
+test("CLI executes class-field this through the exact constructor receiver and field order", async () => {
   const projectDirectory = resolve(tempRoot, "class-field-this-rejected");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -192,13 +192,25 @@ test("CLI rejects class-field this without a finalized field-initializer receive
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.notEqual(build.status, 0);
-  assert.match(build.stderr, /C# this emission requires a TSTS-selected instance class receiver/);
-  assert.match(build.stderr, /class field initializer receiver/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public Counter\(\)\s*\{\s*this\.value = 7;\s*this\.doubled = this\.value \* 2;\s*\}/u);
+  assert.match(generatedSource, /public double value;\s*public double doubled;/u);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|System\.Reflection/u);
+  assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedClassFieldThisRejected", [
+    "using System;",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        var counter = new Smoke.Generated.Counter();",
+    "        Console.WriteLine($\"{counter.value}:{counter.doubled}\");",
+    "    }",
+    "}",
+  ]), "7:14\n");
 });
 
-test("CLI rejects lambdas without contextual target delegate facts", async () => {
+test("CLI executes inferred callable expressions without requiring a contextual delegate annotation", async () => {
   const projectDirectory = resolve(tempRoot, "lambda-requires-context");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -224,9 +236,41 @@ test("CLI rejects lambdas without contextual target delegate facts", async () =>
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /Lambda emission requires a contextual function\/delegate type/);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/SmokeGeneratedLambdaFacts.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static void bare\(\)\s*\{\s*_ = \(\(\) => 1\);\s*\}/u);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/u);
+  assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedLambdaFacts", [
+    "using System;",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        Smoke.Generated.Index.bare();",
+    "        Console.WriteLine(\"completed\");",
+    "    }",
+    "}",
+  ]), "completed\n");
+});
+
+test("CLI rejects inferred callable bodies without exact checked source bindings", async () => {
+  for (const prefix of ["", "async "]) {
+    const projectDirectory = resolve(tempRoot, `inferred-callable-missing-binding-${prefix === "" ? "sync" : "async"}`);
+    await writeProject(projectDirectory, {
+      "tsonic.json": JSON.stringify({
+        entryPoint: "index.ts",
+        rootDir: "src",
+        outDir: "out",
+        targets: [{ id: "csharp" }],
+      }, null, 2),
+      "src/index.ts": `export function bare(): void { (${prefix}() => missing); }\n`,
+    });
+    const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+    assert.equal(build.status, 1);
+    assert.match(build.stderr, /TS2304: Cannot find name 'missing'/u);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+    assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  }
 });
 
 test("CLI emits omitted function and method return types from TSTS inferred signatures", async () => {

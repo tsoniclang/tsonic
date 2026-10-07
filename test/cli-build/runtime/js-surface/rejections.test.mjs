@@ -1,4 +1,4 @@
-import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);
@@ -174,7 +174,7 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
 
-test("CLI rejects standalone typeof without selected exact provider runtime-kind facts", async () => {
+test("CLI executes standalone typeof through the exact native nullable carrier", async () => {
   const projectDirectory = resolve(tempRoot, "unsupported-standalone-typeof");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -201,8 +201,40 @@ test("CLI rejects standalone typeof without selected exact provider runtime-kind
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
 
-  assert.notEqual(build.status, 0);
-  assert.match(build.stderr, /C# typeof translation requires one exact statically proven target runtime kind/);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static string kindOfMaybeString\(string\? value\)\s*\{\s*return \(value\) switch \{ null => "object", string __tsonic_value\d+ => "string" \};\s*\}/u);
+  assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/u);
+  assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedUnsupportedStandaloneTypeof", [
+    "using System;",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        Console.WriteLine(Smoke.Generated.Index.kindOfMaybeString(\"text\"));",
+    "        Console.WriteLine(Smoke.Generated.Index.kindOfMaybeString(\"\"));",
+    "        Console.WriteLine(Smoke.Generated.Index.kindOfMaybeString(null));",
+    "    }",
+    "}",
+  ]), "string\nstring\nobject\n");
+});
+
+test("CLI rejects typeof without a checked source operand before target publication", async () => {
+  const projectDirectory = resolve(tempRoot, "typeof-missing-source-binding");
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp" }],
+    }, null, 2),
+    "src/index.ts": "export function kindOfMissing(): string { return typeof missing; }\n",
+  });
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 1);
+  assert.match(build.stderr, /TS2304: Cannot find name 'missing'/u);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/src/Index.cs")), false);
+  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
 });
 
 test("CLI rejects non-integral element indexes at the selected source-profile contract", async () => {

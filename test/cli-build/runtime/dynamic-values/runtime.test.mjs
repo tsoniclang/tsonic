@@ -1,4 +1,4 @@
-import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, csharpProjectPath, existsSync, readFile, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
@@ -304,9 +304,49 @@ test("CLI hard-rejects unsupported explicit any operators ", async () => {
   assert.match(build.stdout + build.stderr, /operator '\+='/u);
   assert.match(build.stdout + build.stderr, /operator '\*\*'/u);
   assert.match(build.stdout + build.stderr, /operator '\*\*='/u);
-  assert.match(build.stdout + build.stderr, /operator ','/u);
+  assert.doesNotMatch(build.stdout + build.stderr, /operator ','/u);
   assert.match(build.stdout + build.stderr, /Deletion requires one exact checked element access/u);
   assert.equal(existsSync(csharpProjectPath(projectDirectory, assemblyName)), false);
+});
+
+test("CLI emits and executes explicit any comma sequences through native statements", async () => {
+  const projectDirectory = resolve(tempRoot, "dynamic-values-any-comma-sequence");
+  const assemblyName = "SmokeGeneratedDynamicValuesAnyCommaSequence";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp", options: { namespace: "Smoke.Generated", assemblyName } }],
+    }, null, 2),
+    "src/index.ts": [
+      "function consume(value: any): void {",
+      "  void value;",
+      "}",
+      "",
+      "export function sequence(value: any): number {",
+      "  return (consume(value), 1);",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /public static double sequence\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*consume\(value\);\s*return \(1\);\s*\}/u);
+  assert.doesNotMatch(generatedSource, /System\.Func|\(\(\) =>|System\.Reflection|\bdynamic\b|__unsupported/u);
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        Console.WriteLine(Smoke.Generated.Index.sequence(Tsonic.CSharp.Runtime.TsValue.from(7.0)));",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "1\n");
 });
 
 test("CLI wraps non-exception thrown values with closed runtime carriers", async () => {

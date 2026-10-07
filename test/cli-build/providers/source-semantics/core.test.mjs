@@ -1,4 +1,4 @@
-import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
 
 
 
@@ -408,7 +408,7 @@ test("CLI emits reference type assertions through finalized C# conversion facts"
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedTypeAssertions.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
 });
-test("CLI rejects broad object assertions without finalized carrier facts", async () => {
+test("CLI emits native checked object assertions and preserves nominal identity", async () => {
   const projectDirectory = resolve(tempRoot, "object-type-assertion-rejected");
   await writeProject(projectDirectory, {
     "tsonic.json": JSON.stringify({
@@ -428,9 +428,32 @@ test("CLI rejects broad object assertions without finalized carrier facts", asyn
   });
 
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
-  assert.equal(build.status, 1);
-  assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST index\.ts:4:10: No exact C# explicit conversion relates 'target:Tsonic\.CSharp\.Runtime\.EmptyObject<>' to 'target:tsonic\.source:/u);
-  assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  assert.match(generatedSource, /public static Animal fromObject\(object value\)\s*\{\s*return \(Animal\)value;\s*\}/u);
+  assert.doesNotMatch(generatedSource, /CastDynamic|System\.Reflection|\bdynamic\b|__unsupported/u);
+  const stdout = await runGeneratedCsharpRunner(projectDirectory, "TsonicGenerated", [
+    "using System;",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        var animal = new Tsonic.Generated.Animal();",
+    "        Console.WriteLine(ReferenceEquals(animal, Tsonic.Generated.Index.fromObject(animal)));",
+    "        try",
+    "        {",
+    "            Tsonic.Generated.Index.fromObject(new object());",
+    "            Console.WriteLine(\"accepted wrong identity\");",
+    "        }",
+    "        catch (InvalidCastException)",
+    "        {",
+    "            Console.WriteLine(\"rejected wrong identity\");",
+    "        }",
+    "    }",
+    "}",
+    "",
+  ]);
+  assert.equal(stdout, "True\nrejected wrong identity\n");
 });
 test("CLI keeps neutral and C# source semantics in separate virtual modules", async () => {
   const projectDirectory = resolve(tempRoot, "source-semantics-split");

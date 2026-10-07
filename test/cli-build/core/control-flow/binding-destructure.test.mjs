@@ -139,7 +139,11 @@ test("CLI runs array and object-shape destructuring assignment from finalized fa
   assert.match(generatedSource, /label = __tsonic_destructure\d+\.label;/);
   assert.match(generatedSource, /int\[\] (?<input>__tsonic_destructure\d+) = values;\s*first = \k<input>\[0\];\s*int\[\] returned = \(\k<input>\);/);
   assert.match(generatedSource, /(?<shape>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int>) (?<input>__tsonic_destructure\d+) = input;\s*value = \k<input>\.value;\s*label = \k<input>\.label;\s*\k<shape> returned = \(\k<input>\);/);
-  assert.doesNotMatch(generatedSource, /System\.Func<|\(\(\) =>/);
+  const assignmentBodies = [...generatedSource.matchAll(/public static string (?<name>assignArrayExpression|assignObjectExpression)\([^\n]+\)\s*\{(?<body>[\s\S]*?)\n        \}/gu)];
+  assert.deepEqual(assignmentBodies.map(match => match.groups.name), ["assignArrayExpression", "assignObjectExpression"]);
+  for (const assignment of assignmentBodies) {
+    assert.doesNotMatch(assignment.groups.body, /System\.Func<|\(\(\) =>/);
+  }
   assert.match(generatedSource, /rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*label = __tsonic_destructure\d+\.label,\s*\};/);
   assert.match(generatedSource, /restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|invalid/i);

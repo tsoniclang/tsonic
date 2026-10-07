@@ -114,8 +114,9 @@ test("CLI maps selected JS Promise construction and all to Task-backed runtime o
   assertNoInstalledAssemblyReference(projectText, "Tsonic.CSharp.Js");
   assert.match(generatedText, /System\.Threading\.Tasks\.Task<double>/u);
   assert.match(generatedText, /System\.Threading\.Tasks\.Task<double> passthrough\(System\.Threading\.Tasks\.Task<double> input\)/u);
-  assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime\.Create/u);
-  assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.Create/u);
+  assert.match(generatedText, /Tsonic\.CSharp\.Runtime\.TaskCompletion\.Create/u);
+  assert.match(generatedText, /Tsonic\.CSharp\.Runtime\.TaskCompletion<double>\.Create/u);
+  assert.doesNotMatch(generatedText, /PromiseRuntime(?:<[^>]+>)?\.Create/u);
   assert.match(generatedText, /Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.All/u);
   assert.match(generatedText, /Tsonic\.CSharp\.Js\.JSArray<System\.Threading\.Tasks\.Task<double>>\.of\(\[value\(3\), value\(5\)\]\)/u);
   assert.doesNotMatch(generatedText, /new System\.Threading\.Tasks\.Task(?:<[^>]+>)?\s*\(/u);
