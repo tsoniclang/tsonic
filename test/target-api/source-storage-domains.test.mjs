@@ -596,16 +596,69 @@ test("selected invocation receivers exclude unrelated overrides while preserving
 test("checked method signatures retain structural record callable implementations and replacement origins", async () => {
   const current = await fixture("storage-domain-structural-method-callable", `
     interface Operation { run(): number; }
+    class Native implements Operation { run(): number { return 3; } }
     const first = () => 1;
     const second = () => 2;
     const record: Operation = { run: first };
     record.run = second;
     const selected = record.run();
+    const literal: Operation = { run(): number { return 4; } };
+    const direct = literal.run();
+    const native: Operation = new Native();
+    const concrete = native.run();
   `);
   const selected = current.storage.invocationImplementationsFor(current.initializer("selected"), current.storage.emptyBindings);
   assert.equal(selected.kind === "resolved" && selected.nodes.length === 2 &&
     selected.nodes.includes(current.initializer("first")) && selected.nodes.includes(current.initializer("second")), true,
     "a structural method-shaped contract does not erase stored callable implementations");
+  const original = current.source.ast.properties(current.initializer("literal"))[0];
+  const direct = current.storage.invocationImplementationsFor(current.initializer("direct"), current.storage.emptyBindings);
+  assert.equal(direct.kind === "resolved" && direct.nodes.length === 1 && direct.nodes[0] === original, true,
+    "an object literal's authored method remains the exact stored implementation");
+  const native = namedDeclaration(current.source.ast, current.file, "Native");
+  const method = current.source.ast.members(native).find(node => current.source.ast.is.IsMethodDeclaration(node));
+  const concrete = current.storage.invocationImplementationsFor(current.initializer("concrete"), current.storage.emptyBindings);
+  assert.equal(concrete.kind === "resolved" && concrete.nodes.length === 1 && concrete.nodes[0] === method, true,
+    "a native instance selects its exact implementation through the checked interface contract");
+});
+
+test("exact record slots keep independent writes, immutable aliases and generic invocation results distinct", async () => {
+  const current = await fixture("storage-domain-physical-record-callables", `
+    interface Operation { run(): {}; }
+    class Native implements Operation { run(): {} { return { native: 1 }; } }
+    function invoke<T extends Operation>(owner: T): {} { return owner.run(); }
+    export function external(owner: Operation): {} { return owner.run(); }
+    const original = {};
+    const changed = {};
+    const unrelated = {};
+    const first = () => original;
+    const second = () => changed;
+    const third = () => unrelated;
+    const record: Operation = { run: first };
+    const other: Operation = { run: third };
+    record.run = second;
+    const alias = record;
+    const direct = record.run();
+    const aliased = alias.run();
+    const contextual = invoke(alias);
+    const different = other.run();
+    const native = new Native().run();
+  `);
+  const originals = ["original", "changed"].map(name => current.subject(current.initializer(name)));
+  for (const name of ["direct", "aliased", "contextual"]) {
+    const selected = complete(current.selection(name), `closed actual physical callback slot: ${name}`);
+    assert.equal(selected.length === 2 && originals.every(original => selected.some(value => value.subject === original)), true,
+      "only writes to the exact record's callable slot contribute result origins");
+  }
+  const unrelated = current.subject(current.initializer("unrelated"));
+  const different = complete(current.selection("different"), "a separate record's slot remains independent");
+  assert.equal(different.length === 1 && different[0].subject === unrelated, true);
+  const native = complete(current.selection("native"), "native interface implementations remain separate from record slots");
+  assert.equal(native.length === 1 && !originals.includes(native[0].subject) && native[0].subject !== unrelated, true);
+  const owner = namedDeclaration(current.source.ast, current.file, "external");
+  const returned = current.storage.subject(owner, "return");
+  assert.equal(returned.kind === "resolved", true);
+  open(current.storage.closedOriginsFor(returned.subject), "external-input", "observed private record calls do not close an unknown external receiver");
 });
 
 test("abstract external receivers remain open while selected concrete overrides and native method aliases retain their contracts", async () => {
