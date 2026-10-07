@@ -48,9 +48,9 @@ test("CLI emits C# null-conditional access from TSTS optional-chain AST", async 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /return box\?\.value \?\? defaultValue;/);
-  assert.match(generatedSource, /return box\?\.read\(\) \?\? defaultValue;/);
+  assert.match(generatedSource, /return \(box is Box (?<present>__tsonic_present_\d+) \? \k<present>\.read\(\) : default\(double\?\)\) \?\? defaultValue;/);
   assert.match(generatedSource, /public static double readElement\(double\[\]\? values, int index, double defaultValue\)/);
-  assert.match(generatedSource, /return values\?\[index\] \?\? defaultValue;/);
+  assert.match(generatedSource, /return \(values is double\[\] (?<present>__tsonic_present_\d+) \? \k<present>\[index\] : default\(double\?\)\) \?\? defaultValue;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalChain.csproj"), "--nologo", "--v:minimal"]);
@@ -115,11 +115,11 @@ test("CLI emits nullable C# storage for nullish unions from provider runtime-car
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double\? maybeNumber\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? 1\.5 : null;/);
+  assert.match(generatedSource, /return flag \? 1\.5 : default\(double\?\);/);
   assert.match(generatedSource, /public static double\? maybeNumberUndefined\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? 2\.5 : null;/);
+  assert.match(generatedSource, /return flag \? 2\.5 : default\(double\?\);/);
   assert.match(generatedSource, /public static bool\? maybeBoolean\(bool flag\)/);
-  assert.match(generatedSource, /return flag \? true : null;/);
+  assert.match(generatedSource, /return flag \? true : default\(bool\?\);/);
   assert.match(generatedSource, /public static Box\? maybeBox\(bool flag, Box box\)/);
   assert.match(generatedSource, /public static bool readBoolean\(bool\? value, bool alternate\)/);
   assert.match(generatedSource, /return value \?\? alternate;/);
@@ -298,7 +298,7 @@ test("CLI emits tuple rest/default forms from finalized tuple carrier facts", as
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1 \?\? "fallback";/);
+  assert.match(generatedSource, /string name = __tsonic_destructure\d+\.Item1 is string (?<value>__tsonic_value\d+) \? \k<value> : "fallback";/);
   assert.match(generatedSource, /System\.ValueTuple<double> rest = new System\.ValueTuple<double>\(__tsonic_destructure\d+\.Item2\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 

@@ -233,7 +233,7 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
-  assert.match(generatedSource, /return apply\(3, \(double input\) => input \+ 4\);/);
+  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double input\)\s*\{\s*return input \+ 4;\s*\}\s*return apply\(3, new Func<double, double>\(\k<callable>\)\);/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \* 2;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);
@@ -283,11 +283,11 @@ test("CLI emits closure-capturing returned lambdas from TSTS callable facts", as
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Func<double> makeCounter\(\)/);
   assert.match(generatedSource, /double count = 0;/);
-  assert.match(generatedSource, /return \(\) =>\n\s*\{/);
+  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(\)\s*\{\s*count\+\+;\s*return count;\s*\}\s*return new Func<double>\(\k<callable>\);/);
   assert.match(generatedSource, /count\+\+;/);
   assert.match(generatedSource, /return count;/);
   assert.match(generatedSource, /public static Func<double, double> makeAdder\(double left\)/);
-  assert.match(generatedSource, /return \(double right\) => left \+ right;/);
+  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double right\)\s*\{\s*return left \+ right;\s*\}\s*return new Func<double, double>\(\k<callable>\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedClosureReturnedLambdas.csproj"), "--nologo", "--v:minimal"]);
@@ -340,10 +340,10 @@ test("CLI emits optional callback parameters and nullable callable unions from f
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static int compute\(int value, Action<int>\? callback = null\)/);
   assert.match(generatedSource, /if \(callback is not null\)/);
-  assert.match(generatedSource, /callback\(result\);/);
+  assert.match(generatedSource, /callback!\(result\);/);
   assert.match(generatedSource, /public static int maybeTransform\(int value, Func<int, int>\? transform\)/);
   assert.match(generatedSource, /if \(transform is not null\)/);
-  assert.match(generatedSource, /return transform\(value\);/);
+  assert.match(generatedSource, /return transform!\(value\);/);
   assert.doesNotMatch(generatedSource, /Func<double, double>|undefined|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedOptionalCallbacks.csproj"), "--nologo", "--v:minimal"]);

@@ -168,7 +168,7 @@ test("CLI maps selected JS Promise.resolve through closed runtime metadata", asy
   const generatedText = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(
     generatedText,
-    /return Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.Resolve\(value\);/u,
+    /return Tsonic\.CSharp\.Js\.PromiseRuntime<double>\.Resolved\(value\);/u,
   );
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
 

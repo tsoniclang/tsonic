@@ -176,8 +176,7 @@ test("CLI emits nested object rest destructuring from finalized TSTS rest bindin
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /ObjectShape_c3537e91dfb4<ObjectShape_b0f27b1e798e<string, string, string>, string> __tsonic_destructure\d+ = input;/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, string, string> __tsonic_destructure\d+ = __tsonic_destructure\d+\.address;/);
+  assert.match(generatedSource, /ObjectShape_[a-f0-9]{12}<(?<address>ObjectShape_[a-f0-9]{12}<string, string, string>), string> (?<input>__tsonic_destructure\d+) = input;\s*\k<address> __tsonic_destructure\d+ = \k<input>\.address;/);
   assert.match(generatedSource, /string city = __tsonic_destructure\d+\.city;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} restAddress = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*zip = __tsonic_destructure\d+\.zip,\s*country = __tsonic_destructure\d+\.country,\s*\};/);
   assert.doesNotMatch(generatedSource, /city = __tsonic_destructure\d+\.city,\s*\};/);

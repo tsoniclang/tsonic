@@ -89,8 +89,9 @@ test("CLI emits finalized class properties, static members, and generic inherita
   assert.match(generatedSource, /public T current\s*\{\s*get\s*\{\s*return this\.value;\s*\}/);
   assert.match(generatedSource, /public class NamedBox<T> : Box<T>, Named<T>/);
   assert.match(generatedSource, /public T id\s*\{\s*get;\s*set;\s*\}/);
-  assert.match(generatedSource, /public string label\s*\{\s*get;\s*set;\s*\}\s*=\s*"unset";/);
+  assert.match(generatedSource, /public string label\s*\{\s*get;\s*set;\s*\}\s*=\s*default\(string\)!;/);
   assert.match(generatedSource, /public NamedBox\(T id, T value, string label\) : base\(value\)/);
+  assert.match(generatedSource, /public NamedBox\(T id, T value, string label\) : base\(value\)\s*\{\s*this\.label = "unset";\s*this\.id = id;\s*this\.label = label;/);
   assert.match(generatedSource, /public class IntNamedBox : NamedBox<int>/);
   assert.match(generatedSource, /public static int created = 0;/);
   assert.match(generatedSource, /public static int bump\(\)/);

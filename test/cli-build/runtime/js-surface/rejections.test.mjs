@@ -151,22 +151,22 @@ test("CLI emits typeof narrowing through selected TSTS target facts", async () =
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double lengthOrZero\(string\? value\)/);
-  assert.match(generatedSource, /if \(value is string\)/);
-  assert.match(generatedSource, /return value\.Length;/);
+  assert.match(generatedSource, /if \(\(value\) switch \{ null => false, string __tsonic_value\d+ => true \}\)/);
+  assert.match(generatedSource, /return value!\.Length;/);
   assert.match(generatedSource, /public static bool isMissing\(string\? value\)/);
-  assert.match(generatedSource, /return value is not string;/);
+  assert.match(generatedSource, /return \(value\) switch \{ null => true, string __tsonic_value\d+ => false \};/);
   assert.match(generatedSource, /public static bool isNumber\(double\? value\)/);
-  assert.match(generatedSource, /return value is double;/);
+  assert.match(generatedSource, /return \(value\) switch \{ null => false, double __tsonic_value\d+ => true \};/);
   assert.match(generatedSource, /public static bool isBoolean\(bool\? value\)/);
-  assert.match(generatedSource, /return value is bool;/);
+  assert.match(generatedSource, /return \(value\) switch \{ null => false, bool __tsonic_value\d+ => true \};/);
   assert.match(generatedSource, /public static string kindOfString\(string value\)/);
-  assert.match(generatedSource, /return "string";/);
+  assert.match(generatedSource, /return \(value\) switch \{ _ => "string" \};/);
   assert.match(generatedSource, /public static string kindOfNumber\(double value\)/);
-  assert.match(generatedSource, /return "number";/);
+  assert.match(generatedSource, /return \(value\) switch \{ _ => "number" \};/);
   assert.match(generatedSource, /public static string kindOfBoolean\(bool value\)/);
-  assert.match(generatedSource, /return "boolean";/);
+  assert.match(generatedSource, /return \(value\) switch \{ _ => "boolean" \};/);
   assert.match(generatedSource, /public static string kindOfInt32\(int value\)/);
-  assert.match(generatedSource, /return "number";/);
+  assert.match(generatedSource, /public static string kindOfInt32\(int value\)\s*\{\s*return \(value\) switch \{ _ => "number" \};/);
   assert.doesNotMatch(generatedSource, /typeof/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

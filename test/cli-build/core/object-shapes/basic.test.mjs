@@ -705,7 +705,7 @@ test("CLI runs readonly utility object spread through object-shape copy facts", 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, string> clone\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, string> input\)/);
-  assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = input\.id,\s*label = input\.label,\s*\};/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, string> (?<input>__tsonic_value_\d+) = input;\s*double (?<id>_*tsonic_value_\d+) = \k<input>\.id;\s*string (?<label>_*tsonic_value_\d+) = \k<input>\.label;\s*return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = \k<id>,\s*label = \k<label>,\s*\};/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "1:ro\n");

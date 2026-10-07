@@ -132,7 +132,7 @@ test("CLI emits C# source project from TSTS semantics and compiles with dotnet",
   assert.match(generatedSource, /foreach \(double value in values\)/);
   assert.match(generatedSource, /public static int control\(int value\)/);
   assert.match(generatedSource, /public Counter\(int initial\)/);
-  assert.match(generatedSource, /for \(int i = 0; i < delta; i\+\+\)/);
+  assert.match(generatedSource, /\{\s*int i = 0;\s*for \(; i < delta; i\+\+\)/);
   assert.match(generatedSource, /switch \(value\)/);
   assert.match(generatedSource, /case 0:/);
   assert.match(generatedSource, /continue;/);

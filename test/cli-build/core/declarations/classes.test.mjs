@@ -160,7 +160,8 @@ test("CLI preserves JavaScript class field dispatch through C# properties", asyn
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public virtual string value\s*\{\s*get;\s*set;\s*\}\s*=\s*"base";/);
-  assert.match(generatedSource, /public override string value\s*\{\s*get;\s*set;\s*\}\s*=\s*"derived";/);
+  assert.match(generatedSource, /public override string value\s*\{\s*get;\s*set;\s*\}\s*=\s*default\(string\)!;/);
+  assert.match(generatedSource, /public Derived\(\) : base\(\)\s*\{\s*this\.value = "derived";/);
   assert.doesNotMatch(generatedSource, /public string value;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -383,8 +384,8 @@ test("CLI emits standard JavaScript class static blocks as C# static constructor
   assert.equal(build.status, 0, build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static double value = 0;/);
-  assert.match(generatedSource, /static Counter\(\)\n\s*\{\n\s*Counter\.value = 3;/);
+  assert.match(generatedSource, /public static double value;/);
+  assert.match(generatedSource, /static Counter\(\)\s*\{\s*Counter\.value = 0;\s*Counter\.value = 3;/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedStaticBlocks.csproj"), "--nologo", "--v:minimal"]);

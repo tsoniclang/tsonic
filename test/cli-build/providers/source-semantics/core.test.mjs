@@ -187,7 +187,8 @@ test("CLI emits char string literals as C# char literals from expected TSTS type
   assert.match(generatedSource, /return 'x';/);
   assert.match(generatedSource, /return '\\n';/);
   assert.match(generatedSource, /return flag \? 'a' : 'b';/);
-  assert.match(generatedSource, /public static char defaulted\(char value = 'q'\)/);
+  assert.match(generatedSource, /public static char defaulted\(char\? __tsonic_param0 = null\)/);
+  assert.match(generatedSource, /char value = __tsonic_param0 is char (?<value>__tsonic_value\d+) \? \k<value> : 'q';/);
   assert.doesNotMatch(generatedSource, /return "x";/);
   assert.doesNotMatch(generatedSource, /char value = "q"/);
 

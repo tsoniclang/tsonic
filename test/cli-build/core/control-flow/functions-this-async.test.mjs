@@ -41,7 +41,7 @@ test("CLI emits async functions and lambdas from TSTS Promise carriers", async (
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<double> echo\(System\.Threading\.Tasks\.Task<double> value\)/);
   assert.match(generatedSource, /return await value;/);
   assert.match(generatedSource, /public static Func<System\.Threading\.Tasks\.Task<double>> delayed\(\)/);
-  assert.match(generatedSource, /return async \(\) => 2;/);
+  assert.match(generatedSource, /async System\.Threading\.Tasks\.Task<double> (?<callable>__tsonic_callable_\d+)\(\)\s*\{\s*return 2;\s*\}\s*return new Func<System\.Threading\.Tasks\.Task<double>>\(\k<callable>\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 });
 

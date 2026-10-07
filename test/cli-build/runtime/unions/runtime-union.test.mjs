@@ -55,7 +55,7 @@ test("CLI emits runtime-union arm tests and projections from finalized facts", a
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string> value = flag \? Tsonic\.CSharp\.Runtime\.Union<double, string>\.From1\(1\) : Tsonic\.CSharp\.Runtime\.Union<double, string>\.From2\("ready"\);/);
-  assert.match(generatedSource, /if \(value\.Is2\(\)\)/);
+  assert.match(generatedSource, /if \(\(value\) switch \{ var (?<first>__tsonic_value\d+) when \k<first>\.Is1\(\) => false, var (?<second>__tsonic_value\d+) when \k<second>\.Is2\(\) => true, _ => throw new System\.InvalidOperationException\("Invalid native union variant"\) \}\)/);
   assert.match(generatedSource, /return value\.As2\(\);/);
   assert.doesNotMatch(generatedSource, /value is string|return value;\s*}\s*return "fallback"/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
@@ -104,7 +104,7 @@ test("CLI emits native nullable runtime unions from finalized facts", async () =
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string>\?/);
-  assert.match(generatedSource, /flag == 0 \? null/);
+  assert.match(generatedSource, /flag == 0 \? default\(Tsonic\.CSharp\.Runtime\.Union<double, string>\?\)/);
   assert.doesNotMatch(generatedSource, /Runtime\.(?:Null|Undefined)|Union<double, string,/);
   assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
 
@@ -164,9 +164,10 @@ test("CLI emits object-shape runtime-union declarations and member projections f
   assert.equal(shapeDeclarations.length, 2);
   assert.equal((generatedShapes.match(/public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g) ?? []).length, 2);
   assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double>, [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double>> shape/);
-  assert.match(generatedSource, /if \(shape\.Match\(__tsonic_union_arm1 => __tsonic_union_arm1\.kind, __tsonic_union_arm2 => __tsonic_union_arm2\.kind\) == "circle"\)/);
-  assert.match(generatedSource, /return \$"circle:\{shape\.As2\(\)\.radius\}";/);
-  assert.match(generatedSource, /return \$"square:\{shape\.As1\(\)\.size\}";/);
+  assert.match(generatedSource, /if \(\(shape\) switch \{ var (?<first>__tsonic_union_\d+_\d+_0) when \k<first>\.Is1\(\) => \k<first>\.As1\(\)\.kind, var (?<second>__tsonic_union_\d+_\d+_1) when \k<second>\.Is2\(\) => \k<second>\.As2\(\)\.kind, _ => throw new System\.InvalidOperationException\("Excluded native union variant"\) \} == "circle"\)/);
+  assert.match(generatedSource, /return \$"circle:\{shape\.As1\(\)\.radius\}";/);
+  assert.match(generatedSource, /return \$"square:\{shape\.As2\(\)\.size\}";/);
+  assert.doesNotMatch(generatedSource, /shape\.Match\(/);
   assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double radius\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required double size\s*\{\s*get;\s*set;\s*\}/);

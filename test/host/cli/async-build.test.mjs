@@ -223,9 +223,9 @@ test("CLI emits and executes async higher-order function carriers", async () => 
 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<Func<int, int>> createMultiplier\(int factor\)/);
-  assert.match(generatedSource, /return \(int x\) => x \* factor;/);
+  assert.match(generatedSource, /int (?<callable>__tsonic_callable_\d+)\(int x\)\s*\{\s*return x \* factor;\s*\}\s*return new Func<int, int>\(\k<callable>\);/);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<Func<int, System\.Threading\.Tasks\.Task<int>>> createAsyncAdder\(int start\)/);
-  assert.match(generatedSource, /return async \(int x\) => start \+ x;/);
+  assert.match(generatedSource, /async System\.Threading\.Tasks\.Task<int> (?<callable>__tsonic_callable_\d+)\(int x\)\s*\{\s*return start \+ x;\s*\}\s*return new Func<int, System\.Threading\.Tasks\.Task<int>>\(\k<callable>\);/);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> withAsyncCallback<T>\(T value, Func<T, System\.Threading\.Tasks\.Task<string>> callback\)/);
   assert.match(generatedSource, /return await callback\(value\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);

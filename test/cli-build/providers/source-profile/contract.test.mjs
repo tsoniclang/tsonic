@@ -91,7 +91,7 @@ test("CLI pure C# profile infers integral literal local storage for CLR array in
   const result = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const generated = await readFile(resolve(projectDirectory, "out/csharp/src/App.cs"), "utf8");
-  assert.match(generated, /for \(int index = 0; index < values\.Length; index\+\+\)/u);
+  assert.match(generated, /\{\s*int index = 0;\s*for \(; index < values\.Length; index\+\+\)/u);
   assert.match(generated, /result \+= values\[index\]/u);
   assert.equal(runGeneratedProject(projectDirectory, "SmokeGeneratedInferredArrayIndex").trim(), "6");
 });

@@ -241,7 +241,7 @@ test("downstream ASP.NET-style SDK project consumes provider-backed generated li
   const generatedProject = await readFile(generatedProjectPath, "utf8");
   assert.match(generatedSource, /public class UserEntity : NamedEntity/);
   assert.match(generatedSource, /public System\.Guid id = System\.Guid\.Empty;/);
-  assert.match(generatedSource, /public int\? score = null;/);
+  assert.match(generatedSource, /public int\? score = default\(int\?\);/);
   assert.match(generatedSource, /public System\.DateTime createdAt = System\.DateTime\.MinValue;/);
   assert.match(generatedSource, /public System\.DateTimeOffset updatedAt = System\.DateTimeOffset\.MinValue;/);
   assert.match(generatedSource, /public System\.Collections\.Generic\.List<string> roles = new System\.Collections\.Generic\.List<string>/);

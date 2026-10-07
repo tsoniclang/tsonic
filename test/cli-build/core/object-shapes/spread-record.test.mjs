@@ -72,12 +72,25 @@ test("CLI runs object rest defaults with nested object spread from finalized fac
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static string rewrite\(ObjectShape_306201e9974e<ObjectShape_5f6346830d49<double, double>, double, double, string\?, string> __tsonic_param\d+, double value\)/);
-  assert.match(generatedSource, /string label = __tsonic_param\d+\.label \?\? "missing";/);
+  assert.match(generatedSource, /public static string rewrite\(ObjectShape_[a-f0-9]{12}<ObjectShape_[a-f0-9]{12}<double, double>, double, double, string\?, string> __tsonic_param\d+, double value\)/);
+  assert.match(generatedSource, /string label = __tsonic_param\d+\.label is string (?<label>__tsonic_value\d+) \? \k<label> : "missing";/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double> child = __tsonic_param\d+\.child;/);
   assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12} rest = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*note = __tsonic_param\d+\.note,\s*extra = __tsonic_param\d+\.extra,\s*\};/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double> updatedChild = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = child\.id,\s*value = value,\s*\};/);
-  assert.match(generatedSource, /ObjectShape_33fb2f1d63ed<ObjectShape_5f6346830d49<double, double>, double, double, string, string> output = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*note = rest\.note,\s*extra = rest\.extra,\s*label = label,\s*child = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}[\s\S]*id = updatedChild\.id,\s*value = updatedChild\.value,/);
+  assert.match(generatedSource, /(?<shape>[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<double, double>) (?<child>__tsonic_value_\d+) = child;\s*double (?<id>_*tsonic_value_\d+) = \k<child>\.id;\s*double (?<value>_*tsonic_value_\d+) = \k<child>\.value;\s*\k<value> = value;\s*\k<shape> updatedChild = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*id = \k<id>,\s*value = \k<value>,\s*\};/);
+  assert.match(generatedSource, new RegExp([
+    "ObjectShape_[a-f0-9]{12} (?<rest>__tsonic_value_\\d+) = rest;",
+    "string (?<note>_*tsonic_value_\\d+) = \\k<rest>\\.note;",
+    "double (?<extra>_*tsonic_value_\\d+) = \\k<rest>\\.extra;",
+    "string (?<label>_*tsonic_value_\\d+) = label;",
+    "(?<shape>ObjectShape_[a-f0-9]{12}<double, double>) (?<child>__tsonic_value_\\d+) = updatedChild;",
+    "double (?<id>_*tsonic_value_\\d+) = \\k<child>\\.id;",
+    "double (?<value>_*tsonic_value_\\d+) = \\k<child>\\.value;",
+    "\\k<shape> (?<copy>_*tsonic_value_\\d+) = new ObjectShape_[a-f0-9]{12}",
+    "\\{\\s*id = \\k<id>,\\s*value = \\k<value>,\\s*\\};",
+    "double (?<count>_*tsonic_value_\\d+) = count;",
+    "ObjectShape_[a-f0-9]{12}<\\k<shape>, double, double, string, string> output = new ObjectShape_[a-f0-9]{12}",
+    "\\{\\s*note = \\k<note>,\\s*extra = \\k<extra>,\\s*label = \\k<label>,\\s*child = \\k<copy>,\\s*count = \\k<count>,\\s*\\};",
+  ].join("\\s*"), "u"));
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), [

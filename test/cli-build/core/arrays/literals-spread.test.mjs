@@ -85,8 +85,19 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.match(generatedSource, /return accepts\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> nestedEmptyAndSpread\(\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>>\.of\(\[Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2\]\)\]\)/);
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[0\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(right\)\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[0\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(left\), new Tsonic\.CSharp\.Js\.JSArray<int>\(right\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[9\]\)\);/);
+  const nestedBody = /nestedSpread\([^\n]+\)\s*\{([\s\S]*?)\n        \}/u.exec(generatedSource)?.[1];
+  assert.ok(nestedBody);
+  assertArraySpreadCopies(nestedBody, ["left", "right"]);
+  assert.equal((nestedBody.match(/new Tsonic\.CSharp\.Js\.JSArray<int>\(\)/gu) ?? []).length, 2);
+  assert.match(nestedBody, /new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(0\);/u);
+  const composeBody = /compose\([^\n]+\)\s*\{([\s\S]*?)\n        \}/u.exec(generatedSource)?.[1];
+  assert.ok(composeBody);
+  const composeCopies = assertArraySpreadCopies(composeBody, ["left", "right"]);
+  assert.equal((composeBody.match(/new Tsonic\.CSharp\.Js\.JSArray<int>\(\)/gu) ?? []).length, 1);
+  assert.match(composeBody, new RegExp(`${composeCopies[1]} = ${composeCopies[0]};`));
+  assert.match(composeBody, /new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(0\);/u);
+  assert.match(composeBody, new RegExp(`return ${composeCopies[1]}\\.AppendElement\\(9\\);`));
+  assert.doesNotMatch(generatedSource, /\.concat\(|new Tsonic\.CSharp\.Js\.JSArray<int>\((?:left|right)\)/u);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<float> values = Tsonic\.CSharp\.Js\.JSArray<float>\.of\(\[1.5F, 2.5F\]\);/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<double> values = Tsonic\.CSharp\.Js\.JSArray<double>\.of\(\[1, 2, 3\]\);/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
@@ -152,7 +163,12 @@ test("CLI emits readonly source arrays through finalized JSArray carrier facts",
   assert.match(generatedSource, /public static T genericReadonly<T>\(Tsonic\.CSharp\.Js\.JSArray<T> values\)/);
   assert.match(generatedSource, /public static int nested\(Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> values\)/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> readonlySpread\(Tsonic\.CSharp\.Js\.JSArray<int> left, Tsonic\.CSharp\.Js\.JSArray<int> right\)/);
-  assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[0\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(left\), new Tsonic\.CSharp\.Js\.JSArray<int>\(right\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[9\]\)\);/);
+  const copies = assertArraySpreadCopies(generatedSource, ["left", "right"]);
+  assert.equal((generatedSource.match(/new Tsonic\.CSharp\.Js\.JSArray<int>\(\)/gu) ?? []).length, 1);
+  assert.match(generatedSource, new RegExp(`${copies[1]} = ${copies[0]};`));
+  assert.match(generatedSource, /new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(0\);/u);
+  assert.match(generatedSource, new RegExp(`return ${copies[1]}\\.AppendElement\\(9\\);`));
+  assert.doesNotMatch(generatedSource, /\.concat\(/u);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> spread/);
   assert.match(generatedSource, /spread\.length/);
   assert.doesNotMatch(generatedSource, /System\.Collections\.Generic\.(?:List|IReadOnlyList|IEnumerable)</);
@@ -197,10 +213,14 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> source/);
   assert.match(generatedSource, /source = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2, 3\]\);/);
-  assert.match(generatedSource, /withSpread = new Tsonic\.CSharp\.Js\.JSArray<int>\(source\)\.concat\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[4, 5\]\)\);/);
+  const copies = assertArraySpreadCopies(generatedSource, ["source", "source", "more"]);
+  assert.match(generatedSource, new RegExp(`withSpread = ${copies[0]}\\.AppendElement\\(4\\)\\.AppendElement\\(5\\);`));
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> more/);
   assert.match(generatedSource, /more = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[10, 20\]\);/);
-  assert.match(generatedSource, /multiSpread = new Tsonic\.CSharp\.Js\.JSArray<int>\(source\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(more\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[100\]\)\);/);
+  assert.match(generatedSource, new RegExp(`${copies[2]} = ${copies[1]};`));
+  assert.match(generatedSource, new RegExp(`multiSpread = ${copies[2]}\\.AppendElement\\(100\\);`));
+  assert.equal((generatedSource.match(/new Tsonic\.CSharp\.Js\.JSArray<int>\(\)/gu) ?? []).length, 2);
+  assert.doesNotMatch(generatedSource, /\.concat\(/u);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedArraysModuleSpreadConstants.csproj"), "--nologo", "--v:minimal"]);
@@ -245,7 +265,8 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1\]\)\.concat\(new Tsonic\.CSharp\.Js\.JSArray<int>\(new int\[\] \{ pair\.Item1, pair\.Item2 \}\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[4\]\)\)/);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> (?<destination>_*tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(1\);\s*\(int, int\) (?<pair>__tsonic_sequence_\d+) = pair;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ 2\)\);\s*\k<destination>\.Add\(\k<pair>\.Item1\);\s*\k<destination>\.Add\(\k<pair>\.Item2\);\s*return \k<destination>\.AppendElement\(4\);/u);
+  assert.doesNotMatch(generatedSource, /\.concat\(|new int\[\]/u);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> values/);
   assert.match(generatedSource, /values = compose\(\(2, 3\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
@@ -291,3 +312,9 @@ test("CLI executes inferred empty arrays with the exact never element carrier", 
   assert.doesNotMatch(generatedSource, /JSArray<(?:object|dynamic|TsValue)>|__unsupported|InvalidExpression/u);
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "0\n");
 });
+
+function assertArraySpreadCopies(source, inputs) {
+  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__tsonic_sequence_\d+) = (?<input>[A-Za-z][A-Za-z0-9]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
+  assert.deepEqual(copies.map(copy => copy.groups.input), inputs);
+  return copies.map(copy => copy.groups.destination);
+}
