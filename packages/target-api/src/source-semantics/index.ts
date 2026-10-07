@@ -11,6 +11,7 @@ export { sourceCallableInterface } from "./callable-interfaces.js";
 export { sourcePresentCallableType } from "./present-callables.js";
 export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers, selectSourceNativeGuardResult } from "./value-flow-conditions.js";
 export { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
+export { selectedSourceIndexedDeclarations } from "./selected-indexed-declarations.js";
 export { sourceObjectLiteralDestinationMember } from "./object-literal-correspondence.js";
 export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-conditions.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
