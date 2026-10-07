@@ -21,6 +21,36 @@ export function firstFromHeaders(headers: NativeHeaders, key: string): string | 
   return headers[key]?.[0];
 }
 
+interface HeaderTransport {
+  headers: NativeHeaders;
+}
+
+class HeaderReader {
+  readonly #transport: HeaderTransport;
+
+  constructor(headers: NativeHeaders) {
+    this.#transport = { headers };
+  }
+
+  first(key: string): string | undefined {
+    return this.#transport.headers[key]?.[0];
+  }
+
+  guardedFirst(key: string): string | undefined {
+    const values = this.#transport.headers[key];
+    if (values !== undefined) return values[0];
+    return undefined;
+  }
+}
+
+export function firstFromHeaderHolder(headers: NativeHeaders, key: string): string | undefined {
+  return new HeaderReader(headers).first(key);
+}
+
+export function guardedFirstFromHeaderHolder(headers: NativeHeaders, key: string): string | undefined {
+  return new HeaderReader(headers).guardedFirst(key);
+}
+
 export function snapshotFromHeaders(headers: NativeHeaders, key: string): string[] {
   const values = headers[key];
   return values === undefined ? [] : [...values];
