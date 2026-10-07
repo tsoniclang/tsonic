@@ -246,6 +246,10 @@ export function createSourceStorageTransport(
       if (contributed !== undefined && selected !== undefined) {
         const effect = snapshotSourceStorageCallEffect(contributed, selected, budget);
         if (effect !== undefined) {
+          if (effect.resultAllocation !== undefined && effect.resultAllocation !== node) {
+            budget.reject("Source storage allocation requires its exact checked invocation owner.");
+            return;
+          }
           invocationEffects.set(node, effect);
           if (effect.resultAlias !== undefined) connect(subjectFor(effect.resultAlias), subjectFor(node));
         }
@@ -533,7 +537,7 @@ export function createSourceStorageTransport(
   }
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
-    sourceFileFor,
+    sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, invocationOrigins, substitutions, unresolvedFor };
 }

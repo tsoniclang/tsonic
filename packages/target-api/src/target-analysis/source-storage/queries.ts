@@ -3,10 +3,11 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageSubjectType } from "./components.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./resource-budget.js";
 import { createSourceStorageTransport } from "./transport.js";
+import { createSourceStorageDomains } from "./domains.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
-  SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection,
+  SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved,
 } from "./types.js";
 
@@ -18,6 +19,7 @@ export function createSourceStorageQuery(
 ): SourceStorageQueries {
   const budget = createSourceStorageBudget(limits);
   const transport = createSourceStorageTransport(source, sourceFiles, budget, effects);
+  const domains = createSourceStorageDomains(source, transport, budget);
   const bindingStates = new WeakMap<SourceStorageBindings, SourceStorageSubstitutions>();
   const bindingViews = new Map<SourceStorageSubstitutions, SourceStorageBindings>();
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
@@ -48,7 +50,7 @@ export function createSourceStorageQuery(
   const bindingView = (state: SourceStorageSubstitutions): SourceStorageBindings => {
     const existing = bindingViews.get(state);
     if (existing !== undefined) return existing;
-    const substitutions = [...state].map(([formal, actuals]) => Object.freeze({ formal, actuals: Object.freeze([...actuals]) }));
+    const substitutions = [...state].map(([formal, selection]) => Object.freeze({ formal, actuals: Object.freeze([...selection.actuals]) }));
     const view = Object.freeze({ substitutions: Object.freeze(substitutions) });
     bindingStates.set(view, state);
     bindingViews.set(state, view);
@@ -78,6 +80,17 @@ export function createSourceStorageQuery(
       return unresolved(budget.failure() ?? "Source storage ancestry exceeds its finite query budget.");
     const origins = [...ancestors].filter(owner => transport.incomingFor(owner).size === 0);
     return origins.length === 0 ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
+  };
+  const typedOrigins = (subjects: readonly SourceStorageSubject[]): SourceStorageOriginsSelection => {
+    const origins: SourceStorageTypedSubject[] = [];
+    for (const origin of subjects) {
+      if (!budget.step()) return unresolved(budget.failure()!);
+      const sourceFile = transport.sourceFileFor(origin);
+      const type = sourceStorageSubjectType(source, origin, sourceFile);
+      if (type === undefined || sourceFile === undefined) return unresolved("A source storage origin has no exact checked component type.");
+      origins.push(Object.freeze({ subject: origin, type, sourceFile }));
+    }
+    return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
   return Object.freeze({
     source,
@@ -120,15 +133,20 @@ export function createSourceStorageQuery(
     originsFor(subject) {
       const selected = originSubjectsFor(subject);
       if (selected.kind === "unresolved") return selected;
-      const origins: SourceStorageTypedSubject[] = [];
-      for (const origin of selected.subjects) {
-        if (!budget.step()) return unresolved(budget.failure()!);
-        const sourceFile = transport.sourceFileFor(origin);
-        const type = sourceStorageSubjectType(source, origin, sourceFile);
-        if (type === undefined || sourceFile === undefined) return unresolved("A source storage origin has no exact checked component type.");
-        origins.push(Object.freeze({ subject: origin, type, sourceFile }));
-      }
-      return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
+      return typedOrigins(selected.subjects);
+    },
+    closedOriginsFor(subject, bindings = emptyBindings) {
+      const reason = subjectReason(subject);
+      if (reason !== undefined) return unresolved(reason);
+      const state = bindingStates.get(bindings);
+      if (state === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+      const selected = domains.select(subject, state);
+      if (budget.failure() !== undefined) return unresolved(budget.failure()!);
+      if (selected.subjects.length === 0) return unresolved("A source storage cycle has no proven original owner.");
+      const origins = typedOrigins(selected.subjects);
+      if (origins.kind === "unresolved") return origins;
+      return selected.boundaries.length === 0 ? Object.freeze({ kind: "complete", origins: origins.origins })
+        : Object.freeze({ kind: "open", origins: origins.origins, boundaries: selected.boundaries });
     },
     unresolvedFor: subjectReason,
     invocationImplementationsFor(invocation, bindings) {
