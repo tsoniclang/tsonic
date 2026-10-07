@@ -1,18 +1,26 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../source-navigation/immediate-evaluation.js";
-import { sourceBindingCallableKinds } from "../source-navigation/binding-mutation-exposure.js";
+import { sourceBindingCallableKinds, sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import type { SourceValueFlowQueryContext } from "./value-flow-conditions.js";
 
-export function sourceGuardPreservesCapturedBinding(
-  context: Pick<SourceValueFlowQueryContext, "ast" | "navigation">,
+export function sourceGuardPreservesBinding(
+  context: Pick<SourceValueFlowQueryContext, "ast" | "navigation" | "sourceFacts">,
   condition: Node,
   reference: Node,
+  assumed: boolean,
   enter: () => boolean,
 ): boolean {
+  const binding = context.navigation.referenceFor(reference);
+  if (binding === undefined || !context.ast.is.IsVariableDeclaration(binding.declaration) &&
+    !context.ast.is.IsParameterDeclaration(binding.declaration) && !context.ast.is.IsBindingElement(binding.declaration)) return false;
+  const summary = context.navigation.declarationUseSummary(binding.declaration);
+  if (summary.exported || sourceBindingHasMutableExposure(context, summary, enter)) return false;
+  const capturedWrites = summary.uses.some(use => use.captured && use.role === "write" && !use.throughMember);
   const stable = (node: Node): boolean => {
     if (!enter()) return false;
     const effects = context.navigation.expressionEffects(node);
-    return !effects.invokes && !effects.mutates && !effects.suspends;
+    return !(capturedWrites && (effects.invokes || effects.suspends)) &&
+      (!effects.mutates || context.navigation.bindingWritesWithin(binding.symbol, node).length === 0);
   };
   if (!stable(condition)) return false;
   let current = reference;
@@ -35,6 +43,22 @@ export function sourceGuardPreservesCapturedBinding(
       const operator = context.ast.operatorKindName(parent);
       if (expression?.Left === condition && expression.Right === current &&
         (operator === "KindAmpersandAmpersandToken" || operator === "KindBarBarToken")) return true;
+    }
+    if (context.ast.is.IsBlock(parent)) {
+      let found = false;
+      for (const previous of context.ast.statements(parent)) {
+        if (previous === current) {
+          if (found) return true;
+          break;
+        }
+        if (previous === undefined || !enter()) return false;
+        const statement = context.ast.is.IsIfStatement(previous) ? context.ast.as.AsIfStatement(previous) : undefined;
+        if (!found && statement?.Expression === condition) {
+          const branch = assumed ? statement.ThenStatement : statement.ElseStatement;
+          if (branch !== undefined && !stable(branch)) return false;
+          found = true;
+        } else if (found && !stable(previous)) return false;
+      }
     }
     let reached = false;
     let preserved = true;

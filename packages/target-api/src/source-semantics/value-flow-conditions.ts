@@ -3,7 +3,7 @@ import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { sourceBindingHasMutableExposure } from "../source-navigation/binding-mutation-exposure.js";
 import { Node_Expression } from "../source-navigation/ast.js";
 import type { SourceFileSemantics } from "./types.js";
-import { sourceGuardPreservesCapturedBinding } from "./guard-preservation.js";
+import { sourceGuardPreservesBinding } from "./guard-preservation.js";
 
 export interface SourceValueFlowQueryContext {
   readonly ast: AstReader;
@@ -163,7 +163,7 @@ export function selectSourceGuardedValueMembers<Member, Predicate>(
     if (!enter()) return undefined;
     if (condition.assignments.some(assignment =>
       context.navigation.bindingWritesWithin(binding.symbol, assignment).length > 0)) continue;
-    if (capturedWrites && !sourceGuardPreservesCapturedBinding(context, condition.expression, reference, enter)) continue;
+    if (capturedWrites && !sourceGuardPreservesBinding(context, condition.expression, reference, condition.assumed, enter)) continue;
     const narrowed = selectCondition(condition.expression, condition.assumed, selected);
     if (remaining < 0) return undefined;
     if (narrowed === undefined) continue;
