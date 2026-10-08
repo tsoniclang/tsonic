@@ -1,6 +1,7 @@
 export const nativeAbsenceComparisonSource = `
 interface Stored { value: string | null | undefined; }
 class Box { value: string | null | undefined = "present"; }
+class Failure extends Error {}
 let effects = 0;
 function clear(value: Stored): void { value.value = undefined; }
 function absent(): undefined { effects++; return undefined; }
@@ -23,5 +24,16 @@ function recordCase(): boolean {
     record.value === undefined && undefined === record.value &&
     record.value === absent() && absent() === record.value;
 }
-export function run(): boolean { return classCase() && recordCase() && effects === 4; }
+function inheritedCase(): boolean {
+  const original = new Failure("original");
+  const alias = original;
+  original.stack = "present";
+  if (alias.stack !== "present") return false;
+  const base: Error = original;
+  base.stack = undefined;
+  if (alias.stack !== null || null !== original.stack) return false;
+  alias.stack = "restored";
+  return original.stack !== null && base.stack !== undefined;
+}
+export function run(): boolean { return classCase() && recordCase() && inheritedCase() && effects === 4; }
 `;
