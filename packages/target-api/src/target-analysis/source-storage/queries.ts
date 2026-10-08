@@ -94,6 +94,19 @@ export function createSourceStorageQuery(
     }
     return Object.freeze({ kind: "resolved", origins: Object.freeze(origins) });
   };
+  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
+    const reason = subjectReason(subject);
+    if (reason !== undefined) return unresolved(reason);
+    const state = bindingStates.get(bindings);
+    if (state === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+    const selected = domains.select(subject, state);
+    if (budget.failure() !== undefined) return unresolved(budget.failure()!);
+    if (selected.subjects.length === 0) return unresolved("A source storage cycle has no proven original owner.");
+    const origins = typedOrigins(selected.subjects);
+    if (origins.kind === "unresolved") return origins;
+    return selected.boundaries.length === 0 ? Object.freeze({ kind: "complete", origins: origins.origins })
+      : Object.freeze({ kind: "open", origins: origins.origins, boundaries: selected.boundaries });
+  };
   return Object.freeze({
     source,
     sourceFiles: Object.freeze([...sourceFiles]),
@@ -137,18 +150,29 @@ export function createSourceStorageQuery(
       if (selected.kind === "unresolved") return selected;
       return typedOrigins(selected.subjects);
     },
-    closedOriginsFor(subject, bindings = emptyBindings) {
-      const reason = subjectReason(subject);
-      if (reason !== undefined) return unresolved(reason);
-      const state = bindingStates.get(bindings);
-      if (state === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
-      const selected = domains.select(subject, state);
-      if (budget.failure() !== undefined) return unresolved(budget.failure()!);
-      if (selected.subjects.length === 0) return unresolved("A source storage cycle has no proven original owner.");
-      const origins = typedOrigins(selected.subjects);
-      if (origins.kind === "unresolved") return origins;
-      return selected.boundaries.length === 0 ? Object.freeze({ kind: "complete", origins: origins.origins })
-        : Object.freeze({ kind: "open", origins: origins.origins, boundaries: selected.boundaries });
+    closedOriginsFor,
+    localCallableCreationsFor(expression) {
+      const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;
+      if (subject === undefined) return unresolved(budget.failure() ?? "Callable creation requires its exact checked expression.");
+      const origins = closedOriginsFor(subject);
+      if (origins.kind !== "complete") return origins.kind === "unresolved" ? origins
+        : unresolved("An open callable domain cannot prove local creation.");
+      const nodes: Node[] = [];
+      for (const origin of origins.origins) {
+        if (!budget.step()) return unresolved(budget.failure()!);
+        if (!sourceStorageHasOriginalCallableValue(origin.subject, source.ast))
+          return unresolved("Local callable creation requires an original unprojected implementation.");
+        let current: Node | undefined = origin.subject.node;
+        const visited = new Set<Node>();
+        while (current !== undefined && current !== expression && !visited.has(current)) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          visited.add(current);
+          current = source.ast.parent(current);
+        }
+        if (current !== expression) return unresolved("A callable origin was not created within the selected expression.");
+        nodes.push(origin.subject.node);
+      }
+      return Object.freeze({ kind: "resolved", nodes: Object.freeze(nodes) });
     },
     unresolvedFor: subjectReason,
     invocationImplementationsFor(invocation, bindings) {

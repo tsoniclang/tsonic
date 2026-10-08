@@ -124,6 +124,7 @@ export interface SourceStorageQueries {
   originSubjectsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   originsFor(subject: SourceStorageSubject): SourceStorageOriginsSelection;
   closedOriginsFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageClosedOriginsSelection;
+  localCallableCreationsFor(expression: Node): SourceStorageNodesSelection;
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
   invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageNodesSelection;
   invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
