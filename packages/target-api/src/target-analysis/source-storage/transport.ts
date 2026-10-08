@@ -220,11 +220,12 @@ export function createSourceStorageTransport(
       connectValueFlow(binary?.Right);
       if (binary?.Left !== undefined && !ast.is.IsIdentifier(binary.Left)) connect(subjectFor(binary.Right), subjectFor(binary.Left));
     }
-    if (ast.is.IsPropertyAccessExpression(node)) {
-      const selected = semantics.forNode(node).operations.propertyAccess(node);
+    if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
+      const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
+      const selected = property ?? semantics.forNode(node).operations.elementAccess(node);
       const targets = [
-        ...(selected?.accessMode === "write" ? [] : [selected?.selectedReadDeclaration ?? selected?.selectedDeclaration]),
-        ...(selected?.accessMode === "read" ? [] : [selected?.selectedWriteDeclaration ?? selected?.selectedDeclaration]),
+        ...(selected?.accessMode === "write" ? [] : [property?.selectedReadDeclaration ?? selected?.selectedDeclaration]),
+        ...(selected?.accessMode === "read" ? [] : [property?.selectedWriteDeclaration ?? selected?.selectedDeclaration]),
       ].filter((target): target is Node => target !== undefined &&
         (ast.is.IsGetAccessorDeclaration(target) || ast.is.IsSetAccessorDeclaration(target)));
       if (targets.length !== 0) accessorTargets.set(node, Object.freeze(targets));
@@ -487,14 +488,17 @@ export function createSourceStorageTransport(
       const parent = ast.parent(access);
       if (parent === undefined || !ast.is.IsBinaryExpression(parent) || ast.operatorKindName(parent) !== "KindEqualsToken") continue;
       const assignment = ast.as.AsBinaryExpression(parent);
-      const selected = semantics.forNode(access).operations.propertyAccess(access);
-      const declaration = selected?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
+      const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
+      const selected = property ?? semantics.forNode(access).operations.elementAccess(access);
+      const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
       if (assignment?.Left !== access || declaration === undefined || selected === undefined) continue;
       for (const origin of ancestorSubjects(owner) ?? []) {
         if (!step()) break;
-        if (!ast.is.IsObjectLiteralExpression(origin.node)) continue;
+        if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node)) continue;
         for (const member of memberFlow.declarationsFor(origin, declaration, selected.receiver.type) ?? []) {
           if (!step()) break;
+          if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member) ||
+            ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) continue;
           connect(subjectFor(assignment.Right), subject(member));
         }
       }

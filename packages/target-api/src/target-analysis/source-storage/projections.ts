@@ -23,6 +23,10 @@ export function createSourceStorageProjectionFlow(
     const access = queries.operations.elementAccess(node);
     const component = access === undefined ? undefined
       : sourceIndexedStorageProjection(access.receiver.type, access.argument.expression, queries);
+    const declaration = access?.selectedDeclaration;
+    if (component === undefined && declaration !== undefined &&
+      (ast.is.IsPropertyDeclaration(declaration) || ast.is.IsPropertySignatureDeclaration(declaration) ||
+        ast.is.IsPropertyAssignment(declaration) || ast.is.IsShorthandPropertyAssignment(declaration))) return subject(declaration);
     const value = component === undefined ? subject(node) : project(subjectFor(access?.receiver.expression), component);
     if (value !== undefined && component === undefined)
       unresolved(value, "An indexed value has no exact checked array/tuple storage component.");
