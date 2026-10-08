@@ -1,6 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("expression-bodied arrow results retain exact return roles without reclassifying observations", async () => {
+  const checked = await checkedSource("arrow-return-use", { "src/index.ts": `
+    function direct(value: string) { return () => value; }
+    function wrapped(value: string) { return () => (value as string); }
+    function conditional(value: string, other: string, flag: boolean) { return () => flag ? value : other; }
+    function member(value: { name: string }) { return () => value.name; }
+    function arithmetic(value: number) { return () => value + 1; }
+    function stored(value: string) { return () => [value]; }
+  ` });
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  for (const [name, role, unclassified, returned] of [
+    ["direct", "return", false, true], ["wrapped", "return", false, true],
+    ["conditional", "return", false, true], ["member", "receiver", false, false],
+    ["arithmetic", "value", true, false], ["stored", "storage", false, false],
+  ]) {
+    const parameter = source.ast.parameters(namedDeclaration(source.ast, file, name))[0];
+    const summary = source.navigation.declarationUseSummary(parameter);
+    assert.equal(summary.uses.length, 1, name);
+    assert.equal(summary.uses[0].role, role, name);
+    assert.equal(summary.hasUnclassifiedValueUse, unclassified, name);
+    assert.equal(summary.captured, true, name);
+    assert.equal(source.navigation.parameterUseSummary(parameter).returned, returned, name);
+  }
+});
+
 import {
   finalizeTargetDiagnostics,
 } from "../../packages/host/dist/diagnostics.js";

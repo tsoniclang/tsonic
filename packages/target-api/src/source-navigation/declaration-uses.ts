@@ -182,7 +182,8 @@ function sourceDeclarationUseRole(
         throughMember: receiverPath,
       };
     }
-    if (ast.is.IsReturnStatement(parent)) {
+    if (ast.is.IsReturnStatement(parent) ||
+      ast.is.IsArrowFunction(parent) && sourceNodesEqual(ast, ast.body(parent), current)) {
       return { role: receiverPath ? "receiver" : "return", throughMember: receiverPath };
     }
     if (ast.is.IsYieldExpression(parent)) {
