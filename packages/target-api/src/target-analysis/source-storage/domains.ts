@@ -160,6 +160,8 @@ export function createSourceStorageDomains(
       if (context.types.isStringLike(present) || context.types.isNumberLike(present) || context.types.isBooleanLike(present) ||
         context.types.isBigIntLike(present) || context.types.isSymbolLike(present) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
+      if (context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
+        context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0) continue;
       for (const owner of publicationOrigins(publication.subject, publication.externalEntry)) {
         if (!budget.step()) return;
         const file = transport.sourceFileFor(owner);
