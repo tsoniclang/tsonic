@@ -37,7 +37,7 @@ export function selectSourceNativeValueGuard(
     }
     if (ast.is.IsIdentifier(absent)) {
       const declaration = navigation.sourceReferenceFor(absent)?.declaration;
-      const semantics = semanticsFor(declaration ?? absent);
+      const semantics = semanticsFor(absent);
       const type = declaration === undefined ? semantics.types.expressionType(absent)
         : semantics.declarations.declaredValueType(declaration);
       if (type !== undefined && semantics.types.isNullish(type)) {
