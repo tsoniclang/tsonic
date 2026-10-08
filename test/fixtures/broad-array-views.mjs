@@ -43,3 +43,19 @@ export function run(): boolean {
   return update(values) && alias[0] === 7 && !update("not an array");
 }
 `;
+
+export const broadArrayFailureSource = `
+function count(value: unknown): number {
+  const values = value as string[];
+  return values.length;
+}
+export function run(): boolean {
+  if (count(["native"]) !== 1) return false;
+  try {
+    count([1]);
+    return false;
+  } catch {
+    return true;
+  }
+}
+`;
