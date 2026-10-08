@@ -2,6 +2,7 @@ import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
+import { sourceArrayElementType } from "../../source-semantics/array-types.js";
 
 export function sourcePresentStorageType(type: Type, semantics: SourceFileSemantics): Type | undefined {
   if (!semantics.types.isUnion(type)) return type;
@@ -22,10 +23,7 @@ export function sourceStorageComponentType(
     const element = elements[component.index];
     return element?.elementKind === "required" || element?.elementKind === "optional" ? element.type : undefined;
   }
-  if (!semantics.types.isArrayLike(selected) || semantics.types.isTuple(selected) ||
-    !semantics.types.isTypeReference(selected)) return undefined;
-  const arguments_ = semantics.types.typeArguments(selected);
-  return arguments_.length === 1 ? arguments_[0] : undefined;
+  return sourceArrayElementType(selected, semantics);
 }
 
 export function* sourceStorageComponents(

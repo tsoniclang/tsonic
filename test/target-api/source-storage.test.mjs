@@ -15,6 +15,67 @@ interface ReadonlyArray<T> { readonly [index: number]: T; readonly length: numbe
 const element = Object.freeze([{ kind: "array-element" }]);
 const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
+test("array component transport follows exact inherited numeric indexes rather than interface arguments", async () => {
+  const { source, storage, variable, initializer } = await checked("source-storage-array-facades", `
+const firstToken = {};
+const secondToken = {};
+const replacement = {};
+const tokens: object[] = [firstToken, secondToken];
+const alias: MoreTokens = tokens;
+tokens[0] = replacement;
+const generic: Values<object> = alias;
+const redirected: Redirect<string> = generic;
+const nested: Values<MoreTokens> = [alias];
+const selected = head(head(nested));
+`, `
+export interface Tokens extends ReadonlyArray<object> {}
+export interface MoreTokens extends Tokens {}
+export interface Values<T> extends ReadonlyArray<T> {}
+export interface Redirect<Unused> extends ReadonlyArray<object> {}
+export function head<T>(values: Values<T>): T { return values[0]; }
+`, ["MoreTokens", "Values", "Redirect", "head"]);
+  for (const name of ["alias", "generic", "redirected"]) {
+    const subject = resolvedSubject(storage.storageSubjectFor(variable(name), element), name);
+    const type = storage.typeFor(subject);
+    assert.equal(type.kind === "resolved", true, `${name}: inherited index type`);
+    assert.equal(source.semantics.forNode(variable(name)).types.isNonPrimitive(type.type), true,
+      `${name}: exact object element, not the unrelated generic string argument`);
+    const origins = storage.closedOriginsFor(subject);
+    assert.equal(origins.kind === "complete", true, `${name}: closed shared backing`);
+    for (const token of ["firstToken", "secondToken", "replacement"]) {
+      assert.equal(origins.origins.some(origin => origin.subject.node === initializer(token)), true,
+        `${name}: exact ${token} write origin`);
+    }
+  }
+  const nested = resolvedSubject(storage.storageSubjectFor(variable("nested"), [...element, ...element]), "nested facade");
+  const selected = resolvedSubject(storage.subjectFor(variable("selected")), "generic cross-file selected element");
+  for (const subject of [nested, selected]) {
+    const origins = storage.closedOriginsFor(subject);
+    assert.equal(origins.kind === "complete", true, "generic facade preserves element completeness");
+    assert.equal(origins.origins.every(origin => source.ast.is.IsObjectLiteralExpression(origin.subject.node)), true,
+      "exact allocation nodes survive cross-file generic selection");
+  }
+  assert.equal(storage.failureReason() === undefined, true, "bounded query remains complete");
+});
+
+test("array facades do not turn external element writes or numeric records into closed array evidence", async () => {
+  const { storage, variable } = await checked("source-storage-open-array-facades", `
+const tokens: object[] = [{}];
+export let exposed: MoreTokens = tokens;
+const selected = exposed[0];
+const indexed: { [index: number]: object } = { 0: {} };
+`, `export interface MoreTokens extends ReadonlyArray<object> {}`, ["MoreTokens"]);
+  const subject = resolvedSubject(storage.storageSubjectFor(variable("exposed"), element), "exposed elements");
+  for (const selected of [storage.closedOriginsFor(subject),
+    storage.closedOriginsFor(resolvedSubject(storage.subjectFor(variable("selected")), "selected exposed element"))]) {
+    assert.equal(selected.kind === "open", true, "external element provenance remains open");
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-write"), true,
+      "actual external writer is not discharged by a local array origin");
+  }
+  assert.equal(storage.storageSubjectFor(variable("indexed"), element).kind, "unresolved",
+    "a numeric index alone is not checker-recognized array storage");
+});
+
 async function checked(name, body, provider = "", imports = []) {
   const result = await checkedSource(name, {
     "globals.d.ts": globals,
