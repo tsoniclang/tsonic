@@ -19,7 +19,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-navigation/checked-casts.ts": 76,
   "packages/target-api/src/source-navigation/constructors.ts": 1,
   "packages/target-api/src/source-navigation/counted-loops.ts": 6,
-  "packages/target-api/src/source-navigation/declaration-uses.ts": 23,
+  "packages/target-api/src/source-navigation/declaration-uses.ts": 24,
   "packages/target-api/src/source-navigation/deferred-captures.ts": 1,
   "packages/target-api/src/source-navigation/expression-effects.ts": 2,
   "packages/target-api/src/source-navigation/expression-use.test.ts": 2,
@@ -65,6 +65,7 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-semantics/value-flow-conditions.ts": 3,
   "packages/target-api/src/target-analysis/error-storage/error-storage-demands.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/projections.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/stored-values.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/global-call-effects.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/transport.ts": 7,
 });

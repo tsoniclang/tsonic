@@ -31,6 +31,7 @@ export function createSourceStorageStoredValues(ast: AstReader, budget: SourceSt
     if (write === undefined) return undefined;
     if (write.kind === "update") return { value: subjectFor(write.operation) };
     if (write.kind !== "assignment") return { reason: "Source storage iteration writes require their exact selected element producer." };
+    if (!ast.is.IsBinaryExpression(write.operation)) return { reason: "Source storage assignment writes require their exact binary producer." };
     const binary = ast.as.AsBinaryExpression(write.operation);
     if (binary === undefined || subjectFor(binary.Left) !== subjectFor(reference))
       return { reason: "Source storage destructuring writes require their exact selected component producer." };
