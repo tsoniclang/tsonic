@@ -8,6 +8,33 @@ export function sourceBoundTypeRelationship(
   bindingFor: (declaration: Node) => Type | undefined,
 ): "bound" | "identity" | undefined {
   const active = new Map<Type, Set<Type>>();
+  const unionMembers = (type: Type): readonly { readonly type: Type; readonly bound: boolean }[] | undefined => {
+    const members: { type: Type; bound: boolean }[] = [];
+    const expanding = new Set<Type>();
+    const collect = (type: Type, bound: boolean): boolean => {
+      if (expanding.has(type)) return false;
+      const symbol = declarations.typeSymbol(type);
+      const declaration = symbol === undefined ? undefined : declarations.primarySymbolDeclaration(symbol);
+      const binding = declaration === undefined ? undefined : bindingFor(declaration);
+      if ((binding !== undefined && binding !== type) || types.isUnion(type)) {
+        expanding.add(type);
+        try {
+          return binding !== undefined && binding !== type ? collect(binding, true)
+            : types.unionOrIntersectionTypes(type).every(member => collect(member, bound));
+        } finally { expanding.delete(type); }
+      }
+      for (const member of members) {
+        const relation = match(member.type, type);
+        if (relation !== undefined) {
+          member.bound ||= bound || binding !== undefined || relation === "bound";
+          return true;
+        }
+      }
+      members.push({ type, bound: bound || binding !== undefined });
+      return true;
+    };
+    return collect(type, false) ? members : undefined;
+  };
   const matchSignatures = (leftType: Type, rightType: Type, kind: "call" | "construct"):
     "bound" | "identity" | undefined => {
     const left = types.signatureInfos(leftType, kind);
@@ -76,19 +103,19 @@ export function sourceBoundTypeRelationship(
           : undefined;
       }
       if (leftTarget !== undefined || rightTarget !== undefined) return undefined;
-      if (types.isUnion(left) && types.isUnion(right)) {
-        const leftMembers = types.unionOrIntersectionTypes(left);
-        const remaining = new Set(types.unionOrIntersectionTypes(right));
-        if (leftMembers.length !== remaining.size) return undefined;
+      if (types.isUnion(left)) {
+        const leftMembers = unionMembers(left);
+        const remaining = new Set(types.isUnion(right) ? types.unionOrIntersectionTypes(right) : [right]);
+        if (leftMembers === undefined || leftMembers.length !== remaining.size) return undefined;
         const results: ("bound" | "identity")[] = [];
         for (const member of leftMembers) {
           const candidates = [...remaining].flatMap(other => {
-            const result = match(member, other);
+            const result = match(member.type, other);
             return result === undefined ? [] : [{ other, result }];
           });
           if (candidates.length !== 1) return undefined;
           remaining.delete(candidates[0]!.other);
-          results.push(candidates[0]!.result);
+          results.push(member.bound ? "bound" : candidates[0]!.result);
         }
         return combine(results);
       }

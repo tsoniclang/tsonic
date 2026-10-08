@@ -81,6 +81,17 @@ function fixture(canonicalUtilities = false) {
         type WrongRecordUnion = RecordUnion<boolean>;
         type ForeignRecordUnion<T> = { kind: "values"; values: T[] } | { kind: "call"; callback: (value: T) => T };
         type ForeignAppliedRecordUnion = ForeignRecordUnion<word>;
+        type OptionalValue = word | undefined;
+        type NullableValue = word | null | undefined;
+        type OptionalWrong = boolean | undefined;
+        type NullableWrong = boolean | null | undefined;
+        type TextValue = string;
+        type TextOptionalValue = string | word | undefined;
+        type TextOptionalWrong = string | boolean | undefined;
+        function optional<Value>(value: Value): Value | undefined { return value; }
+        function nullable<Value>(value: Value): Value | null | undefined { return value; }
+        function mixed<Value>(value: Value): string | Value | undefined { return value; }
+        function duplicate<Value>(value: Value): string | Value { return value; }
       `,
     },
     compilerOptions: { strict: true, noLib: canonicalUtilities, target: "es2022", module: "esnext", moduleResolution: "bundler" },
@@ -264,6 +275,93 @@ test("bound source correspondence retains generic union members and rejects chan
   assert.equal(sourceBoundTypeRelationship(selected("Bound"), selected("Wrong"), semantics, binding), undefined);
   assert.equal(sourceBoundTypeRelationship(selected("Bound"), selected("Applied"), semantics, () => undefined), undefined);
   assert.equal(sourceBoundTypeRelationship(selected("NativeArray"), selected("TextArray"), semantics, binding), undefined);
+});
+
+test("bound union correspondence flattens substituted members without losing absence or binding identity", () => {
+  const { source, semantics, selected } = fixture();
+  const declaration = (name: string) => source.ast.statements(semantics.sourceFile).find(node =>
+    node !== undefined && source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+  for (const [name, argument, expected, wrong] of [
+    ["optional", "Exact", "OptionalValue", "OptionalWrong"],
+    ["optional", "OptionalValue", "OptionalValue", "OptionalWrong"],
+    ["nullable", "NullableValue", "NullableValue", "NullableWrong"],
+    ["mixed", "TextOptionalValue", "TextOptionalValue", "TextOptionalWrong"],
+    ["duplicate", "TextValue", "TextValue", "Floating"],
+  ]) {
+    const owner = declaration(name!);
+    assert.equal(owner !== undefined, true);
+    const parameter = source.ast.typeParameters(owner)[0];
+    const resultNode = source.ast.typeNode(owner);
+    assert.equal(parameter !== undefined && resultNode !== undefined, true);
+    const authored = semantics.types.authoredType(resultNode!);
+    assert.equal(authored !== undefined, true);
+    const binding = (node: Node) => node === parameter ? selected(argument!) : undefined;
+    assert.equal(sourceBoundTypeRelationship(authored!, selected(expected!), semantics, binding), "bound", name);
+    assert.equal(sourceBoundTypeRelationship(authored!, selected(wrong!), semantics, binding), undefined, `${name} wrong result`);
+    assert.equal(sourceBoundTypeRelationship(authored!, selected(expected!), semantics, () => undefined), undefined,
+      `${name} missing exact binding`);
+    assert.equal(sourceBoundTypeRelationship(authored!, selected(expected!), semantics,
+      node => node === parameter ? authored : undefined), undefined, `${name} cyclic binding`);
+    if (name === "nullable") {
+      assert.equal(sourceBoundTypeRelationship(authored!, selected("OptionalValue"), semantics, binding), undefined,
+        "source proof retains the distinct null and undefined alternatives");
+    }
+  }
+});
+
+test("bound optional invocation results retain exact cross-file substitutions", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/values.ts": "export function optional<Value>(value: Value): Value | undefined { return value; }",
+    "/src/index.ts": `import { optional } from "./values.js";
+type Selected = bigint | undefined;
+type Wrong = number | undefined;
+type WrongAbsence = bigint | null;
+export function run(value: Selected): Selected { return optional<Selected>(value); }`,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(formatDiagnostics(checked.diagnostics.filter(value => value !== undefined), "/src"), "");
+  assert.equal(checked.extensionDiagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const caller = checked.getSourceFile("/src/index.ts");
+  const callee = checked.getSourceFile("/src/values.ts");
+  assert.equal(caller !== undefined && callee !== undefined && caller !== callee, true);
+  const semantics = source.semantics.forFile(caller!);
+  const aliases = new Map(source.ast.statements(caller!).flatMap(node =>
+    node !== undefined && source.ast.is.IsTypeAliasDeclaration(node)
+      ? [[source.ast.text(source.ast.name(node)), semantics.types.authoredType(source.ast.typeNode(node)!)]] : []));
+  const pending = [...source.ast.statements(caller!)];
+  let count = 0;
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) continue;
+    pending.push(...source.ast.children(node));
+    if (!source.ast.is.IsCallExpression(node)) continue;
+    const call = semantics.operations.call(node);
+    assert.equal(call !== undefined, true);
+    const declaration = semantics.declarations.signatureDeclaration(call!.selectedSignature);
+    assert.equal(declaration !== undefined && source.ast.getSourceFile(declaration) === callee, true);
+    const authored = source.semantics.forFile(callee!).types.authoredType(source.ast.typeNode(declaration)!);
+    const selected = semantics.operations.callResult(call!);
+    const arguments_ = call!.sourceSelectedMethodTypeArguments;
+    assert.equal(authored !== undefined && selected !== undefined && arguments_?.length === 1, true);
+    const bindings = new Map(arguments_!.map(argument => {
+      const symbol = semantics.declarations.typeSymbol(argument.typeParameter);
+      assert.equal(symbol !== undefined, true);
+      const parameter = semantics.declarations.primarySymbolDeclaration(symbol!);
+      assert.equal(parameter !== undefined, true);
+      return [parameter!, argument.selectedType] as const;
+    }));
+    for (const file of [caller!, callee!]) {
+      const query = source.semantics.forFile(file);
+      assert.equal(sourceBoundTypeRelationship(authored!, selected!.selectedReturnType, query,
+        parameter => bindings.get(parameter)), "bound");
+      for (const name of ["Wrong", "WrongAbsence"]) {
+        assert.equal(sourceBoundTypeRelationship(authored!, aliases.get(name)!, query,
+          parameter => bindings.get(parameter)), undefined, name);
+      }
+    }
+    count++;
+  }
+  assert.equal(count, 1);
 });
 
 test("bound source members preserve exact record and callable declarations without carrier reconstruction", () => {
