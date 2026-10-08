@@ -54,7 +54,7 @@ export type {
   SourceStorageSubjectsSelection, SourceStorageSubstitution, SourceStorageTypedSubject,
   SourceStorageTypeSelection, SourceStorageUnresolved,
   SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary,
-  SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary,
+  SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary, SourceStorageProducersSelection,
   SourceStorageCallEffect, SourceStorageEffects,
 } from "./source-storage/types.js";
 export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./error-storage/protocol.js";

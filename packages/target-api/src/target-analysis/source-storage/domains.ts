@@ -418,12 +418,14 @@ export function createSourceStorageDomains(
     }
     return origins;
   };
-  const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
+  const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
+    purpose: "values" | "storage-producers" = "values") => {
     initialize();
     const pending = [{ subject, bindings, collect: true }];
     const visited = new Map<SourceStorageSubstitutions, Map<SourceStorageSubject, number>>();
     const origins = new Set<SourceStorageSubject>();
     const boundaries = new Set<SourceStorageDomainBoundary>();
+    let reason: string | undefined;
     while (pending.length !== 0 && budget.step()) {
       const current = pending.pop()!;
       const checked = visited.get(current.bindings) ?? new Map<SourceStorageSubject, number>();
@@ -434,6 +436,11 @@ export function createSourceStorageDomains(
       checked.set(current.subject, previous | flag);
       visited.set(current.bindings, checked);
       const bound = transport.substitutions.selection(current.subject, current.bindings);
+      const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
+      if (stores !== undefined) {
+        reason = transport.unresolvedStoredInputsFor(current.subject);
+        if (reason !== undefined) break;
+      }
       for (const forwarded of bound?.forwarded ?? []) {
         if (!budget.step()) break;
         for (const boundary of boundariesFor(forwarded)) {
@@ -443,6 +450,7 @@ export function createSourceStorageDomains(
       }
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
+        if (stores !== undefined && boundary.kind === "external-input" && boundary.owner !== undefined) continue;
         const ownerBinding = boundary.kind !== "external-input" ? undefined : returnReceiver(current.subject, current.bindings)
           ?? (boundary.owner !== undefined && memberInputs(current.subject, boundary.owner, current.bindings) !== undefined
             ? transport.substitutions.selection(boundary.owner, current.bindings) : undefined);
@@ -461,7 +469,8 @@ export function createSourceStorageDomains(
           pending.push({ subject: input, bindings: current.bindings, collect: false });
         }
       }
-      const incoming = effectiveInputs(current.subject, current.bindings);
+      const incoming = stores === undefined || bound !== undefined ? effectiveInputs(current.subject, current.bindings)
+        : [...stores].map(stored => ({ subject: stored, bindings: current.bindings }));
       if (current.collect && (incoming.length === 0 || sourceStorageHasOriginalCallableValue(current.subject, ast) || ast.is.IsNewExpression(node) &&
         transport.invocationEffects.get(node)?.resultAlias === undefined)) origins.add(current.subject);
       for (const origin of incoming) {
@@ -469,7 +478,7 @@ export function createSourceStorageDomains(
         pending.push({ ...origin, collect: current.collect });
       }
     }
-    return Object.freeze({ subjects: Object.freeze([...origins]), boundaries: Object.freeze([...boundaries]) });
+    return Object.freeze({ subjects: Object.freeze([...origins]), boundaries: Object.freeze([...boundaries]), reason });
   };
   return Object.freeze({ select });
 }

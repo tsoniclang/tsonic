@@ -17,6 +17,7 @@ import { snapshotSourceStorageCallEffect } from "./call-effects.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import { sourceMemberOwner } from "../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "./member-flow.js";
+import { createSourceStorageStoredValues } from "./stored-values.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -25,6 +26,7 @@ export function createSourceStorageTransport(
   effects: SourceStorageEffects = {},
 ) {
   const { ast, navigation, semantics } = source;
+  const storedValues = createSourceStorageStoredValues(ast, budget);
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
@@ -200,6 +202,11 @@ export function createSourceStorageTransport(
     if (ast.is.IsVariableDeclaration(node)) {
       connectValueFlow(Node_Initializer(ast, node));
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
+      storedValues.record(subject(node), subjectFor(Node_Initializer(ast, node)));
+    }
+    if (ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
+      const write = storedValues.writeFor(node, subjectFor);
+      if (write !== undefined) storedValues.recordWrite(subjectFor(node), write);
     }
     const parent = ast.parent(node);
     if (parent !== undefined && sourceExpressionSelectsOperandValue(ast, parent, node))
@@ -207,9 +214,11 @@ export function createSourceStorageTransport(
     if (ast.is.IsArrayLiteralExpression(node)) projections.literal(node);
     if (ast.is.IsPropertyDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
+      if (ast.is.IsPropertyDeclaration(node)) storedValues.record(subject(node), subjectFor(Node_Initializer(ast, node)));
     }
     if (ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node)) {
       connect(subjectFor(ObjectLiteralProperty_Value(ast, node)), subject(node));
+      storedValues.record(subject(node), subjectFor(ObjectLiteralProperty_Value(ast, node)));
     }
     if (ast.is.IsArrowFunction(node)) {
       const body = ast.as.AsArrowFunction(node)?.Body;
@@ -486,12 +495,13 @@ export function createSourceStorageTransport(
     for (const [access, owner] of mutationOwners) {
       if (!step()) break;
       const parent = ast.parent(access);
-      if (parent === undefined || !ast.is.IsBinaryExpression(parent) || ast.operatorKindName(parent) !== "KindEqualsToken") continue;
-      const assignment = ast.as.AsBinaryExpression(parent);
+      const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent) ? undefined : ast.as.AsBinaryExpression(parent);
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
       const selected = property ?? semantics.forNode(access).operations.elementAccess(access);
       const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
-      if (assignment?.Left !== access || declaration === undefined || selected === undefined) continue;
+      if (declaration === undefined || selected === undefined) continue;
+      const write = storedValues.writeFor(access, subjectFor)
+        ?? { reason: "Source storage mutation requires its exact selected value producer." };
       for (const origin of ancestorSubjects(owner) ?? []) {
         if (!step()) break;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node)) continue;
@@ -499,7 +509,9 @@ export function createSourceStorageTransport(
           if (!step()) break;
           if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member) ||
             ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) continue;
-          connect(subjectFor(assignment.Right), subject(member));
+          if (assignment?.Left === access && ast.operatorKindName(parent!) === "KindEqualsToken")
+            connect(subjectFor(assignment.Right), subject(member));
+          storedValues.recordWrite(subject(member), write);
         }
       }
     }
@@ -650,6 +662,8 @@ export function createSourceStorageTransport(
   }
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
+    storedInputsFor: storedValues.inputsFor,
+    unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, physicalMemberInputs,

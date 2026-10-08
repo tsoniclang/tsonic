@@ -60,6 +60,12 @@ export type SourceStorageClosedOriginsSelection =
       readonly boundaries: readonly SourceStorageDomainBoundary[] }
   | SourceStorageUnresolved;
 
+export type SourceStorageProducersSelection =
+  | { readonly kind: "complete"; readonly producers: readonly SourceStorageTypedSubject[] }
+  | { readonly kind: "open"; readonly producers: readonly SourceStorageTypedSubject[];
+      readonly boundaries: readonly SourceStorageDomainBoundary[] }
+  | SourceStorageUnresolved;
+
 export type SourceStorageNodesSelection =
   | { readonly kind: "resolved"; readonly nodes: readonly Node[] }
   | SourceStorageUnresolved;
@@ -124,6 +130,7 @@ export interface SourceStorageQueries {
   originSubjectsFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;
   originsFor(subject: SourceStorageSubject): SourceStorageOriginsSelection;
   closedOriginsFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageClosedOriginsSelection;
+  storageProducersFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageProducersSelection;
   localCallableCreationsFor(expression: Node): SourceStorageNodesSelection;
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
   invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageNodesSelection;

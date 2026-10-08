@@ -151,6 +151,20 @@ export function createSourceStorageQuery(
       return typedOrigins(selected.subjects);
     },
     closedOriginsFor,
+    storageProducersFor(subject, bindings = emptyBindings) {
+      const reason = subjectReason(subject);
+      if (reason !== undefined) return unresolved(reason);
+      const state = bindingStates.get(bindings);
+      if (state === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+      const selected = domains.select(subject, state, "storage-producers");
+      if (budget.failure() !== undefined) return unresolved(budget.failure()!);
+      if (selected.reason !== undefined) return unresolved(selected.reason);
+      if (selected.subjects.length === 0) return unresolved("Source storage producers have no proven original declaration.");
+      const typed = typedOrigins(selected.subjects);
+      if (typed.kind === "unresolved") return typed;
+      return selected.boundaries.length === 0 ? Object.freeze({ kind: "complete", producers: typed.origins })
+        : Object.freeze({ kind: "open", producers: typed.origins, boundaries: selected.boundaries });
+    },
     localCallableCreationsFor(expression) {
       const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;
       if (subject === undefined) return unresolved(budget.failure() ?? "Callable creation requires its exact checked expression.");

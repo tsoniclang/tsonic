@@ -41,6 +41,27 @@ The selected target maps the source operations to target facts:
 Target analysis closes dependencies and required callable/artifact revisions
 before planning. Missing or conflicting facts reject at this boundary.
 
+Shared storage queries distinguish logical values from concrete storage
+producers. Through `@tsonic/target-api/analysis`, `closedOriginsFor` proves a
+logical value domain; `storageProducersFor` selects the exact authored producers
+of a concrete declaration's storage ABI. Both use one source-storage owner,
+original checked identities, invocation substitutions and finite accounting.
+The latter returns immutable typed `producers`, not a certificate about unknown
+external input values.
+
+For example, a class's readonly callback initializer supplies its original
+native field ABI even when a public function accepts that class. The public
+parameter's member value remains logically unknown. Its selected concrete
+field ABI still survives checked value/return transport. Producer selection
+never certifies the logical `closedOriginsFor` domain of that external read,
+suppresses an external/opaque writer, or manufactures an initializer for an
+ambient or structural-signature member.
+Initializer and selected assignment stores include exact structural/computed
+member correspondence. Compound stores retain the operation result, not its
+right operand. Missing write evidence rejects instead of publishing a partial
+producer inventory. Targets must still prove that every contributing producer
+has the required native carrier and ownership relationship.
+
 ## 5. Sealed target program
 
 After analysis, the target seals an immutable program containing the complete
