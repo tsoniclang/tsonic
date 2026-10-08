@@ -14,6 +14,7 @@ export { selectSourceGuardedValueMembers, selectSourceGuardedTypeMembers, select
 export { selectedSourcePropertyDeclarations } from "./selected-property-declarations.js";
 export { selectedSourceIndexedDeclarations } from "./selected-indexed-declarations.js";
 export { sourceObjectLiteralDestinationMember } from "./object-literal-correspondence.js";
+export { sourceTypeIsAuthoredEmptyObject } from "./empty-object-evidence.js";
 export type { SourceNativeGuard, SourceValueFlowQueryContext } from "./value-flow-conditions.js";
 export { selectSourceNativeValueGuard } from "./native-value-guards.js";
 export { sourceNodeIsNativeUnreachable } from "./native-control-flow.js";
