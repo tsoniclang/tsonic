@@ -346,7 +346,7 @@ export function createSourceStorageTransport(
     }
     return visited;
   });
-  const memberFlow = createSourceStorageMemberFlow(source, step, sourceFileFor, retainCheckedContext);
+  const memberFlow = createSourceStorageMemberFlow(source, budget, sourceFileFor, retainCheckedContext);
   const implementationsFor = (declaration: Node, invocation: Node,
     originsFor = ancestorSubjects): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean;
       readonly slots?: ReadonlySet<SourceStorageSubject> } => {
