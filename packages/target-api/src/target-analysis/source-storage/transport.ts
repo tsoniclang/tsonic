@@ -579,6 +579,8 @@ export function createSourceStorageTransport(
       }
     }
   }
+  sealed = true;
+  graphQueries.seal();
   const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject, incomingFor, unresolvedSubjects);
   const contextualSelections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
   const contextualInputs = (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> => {
@@ -655,7 +657,6 @@ export function createSourceStorageTransport(
       declaration: invocationDeclarations.get(invocation), subjects: Object.freeze([...selected]),
       ...(reason === undefined ? {} : { reason }) }));
   }
-  sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
