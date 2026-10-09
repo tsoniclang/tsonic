@@ -153,7 +153,8 @@ selected.message = "changed";
 });
 
 test("Error unresolved storage propagates through exact component ancestry without contaminating independent owners", () => {
-  const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const subject = createSourceStorageSubjects(budget.subject, () => assert.fail("unexpected subject rejection"));
   const root = {};
   const value = subject(root);
   const component = subject(root, "value", element);
@@ -161,7 +162,7 @@ test("Error unresolved storage propagates through exact component ancestry witho
   const independent = subject({}, "value", element);
   const incoming = new Map([[alias, new Set([component])]]);
   const unresolved = new Map([[value, "unproved tuple spread"]]);
-  const reason = createSourceStorageUnresolvedQuery(() => true, subject, selected => incoming.get(selected) ?? new Set(), unresolved);
+  const reason = createSourceStorageUnresolvedQuery(budget, subject, selected => incoming.get(selected) ?? new Set(), unresolved);
   assert.equal(reason(component), "unproved tuple spread");
   assert.equal(reason(alias), "unproved tuple spread");
   assert.equal(reason(independent) === undefined, true, "independent storage is not rejected");
