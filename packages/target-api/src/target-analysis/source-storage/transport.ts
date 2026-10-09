@@ -18,6 +18,7 @@ import { sourceStorageComponents, sourceStorageSubjectType } from "./components.
 import { sourceMemberOwner } from "../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "./member-flow.js";
 import { createSourceStorageStoredValues } from "./stored-values.js";
+import { createSourceStorageGraphQueries } from "./graph-queries.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -65,7 +66,12 @@ export function createSourceStorageTransport(
   };
   const sourceFileFor = (subject: SourceStorageSubject): SourceFile | undefined =>
     checkedSourceFiles.get(subject.node) ?? ast.getSourceFile(subject.node);
-  const { add: addEdge, incomingFor } = createSourceStorageEdges(source, budget, subject, sourceFileFor);
+  const graphQueries = createSourceStorageGraphQueries(budget);
+  const edges = createSourceStorageEdges(source, budget, subject, sourceFileFor);
+  const incomingFor: typeof edges.incomingFor = selected => {
+    graphQueries.read(selected);
+    return edges.incomingFor(selected);
+  };
   const enclosingCallable = (node: Node): Node | undefined => {
     for (let current = ast.parent(node); current !== undefined && step(); current = ast.parent(current)) {
       if (ast.is.IsFunctionDeclaration(current) || ast.is.IsFunctionExpression(current) ||
@@ -153,8 +159,9 @@ export function createSourceStorageTransport(
     const origins = incomingFor(destination);
     if (origins.has(origin)) return;
     if (sealed) { budget.reject("Source storage transport cannot add edges after graph construction is sealed."); return; }
-    if (!addEdge(origin, destination)) return;
+    if (!edges.add(origin, destination)) return;
     edgeCount += 1;
+    graphQueries.invalidate(destination);
     connectStructuralFlow(origin, destination);
   };
   const connectStructuralFlow = createSourceStorageStructuralFlow(source, step, subject, connect,
@@ -343,7 +350,7 @@ export function createSourceStorageTransport(
     ast.forEachChild(node, child => { if (child !== undefined && admitNode(child)) children.push(child); });
     for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
   }
-  const ancestorSubjects = (selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+  const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     const pending = [selected];
     const visited = new Set<SourceStorageSubject>();
     for (let index = 0; index < pending.length; index += 1) {
@@ -354,7 +361,7 @@ export function createSourceStorageTransport(
       for (const origin of incomingFor(current)) { if (!step()) break; pending.push(origin); }
     }
     return visited;
-  };
+  });
   const memberFlow = createSourceStorageMemberFlow(source, step, sourceFileFor, retainCheckedContext);
   const implementationsFor = (declaration: Node, invocation: Node,
     originsFor = ancestorSubjects): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean;
@@ -412,7 +419,7 @@ export function createSourceStorageTransport(
     }
     return { nodes: selected, exact: false };
   };
-  const invocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> => {
+  const collectInvocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> => {
     const implementations = new Set<Node>();
     const declaration = invocationDeclarations.get(invocation);
     const target = invocationTargets.get(invocation);
@@ -435,6 +442,10 @@ export function createSourceStorageTransport(
     }
     return implementations;
   };
+  const selectedInvocationImplementations = graphQueries.query((invocation: Node) => collectInvocationImplementations(invocation));
+  const invocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> =>
+    originsFor === ancestorSubjects ? selectedInvocationImplementations(invocation) ?? new Set()
+      : collectInvocationImplementations(invocation, originsFor);
   const physicalMemberInputs = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
     const declaration = invocationDeclarations.get(invocation) ?? accessorTargets.get(invocation)?.[0];
     if (declaration === undefined) return undefined;
