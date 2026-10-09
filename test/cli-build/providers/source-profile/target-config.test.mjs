@@ -636,13 +636,13 @@ test("CLI emits package export target source files from the TSTS subpath graph",
   const stateSourcePath = resolve(projectDirectory, "out/csharp/src/node_modules/@demo/pkg/src/Node_modules_Demo_pkg_src_state.cs");
   assert.equal(existsSync(publicSourcePath), true);
   assert.equal(existsSync(stateSourcePath), true);
-  assert.match(indexSource, /Node_modules_Demo_pkg_src_public\.__tsonic_module_init\(\);[\s\S]*Node_modules_Demo_pkg_src_state\.append\("index;"\);/);
-  assert.match(indexSource, /return Node_modules_Demo_pkg_src_public\.value;/);
+  assert.match(indexSource, /Node_modules_Demo_pkg_src_public\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.Node_modules_Demo_pkg_src_state\.append\("index;"\);/);
+  assert.match(indexSource, /return global::Smoke\.Generated\.Node_modules_Demo_pkg_src_public\.value;/);
   assert.doesNotMatch(indexSource, /return value;/);
   assert.doesNotMatch(indexSource, /__unsupported/);
 
   const publicSource = await readFile(publicSourcePath, "utf8");
-  assert.match(publicSource, /Node_modules_Demo_pkg_src_state\.__tsonic_module_init\(\);[\s\S]*Node_modules_Demo_pkg_src_state\.append\("public;"\);/);
+  assert.match(publicSource, /Node_modules_Demo_pkg_src_state\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.Node_modules_Demo_pkg_src_state\.append\("public;"\);/);
   assert.doesNotMatch(publicSource, /__unsupported/);
 
   const output = runGeneratedProject(projectDirectory, "SmokeGeneratedPackageSourceSubpath");

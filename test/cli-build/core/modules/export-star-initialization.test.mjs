@@ -81,7 +81,7 @@ test("CLI preserves export-star module initialization before re-exported values 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(indexSource, /return Side\.sideValue;/);
+  assert.match(indexSource, /return global::Smoke\.Generated\.Side\.sideValue;/);
   assert.match(indexSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(indexSource, /Barrel\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(indexSource, /return sideValue;|__unsupported/);
@@ -92,7 +92,7 @@ test("CLI preserves export-star module initialization before re-exported values 
   assert.doesNotMatch(barrelSource, /__unsupported/);
 
   const sideSource = await readFile(resolve(projectDirectory, "out/csharp/src/Side.cs"), "utf8");
-  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*State\.append\("side;"\);[\s\S]*sideValue = 1;/);
+  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.State\.append\("side;"\);[\s\S]*sideValue = 1;/);
   assert.doesNotMatch(sideSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedExportStarModuleInitOrder.csproj"), "--nologo", "--v:minimal"]);
@@ -208,11 +208,11 @@ test("CLI emits imported and re-exported generic source calls from TSTS-selected
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static string echoText\(string value\)/);
-  assert.match(generatedSource, /return Generics\.identity<string>\(value\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Generics\.identity<string>\(value\);/);
   assert.match(generatedSource, /public static int echoNumber\(int value\)/);
-  assert.match(generatedSource, /return Generics\.identity<int>\(value\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Generics\.identity<int>\(value\);/);
   assert.match(generatedSource, /Box<int> box = new Box<int>\(value\);/);
-  assert.match(generatedSource, /return Generics\.boxedValue<int>\(box\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Generics\.boxedValue<int>\(box\);/);
   assert.doesNotMatch(generatedSource, /Barrel\.identity|Barrel\.boxedValue|identity\(value\)|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedGenericSourceCallsAcrossModules.csproj"), "--nologo", "--v:minimal"]);
