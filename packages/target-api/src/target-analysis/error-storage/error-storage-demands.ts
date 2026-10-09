@@ -27,7 +27,7 @@ export interface SourceErrorStorageDemandQueries {
     | { readonly kind: "unresolved"; readonly reason: string };
   closedStorageOriginsFor(subject: Node, projection?: readonly SourceStorageProjection[]): SourceStorageClosedOriginsSelection;
   invalidationFor(owner: Node, expression: Node, pureInvocations: ReadonlySet<Node>):
-    { readonly kind: "preserved" | "invalidated" } | { readonly kind: "unresolved"; readonly reason: string };
+    { readonly kind: "preserved" | "invalidated" } | { readonly kind: "unresolved" | "unproven"; readonly reason: string };
 }
 
 const immutableDemand: SourceErrorStorageDemand = Object.freeze({ kind: "immutable" });

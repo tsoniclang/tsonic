@@ -58,7 +58,7 @@ test("external Error formals do not prove mutation or opaque-call disjointness f
   assert.equal(domain.kind === "open", true, "public formal has an external admission boundary");
   assert.equal(domain.boundaries.some(boundary => boundary.kind === "external-input"), true);
   for (const expression of [current.write("other"), current.call("opaque")]) {
-    assert.equal(current.demand.invalidationFor(owner, expression, new Set()).kind === "unresolved", true,
+    assert.equal(current.demand.invalidationFor(owner, expression, new Set()).kind === "unproven", true,
       "observed distinct inputs do not exclude an external same-owner call");
   }
   assert.equal(current.demand.storageOriginsFor(owner).kind === "resolved", true, "observed contract remains available");
@@ -104,7 +104,7 @@ test("opaque native construction cannot invent fresh disjoint Error owners from 
     assert.equal(selected.kind === "open", true, `${name}: opaque native result lacks an allocation contract`);
     assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result"), true);
   }
-  assert.equal(current.demand.invalidationFor(current.variable("owner"), current.write("other"), new Set()).kind === "unresolved", true,
+  assert.equal(current.demand.invalidationFor(current.variable("owner"), current.write("other"), new Set()).kind === "unproven", true,
     "two new occurrences are not proof of distinct native physical owners");
 });
 
@@ -123,13 +123,15 @@ test("Error mutation proof follows exact generic invocation bindings rather than
     "the second activation binds only the other owner");
 });
 
-test("unknown opaque Error access remains unresolved while a known alias remains observed", async () => {
+test("unknown opaque Error access cannot prove preservation while a known alias remains observed", async () => {
   const current = await analyzed("error-origin-opaque-alias", `
     const owner = { message: "owner" };
     const alias = owner;
     opaque(alias);
   `);
-  assert.equal(current.demand.invalidationFor(current.variable("owner"), current.call("opaque"), new Set()).kind === "unresolved", true);
+  const invalidation = current.demand.invalidationFor(current.variable("owner"), current.call("opaque"), new Set());
+  assert.equal(invalidation.kind === "unproven", true, "valid uncertain effects require releasing the borrow, not inventing preservation");
+  assert.equal(Object.isFrozen(invalidation) && invalidation.reason.length > 0, true);
   const observed = current.demand.storageOriginsFor(current.variable("alias"));
   assert.equal(observed.kind === "resolved" && observed.origins.length === 1, true);
   const complete = current.demand.closedStorageOriginsFor(current.variable("alias"));
