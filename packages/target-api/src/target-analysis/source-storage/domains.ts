@@ -9,6 +9,7 @@ import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "./types.js";
+import { createSourceStorageDomainWitnesses } from "./domain-witnesses.js";
 
 interface SourceStoragePublication {
   readonly subject: SourceStorageSubject;
@@ -27,22 +28,12 @@ export function createSourceStorageDomains(
   budget: SourceStorageBudget,
 ) {
   const { ast, navigation, semantics } = source;
-  const witnesses = new Map<SourceStorageSubject, SourceStorageDomainBoundary[]>();
+  const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications: SourceStoragePublication[] = [];
   const published = new Map<SourceStorageSubject, Map<Type, Map<SourceStorageSubject | undefined, number>>>();
   const opaque = new Set(transport.boundaries.map(boundary => boundary.invocation));
   let initialized = false;
-  const add = (subject: SourceStorageSubject | undefined, kind: SourceStorageDomainBoundary["kind"], exposure: Node,
-    owner?: SourceStorageSubject): void => {
-    if (subject === undefined || !budget.step()) return;
-    const selected = witnesses.get(subject) ?? [];
-    for (const value of selected) {
-      if (!budget.step() || value.kind === kind && value.exposure === exposure && value.owner === owner) return;
-    }
-    if (!budget.row()) return;
-    selected.push(Object.freeze({ kind, subject, exposure, ...(owner === undefined ? {} : { owner }) }));
-    witnesses.set(subject, selected);
-  };
+  const add = witnesses.add;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
     kind: SourceStoragePublication["kind"] = "external-write", type?: Type, sourceFile?: SourceFile, externalEntry = false,
     inputOwner?: SourceStorageSubject): void => {
@@ -214,10 +205,10 @@ export function createSourceStorageDomains(
     }
   };
   const boundariesFor = (subject: SourceStorageSubject): readonly SourceStorageDomainBoundary[] => {
-    const selected = [...witnesses.get(subject) ?? []];
+    const selected = [...witnesses.forSubject(subject)];
     for (let length = 0; length < subject.projection.length && budget.step(); length += 1) {
       const owner = transport.subject(subject.node, subject.kind, subject.projection.slice(0, length));
-      for (const boundary of owner === undefined ? [] : witnesses.get(owner) ?? []) {
+      for (const boundary of owner === undefined ? [] : witnesses.forSubject(owner)) {
         if (!budget.step()) break;
         if (boundary.kind === "external-input" || boundary.kind === "external-write" || boundary.kind === "opaque-write") selected.push(boundary);
       }

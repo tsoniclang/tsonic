@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
 import type { SourceStorageIncomingQuery } from "./edges.js";
+import type { SourceStorageBudget } from "./resource-budget.js";
 
 export interface SourceStorageBoundSelection {
   readonly actuals: ReadonlySet<SourceStorageSubject>;
@@ -15,13 +16,14 @@ export type SourceStorageSubstitutions = ReadonlyMap<SourceStorageSubject, Sourc
 
 export function createSourceStorageSubstitutions(
   source: TargetSourceProgram,
-  step: () => boolean,
+  budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
   incoming: SourceStorageIncomingQuery,
   invocationOrigins: (origin: SourceStorageSubject, candidate: Node, invocation: Node) => ReadonlySet<SourceStorageSubject>,
-  reserveRow: () => boolean,
   contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
 ) {
+  const step = budget.step;
+  const reserveRow = budget.row;
   const empty: SourceStorageSubstitutions = new Map();
   const bindingSets = new Map<string, SourceStorageSubstitutions>();
   const contexts = new WeakMap<SourceStorageSubstitutions, number>();
@@ -122,23 +124,32 @@ export function createSourceStorageSubstitutions(
   const contextFor = (inputs: ReadonlySet<SourceStorageSubject>, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
     if (parent.size === 0) return empty;
     const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
-    const pending = [...inputs];
-    const checked = new Set<SourceStorageSubject>();
-    while (pending.length !== 0 && step()) {
-      const current = pending.pop()!;
-      if (checked.has(current)) continue;
-      if (!reserveRow()) return undefined;
-      checked.add(current);
-      const bound = selection(current, parent);
-      if (bound !== undefined) selected.set(current, bound);
-      else for (const input of contextualInputs(current)) {
+    const rows = budget.createRows();
+    try {
+      if (inputs.size !== 0 && !rows.add(inputs.size)) return undefined;
+      const scheduled = new Set(inputs);
+      const pending = [...scheduled];
+      while (pending.length !== 0) {
         if (!step()) return undefined;
-        pending.push(input);
+        const current = pending.pop()!;
+        const bound = selection(current, parent);
+        if (bound !== undefined) selected.set(current, bound);
+        else for (const input of contextualInputs(current)) {
+          if (!step()) return undefined;
+          if (!scheduled.has(input)) {
+            if (!rows.add(1)) return undefined;
+            scheduled.add(input);
+            pending.push(input);
+          }
+        }
       }
+      return intern(selected);
+    } finally {
+      rows.release();
     }
-    return intern(selected);
   };
   const forInvocation = (candidate: Node, invocation: Node, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
+    if (!step()) return undefined;
     const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
     for (const [formal, binding] of parent) {
       if (!step()) return undefined;
@@ -147,7 +158,8 @@ export function createSourceStorageSubstitutions(
     const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)
       ? [] : source.ast.parameters(candidate);
     for (const parameter of [...parameters, candidate]) {
-      if (parameter === undefined || !step()) continue;
+      if (parameter === undefined) continue;
+      if (!step()) return undefined;
       const formal = subject(parameter, parameter === candidate ? "receiver" : "value");
       if (formal === undefined) return undefined;
       const actuals = new Set<SourceStorageSubject>();

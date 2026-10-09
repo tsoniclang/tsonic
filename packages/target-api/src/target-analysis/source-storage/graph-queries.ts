@@ -20,6 +20,11 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
   let active: QueryEntry | undefined;
   const inheritsRead = (entry: QueryEntry, dependency: Dependency): boolean => {
     if (entry.children.size === 0) return false;
+    const only = entry.children.size === 1 ? entry.children.values().next().value : undefined;
+    if (only !== undefined) {
+      if (only.reads.has(dependency)) return true;
+      if (only.children.size === 0) return false;
+    }
     const pending = [...entry.children];
     const visited = new Set<QueryEntry>();
     while (pending.length !== 0 && budget.step()) {

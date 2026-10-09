@@ -175,3 +175,23 @@ test("inherited dependencies preserve each distinct reader and reject work exhau
   assert.match(workBudget.failure(), /analysis-work/u);
   assert.equal(workParent(first) === undefined, true, "failed budget stays failed");
 });
+
+test("single leaf-child membership stays constant-time while every repeated read and cache hit consumes work", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 48, maximumTransportRows: 9 });
+  const graph = createSourceStorageGraphQueries(budget);
+  const selected = subject({});
+  const child = graph.query(key => { graph.read(key); return new Set([key]); });
+  const parent = graph.query(key => {
+    const values = child(key);
+    for (let index = 0; index < 32; index += 1) graph.read(key);
+    return new Set(values);
+  });
+  const original = parent(selected);
+  assert.equal(original?.has(selected), true, "one exact child lookup needs no duplicate graph walk or temporary queue");
+  assert.equal(budget.failure() === undefined, true, "both original finite peak and finite work remain enforced");
+  let result = original;
+  for (let index = 0; index < 48 && result !== undefined; index += 1) result = parent(selected);
+  assert.equal(result === undefined, true, "cached parent hits still exhaust the finite work ceiling");
+  assert.match(budget.failure(), /analysis-work/u);
+  assert.equal(parent(selected) === undefined, true, "failed owner never recovers through the fast lookup");
+});

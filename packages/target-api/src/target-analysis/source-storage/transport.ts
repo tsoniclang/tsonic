@@ -627,7 +627,7 @@ export function createSourceStorageTransport(
     contextualSelections.set(origin, inputs);
     return inputs;
   };
-  const substitutions = createSourceStorageSubstitutions(source, step, subject, incomingFor, invocationOrigins, budget.row, contextualInputs);
+  const substitutions = createSourceStorageSubstitutions(source, budget, subject, incomingFor, invocationOrigins, contextualInputs);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;
