@@ -74,3 +74,40 @@ interface Callback<Value> { (value: Value): Value; }
 interface Conflicting extends Callback<int64>, Callback<uint64> {}
 export const identity: Conflicting = value => value;
 `;
+
+export const relocatedModuleCallableFiles = {
+  "other.ts": `
+import type { int32 } from "@tsonic/core/types.js";
+export const step = (value: int32): int32 => value + 1;
+`,
+  "helpers.ts": `
+import type { int32 } from "@tsonic/core/types.js";
+import { step as importedStep } from "./other.js";
+const base: int32 = 2;
+const step = (value: int32): int32 => value + base;
+function multiply(value: int32): int32 { return value * 3; }
+export function plain(value: int32): int32 { return multiply(step(value)); }
+export function recursive(seed: int32): int32 {
+  let total: int32 = 0;
+  const walk = (value: int32): void => {
+    total += multiply(step(value));
+    if (value > 0) walk(value - 1);
+  };
+  walk(seed);
+  return total;
+}
+export function object(seed: int32): int32 {
+  const record = {
+    apply(value: int32): int32 { return multiply(step(value)) + importedStep(seed); },
+  };
+  return record.apply(1);
+}
+`,
+  "index.ts": `
+import { plain, recursive, object } from "./helpers.js";
+export function run(): boolean {
+  return plain(1) === 9 && recursive(2) === 27 && recursive(1) === 15
+    && object(4) === 14 && object(0) === 10;
+}
+`,
+};
