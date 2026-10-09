@@ -113,8 +113,9 @@ stop_bounded_test_scope() {
   if [[ -n "${log_guard_pid}" ]]; then
     kill "${log_guard_pid}" 2>/dev/null || true
   fi
+  systemctl --user kill "${unit}" --signal=KILL --kill-whom=all 2>/dev/null || true
+  systemctl --user stop "${unit}" --no-block 2>/dev/null || true
   if kill -0 "${test_runner_pid}" 2>/dev/null; then
-    systemctl --user stop "${unit}" --no-block 2>/dev/null || true
     kill "${test_runner_pid}" 2>/dev/null || true
   fi
 }
@@ -125,9 +126,25 @@ if [[ -n "${TSONIC_TEST_CALIBRATION_SECONDS:-}" ]]; then
   calibration_pid=$!
 fi
 
+guard_watch_sleep_pid=""
+stop_guard_watch() {
+  if [[ -n "${guard_watch_sleep_pid}" ]]; then
+    kill "${guard_watch_sleep_pid}" 2>/dev/null || true
+    wait "${guard_watch_sleep_pid}" 2>/dev/null || true
+  fi
+}
+sleep_guard_watch() {
+  sleep "$1" &
+  guard_watch_sleep_pid=$!
+  wait "${guard_watch_sleep_pid}"
+  guard_watch_sleep_pid=""
+}
+
 (
+  trap stop_guard_watch EXIT
+  trap 'exit 0' HUP INT TERM
   while kill -0 "${test_runner_pid}" 2>/dev/null; do
-    sleep "${heartbeat_seconds}"
+    sleep_guard_watch "${heartbeat_seconds}"
     if ! kill -0 "${test_runner_pid}" 2>/dev/null; then
       break
     fi
@@ -144,8 +161,10 @@ fi
 heartbeat_pid=$!
 
 (
+  trap stop_guard_watch EXIT
+  trap 'exit 0' HUP INT TERM
   while kill -0 "${test_runner_pid}" 2>/dev/null; do
-    sleep 1
+    sleep_guard_watch 1
     log_bytes="$(wc -c <"${log_file}")"
     if (( log_bytes > log_size_max_bytes )); then
       systemctl --user stop "${unit}" --no-block 2>/dev/null || true
@@ -169,13 +188,34 @@ heartbeat_pid=""
 kill "${log_guard_pid}" 2>/dev/null || true
 wait "${log_guard_pid}" 2>/dev/null || true
 log_guard_pid=""
+scope_result="$(systemctl --user show "${unit}" --property=Result --value --no-pager 2>/dev/null || true)"
+scope_control_group="$(systemctl --user show "${unit}" --property=ControlGroup --value --no-pager 2>/dev/null || true)"
+stop_bounded_test_scope
+scope_drained=true
+scope_is_drained() {
+  local group_root="/sys/fs/cgroup${scope_control_group}"
+  if [[ ! -d "$group_root" ]]; then return 0; fi
+  [[ -r "$group_root/cgroup.events" ]] &&
+    [[ "$(awk '$1 == "populated" { print $2 }' "$group_root/cgroup.events")" == "0" ]]
+}
+if [[ -n "${scope_control_group}" ]]; then
+  for ((attempt = 0; attempt < 50; attempt++)); do
+    if scope_is_drained; then break; fi
+    sleep 0.1
+  done
+  if ! scope_is_drained; then
+    scope_drained=false
+    if (( test_status == 0 )); then test_status=1; fi
+    printf 'Bounded test scope did not drain its owned descendants.\n' >&2
+  fi
+fi
 trap - EXIT HUP INT TERM
 set -e
 
 oom_kill_after="$(read_oom_kill_count)"
-scope_result="$(systemctl --user show "${unit}" --property=Result --value --no-pager 2>/dev/null || true)"
 printf '  exit status: %s\n' "${test_status}"
 printf '  scope result: %s\n' "${scope_result:-unavailable}"
+printf '  scope drained: %s\n' "${scope_drained}"
 printf '  user-slice oom_kill after: %s\n' "${oom_kill_after}"
 printf '  complete log: %s (%s bytes)\n' "${log_file}" "$(wc -c <"${log_file}")"
 
