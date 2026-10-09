@@ -64,7 +64,7 @@ test("CLI emits TypeScript numeric enums as C# enums", async () => {
   assert.match(generatedSource, /Right = Left << 1/);
   assert.match(generatedSource, /public static Direction turn\(Direction direction\)/);
   assert.match(generatedSource, /return direction == Direction\.Up \? Direction\.Right : Direction\.Up;/);
-  assert.match(generatedSource, /selected = turn\(Direction\.Up\) == Direction\.Right \? "right" : "bad";/);
+  assert.match(generatedSource, /selected = global::Smoke\.Generated\.Index\.turn\(Direction\.Up\) == Direction\.Right \? "right" : "bad";/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedEnums.csproj"), "--nologo", "--v:minimal"]);
@@ -233,7 +233,7 @@ test("CLI emits delegate function types and expression-bodied lambdas from TSTS 
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double apply\(double value, Func<double, double> mapper\)/);
-  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double input\)\s*\{\s*return input \+ 4;\s*\}\s*return apply\(3, new Func<double, double>\(\k<callable>\)\);/);
+  assert.match(generatedSource, /double (?<callable>__tsonic_callable_\d+)\(double input\)\s*\{\s*return input \+ 4;\s*\}\s*return global::Smoke\.Generated\.Index\.apply\(3, new Func<double, double>\(\k<callable>\)\);/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \* 2;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) => input \+ 3;/);
   assert.match(generatedSource, /Func<double, double> mapper = \(double input\) =>\n\s*\{/);

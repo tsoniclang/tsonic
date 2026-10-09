@@ -288,7 +288,7 @@ test("CLI routes top-level for-of statements through the C# module entrypoint", 
   assert.match(generatedEntrypoint, /public static void Main\(\)/);
   assert.match(generatedEntrypoint, /Index\.__tsonic_module_init\(\);/);
   assert.match(generatedSource, /foreach \(int value in new int\[\] \{ 1, 2, 3 \}\)/);
-  assert.match(generatedSource, /total = total \+ value;/);
+  assert.match(generatedSource, /total = global::Smoke\.Generated\.Index\.total \+ value;/);
   assert.doesNotMatch(generatedSource, /Top-level statement is outside/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 

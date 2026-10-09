@@ -529,8 +529,8 @@ test("CLI emits nested structural object-shape literals through finalized nested
   assert.match(generatedShapes, /public required double value\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedShapes, /public required string label\s*\{\s*get;\s*set;\s*\}/);
   assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*child = new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = "ok",\s*\},\s*count = 2,\s*\};/);
-  assert.match(generatedSource, /parent\.child\.label/);
-  assert.match(generatedSource, /parent\.child\.value \+ parent\.count/);
+  assert.match(generatedSource, /global::Smoke\.Generated\.Index\.parent\.child\.label/);
+  assert.match(generatedSource, /global::Smoke\.Generated\.Index\.parent\.child\.value \+ global::Smoke\.Generated\.Index\.parent\.count/);
   assert.doesNotMatch(generatedSource, /Dictionary<|\bdynamic\b|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|MakeGenericMethod|Activator\.CreateInstance|Assembly\.Load|__unsupported|invalid/i);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "ok:7\n");

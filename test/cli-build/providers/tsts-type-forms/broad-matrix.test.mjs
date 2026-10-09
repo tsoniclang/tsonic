@@ -100,7 +100,7 @@ test("CLI consumes broad TSTS type-form matrix without backend type-system reimp
   ]);
 
   assert.match(generatedSource, /public static string describe\(string name, double count, System\.Exception\? maybeException\)/);
-  assert.match(generatedSource, /Func<string> reader = buildReader\(shape\.name\);/);
+  assert.match(generatedSource, /Func<string> reader = global::Smoke\.Generated\.Index\.buildReader\(shape\.name\);/);
   assert.match(generatedSource, /\(string, double\?, bool\) tuple = \(reader\(\), shape\.id, true\);/);
   assert.match(generatedSource, /string first = tuple\.Item1;/);
   assert.match(generatedSource, /double second = tuple\.Item2 \?\? 0;/);

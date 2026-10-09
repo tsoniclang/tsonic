@@ -234,13 +234,13 @@ test("CLI builds and runs source declarations without reflection or dynamic gene
   const shapeName = /public class (ReceiptShape_[a-f0-9]{12}) : Receipt/u.exec(shapeSource)?.[1];
   assert.ok(shapeName);
   assert.match(shapeSource, /public required string label\s*\{\s*get;\s*set;\s*\}[\s\S]*public required double points\s*\{\s*get;\s*set;\s*\}[\s\S]*public required Rank rank\s*\{\s*get;\s*set;\s*\}/u);
-  assert.match(modelSource, new RegExp(`return new ${shapeName}[\\s\\S]*label = (?:card|\\(\\(Entity\\)card\\))\\.title,[\\s\\S]*points = points,[\\s\\S]*rank = (?:Model\\.)?classify\\(points\\)`));
+  assert.match(modelSource, new RegExp(`return new ${shapeName}[\\s\\S]*label = (?:card|\\(\\(Entity\\)card\\))\\.title,[\\s\\S]*points = points,[\\s\\S]*rank = global::Smoke\\.Generated\\.Model\\.classify\\(points\\)`));
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /ScoreCard\.create\("Ada", 8\)/);
   assert.match(indexSource, /public static string rank\s*\{\s*get;\s*private set;\s*\} = default\(string\)!;/u);
-  assert.match(indexSource, /rank = receipt\.rank == Rank\.Gold \? "gold" : "silver";/);
-  assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(receipt\.label \+ ":" \+ receipt\.points \+ ":" \+ rank\);/);
+  assert.match(indexSource, /rank = global::Smoke\.Generated\.Index\.receipt\.rank == Rank\.Gold \? "gold" : "silver";/);
+  assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(global::Smoke\.Generated\.Index\.receipt\.label \+ ":" \+ global::Smoke\.Generated\.Index\.receipt\.points \+ ":" \+ global::Smoke\.Generated\.Index\.rank\);/);
 
   await assertGeneratedOutputHasNoReflectionSemantics(projectDirectory);
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "Ada-score:8:15:gold\n");

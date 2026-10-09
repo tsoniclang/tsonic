@@ -274,7 +274,7 @@ test("CLI escapes TypeScript identifiers that are C# reserved words", async () =
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/u);
   assert.match(generatedSource, /@event = 1;/);
   assert.match(generatedSource, /public static double read\(double @operator\)/);
-  assert.match(generatedSource, /double @params = @operator \+ @event;/);
+  assert.match(generatedSource, /double @params = @operator \+ global::Smoke\.Generated\.Index\.@event;/);
   assert.match(generatedSource, /return @params;/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedCsharpKeywordIdentifiers.csproj"), "--nologo", "--v:minimal"]);

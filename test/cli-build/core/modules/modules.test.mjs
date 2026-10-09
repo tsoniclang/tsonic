@@ -68,7 +68,7 @@ test("CLI emits module-scope variables as lazily initialized C# static propertie
   assert.match(generatedSource, /public static double total\s*\{\s*get;\s*internal set;\s*\} = default\(double\)!;/);
   assert.match(generatedSource, /private static object\? __tsonic_module_init_core\(\)/);
   assert.match(generatedSource, /total = 1;/);
-  assert.match(generatedSource, /total = total \+ 1;/);
+  assert.match(generatedSource, /total = global::Smoke\.Generated\.Index\.total \+ 1;/);
   assert.doesNotMatch(generatedSource, /public static void Main\(\)/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -179,7 +179,7 @@ test("CLI emits cross-file source references from TSTS resolved symbols", async 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Math\.add\(Math\.seed\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Math\.add\(global::Smoke\.Generated\.Math\.seed\);/);
   assert.doesNotMatch(generatedSource, /return add\(seed\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -230,7 +230,7 @@ test("CLI emits only files reachable from the TSTS source module graph", async (
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /Used\.__tsonic_module_init\(\);/);
-  assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(Used\.value\);/);
+  assert.match(indexSource, /Tsonic\.CSharp\.Js\.console\.log\(global::Smoke\.Generated\.Used\.value\);/);
   assert.doesNotMatch(indexSource, /Orphan|__unsupported/);
 
   const output = runGeneratedProject(projectDirectory, "SmokeGeneratedReachableSourceGraph");
@@ -281,12 +281,12 @@ test("CLI emits side-effect import initialization before importer top-level stat
 
   const indexSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(indexSource, /private static object\? __tsonic_module_init_core\(\)/);
-  assert.match(indexSource, /Side\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*State\.append\("index;"\);/);
+  assert.match(indexSource, /Side\.__tsonic_module_init\(\);[\s\S]*State\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.State\.append\("index;"\);/);
   assert.doesNotMatch(indexSource, /__unsupported/);
 
   const sideSource = await readFile(resolve(projectDirectory, "out/csharp/src/Side.cs"), "utf8");
   assert.match(sideSource, /private static object\? __tsonic_module_init_core\(\)/);
-  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*State\.append\("side;"\);/);
+  assert.match(sideSource, /State\.__tsonic_module_init\(\);[\s\S]*global::Smoke\.Generated\.State\.append\("side;"\);/);
   assert.doesNotMatch(sideSource, /__unsupported/);
 
   const stateSource = await readFile(resolve(projectDirectory, "out/csharp/src/State.cs"), "utf8");
@@ -411,7 +411,7 @@ test("CLI does not run type-only module dependencies during initialization", asy
   assert.match(indexSource, /named = new NamedShape_[a-f0-9]{12}/);
 
   const typesSource = await readFile(resolve(projectDirectory, "out/csharp/src/Types.cs"), "utf8");
-  assert.match(typesSource, /State\.append\("types;"\);/);
+  assert.match(typesSource, /global::Smoke\.Generated\.State\.append\("types;"\);/);
 
   const output = runGeneratedProject(projectDirectory, "SmokeGeneratedTypeOnlyImportOrder");
   assert.equal(output, "index:1:item;\n");
@@ -455,7 +455,7 @@ test("CLI emits namespace-import source references from TSTS resolved symbols", 
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Math\.add\(Math\.seed\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Math\.add\(global::Smoke\.Generated\.Math\.seed\);/);
   assert.doesNotMatch(generatedSource, /math\.add|math\.seed|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedNamespaceImportReferences.csproj"), "--nologo", "--v:minimal"]);
@@ -497,7 +497,7 @@ test("CLI erases re-export declarations and uses TSTS symbols for re-exported so
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Other\.value;/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Other\.value;/);
   assert.doesNotMatch(generatedSource, /return value;/);
   assert.doesNotMatch(generatedSource, /export|__unsupported/);
 
@@ -542,11 +542,11 @@ test("CLI emits default export expression snapshots through TSTS module-export s
 
   const otherSource = await readFile(resolve(projectDirectory, "out/csharp/src/Other.cs"), "utf8");
   assert.match(otherSource, /public static double @default\s*\{\s*get;\s*private set;\s*\} = default\(double\)!;/);
-  assert.match(otherSource, /value = 1;\s*@default = value;\s*value = 2;/);
+  assert.match(otherSource, /value = 1;\s*@default = global::Smoke\.Generated\.Other\.value;\s*global::Smoke\.Generated\.Other\.value = 2;/);
   assert.doesNotMatch(otherSource, /__unsupported/);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Other\.@default;/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Other\.@default;/);
   assert.doesNotMatch(generatedSource, /return Other\.value;|return value;|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultExportExpression.csproj"), "--nologo", "--v:minimal"]);
@@ -594,7 +594,7 @@ test("CLI emits default function imports and default re-exports from TSTS module
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Service\.compute\(1\) \+ Service\.compute\(2\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Service\.compute\(1\) \+ global::Smoke\.Generated\.Service\.compute\(2\);/);
   assert.doesNotMatch(generatedSource, /(?:Service|Barrel)\.__tsonic_module_init\(\);/);
   assert.doesNotMatch(generatedSource, /directCompute|Barrel\.compute|__unsupported/);
 
@@ -651,7 +651,7 @@ test("CLI emits aliased star and namespace re-exports from TSTS module-export sy
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /return Other\.value \+ Math\.add\(Math\.seed\) \+ Math\.seed;/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Other\.value \+ global::Smoke\.Generated\.Math\.add\(global::Smoke\.Generated\.Math\.seed\) \+ global::Smoke\.Generated\.Math\.seed;/);
   assert.doesNotMatch(generatedSource, /answer|math\.seed|add\(seed\)|__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedModuleExportForms.csproj"), "--nologo", "--v:minimal"]);

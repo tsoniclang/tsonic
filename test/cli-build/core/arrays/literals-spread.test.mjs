@@ -82,7 +82,7 @@ test("CLI emits typed, empty, nested, and spread array literals from finalized a
   assert.match(generatedSource, /public static int accepts\(Tsonic\.CSharp\.Js\.JSArray<int> values\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> values = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\);/);
   assert.match(generatedSource, /return Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\);/);
-  assert.match(generatedSource, /return accepts\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\)\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.accepts\(Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\)\);/);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>> nestedEmptyAndSpread\(\)/);
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<Tsonic\.CSharp\.Js\.JSArray<int>>\.of\(\[Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[\]\), Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2\]\)\]\)/);
   const nestedBody = /nestedSpread\([^\n]+\)\s*\{([\s\S]*?)\n        \}/u.exec(generatedSource)?.[1];
@@ -213,7 +213,11 @@ test("CLI emits module-scope array spread constants from finalized expected arra
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> source/);
   assert.match(generatedSource, /source = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[1, 2, 3\]\);/);
-  const copies = assertArraySpreadCopies(generatedSource, ["source", "source", "more"]);
+  const copies = assertArraySpreadCopies(generatedSource, [
+    "global::Smoke.Generated.Index.source",
+    "global::Smoke.Generated.Index.source",
+    "global::Smoke.Generated.Index.more",
+  ]);
   assert.match(generatedSource, new RegExp(`withSpread = ${copies[0]}\\.AppendElement\\(4\\)\\.AppendElement\\(5\\);`));
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> more/);
   assert.match(generatedSource, /more = Tsonic\.CSharp\.Js\.JSArray<int>\.of\(\[10, 20\]\);/);
@@ -268,7 +272,7 @@ test("CLI runs tuple spread into arrays from finalized tuple carrier facts", asy
   assert.match(generatedSource, /Tsonic\.CSharp\.Js\.JSArray<int> (?<destination>_*tsonic_sequence_destination) = new Tsonic\.CSharp\.Js\.JSArray<int>\(\)\.AppendElement\(1\);\s*\(int, int\) (?<pair>__tsonic_sequence_\d+) = pair;\s*\k<destination>\.EnsureCapacity\(checked\(\k<destination>\.Count \+ 2\)\);\s*\k<destination>\.Add\(\k<pair>\.Item1\);\s*\k<destination>\.Add\(\k<pair>\.Item2\);\s*return \k<destination>\.AppendElement\(4\);/u);
   assert.doesNotMatch(generatedSource, /\.concat\(|new int\[\]/u);
   assert.match(generatedSource, /public static Tsonic\.CSharp\.Js\.JSArray<int> values/);
-  assert.match(generatedSource, /values = compose\(\(2, 3\)\);/);
+  assert.match(generatedSource, /values = global::Smoke\.Generated\.Index\.compose\(\(2, 3\)\);/);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|dynamic|System\.Reflection/);
 
   assert.equal(runGeneratedProject(projectDirectory, assemblyName), "4:1:2:3:4\n");
@@ -314,7 +318,7 @@ test("CLI executes inferred empty arrays with the exact never element carrier", 
 });
 
 function assertArraySpreadCopies(source, inputs) {
-  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__tsonic_sequence_\d+) = (?<input>[A-Za-z][A-Za-z0-9]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
+  const copies = [...source.matchAll(/Tsonic\.CSharp\.Js\.JSArray<int> (?<source>__tsonic_sequence_\d+) = (?<input>[A-Za-z][A-Za-z0-9:.]*);\s*(?<destination>_*tsonic_sequence_destination)\.EnsureCapacity\(checked\(\k<destination>\.Count \+ \k<source>\.length\)\);\s*for \(int (?<index>_*tsonic_sequence_index) = 0; \k<index> < \k<source>\.length; \k<index>\+\+\)\s*\{\s*\k<destination>\.Add\(\k<source>\[\k<index>\]\);\s*\}/gu)];
   assert.deepEqual(copies.map(copy => copy.groups.input), inputs);
   return copies.map(copy => copy.groups.destination);
 }

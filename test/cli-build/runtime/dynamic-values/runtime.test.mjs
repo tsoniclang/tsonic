@@ -333,7 +333,7 @@ test("CLI emits and executes explicit any comma sequences through native stateme
   const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
-  assert.match(generatedSource, /public static double sequence\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*consume\(value\);\s*return \(1\);\s*\}/u);
+  assert.match(generatedSource, /public static double sequence\(Tsonic\.CSharp\.Runtime\.TsValue value\)\s*\{\s*global::Smoke\.Generated\.Index\.consume\(value\);\s*return \(1\);\s*\}/u);
   assert.doesNotMatch(generatedSource, /System\.Func|\(\(\) =>|System\.Reflection|\bdynamic\b|__unsupported/u);
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
     "using System;",

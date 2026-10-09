@@ -143,8 +143,8 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
   assert.match(shapeSource, new RegExp(`public class ${shapeName}[\\s\\S]*public required string name\\s*\\{\\s*get;\\s*set;\\s*\\}`));
   assert.match(indexSource, new RegExp(`public static ${readonlyName}<string> named`));
   assert.match(indexSource, new RegExp(`named = new ${shapeName}\\b`));
-  assert.match(indexSource, /current = Users\.makeUser\("Ada"\);/);
-  assert.match(indexSource, /greeter = new Greeter\(named\.name\);/);
+  assert.match(indexSource, /current = global::Smoke\.Generated\.Users\.makeUser\("Ada"\);/);
+  assert.match(indexSource, /greeter = new Greeter\(global::Smoke\.Generated\.Index\.named\.name\);/);
   assert.doesNotMatch(indexSource, /Model\.__tsonic_module_init|UserName|__unsupported/);
 
   const modelSource = await readFile(resolve(projectDirectory, "out/csharp/src/Model.cs"), "utf8");
@@ -158,7 +158,7 @@ test("CLI builds and runs a whole-program C# module/declaration graph", async ()
 
   const usersSource = await readFile(resolve(projectDirectory, "out/csharp/src/Users.cs"), "utf8");
   assert.match(usersSource, /User user = User\.create\(name\);/);
-  assert.match(usersSource, /State\.append\("user:" \+ user\.name \+ ":" \+ Role\.Admin \+ ";"\);/);
+  assert.match(usersSource, /global::Smoke\.Generated\.State\.append\("user:" \+ user\.name \+ ":" \+ Role\.Admin \+ ";"\);/);
   assert.doesNotMatch(usersSource, /createUser|UserName|__unsupported/);
 
   const greeterSource = await readFile(resolve(projectDirectory, "out/csharp/src/Greeter.cs"), "utf8");

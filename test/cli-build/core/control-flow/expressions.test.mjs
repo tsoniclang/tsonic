@@ -413,7 +413,7 @@ test("CLI emits TypeScript rest parameters as C# params arrays", async () => {
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double sum\(params double\[\] values\)/);
   assert.match(generatedSource, /foreach \(double value in values\)/);
-  assert.match(generatedSource, /return sum\(1, 2, 3\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.sum\(1, 2, 3\);/);
   assert.doesNotMatch(generatedSource, /object values/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
@@ -462,7 +462,7 @@ test("CLI emits literal default parameters as C# optional parameters", async () 
   assert.match(generatedSource, /bool enabled = __tsonic_param1 \?\? true;/);
   assert.match(generatedSource, /string label = __tsonic_param2 \?\? "x";/);
   assert.doesNotMatch(generatedSource, /\bis (?:double|bool|string) __tsonic_value\d+/);
-  assert.match(generatedSource, /return add\(\);/);
+  assert.match(generatedSource, /return global::Smoke\.Generated\.Index\.add\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedDefaultParameters.csproj"), "--nologo", "--v:minimal"]);
@@ -502,7 +502,7 @@ test("CLI executes non-literal parameter defaults only for native absence", asyn
   assert.equal(build.status, 0, build.stdout + build.stderr);
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
   assert.match(generatedSource, /public static double add\(double\? __tsonic_param0 = null\)/u);
-  assert.match(generatedSource, /double value = __tsonic_param0 \?\? seed\(\);\s*return value;/u);
+  assert.match(generatedSource, /double value = __tsonic_param0 \?\? global::Smoke\.Generated\.Index\.seed\(\);\s*return value;/u);
   assert.doesNotMatch(generatedSource, /\bis double __tsonic_value\d+/u);
   assert.doesNotMatch(generatedSource, /__unsupported|InvalidExpression|Func<|dynamic|System\.Reflection/u);
   assert.equal(await runGeneratedCsharpRunner(projectDirectory, "SmokeGeneratedNonliteralDefaultParameters", [
@@ -625,10 +625,11 @@ test("CLI emits void-expression statement and return lowering as discard evaluat
   assert.equal(build.status, 0, build.stdout + build.stderr);
 
   const generatedSource = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
-  assert.match(generatedSource, /public static void discardCall\(int value\)[\s\S]*bump\(value\);/);
-  assert.match(generatedSource, /public static void returnDiscard\(int value\)[\s\S]*bump\(value\);[\s\S]*return;/);
+  assert.match(generatedSource, /public static void discardCall\(int value\)[\s\S]*global::Smoke\.Generated\.Index\.bump\(value\);/);
+  assert.match(generatedSource, /public static void returnDiscard\(int value\)[\s\S]*global::Smoke\.Generated\.Index\.bump\(value\);[\s\S]*return;/);
   assert.match(generatedSource, /public static void discardLiteral\(\)\s*\{\s*\}/u);
   assert.doesNotMatch(generatedSource, /return bump\(value\);/);
+  assert.doesNotMatch(generatedSource, /return global::Smoke\.Generated\.Index\.bump\(value\);/);
 
   const dotnet = run("dotnet", ["build", resolve(projectDirectory, "out/csharp/SmokeGeneratedVoidExpressionDiscard.csproj"), "--nologo", "--v:minimal"]);
   assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);

@@ -87,6 +87,15 @@ const base: int32 = 2;
 const step = (value: int32): int32 => value + base;
 function multiply(value: int32): int32 { return value * 3; }
 export function plain(value: int32): int32 { return multiply(step(value)); }
+export function shadowed(Helpers: int32): int32 {
+  const Tsonic: int32 = Helpers + 1;
+  const selected: (value: int32) => int32 = multiply;
+  return selected(step(Tsonic));
+}
+export function label(Helpers: int32): string {
+  const Tsonic: int32 = Helpers + 1;
+  return \`\${multiply(step(Tsonic))}:\${base}\`;
+}
 export function recursive(seed: int32): int32 {
   let total: int32 = 0;
   const walk = (value: int32): void => {
@@ -104,10 +113,11 @@ export function object(seed: int32): int32 {
 }
 `,
   "index.ts": `
-import { plain, recursive, object } from "./helpers.js";
+import { plain, shadowed, label, recursive, object } from "./helpers.js";
 export function run(): boolean {
   return plain(1) === 9 && recursive(2) === 27 && recursive(1) === 15
-    && object(4) === 14 && object(0) === 10;
+    && object(4) === 14 && object(0) === 10 && shadowed(1) === 12
+    && label(1) === "12:2";
 }
 `,
 };

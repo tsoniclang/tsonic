@@ -36,7 +36,7 @@ test("CLI emits and executes async functions from TSTS Promise carriers", async 
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> getData\(\)/);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> fetchData\(\)/);
-  assert.match(generatedSource, /return await getData\(\);/);
+  assert.match(generatedSource, /return await global::Smoke\.Generated\.Index\.getData\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
@@ -92,7 +92,7 @@ test("CLI emits and executes Promise<void> as non-generic Task await statements"
   const generatedSource = await readGeneratedModuleSource(projectDirectory);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task tick\(\)/);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<string> run\(\)/);
-  assert.match(generatedSource, /await tick\(\);/);
+  assert.match(generatedSource, /await global::Smoke\.Generated\.Index\.tick\(\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
@@ -302,7 +302,7 @@ test("CLI emits and executes async structural object returns from finalized Prom
   assert.match(generatedObjectShapes, /public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/);
   assert.match(generatedSource, /public static async System\.Threading\.Tasks\.Task<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int>> make\(int value\)/);
   assert.match(generatedSource, /return new [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}\s*\{\s*value = value,\s*label = \$"box:\{value\}",\s*\};/);
-  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int> box = await make\(7\);/);
+  assert.match(generatedSource, /[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, int> box = await global::Smoke\.Generated\.Index\.make\(7\);/);
   assert.doesNotMatch(generatedSource, /__unsupported/);
 
   const stdout = await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
