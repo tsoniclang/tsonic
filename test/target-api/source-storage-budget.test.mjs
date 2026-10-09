@@ -17,6 +17,32 @@ test("source storage preserves independent finite node, edge, subject, transport
   }
 });
 
+test("owned source storage rows release only their retained cells without resetting finite failures", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 3 });
+  const permanent = budget.row();
+  assert.equal(permanent, true);
+  const first = budget.createRows();
+  assert.equal(first.add(2), true, "same shared row ceiling");
+  first.release();
+  first.release();
+  const second = budget.createRows();
+  assert.equal(second.add(2), true, "evicted cells no longer occupy storage");
+  assert.equal(budget.failure() === undefined, true);
+  assert.equal(budget.row(), false, "permanent and retained rows still enforce the original ceiling");
+  second.release();
+  assert.equal(budget.row(), false, "release cannot clear a failed budget");
+  for (const cost of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalidBudget = createSourceStorageBudget(defaultSourceStorageLimits);
+    assert.equal(invalidBudget.createRows().add(cost), false, "invalid owned reservation");
+    assert.equal(invalidBudget.failure() !== undefined, true);
+  }
+  const closedBudget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const closed = closedBudget.createRows();
+  closed.release();
+  assert.equal(closed.add(1), false, "released owners cannot resurrect storage");
+  assert.equal(closedBudget.failure() !== undefined, true);
+});
+
 test("source storage rejects invalid, nonfinite, imprecise and increased budget selections", () => {
   for (const field of Object.keys(defaultSourceStorageLimits)) {
     for (const value of [0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1, defaultSourceStorageLimits[field] + 1, undefined]) {

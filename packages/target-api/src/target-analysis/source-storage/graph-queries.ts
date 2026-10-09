@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceStorageBudget } from "./resource-budget.js";
+import type { SourceStorageBudget, SourceStorageRows } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 
 interface Dependency {
@@ -8,6 +8,7 @@ interface Dependency {
 
 interface QueryEntry {
   live: boolean;
+  readonly rows: SourceStorageRows;
   readonly remove: () => void;
   readonly reads: Set<Dependency>;
   readonly parents: Set<QueryEntry>;
@@ -19,7 +20,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
   let active: QueryEntry | undefined;
   const depend = (parent: QueryEntry | undefined, child: QueryEntry): boolean => {
     if (parent === undefined || parent.children.has(child)) return true;
-    if (!budget.row() || !budget.row()) return false;
+    if (!parent.rows.add(2)) return false;
     parent.children.add(child);
     child.parents.add(parent);
     return true;
@@ -33,6 +34,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
     entry.reads.clear();
     entry.children.clear();
     entry.parents.clear();
+    entry.rows.release();
   };
   return Object.freeze({
     read(subject: SourceStorageSubject): void {
@@ -45,7 +47,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         kinds.set(subject.kind, dependency);
         reads.set(subject.node, kinds);
       }
-      if (active.reads.has(dependency) || !budget.row() || !budget.row()) return;
+      if (active.reads.has(dependency) || !active.rows.add(2)) return;
       dependency.entries.add(active);
       active.reads.add(dependency);
     },
@@ -71,8 +73,9 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           }
           return depend(parent, cached.entry) ? cached.values : undefined;
         }
-        if (!budget.row()) return undefined;
-        const entry: QueryEntry = { live: true, remove: () => { selections.delete(key); },
+        const rows = budget.createRows();
+        if (!rows.add(1)) return undefined;
+        const entry: QueryEntry = { live: true, rows, remove: () => { selections.delete(key); },
           reads: new Set(), parents: new Set(), children: new Set() };
         selections.set(key, { entry });
         if (!depend(parent, entry)) { discard(entry); return undefined; }
@@ -87,9 +90,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           active = parent;
         }
         if (!entry.live) budget.reject("Source storage graph inputs changed during query selection.");
-        for (let index = 0; index < (values?.size ?? 0); index += 1) {
-          if (!budget.row()) break;
-        }
+        if (values !== undefined && values.size !== 0) rows.add(values.size);
         if (values === undefined || budget.failure() !== undefined) {
           discard(entry);
           return undefined;

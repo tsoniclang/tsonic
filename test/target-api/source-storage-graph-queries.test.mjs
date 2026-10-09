@@ -46,6 +46,22 @@ test("cached child hits register new parents and projected reads observe backing
   assert.equal(budget.failure() === undefined, true);
 });
 
+test("graph invalidation releases evicted query rows while keeping peak storage and total work finite", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 5 });
+  const graph = createSourceStorageGraphQueries(budget);
+  const selected = subject({});
+  let version = 0;
+  const query = graph.query(key => { graph.read(key); return new Set([version]); });
+  for (; version < 20; version += 1) {
+    assert.equal(query(selected)?.has(version), true, "current exact graph selection");
+    graph.invalidate(selected);
+  }
+  assert.equal(budget.failure() === undefined, true, "only live cache rows count toward peak storage");
+  assert.equal(query(selected)?.has(version), true);
+  assert.equal(query(subject({})) === undefined, true, "a second live selection still exceeds the finite ceiling");
+  assert.equal(budget.failure() !== undefined, true);
+});
+
 test("dependent graph cache preserves finite row and work exhaustion on cold and cached queries", () => {
   for (const limits of [
     { maximumTransportRows: 1 },

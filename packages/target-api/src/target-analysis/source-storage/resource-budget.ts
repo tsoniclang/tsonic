@@ -1,5 +1,10 @@
 import type { SourceStorageLimits } from "./types.js";
 
+export interface SourceStorageRows {
+  add(cost: number): boolean;
+  release(): void;
+}
+
 export const defaultSourceStorageLimits: SourceStorageLimits = Object.freeze({
   maximumNodes: 1_048_576,
   maximumEdges: 262_144,
@@ -46,6 +51,28 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
       return admit(subjects, limits.maximumSubjectRows, "subject");
     },
     row: (): boolean => admit(++rows, limits.maximumTransportRows, "transport-row"),
+    createRows: (): SourceStorageRows => {
+      let retained = 0;
+      let released = false;
+      return Object.freeze({
+        add(cost: number): boolean {
+          if (released || !Number.isSafeInteger(cost) || cost <= 0 || cost > limits.maximumTransportRows) {
+            reject("Source storage rows require a live owner and a finite positive reservation.");
+            return false;
+          }
+          if (!admit(rows + cost, limits.maximumTransportRows, "transport-row")) return false;
+          rows += cost;
+          retained += cost;
+          return true;
+        },
+        release(): void {
+          if (released) return;
+          rows -= retained;
+          retained = 0;
+          released = true;
+        },
+      });
+    },
     step: (): boolean => admit(++steps, limits.maximumSteps, "analysis-work"),
   });
 }
