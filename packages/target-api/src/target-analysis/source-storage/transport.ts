@@ -90,22 +90,6 @@ export function createSourceStorageTransport(
     }
     return undefined;
   };
-  const catchDestination = (node: Node): Node | undefined => {
-    let child = node;
-    for (let parent = ast.parent(node); parent !== undefined && step(); child = parent, parent = ast.parent(parent)) {
-      if (ast.is.IsFunctionDeclaration(parent) || ast.is.IsFunctionExpression(parent) || ast.is.IsArrowFunction(parent) ||
-        ast.is.IsMethodDeclaration(parent) || ast.is.IsConstructorDeclaration(parent) ||
-        ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent)) return undefined;
-      if (!ast.is.IsTryStatement(parent)) continue;
-      const selected = ast.as.AsTryStatement(parent);
-      if (selected !== undefined && selected.TryBlock === child) {
-        const caught = selected.CatchClause === undefined || !ast.is.IsCatchClause(selected.CatchClause)
-          ? undefined : ast.as.AsCatchClause(selected.CatchClause)?.VariableDeclaration;
-        if (caught !== undefined) return caught;
-      }
-    }
-    return undefined;
-  };
   const subjectFor = (node: Node | undefined): SourceStorageSubject | undefined => {
     if (node === undefined) return undefined;
     const original = node;
@@ -177,7 +161,7 @@ export function createSourceStorageTransport(
     }
   };
 
-  const regions = createSourceStorageExecutionRegions(source, step);
+  const regions = createSourceStorageExecutionRegions(source, budget);
   const recordThrow = (region: Node, origin: SourceStorageSubject): void => {
     const origins = thrownOrigins.get(region) ?? new Set<SourceStorageSubject>();
     if (origins.has(origin) || !budget.row()) return;
@@ -253,7 +237,7 @@ export function createSourceStorageTransport(
     if (ast.is.IsReturnStatement(node)) connect(subjectFor(Node_Expression(ast, node)), subject(enclosingCallable(node), "return"));
     if (ast.is.IsThrowStatement(node)) {
       const origin = subjectFor(Node_Expression(ast, node));
-      const caught = catchDestination(node);
+      const caught = regions.catchDestination(node);
       if (caught !== undefined) connect(origin, subject(caught));
       else {
         const region = regions.enclosing(node);
@@ -563,7 +547,7 @@ export function createSourceStorageTransport(
     }
     for (const invocation of new Set([...invocations, ...accessorTargets.keys()])) {
       if (!step()) break;
-      const destination = catchDestination(invocation);
+      const destination = regions.catchDestination(invocation);
       const enclosing = destination === undefined ? regions.enclosing(invocation) : undefined;
       const reason = unresolvedInvocations.get(invocation);
       if (reason !== undefined) {

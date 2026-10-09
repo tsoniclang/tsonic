@@ -2,9 +2,12 @@ import type { Node, Type } from "@tsonic/tsts";
 import { Node_Initializer, sourceClassFieldIsTypeOnly } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageConstructedClass } from "./construction.js";
+import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
+import type { SourceStorageBudget } from "./resource-budget.js";
 
-export function createSourceStorageExecutionRegions(source: TargetSourceProgram, step: () => boolean) {
+export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget) {
   const { ast, semantics, navigation } = source;
+  const step = budget.step;
   const typeMayBeAbsent = (type: Type, owner: Node): boolean => {
     const types = semantics.forNode(owner).types;
     const pending = [type];
@@ -68,18 +71,5 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     }
     return regions;
   };
-  const enclosing = (node: Node): Node | undefined => {
-    let child = node;
-    for (let parent = ast.parent(node); parent !== undefined && step(); child = parent, parent = ast.parent(parent)) {
-      if ((ast.is.IsParameterDeclaration(parent) || ast.is.IsPropertyDeclaration(parent)) &&
-        Node_Initializer(ast, parent) === child) return child;
-      if (ast.is.IsFunctionDeclaration(parent) || ast.is.IsFunctionExpression(parent) ||
-        ast.is.IsArrowFunction(parent) || ast.is.IsMethodDeclaration(parent) ||
-        ast.is.IsConstructorDeclaration(parent) || ast.is.IsGetAccessorDeclaration(parent) ||
-        ast.is.IsSetAccessorDeclaration(parent)) return ast.body(parent);
-      if (ast.is.IsSourceFile(parent)) return parent;
-    }
-    return undefined;
-  };
-  return Object.freeze({ callable, instance, enclosing });
+  return Object.freeze({ callable, instance, ...createSourceStorageLexicalSelections(ast, budget) });
 }
