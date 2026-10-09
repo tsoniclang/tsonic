@@ -27,3 +27,36 @@ export async function main(): Promise<void> {
   if (!await run()) throw new Error("suspended activation identity or lifetime was lost");
 }
 `;
+
+export const suspendedClassActivationCallableSource = `
+import type { int32 } from "@tsonic/core/types.js";
+class Counter {
+  total: int32 = 0;
+  readonly advance = async (): Promise<int32> => {
+    await Promise.resolve(undefined);
+    this.total++;
+    if (this.total < 3) return await this.finish();
+    return this.total;
+  };
+  readonly finish = async (): Promise<int32> => {
+    await Promise.resolve(undefined);
+    return await this.advance();
+  };
+}
+function pending(): Promise<int32> {
+  const owner = new Counter();
+  return owner.advance();
+}
+export async function run(): Promise<boolean> {
+  const first = new Counter();
+  const alias = first.advance;
+  const second = new Counter();
+  return alias === first.advance && alias !== second.advance && await alias() === 3 &&
+    await first.advance() === 4 && await second.advance() === 3 && await pending() === 3;
+}
+export async function main(): Promise<void> {
+  if (!await run()) {
+    throw new Error("suspended class activation identity or lifetime was lost");
+  }
+}
+`;
