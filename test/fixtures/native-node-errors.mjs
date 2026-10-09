@@ -10,7 +10,7 @@ export function close(server: Server, done: (error?: NodeError) => void): void {
 }
 
 export function forward(source: Readable, destination: Writable): void {
-  const listener = (error: NodeError): void => { destination.destroy(error); };
+  const listener = (error: Error): void => { destination.destroy(error); };
   source.on("error", listener);
   source.off("error", listener);
 }
