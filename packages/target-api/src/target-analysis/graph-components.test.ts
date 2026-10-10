@@ -56,3 +56,30 @@ test("generic vertex identity agrees with native Map keys including NaN", () => 
   assert.equal(selection.components.length, 2);
   assert.equal(selection.components.every(component => component.length === 1), true);
 });
+
+test("an owning work accountant receives every component traversal step", () => {
+  const vertices = new Set([1, 2]);
+  const neighbours = (vertex: number): readonly number[] => vertex === 1 ? [2] : [1];
+  let steps = 0;
+  const selected = targetStronglyConnectedComponents(vertices, neighbours, () => { steps += 1; return true; });
+  assert.equal(selected.kind, "resolved");
+  assert.equal(steps > 0, true);
+  assert.deepEqual(selected, targetStronglyConnectedComponents(vertices, neighbours, steps));
+  let rejected = 0;
+  const exhausted = targetStronglyConnectedComponents(vertices, neighbours, () => ++rejected < steps);
+  assert.equal(exhausted.kind, "unresolved");
+  assert.equal("components" in exhausted, false);
+  assert.equal(rejected, steps);
+});
+
+test("a rejected or throwing accountant cannot publish partial component evidence", () => {
+  let traversed = false;
+  const neighbours = (): readonly number[] => { traversed = true; return []; };
+  const selected = targetStronglyConnectedComponents(new Set([1]), neighbours, () => false);
+  assert.equal(selected.kind, "unresolved");
+  assert.equal(traversed, false);
+  const expected = new Error("exact accounting failure");
+  assert.throws(() => targetStronglyConnectedComponents(new Set([1]), neighbours, () => { throw expected; }),
+    error => error === expected);
+  assert.equal(traversed, false);
+});

@@ -1,11 +1,11 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/index.js";
+import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "./types.js";
@@ -22,7 +22,6 @@ export function createSourceStorageDomains(
   const witnesses = createSourceStorageDomainWitnesses(budget);
   const publications = createSourceStorageDomainPublications(budget);
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
-  const opaque = new Set(transport.boundaries.map(boundary => boundary.invocation));
   let initialized = false;
   const add = domainInputs.add;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
@@ -150,7 +149,17 @@ export function createSourceStorageDomains(
         if (relation.kind === "available") for (const member of relation.members) {
           if (!budget.step()) return;
           if (member.kind !== "present") continue;
-          for (const declaration of member.source.declarations) {
+          const declarations = new Set<Node>();
+          for (const selected of member.source.declarations) {
+            if (!budget.step()) return;
+            const originals = transport.memberFlow.declarationsFor(owner, selected, contextual ?? type);
+            if (originals === undefined) {
+              budget.reject("Source storage publication requires exact checked physical member correspondence.");
+              return;
+            }
+            for (const declaration of originals) { if (!budget.step()) return; declarations.add(declaration); }
+          }
+          for (const declaration of declarations) {
             if (!budget.step()) return;
             if (!accessible(declaration) || !transport.retainCheckedContext(declaration, file)) continue;
             const child = sourceStorageMemberSubject(declaration, ast, transport.subject);
@@ -206,66 +215,7 @@ export function createSourceStorageDomains(
     }
     return selected;
   };
-  const inputsFor = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageSubject> => {
-    const incoming = transport.incomingFor(subject);
-    const receiver = subject.kind === "return" ? transport.subject(subject.node, "receiver") : undefined;
-    if (incoming.size !== 0 && receiver !== undefined && bindings.has(receiver) && ast.body(subject.node) !== undefined) {
-      const selected = new Set<SourceStorageSubject>();
-      for (const origin of incoming) {
-        if (!budget.step()) break;
-        if (origin.kind !== "return") selected.add(origin);
-      }
-      return selected;
-    }
-    return incoming;
-  };
-  const dispatchInputs = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): readonly SourceStorageSubject[] => {
-    const node = subject.node;
-    const selected = semantics.forNode(node).operations.call(node);
-    const result: SourceStorageSubject[] = [];
-    const accessor = transport.accessorTargets.has(node);
-    const target = accessor ? undefined : transport.subjectFor(Node_Expression(ast, node));
-    const physical = transport.physicalMemberInputs(node, origin => transport.substitutions.origins(origin, bindings));
-    if (physical !== undefined) {
-      for (const input of physical) {
-        if (!budget.step()) break;
-        result.push(input);
-      }
-    } else if (target !== undefined) result.push(target);
-    const declaration = accessor ? transport.accessorTargets.get(node)?.[0] : transport.invocationDeclarations.get(node);
-    if (declaration !== undefined && !ast.hasModifierKind(declaration, "static") && !ast.hasModifierKind(declaration, "private") &&
-      (ast.is.IsMethodDeclaration(declaration) || ast.kindName(declaration) === "KindMethodSignature" ||
-        ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) {
-      const receiver = selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
-        ?? semantics.forNode(node).operations.propertyAccess(node)?.receiver.expression;
-      const receiverSubject = transport.subjectFor(receiver);
-      if (receiverSubject !== undefined && ast.kindName(receiver) !== "KindSuperKeyword") result.push(receiverSubject);
-    }
-    return result;
-  };
-  const externalInput = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): boolean => budget.withRows(rows => {
-    const pending = [{ subject, bindings }];
-    const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
-    while (pending.length !== 0 && budget.step()) {
-      const current = pending.pop()!;
-      const checked = visited.get(current.bindings) ?? new Set<SourceStorageSubject>();
-      if (checked.has(current.subject)) continue;
-      if (!rows.add(1)) break;
-      checked.add(current.subject);
-      visited.set(current.bindings, checked);
-      const bound = transport.substitutions.selection(current.subject, current.bindings);
-      if (bound === undefined) {
-        domainInputs.read(current.subject);
-        if (domainInputs.has(current.subject)) return true;
-      }
-      for (const input of bound?.inputs ?? inputsFor(current.subject, current.bindings)) {
-        if (!budget.step()) break;
-        pending.push({ subject: input, bindings: bound?.context ?? current.bindings });
-      }
-    }
-    return false;
-  });
-  const memberInputs = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
+  const selectedMembers = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
     const bound = transport.substitutions.selection(owner, bindings);
     if (bound === undefined) return undefined;
     const file = transport.sourceFileFor(owner);
@@ -273,192 +223,89 @@ export function createSourceStorageDomains(
     if (type === undefined) return undefined;
     return budget.withRows(rows => {
       const result: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-      const pending: { readonly subject: SourceStorageSubject; readonly type: Type }[] = [];
-      for (const input of bound.inputs) {
-        if (!budget.step()) break;
-        pending.push({ subject: input, type });
-      }
-      const visited = new Map<SourceStorageSubject, Set<Type>>();
-      while (pending.length !== 0 && budget.step()) {
+      const pending = bound.map(input => ({ ...input, type }));
+      const visited = new Map<SourceStorageSubstitutions, Map<SourceStorageSubject, Set<Type>>>();
+      while (pending.length !== 0) {
+        if (!budget.step()) return undefined;
         const current = pending.pop()!;
-        const types = visited.get(current.subject) ?? new Set<Type>();
-        if (types.has(current.type)) continue;
-        if (!rows.add(1)) break;
-        types.add(current.type);
-        visited.set(current.subject, types);
+        const states = visited.get(current.bindings);
+        const subjects = states?.get(current.subject);
+        if (subjects?.has(current.type)) continue;
+        if (!rows.add(1 + (states === undefined ? 1 : 0) + (subjects === undefined ? 1 : 0))) return undefined;
+        const selected = states ?? new Map<SourceStorageSubject, Set<Type>>();
+        const types = subjects ?? new Set<Type>();
+        types.add(current.type); selected.set(current.subject, types); visited.set(current.bindings, selected);
         const file = transport.sourceFileFor(current.subject);
         if (file === undefined) continue;
         const members = transport.memberFlow.membersFor(current.subject, current.type);
         for (const member of members ?? []) {
-          if (!budget.step()) break;
+          if (!budget.step()) return undefined;
           if (member.kind !== "present") continue;
-          let matches = false;
-          for (const declaration of member.destination.declarations) {
-            if (!budget.step()) break;
-            matches ||= declaration === subject.node;
-          }
+          const matches = member.destination.declarations.includes(subject.node);
           for (const declaration of member.source.declarations) {
-            if (!budget.step() || !transport.retainCheckedContext(declaration, file)) break;
+            if (!budget.step() || !transport.retainCheckedContext(declaration, file)) return undefined;
             const original = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (original === undefined) continue;
-            if (matches) result.push({ subject: original, bindings: bound.context });
-            else pending.push({ subject: original, type: member.destination.property.type });
+            if (matches) result.push({ subject: original, bindings: current.bindings });
+            else pending.push({ subject: original, bindings: current.bindings, type: member.destination.property.type });
           }
         }
       }
       return result.length === 0 ? undefined : result;
     });
   };
-  const returnReceiver = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
-    if (subject.kind !== "return" || !ast.is.IsGetAccessorDeclaration(subject.node) && !ast.is.IsMethodDeclaration(subject.node)) return undefined;
+  const receiverBinding = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): boolean => {
+    if (subject.kind !== "return" || !ast.is.IsGetAccessorDeclaration(subject.node) && !ast.is.IsMethodDeclaration(subject.node)) return false;
     const receiver = transport.subject(subject.node, "receiver");
-    return receiver === undefined ? undefined : transport.substitutions.selection(receiver, bindings);
+    return receiver !== undefined && transport.substitutions.isBound(receiver, bindings);
   };
-  const collectEffectiveInputs = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions, externalEntry: boolean) => {
-    const bound = transport.substitutions.selection(subject, bindings);
-    if (bound !== undefined) {
-      const inputs: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-      for (const input of bound.inputs) {
-        if (!budget.step()) break;
-        inputs.push({ subject: input, bindings: bound.context });
-      }
-      return inputs;
-    }
-    const selectedMember = transport.memberResults.select(subject, bindings);
-    if (selectedMember !== undefined) return selectedMember;
-    const members: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-    if (bindings.size !== 0 && returnReceiver(subject, bindings) === undefined) {
-      for (const formal of bindings.keys()) { if (!budget.step()) break; domainInputs.read(subject, formal); }
-      for (const owner of domainInputs.owners(subject)) {
-        if (!budget.step()) break;
-        if (owner === undefined) continue;
-        for (const input of memberInputs(subject, owner, bindings) ?? []) {
-          if (!budget.step()) break;
-          members.push(input);
-        }
-      }
-    }
-    if (members.length !== 0) return members;
-    if (externalEntry) {
-      domainInputs.read(subject);
-      if (domainInputs.has(subject)) return [];
-    }
-    const node = subject.node;
-    const invocation = transport.invocations.has(node) || transport.accessorTargets.has(node);
-    if (transport.invocationResults.hasAllocation(subject)) {
-      return transport.invocationResults.select(subject, bindings) ?? [];
-    }
-    if (invocation && transport.invocationEffects.get(node)?.resultAlias === undefined && !opaque.has(node) &&
-      (!externalEntry || !dispatchInputs(subject, bindings).some(input => externalInput(input, bindings))) &&
-      (ast.is.IsCallExpression(node) || transport.accessorTargets.has(node))) {
-      const selected = transport.invocationResults.select(subject, bindings);
-      if (selected !== undefined) return selected;
-    }
-    if (invocation && externalEntry && dispatchInputs(subject, bindings).some(input => externalInput(input, bindings))) return [];
-    const inputs: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-    for (const input of inputsFor(subject, bindings)) {
-      if (!budget.step()) break;
-      inputs.push({ subject: input, bindings });
-    }
-    return inputs;
+  const publicationOrigins = (subject: SourceStorageSubject, externalEntry: boolean): ReadonlySet<SourceStorageSubject> => {
+    if (!externalEntry) return transport.substitutions.origins(subject, transport.substitutions.empty) ?? new Set();
+    const selected = transport.substitutions.walk(subject, transport.substitutions.empty, current => {
+      if (!externalEntry || transport.substitutions.isBound(current.subject, current.bindings)) return false;
+      domainInputs.read(current.subject);
+      return domainInputs.has(current.subject);
+    });
+    return selected?.origins ?? new Set();
   };
-  const adjacencies = new WeakMap<SourceStorageSubstitutions, {
-    readonly internal: ReturnType<typeof selectAdjacency>;
-    readonly external: ReturnType<typeof selectAdjacency>;
-  }>();
-  const adjacencyRows = budget.createRows();
-  const selectAdjacency = (bindings: SourceStorageSubstitutions, externalEntry: boolean) =>
-    domainInputs.query((subject: SourceStorageSubject) => new Set(collectEffectiveInputs(subject, bindings, externalEntry)));
-  const effectiveInputs = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions, externalEntry = false) => {
-    let selected = adjacencies.get(bindings);
-    if (selected === undefined) {
-      if (!adjacencyRows.add(3)) return new Set<ReturnType<typeof collectEffectiveInputs>[number]>();
-      selected = { internal: selectAdjacency(bindings, false), external: selectAdjacency(bindings, true) };
-      adjacencies.set(bindings, selected);
-    }
-    return (externalEntry ? selected.external : selected.internal)(subject) ?? new Set<ReturnType<typeof collectEffectiveInputs>[number]>();
-  };
-  const publicationOrigins = (subject: SourceStorageSubject, externalEntry: boolean): ReadonlySet<SourceStorageSubject> => budget.withRows(rows => {
-    const pending = [{ subject, bindings: transport.substitutions.empty }];
-    const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
-    const origins = new Set<SourceStorageSubject>();
-    while (pending.length !== 0 && budget.step()) {
-      const current = pending.pop()!;
-      const checked = visited.get(current.bindings) ?? new Set<SourceStorageSubject>();
-      if (checked.has(current.subject)) continue;
-      if (!rows.add(1)) break;
-      checked.add(current.subject);
-      visited.set(current.bindings, checked);
-      const inputs = effectiveInputs(current.subject, current.bindings, externalEntry);
-      if (inputs.size === 0 || transport.invocationResults.hasAllocation(current.subject)) origins.add(current.subject);
-      for (const input of inputs) {
-        if (!budget.step()) break;
-        pending.push(input);
-      }
-    }
-    return origins;
-  });
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
-    const pending = [{ subject, bindings, collect: true }];
-    const visited = new Map<SourceStorageSubstitutions, Map<SourceStorageSubject, number>>();
-    const origins = new Set<SourceStorageSubject>();
+    const selected = transport.substitutions.walk(subject, bindings);
+    if (selected === undefined) return Object.freeze({
+      subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary[]),
+      reason: budget.failure() ?? "Source storage requires one completed scoped relation.",
+    });
     const boundaries = new Set<SourceStorageDomainBoundary>();
+    const pending = [...selected.subjects];
+    const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
     let reason: string | undefined;
-    while (pending.length !== 0 && budget.step()) {
+    while (pending.length !== 0) {
+      if (!budget.step()) break;
       const current = pending.pop()!;
-      const checked = visited.get(current.bindings) ?? new Map<SourceStorageSubject, number>();
-      const flag = current.collect ? 2 : 1;
-      const previous = checked.get(current.subject) ?? 0;
-      if ((previous & flag) !== 0) continue;
-      if (!rows.add(1)) break;
-      checked.set(current.subject, previous | flag);
-      visited.set(current.bindings, checked);
-      const bound = transport.substitutions.selection(current.subject, current.bindings);
+      const selected = visited.get(current.bindings);
+      if (selected?.has(current.subject)) continue;
+      if (!rows.add(1 + (selected === undefined ? 1 : 0))) break;
+      const retained = selected ?? new Set<SourceStorageSubject>();
+      retained.add(current.subject); visited.set(current.bindings, retained);
       const stores = purpose === "storage-producers" ? transport.storedInputsFor(current.subject) : undefined;
-      if (stores !== undefined) {
-        reason = transport.unresolvedStoredInputsFor(current.subject);
-        if (reason !== undefined) break;
-      }
-      for (const forwarded of bound?.forwarded ?? []) {
-        if (!budget.step()) break;
-        for (const boundary of boundariesFor(forwarded)) {
-          if (!budget.step()) break;
-          if (boundary.kind !== "external-input") boundaries.add(boundary);
-        }
-      }
+      reason = transport.unresolvedStoredInputsFor(current.subject);
+      if (reason !== undefined) break;
+      const bound = transport.substitutions.isBound(current.subject, current.bindings);
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
-        if (stores !== undefined && boundary.kind === "external-input" && boundary.owner !== undefined) continue;
-        const ownerBinding = boundary.kind !== "external-input" ? undefined : returnReceiver(current.subject, current.bindings)
-          ?? (boundary.owner !== undefined && memberInputs(current.subject, boundary.owner, current.bindings) !== undefined
-            ? transport.substitutions.selection(boundary.owner, current.bindings) : undefined);
-        if (ownerBinding !== undefined) {
-          for (const input of ownerBinding.inputs) {
-            if (!budget.step()) break;
-            pending.push({ subject: input, bindings: ownerBinding.context, collect: false });
+        if (boundary.kind === "external-input") {
+          if (purpose === "storage-producers" && !current.contributes) continue;
+          if (bound || stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
+          if (boundary.owner !== undefined) {
+            const members = selectedMembers(current.subject, boundary.owner, current.bindings);
+            if (members !== undefined) { pending.push(...members.map(member => ({ ...member, contributes: current.contributes }))); continue; }
           }
-        } else if (boundary.kind !== "external-input" || bound === undefined) boundaries.add(boundary);
-      }
-      const node = current.subject.node;
-      if (bound === undefined && (transport.invocations.has(node) || transport.accessorTargets.has(node)) &&
-        transport.invocationEffects.get(node)?.resultAlias === undefined) {
-        for (const input of dispatchInputs(current.subject, current.bindings)) {
-          if (!budget.step()) break;
-          pending.push({ subject: input, bindings: current.bindings, collect: false });
         }
-      }
-      const incoming = stores === undefined || bound !== undefined ? effectiveInputs(current.subject, current.bindings)
-        : new Set([...stores].map(stored => ({ subject: stored, bindings: current.bindings })));
-      if (current.collect && (incoming.size === 0 || sourceStorageHasOriginalCallableValue(current.subject, ast) ||
-        transport.invocationResults.hasAllocation(current.subject))) origins.add(current.subject);
-      for (const origin of incoming) {
-        if (!budget.step()) break;
-        pending.push({ ...origin, collect: current.collect });
+        boundaries.add(boundary);
       }
     }
-    return Object.freeze({ subjects: Object.freeze([...origins]), boundaries: Object.freeze([...boundaries]), reason });
+    return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundaries: Object.freeze([...boundaries]), reason });
   });
   return Object.freeze({ select });
 }

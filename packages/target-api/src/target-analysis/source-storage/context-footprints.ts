@@ -1,13 +1,19 @@
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 
-export function createSourceStorageContextPorts(
+export interface SourceStorageContextFootprint {
+  readonly ports: ReadonlySet<SourceStorageSubject>;
+  readonly locations: ReadonlySet<SourceStorageSubject>;
+}
+
+export function createSourceStorageContextFootprints(
   budget: SourceStorageBudget,
   inputsFor: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined,
+  isLocation: (subject: SourceStorageSubject) => boolean,
 ) {
-  const selections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
+  const selections = new Map<SourceStorageSubject, SourceStorageContextFootprint>();
   const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "receiver" || subject.kind === "input";
-  const firstPorts = (subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+  const select = (subject: SourceStorageSubject): SourceStorageContextFootprint | undefined => {
     if (!budget.step()) return undefined;
     const cached = selections.get(subject);
     if (cached !== undefined) return cached;
@@ -15,6 +21,7 @@ export function createSourceStorageContextPorts(
       const pending: SourceStorageSubject[] = [];
       const visited = new Set<SourceStorageSubject>();
       const ports = new Set<SourceStorageSubject>();
+      const locations = new Set<SourceStorageSubject>();
       const schedule = (input: SourceStorageSubject): boolean => {
         if (visited.has(input)) return true;
         if (!rows.add(1)) return false;
@@ -28,6 +35,7 @@ export function createSourceStorageContextPorts(
         const current = pending.pop()!;
         if (isPort(current)) ports.add(current);
         else {
+          if (isLocation(current)) locations.add(current);
           const inputs = inputsFor(current);
           if (inputs === undefined) return undefined;
           for (const input of inputs) {
@@ -36,10 +44,11 @@ export function createSourceStorageContextPorts(
         }
       }
       const retained = budget.createRows();
-      if (!retained.add(1 + ports.size)) { retained.release(); return undefined; }
-      selections.set(subject, ports);
-      return ports;
+      if (!retained.add(1 + ports.size + locations.size)) { retained.release(); return undefined; }
+      const footprint = Object.freeze({ ports, locations });
+      selections.set(subject, footprint);
+      return footprint;
     });
   };
-  return Object.freeze({ isPort, firstPorts });
+  return Object.freeze({ select });
 }

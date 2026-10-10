@@ -1,252 +1,235 @@
-import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
-import type { SourceStorageIncomingQuery } from "./edges.js";
-import type { SourceStorageBudget } from "./resource-budget.js";
-import type { SourceStorageInvocationResultQueriesContract } from "./invocation-results.js";
+import type { SourceStorageSubject } from "./subjects.js";
+import type { SourceStorageBudget, SourceStorageRows } from "./resource-budget.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
-import { createSourceStorageContextPorts } from "./context-ports.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
+import { createSourceStorageScopes } from "./scoped-scopes.js";
+import { createSourceStorageScopedKeys } from "./scoped-keys.js";
+import { createSourceStorageEquations } from "./scoped-equations.js";
+import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
+import type { SourceStorageScopedTransport } from "./scoped-transport.js";
+import { sourceStorageTransparentInput } from "./scoped-transport.js";
+import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "./scoped-model.js";
+import { sourceStorageReference } from "./scoped-model.js";
+import { sourceStorageRegionOwner } from "./lexical-regions.js";
 
-export interface SourceStorageBoundSelection {
-  readonly inputs: ReadonlySet<SourceStorageSubject>;
-  readonly forwarded: ReadonlySet<SourceStorageSubject>;
-  readonly context: SourceStorageSubstitutions;
-}
+export type SourceStorageSubstitutions = SourceStorageScope;
+export type SourceStorageBoundSubject = SourceStorageScopedSubject;
 
-export type SourceStorageSubstitutions = ReadonlyMap<SourceStorageSubject, SourceStorageBoundSelection>;
-
-export interface SourceStorageBoundSubject {
-  readonly subject: SourceStorageSubject;
-  readonly bindings: SourceStorageSubstitutions;
-}
-
-export function createSourceStorageSubstitutions(
-  source: TargetSourceProgram,
-  budget: SourceStorageBudget,
-  subject: SourceStorageSubjectQuery,
-  incoming: SourceStorageIncomingQuery,
-  invocationInputs: SourceStorageInvocationInputQuery,
-  contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined,
-  invocationResults: SourceStorageInvocationResultQueriesContract,
-  graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
-  memberInputs: (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => readonly SourceStorageBoundSubject[] | undefined,
-) {
-  const step = budget.step;
-  const reserveRow = budget.row;
-  const contextPorts = createSourceStorageContextPorts(budget, contextualInputs);
-  const empty: SourceStorageSubstitutions = new Map();
-  const bindingSets = new Map<string, SourceStorageSubstitutions>();
-  const contexts = new WeakMap<SourceStorageSubstitutions, number>();
-  contexts.set(empty, 0);
-  const identities = new Map<SourceStorageSubject, number>();
-  const identity = (subject: SourceStorageSubject): number => {
-    let selected = identities.get(subject);
-    if (selected === undefined) { selected = identities.size; identities.set(subject, selected); }
-    return selected;
+export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
+  transport: SourceStorageScopedTransport, invocationInputs: SourceStorageInvocationInputQuery,
+  graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
+  const scopes = createSourceStorageScopes(source, budget, transport.subject, invocationInputs, graphQueries);
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
+  const equations = createSourceStorageEquations(source, budget, transport, scopes, keys.encode);
+  const terms = new Map<string, SourceStorageTerm>();
+  const dependencies = new Map<SourceStorageTerm, Map<SourceStorageTerm, number>>();
+  const witnesses = new Map<SourceStorageTerm, Map<SourceStorageScope, Map<SourceStorageSubject, number>>>();
+  const referenceTerms = { reference: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageTerm>>(),
+    leaf: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageTerm>>() };
+  const rows = budget.createRows();
+  const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
+    if (scope === scopes.empty || subject.kind === "member") return scope;
+    const region = transport.regions.enclosing(subject.node);
+    const owner = subject.kind === "return" || subject.kind === "receiver" ? subject.node
+      : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    return owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
   };
-  const boundSubjects = new WeakMap<SourceStorageSubstitutions, Map<SourceStorageSubject, SourceStorageBoundSubject>>();
-  const boundSubject = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): SourceStorageBoundSubject | undefined => {
-    if (!step()) return undefined;
-    const subjects = boundSubjects.get(bindings);
-    const cached = subjects?.get(subject);
-    if (cached !== undefined) return cached;
-    if (!reserveRow() || subjects === undefined && !reserveRow()) return undefined;
-    const selected = Object.freeze({ subject, bindings });
-    const retained = subjects ?? new Map<SourceStorageSubject, SourceStorageBoundSubject>();
-    retained.set(subject, selected);
-    boundSubjects.set(bindings, retained);
-    return selected;
+  let currentRead: ((term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) | undefined;
+  const successors = createSourceStorageScopedSuccessors(source, budget, transport, scopes, equations, keys.birthKey,
+    term => currentRead === undefined ? undefined : currentRead(term));
+  const addWitness = (term: SourceStorageTerm, subject: SourceStorageSubject, scope: SourceStorageScope, contributes = true): boolean => {
+    scope = witnessScope(subject, scope);
+    const states = witnesses.get(term);
+    const subjects = states?.get(scope);
+    const mode = contributes ? 2 : 1;
+    const previous = subjects?.get(subject);
+    if (((previous ?? 0) & mode) !== 0) return true;
+    if (previous === undefined && !rows.add(1 + (states === undefined ? 1 : 0) + (subjects === undefined ? 1 : 0))) return false;
+    const selected = states ?? new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
+    const retained = subjects ?? new Map<SourceStorageSubject, number>();
+    retained.set(subject, (previous ?? 0) | mode); selected.set(scope, retained); witnesses.set(term, selected);
+    return true;
   };
-  let currentRead: ((subject: SourceStorageBoundSubject) => ReadonlySet<SourceStorageBoundSubject> | undefined) | undefined;
-  const selectedValues = graphQueries.fixedPoint<SourceStorageBoundSubject, SourceStorageBoundSubject>((current, read, emit) => {
-    const add = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): boolean => {
-      const selected = boundSubject(subject, bindings);
-      const inputs = selected === undefined ? undefined : read(selected);
-      if (inputs === undefined) return false;
-      for (const input of inputs) {
-        if (!step()) return false;
-        if (!emit(input)) return false;
+  const normalize = (term: SourceStorageTerm, witnesses: SourceStorageRelationWitness[], temporary: SourceStorageRows,
+    contributes = true): SourceStorageTerm | undefined => {
+    while (true) {
+      if (!budget.step()) return undefined;
+      if (term.kind === "reference" || term.kind === "leaf") {
+        if (!temporary.add(1)) return undefined;
+        witnesses.push({ subject: term.subject, bindings: term.scope, contributes });
       }
-      return true;
-    };
-    currentRead = read;
-    try {
-      const bound = selection(current.subject, current.bindings);
-      if (bound !== undefined) {
-        for (const input of bound.inputs) if (!step() || !add(input, bound.context)) return false;
-        return true;
-      }
-      const parents = incoming(current.subject);
-      const allocation = invocationResults.hasAllocation(current.subject);
-      if (allocation && !emit(current)) return false;
-      const results = invocationResults.select(current.subject, current.bindings) ?? memberInputs(current.subject, current.bindings);
-      if (results !== undefined) {
-        for (const result of results) if (!step() || !add(result.subject, result.bindings)) return false;
-        return true;
-      }
-      if (!allocation && (parents.size === 0 || sourceStorageHasOriginalCallableValue(current.subject, source.ast)) && !emit(current)) return false;
-      for (const parent of parents) if (!step() || !add(parent, current.bindings)) return false;
-      return true;
-    } finally {
-      currentRead = undefined;
-    }
-  });
-  const values = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageBoundSubject> | undefined => {
-    const selected = boundSubject(origin, bindings);
-    if (selected === undefined) return undefined;
-    return currentRead === undefined ? selectedValues(selected) : currentRead(selected);
-  };
-  const origins = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageSubject> | undefined => {
-    const selected = values(origin, bindings);
-    if (selected === undefined) return undefined;
-    const origins = new Set<SourceStorageSubject>();
-    for (const value of selected) { if (!step()) return undefined; origins.add(value.subject); }
-    return origins;
-  };
-  const projectedSelections = new WeakMap<SourceStorageSubstitutions, Map<SourceStorageSubject, SourceStorageBoundSelection>>();
-  const selection = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): SourceStorageBoundSelection | undefined => {
-    const exact = bindings.get(origin);
-    if (exact !== undefined || origin.projection.length === 0) return exact;
-    const cached = projectedSelections.get(bindings)?.get(origin);
-    if (cached !== undefined) return cached;
-    const root = subject(origin.node, origin.kind);
-    const binding = root === undefined ? undefined : bindings.get(root);
-    if (binding === undefined || !reserveRow()) return undefined;
-    const project = (values: ReadonlySet<SourceStorageSubject>): ReadonlySet<SourceStorageSubject> => {
-      const result = new Set<SourceStorageSubject>();
-      for (const value of values) {
-        if (!step()) break;
-        const selected = subject(value.node, value.kind, [...value.projection, ...origin.projection]);
-        if (selected !== undefined) result.add(selected);
-      }
-      return result;
-    };
-    const selected = Object.freeze({ inputs: project(binding.inputs), forwarded: project(binding.forwarded), context: binding.context });
-    const selections = projectedSelections.get(bindings) ?? new Map<SourceStorageSubject, SourceStorageBoundSelection>();
-    selections.set(origin, selected);
-    projectedSelections.set(bindings, selections);
-    return selected;
-  };
-  const forwardingSelection = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions) => budget.withRows(rows => {
-    const forwarded = new Set<SourceStorageSubject>();
-    let current = origin;
-    while (step()) {
-      if (forwarded.has(current)) return undefined;
-      const binding = selection(current, bindings);
-      if (binding !== undefined) return { binding, forwarded };
-      if (current.kind !== "value" || sourceStorageHasOriginalCallableValue(current, source.ast) ||
-        source.ast.is.IsCallExpression(current.node) || source.ast.is.IsNewExpression(current.node) ||
-        source.ast.is.IsPropertyAccessExpression(current.node) || source.ast.is.IsElementAccessExpression(current.node)) return undefined;
-      const parents = incoming(current);
-      if (parents.size !== 1 || !rows.add(1)) return undefined;
-      forwarded.add(current);
-      current = parents.values().next().value!;
-    }
-    return undefined;
-  });
-  const intern = (selected: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
-    if (selected.size === 0) return empty;
-    const entries: { readonly formal: number; readonly inputs: readonly number[];
-      readonly forwarded: readonly number[]; readonly context: number }[] = [];
-    for (const [formal, binding] of selected) {
-      if (!step()) return undefined;
-      const inputIndexes: number[] = [];
-      const forwardedIndexes: number[] = [];
-      for (const input of binding.inputs) {
-        if (!step()) return undefined;
-        inputIndexes.push(identity(input));
-      }
-      for (const input of binding.forwarded) {
-        if (!step()) return undefined;
-        forwardedIndexes.push(identity(input));
-      }
-      const context = contexts.get(binding.context);
-      if (context === undefined) return undefined;
-      entries.push({ formal: identity(formal),
-        inputs: inputIndexes.sort((left, right) => left - right), forwarded: forwardedIndexes.sort((left, right) => left - right), context });
-    }
-    entries.sort((left, right) => left.formal - right.formal);
-    const key = entries.map(entry => `${entry.formal}:${entry.inputs.join(",")}:${entry.forwarded.join(",")}:${entry.context}`).join(";");
-    const cached = bindingSets.get(key);
-    if (cached !== undefined) return cached;
-    for (const entry of entries) {
-      if (!reserveRow()) return undefined;
-      for (let index = 0; index < entry.inputs.length; index += 1) if (!reserveRow()) return undefined;
-      for (let index = 0; index < entry.forwarded.length; index += 1) if (!reserveRow()) return undefined;
-    }
-    contexts.set(selected, bindingSets.size + 1);
-    bindingSets.set(key, selected);
-    return selected;
-  };
-  const contextFor = (inputs: ReadonlySet<SourceStorageSubject>, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
-    if (parent.size === 0) return empty;
-    const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
-    return budget.withRows(rows => {
-      if (inputs.size !== 0 && !rows.add(inputs.size)) return undefined;
-      const scheduled = new Set(inputs);
-      const pending = [...scheduled];
-      while (pending.length !== 0) {
-        if (!step()) return undefined;
-        const current = pending.pop()!;
-        const bound = selection(current, parent);
-        if (bound !== undefined) selected.set(current, bound);
-        else {
-          const inputs = contextPorts.isPort(current) ? contextualInputs(current) : [current];
-          if (inputs === undefined) return undefined;
-          for (const input of inputs) {
-            if (!step()) return undefined;
-            const ports = contextPorts.firstPorts(input);
-            if (ports === undefined) return undefined;
-            for (const port of ports) {
-              if (!step()) return undefined;
-              if (!scheduled.has(port)) {
-                if (!rows.add(1)) return undefined;
-                scheduled.add(port);
-                pending.push(port);
-              }
-            }
-          }
+      if (term.kind === "reference") {
+        const input = sourceStorageTransparentInput(term.subject, source.ast, transport);
+        if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
+        if (term.subject.kind === "input" || term.subject.kind === "receiver") {
+          const selected = scopes.lookup(term.subject, term.scope);
+          if (selected?.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
         }
       }
-      return intern(selected);
-    });
+      break;
+    }
+    if (term.kind === "store") {
+      const receiver = normalize(term.receiver, witnesses, temporary, false); const value = normalize(term.value, witnesses, temporary, contributes);
+      return receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, receiver, value });
+    }
+    if (term.kind === "guard") {
+      const condition = normalize(term.condition, witnesses, temporary, false); const value = normalize(term.value, witnesses, temporary, contributes);
+      return condition === undefined || value === undefined ? undefined : Object.freeze({ ...term, condition, value });
+    }
+    if (term.kind === "member") {
+      const receiver = normalize(term.receiver, witnesses, temporary, false);
+      return receiver === undefined ? undefined : Object.freeze({ ...term, receiver });
+    }
+    if (term.kind === "application") {
+      const callee = normalize(term.callee, witnesses, temporary, false);
+      return callee === undefined ? undefined : Object.freeze({ ...term, callee });
+    }
+    if (term.kind === "reference" && term.subject.kind === "value" &&
+      !source.ast.is.IsNewExpression(term.subject.node) && !source.ast.is.IsPropertyAccessExpression(term.subject.node) &&
+      !source.ast.is.IsElementAccessExpression(term.subject.node) && !transport.invocations.has(term.subject.node) &&
+      !transport.accessorTargets.has(term.subject.node) && transport.storedValuesFor(term.subject) === undefined &&
+      transport.incomingFor(term.subject).size === 0) {
+      return Object.freeze({ kind: "leaf", subject: term.subject, scope: witnessScope(term.subject, term.scope) });
+    }
+    return term;
   };
-  const forInvocation = (candidate: Node, invocation: Node, parent: SourceStorageSubstitutions,
-    captured: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
-    if (!step()) return undefined;
-    const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
-    for (const [formal, binding] of parent) {
-      if (!step()) return undefined;
-      selected.set(formal, binding);
+  const intern = (term: SourceStorageTerm): SourceStorageTerm | undefined => budget.withRows(temporary => {
+    if (!budget.step()) return undefined;
+    const index = term.kind === "reference" || term.kind === "leaf" ? referenceTerms[term.kind] : undefined;
+    const subjects = index !== undefined && "scope" in term ? index.get(term.scope) : undefined;
+    const cached = subjects !== undefined && "subject" in term ? subjects.get(term.subject) : undefined;
+    if (cached !== undefined) return cached;
+    const retained: SourceStorageRelationWitness[] = [];
+    const normalized = normalize(term, retained, temporary);
+    if (normalized === undefined) return undefined;
+    const key = keys.encode(normalized);
+    if (key === undefined) return undefined;
+    let selected = terms.get(key);
+    if (selected === undefined) {
+      if (!rows.add(2)) return undefined;
+      selected = normalized;
+      terms.set(key, selected);
     }
-    if (captured !== parent) for (const [formal, binding] of captured) {
-      if (!step()) return undefined;
-      selected.set(formal, binding);
+    for (const witness of retained) if (!addWitness(selected, witness.subject, witness.bindings, witness.contributes)) return undefined;
+    if (index !== undefined && "subject" in term && "scope" in term) {
+      if (!rows.add(subjects === undefined ? 2 : 1)) return undefined;
+      const inputs = subjects ?? new Map<SourceStorageSubject, SourceStorageTerm>();
+      inputs.set(term.subject, selected); index.set(term.scope, inputs);
     }
-    const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)
-      ? [] : source.ast.parameters(candidate);
-    for (const parameter of [...parameters, candidate]) {
-      if (parameter === undefined) continue;
-      if (!step()) return undefined;
-      const formal = subject(parameter, parameter === candidate ? "receiver" : "input");
-      if (formal === undefined) return undefined;
-      const selectedInputs = invocationInputs(formal, candidate, invocation);
-      const inputs = selectedInputs.subjects;
-      const input = inputs.size === 1 ? inputs.values().next().value : undefined;
-      const caller = selectedInputs.context === "callee" ? intern(new Map(selected)) : parent;
-      if (caller === undefined) return undefined;
-      const forwarded = input === undefined ? undefined : forwardingSelection(input, caller);
-      if (forwarded !== undefined) selected.set(formal, Object.freeze({ inputs: forwarded.binding.inputs,
-        forwarded: new Set([...forwarded.binding.forwarded, ...forwarded.forwarded, input!]), context: forwarded.binding.context }));
-      else {
-        const context = contextFor(inputs, caller);
-        if (context === undefined) return undefined;
-        selected.set(formal, Object.freeze({ inputs, forwarded: new Set<SourceStorageSubject>(), context }));
+    return selected;
+  });
+  const results = graphQueries.fixedPoint<SourceStorageTerm, SourceStorageTerm>((current, read, emit) => {
+    const children = dependencies.get(current) ?? new Map<SourceStorageTerm, number>();
+    if (!dependencies.has(current)) { if (!rows.add(1)) return false; dependencies.set(current, children); }
+    const select = (term: SourceStorageTerm, values = true): ReadonlySet<SourceStorageTerm> | undefined => {
+      const selected = intern(term);
+      if (selected === undefined) return undefined;
+      if (!children.has(selected) && !rows.add(1)) return undefined;
+      children.set(selected, (children.get(selected) ?? 0) | (values ? 2 : 1));
+      return read(selected);
+    };
+    currentRead = term => select(term, false);
+    try {
+      if (current.kind === "leaf" || current.kind === "effect") return emit(current);
+      const selected = successors.reduce(current);
+      if (selected === undefined) return budget.failure() === undefined;
+      for (const dependency of selected.kind === "replace" ? selected.dependencies ?? [] : [])
+        if (!budget.step() || select(dependency, false) === undefined) return false;
+      for (const witness of selected.kind === "replace" ? selected.witnesses ?? [] : [])
+        if (!budget.step() || !addWitness(current, witness.subject, witness.bindings)) return false;
+      const alternatives = selected.kind === "expand" ? equations.expand(selected.variable, current) : selected.terms;
+      if (alternatives === undefined) return false;
+      for (const term of alternatives) {
+        if (!budget.step()) return false;
+        const inputs = select(term);
+        if (inputs === undefined) return false;
+        for (const input of inputs) if (!budget.step() || !emit(input)) return false;
+      }
+      return budget.failure() === undefined;
+    } finally { currentRead = undefined; }
+  });
+  const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined => intern(sourceStorageReference(origin, scope));
+  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => {
+    const root = selectRoot(origin, scope);
+    const selected = root === undefined ? undefined : results(root);
+    if (selected === undefined) return undefined;
+    const values = new Set<SourceStorageBoundSubject>();
+    for (const value of selected) {
+      if (!budget.step()) return undefined;
+      if (value.kind === "leaf") values.add(Object.freeze({ subject: value.subject, bindings: value.scope }));
+    }
+    return values;
+  };
+  const origins = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => {
+    const root = selectRoot(origin, scope);
+    const selected = root === undefined ? undefined : results(root);
+    if (selected === undefined) return undefined;
+    const subjects = new Set<SourceStorageSubject>();
+    for (const value of selected) {
+      if (!budget.step()) return undefined;
+      if (value.kind === "leaf") subjects.add(value.subject);
+    }
+    return subjects;
+  };
+  const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
+    stopAt?: (subject: SourceStorageBoundSubject) => boolean) => budget.withRows(temporary => {
+    const root = selectRoot(origin, scope);
+    if (root === undefined || results(root) === undefined) return undefined;
+    const visited = new Map<SourceStorageTerm, number>(); const pending = [{ term: root, collect: true }];
+    const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
+    const origins = new Set<SourceStorageSubject>();
+    while (pending.length !== 0) {
+      if (!budget.step()) return undefined;
+      const entry = pending.pop()!; const current = entry.term;
+      const flag = entry.collect ? 2 : 1;
+      if (((visited.get(current) ?? 0) & flag) !== 0) continue;
+      if (!temporary.add(1)) return undefined;
+      visited.set(current, (visited.get(current) ?? 0) | flag);
+      let stopped = false;
+      for (const [scope, inputs] of witnesses.get(current) ?? []) {
+        const retained = subjects.get(scope) ?? new Map<SourceStorageSubject, number>();
+        for (const [input, mode] of inputs) {
+          if (!budget.step()) return undefined;
+          if (!retained.has(input) && !temporary.add(1)) return undefined;
+          const contributes = entry.collect && (mode & 2) !== 0;
+          retained.set(input, (retained.get(input) ?? 0) | (contributes ? 2 : 1));
+          if (contributes && stopAt?.({ subject: input, bindings: scope })) { origins.add(input); stopped = true; }
+        }
+        subjects.set(scope, retained);
+      }
+      if (stopped) continue;
+      if (entry.collect && current.kind === "leaf") origins.add(current.subject);
+      for (const [child, mode] of dependencies.get(current) ?? []) {
+        if (!budget.step()) return undefined;
+        if (child.kind !== "execution-root") pending.push({ term: child, collect: entry.collect && (mode & 2) !== 0 });
       }
     }
-    return intern(selected);
+    const selected: SourceStorageRelationWitness[] = [];
+    for (const [scope, inputs] of subjects) for (const [subject, mode] of inputs) {
+      if (!budget.step()) return undefined;
+      selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0 }));
+    }
+    return Object.freeze({ subjects: Object.freeze(selected), origins });
+  });
+  const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined =>
+    walk(origin, scope)?.subjects;
+  const selection = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageBoundSubject[] | undefined => {
+    const selected = scopes.lookup(origin, scope);
+    if (selected === undefined) return undefined;
+    if (selected.kind === "expand") {
+      const inputs = values(origin, scope);
+      return inputs === undefined ? undefined : Object.freeze([...inputs]);
+    }
+    const inputs: SourceStorageBoundSubject[] = [];
+    for (const input of selected.terms) {
+      if (!budget.step()) return undefined;
+      if (input.kind !== "reference" && input.kind !== "leaf") return undefined;
+      inputs.push(Object.freeze({ subject: input.subject, bindings: input.scope }));
+    }
+    return Object.freeze(inputs);
   };
-  return Object.freeze({ empty, values, origins, forInvocation, selection, identityFor: (state: SourceStorageSubstitutions) => contexts.get(state) });
+  return Object.freeze({ empty: scopes.empty, values, origins, trace, walk, selection, formals: scopes.formals,
+    isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean => scopes.lookup(origin, scope) !== undefined,
+    forInvocation: scopes.frameFor, identityFor: scopes.identity });
 }

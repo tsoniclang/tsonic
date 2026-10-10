@@ -14,7 +14,6 @@ import { sourceStorageConstructedClass, sourceStorageSuperConstructor } from "./
 import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
-import { createSourceStorageMemberResults } from "./member-results.js";
 import { createSourceStorageInvocationInputs } from "./invocation-inputs.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
@@ -608,24 +607,18 @@ export function createSourceStorageTransport(
     argumentsFor: node => invocationArguments.get(node) ?? [],
   });
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
-    subject, subjectFor, incomingFor,
-    implementationsFor: (invocation, bindings) => invocationImplementations(invocation,
-      origin => substitutions.origins(origin, bindings)),
+    subject, subjectFor,
     targetFor: invocation => invocationTargets.get(invocation),
     valuesFor: (origin, bindings) => substitutions.values(origin, bindings),
     bindingsFor: (candidate, invocation, bindings, captured) => substitutions.forInvocation(candidate, invocation, bindings, captured),
-    isAccessor: invocation => accessorTargets.has(invocation),
-    isOpaque: invocation => opaqueInvocations.has(invocation),
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
-  const substitutions = createSourceStorageSubstitutions(source, budget, subject, incomingFor, invocationInputs, contextualInputs,
-    invocationResults, graphQueries, (origin, bindings) => memberResults.select(origin, bindings));
-  const memberResults = createSourceStorageMemberResults(source, budget, {
-    subject, subjectFor, memberFlow,
-    valuesFor: (origin, bindings) => substitutions.values(origin, bindings),
-    implementationsFor: invocation => invocationImplementations(invocation),
-    bindingsFor: (candidate, invocation, bindings) => invocationResults.forInvocation(candidate, invocation, bindings),
-  });
+  const substitutions = createSourceStorageSubstitutions(source, budget, {
+    subject, subjectFor, incomingFor, contextualInputs, memberFlow, regions, invocationTargets,
+    invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
+    storedValuesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
+    isOpaque: invocation => opaqueInvocations.has(invocation),
+  }, invocationInputs, graphQueries);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;
@@ -665,5 +658,5 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, memberFlow, ancestorSubjects, invocationImplementations, physicalMemberInputs,
-    invocationOrigins, invocationResults, memberResults, substitutions, contextualInputs, unresolvedFor };
+    invocationOrigins, invocationResults, substitutions, contextualInputs, unresolvedFor };
 }

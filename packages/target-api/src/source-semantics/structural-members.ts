@@ -46,7 +46,8 @@ export type SourceStructuralMemberCorrespondence =
         | "unresolved-shape"
         | "missing-required-member"
         | "inconsistent-member"
-        | "unreadable-member";
+        | "unreadable-member"
+        | "disjoint-shape";
     };
 
 export function createSourceStructuralMemberQuery(
@@ -103,6 +104,7 @@ export function createSourceStructuralMemberQuery(
     }
     const members: SourceStructuralMemberPair[] = [];
     const seen = new Set<Symbol>();
+    let missingRequired = false;
     for (const property of types.getPropertyInfos(destination)) {
       if (seen.has(property.symbol)) {
         return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
@@ -112,7 +114,8 @@ export function createSourceStructuralMemberQuery(
       const destinationMember = describe(property);
       if (selected === undefined) {
         if (!property.optional) {
-          return Object.freeze({ kind: "unavailable", reason: "missing-required-member" });
+          missingRequired = true;
+          continue;
         }
         members.push(Object.freeze({ kind: "absent", destination: destinationMember }));
         continue;
@@ -120,6 +123,17 @@ export function createSourceStructuralMemberQuery(
       const sourceProperty = actual.get(selected);
       if (sourceProperty === undefined) {
         return Object.freeze({ kind: "unavailable", reason: "inconsistent-member" });
+      }
+      if (!property.optional && !sourceProperty.optional) {
+        const left = sourceProperty.type;
+        const right = property.type;
+        for (const literal of [types.getStringLiteralTypeValue, types.getNumericLiteralTypeValue, types.getBooleanLiteralTypeValue]) {
+          const from = literal(left);
+          const to = literal(right);
+          if (from !== undefined && to !== undefined && typeof from === typeof to && from !== to) {
+            return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
+          }
+        }
       }
       const sourceMember = describe(sourceProperty);
       if (sourceMember.read === "unavailable") {
@@ -131,6 +145,7 @@ export function createSourceStructuralMemberQuery(
         source: sourceMember,
       }));
     }
+    if (missingRequired) return Object.freeze({ kind: "unavailable", reason: "missing-required-member" });
     return Object.freeze({
       kind: "available",
       source: inventory(source),

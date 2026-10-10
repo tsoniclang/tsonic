@@ -318,6 +318,26 @@ test("identical factory arguments do not merge separately created captured writa
     "the first activation's writer cannot mutate the second activation's captured location");
 });
 
+test("transitive factory results preserve created locations rather than equal forwarded values", () => {
+  const current = fixture(`
+    function make(seed: object) {
+      let value = seed;
+      return { read: () => value, write: (next: object) => { value = next; } };
+    }
+    function forward(seed: object) { return make(seed); }
+    const spawn = (seed: object) => forward(seed);
+    const original = {}; const replacement = {};
+    const first = spawn(original); const second = spawn(original);
+    first.write(replacement);
+    const written = first.read(); const selected = second.read();
+  `);
+  assert.equal(current.result("written").origins.some(origin => origin.subject === current.subject("replacement")), true,
+    "the executed writer reaches its transitive factory's captured location");
+  const selected = current.result("selected");
+  assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject("original"), true,
+    "forwarding a fresh allocation does not merge two separate creator activations");
+});
+
 test("an invoked writer contributes its selected receiver effect even when its result is discarded", () => {
   const current = fixture(`
     function write(box: { value: object }, token: object): void { box.value = token; }

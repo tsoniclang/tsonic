@@ -199,3 +199,48 @@ test("symbol and numeric keys use exact compiler member lookup", () => {
     assert.ok(member.source.declarations.length > 0);
   }
 });
+
+test("disjoint required literal members prove impossible record alternatives without depending on member order", () => {
+  for (const [name, left, right] of [
+    ["string", '"done"', '"read"'],
+    ["number", "3", "4"],
+    ["bigint", "9007199254740993n", "9007199254740994n"],
+    ["boolean", "true", "false"],
+  ]) {
+    const { results, semantics } = inspect(`
+      declare function observe<T>(value: T): void;
+      declare const actual: { readonly kind: ${left}; readonly value: number };
+      declare const selected: { readonly next: () => void; readonly kind: ${right} };
+      observe(actual); observe(selected);
+    `);
+    const actual = results[0];
+    const selected = results[1];
+    assert.equal(actual?.kind === "available" && selected?.kind === "available", true, name);
+    if (actual?.kind !== "available" || selected?.kind !== "available") continue;
+    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
+      { kind: "unavailable", reason: "disjoint-shape" }, name);
+    assert.deepEqual(semantics.types.structuralMembers(selected.source.type, actual.source.type),
+      { kind: "unavailable", reason: "disjoint-shape" }, `${name} reverse`);
+  }
+});
+
+test("optional, widened and equal discriminants never hide missing required member evidence", () => {
+  for (const [name, property] of [
+    ["optional", 'readonly kind?: "done"'],
+    ["widened", "readonly kind: string"],
+    ["equal", 'readonly kind: "read"'],
+  ]) {
+    const { results, semantics } = inspect(`
+      declare function observe<T>(value: T): void;
+      declare const actual: { ${property}; readonly value: number };
+      declare const selected: { readonly next: () => void; readonly kind: "read" };
+      observe(actual); observe(selected);
+    `);
+    const actual = results[0];
+    const selected = results[1];
+    assert.equal(actual?.kind === "available" && selected?.kind === "available", true, name);
+    if (actual?.kind !== "available" || selected?.kind !== "available") continue;
+    assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
+      { kind: "unavailable", reason: "missing-required-member" }, name);
+  }
+});

@@ -5,6 +5,7 @@ import { createTargetSourceProgram } from "../../packages/target-api/dist/public
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/source-storage/queries.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/context-footprints.js";
 import { Node_Initializer } from "../../packages/target-api/dist/source-navigation/index.js";
 
 function checkedSource(text) {
@@ -43,11 +44,15 @@ const output = outer(left, right);
   assert.equal(parent !== undefined, true, "complete selected outer invocation");
   const selected = transport.substitutions.forInvocation(declaration("consume"), call("consume"), parent, parent);
   assert.equal(selected !== undefined, true, "complete selected consumer invocation");
-  const binding = selected.get(transport.subject(source.ast.parameters(declaration("consume"))[0], "input"));
-  assert.equal(binding !== undefined, true, "exact actual-input binding");
+  const formal = transport.subject(source.ast.parameters(declaration("consume"))[0], "input");
+  const binding = transport.substitutions.selection(formal, selected);
+  assert.equal(binding?.length === 1, true, "one exact actual input and its enclosing scope");
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false);
+  const context = ports.select(binding[0].subject)?.ports;
+  assert.equal(context !== undefined, true, "complete demanded caller footprint, including captured and contained values");
   assert.equal(budget.failure() === undefined, true, "all original finite guards remain intact");
   const parameter = index => transport.subject(source.ast.parameters(declaration("outer"))[index], "input");
-  return { context: binding.context, left: parameter(0), right: parameter(1) };
+  return { context, left: parameter(0), right: parameter(1) };
 }
 
 for (const [name, body, expected] of [

@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageContextInputs } from "../../packages/target-api/dist/target-analysis/source-storage/context-inputs.js";
-import { createSourceStorageContextPorts } from "../../packages/target-api/dist/target-analysis/source-storage/context-ports.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/context-footprints.js";
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
@@ -80,13 +80,13 @@ test("canonical context footprints include checked object members, array compone
   const source = createTargetSourceProgram(checked);
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
-  const ports = createSourceStorageContextPorts(budget, transport.contextualInputs);
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false);
   const parameter = transport.visitedNodes.find(node => source.ast.is.IsParameterDeclaration(node) &&
     source.ast.text(source.ast.name(node)) === "token");
   const input = transport.subject(parameter, "input");
   for (const predicate of [source.ast.is.IsObjectLiteralExpression, source.ast.is.IsArrayLiteralExpression, source.ast.is.IsArrowFunction]) {
     const node = transport.visitedNodes.find(predicate);
-    const footprint = ports.firstPorts(transport.subject(node));
+    const footprint = ports.select(transport.subject(node))?.ports;
     assert.equal(footprint !== undefined && footprint.size === 1 && footprint.has(input), true,
       "the same canonical context owner preserves the actual member/component/capture input");
   }

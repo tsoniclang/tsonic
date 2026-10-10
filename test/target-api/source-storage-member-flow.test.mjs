@@ -17,7 +17,7 @@ function fixture(relation, limits = {}, context = () => true) {
       is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
-      types: { expressionType: () => undefined, structuralMembers: (from, to) => {
+      types: { expressionType: () => undefined, isUnion: () => false, structuralMembers: (from, to) => {
         calls.push({ file, from, to });
         return relation(file, from, to);
       } },

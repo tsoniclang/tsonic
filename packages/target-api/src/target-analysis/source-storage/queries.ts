@@ -57,7 +57,7 @@ export function createSourceStorageQuery(
     const existing = bindingViews.get(key);
     if (existing !== undefined) return existing;
     const subjects = new Map<SourceStorageSubject, Set<SourceStorageSubject>>();
-    for (const { state } of selected) for (const formal of state.keys()) {
+    for (const { state } of selected) for (const formal of transport.substitutions.formals(state) ?? []) {
       if (!budget.step()) return undefined;
       const actuals = subjects.get(formal) ?? new Set<SourceStorageSubject>();
       const originals = transport.substitutions.origins(formal, state);

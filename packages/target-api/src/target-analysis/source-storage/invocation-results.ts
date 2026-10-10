@@ -1,26 +1,20 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceStorageIncomingQuery } from "./edges.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import type { SourceStorageBoundSubject, SourceStorageSubstitutions } from "./substitutions.js";
 
 interface SourceStorageInvocationResultQueries {
   readonly subject: SourceStorageSubjectQuery;
-  readonly incomingFor: SourceStorageIncomingQuery;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
-  implementationsFor(invocation: Node, bindings: SourceStorageSubstitutions): ReadonlySet<Node>;
   valuesFor(subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageBoundSubject> | undefined;
   targetFor(invocation: Node): SourceStorageSubject | undefined;
   bindingsFor(candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions,
     captured: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined;
-  isAccessor(invocation: Node): boolean;
-  isOpaque(invocation: Node): boolean;
   hasResultAlias(invocation: Node): boolean;
 }
 
 export interface SourceStorageInvocationResultQueriesContract {
-  select(subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): readonly SourceStorageBoundSubject[] | undefined;
   forInvocation(candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageSubstitutions>;
   hasAllocation(subject: SourceStorageSubject): boolean;
 }
@@ -91,22 +85,5 @@ export function createSourceStorageInvocationResults(
     }
     return states;
   };
-  const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
-    const node = subject.node;
-    const construction = source.ast.is.IsNewExpression(node);
-    if (!construction && !source.ast.is.IsCallExpression(node) && !queries.isAccessor(node)) return undefined;
-    if (queries.hasResultAlias(node) || !construction && queries.isOpaque(node)) return undefined;
-    const inputs: SourceStorageBoundSubject[] = [];
-    for (const candidate of queries.implementationsFor(node, bindings)) {
-      if (!budget.step()) break;
-      const result = queries.subject(candidate, "return", subject.projection);
-      if (result === undefined || construction && queries.incomingFor(result).size === 0) continue;
-      for (const selected of forInvocation(candidate, node, bindings)) {
-        if (!budget.step()) break;
-        inputs.push({ subject: result, bindings: selected });
-      }
-    }
-    return inputs;
-  };
-  return Object.freeze({ select, forInvocation, hasAllocation });
+  return Object.freeze({ forInvocation, hasAllocation });
 }

@@ -5,9 +5,9 @@ export type TargetGraphComponentsSelection<TVertex> =
 export function targetStronglyConnectedComponents<TVertex>(
   vertices: ReadonlySet<TVertex>,
   neighbours: (vertex: TVertex) => Iterable<TVertex>,
-  maximumSteps = 4_194_304,
+  maximumSteps: number | (() => boolean) = 4_194_304,
 ): TargetGraphComponentsSelection<TVertex> {
-  if (!Number.isSafeInteger(maximumSteps) || maximumSteps <= 0) {
+  if (typeof maximumSteps !== "function" && (!Number.isSafeInteger(maximumSteps) || maximumSteps <= 0)) {
     return Object.freeze({ kind: "unresolved", reason: "Graph component analysis requires a positive finite work budget." });
   }
   const indexes = new Map<TVertex, number>();
@@ -17,7 +17,7 @@ export function targetStronglyConnectedComponents<TVertex>(
   const components: (readonly TVertex[])[] = [];
   const pending: { readonly vertex: TVertex; readonly neighbours: Iterator<TVertex> }[] = [];
   let steps = 0;
-  const account = (): boolean => ++steps <= maximumSteps;
+  const account = typeof maximumSteps === "function" ? maximumSteps : (): boolean => ++steps <= maximumSteps;
   const enter = (vertex: TVertex): void => {
     indexes.set(vertex, indexes.size);
     lowLinks.set(vertex, indexes.get(vertex)!);

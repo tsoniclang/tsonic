@@ -10,6 +10,8 @@ interface MemberIndex {
   readonly declarations: ReadonlyMap<Node, readonly Node[]>;
 }
 
+const noMembers: MemberIndex = Object.freeze({ members: Object.freeze([]), declarations: new Map() });
+
 export function createSourceStorageMemberFlow(
   source: TargetSourceProgram,
   budget: SourceStorageBudget,
@@ -23,6 +25,7 @@ export function createSourceStorageMemberFlow(
     if (destinations?.has(to)) return destinations.get(to);
     const selected = source.semantics.forFile(file).types.structuralMembers(from, to);
     let index: MemberIndex | undefined;
+    if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
     if (selected.kind === "available") {
       const memberRows = budget.createRows();
       if (!memberRows.add(1 + selected.members.length)) return undefined;
@@ -62,10 +65,15 @@ export function createSourceStorageMemberFlow(
     const file = sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || type === undefined) return undefined;
-    return indexFor(file, type, destinationType);
+    const semantics = source.semantics.forFile(file);
+    if (!semantics.types.isUnion(type)) return indexFor(file, type, destinationType);
+    const refinement = semantics.types.refinement(type, destinationType);
+    return refinement.kind === "members" && refinement.types.length === 1
+      ? indexFor(file, refinement.types[0]!, destinationType) : undefined;
   };
   const declarationsFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): readonly Node[] | undefined => {
     const index = selectedIndex(owner, destinationType);
+    if (index === noMembers) return Object.freeze([]);
     const declarations = index?.declarations.get(declaration);
     if (declarations === undefined || declarations.length === 0) return undefined;
     const file = sourceFileFor(owner);

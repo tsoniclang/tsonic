@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageContextPorts } from "../../packages/target-api/dist/target-analysis/source-storage/context-ports.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/context-footprints.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
@@ -9,10 +9,10 @@ function fixture(limits = {}) {
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const inputs = new Map();
   let reads = 0;
-  const ports = createSourceStorageContextPorts(budget, selected => {
+  const ports = createSourceStorageContextFootprints(budget, selected => {
     reads += 1;
     return inputs.get(selected) ?? new Set();
-  });
+  }, () => false);
   const parameter = () => subject({}, "input");
   return { budget, subject, parameter, inputs, ports, reads: () => reads };
 }
@@ -22,10 +22,10 @@ test("missing contextual evidence cannot become an empty completed port relation
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const root = subject({});
   let available = false;
-  const ports = createSourceStorageContextPorts(budget, () => available ? new Set() : undefined);
-  assert.equal(ports.firstPorts(root) === undefined, true, "unavailable dependencies are not published as complete");
+  const ports = createSourceStorageContextFootprints(budget, () => available ? new Set() : undefined, () => false);
+  assert.equal(ports.select(root)?.ports === undefined, true, "unavailable dependencies are not published as complete");
   available = true;
-  assert.equal(ports.firstPorts(root)?.size === 0, true, "an independent later exact empty relation remains queryable");
+  assert.equal(ports.select(root)?.ports?.size === 0, true, "an independent later exact empty relation remains queryable");
   assert.equal(budget.failure() === undefined, true);
 });
 
@@ -38,10 +38,10 @@ test("complete first-port relations preserve exact source subjects and stop at s
   const projected = subject(left.node, "input", [{ kind: "tuple-element", index: 1 }]);
   inputs.set(root, new Set([left, receiver, projected]));
   inputs.set(left, new Set([beyond]));
-  const selected = ports.firstPorts(root);
+  const selected = ports.select(root)?.ports;
   assert.equal(selected.size === 3 && selected.has(left) && selected.has(receiver) && selected.has(projected), true);
   assert.equal(selected.has(beyond), false, "port instantiation owns unbound continuation, not this source segment");
-  assert.equal(ports.firstPorts(root) === selected, true, "one complete immutable source relation");
+  assert.equal(ports.select(root)?.ports === selected, true, "one complete immutable source relation");
   assert.equal(budget.failure() === undefined, true);
 });
 
@@ -52,12 +52,12 @@ test("cyclic source segments retain every reachable port without an unfinished e
   const port = parameter();
   inputs.set(root, new Set([next]));
   inputs.set(next, new Set([root, port]));
-  const selected = ports.firstPorts(root);
+  const selected = ports.select(root)?.ports;
   assert.equal(selected.size === 1 && selected.has(port), true);
   const independent = subject({});
   inputs.set(independent, new Set([independent]));
-  assert.equal(ports.firstPorts(independent).size === 0, true, "a fully traversed port-free cycle is actually empty");
-  assert.equal(ports.firstPorts(next).has(port), true, "a second root cannot inherit an unfinished cycle result");
+  assert.equal(ports.select(independent)?.ports.size === 0, true, "a fully traversed port-free cycle is actually empty");
+  assert.equal(ports.select(next)?.ports.has(port), true, "a second root cannot inherit an unfinished cycle result");
   assert.equal(budget.failure() === undefined, true);
 });
 
@@ -68,10 +68,10 @@ test("only complete retained relations survive after the temporary traversal fro
   const port = parameter();
   inputs.set(root, new Set([chain[0]]));
   for (const [index, current] of chain.entries()) inputs.set(current, new Set([chain[index + 1] ?? port]));
-  const selected = ports.firstPorts(root);
+  const selected = ports.select(root)?.ports;
   assert.equal(selected.size === 1 && selected.has(port), true, "full demanded relation fits its real peak");
   const before = reads();
-  for (let index = 0; index < 50; index += 1) assert.equal(ports.firstPorts(root) === selected, true);
+  for (let index = 0; index < 50; index += 1) assert.equal(ports.select(root)?.ports === selected, true);
   assert.equal(reads() === before, true, "selected contexts do not traverse this source segment again");
   const remaining = budget.createRows();
   assert.equal(remaining.add(14), true, "only the two completed relation rows are retained");
@@ -85,7 +85,7 @@ test("checker exceptions preserve identity and unwind all incomplete context-por
   const expected = new Error("context dependency failed");
   inputs.set(root, { [Symbol.iterator]() { throw expected; } });
   let observed;
-  try { ports.firstPorts(root); } catch (error) { observed = error; }
+  try { ports.select(root)?.ports; } catch (error) { observed = error; }
   assert.equal(observed === expected, true);
   const remaining = budget.createRows();
   assert.equal(remaining.add(8), true, "no failed result or traversal row survives");
@@ -100,17 +100,60 @@ test("fanout is reserved before any child is traversed and resource failure stay
   let traversed = false;
   inputs.set(root, new Set(children));
   for (const child of children) inputs.set(child, { [Symbol.iterator]() { traversed = true; return [][Symbol.iterator](); } });
-  assert.equal(ports.firstPorts(root) === undefined, true);
+  assert.equal(ports.select(root)?.ports === undefined, true);
   assert.equal(traversed, false, "oversized queued fanout rejects before processing another child");
   assert.equal(budget.failure()?.includes("transport-row"), true);
-  assert.equal(ports.firstPorts(children[0]) === undefined, true);
+  assert.equal(ports.select(children[0])?.ports === undefined, true);
 });
 
 test("a cached port relationship never bypasses an independently exhausted work budget", () => {
   const { parameter, ports, budget } = fixture({ maximumSteps: 3 });
   const port = parameter();
-  assert.equal(ports.firstPorts(port)?.has(port), true, "two original work steps admit the complete first relation");
-  assert.equal(ports.firstPorts(port)?.has(port), true, "the third step admits the cache read");
-  assert.equal(ports.firstPorts(port) === undefined, true);
+  assert.equal(ports.select(port)?.ports?.has(port), true, "two original work steps admit the complete first relation");
+  assert.equal(ports.select(port)?.ports?.has(port), true, "the third step admits the cache read");
+  assert.equal(ports.select(port)?.ports === undefined, true);
   assert.equal(budget.failure()?.includes("analysis-work"), true);
+});
+
+test("one completed context footprint retains locations and ports from the identical bounded traversal", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 16 });
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const root = subject({});
+  const location = subject({});
+  const formal = subject({}, "input");
+  const beyond = subject({});
+  const inputs = new Map([[root, new Set([location])], [location, new Set([root, formal])], [formal, new Set([beyond])]]);
+  let reads = 0;
+  const footprints = createSourceStorageContextFootprints(budget, selected => {
+    reads += 1;
+    return inputs.get(selected) ?? new Set();
+  }, selected => selected === location || selected === beyond);
+  const selected = footprints.select(root);
+  assert.equal(selected?.ports.size === 1 && selected.ports.has(formal), true, "one exact formal boundary");
+  assert.equal(selected?.locations.size === 1 && selected.locations.has(location), true, "no location beyond a selected port");
+  assert.equal(reads === 2, true, "ports and locations do not repeat the same source walk");
+  assert.equal(footprints.select(root) === selected && reads === 2, true, "only the complete relation is reused");
+  const remaining = budget.createRows();
+  assert.equal(remaining.add(13), true, "only the footprint, one port and one location remain retained");
+  remaining.release();
+  assert.equal(budget.failure() === undefined, true);
+});
+
+test("a throwing location query cannot retain an unfinished footprint or its traversal rows", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4 });
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const root = subject({});
+  const expected = new Error("exact physical dependency failed");
+  let ready = false;
+  const footprints = createSourceStorageContextFootprints(budget, () => new Set(), () => {
+    if (!ready) throw expected;
+    return true;
+  });
+  assert.throws(() => footprints.select(root), error => error === expected);
+  const remaining = budget.createRows();
+  assert.equal(remaining.add(4), true, "the failed selection retains no rows");
+  remaining.release();
+  ready = true;
+  assert.equal(footprints.select(root)?.locations.has(root), true, "a later exact completed query remains possible");
+  assert.equal(budget.failure() === undefined, true);
 });
