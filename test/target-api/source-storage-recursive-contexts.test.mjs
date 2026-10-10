@@ -305,13 +305,54 @@ test("identical factory arguments do not merge separately created captured writa
     const original = {}; const replacement = {};
     const first = spawn(original); const second = spawn(original);
     first.write(replacement);
+    const written = first.read();
     const selected = second.read();
   `);
+  const written = current.result("written");
+  for (const name of ["original", "replacement"]) assert.equal(written.origins.some(origin =>
+    origin.subject === current.subject(name)), true, "the invoked writer remains effective on its own captured location");
   const selected = current.result("selected");
   assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject("original"), true,
     "equal original values are not evidence of equal captured binding locations");
   assert.equal(selected.origins.some(origin => origin.subject === current.subject("replacement")), false,
     "the first activation's writer cannot mutate the second activation's captured location");
+});
+
+test("an invoked writer contributes its selected receiver effect even when its result is discarded", () => {
+  const current = fixture(`
+    function write(box: { value: object }, token: object): void { box.value = token; }
+    function run(token: object): object {
+      const box = { value: {} };
+      write(box, token);
+      return box.value;
+    }
+    const firstToken = {}; const secondToken = {};
+    const first = run(firstToken); const second = run(secondToken);
+  `);
+  for (const [name, own, foreign] of [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(own)), true,
+      "discarding a void return cannot discard the executed writer's selected RHS");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+      "writer context belongs to the actual receiver activation, not every invocation of its body");
+  }
+});
+
+test("writer effects in a selected default initializer do not execute for a supplied present argument", () => {
+  const current = fixture(`
+    const replacement = {}; const supplied = {};
+    function write(box: { value: object }): object { box.value = replacement; return replacement; }
+    function read(box: { value: object }, selected: object = write(box)): object { return box.value; }
+    const firstToken = {}; const secondToken = {};
+    const first = read({ value: firstToken });
+    const second = read({ value: secondToken }, supplied);
+  `);
+  const first = current.result("first");
+  assert.equal(first.origins.some(origin => origin.subject === current.subject("replacement")), true,
+    "the invoked default region contributes its actual writer effect");
+  const second = current.result("second");
+  assert.equal(second.origins.length === 1 && second.origins[0].subject === current.subject("secondToken"), true,
+    "the supplied-present invocation cannot acquire a writer from its unexecuted default region");
 });
 
 test("constructor parameter-property producers retain the entry snapshot independently of local parameter rebinding", () => {

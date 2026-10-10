@@ -1,6 +1,7 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch, sourceLexicalCaptures } from "../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../source-navigation/index.js";
+import { createSourceStorageContextInputs } from "./context-inputs.js";
 import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { createSourceStorageSubjects, type SourceStorageSubject } from "./subjects.js";
@@ -18,7 +19,6 @@ import { createSourceStorageInvocationInputs } from "./invocation-inputs.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
 import { snapshotSourceStorageCallEffect } from "./call-effects.js";
-import { sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "./member-flow.js";
 import { createSourceStorageStoredValues } from "./stored-values.js";
@@ -595,67 +595,13 @@ export function createSourceStorageTransport(
   };
   graphQueries.reconcile(operations());
   const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject, incomingFor, unresolvedSubjects);
-  const contextualSelections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
-  const contextualInputs = (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> => {
-    const cached = contextualSelections.get(origin);
-    if (cached !== undefined) return cached;
-    const node = origin.node;
-    const inputs = new Set(invocations.has(node) || accessorTargets.has(node) ? [] : incomingFor(origin));
-    const add = (selected: SourceStorageSubject | undefined): void => {
-      if (selected !== undefined && !inputs.has(selected) && budget.row()) inputs.add(selected);
-    };
-    if (origin.kind === "value" && origin.projection.length === 0) {
-      if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-        const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node)
-          : semantics.forNode(node).operations.elementAccess(node);
-        add(subjectFor(selected?.receiver.expression));
-      }
-      if (ast.is.IsObjectLiteralExpression(node)) for (const property of ast.properties(node)) {
-        if (!step()) break;
-        add(subject(property));
-      }
-      if (ast.is.IsArrayLiteralExpression(node)) {
-        const file = sourceFileFor(origin);
-        const type = sourceStorageSubjectType(source, origin, file);
-        if (file !== undefined && type !== undefined) for (const component of sourceStorageComponents(type, semantics.forFile(file))) {
-          if (!step()) break;
-          add(subject(node, "value", [component]));
-        }
-      }
-      if (ast.body(node) !== undefined || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
-        const captures = sourceLexicalCaptures(node, [node], ast, navigation);
-        for (const capture of captures.captures) {
-          if (!step()) break;
-          add(subjectFor(capture.declaration));
-        }
-        for (const receiver of captures.receivers) {
-          if (!step()) break;
-          add(subject(receiver.owner, "receiver"));
-        }
-      }
-    }
-    if (invocations.has(node) || accessorTargets.has(node)) {
-      for (const candidate of invocationImplementations(node)) {
-        if (!step()) break;
-        const selected = subject(candidate, "return", origin.projection);
-        if (selected === undefined) continue;
-        for (const input of invocationOrigins(selected, candidate, node)) {
-          if (!step()) break;
-          add(input);
-        }
-      }
-      const call = semantics.forNode(node).operations.call(node);
-      add(subjectFor(Node_Expression(ast, node)));
-      add(subjectFor(call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
-        ?? semantics.forNode(node).operations.propertyAccess(node)?.receiver.expression));
-      for (const input of invocationArguments.get(node) ?? []) {
-        if (!step()) break;
-        add(subjectFor(input));
-      }
-    }
-    contextualSelections.set(origin, inputs);
-    return inputs;
-  };
+  const contextualInputs = createSourceStorageContextInputs(source, budget, {
+    subject, subjectFor, incomingFor, sourceFileFor,
+    isInvocation: node => invocations.has(node) || accessorTargets.has(node),
+    implementationsFor: invocationImplementations,
+    invocationOrigins,
+    argumentsFor: node => invocationArguments.get(node) ?? [],
+  });
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
     subject, subjectFor, incomingFor,
     implementationsFor: (invocation, bindings) => invocationImplementations(invocation,

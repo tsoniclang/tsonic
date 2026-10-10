@@ -28,7 +28,7 @@ export function createSourceStorageSubstitutions(
   subject: SourceStorageSubjectQuery,
   incoming: SourceStorageIncomingQuery,
   invocationInputs: SourceStorageInvocationInputQuery,
-  contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
+  contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined,
   invocationResults: SourceStorageInvocationResultQueriesContract,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
   memberInputs: (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => readonly SourceStorageBoundSubject[] | undefined,
@@ -192,16 +192,20 @@ export function createSourceStorageSubstitutions(
         const current = pending.pop()!;
         const bound = selection(current, parent);
         if (bound !== undefined) selected.set(current, bound);
-        else for (const input of contextPorts.isPort(current) ? contextualInputs(current) : [current]) {
-          if (!step()) return undefined;
-          const ports = contextPorts.firstPorts(input);
-          if (ports === undefined) return undefined;
-          for (const port of ports) {
+        else {
+          const inputs = contextPorts.isPort(current) ? contextualInputs(current) : [current];
+          if (inputs === undefined) return undefined;
+          for (const input of inputs) {
             if (!step()) return undefined;
-            if (!scheduled.has(port)) {
-              if (!rows.add(1)) return undefined;
-              scheduled.add(port);
-              pending.push(port);
+            const ports = contextPorts.firstPorts(input);
+            if (ports === undefined) return undefined;
+            for (const port of ports) {
+              if (!step()) return undefined;
+              if (!scheduled.has(port)) {
+                if (!rows.add(1)) return undefined;
+                scheduled.add(port);
+                pending.push(port);
+              }
             }
           }
         }

@@ -17,6 +17,18 @@ function fixture(limits = {}) {
   return { budget, subject, parameter, inputs, ports, reads: () => reads };
 }
 
+test("missing contextual evidence cannot become an empty completed port relation", () => {
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const root = subject({});
+  let available = false;
+  const ports = createSourceStorageContextPorts(budget, () => available ? new Set() : undefined);
+  assert.equal(ports.firstPorts(root) === undefined, true, "unavailable dependencies are not published as complete");
+  available = true;
+  assert.equal(ports.firstPorts(root)?.size === 0, true, "an independent later exact empty relation remains queryable");
+  assert.equal(budget.failure() === undefined, true);
+});
+
 test("complete first-port relations preserve exact source subjects and stop at selected formal boundaries", () => {
   const { subject, parameter, inputs, ports, budget } = fixture();
   const root = subject({});

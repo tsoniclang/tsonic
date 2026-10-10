@@ -3,7 +3,7 @@ import type { SourceStorageSubject } from "./subjects.js";
 
 export function createSourceStorageContextPorts(
   budget: SourceStorageBudget,
-  inputsFor: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
+  inputsFor: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined,
 ) {
   const selections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
   const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "receiver" || subject.kind === "input";
@@ -27,8 +27,12 @@ export function createSourceStorageContextPorts(
         if (!budget.step()) return undefined;
         const current = pending.pop()!;
         if (isPort(current)) ports.add(current);
-        else for (const input of inputsFor(current)) {
-          if (!budget.step() || !schedule(input)) return undefined;
+        else {
+          const inputs = inputsFor(current);
+          if (inputs === undefined) return undefined;
+          for (const input of inputs) {
+            if (!budget.step() || !schedule(input)) return undefined;
+          }
         }
       }
       const retained = budget.createRows();
