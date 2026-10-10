@@ -655,6 +655,7 @@ export function createSourceStorageTransport(
       declaration: invocationDeclarations.get(invocation), subjects: Object.freeze([...selected]),
       ...(reason === undefined ? {} : { reason }) }));
   }
+  graphQueries.seal();
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
