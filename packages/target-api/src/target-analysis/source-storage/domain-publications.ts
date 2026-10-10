@@ -16,9 +16,20 @@ export interface SourceStoragePublication {
 export function createSourceStorageDomainPublications(budget: SourceStorageBudget) {
   const pending: SourceStoragePublication[] = [];
   const admitted = new Map<SourceStorageSubject, Map<Type, Map<SourceStorageSubject | undefined, number>>>();
+  const callables = new Map<Node, Set<Node>>();
   const rows = budget.createRows();
   let closed = false;
   return Object.freeze({
+    callable(owner: Node, exposure: Node): boolean {
+      if (closed) { budget.reject("Source storage publications require a live construction owner."); return false; }
+      if (!budget.step()) return false;
+      const exposures = callables.get(owner);
+      if (exposures?.has(exposure) || !rows.add(exposures === undefined ? 2 : 1)) return false;
+      const selected = exposures ?? new Set<Node>();
+      selected.add(exposure);
+      callables.set(owner, selected);
+      return true;
+    },
     add(subject: SourceStorageSubject, type: Type, sourceFile: SourceFile, exposure: Node, writes: boolean,
       kind: SourceStoragePublication["kind"], externalEntry: boolean, inputOwner?: SourceStorageSubject): void {
       if (closed) { budget.reject("Source storage publications require a live construction owner."); return; }
@@ -45,6 +56,7 @@ export function createSourceStorageDomainPublications(budget: SourceStorageBudge
       closed = true;
       pending.length = 0;
       admitted.clear();
+      callables.clear();
       rows.release();
     },
   });
