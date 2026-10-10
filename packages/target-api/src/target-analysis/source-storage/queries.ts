@@ -60,7 +60,9 @@ export function createSourceStorageQuery(
     for (const { state } of selected) for (const formal of state.keys()) {
       if (!budget.step()) return undefined;
       const actuals = subjects.get(formal) ?? new Set<SourceStorageSubject>();
-      for (const actual of transport.substitutions.origins(formal, state)) {
+      const originals = transport.substitutions.origins(formal, state);
+      if (originals === undefined) return undefined;
+      for (const actual of originals) {
         if (!budget.step()) return undefined;
         actuals.add(actual);
       }
@@ -91,9 +93,13 @@ export function createSourceStorageQuery(
     const states = bindingStates.get(bindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
-    for (const state of states) for (const actual of transport.substitutions.origins(subject, state)) {
-      if (!budget.step()) return unresolved(budget.failure()!);
-      subjects.add(actual);
+    for (const state of states) {
+      const originals = transport.substitutions.origins(subject, state);
+      if (originals === undefined) return unresolved(budget.failure() ?? "Source storage has no completed bound-origin selection.");
+      for (const actual of originals) {
+        if (!budget.step()) return unresolved(budget.failure()!);
+        subjects.add(actual);
+      }
     }
     return selectedSubjects(subjects);
   };

@@ -254,3 +254,23 @@ for (const [name, declarations, left, right] of [
     }
   });
 }
+
+test("selected receiver feedback completes its storage dependency without requiring recursive function dispatch", () => {
+  const current = fixture(`
+    class Value { read(): Value { return this; } }
+    function forward(value: Value): Value {
+      let selected = value;
+      for (let index = 0; index < 3; index++) selected = selected.read();
+      return selected;
+    }
+    const firstValue = new Value(); const secondValue = new Value();
+    const first = forward(firstValue); const second = forward(secondValue);
+  `);
+  for (const [name, own, foreign] of [["first", "firstValue", "secondValue"], ["second", "secondValue", "firstValue"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+      "receiver/return storage feedback closes on its actual native allocation");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+      "the fixed point cannot broaden the selected receiver to another caller");
+  }
+});

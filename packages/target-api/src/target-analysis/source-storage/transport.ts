@@ -363,10 +363,10 @@ export function createSourceStorageTransport(
     const origins = receiverSubject === undefined ? undefined : originsFor(receiverSubject);
     const exact = new Set<Node>();
     const slots = new Set<SourceStorageSubject>();
-    let complete = origins !== undefined && origins.size !== 0;
+    let unknown = receiverSubject === undefined;
     for (const origin of origins ?? []) {
       if (!step()) return { nodes: selected, exact: false };
-      if (ast.is.IsParameterDeclaration(origin.node)) complete = false;
+      if (ast.is.IsParameterDeclaration(origin.node)) unknown = true;
       if (incomingFor(origin).size !== 0) continue;
       const concrete = sourceStorageConstructedClass(origin.node, source, step);
       const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
@@ -375,27 +375,24 @@ export function createSourceStorageTransport(
         const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type
           ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.type;
         const members = receiverType === undefined ? undefined : memberFlow.declarationsFor(origin, declaration, receiverType);
-        let resolved = members !== undefined;
+        unknown ||= members === undefined;
         for (const member of members ?? []) {
           if (!step()) return { nodes: selected, exact: false };
           const slot = subject(member);
           if (slot !== undefined) slots.add(slot);
           const values = slot === undefined ? undefined : originsFor(slot);
-          let implemented = false;
           for (const value of values ?? []) {
             if (!step()) return { nodes: selected, exact: false };
             if (incomingFor(value).size !== 0) continue;
             const implementation = navigation.callableImplementation(value.node);
-            if (implementation.kind !== "resolved") { resolved = false; continue; }
+            if (implementation.kind !== "resolved") { unknown = true; continue; }
             exact.add(implementation.implementation.declaration);
-            implemented = true;
           }
-          resolved &&= implemented;
         }
-        complete &&= resolved;
-      } else complete = false;
+      } else unknown = true;
     }
-    if (complete && exact.size !== 0) return { nodes: exact, exact: true, slots };
+    if (!unknown) return { nodes: exact, exact: true, slots };
+    for (const implementation of exact) selected.add(implementation);
     for (const target of memberImplementations.get(declaration) ?? []) {
       if (!step()) break;
       selected.add(target);
@@ -629,7 +626,7 @@ export function createSourceStorageTransport(
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
   const substitutions = createSourceStorageSubstitutions(source, budget, subject, incomingFor, invocationInputs, contextualInputs,
-    invocationResults);
+    invocationResults, graphQueries);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;

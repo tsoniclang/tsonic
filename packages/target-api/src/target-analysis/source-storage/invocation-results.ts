@@ -9,7 +9,7 @@ interface SourceStorageInvocationResultQueries {
   readonly subject: SourceStorageSubjectQuery;
   readonly incomingFor: SourceStorageIncomingQuery;
   implementationsFor(invocation: Node, bindings: SourceStorageSubstitutions): ReadonlySet<Node>;
-  valuesFor(subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): readonly SourceStorageBoundSubject[];
+  valuesFor(subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageBoundSubject> | undefined;
   targetFor(invocation: Node): SourceStorageSubject | undefined;
   bindingsFor(candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions,
     captured: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined;
@@ -33,14 +33,14 @@ export function createSourceStorageInvocationResults(
     !queries.hasResultAlias(subject.node);
   const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions) => {
     const target = queries.targetFor(invocation);
-    const values = target === undefined ? [] : queries.valuesFor(target, bindings);
+    const values = target === undefined ? undefined : queries.valuesFor(target, bindings);
     const captures = new Set<SourceStorageSubstitutions>();
-    for (const value of values) {
+    for (const value of values ?? []) {
       if (!budget.step()) break;
       const selected = source.navigation.callableImplementation(value.subject.node);
       if (selected.kind === "resolved" && selected.implementation.declaration === candidate) captures.add(value.bindings);
     }
-    if (captures.size === 0) captures.add(bindings);
+    if (target === undefined) captures.add(bindings);
     const states = new Set<SourceStorageSubstitutions>();
     for (const captured of captures) {
       if (!budget.step()) break;
@@ -64,7 +64,7 @@ export function createSourceStorageInvocationResults(
         inputs.push({ subject: result, bindings: selected });
       }
     }
-    return inputs.length === 0 ? undefined : inputs;
+    return inputs;
   };
   return Object.freeze({ select, forInvocation, hasAllocation });
 }

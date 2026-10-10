@@ -7,6 +7,7 @@ import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageInvocationResultQueriesContract } from "./invocation-results.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import { createSourceStorageContextPorts } from "./context-ports.js";
+import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 
 export interface SourceStorageBoundSelection {
   readonly inputs: ReadonlySet<SourceStorageSubject>;
@@ -29,6 +30,7 @@ export function createSourceStorageSubstitutions(
   invocationInputs: SourceStorageInvocationInputQuery,
   contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
   invocationResults: SourceStorageInvocationResultQueriesContract,
+  graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
 ) {
   const step = budget.step;
   const reserveRow = budget.row;
@@ -43,47 +45,65 @@ export function createSourceStorageSubstitutions(
     if (selected === undefined) { selected = identities.size; identities.set(subject, selected); }
     return selected;
   };
-  const values = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): readonly SourceStorageBoundSubject[] => budget.withRows(rows => {
-    const remaining: SourceStorageBoundSubject[] = [];
-    const checked = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
-    const origins: SourceStorageBoundSubject[] = [];
-    const schedule = (selected: SourceStorageSubject, context: SourceStorageSubstitutions): void => {
-      const visited = checked.get(context) ?? new Set<SourceStorageSubject>();
-      if (visited.has(selected) || !rows.add(1)) return;
-      visited.add(selected);
-      checked.set(context, visited);
-      remaining.push({ subject: selected, bindings: context });
+  const boundSubjects = new WeakMap<SourceStorageSubstitutions, Map<SourceStorageSubject, SourceStorageBoundSubject>>();
+  const boundSubject = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): SourceStorageBoundSubject | undefined => {
+    if (!step()) return undefined;
+    const subjects = boundSubjects.get(bindings);
+    const cached = subjects?.get(subject);
+    if (cached !== undefined) return cached;
+    if (!reserveRow() || subjects === undefined && !reserveRow()) return undefined;
+    const selected = Object.freeze({ subject, bindings });
+    const retained = subjects ?? new Map<SourceStorageSubject, SourceStorageBoundSubject>();
+    retained.set(subject, selected);
+    boundSubjects.set(bindings, retained);
+    return selected;
+  };
+  let currentRead: ((subject: SourceStorageBoundSubject) => ReadonlySet<SourceStorageBoundSubject> | undefined) | undefined;
+  const selectedValues = graphQueries.fixedPoint<SourceStorageBoundSubject, SourceStorageBoundSubject>((current, read, emit) => {
+    const add = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): boolean => {
+      const selected = boundSubject(subject, bindings);
+      const inputs = selected === undefined ? undefined : read(selected);
+      if (inputs === undefined) return false;
+      for (const input of inputs) {
+        if (!step()) return false;
+        if (!emit(input)) return false;
+      }
+      return true;
     };
-    schedule(origin, bindings);
-    while (remaining.length !== 0 && step()) {
-      const current = remaining.pop()!;
-      const selected = current.subject;
-      const bound = selection(selected, current.bindings);
+    currentRead = read;
+    try {
+      const bound = selection(current.subject, current.bindings);
       if (bound !== undefined) {
-        for (const input of bound.inputs) {
-          if (!step()) break;
-          schedule(input, bound.context);
-        }
-        continue;
+        for (const input of bound.inputs) if (!step() || !add(input, bound.context)) return false;
+        return true;
       }
-      const parents = incoming(selected);
-      const allocation = invocationResults.hasAllocation(selected);
-      if (allocation) origins.push(current);
-      const results = invocationResults.select(selected, current.bindings);
+      const parents = incoming(current.subject);
+      const allocation = invocationResults.hasAllocation(current.subject);
+      if (allocation && !emit(current)) return false;
+      const results = invocationResults.select(current.subject, current.bindings);
       if (results !== undefined) {
-        for (const result of results) {
-          if (!step()) break;
-          schedule(result.subject, result.bindings);
-        }
-        continue;
+        for (const result of results) if (!step() || !add(result.subject, result.bindings)) return false;
+        return true;
       }
-      if (!allocation && (parents.size === 0 || sourceStorageHasOriginalCallableValue(selected, source.ast))) origins.push(current);
-      for (const parent of parents) { if (!step()) break; schedule(parent, current.bindings); }
+      if (!allocation && (parents.size === 0 || sourceStorageHasOriginalCallableValue(current.subject, source.ast)) && !emit(current)) return false;
+      for (const parent of parents) if (!step() || !add(parent, current.bindings)) return false;
+      return true;
+    } finally {
+      currentRead = undefined;
     }
-    return origins;
   });
-  const origins = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageSubject> =>
-    new Set(values(origin, bindings).map(value => value.subject));
+  const values = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageBoundSubject> | undefined => {
+    const selected = boundSubject(origin, bindings);
+    if (selected === undefined) return undefined;
+    return currentRead === undefined ? selectedValues(selected) : currentRead(selected);
+  };
+  const origins = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageSubject> | undefined => {
+    const selected = values(origin, bindings);
+    if (selected === undefined) return undefined;
+    const origins = new Set<SourceStorageSubject>();
+    for (const value of selected) { if (!step()) return undefined; origins.add(value.subject); }
+    return origins;
+  };
   const projectedSelections = new WeakMap<SourceStorageSubstitutions, Map<SourceStorageSubject, SourceStorageBoundSelection>>();
   const selection = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions): SourceStorageBoundSelection | undefined => {
     const exact = bindings.get(origin);

@@ -3,6 +3,7 @@ import test from "node:test";
 import { createSourceStorageSubstitutions } from "../../packages/target-api/dist/target-analysis/source-storage/substitutions.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph-queries.js";
 
 function fixture(limits = {}, length = 50) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -19,9 +20,11 @@ function fixture(limits = {}, length = 50) {
     IsVariableDeclaration: () => false, IsParameterDeclaration: node => node === parameter || node === innerParameter },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
     parameters: node => node.parameters, body: () => undefined } };
+  const graph = createSourceStorageGraphQueries(budget);
+  graph.seal();
   const substitutions = createSourceStorageSubstitutions(source, budget, subject, () => new Set(),
     origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }),
-    origin => inputs.get(origin) ?? new Set(), { select: () => undefined, hasAllocation: () => false });
+    origin => inputs.get(origin) ?? new Set(), { select: () => undefined, hasAllocation: () => false }, graph);
   return { budget, subject, substitutions, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
 
@@ -43,7 +46,8 @@ test("context traversal reserves only its live frontier while interned binding e
   assert.equal(budget.failure() === undefined, true, "cumulative temporary allocations do not masquerade as retained memory");
   let retained = 0;
   while (budget.row()) retained += 1;
-  assert.equal(retained === 67, true, "all 11 binding/input/context rows and the two completed source-port relation rows remain charged");
+  assert.equal(retained === 57, true,
+    "11 binding rows, two source-port rows, four scoped-subject rows, four query/view rows and two completed value rows remain charged");
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(substitutions.forInvocation(current.inner, invocation, parent, parent) === undefined, true, "release never clears a failed owner");
 });
