@@ -92,6 +92,9 @@ export function createSourceStructuralMemberQuery(
     }))),
   });
   const select = (source: Type, destination: Type): SourceStructuralMemberCorrespondence => {
+    if (types.isNullish(source) && !unresolved(destination) || types.isNullish(destination) && !unresolved(source)) {
+      return Object.freeze({ kind: "unavailable", reason: "disjoint-shape" });
+    }
     if (unresolved(source) || unresolved(destination)) {
       return Object.freeze({ kind: "unavailable", reason: "unresolved-shape" });
     }

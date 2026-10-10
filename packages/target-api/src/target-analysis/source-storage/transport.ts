@@ -23,6 +23,7 @@ import { createSourceStorageMemberFlow } from "./member-flow.js";
 import { createSourceStorageStoredValues } from "./stored-values.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "./graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
+import { createSourceStorageAncestorQuery } from "./ancestors.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -135,6 +136,8 @@ export function createSourceStorageTransport(
       : navigation.sourceReferenceFor(node)?.declaration;
     const target = ast.is.IsPropertyAccessExpression(node) ? node
       : selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected) ? selected : node;
+    const file = ast.getSourceFile(node);
+    if (selected !== undefined && file !== undefined && semantics.includes(file) && !retainCheckedContext(selected, file)) return undefined;
     const value = subject(target);
     if (value === undefined) return undefined;
     subjects.set(node, value);
@@ -366,21 +369,24 @@ export function createSourceStorageTransport(
     ast.forEachChild(node, child => { if (child !== undefined && admitNode(child)) children.push(child); });
     for (let index = children.length - 1; index >= 0; index -= 1) pendingNodes.push(children[index]!);
   }
-  const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
-    const pending = [selected];
-    const visited = new Set<SourceStorageSubject>();
-    for (let index = 0; index < pending.length; index += 1) {
-      const current = pending[index]!;
-      if (visited.has(current)) continue;
-      visited.add(current);
+  const walkAncestors = createSourceStorageAncestorQuery(budget, incomingFor);
+  const originSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+    const originals = new Set<SourceStorageSubject>();
+    for (const origin of walkAncestors(selected)) {
       if (!step()) return undefined;
-      for (const origin of incomingFor(current)) { if (!step()) break; pending.push(origin); }
+      if (ast.is.IsParameterDeclaration(origin.node) || ast.is.IsObjectLiteralExpression(origin.node) ||
+        ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalCallableValue(origin, ast) || incomingFor(origin).size === 0)
+        originals.add(origin);
     }
-    return visited;
+    return budget.failure() === undefined ? originals : undefined;
+  });
+  const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+    const subjects = new Set(walkAncestors(selected));
+    return budget.failure() === undefined ? subjects : undefined;
   });
   const memberFlow = createSourceStorageMemberFlow(source, budget, sourceFileFor, retainCheckedContext);
   const implementationsFor = (declaration: Node, invocation: Node,
-    originsFor = ancestorSubjects): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean;
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): { readonly nodes: ReadonlySet<Node>; readonly exact: boolean;
       readonly slots?: ReadonlySet<SourceStorageSubject> } => {
     const selected = new Set<Node>();
     const implementation = navigation.callableImplementation(declaration);
@@ -432,7 +438,8 @@ export function createSourceStorageTransport(
     }
     return { nodes: selected, exact: false };
   };
-  const collectInvocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> => {
+  const collectInvocationImplementations = (invocation: Node,
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> => {
     const implementations = new Set<Node>();
     const declaration = invocationDeclarations.get(invocation);
     const target = invocationTargets.get(invocation);
@@ -462,10 +469,12 @@ export function createSourceStorageTransport(
     return implementations;
   };
   const selectedInvocationImplementations = graphQueries.query((invocation: Node) => collectInvocationImplementations(invocation));
-  const invocationImplementations = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<Node> =>
-    originsFor === ancestorSubjects ? selectedInvocationImplementations(invocation) ?? new Set()
+  const invocationImplementations = (invocation: Node,
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> =>
+    originsFor === originSubjects ? selectedInvocationImplementations(invocation) ?? new Set()
       : collectInvocationImplementations(invocation, originsFor);
-  const physicalMemberInputs = (invocation: Node, originsFor = ancestorSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
+  const physicalMemberInputs = (invocation: Node,
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
     const declaration = invocationDeclarations.get(invocation) ?? accessorTargets.get(invocation)?.[0];
     if (declaration === undefined) return undefined;
     const selected = implementationsFor(declaration, invocation, originsFor);
@@ -508,7 +517,7 @@ export function createSourceStorageTransport(
       const write = storedValues.writeFor(access, subjectFor)
         ?? { reference: access, operation: parent ?? access, reason: "Source storage mutation requires its exact selected value producer." };
       storedValues.recordWrite(locationFor(access), write);
-      for (const origin of ancestorSubjects(owner) ?? []) {
+      for (const origin of originSubjects(owner) ?? []) {
         if (!step()) break;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node)) continue;
         if (!once(origin)) continue;

@@ -305,6 +305,13 @@ export function createSourceStorageDomains(
         boundaries.add(boundary);
       }
     }
+    for (const origin of selected.origins) {
+      if (!budget.step()) break;
+      if (!ast.is.IsVariableDeclaration(origin.node) || Node_Initializer(ast, origin.node) !== undefined ||
+        navigation.isProjectDeclaration(origin.node)) continue;
+      if (!rows.add(1)) break;
+      boundaries.add(Object.freeze({ kind: "external-input", subject: origin, exposure: origin.node }));
+    }
     return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundaries: Object.freeze([...boundaries]), reason });
   });
   return Object.freeze({ select });

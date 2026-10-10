@@ -15,6 +15,9 @@ const model = {
   exports: [{
     id: "export.Record", name: "Record", kind: "interface",
     members: [{ id: "member.value", name: "value", kind: "property", type: { kind: "number" } }],
+  }, {
+    id: "export.native", name: "native", kind: "value",
+    type: { kind: "provider-ref", moduleSpecifier: "test:storage-context", exportName: "Record" },
   }, ...["record", "array", "tuple"].map(name => ({
     id: `export.${name}`, name, kind: "function", signatures: [{
       id: `signature.${name}`,
@@ -32,12 +35,14 @@ function checked(limits = defaultSourceStorageLimits) {
     currentDirectory: "/src",
     files: {
       "/src/index.ts": `
-        import { record, array, tuple } from "test:storage-context";
+        import { record, array, tuple, native } from "test:storage-context";
         import { checkAgain } from "./second.js";
         const original = { value: 3 };
         const alias = original;
         const values = [3, 7];
         const pair: [number, number] = [3, 7];
+        const nativeAlias = native;
+        const nativeValue = nativeAlias.value;
         record(alias); array(values); tuple(pair); checkAgain();
       `,
       "/src/second.ts": `
@@ -141,4 +146,29 @@ test("virtual context accounting remains finite and foreign graph subjects remai
   const bounded = checked({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
   assert.equal(typeof bounded.storage.failureReason() === "string", true, "context/transport rows share the finite owner budget");
   assert.equal(bounded.storage.typeFor(formal).kind === "unresolved", true, "budget failure cannot expose an unchecked type");
+});
+
+test("virtual variable aliases retain exact declaration symbols and checked member context without authored producer claims", () => {
+  const { source, storage, file } = checked();
+  const alias = storage.subjectFor(namedVariable(source.ast, file, "nativeAlias"));
+  assert.equal(alias.kind === "resolved", true);
+  const original = storage.originSubjectsFor(alias.subject);
+  assert.equal(original.kind === "resolved" && original.subjects.length === 1, true);
+  const native = original.subjects[0];
+  const virtual = source.ast.getSourceFile(native.node);
+  assert.equal(virtual !== undefined && !source.semantics.includes(virtual), true);
+  assert.equal(storage.subjectFor(native.node).kind === "unresolved", true, "foreign syntax does not become publicly authored");
+  const selected = storage.typeFor(native);
+  assert.equal(selected.kind === "resolved" && source.semantics.includes(selected.sourceFile), true, "reference retains its checked context");
+  const type = source.semantics.forFile(file).declarations.declaredValueType(native.node);
+  assert.equal(type === selected.type, true, "same checked symbol type, no invented or selected-receiver substitute");
+  const direct = storage.storageProducersFor(native);
+  assert.equal(direct.kind !== "complete", true, "external variable declaration does not prove its supplied value producer");
+  const transported = storage.storageProducersFor(alias.subject);
+  assert.equal(transported.kind !== "complete", true, "an authored alias cannot close an external variable's producer inventory");
+  const member = storage.subjectFor(namedVariable(source.ast, file, "nativeValue"));
+  assert.equal(member.kind === "resolved", true);
+  const result = storage.storageProducersFor(member.subject);
+  assert.equal(result.kind !== "complete", true, "provider contracts do not imply authored physical producers");
+  assert.equal(storage.failureReason() === undefined, true, "exact member contract does not poison unrelated source analysis");
 });

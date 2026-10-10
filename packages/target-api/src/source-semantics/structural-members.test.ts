@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
+import { createCompilerSessionFromFiles, formatDiagnostics, type Node, type Type } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../public/source.js";
 
 function inspect(text: string, files: Record<string, string> = {}) {
@@ -16,6 +16,7 @@ function inspect(text: string, files: Record<string, string> = {}) {
   assert.ok(file);
   const semantics = source.semantics.forFile(file);
   const results = [];
+  const argumentTypes: Type[] = [];
   for (const node of walk(file)) {
     if (!source.ast.is.IsCallExpression(node)) continue;
     const call = semantics.operations.call(node);
@@ -23,12 +24,13 @@ function inspect(text: string, files: Record<string, string> = {}) {
     const actual = call.sourceArguments[0]?.type;
     const selected = call.sourceSelectedSignatureParameters[0]?.selectedType;
     assert.ok(actual && selected);
+    argumentTypes.push(actual);
     const result = semantics.types.structuralMembers(actual, selected);
     assert.equal(semantics.types.structuralMembers(actual, selected), result);
     assert.ok(Object.isFrozen(result));
     results.push(result);
   }
-  return { results, source, semantics };
+  return { results, source, semantics, argumentTypes };
   function* walk(node: Node): Generator<Node> {
     yield node;
     for (const child of source.ast.children(node)) if (child !== undefined) yield* walk(child);
@@ -242,5 +244,32 @@ test("optional, widened and equal discriminants never hide missing required memb
     if (actual?.kind !== "available" || selected?.kind !== "available") continue;
     assert.deepEqual(semantics.types.structuralMembers(actual.source.type, selected.source.type),
       { kind: "unavailable", reason: "missing-required-member" }, name);
+  }
+});
+
+test("native absence is disjoint only from a proven present record, not an unresolved or nullable shape", () => {
+  for (const absent of ["null", "undefined"]) {
+    for (const present of ["{ readonly token: {} }", "{ readonly token?: {} }"]) {
+      const { semantics, argumentTypes } = inspect(`
+        declare function observe<T>(value: T): void;
+        declare const absent: ${absent}; declare const present: ${present};
+        observe(absent); observe(present);
+      `);
+      const from = argumentTypes[0]!;
+      const to = argumentTypes[1]!;
+      for (const [source, destination] of [[from, to], [to, from]]) {
+        assert.deepEqual(semantics.types.structuralMembers(source!, destination!),
+          { kind: "unavailable", reason: "disjoint-shape" }, `${absent} / ${present}`);
+      }
+    }
+    for (const unresolved of ["null", "undefined", "any", "unknown", "void", "never", "{ token: {} } | null", "{ token: {} } | undefined"]) {
+      const { semantics, argumentTypes } = inspect(`
+        declare function observe<T>(value: T): void;
+        declare const absent: ${absent}; declare const unresolved: ${unresolved};
+        observe(absent); observe(unresolved);
+      `);
+      assert.deepEqual(semantics.types.structuralMembers(argumentTypes[0]!, argumentTypes[1]!),
+        { kind: "unavailable", reason: "unresolved-shape" }, `${absent} / ${unresolved}`);
+    }
   }
 });

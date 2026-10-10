@@ -150,7 +150,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     } finally { currentRead = undefined; }
   });
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined => intern(sourceStorageReference(origin, scope));
-  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => {
+  const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => scopes.withQuery(() => {
     const root = selectRoot(origin, scope);
     const selected = root === undefined ? undefined : results(root);
     if (selected === undefined) return undefined;
@@ -160,8 +160,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (value.kind === "leaf") values.add(Object.freeze({ subject: value.subject, bindings: value.scope }));
     }
     return values;
-  };
-  const origins = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => {
+  });
+  const origins = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => scopes.withQuery(() => {
     const root = selectRoot(origin, scope);
     const selected = root === undefined ? undefined : results(root);
     if (selected === undefined) return undefined;
@@ -171,9 +171,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (value.kind === "leaf") subjects.add(value.subject);
     }
     return subjects;
-  };
+  });
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
-    stopAt?: (subject: SourceStorageBoundSubject) => boolean) => budget.withRows(temporary => {
+    stopAt?: (subject: SourceStorageBoundSubject) => boolean) => scopes.withQuery(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
     if (root === undefined || results(root) === undefined) return undefined;
     const visited = new Map<SourceStorageTerm, number>(); const pending = [{ term: root, collect: true }];
@@ -211,10 +211,10 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0 }));
     }
     return Object.freeze({ subjects: Object.freeze(selected), origins });
-  });
+  }));
   const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined =>
     walk(origin, scope)?.subjects;
-  const selection = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageBoundSubject[] | undefined => {
+  const selection = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageBoundSubject[] | undefined => scopes.withQuery(() => {
     const selected = scopes.lookup(origin, scope);
     if (selected === undefined) return undefined;
     if (selected.kind === "expand") {
@@ -228,8 +228,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       inputs.push(Object.freeze({ subject: input.subject, bindings: input.scope }));
     }
     return Object.freeze(inputs);
-  };
+  });
   return Object.freeze({ empty: scopes.empty, values, origins, trace, walk, selection, formals: scopes.formals,
-    isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean => scopes.lookup(origin, scope) !== undefined,
+    isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean =>
+      scopes.withQuery(() => scopes.lookup(origin, scope) !== undefined),
     forInvocation: scopes.frameFor, identityFor: scopes.identity });
 }

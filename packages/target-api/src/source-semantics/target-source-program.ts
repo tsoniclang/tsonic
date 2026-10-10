@@ -24,6 +24,7 @@ import { resolveSourceFlowConditions } from "./flow-conditions.js";
 import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
+import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
 export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
 import type {
   ResolvedSourceCallInfo,
@@ -127,18 +128,16 @@ export function createTargetSourceProgram(
         return selectSourceCallParameterSlots(call, queries.typeShape);
       },
     });
+    const declarationSymbol = createSourceDeclarationSymbolQuery(source.ast, queries.checker, navigation);
     const declarations = Object.freeze({
       declaredValueType(declaration: Node) {
         if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
-        const name = source.ast.name(declaration);
-        const symbol = queries.checker.getSymbolAtLocation(name ?? declaration);
-        return queries.checker.getTypeOfSymbol(symbol);
+        return queries.checker.getTypeOfSymbol(declarationSymbol(declaration));
       },
       declaredType(declaration: Node) {
-        const name = source.ast.name(declaration);
         const symbol = source.ast.is.IsClassExpression(declaration)
           ? queries.checker.getTypeSymbol(queries.checker.getTypeAtLocation(declaration))
-          : queries.checker.getSymbolAtLocation(name ?? declaration);
+          : declarationSymbol(declaration);
         return queries.checker.getDeclaredTypeOfSymbol(symbol);
       },
       typeSymbol: queries.checker.getTypeSymbol,

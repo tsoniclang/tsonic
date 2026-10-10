@@ -150,3 +150,79 @@ test("deep cyclic capture discovery reuses the bounded completed relation owner"
   assert.equal(current.scopes.variablesFor(scope) === variables, true, "only a completed relation is reused");
   assert.equal(current.budget.failure() === undefined, true);
 });
+
+test("completed simultaneous substitution operations reuse their canonical result independently of request Map identity", () => {
+  const current = fixture({ maximumSteps: 1024 }, 1);
+  return current.scopes.withQuery(() => {
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer, current.inner]), initial: current.scopes.empty };
+    const outer = current.scopes.variable(equation, current.outer);
+    const inner = current.scopes.variable(equation, current.inner);
+    const frame = current.scopes.frameFor(current.inner, {}, outer, outer);
+    const replacement = current.scopes.frameFor(current.outer, {}, inner, inner);
+    assert.equal(frame !== undefined && replacement !== undefined, true);
+    const first = current.scopes.applyScope(frame, new Map([[outer, replacement]]));
+    assert.equal(first?.kind === "substitution", true);
+    const completed = current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]]));
+    assert.equal(completed !== undefined, true);
+    for (let repeat = 0; repeat < 100; repeat += 1) {
+      assert.equal(current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]])) === completed, true,
+        "same immutable operation, no repeated recursive composition");
+    }
+    assert.equal(current.budget.failure() === undefined, true, "original finite work accounts every lookup");
+    let result = completed;
+    for (let repeat = 0; repeat < 1024 && result !== undefined; repeat += 1)
+      result = current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]]));
+    assert.equal(result === undefined, true, "cached transformations cannot bypass the finite work guard");
+    assert.match(current.budget.failure(), /analysis-work/u);
+  });
+});
+
+test("owning scope and equation queries retain exact presence and absence without rescanning immutable parent chains", () => {
+  const current = fixture({ maximumSteps: 1024 }, 1);
+  return current.scopes.withQuery(() => {
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    let scope = variable;
+    for (let depth = 0; depth < 20; depth += 1) scope = current.scopes.frameFor(current.inner, {}, scope, scope);
+    assert.equal(scope !== undefined, true);
+    const missing = {};
+    assert.equal(current.scopes.owningScope(scope, current.outer) === variable, true);
+    assert.equal(current.scopes.owningScope(scope, missing) === undefined, true);
+    assert.equal(current.scopes.family(scope) === equation, true);
+    for (let repeat = 0; repeat < 100; repeat += 1) {
+      assert.equal(current.scopes.owningScope(scope, current.outer) === variable, true);
+      assert.equal(current.scopes.owningScope(scope, missing) === undefined, true);
+      assert.equal(current.scopes.family(scope) === equation, true);
+    }
+    assert.equal(current.budget.failure() === undefined, true);
+  });
+});
+
+test("completed and throwing scope queries release temporary memo rows without losing canonical identities", () => {
+  const remainingRows = repeats => {
+    const current = fixture({ maximumTransportRows: 128, maximumSteps: 65536 }, 1);
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    const frame = current.scopes.frameFor(current.inner, {}, variable, variable);
+    const failure = new Error("exact query failure");
+    for (let repeat = 0; repeat < repeats; repeat += 1) {
+      const missing = {};
+      const collect = () => current.scopes.withQuery(() => {
+        assert.equal(current.scopes.owningScope(frame, current.outer) === variable, true);
+        assert.equal(current.scopes.owningScope(frame, missing) === undefined, true);
+        current.scopes.withQuery(() => {
+          assert.equal(current.scopes.family(frame) === equation, true);
+          assert.equal(current.scopes.owningScope(frame, current.outer) === variable, true);
+        });
+        if (repeat % 2 === 0) throw failure;
+      });
+      if (repeat % 2 === 0) assert.throws(collect, error => error === failure);
+      else collect();
+    }
+    assert.equal(current.budget.failure() === undefined, true, "finite live memo releases on normal return and unwind");
+    let remaining = 0;
+    while (current.budget.row()) remaining += 1;
+    return remaining;
+  };
+  assert.equal(remainingRows(1000), remainingRows(1), "query history adds no persistent cache rows");
+});

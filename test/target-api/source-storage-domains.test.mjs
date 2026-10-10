@@ -63,6 +63,26 @@ test("complete domains preserve private arrows, immutable aliases and known priv
   complete(current.selection("indirect"), "known callback implementation");
 });
 
+test("narrowed optional record returns preserve original physical members without importing impossible absence", async () => {
+  for (const absent of ["undefined", "null", "undefined | null"]) {
+    const missing = absent.includes("undefined") ? "undefined" : "null";
+    const guard = absent.includes("|") ? "!= null" : `!== ${missing}`;
+    const current = await fixture(`storage-domain-optional-record-${missing}-${guard.length}`, `
+      class Parsed { readonly frontMatter = { token: {} }; }
+      function optional(mode: number): Parsed | ${absent} { if (mode === 0) return ${missing}; return new Parsed(); }
+      function parse(mode: number): Parsed {
+        const candidate = optional(mode);
+        if (candidate ${guard}) return candidate;
+        return new Parsed();
+      }
+      const parsed = parse(0);
+      const selected = parsed.frontMatter.token;
+    `);
+    complete(current.selection("selected"), `checked present member excludes ${absent}`);
+    assert.equal(current.storage.failureReason() === undefined, true, "shared owner retains exact physical evidence");
+  }
+});
+
 test("exported immutable value identity stays closed while exported mutable storage stays open", async () => {
   const current = await fixture("storage-domain-exported-storage", `
     const original = {};

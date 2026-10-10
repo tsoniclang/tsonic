@@ -56,7 +56,26 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return true;
   });
   const views = new Map<SourceStorageScope, Map<string, SourceStorageScope>>();
-  const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined => {
+  interface QueryMemo {
+    readonly add: (cost: number) => boolean;
+    readonly applications: Map<SourceStorageScope, { readonly key: string; readonly result: SourceStorageScope }>;
+    readonly owners: Map<SourceStorageScope, Map<Node, SourceStorageScope | null>>;
+    readonly families: Map<SourceStorageScope, SourceStorageEquation | null>;
+  }
+  let activeMemo: QueryMemo | undefined;
+  const withMemo = <Value>(collect: (memo: QueryMemo) => Value): Value => {
+    if (activeMemo !== undefined) return collect(activeMemo);
+    return budget.withRows(temporary => {
+      const memo: QueryMemo = { add: temporary.add, applications: new Map(), owners: new Map(), families: new Map() };
+      activeMemo = memo;
+      try { return collect(memo); }
+      finally { activeMemo = undefined; memo.applications.clear(); memo.owners.clear(); memo.families.clear(); }
+    });
+  };
+  const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
+    [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
+      .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
+  const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined => withMemo(memo => {
     if (!budget.step()) return undefined;
     if (scope.kind === "variable") return replacements.get(scope) ?? scope;
     const inputs = variablesFor(scope);
@@ -68,6 +87,15 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (replacement !== undefined) selected.set(input, replacement);
     }
     if (selected.size === 0) return scope;
+    const request = scope.kind === "substitution" ? substitutionKey(selected) : undefined;
+    const applied = request === undefined ? undefined : memo.applications.get(scope);
+    if (applied !== undefined && applied.key === request) return applied.result;
+    const remember = (result: SourceStorageScope): SourceStorageScope | undefined => {
+      if (request === undefined) return result;
+      if (applied === undefined && !memo.add(1)) return undefined;
+      memo.applications.set(scope, Object.freeze({ key: request, result }));
+      return result;
+    };
     const base = scope.kind === "substitution" ? scope.scope : scope;
     const substitutions = new Map<SourceStorageVariable, SourceStorageScope>();
     if (scope.kind === "substitution") for (const [input, replacement] of scope.substitutions) {
@@ -81,18 +109,17 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (!budget.step()) return undefined;
       if (originals.has(input) && !substitutions.has(input)) substitutions.set(input, replacement);
     }
-    const key = [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
-      .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
+    const key = substitutionKey(substitutions);
     const retained = views.get(base);
     const cached = retained?.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return remember(cached);
     if (!rows.add(1 + substitutions.size + (retained === undefined ? 1 : 0))) return undefined;
     const result = Object.freeze({ kind: "substitution" as const, scope: base, substitutions });
     const selections = retained ?? new Map<string, SourceStorageScope>();
     selections.set(key, result);
     views.set(base, selections);
-    return result;
-  };
+    return remember(result);
+  });
   const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageTerm | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "execution-root") return term;
@@ -221,12 +248,32 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return undefined;
   });
-  const owningScope = (scope: SourceStorageScope, owner: Node): SourceStorageScope | undefined =>
-    find(scope, current => current.kind !== "substitution" && current.owner === owner);
-  const family = (scope: SourceStorageScope): SourceStorageEquation | undefined => {
+  const owningScope = (scope: SourceStorageScope, owner: Node): SourceStorageScope | undefined => withMemo(memo => {
+    if (!budget.step()) return undefined;
+    if (scope === empty) return undefined;
+    if (scope.kind !== "substitution" && scope.owner === owner) return scope;
+    const selections = memo.owners.get(scope);
+    const retained = selections?.get(owner);
+    if (retained !== undefined) return retained ?? undefined;
+    const selected = find(scope, current => current.kind !== "substitution" && current.owner === owner);
+    if (budget.failure() !== undefined || !memo.add(selections === undefined ? 2 : 1)) return undefined;
+    const values = selections ?? new Map<Node, SourceStorageScope | null>();
+    values.set(owner, selected ?? null);
+    memo.owners.set(scope, values);
+    return selected;
+  });
+  const family = (scope: SourceStorageScope): SourceStorageEquation | undefined => withMemo(memo => {
+    if (!budget.step()) return undefined;
+    if (scope === empty) return undefined;
+    if (scope.kind === "variable") return scope.equation;
+    const retained = memo.families.get(scope);
+    if (retained !== undefined) return retained ?? undefined;
     const selected = find(scope, current => current.kind === "variable");
-    return selected?.kind === "variable" ? selected.equation : undefined;
-  };
+    const equation = selected?.kind === "variable" ? selected.equation : undefined;
+    if (budget.failure() !== undefined || !memo.add(1)) return undefined;
+    memo.families.set(scope, equation ?? null);
+    return equation;
+  });
   const activationKeys = new Map<SourceStorageScope, string>();
   const activations = new Map<string, string>();
   const activationKey = (scope: SourceStorageScope): string | undefined => budget.withRows(temporary => {
@@ -293,7 +340,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return selected;
   });
   return Object.freeze({ empty, identity, variable, variablesFor, applyScope, applyTerm, lookup, frameFor,
-    owningScope, family, activationKey, formals });
+    owningScope, family, activationKey, formals,
+    withQuery: <Value>(collect: () => Value): Value => withMemo(() => collect()) });
 }
 
 export type SourceStorageScopes = ReturnType<typeof createSourceStorageScopes>;
