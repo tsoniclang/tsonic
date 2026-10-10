@@ -123,6 +123,7 @@ export interface SourceStorageQueries {
   failureReason(): string | undefined;
   subject(node: Node, kind?: SourceStorageSubject["kind"], projection?: readonly SourceStorageProjection[]): SourceStorageSubjectSelection;
   subjectFor(node: Node): SourceStorageSubjectSelection;
+  memberSubjectFor(node: Node): SourceStorageSubjectSelection;
   storageSubjectFor(node: Node, projection?: readonly SourceStorageProjection[]): SourceStorageSubjectSelection;
   typeFor(subject: SourceStorageSubject): SourceStorageTypeSelection;
   incomingFor(subject: SourceStorageSubject): SourceStorageSubjectsSelection;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
 
 const globals = `
 interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -54,14 +54,14 @@ test("external Error formals do not prove mutation or opaque-call disjointness f
     inspect(left, right);
   `);
   const owner = current.source.ast.parameters(current.declaration("inspect"))[0];
-  const domain = current.demand.closedStorageOriginsFor(owner);
+  const domain = current.demand.closedStorageOriginsFor(requiredStorageSubject(current.storage, owner));
   assert.equal(domain.kind === "open", true, "public formal has an external admission boundary");
   assert.equal(domain.boundaries.some(boundary => boundary.kind === "external-input"), true);
   for (const expression of [current.write("other"), current.call("opaque")]) {
     assert.equal(current.demand.invalidationFor(owner, expression, new Set()).kind === "unproven", true,
       "observed distinct inputs do not exclude an external same-owner call");
   }
-  assert.equal(current.demand.storageOriginsFor(owner).kind === "resolved", true, "observed contract remains available");
+  assert.equal(current.demand.storageOriginsFor(requiredStorageSubject(current.storage, owner)).kind === "resolved", true, "observed contract remains available");
 });
 
 test("pure and source-readonly operations preserve externally admitted Error owners without an alias claim", async () => {
@@ -86,7 +86,7 @@ test("private distinct Error owners stay preserved while exact alias mutations i
     other.message = "changed";
     alias.message = "changed again";
   `);
-  assert.equal(current.demand.closedStorageOriginsFor(current.variable("owner")).kind === "complete", true);
+  assert.equal(current.demand.closedStorageOriginsFor(requiredStorageSubject(current.storage, current.variable("owner"))).kind === "complete", true);
   assert.equal(current.demand.invalidationFor(current.variable("owner"), current.write("other"), new Set()).kind === "preserved", true);
   assert.equal(current.demand.invalidationFor(current.variable("owner"), current.write("alias"), new Set()).kind === "invalidated", true);
 });
@@ -100,7 +100,7 @@ test("opaque native construction cannot invent fresh disjoint Error owners from 
     other.message = "changed";
   `);
   for (const name of ["owner", "other"]) {
-    const selected = current.demand.closedStorageOriginsFor(current.variable(name));
+    const selected = current.demand.closedStorageOriginsFor(requiredStorageSubject(current.storage, current.variable(name)));
     assert.equal(selected.kind === "open", true, `${name}: opaque native result lacks an allocation contract`);
     assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-result"), true);
   }
@@ -132,9 +132,9 @@ test("unknown opaque Error access cannot prove preservation while a known alias 
   const invalidation = current.demand.invalidationFor(current.variable("owner"), current.call("opaque"), new Set());
   assert.equal(invalidation.kind === "unproven", true, "valid uncertain effects require releasing the borrow, not inventing preservation");
   assert.equal(Object.isFrozen(invalidation) && invalidation.reason.length > 0, true);
-  const observed = current.demand.storageOriginsFor(current.variable("alias"));
+  const observed = current.demand.storageOriginsFor(requiredStorageSubject(current.storage, current.variable("alias")));
   assert.equal(observed.kind === "resolved" && observed.origins.length === 1, true);
-  const complete = current.demand.closedStorageOriginsFor(current.variable("alias"));
+  const complete = current.demand.closedStorageOriginsFor(requiredStorageSubject(current.storage, current.variable("alias")));
   assert.equal(complete.kind === "complete", true, "opaque field writes do not replace the owner identity");
   assert.equal(Object.isFrozen(complete) && Object.isFrozen(complete.origins) && complete.origins.every(Object.isFrozen), true);
 });
@@ -147,7 +147,7 @@ test("Error complete-origin wrappers preserve projected typed roots and reject e
   const projection = [{ kind: "tuple-element", index: 0 }];
   const selected = current.storage.storageSubjectFor(current.variable("box"), projection);
   assert.equal(selected.kind === "resolved", true);
-  const actual = current.demand.closedStorageOriginsFor(current.variable("box"), projection);
+  const actual = current.demand.closedStorageOriginsFor(requiredStorageSubject(current.storage, current.variable("box"), projection));
   const expected = current.storage.closedOriginsFor(selected.subject);
   assert.equal(actual.kind === "complete" && expected.kind === "complete", true);
   assert.equal(actual.origins.length === expected.origins.length && actual.origins.every((origin, index) =>
@@ -156,6 +156,6 @@ test("Error complete-origin wrappers preserve projected typed roots and reject e
     "one canonical typed origin owner");
   const bounded = await analyzed("error-origin-budget", `const owner = { message: "owner" };`,
     { ...defaultSourceStorageLimits, maximumSteps: 1 });
-  assert.equal(bounded.demand.closedStorageOriginsFor(bounded.variable("owner")).kind === "unresolved", true);
+  assert.equal(bounded.demand.closedStorageOriginsFor(selected.subject).kind === "unresolved", true);
   assert.equal(bounded.demand.invalidationFor(bounded.variable("owner"), bounded.variable("owner"), new Set()).kind === "unresolved", true);
 });

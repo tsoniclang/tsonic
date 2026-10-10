@@ -31,7 +31,7 @@ export function createSourceStorageStoredValues(
   const rows = budget.createRows();
   const record = (storage: SourceStorageSubject | undefined, write: SourceStorageWrite,
     kind: SourceStorageStore["kind"]): void => {
-    if (storage === undefined || storage.kind !== "value" || !budget.step()) return;
+    if (storage === undefined || storage.kind !== "value" && storage.kind !== "member" || !budget.step()) return;
     let selected = locations.get(storage);
     if (kind === "initialization") {
       const declaration = storage.node;

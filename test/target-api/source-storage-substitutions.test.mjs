@@ -11,12 +11,14 @@ function fixture(limits = {}, length = 50) {
   const parameter = {};
   const outer = { parameters: [parameter] };
   const input = subject({});
-  const formal = subject(parameter);
+  const formal = subject(parameter, "input");
   const innerParameter = {};
   const inner = { parameters: [innerParameter] };
   const nodes = Array.from({ length }, () => subject({}));
   const inputs = new Map(nodes.map((node, index) => [node, new Set([nodes[index + 1] ?? formal])]));
   const source = { ast: { is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
+    IsCallExpression: () => false, IsNewExpression: () => false,
+    IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false,
     IsVariableDeclaration: () => false, IsParameterDeclaration: node => node === parameter || node === innerParameter },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
     parameters: node => node.parameters, body: () => undefined } };
@@ -36,7 +38,7 @@ test("context traversal reserves only its live frontier while interned binding e
   const invocation = {};
   const original = substitutions.forInvocation(current.inner, invocation, parent, parent);
   assert.equal(original !== undefined, true, "first complete context fits the finite live peak");
-  const selected = original.get(current.subject(current.innerParameter));
+  const selected = original.get(current.subject(current.innerParameter, "input"));
   assert.equal(selected.inputs.has(current.nodes[0]) && substitutions.origins(current.formal, selected.context).has(current.input), true,
     "the reached formal retains its original input and exact enclosing context");
   for (let index = 0; index < 10; index += 1) {

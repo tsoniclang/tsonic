@@ -5,7 +5,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "./resourc
 import { createSourceStorageTransport } from "./transport.js";
 import { createSourceStorageDomains } from "./domains.js";
 import type { SourceStorageSubject } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
@@ -157,13 +157,19 @@ export function createSourceStorageQuery(
     accessorInvocations: Object.freeze([...transport.accessorTargets.keys()]),
     emptyBindings,
     failureReason: budget.failure,
-    subject(node, kind = "value", projection) {
-      if (kind !== "value" && kind !== "return" && kind !== "receiver")
-        return unresolved("A source storage subject requires an exact value, return or receiver kind.");
+    subject(node, kind, projection) {
+      if (kind !== undefined && kind !== "input" && kind !== "value" && kind !== "member" && kind !== "return" && kind !== "receiver")
+        return unresolved("A source storage subject requires an exact input, value, member, return or receiver kind.");
       return selectedSubject(checkedNode(node) ? transport.subject(node, kind, projection) : undefined);
     },
     subjectFor(node) {
       return selectedSubject(checkedNode(node) ? transport.subjectFor(node) : undefined);
+    },
+    memberSubjectFor(node) {
+      const ast = source.ast;
+      const member = checkedNode(node) && (sourceStorageIsDataMember(node, ast) || ast.is.IsGetAccessorDeclaration(node) ||
+        ast.is.IsSetAccessorDeclaration(node) || ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node));
+      return selectedSubject(member ? sourceStorageMemberSubject(node, ast, transport.subject) : undefined);
     },
     storageSubjectFor(node, projection) {
       return selectedSubject(checkedNode(node) ? transport.storageSubject(node, projection) : undefined);

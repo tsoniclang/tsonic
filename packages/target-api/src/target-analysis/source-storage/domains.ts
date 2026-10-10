@@ -5,7 +5,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "./types.js";
@@ -44,7 +44,7 @@ export function createSourceStorageDomains(
         if (!budget.step()) return;
         for (const parameter of signature.parameters) {
           if (!budget.step()) return;
-          const formal = transport.subject(parameter.parameterDeclaration);
+          const formal = transport.subject(parameter.parameterDeclaration, "input");
           add(formal, "external-input", exposure);
           publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
         }
@@ -53,7 +53,7 @@ export function createSourceStorageDomains(
     } else {
       for (const parameter of ast.parameters(owner)) {
         if (!budget.step()) return;
-        const formal = transport.subject(parameter);
+        const formal = transport.subject(parameter, "input");
         add(formal, "external-input", exposure);
         publish(formal, exposure, false, "external-write", undefined, undefined, true, formal);
       }
@@ -153,7 +153,7 @@ export function createSourceStorageDomains(
           for (const declaration of member.source.declarations) {
             if (!budget.step()) return;
             if (!accessible(declaration) || !transport.retainCheckedContext(declaration, file)) continue;
-            const child = transport.subject(declaration, ast.is.IsGetAccessorDeclaration(declaration) ? "return" : "value");
+            const child = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             if (publication.writes && (!member.destination.property.readonly || !member.source.property.readonly) && member.destination.read !== "method" &&
               !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
@@ -299,7 +299,7 @@ export function createSourceStorageDomains(
           }
           for (const declaration of member.source.declarations) {
             if (!budget.step() || !transport.retainCheckedContext(declaration, file)) break;
-            const original = transport.subject(declaration, ast.is.IsGetAccessorDeclaration(declaration) ? "return" : "value");
+            const original = sourceStorageMemberSubject(declaration, ast, transport.subject);
             if (original === undefined) continue;
             if (matches) result.push({ subject: original, bindings: bound.context });
             else pending.push({ subject: original, type: member.destination.property.type });

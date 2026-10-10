@@ -1,6 +1,7 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import { sourceStorageMemberSubject } from "./subjects.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageComponentType, sourceStorageSubjectType } from "./components.js";
 
 export function createSourceStorageStructuralFlow(
@@ -55,10 +56,10 @@ export function createSourceStorageStructuralFlow(
         if (member.kind !== "present") continue;
         for (const original of member.source.declarations) {
           if (!step() || !retainCheckedContext(original, semantics.sourceFile)) break;
-          const origin = subject(original, source.ast.is.IsGetAccessorDeclaration(original) ? "return" : "value");
+          const origin = sourceStorageMemberSubject(original, source.ast, subject);
           for (const target of member.destination.declarations) {
             if (!step() || !retainCheckedContext(target, semantics.sourceFile)) break;
-            const destination = subject(target, source.ast.is.IsGetAccessorDeclaration(target) ? "return" : "value");
+            const destination = sourceStorageMemberSubject(target, source.ast, subject);
             connect(origin, destination);
             if (origin !== undefined && destination !== undefined && member.source.property.type !== undefined &&
               member.destination.property.type !== undefined) pending.push({

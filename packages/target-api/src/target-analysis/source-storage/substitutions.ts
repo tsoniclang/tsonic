@@ -34,7 +34,7 @@ export function createSourceStorageSubstitutions(
 ) {
   const step = budget.step;
   const reserveRow = budget.row;
-  const contextPorts = createSourceStorageContextPorts(source, budget, contextualInputs);
+  const contextPorts = createSourceStorageContextPorts(budget, contextualInputs);
   const empty: SourceStorageSubstitutions = new Map();
   const bindingSets = new Map<string, SourceStorageSubstitutions>();
   const contexts = new WeakMap<SourceStorageSubstitutions, number>();
@@ -128,6 +128,23 @@ export function createSourceStorageSubstitutions(
     projectedSelections.set(bindings, selections);
     return selected;
   };
+  const forwardingSelection = (origin: SourceStorageSubject, bindings: SourceStorageSubstitutions) => budget.withRows(rows => {
+    const forwarded = new Set<SourceStorageSubject>();
+    let current = origin;
+    while (step()) {
+      if (forwarded.has(current)) return undefined;
+      const binding = selection(current, bindings);
+      if (binding !== undefined) return { binding, forwarded };
+      if (current.kind !== "value" || sourceStorageHasOriginalCallableValue(current, source.ast) ||
+        source.ast.is.IsCallExpression(current.node) || source.ast.is.IsNewExpression(current.node) ||
+        source.ast.is.IsPropertyAccessExpression(current.node) || source.ast.is.IsElementAccessExpression(current.node)) return undefined;
+      const parents = incoming(current);
+      if (parents.size !== 1 || !rows.add(1)) return undefined;
+      forwarded.add(current);
+      current = parents.values().next().value!;
+    }
+    return undefined;
+  });
   const intern = (selected: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
     if (selected.size === 0) return empty;
     const entries: { readonly formal: number; readonly inputs: readonly number[];
@@ -208,16 +225,16 @@ export function createSourceStorageSubstitutions(
     for (const parameter of [...parameters, candidate]) {
       if (parameter === undefined) continue;
       if (!step()) return undefined;
-      const formal = subject(parameter, parameter === candidate ? "receiver" : "value");
+      const formal = subject(parameter, parameter === candidate ? "receiver" : "input");
       if (formal === undefined) return undefined;
       const selectedInputs = invocationInputs(formal, candidate, invocation);
       const inputs = selectedInputs.subjects;
       const input = inputs.size === 1 ? inputs.values().next().value : undefined;
       const caller = selectedInputs.context === "callee" ? intern(new Map(selected)) : parent;
       if (caller === undefined) return undefined;
-      const forwarded = input === undefined ? undefined : selection(input, caller);
-      if (forwarded !== undefined) selected.set(formal, Object.freeze({ inputs: forwarded.inputs,
-        forwarded: new Set([...forwarded.forwarded, input!]), context: forwarded.context }));
+      const forwarded = input === undefined ? undefined : forwardingSelection(input, caller);
+      if (forwarded !== undefined) selected.set(formal, Object.freeze({ inputs: forwarded.binding.inputs,
+        forwarded: new Set([...forwarded.binding.forwarded, ...forwarded.forwarded, input!]), context: forwarded.binding.context }));
       else {
         const context = contextFor(inputs, caller);
         if (context === undefined) return undefined;

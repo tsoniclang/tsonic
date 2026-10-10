@@ -5,7 +5,7 @@ import { createTargetSourceProgram } from "../../packages/target-api/dist/public
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 import { createSourceStorageUnresolvedQuery } from "../../packages/target-api/dist/target-analysis/source-storage/unresolved.js";
-import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
 const globals = `
@@ -18,7 +18,7 @@ const element = Object.freeze([{ kind: "array-element" }]);
 const slot = index => Object.freeze([{ kind: "tuple-element", index }]);
 
 test("storage origins retain exact projected unknown types through parameters and returns", async () => {
-  const { source, file, demands } = await checked("error-storage-exact-origin-types", `
+  const { source, file, demands, storage } = await checked("error-storage-exact-origin-types", `
 export function forward(value: unknown): unknown { return value; }
 export function forwardArray(values: unknown[]): unknown[] { return values; }
 export function forwardTuple(values: [Stored, unknown]): [Stored, unknown] { return values; }
@@ -26,7 +26,7 @@ export function forwardTuple(values: [Stored, unknown]): [Stored, unknown] { ret
   for (const [name, projection] of [["forward", []], ["forwardArray", element], ["forwardTuple", slot(1)]]) {
     const declaration = namedDeclaration(source.ast, file, name);
     const parameter = source.ast.parameters(declaration)[0];
-    const origins = demands.storageOriginsFor(declaration, projection);
+    const origins = demands.storageOriginsFor(requiredStorageSubject(storage, declaration, projection));
     assert.equal(origins.kind === "resolved", true, name);
     assert.equal(origins.origins.length, 1, name);
     assert.equal(origins.origins[0].node === parameter, true, name);
@@ -54,26 +54,27 @@ export function nested(values: Stored[][]): Stored[] { return values[0]; }
   const declaration = namedDeclaration(source.ast, provider, "Stored");
   const field = source.ast.members(declaration).find(node => source.ast.text(source.ast.name(node)) === "message");
   assert.equal(field !== undefined, true, "checked storage field");
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
   const demands = createSourceErrorStorageDemandQuery(source,
     { fields: [field], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) },
-    createSourceStorageQuery(source, source.navigation.sourceFiles));
-  return { source, file, provider, demands, variable: name => namedVariable(source.ast, file, name) };
+    storage);
+  return { source, file, provider, demands, storage, variable: name => namedVariable(source.ast, file, name) };
 }
 
 test("Error array storage transports exact element demand through aliases and cross-file parameters", async () => {
-  const { source, demands, variable } = await checked("error-array-storage-components", `
+  const { source, demands, variable, storage } = await checked("error-array-storage-components", `
 const original = { message: "original" };
 const untouched = { message: "untouched" };
 const values: Stored[] = [original];
 const alias = values;
 mutate(alias);
 `);
-  assert.equal(demands.storageFor(variable("original")).kind, "writable");
-  assert.equal(demands.storageFor(variable("untouched")).kind, "immutable");
-  assert.equal(demands.storageFor(variable("values")).kind, "immutable", "container identity is not its element");
-  assert.equal(demands.storageFor(variable("values"), element).kind, "writable");
-  assert.equal(demands.storageFor(variable("alias"), element).kind, "writable");
-  const origins = demands.storageOriginsFor(variable("alias"), element);
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("original"))).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"))).kind, "immutable", "container identity is not its element");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"), element)).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("alias"), element)).kind, "writable");
+  const origins = demands.storageOriginsFor(requiredStorageSubject(storage, variable("alias"), element));
   assert.equal(origins.kind, "resolved");
   assert.equal(origins.origins.some(origin => origin.node === source.ast.as.AsVariableDeclaration(variable("original")).Initializer), true, "exact original element");
   assert.equal(origins.origins.some(origin => origin.node === source.ast.as.AsVariableDeclaration(variable("untouched")).Initializer), false, "independent value is excluded");
@@ -85,7 +86,7 @@ mutate(alias);
 });
 
 test("Error tuple storage keeps independently selected positions and nested returned aliases", async () => {
-  const { demands, variable } = await checked("error-tuple-storage-components", `
+  const { demands, variable, storage } = await checked("error-tuple-storage-components", `
 const first = { message: "first" };
 const second = { message: "second" };
 const values: [Stored, Stored] = [first, second];
@@ -95,29 +96,29 @@ const outer: Stored[][] = [[nestedOriginal]];
 const result = nested(outer);
 mutate(result);
 `);
-  assert.equal(demands.storageFor(variable("first")).kind, "immutable");
-  assert.equal(demands.storageFor(variable("second")).kind, "writable");
-  assert.equal(demands.storageFor(variable("values"), slot(0)).kind, "immutable");
-  assert.equal(demands.storageFor(variable("values"), slot(1)).kind, "writable");
-  assert.equal(demands.storageFor(variable("nestedOriginal")).kind, "writable");
-  assert.equal(demands.storageFor(variable("outer"), [...element, ...element]).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("first"))).kind, "immutable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("second"))).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"), slot(0))).kind, "immutable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"), slot(1))).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("nestedOriginal"))).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("outer"), [...element, ...element])).kind, "writable");
 });
 
 test("Error array destructuring retains scalar origin rather than treating the binding as opaque storage", async () => {
-  const { demands, variable } = await checked("error-array-destructuring-components", `
+  const { demands, variable, storage } = await checked("error-array-destructuring-components", `
 const original = { message: "original" };
 const untouched = { message: "untouched" };
 const values: Stored[] = [original];
 const [selected] = values;
 selected.message = "changed";
 `);
-  assert.equal(demands.storageFor(variable("original")).kind, "writable");
-  assert.equal(demands.storageFor(variable("untouched")).kind, "immutable");
-  assert.equal(demands.storageFor(variable("values"), element).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("original"))).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"), element)).kind, "writable");
 });
 
 test("Error tuple-to-array transport and tuple spreads preserve every exact originating element", async () => {
-  const { demands, variable } = await checked("error-tuple-array-component-transport", `
+  const { demands, variable, storage } = await checked("error-tuple-array-component-transport", `
 const first = { message: "first" };
 const second = { message: "second" };
 const untouched = { message: "untouched" };
@@ -127,19 +128,19 @@ const spread: Stored[] = [...values];
 mutate(array);
 mutate(spread);
 `);
-  for (const name of ["first", "second"]) assert.equal(demands.storageFor(variable(name)).kind, "writable", name);
-  assert.equal(demands.storageFor(variable("untouched")).kind, "immutable");
-  assert.equal(demands.storageFor(variable("values"), slot(0)).kind, "writable");
-  assert.equal(demands.storageFor(variable("values"), slot(1)).kind, "writable");
+  for (const name of ["first", "second"]) assert.equal(demands.storageFor(requiredStorageSubject(storage, variable(name))).kind, "writable", name);
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"), slot(0))).kind, "writable");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("values"), slot(1))).kind, "writable");
   for (const name of ["array", "spread"]) {
-    const origins = demands.storageOriginsFor(variable(name), element);
+    const origins = demands.storageOriginsFor(requiredStorageSubject(storage, variable(name), element));
     assert.equal(origins.kind, "resolved", name);
     assert.equal(origins.origins.length, 2, "both tuple positions, not a manufactured array element");
   }
 });
 
 test("Error writes through unproved scalar bindings remain unresolved without changing independent storage", async () => {
-  const { source, file, demands, variable } = await checked("error-unproved-scalar-binding", `
+  const { source, file, demands, variable, storage } = await checked("error-unproved-scalar-binding", `
 const original: Stored = { message: "original" };
 const container = { value: original };
 const { value: selected } = container;
@@ -147,9 +148,9 @@ const untouched = { message: "untouched" };
 selected.message = "changed";
 `);
   const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
-  assert.equal(demands.storageFor(binding).kind, "unresolved", "unproved binding is not writable evidence");
-  assert.equal(demands.storageOriginsFor(binding).kind, "unresolved", "unproved binding is not exact origin evidence");
-  assert.equal(demands.storageFor(variable("untouched")).kind, "immutable", "independent owner is unaffected");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not writable evidence");
+  assert.equal(demands.storageOriginsFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not exact origin evidence");
+  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable", "independent owner is unaffected");
 });
 
 test("Error unresolved storage propagates through exact component ancestry without contaminating independent owners", () => {
@@ -169,7 +170,7 @@ test("Error unresolved storage propagates through exact component ancestry witho
 });
 
 test("Error storage rejects malformed and incompatible component paths without inventing immutable evidence", async () => {
-  const { demands, variable } = await checked("error-invalid-storage-components", `
+  const { demands, variable, storage } = await checked("error-invalid-storage-components", `
 const original = { message: "original" };
 const values: [Stored, Stored] = [original, original];
 `);
@@ -177,7 +178,9 @@ const values: [Stored, Stored] = [original, original];
     [{ kind: "array-element" }], slot(2), slot(-1), slot(0.5), slot(Infinity),
     [{ kind: "unknown" }], [null], Array.from({ length: 257 }, () => ({ kind: "array-element" })),
   ]) {
-    assert.equal(demands.storageFor(variable("values"), projection).kind, "unresolved", "invalid exact component");
+    const selected = storage.storageSubjectFor(variable("values"), projection);
+    const demand = selected.kind === "unresolved" ? selected : demands.storageFor(selected.subject);
+    assert.equal(demand.kind, "unresolved", "invalid exact component");
   }
 });
 
@@ -201,7 +204,7 @@ test("Error component identities are immutable, interned, dense, data-only and i
 });
 
 test("Error invalidation substitutes selected array components for the current invocation only", async () => {
-  const { source, file, demands, variable } = await checked("error-component-invalidation-bindings", `
+  const { source, file, demands, variable, storage } = await checked("error-component-invalidation-bindings", `
 const original = { message: "original" };
 const other = { message: "other" };
 const left: Stored[] = [original];

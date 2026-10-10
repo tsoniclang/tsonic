@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { sourceStorageHasOriginalCallableValue } from "./subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch, sourceLexicalCaptures } from "../../source-navigation/index.js";
 import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
@@ -52,7 +52,8 @@ export function createSourceStorageTransport(
   let sealed = false;
   const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
-    const selected = internSubject(node, kind, projection);
+    const selectedKind = kind ?? (node !== undefined && !ast.is.IsParameterDeclaration(node) && sourceStorageIsDataMember(node, ast) ? "member" : "value");
+    const selected = internSubject(node, selectedKind, projection);
     if (selected !== undefined) identities.add(selected);
     return selected;
   };
@@ -133,7 +134,8 @@ export function createSourceStorageTransport(
           ?? semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration
       : navigation.sourceReferenceFor(node)?.declaration;
     const target = selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected) ? selected : node;
-    const value = subject(target);
+    const value = ast.is.IsPropertyAccessExpression(node) && selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected)
+      ? sourceStorageMemberSubject(selected, ast, subject) : subject(target);
     if (value === undefined) return undefined;
     subjects.set(node, value);
     subjects.set(original, value);
@@ -207,11 +209,19 @@ export function createSourceStorageTransport(
     if (parent !== undefined && sourceExpressionSelectsOperandValue(ast, parent, node))
       connect(subjectFor(node), subject(parent));
     if (ast.is.IsArrayLiteralExpression(node)) projections.literal(node);
-    if (ast.is.IsPropertyDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
+    if (ast.is.IsPropertyDeclaration(node)) {
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
-      if (ast.is.IsPropertyDeclaration(node))
-        storedValues.initialize(subject(node), Node_Initializer(ast, node) ?? node, subjectFor(Node_Initializer(ast, node)));
-      else if (sourceParameterIsProperty(ast, node)) storedValues.initialize(subject(node), node, subject(node));
+      storedValues.initialize(subject(node), Node_Initializer(ast, node) ?? node, subjectFor(Node_Initializer(ast, node)));
+    }
+    if (ast.is.IsParameterDeclaration(node)) {
+      const input = subject(node, "input");
+      connect(input, subject(node));
+      connect(subjectFor(Node_Initializer(ast, node)), input);
+      if (sourceParameterIsProperty(ast, node)) {
+        const member = sourceStorageMemberSubject(node, ast, subject);
+        connect(input, member);
+        storedValues.initialize(member, node, input);
+      }
     }
     if ((ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node)) &&
       sourceBindingWriteAtReference(ast, node) === undefined) {
@@ -305,7 +315,7 @@ export function createSourceStorageTransport(
             unresolvedInvocations.set(node, "Source storage argument transport requires exact selected scalar formal and actual subjects.");
             continue;
           }
-          const destination = subject(formal);
+          const destination = subject(formal, "input");
           if (destination === undefined || !budget.row()) break;
           const formalFile = ast.getSourceFile(formal);
           if (formalFile === undefined || !semantics.includes(formalFile)) {
@@ -390,7 +400,7 @@ export function createSourceStorageTransport(
         unknown ||= members === undefined;
         for (const member of members ?? []) {
           if (!step()) return { nodes: selected, exact: false };
-          const slot = subject(member);
+          const slot = subject(member, sourceStorageIsDataMember(member, ast) ? "member" : "value");
           if (slot !== undefined) slots.add(slot);
           const values = slot === undefined ? undefined : originsFor(slot);
           for (const value of values ?? []) {
@@ -455,7 +465,7 @@ export function createSourceStorageTransport(
       const current = pending.pop()!;
       if (visited.has(current)) continue;
       visited.add(current);
-      if (current.kind === "receiver" || current.kind === "value" && ast.is.IsParameterDeclaration(current.node)) {
+      if (current.kind === "receiver" || current.kind === "input") {
         for (const input of invocationInputs(current, candidate, invocation).subjects) {
           if (!step()) break;
           origins.add(input);
@@ -489,9 +499,10 @@ export function createSourceStorageTransport(
           if (!step()) break;
           if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member) ||
             ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) continue;
+          const location = sourceStorageMemberSubject(member, ast, subject);
           if (assignment?.Left === access && ast.operatorKindName(parent!) === "KindEqualsToken")
-            connect(subjectFor(assignment.Right), subject(member));
-          storedValues.bind(subject(member), access);
+            connect(subjectFor(assignment.Right), location);
+          storedValues.bind(location, access);
         }
       }
     };
@@ -510,9 +521,9 @@ export function createSourceStorageTransport(
           if (binding.sourceForm !== "value" || binding.sourceParameterForm !== "parameter") continue;
           const parameter = ast.parameters(candidate)[binding.sourceParameterIndex];
           const contract = selected?.sourceSelectedSignatureParameters.find(parameter => parameter.parameterIndex === binding.sourceParameterIndex);
-          connect(subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression), subject(parameter),
+          connect(subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression), subject(parameter, "input"),
             { from: binding.selectedArgumentType, to: binding.selectedParameterType });
-          connect(subject(contract?.parameterDeclaration), subject(parameter));
+          connect(subject(contract?.parameterDeclaration, "input"), subject(parameter, "input"));
         }
       }
     };
@@ -528,7 +539,7 @@ export function createSourceStorageTransport(
             const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent)
               ? undefined : ast.as.AsBinaryExpression(parent);
             if (assignment?.Left === access && ast.operatorKindName(parent) === "KindEqualsToken") {
-              connect(subjectFor(assignment.Right), subject(ast.parameters(candidate)[0]));
+              connect(subjectFor(assignment.Right), subject(ast.parameters(candidate)[0], "input"));
             }
           }
         }
@@ -628,7 +639,7 @@ export function createSourceStorageTransport(
     return inputs;
   };
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
-    subject, incomingFor,
+    subject, subjectFor, incomingFor,
     implementationsFor: (invocation, bindings) => invocationImplementations(invocation,
       origin => substitutions.origins(origin, bindings)),
     targetFor: invocation => invocationTargets.get(invocation),

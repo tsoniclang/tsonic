@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { IsTypeSyntaxNode, Node_Expression } from "../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import { sourceStorageProjectionPath } from "./subjects.js";
+import { sourceStorageIsDataMember, sourceStorageMemberSubject, sourceStorageProjectionPath } from "./subjects.js";
 
 export function createSourceStorageProjectionFlow(
   source: TargetSourceProgram,
@@ -24,9 +24,8 @@ export function createSourceStorageProjectionFlow(
     const component = access === undefined ? undefined
       : sourceIndexedStorageProjection(access.receiver.type, access.argument.expression, queries);
     const declaration = access?.selectedDeclaration;
-    if (component === undefined && declaration !== undefined &&
-      (ast.is.IsPropertyDeclaration(declaration) || ast.is.IsPropertySignatureDeclaration(declaration) ||
-        ast.is.IsPropertyAssignment(declaration) || ast.is.IsShorthandPropertyAssignment(declaration))) return subject(declaration);
+    if (component === undefined && declaration !== undefined && sourceStorageIsDataMember(declaration, ast))
+      return sourceStorageMemberSubject(declaration, ast, subject);
     const value = component === undefined ? subject(node) : project(subjectFor(access?.receiver.expression), component);
     if (value !== undefined && component === undefined)
       unresolved(value, "An indexed value has no exact checked array/tuple storage component.");

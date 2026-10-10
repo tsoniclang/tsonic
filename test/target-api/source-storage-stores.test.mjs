@@ -20,7 +20,7 @@ function fixture(body) {
     predicate(node) && source.ast.text(source.ast.name(node)) === name);
   const field = name => declaration(name, source.ast.is.IsPropertyDeclaration);
   const variable = name => declaration(name, source.ast.is.IsVariableDeclaration);
-  const stores = node => [...transport.storedValuesFor(transport.subject(node)) ?? []];
+  const stores = (node, kind) => [...transport.storedValuesFor(transport.subject(node, kind)) ?? []];
   return { source, budget, transport, declaration, field, variable, stores };
 }
 
@@ -80,11 +80,12 @@ test("equal RHS producers retain distinct write occurrences and checked computed
 test("constructor parameter-property initialization uses its actual formal in the constructor region", () => {
   const current = fixture(`class Box { constructor(public value: object = {}) {} } const box = new Box();`);
   const parameter = current.declaration("value", current.source.ast.is.IsParameterDeclaration);
-  const stores = current.stores(parameter);
+  const stores = current.stores(parameter, "member");
   const constructor = current.source.ast.parent(parameter);
   assert.equal(stores.length === 1 && stores[0].kind === "initialization", true);
   assert.equal(stores[0].reference === parameter && stores[0].operation === parameter &&
-    stores[0].value === current.transport.subject(parameter) && stores[0].region === current.source.ast.body(constructor), true,
+    stores[0].storage === current.transport.subject(parameter, "member") &&
+    stores[0].value === current.transport.subject(parameter, "input") && stores[0].region === current.source.ast.body(constructor), true,
   "the physical property receives the selected argument/default formal, not an unconditional default initializer");
 });
 
@@ -133,11 +134,15 @@ test("parameter binding writes are distinct from the constructor's physical memb
       const original = {}; const replacement = {}; const box = new Box(original, replacement);
     `);
     const parameter = current.declaration("value", current.source.ast.is.IsParameterDeclaration);
-    const stores = current.stores(parameter);
-    const binding = stores.find(store => store.kind === "mutation" && store.destination === "binding");
+    const stores = current.stores(parameter, "member");
+    const bindings = current.stores(parameter, "value");
+    const binding = bindings.find(store => store.kind === "mutation" && store.destination === "binding");
     assert.equal(binding !== undefined && current.source.ast.is.IsIdentifier(binding.reference), true,
       "rebinding the local parameter remains genuine checked writer evidence");
-    const physical = [...current.transport.storedInputsFor(current.transport.subject(parameter))];
+    assert.equal(bindings.length === 1 && binding.storage !== stores[0].storage &&
+      stores[0].value === current.transport.subject(parameter, "input"), true,
+    "entry, mutable local binding and physical member retain three exact identities at the same source declaration");
+    const physical = [...current.transport.storedInputsFor(current.transport.subject(parameter, "member"))];
     assert.equal(physical.length === (memberWrite ? 2 : 1), true,
       "only physical member initialization and actual this.member writes enter the field producer inventory");
     assert.equal(stores.filter(store => store.destination === "member").length === physical.length, true);
@@ -182,8 +187,8 @@ test("physical producer values and rejection reasons use the identical member-ve
       const box = new Box({}, [{}]);
     `);
     const parameter = current.declaration("value", current.source.ast.is.IsParameterDeclaration);
-    const storage = current.transport.subject(parameter);
-    const stores = current.stores(parameter);
+    const storage = current.transport.subject(parameter, "member");
+    const stores = current.stores(parameter, memberWrite ? "member" : "value");
     assert.equal(stores.some(store => store.kind === "mutation" && store.reason?.includes("iteration writes")), true,
       "the underlying checked unsupported writer remains in the canonical inventory");
     const reason = current.transport.unresolvedStoredInputsFor(storage);

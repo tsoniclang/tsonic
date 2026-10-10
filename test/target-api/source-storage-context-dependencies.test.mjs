@@ -43,10 +43,10 @@ const output = outer(left, right);
   assert.equal(parent !== undefined, true, "complete selected outer invocation");
   const selected = transport.substitutions.forInvocation(declaration("consume"), call("consume"), parent, parent);
   assert.equal(selected !== undefined, true, "complete selected consumer invocation");
-  const binding = selected.get(transport.subject(source.ast.parameters(declaration("consume"))[0]));
+  const binding = selected.get(transport.subject(source.ast.parameters(declaration("consume"))[0], "input"));
   assert.equal(binding !== undefined, true, "exact actual-input binding");
   assert.equal(budget.failure() === undefined, true, "all original finite guards remain intact");
-  const parameter = index => transport.subject(source.ast.parameters(declaration("outer"))[index]);
+  const parameter = index => transport.subject(source.ast.parameters(declaration("outer"))[index], "input");
   return { context: binding.context, left: parameter(0), right: parameter(1) };
 }
 

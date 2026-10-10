@@ -7,15 +7,13 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../pac
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
-  const parameters = new Set();
   const inputs = new Map();
-  const source = { ast: { is: { IsParameterDeclaration: node => parameters.has(node) } } };
   let reads = 0;
-  const ports = createSourceStorageContextPorts(source, budget, selected => {
+  const ports = createSourceStorageContextPorts(budget, selected => {
     reads += 1;
     return inputs.get(selected) ?? new Set();
   });
-  const parameter = () => { const node = {}; parameters.add(node); return subject(node); };
+  const parameter = () => subject({}, "input");
   return { budget, subject, parameter, inputs, ports, reads: () => reads };
 }
 
@@ -25,7 +23,7 @@ test("complete first-port relations preserve exact source subjects and stop at s
   const left = parameter();
   const beyond = parameter();
   const receiver = subject({}, "receiver");
-  const projected = subject(left.node, "value", [{ kind: "tuple-element", index: 1 }]);
+  const projected = subject(left.node, "input", [{ kind: "tuple-element", index: 1 }]);
   inputs.set(root, new Set([left, receiver, projected]));
   inputs.set(left, new Set([beyond]));
   const selected = ports.firstPorts(root);

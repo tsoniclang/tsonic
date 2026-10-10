@@ -1,6 +1,6 @@
 import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import type { SourceStorageProjection, SourceStorageSubject } from "../source-storage/subjects.js";
+import type { SourceStorageSubject } from "../source-storage/subjects.js";
 import type { SourceStorageClosedOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection } from "../source-storage/types.js";
 import { Node_Expression } from "../../source-navigation/index.js";
 import { createSourceErrorInvalidationQuery } from "./error-invalidation.js";
@@ -18,14 +18,14 @@ export interface SourceErrorStorageOrigin {
 
 export interface SourceErrorStorageDemandQueries {
   readonly retainedBoundaries: readonly Node[];
-  readonly nativeConstructors: readonly Node[];
+  readonly nativeConstructors: readonly SourceStorageSubject[];
   readonly fieldWrites: readonly Node[];
-  storageFor(subject: Node, projection?: readonly SourceStorageProjection[]): SourceErrorStorageDemand;
+  storageFor(subject: SourceStorageSubject): SourceErrorStorageDemand;
   isNativeConstructor(subject: Node): boolean;
-  receivesWritableNative(subject: Node, projection?: readonly SourceStorageProjection[]): boolean;
-  storageOriginsFor(subject: Node, projection?: readonly SourceStorageProjection[]): { readonly kind: "resolved"; readonly origins: readonly SourceErrorStorageOrigin[] }
+  receivesWritableNative(subject: SourceStorageSubject): boolean;
+  storageOriginsFor(subject: SourceStorageSubject): { readonly kind: "resolved"; readonly origins: readonly SourceErrorStorageOrigin[] }
     | { readonly kind: "unresolved"; readonly reason: string };
-  closedStorageOriginsFor(subject: Node, projection?: readonly SourceStorageProjection[]): SourceStorageClosedOriginsSelection;
+  closedStorageOriginsFor(subject: SourceStorageSubject): SourceStorageClosedOriginsSelection;
   invalidationFor(owner: Node, expression: Node, pureInvocations: ReadonlySet<Node>):
     { readonly kind: "preserved" | "invalidated" } | { readonly kind: "unresolved" | "unproven"; readonly reason: string };
 }
@@ -46,7 +46,6 @@ export function createSourceErrorStorageDemandQuery(
   const capturedStackTargets = new Map<Node, SourceStorageSubject>();
   const writes = new Map<SourceStorageSubject, Set<Node>>();
   const unresolvedWrites = new Map<SourceStorageSubject, string>();
-  const nativeConstructors: Node[] = [];
   const nativeSubjects = new Set<SourceStorageSubject>();
   const retainedBoundaries: Node[] = [];
   const fieldWrites: Node[] = [];
@@ -134,7 +133,6 @@ export function createSourceErrorStorageDemandQuery(
       recordWrite(subjectFor(value.expression), node);
     }
     if (constructors.has(signature) && ast.kindName(Node_Expression(ast, node)) !== "KindSuperKeyword") {
-      nativeConstructors.push(node);
       const subject = selectedSubject(storage.subject(node));
       if (subject !== undefined) nativeSubjects.add(subject);
     }
@@ -161,55 +159,48 @@ export function createSourceErrorStorageDemandQuery(
     }
   }
   const selections = new Map<SourceStorageSubject, SourceErrorStorageDemand>();
-  const storageFor: SourceErrorStorageDemandQueries["storageFor"] = (node, projection) => {
+  const storageFor: SourceErrorStorageDemandQueries["storageFor"] = subject => {
     const failure = failureReason();
     if (failure !== undefined) return Object.freeze({ kind: "unresolved", reason: failure });
-    const selected = storage.storageSubjectFor(node, projection);
-    if (selected.kind === "unresolved") return selected;
-    const reason = storage.unresolvedFor(selected.subject);
+    const reason = storage.unresolvedFor(subject);
     if (reason !== undefined) return Object.freeze({ kind: "unresolved", reason });
     if (unresolvedWrites.size !== 0) {
-      const ancestors = storage.ancestorsFor(selected.subject);
+      const ancestors = storage.ancestorsFor(subject);
       if (ancestors.kind === "unresolved") return ancestors;
       for (const ancestor of ancestors.subjects) {
         const reason = unresolvedWrites.get(ancestor);
         if (reason !== undefined) return Object.freeze({ kind: "unresolved", reason });
       }
     }
-    const cached = selections.get(selected.subject);
+    const cached = selections.get(subject);
     if (cached !== undefined) return cached;
-    const selectedWrites = writes.get(selected.subject);
+    const selectedWrites = writes.get(subject);
     const demand = selectedWrites === undefined || selectedWrites.size === 0 ? immutableDemand
       : Object.freeze({ kind: "writable" as const, writes: Object.freeze([...selectedWrites]) });
-    selections.set(selected.subject, demand);
+    selections.set(subject, demand);
     return demand;
   };
-  const receivesWritableNative: SourceErrorStorageDemandQueries["receivesWritableNative"] = (node, projection) => {
-    if (storageFor(node, projection).kind === "unresolved") return false;
-    const selected = storage.storageSubjectFor(node, projection);
-    if (selected.kind === "unresolved") return false;
-    const ancestors = storage.ancestorsFor(selected.subject);
+  const receivesWritableNative: SourceErrorStorageDemandQueries["receivesWritableNative"] = subject => {
+    if (storageFor(subject).kind === "unresolved") return false;
+    const ancestors = storage.ancestorsFor(subject);
     return ancestors.kind === "resolved" && ancestors.subjects.some(subject => nativeSubjects.has(subject) &&
-      storageFor(subject.node, subject.projection).kind === "writable");
+      storageFor(subject).kind === "writable");
   };
-  const storageOriginsFor: SourceErrorStorageDemandQueries["storageOriginsFor"] = (node, projection) => {
-    const demand = storageFor(node, projection);
+  const storageOriginsFor: SourceErrorStorageDemandQueries["storageOriginsFor"] = subject => {
+    const demand = storageFor(subject);
     if (demand.kind === "unresolved") return demand;
-    const selected = storage.storageSubjectFor(node, projection);
-    if (selected.kind === "unresolved") return selected;
-    const origins = storage.originsFor(selected.subject);
+    const origins = storage.originsFor(subject);
     return origins.kind === "unresolved" ? origins : Object.freeze({ kind: "resolved", origins: Object.freeze(origins.origins
       .map(origin => Object.freeze({ node: origin.subject.node, type: origin.type }))) });
   };
-  const closedStorageOriginsFor: SourceErrorStorageDemandQueries["closedStorageOriginsFor"] = (node, projection) => {
-    const demand = storageFor(node, projection);
+  const closedStorageOriginsFor: SourceErrorStorageDemandQueries["closedStorageOriginsFor"] = subject => {
+    const demand = storageFor(subject);
     if (demand.kind === "unresolved") return demand;
-    const selected = storage.storageSubjectFor(node, projection);
-    return selected.kind === "unresolved" ? selected : storage.closedOriginsFor(selected.subject);
+    return storage.closedOriginsFor(subject);
   };
   const invalidationFor = createSourceErrorInvalidationQuery(source, storage, storageFor, nativeSubjects, capturedStackTargets,
     step, failureReason);
-  return Object.freeze({ retainedBoundaries: Object.freeze(retainedBoundaries), nativeConstructors: Object.freeze(nativeConstructors),
+  return Object.freeze({ retainedBoundaries: Object.freeze(retainedBoundaries), nativeConstructors: Object.freeze([...nativeSubjects]),
     fieldWrites: Object.freeze(fieldWrites), storageFor, isNativeConstructor: (node: Node) => {
       const selected = storage.subject(node);
       return selected.kind === "resolved" && nativeSubjects.has(selected.subject);

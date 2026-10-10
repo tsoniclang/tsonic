@@ -102,6 +102,12 @@ export function namedVariable(ast, sourceFile, name) {
     ast.text(ast.name(node)) === name);
 }
 
+export function requiredStorageSubject(storage, node, projection) {
+  const selected = storage.storageSubjectFor(node, projection);
+  assert.equal(selected.kind === "resolved", true, "the exact checked storage subject must exist");
+  return selected.subject;
+}
+
 export function constructorReference(ast, sourceFile, name) {
   const expression = requiredNode(ast, sourceFile, (node) =>
     ast.is.IsNewExpression(node) &&

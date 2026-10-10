@@ -91,6 +91,35 @@ test("source implicit allocation preserves both declared inherited and declarati
   }
 });
 
+test("inherited instance regions retain the exact class-definition creator bindings", async () => {
+  const current = await fixture("storage-inherited-creator-bindings", `
+    function create(seed: object): Error {
+      class Base extends Error { stored = seed; }
+      class Derived extends Base {}
+      return new Derived();
+    }
+    const left = {}; const right = {};
+    const first = create(left); const second = create(right);
+  `);
+  const { source, file, storage } = current;
+  const create = namedDeclaration(source.ast, file, "create");
+  const base = storage.nodes.find(node => source.ast.is.IsClassDeclaration(node) && source.ast.text(source.ast.name(node)) === "Base");
+  const invocation = storage.invocations.find(source.ast.is.IsNewExpression);
+  const formal = storage.subject(source.ast.parameters(create)[0], "input");
+  assert.equal(base !== undefined && invocation !== undefined && formal.kind === "resolved", true);
+  for (const [name, expected, excluded] of [["first", "left", "right"], ["second", "right", "left"]]) {
+    const caller = storage.bindingsForInvocation(create, current.initializer(name));
+    assert.equal(caller.kind, "resolved", "the selected outer creator invocation is exact");
+    const inherited = storage.bindingsForInvocation(base, invocation, caller.bindings);
+    assert.equal(inherited.kind, "resolved", "an instance initializer is not a callable constructor implementation");
+    const origins = storage.boundOriginsFor(formal.subject, inherited.bindings);
+    assert.equal(origins.kind, "resolved");
+    assert.equal(origins.subjects.some(subject => subject.node === current.initializer(expected)), true, name);
+    assert.equal(origins.subjects.some(subject => subject.node === current.initializer(excluded)), false, name);
+  }
+  assert.equal(storage.failureReason() === undefined, true);
+});
+
 test("implicit constructor classification requires exact selected parameter declarations", async () => {
   const current = await fixture("storage-implicit-parameter-identity", `
     class Derived extends Error {}

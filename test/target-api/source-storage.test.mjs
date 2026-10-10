@@ -459,7 +459,7 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const boundary = storage.boundaries.find(boundary => boundary.invocation === native);
   assert.equal(boundary !== undefined && boundary.kind === "opaque-invocation" && boundary.declaration === declaration, true);
   assert.equal(boundary.subjects.some(value => value === subject("callback")), true, "exact callback transport subject");
-  const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0]), "native formal");
+  const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0], "input"), "native formal input");
   assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(subject("callback")), true);
   const rest = call("spread");
   assert.equal(storage.argumentTransportsFor(rest).kind, "unresolved", "unsupported rest transport is explicit, never guessed");
@@ -486,14 +486,14 @@ test("neutral graph results are immutable and Error consumes the identical graph
   const protocol = { fields: [], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) };
   const first = createSourceErrorStorageDemandQuery(source, protocol, storage);
   const second = createSourceErrorStorageDemandQuery(source, protocol, storage);
-  assert.equal(first.storageFor(variable("alias")).kind, "immutable");
-  assert.equal(second.storageOriginsFor(variable("alias")).kind, "resolved");
+  assert.equal(first.storageFor(selected).kind, "immutable");
+  assert.equal(second.storageOriginsFor(selected).kind, "resolved");
   assert.equal(storage.subjectFor(variable("alias")).subject === selected, true, "shared subject is not rebuilt by Error consumers");
   const foreign = await checked("source-storage-foreign-query", `const original = 3;`);
   assert.equal(storage.incomingFor(foreign.subject("original")).kind, "unresolved", "foreign graph subject rejected");
   assert.equal(storage.subjectFor(foreign.variable("original")).kind, "unresolved", "foreign checker declaration rejected");
   const invalid = createSourceErrorStorageDemandQuery(source, protocol, foreign.storage);
-  assert.equal(invalid.storageFor(variable("original")).kind, "unresolved", "Error requires exact source owner");
+  assert.equal(invalid.storageFor(selected).kind, "unresolved", "Error requires exact source owner");
 });
 
 test("the same checked source resolves with adequate limits and rejects every independently tightened graph budget", async () => {
@@ -512,6 +512,6 @@ const secondResult = identity(other);
     assert.equal(rejected.subjectFor(variable("firstResult")).kind, "unresolved", key);
     const errors = createSourceErrorStorageDemandQuery(source,
       { fields: [], constructors: [], stackCaptures: [], storageMutators: [], retention: () => ({ kind: "ordinary" }) }, rejected);
-    assert.equal(errors.storageFor(variable("firstResult")).kind, "unresolved", "exhaustion cannot manufacture Error immutability");
+    assert.equal(errors.storageFor(selected).kind, "unresolved", "exhaustion cannot manufacture Error immutability");
   }
 });

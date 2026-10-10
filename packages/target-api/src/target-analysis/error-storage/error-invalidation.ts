@@ -16,10 +16,10 @@ export function createSourceErrorInvalidationQuery(
 ): SourceErrorStorageDemandQueries["invalidationFor"] {
   const { ast } = source;
   return (owner, expression, pureInvocations) => {
-    const demand = storageFor(owner);
-    if (demand.kind === "unresolved") return demand;
     const selectedOwner = storage.storageSubjectFor(owner);
     if (selectedOwner.kind === "unresolved") return selectedOwner;
+    const demand = storageFor(selectedOwner.subject);
+    if (demand.kind === "unresolved") return demand;
     const ancestors = storage.ancestorsFor(selectedOwner.subject);
     if (ancestors.kind === "unresolved") return ancestors;
     const sourceOwners = new Set(ancestors.subjects);

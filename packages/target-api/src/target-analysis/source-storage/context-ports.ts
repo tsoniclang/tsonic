@@ -1,15 +1,12 @@
-import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 
 export function createSourceStorageContextPorts(
-  source: TargetSourceProgram,
   budget: SourceStorageBudget,
   inputsFor: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
 ) {
   const selections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
-  const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "receiver" ||
-    subject.kind === "value" && source.ast.is.IsParameterDeclaration(subject.node);
+  const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "receiver" || subject.kind === "input";
   const firstPorts = (subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     if (!budget.step()) return undefined;
     const cached = selections.get(subject);

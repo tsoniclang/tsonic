@@ -311,3 +311,30 @@ test("actual constructor member writes survive physical producer selection witho
     producer.subject === current.subject(name)), true, "a constructor formal cannot suppress an actual member store");
   assert.equal(current.storage.failureReason() === undefined, true, "member identity is not repaired by widening resource ceilings");
 });
+
+test("ordinary parameter rebinding retains both producers without mutating its selected signature input", () => {
+  const current = fixture(`
+    function replace(value: object, other: object): object { value = other; return value; }
+    const original = {}; const replacement = {}; const unrelated = {};
+    const selected = replace(original, replacement);
+    const separate = replace(unrelated, unrelated);
+  `);
+  const declaration = current.storage.nodes.find(node => current.source.ast.is.IsFunctionDeclaration(node) &&
+    current.source.ast.text(current.source.ast.name(node)) === "replace");
+  const parameter = current.source.ast.parameters(declaration)[0];
+  const entry = current.storage.subject(parameter, "input");
+  const local = current.storage.subject(parameter, "value");
+  assert.equal(entry.kind === "resolved" && local.kind === "resolved", true, "both exact parameter roles exist");
+  assert.equal(entry.subject !== local.subject, true, "signature entry and mutable binding have separate identities");
+  const bindings = current.storage.bindingsForInvocation(declaration, current.initializer("selected"));
+  assert.equal(bindings.kind === "resolved", true, "exact selected invocation bindings");
+  const selectedInput = current.storage.boundOriginsFor(entry.subject, bindings.bindings);
+  assert.equal(selectedInput.kind === "resolved" && selectedInput.subjects.length === 1 &&
+    selectedInput.subjects[0] === current.subject("original"), true, "the entry snapshot remains the original actual");
+  const selected = current.result("selected");
+  assert.equal(selected.origins.length === 2, true, "ordinary binding provenance preserves entry and actual local store");
+  for (const name of ["original", "replacement"]) assert.equal(selected.origins.some(origin =>
+    origin.subject === current.subject(name)), true, "neither original producer is suppressed by the input binding");
+  assert.equal(selected.origins.some(origin => origin.subject === current.subject("unrelated")), false,
+    "a sibling invocation does not become this binding's producer");
+});
