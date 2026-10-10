@@ -255,14 +255,14 @@ export function createSourceStorageDomains(
     }
     return result;
   };
-  const externalInput = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): boolean => {
+  const externalInput = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): boolean => budget.withRows(rows => {
     const pending = [{ subject, bindings }];
     const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
     while (pending.length !== 0 && budget.step()) {
       const current = pending.pop()!;
       const checked = visited.get(current.bindings) ?? new Set<SourceStorageSubject>();
       if (checked.has(current.subject)) continue;
-      if (!budget.row()) break;
+      if (!rows.add(1)) break;
       checked.add(current.subject);
       visited.set(current.bindings, checked);
       const bound = transport.substitutions.selection(current.subject, current.bindings);
@@ -273,49 +273,51 @@ export function createSourceStorageDomains(
       }
     }
     return false;
-  };
+  });
   const memberInputs = (subject: SourceStorageSubject, owner: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
     const bound = transport.substitutions.selection(owner, bindings);
     const file = transport.sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
     if (bound === undefined || type === undefined) return undefined;
-    const result: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-    const pending: { readonly subject: SourceStorageSubject; readonly type: Type }[] = [];
-    for (const input of bound.inputs) {
-      if (!budget.step()) break;
-      pending.push({ subject: input, type });
-    }
-    const visited = new Map<SourceStorageSubject, Set<Type>>();
-    while (pending.length !== 0 && budget.step()) {
-      const current = pending.pop()!;
-      const types = visited.get(current.subject) ?? new Set<Type>();
-      if (types.has(current.type)) continue;
-      if (!budget.row()) break;
-      types.add(current.type);
-      visited.set(current.subject, types);
-      const file = transport.sourceFileFor(current.subject);
-      const type = sourceStorageSubjectType(source, current.subject, file);
-      if (file === undefined || type === undefined) continue;
-      const relation = semantics.forFile(file).types.structuralMembers(type, current.type);
-      if (relation.kind !== "available") continue;
-      for (const member of relation.members) {
+    return budget.withRows(rows => {
+      const result: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
+      const pending: { readonly subject: SourceStorageSubject; readonly type: Type }[] = [];
+      for (const input of bound.inputs) {
         if (!budget.step()) break;
-        if (member.kind !== "present") continue;
-        let matches = false;
-        for (const declaration of member.destination.declarations) {
+        pending.push({ subject: input, type });
+      }
+      const visited = new Map<SourceStorageSubject, Set<Type>>();
+      while (pending.length !== 0 && budget.step()) {
+        const current = pending.pop()!;
+        const types = visited.get(current.subject) ?? new Set<Type>();
+        if (types.has(current.type)) continue;
+        if (!rows.add(1)) break;
+        types.add(current.type);
+        visited.set(current.subject, types);
+        const file = transport.sourceFileFor(current.subject);
+        const type = sourceStorageSubjectType(source, current.subject, file);
+        if (file === undefined || type === undefined) continue;
+        const relation = semantics.forFile(file).types.structuralMembers(type, current.type);
+        if (relation.kind !== "available") continue;
+        for (const member of relation.members) {
           if (!budget.step()) break;
-          matches ||= declaration === subject.node;
-        }
-        for (const declaration of member.source.declarations) {
-          if (!budget.step() || !transport.retainCheckedContext(declaration, file)) break;
-          const original = transport.subject(declaration, ast.is.IsGetAccessorDeclaration(declaration) ? "return" : "value");
-          if (original === undefined) continue;
-          if (matches) result.push({ subject: original, bindings: bound.context });
-          else pending.push({ subject: original, type: member.destination.property.type });
+          if (member.kind !== "present") continue;
+          let matches = false;
+          for (const declaration of member.destination.declarations) {
+            if (!budget.step()) break;
+            matches ||= declaration === subject.node;
+          }
+          for (const declaration of member.source.declarations) {
+            if (!budget.step() || !transport.retainCheckedContext(declaration, file)) break;
+            const original = transport.subject(declaration, ast.is.IsGetAccessorDeclaration(declaration) ? "return" : "value");
+            if (original === undefined) continue;
+            if (matches) result.push({ subject: original, bindings: bound.context });
+            else pending.push({ subject: original, type: member.destination.property.type });
+          }
         }
       }
-    }
-    return result.length === 0 ? undefined : result;
+      return result.length === 0 ? undefined : result;
+    });
   };
   const returnReceiver = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => {
     if (subject.kind !== "return" || !ast.is.IsGetAccessorDeclaration(subject.node) && !ast.is.IsMethodDeclaration(subject.node)) return undefined;
@@ -377,7 +379,7 @@ export function createSourceStorageDomains(
     }
     return inputs;
   };
-  const publicationOrigins = (subject: SourceStorageSubject, externalEntry: boolean): ReadonlySet<SourceStorageSubject> => {
+  const publicationOrigins = (subject: SourceStorageSubject, externalEntry: boolean): ReadonlySet<SourceStorageSubject> => budget.withRows(rows => {
     const pending = [{ subject, bindings: transport.substitutions.empty }];
     const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
     const origins = new Set<SourceStorageSubject>();
@@ -385,7 +387,7 @@ export function createSourceStorageDomains(
       const current = pending.pop()!;
       const checked = visited.get(current.bindings) ?? new Set<SourceStorageSubject>();
       if (checked.has(current.subject)) continue;
-      if (!budget.row()) break;
+      if (!rows.add(1)) break;
       checked.add(current.subject);
       visited.set(current.bindings, checked);
       const inputs = effectiveInputs(current.subject, current.bindings, externalEntry);
@@ -397,9 +399,9 @@ export function createSourceStorageDomains(
       }
     }
     return origins;
-  };
+  });
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
-    purpose: "values" | "storage-producers" = "values") => {
+    purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const pending = [{ subject, bindings, collect: true }];
     const visited = new Map<SourceStorageSubstitutions, Map<SourceStorageSubject, number>>();
@@ -412,7 +414,7 @@ export function createSourceStorageDomains(
       const flag = current.collect ? 2 : 1;
       const previous = checked.get(current.subject) ?? 0;
       if ((previous & flag) !== 0) continue;
-      if (!budget.row()) break;
+      if (!rows.add(1)) break;
       checked.set(current.subject, previous | flag);
       visited.set(current.bindings, checked);
       const bound = transport.substitutions.selection(current.subject, current.bindings);
@@ -459,6 +461,6 @@ export function createSourceStorageDomains(
       }
     }
     return Object.freeze({ subjects: Object.freeze([...origins]), boundaries: Object.freeze([...boundaries]), reason });
-  };
+  });
   return Object.freeze({ select });
 }

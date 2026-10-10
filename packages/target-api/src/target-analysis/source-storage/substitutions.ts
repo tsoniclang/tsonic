@@ -124,8 +124,7 @@ export function createSourceStorageSubstitutions(
   const contextFor = (inputs: ReadonlySet<SourceStorageSubject>, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
     if (parent.size === 0) return empty;
     const selected = new Map<SourceStorageSubject, SourceStorageBoundSelection>();
-    const rows = budget.createRows();
-    try {
+    return budget.withRows(rows => {
       if (inputs.size !== 0 && !rows.add(inputs.size)) return undefined;
       const scheduled = new Set(inputs);
       const pending = [...scheduled];
@@ -144,9 +143,7 @@ export function createSourceStorageSubstitutions(
         }
       }
       return intern(selected);
-    } finally {
-      rows.release();
-    }
+    });
   };
   const forInvocation = (candidate: Node, invocation: Node, parent: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined => {
     if (!step()) return undefined;

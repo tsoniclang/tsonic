@@ -40,6 +40,28 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
     if (value > maximum) reject(`Source storage transport exceeds its finite ${label} budget.`);
     return failure === undefined;
   };
+  const createRows = (): SourceStorageRows => {
+    let retained = 0;
+    let released = false;
+    return Object.freeze({
+      add(cost: number): boolean {
+        if (released || !Number.isSafeInteger(cost) || cost <= 0 || cost > limits.maximumTransportRows) {
+          reject("Source storage rows require a live owner and a finite positive reservation.");
+          return false;
+        }
+        if (!admit(rows + cost, limits.maximumTransportRows, "transport-row")) return false;
+        rows += cost;
+        retained += cost;
+        return true;
+      },
+      release(): void {
+        if (released) return;
+        rows -= retained;
+        retained = 0;
+        released = true;
+      },
+    });
+  };
   return Object.freeze({
     failure: (): string | undefined => failure,
     reject,
@@ -51,27 +73,14 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
       return admit(subjects, limits.maximumSubjectRows, "subject");
     },
     row: (): boolean => admit(++rows, limits.maximumTransportRows, "transport-row"),
-    createRows: (): SourceStorageRows => {
-      let retained = 0;
-      let released = false;
-      return Object.freeze({
-        add(cost: number): boolean {
-          if (released || !Number.isSafeInteger(cost) || cost <= 0 || cost > limits.maximumTransportRows) {
-            reject("Source storage rows require a live owner and a finite positive reservation.");
-            return false;
-          }
-          if (!admit(rows + cost, limits.maximumTransportRows, "transport-row")) return false;
-          rows += cost;
-          retained += cost;
-          return true;
-        },
-        release(): void {
-          if (released) return;
-          rows -= retained;
-          retained = 0;
-          released = true;
-        },
-      });
+    createRows,
+    withRows<T>(collect: (rows: SourceStorageRows) => T): T {
+      const owned = createRows();
+      try {
+        return collect(owned);
+      } finally {
+        owned.release();
+      }
     },
     step: (): boolean => admit(++steps, limits.maximumSteps, "analysis-work"),
   });

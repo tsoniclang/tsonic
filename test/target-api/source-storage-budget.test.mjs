@@ -60,6 +60,56 @@ test("source storage rejects invalid, nonfinite, imprecise and increased budget 
   assert.equal(createSourceStorageBudget(selection).step(), false, "data-only budget selection");
 });
 
+test("scoped row reservations share the one finite peak and preserve independent retained facts", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 3 });
+  const retained = budget.createRows();
+  assert.equal(retained.add(1), true);
+  const result = {};
+  for (let index = 0; index < 1000; index += 1) {
+    const selected = budget.withRows(rows => {
+      assert.equal(rows.add(1), true);
+      return budget.withRows(nested => {
+        assert.equal(nested.add(1), true, "actual nested peak includes both outer and independently retained rows");
+        return result;
+      });
+    });
+    assert.equal(selected === result, true, "scope changes no returned identity");
+  }
+  assert.equal(budget.failure() === undefined, true);
+  assert.equal(budget.createRows().add(2), true, "dead scopes release exactly two rows, not the independent retained fact");
+  assert.equal(budget.row(), false, "live retained facts still enforce the original shared ceiling");
+  assert.match(budget.failure(), /transport-row/u);
+});
+
+test("row scope unwind preserves thrown identity and never resets row or work failure", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
+  const failure = new Error("exact scope failure");
+  let selectedOwner;
+  assert.throws(() => budget.withRows(rows => {
+    selectedOwner = rows;
+    assert.equal(rows.add(2), true);
+    throw failure;
+  }), error => error === failure);
+  assert.equal(budget.failure() === undefined && budget.createRows().add(2), true, "throw releases only the dead scope");
+  assert.equal(selectedOwner.add(1), false, "an escaped released reservation cannot resurrect a scope");
+  assert.match(budget.failure(), /live owner/u);
+  for (const family of ["row", "step"]) {
+    const bounded = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1, maximumSteps: 1 });
+    bounded.withRows(rows => {
+      if (family === "row") {
+        assert.equal(rows.add(1), true);
+        assert.equal(rows.add(1), false);
+      } else {
+        assert.equal(bounded.step(), true);
+        assert.equal(bounded.step(), false);
+      }
+    });
+    const reason = bounded.failure();
+    assert.equal(typeof reason === "string" && bounded.row() === false && bounded.failure() === reason, true,
+      `scope release preserves exact ${family} exhaustion`);
+  }
+});
+
 test("source storage subjects retain dense data-only projections and reject malformed paths without executing accessors", () => {
   const root = {};
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSubjectRows: 5 });
