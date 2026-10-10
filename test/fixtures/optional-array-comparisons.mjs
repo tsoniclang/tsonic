@@ -1,5 +1,16 @@
 export const optionalArrayComparisonSource = `
+function inspectText(values: string[]): number {
+  const field = values[0];
+  if (field === "") return 0;
+  const length = field.length;
+  const amount = parseInt(field, 10);
+  values[0] = "99";
+  return length + amount;
+}
+
 export function run(): boolean {
+  const textValues = ["17"];
+  const inspected = inspectText(textValues);
   const original: string[] = ["original"];
   const changed: string[] = ["changed"];
   const values: string[][] = [original];
@@ -33,6 +44,6 @@ export function run(): boolean {
     present === original && original === present && present !== changed &&
     changed !== present && absent !== original && original !== absent &&
     present === present && absent === absent && present !== absent &&
-    original[0] === "original" && changed[0] === "changed";
+    original[0] === "original" && changed[0] === "changed" && inspected === 19 && textValues[0] === "99";
 }
 `;
