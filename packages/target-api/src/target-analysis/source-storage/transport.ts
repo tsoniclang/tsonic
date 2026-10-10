@@ -235,7 +235,10 @@ export function createSourceStorageTransport(
         ...(selected?.accessMode === "read" ? [] : [property?.selectedWriteDeclaration ?? selected?.selectedDeclaration]),
       ].filter((target): target is Node => target !== undefined &&
         (ast.is.IsGetAccessorDeclaration(target) || ast.is.IsSetAccessorDeclaration(target)));
-      if (targets.length !== 0) accessorTargets.set(node, Object.freeze(targets));
+      if (targets.length !== 0) {
+        accessorTargets.set(node, Object.freeze(targets));
+        regions.recordInvocation(node);
+      }
       if (selected !== undefined && selected.accessMode !== "read") {
         const owner = subjectFor(selected.receiver.expression);
         if (owner !== undefined) mutationOwners.set(node, owner);
@@ -253,6 +256,7 @@ export function createSourceStorageTransport(
     }
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
       invocations.add(node);
+      regions.recordInvocation(node);
       const selected = semantics.forNode(node).operations.call(node);
       const contributed = selected === undefined ? undefined : effects.call?.(node, selected);
       if (contributed !== undefined && selected !== undefined) {
@@ -664,6 +668,7 @@ export function createSourceStorageTransport(
       ...(reason === undefined ? {} : { reason }) }));
   }
   const opaqueInvocations = new Set(boundaries.map(boundary => boundary.invocation));
+  regions.seal();
   graphQueries.seal();
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,

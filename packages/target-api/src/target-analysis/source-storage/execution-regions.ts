@@ -8,25 +8,16 @@ import type { SourceStorageBudget } from "./resource-budget.js";
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget) {
   const { ast, semantics, navigation } = source;
   const step = budget.step;
+  const lexical = createSourceStorageLexicalSelections(ast, budget);
+  const invocations = new Map<Node, Set<Node>>();
+  const invocationRows = budget.createRows();
+  let sealed = false;
   const typeMayBeAbsent = (type: Type, owner: Node): boolean => {
     const types = semantics.forNode(owner).types;
-    const pending = [type];
-    const checked = new Set<Type>();
-    while (pending.length !== 0) {
-      const selected = pending.pop()!;
-      if (checked.has(selected)) continue;
-      checked.add(selected);
-      if (!step()) return true;
-      if (types.isAny(selected) || types.isUnknown(selected) || types.isNullish(selected) ||
-        types.isVoidLike(selected) || types.couldContainTypeVariables(selected)) return true;
-      if (types.isUnion(selected)) {
-        for (const member of types.unionOrIntersectionTypes(selected)) {
-          if (member === undefined) return true;
-          pending.push(member);
-        }
-      }
-    }
-    return false;
+    if (!step()) return true;
+    if (types.isAny(type) || types.isUnknown(type) || types.isNullish(type) || types.isVoidLike(type)) return true;
+    const present = types.nonNullableType(type);
+    return present === undefined || !types.isIdentical(type, present);
   };
   const callable = (declaration: Node, invocation: Node | undefined): readonly Node[] => {
     const body = ast.body(declaration);
@@ -71,5 +62,29 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     }
     return regions;
   };
-  return Object.freeze({ callable, instance, ...createSourceStorageLexicalSelections(ast, budget) });
+  return Object.freeze({ callable, instance, ...lexical,
+    recordInvocation(invocation: Node): void {
+      if (sealed) {
+        budget.reject("Source storage execution regions cannot register invocations after construction is sealed.");
+        return;
+      }
+      if (!step()) return;
+      const region = lexical.enclosing(invocation);
+      if (budget.failure() !== undefined) return;
+      if (region === undefined) {
+        budget.reject("Source storage execution requires its exact checked invocation region.");
+        return;
+      }
+      const selected = invocations.get(region);
+      if (selected?.has(invocation) || !invocationRows.add(selected === undefined ? 2 : 1)) return;
+      const retained = selected ?? new Set<Node>();
+      retained.add(invocation);
+      invocations.set(region, retained);
+    },
+    invocationsIn(region: Node): Iterable<Node> | undefined {
+      if (!step()) return undefined;
+      return invocations.get(region)?.values();
+    },
+    seal(): void { sealed = true; },
+  });
 }
