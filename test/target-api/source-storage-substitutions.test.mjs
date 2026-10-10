@@ -16,7 +16,7 @@ function fixture(limits = {}, length = 50) {
   const nodes = Array.from({ length }, () => subject({}));
   const inputs = new Map(nodes.map((node, index) => [node, new Set([nodes[index + 1] ?? formal])]));
   const source = { ast: { is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
-    IsVariableDeclaration: () => false, IsParameterDeclaration: () => true },
+    IsVariableDeclaration: () => false, IsParameterDeclaration: node => node === parameter || node === innerParameter },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
     parameters: node => node.parameters, body: () => undefined } };
   const substitutions = createSourceStorageSubstitutions(source, budget, subject, () => new Set(),
@@ -43,7 +43,7 @@ test("context traversal reserves only its live frontier while interned binding e
   assert.equal(budget.failure() === undefined, true, "cumulative temporary allocations do not masquerade as retained memory");
   let retained = 0;
   while (budget.row()) retained += 1;
-  assert.equal(retained === 69, true, "all 11 retained binding/input/context rows remain charged without redundant normalized root sets");
+  assert.equal(retained === 67, true, "all 11 binding/input/context rows and the two completed source-port relation rows remain charged");
   assert.match(budget.failure(), /transport-row/u);
   assert.equal(substitutions.forInvocation(current.inner, invocation, parent, parent) === undefined, true, "release never clears a failed owner");
 });

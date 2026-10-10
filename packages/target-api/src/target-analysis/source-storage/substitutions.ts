@@ -6,6 +6,7 @@ import type { SourceStorageIncomingQuery } from "./edges.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageInvocationResultQueriesContract } from "./invocation-results.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
+import { createSourceStorageContextPorts } from "./context-ports.js";
 
 export interface SourceStorageBoundSelection {
   readonly inputs: ReadonlySet<SourceStorageSubject>;
@@ -31,6 +32,7 @@ export function createSourceStorageSubstitutions(
 ) {
   const step = budget.step;
   const reserveRow = budget.row;
+  const contextPorts = createSourceStorageContextPorts(source, budget, contextualInputs);
   const empty: SourceStorageSubstitutions = new Map();
   const bindingSets = new Map<string, SourceStorageSubstitutions>();
   const contexts = new WeakMap<SourceStorageSubstitutions, number>();
@@ -152,12 +154,17 @@ export function createSourceStorageSubstitutions(
         const current = pending.pop()!;
         const bound = selection(current, parent);
         if (bound !== undefined) selected.set(current, bound);
-        else for (const input of contextualInputs(current)) {
+        else for (const input of contextPorts.isPort(current) ? contextualInputs(current) : [current]) {
           if (!step()) return undefined;
-          if (!scheduled.has(input)) {
-            if (!rows.add(1)) return undefined;
-            scheduled.add(input);
-            pending.push(input);
+          const ports = contextPorts.firstPorts(input);
+          if (ports === undefined) return undefined;
+          for (const port of ports) {
+            if (!step()) return undefined;
+            if (!scheduled.has(port)) {
+              if (!rows.add(1)) return undefined;
+              scheduled.add(port);
+              pending.push(port);
+            }
           }
         }
       }
