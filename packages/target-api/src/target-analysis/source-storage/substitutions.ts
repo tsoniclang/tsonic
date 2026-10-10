@@ -31,6 +31,7 @@ export function createSourceStorageSubstitutions(
   contextualInputs: (origin: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>,
   invocationResults: SourceStorageInvocationResultQueriesContract,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
+  memberInputs: (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions) => readonly SourceStorageBoundSubject[] | undefined,
 ) {
   const step = budget.step;
   const reserveRow = budget.row;
@@ -80,7 +81,7 @@ export function createSourceStorageSubstitutions(
       const parents = incoming(current.subject);
       const allocation = invocationResults.hasAllocation(current.subject);
       if (allocation && !emit(current)) return false;
-      const results = invocationResults.select(current.subject, current.bindings);
+      const results = invocationResults.select(current.subject, current.bindings) ?? memberInputs(current.subject, current.bindings);
       if (results !== undefined) {
         for (const result of results) if (!step() || !add(result.subject, result.bindings)) return false;
         return true;

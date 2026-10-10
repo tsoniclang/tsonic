@@ -324,6 +324,8 @@ export function createSourceStorageDomains(
       }
       return inputs;
     }
+    const selectedMember = transport.memberResults.select(subject, bindings);
+    if (selectedMember !== undefined) return selectedMember;
     const members: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
     if (bindings.size !== 0 && returnReceiver(subject, bindings) === undefined) {
       for (const formal of bindings.keys()) { if (!budget.step()) break; domainInputs.read(subject, formal); }

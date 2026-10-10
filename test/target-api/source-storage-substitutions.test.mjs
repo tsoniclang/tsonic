@@ -26,7 +26,7 @@ function fixture(limits = {}, length = 50) {
   graph.seal();
   const substitutions = createSourceStorageSubstitutions(source, budget, subject, () => new Set(),
     origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }),
-    origin => inputs.get(origin) ?? new Set(), { select: () => undefined, hasAllocation: () => false }, graph);
+    origin => inputs.get(origin) ?? new Set(), { select: () => undefined, hasAllocation: () => false }, graph, () => undefined);
   return { budget, subject, substitutions, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
 

@@ -275,6 +275,45 @@ test("selected receiver feedback completes its storage dependency without requir
   }
 });
 
+for (const access of [".value", '["value"]']) {
+  test(`selected ${access} read preserves every exact alternative creator scope`, () => {
+    const current = fixture(`
+      declare const choose: boolean;
+      function make(token: object): { value: object } { return { value: token }; }
+      const firstToken = {}; const secondToken = {}; const unrelated = {};
+      const selected = (choose ? make(firstToken) : make(secondToken))${access};
+      const separate = make(unrelated)${access};
+    `);
+    const selected = current.result("selected");
+    assert.equal(selected.origins.length === 2, true, "creator footprints retain both distinct selected formal inputs");
+    for (const name of ["firstToken", "secondToken"]) assert.equal(selected.origins.some(origin =>
+      origin.subject === current.subject(name)), true, "each alternative uses its own creator scope");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject("unrelated")), false,
+      "a globally possible creator is not an alternative of this read");
+    const separate = current.result("separate");
+    assert.equal(separate.origins.length === 1 && separate.origins[0].subject === current.subject("unrelated"), true);
+  });
+}
+
+test("identical factory arguments do not merge separately created captured writable locations", () => {
+  const current = fixture(`
+    function make(seed: object) {
+      let value = seed;
+      return { read: () => value, write: (next: object) => { value = next; } };
+    }
+    const spawn = (seed: object) => make(seed);
+    const original = {}; const replacement = {};
+    const first = spawn(original); const second = spawn(original);
+    first.write(replacement);
+    const selected = second.read();
+  `);
+  const selected = current.result("selected");
+  assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject("original"), true,
+    "equal original values are not evidence of equal captured binding locations");
+  assert.equal(selected.origins.some(origin => origin.subject === current.subject("replacement")), false,
+    "the first activation's writer cannot mutate the second activation's captured location");
+});
+
 test("constructor parameter-property producers retain the entry snapshot independently of local parameter rebinding", () => {
   for (const body of ["", "value = other;"]) {
     const current = fixture(`
