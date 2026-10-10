@@ -18,7 +18,7 @@ import { sourceStorageComponents, sourceStorageSubjectType } from "./components.
 import { sourceMemberOwner } from "../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "./member-flow.js";
 import { createSourceStorageStoredValues } from "./stored-values.js";
-import { createSourceStorageGraphQueries } from "./graph-queries.js";
+import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "./graph-queries.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -46,8 +46,6 @@ export function createSourceStorageTransport(
   const unresolvedThrows = new Map<Node, string>();
   const unresolvedSubjects = new Map<SourceStorageSubject, string>();
   const visitedNodes: Node[] = [];
-  let edgeCount = 0;
-  let throwCount = 0;
   let sealed = false;
   const internSubject = createSourceStorageSubjects(budget.subject, budget.reject);
   const subject: typeof internSubject = (node, kind, projection) => {
@@ -140,11 +138,10 @@ export function createSourceStorageTransport(
   };
   const connect = (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined): void => {
     if (origin === undefined || destination === undefined || origin === destination || budget.failure() !== undefined) return;
-    const origins = incomingFor(destination);
+    const origins = edges.incomingFor(destination);
     if (origins.has(origin)) return;
     if (sealed) { budget.reject("Source storage transport cannot add edges after graph construction is sealed."); return; }
     if (!edges.add(origin, destination)) return;
-    edgeCount += 1;
     graphQueries.invalidate(destination);
     connectStructuralFlow(origin, destination);
   };
@@ -167,12 +164,12 @@ export function createSourceStorageTransport(
     if (origins.has(origin) || !budget.row()) return;
     origins.add(origin);
     thrownOrigins.set(region, origins);
-    throwCount += 1;
+    graphQueries.invalidate({ node: region, kind: thrownOrigins });
   };
   const recordUnresolvedThrow = (region: Node, reason: string): void => {
     if (unresolvedThrows.has(region) || !budget.row()) return;
     unresolvedThrows.set(region, reason);
-    throwCount += 1;
+    graphQueries.invalidate({ node: region, kind: thrownOrigins });
   };
   const visit = (node: Node): void => {
     visitedNodes.push(node);
@@ -482,24 +479,21 @@ export function createSourceStorageTransport(
     return origins;
   };
 
-  let previousEdges = -1;
-  let previousThrows = -1;
-  while ((previousEdges !== edgeCount || previousThrows !== throwCount) && step()) {
-    previousEdges = edgeCount;
-    previousThrows = throwCount;
-    for (const [access, owner] of mutationOwners) {
-      if (!step()) break;
+  const operations = function* (): Generator<SourceStorageReconciliation> {
+    for (const [access, owner] of mutationOwners) yield once => {
+      if (!step()) return;
       const parent = ast.parent(access);
       const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent) ? undefined : ast.as.AsBinaryExpression(parent);
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
       const selected = property ?? semantics.forNode(access).operations.elementAccess(access);
       const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
-      if (declaration === undefined || selected === undefined) continue;
+      if (declaration === undefined || selected === undefined) return;
       const write = storedValues.writeFor(access, subjectFor)
         ?? { reason: "Source storage mutation requires its exact selected value producer." };
       for (const origin of ancestorSubjects(owner) ?? []) {
         if (!step()) break;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node)) continue;
+        if (!once(origin)) continue;
         for (const member of memberFlow.declarationsFor(origin, declaration, selected.receiver.type) ?? []) {
           if (!step()) break;
           if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member) ||
@@ -509,9 +503,10 @@ export function createSourceStorageTransport(
           storedValues.recordWrite(subject(member), write);
         }
       }
-    }
-    for (const invocation of invocationTargets.keys()) {
+    };
+    for (const invocation of invocationTargets.keys()) yield once => {
       for (const candidate of invocationImplementations(invocation)) {
+        if (!once(candidate)) continue;
         if (ast.is.IsCallExpression(invocation)) connect(subject(candidate, "return"), subject(invocation));
         const selected = semantics.forNode(invocation).operations.call(invocation);
         connect(ast.is.IsNewExpression(invocation) ? subject(invocation)
@@ -527,10 +522,11 @@ export function createSourceStorageTransport(
           connect(subject(contract), subject(parameter));
         }
       }
-    }
-    for (const [access, accessors] of accessorTargets) {
+    };
+    for (const [access, accessors] of accessorTargets) yield once => {
       for (const accessor of accessors) {
         for (const candidate of implementationsFor(accessor, access).nodes) {
+          if (!once(candidate)) continue;
           const receiver = semantics.forNode(access).operations.propertyAccess(access)?.receiver.expression;
           connect(subjectFor(receiver), subject(candidate, "receiver"));
           if (ast.is.IsGetAccessorDeclaration(accessor)) connect(subject(candidate, "return"), subjectFor(access));
@@ -544,9 +540,9 @@ export function createSourceStorageTransport(
           }
         }
       }
-    }
-    for (const invocation of new Set([...invocations, ...accessorTargets.keys()])) {
-      if (!step()) break;
+    };
+    for (const invocation of new Set([...invocations, ...accessorTargets.keys()])) yield () => {
+      if (!step()) return;
       const destination = regions.catchDestination(invocation);
       const enclosing = destination === undefined ? regions.enclosing(invocation) : undefined;
       const reason = unresolvedInvocations.get(invocation);
@@ -554,7 +550,7 @@ export function createSourceStorageTransport(
         const caught = destination === undefined ? undefined : subject(destination);
         if (caught !== undefined) unresolvedSubjects.set(caught, reason);
         else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
-        continue;
+        return;
       }
       const targets = [...invocationImplementations(invocation)].map(candidate => ({ candidate,
         regions: regions.callable(candidate, accessorTargets.has(invocation) ? undefined : invocation) }));
@@ -563,6 +559,7 @@ export function createSourceStorageTransport(
       }
       for (const target of targets) {
         for (const region of target.regions) {
+          graphQueries.read({ node: region, kind: thrownOrigins });
           const reason = unresolvedThrows.get(region);
           if (reason !== undefined) {
             const caught = destination === undefined ? undefined : subject(destination);
@@ -577,8 +574,9 @@ export function createSourceStorageTransport(
           }
         }
       }
-    }
-  }
+    };
+  };
+  graphQueries.reconcile(operations());
   const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject, incomingFor, unresolvedSubjects);
   const contextualSelections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
   const contextualInputs = (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> => {

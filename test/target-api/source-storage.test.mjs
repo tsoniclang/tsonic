@@ -390,6 +390,36 @@ try { throwValue(original); } catch (caught) { const caughtAlias = caught; }
   assert.equal(types.origins.every(origin => Object.isFrozen(origin) && origin.subject.kind === "value"), true);
 });
 
+test("dependency reconciliation discovers chained returned callables before propagating their exact thrown values", async () => {
+  const { storage, subject, initializer } = await checked("source-storage-chained-callable-throws", `
+const token = { value: 9 };
+function leaf(): never { throw token; }
+function middle(): () => never { return leaf; }
+function outer(): () => never { return middle(); }
+try { outer()(); } catch (caught) { const caughtAlias = caught; }
+`);
+  const origins = originSubjects(storage, subject("caughtAlias"), "chained returned callable");
+  assert.equal(origins.some(origin => origin.node === initializer("token")), true,
+    "a late discovered invocation implementation retains its original throw origin");
+  assert.equal(storage.unresolvedFor(subject("caughtAlias")) === undefined, true);
+  assert.equal(storage.failureReason() === undefined, true);
+});
+
+test("dependency reconciliation propagates both origins through mutually recursive thrown regions", async () => {
+  const { storage, subject, initializer } = await checked("source-storage-recursive-region-throws", `
+const firstToken = { value: 1 };
+const secondToken = { value: 2 };
+function left(stop: boolean): never { if (stop) throw firstToken; return right(true); }
+function right(stop: boolean): never { if (stop) throw secondToken; return left(true); }
+try { right(true); } catch (caught) { const caughtAlias = caught; }
+`);
+  const origins = originSubjects(storage, subject("caughtAlias"), "recursive thrown regions");
+  for (const name of ["firstToken", "secondToken"]) assert.equal(origins.some(origin => origin.node === initializer(name)), true,
+    `${name}: dynamic thrown facts cannot use an immutable candidate once gate`);
+  assert.equal(storage.unresolvedFor(subject("caughtAlias")) === undefined, true);
+  assert.equal(storage.failureReason() === undefined, true);
+});
+
 test("early callback storage retains origins and mutable field transport without any target ABI facts", async () => {
   const { source, storage, file } = await checked("source-storage-early-callables", `
 export function make(): (value: number) => number {

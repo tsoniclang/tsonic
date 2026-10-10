@@ -1,6 +1,12 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageBudget, SourceStorageRows } from "./resource-budget.js";
-import type { SourceStorageSubject } from "./subjects.js";
+
+interface GraphInput {
+  readonly node: Node;
+  readonly kind: unknown;
+}
+
+export type SourceStorageReconciliation = (once: (key: object) => boolean) => void;
 
 interface Dependency {
   readonly entries: Set<QueryEntry>;
@@ -17,8 +23,14 @@ interface QueryEntry {
   inheritedReads: ReadonlySet<Dependency> | undefined;
 }
 
+interface Reaction {
+  readonly operation: SourceStorageReconciliation;
+  readonly applied: Set<object>;
+  entry: QueryEntry | undefined;
+}
+
 export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
-  const reads = new Map<Node, Map<SourceStorageSubject["kind"], Dependency>>();
+  const reads = new Map<Node, Map<unknown, Dependency>>();
   const readRows = budget.createRows();
   let sealed = false;
   let active: QueryEntry | undefined;
@@ -27,7 +39,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
     return only !== undefined && (only.reads.has(dependency) || only.inheritedReads?.has(dependency) === true);
   };
   const depend = (parent: QueryEntry | undefined, child: QueryEntry): boolean => {
-    if (sealed || parent === undefined || parent.children.has(child) || child.reads.size === 0 && child.children.size === 0) return true;
+    if (sealed || parent === undefined || !parent.live || parent.children.has(child) || child.reads.size === 0 && child.children.size === 0) return true;
     if (!parent.dependencyRows.add(2)) return false;
     parent.children.add(child);
     child.parents.add(parent);
@@ -87,10 +99,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
       reads.clear();
       readRows.release();
     },
-    read(subject: SourceStorageSubject): void {
+    read(subject: GraphInput): void {
       if (active === undefined || !budget.step()) return;
-      if (sealed) return;
-      const kinds = reads.get(subject.node) ?? new Map<SourceStorageSubject["kind"], Dependency>();
+      if (sealed || !active.live) return;
+      const kinds = reads.get(subject.node) ?? new Map<unknown, Dependency>();
       let dependency = kinds.get(subject.kind);
       if (dependency === undefined) {
         if (!readRows.add(1)) return;
@@ -102,7 +114,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
       dependency.entries.add(active);
       active.reads.add(dependency);
     },
-    invalidate(subject: SourceStorageSubject): void {
+    invalidate(subject: GraphInput): void {
       if (sealed) {
         budget.reject("Source storage graph queries cannot invalidate sealed inputs.");
         return;
@@ -114,6 +126,54 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         pending.push(...entry.parents);
         discard(entry);
       }
+    },
+    reconcile(operations: Iterable<SourceStorageReconciliation>): void {
+      if (sealed || active !== undefined) {
+        budget.reject("Source storage graph reconciliation requires an idle mutable graph.");
+        return;
+      }
+      budget.withRows(rows => {
+        const reactions = new Set<Reaction>();
+        const pending = new Set<Reaction>();
+        let closed = false;
+        try {
+          for (const operation of operations) {
+            if (!budget.step() || !rows.add(3)) return;
+            const reaction: Reaction = { operation, applied: new Set(), entry: undefined };
+            reactions.add(reaction);
+            pending.add(reaction);
+          }
+          while (pending.size !== 0 && budget.step()) {
+            const reaction = pending.values().next().value!;
+            pending.delete(reaction);
+            const retained = budget.createRows();
+            if (!retained.add(1)) return;
+            const entry: QueryEntry = { live: true, rows: retained, dependencyRows: budget.createRows(),
+              remove: () => { if (!closed && budget.step()) pending.add(reaction); },
+              reads: new Set(), parents: new Set(), children: new Set(), inheritedReads: undefined };
+            reaction.entry = entry;
+            active = entry;
+            try {
+              reaction.operation(key => {
+                if (!budget.step() || reaction.applied.has(key) || !rows.add(1)) return false;
+                reaction.applied.add(key);
+                return true;
+              });
+            } finally {
+              active = undefined;
+            }
+          }
+        } finally {
+          closed = true;
+          for (const reaction of reactions) {
+            budget.step();
+            if (reaction.entry?.live) discard(reaction.entry);
+            reaction.applied.clear();
+          }
+          pending.clear();
+          reactions.clear();
+        }
+      });
     },
     query<Key, Value>(collect: (key: Key) => ReadonlySet<Value> | undefined): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, { readonly entry: QueryEntry; readonly values?: ReadonlySet<Value> }>();
