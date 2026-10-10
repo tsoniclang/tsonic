@@ -613,6 +613,15 @@ export function createSourceStorageTransport(
       }
     }
     if (invocations.has(node) || accessorTargets.has(node)) {
+      for (const candidate of invocationImplementations(node)) {
+        if (!step()) break;
+        const selected = subject(candidate, "return", origin.projection);
+        if (selected === undefined) continue;
+        for (const input of invocationOrigins(selected, candidate, node)) {
+          if (!step()) break;
+          add(input);
+        }
+      }
       const call = semantics.forNode(node).operations.call(node);
       add(subjectFor(Node_Expression(ast, node)));
       add(subjectFor(call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
