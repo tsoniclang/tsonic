@@ -10,17 +10,7 @@ import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "./types.js";
 import { createSourceStorageDomainWitnesses } from "./domain-witnesses.js";
-
-interface SourceStoragePublication {
-  readonly subject: SourceStorageSubject;
-  readonly type: Type;
-  readonly sourceFile: SourceFile;
-  readonly exposure: Node;
-  readonly writes: boolean;
-  readonly kind: "external-write" | "opaque-write" | "unclassified-exposure";
-  readonly externalEntry: boolean;
-  readonly inputOwner?: SourceStorageSubject;
-}
+import { createSourceStorageDomainPublications, type SourceStoragePublication } from "./domain-publications.js";
 
 export function createSourceStorageDomains(
   source: TargetSourceProgram,
@@ -29,19 +19,18 @@ export function createSourceStorageDomains(
 ) {
   const { ast, navigation, semantics } = source;
   const witnesses = createSourceStorageDomainWitnesses(budget);
-  const publications: SourceStoragePublication[] = [];
-  const published = new Map<SourceStorageSubject, Map<Type, Map<SourceStorageSubject | undefined, number>>>();
+  const publications = createSourceStorageDomainPublications(budget);
   const opaque = new Set(transport.boundaries.map(boundary => boundary.invocation));
   let initialized = false;
   const add = witnesses.add;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
     kind: SourceStoragePublication["kind"] = "external-write", type?: Type, sourceFile?: SourceFile, externalEntry = false,
     inputOwner?: SourceStorageSubject): void => {
-    if (subject === undefined || !budget.row()) return;
+    if (subject === undefined) return;
     const file = sourceFile ?? transport.sourceFileFor(subject);
     const selected = type ?? sourceStorageSubjectType(source, subject, file);
-    if (selected !== undefined && file !== undefined) publications.push({ subject, type: selected, sourceFile: file, exposure, writes, kind, externalEntry,
-      ...(inputOwner === undefined ? {} : { inputOwner }) });
+    if (selected !== undefined && file !== undefined)
+      publications.add(subject, selected, file, exposure, writes, kind, externalEntry, inputOwner);
   };
   const callable = (declaration: Node, exposure: Node): void => {
     const selected = navigation.callableImplementation(declaration);
@@ -73,9 +62,7 @@ export function createSourceStorageDomains(
     }
   };
   const accessible = (declaration: Node): boolean => !ast.hasModifierKind(declaration, "private");
-  const initialize = (): void => {
-    if (initialized) return;
-    initialized = true;
+  const initializePublications = (): void => {
     for (const node of transport.visitedNodes) {
       if (!budget.step()) return;
       if (!ast.is.IsVariableDeclaration(node) && !ast.is.IsFunctionDeclaration(node) && !ast.is.IsClassDeclaration(node)) continue;
@@ -127,17 +114,8 @@ export function createSourceStorageDomains(
           add(storage === undefined ? subject : transport.subjectFor(storage), "opaque-write", boundary.invocation);
       }
     }
-    for (let index = 0; index < publications.length && budget.step(); index += 1) {
-      const publication = publications[index]!;
-      const types = published.get(publication.subject) ?? new Map<Type, Map<SourceStorageSubject | undefined, number>>();
-      const owners = types.get(publication.type) ?? new Map<SourceStorageSubject | undefined, number>();
-      const phase = publication.kind === "opaque-write" ? 4 : publication.kind === "unclassified-exposure" ? 8 : 0;
-      const flag = 1 << (phase + (publication.externalEntry ? 2 : 0) + (publication.writes ? 1 : 0));
-      const previous = owners.get(publication.inputOwner) ?? 0;
-      if ((previous & flag) !== 0) continue;
-      owners.set(publication.inputOwner, previous | flag);
-      types.set(publication.type, owners);
-      published.set(publication.subject, types);
+    for (let index = 0; index < publications.size() && budget.step(); index += 1) {
+      const publication = publications.at(index)!;
       const context = semantics.forFile(publication.sourceFile);
       const present = sourcePresentStorageType(publication.type, context);
       if (present === undefined) {
@@ -202,6 +180,15 @@ export function createSourceStorageDomains(
           }
         }
       }
+    }
+  };
+  const initialize = (): void => {
+    if (initialized) return;
+    initialized = true;
+    try {
+      initializePublications();
+    } finally {
+      publications.finish();
     }
   };
   const boundariesFor = (subject: SourceStorageSubject): readonly SourceStorageDomainBoundary[] => {
