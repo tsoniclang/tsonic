@@ -18,10 +18,11 @@ import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "./types.js";
 import { snapshotSourceStorageCallEffect } from "./call-effects.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
-import { sourceMemberOwner } from "../../source-navigation/class-members.js";
+import { sourceMemberOwner, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "./member-flow.js";
 import { createSourceStorageStoredValues } from "./stored-values.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "./graph-queries.js";
+import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -30,7 +31,6 @@ export function createSourceStorageTransport(
   effects: SourceStorageEffects = {},
 ) {
   const { ast, navigation, semantics } = source;
-  const storedValues = createSourceStorageStoredValues(ast, budget);
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
@@ -161,6 +161,11 @@ export function createSourceStorageTransport(
   };
 
   const regions = createSourceStorageExecutionRegions(source, budget);
+  const storedValues = createSourceStorageStoredValues(ast, budget, regions.enclosing, node => {
+    const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node)
+      : ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined;
+    return subjectFor(selected?.receiver.expression);
+  });
   const recordThrow = (region: Node, origin: SourceStorageSubject): void => {
     const origins = thrownOrigins.get(region) ?? new Set<SourceStorageSubject>();
     if (origins.has(origin) || !budget.row()) return;
@@ -192,7 +197,7 @@ export function createSourceStorageTransport(
     if (ast.is.IsVariableDeclaration(node)) {
       connectValueFlow(Node_Initializer(ast, node));
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
-      storedValues.record(subject(node), subjectFor(Node_Initializer(ast, node)));
+      storedValues.initialize(subject(node), Node_Initializer(ast, node) ?? node, subjectFor(Node_Initializer(ast, node)));
     }
     if (ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
       const write = storedValues.writeFor(node, subjectFor);
@@ -204,11 +209,14 @@ export function createSourceStorageTransport(
     if (ast.is.IsArrayLiteralExpression(node)) projections.literal(node);
     if (ast.is.IsPropertyDeclaration(node) || ast.is.IsParameterDeclaration(node)) {
       connect(subjectFor(Node_Initializer(ast, node)), subject(node));
-      if (ast.is.IsPropertyDeclaration(node)) storedValues.record(subject(node), subjectFor(Node_Initializer(ast, node)));
+      if (ast.is.IsPropertyDeclaration(node))
+        storedValues.initialize(subject(node), Node_Initializer(ast, node) ?? node, subjectFor(Node_Initializer(ast, node)));
+      else if (sourceParameterIsProperty(ast, node)) storedValues.initialize(subject(node), node, subject(node));
     }
-    if (ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node)) {
+    if ((ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node)) &&
+      sourceBindingWriteAtReference(ast, node) === undefined) {
       connect(subjectFor(ObjectLiteralProperty_Value(ast, node)), subject(node));
-      storedValues.record(subject(node), subjectFor(ObjectLiteralProperty_Value(ast, node)));
+      storedValues.initialize(subject(node), ObjectLiteralProperty_Value(ast, node) ?? node, subjectFor(ObjectLiteralProperty_Value(ast, node)));
     }
     if (ast.is.IsArrowFunction(node)) {
       const body = ast.as.AsArrowFunction(node)?.Body;
@@ -467,7 +475,8 @@ export function createSourceStorageTransport(
       const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
       if (declaration === undefined || selected === undefined) return;
       const write = storedValues.writeFor(access, subjectFor)
-        ?? { reason: "Source storage mutation requires its exact selected value producer." };
+        ?? { reference: access, operation: parent ?? access, reason: "Source storage mutation requires its exact selected value producer." };
+      storedValues.recordWrite(subjectFor(access), write);
       for (const origin of ancestorSubjects(owner) ?? []) {
         if (!step()) break;
         if (!ast.is.IsObjectLiteralExpression(origin.node) && !ast.is.IsNewExpression(origin.node)) continue;
@@ -478,7 +487,7 @@ export function createSourceStorageTransport(
             ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) continue;
           if (assignment?.Left === access && ast.operatorKindName(parent!) === "KindEqualsToken")
             connect(subjectFor(assignment.Right), subject(member));
-          storedValues.recordWrite(subject(member), write);
+          storedValues.bind(subject(member), access);
         }
       }
     };
@@ -659,9 +668,11 @@ export function createSourceStorageTransport(
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
+    storedValuesFor: storedValues.storesFor,
+    storesIn: storedValues.storesIn,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
-    accessorTargets, visitedNodes, regions, ancestorSubjects, invocationImplementations, physicalMemberInputs,
+    accessorTargets, visitedNodes, regions, memberFlow, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, unresolvedFor };
 }

@@ -142,3 +142,33 @@ test("cached member correspondence cannot bypass selected checked-context reject
   assert.equal(input.calls.length, 1);
   assert.equal(input.retained.length, 2);
 });
+
+test("direct member selection and recursive domain traversal consume one immutable indexed checked relationship", () => {
+  const target = {}; const optional = {}; const original = {};
+  const matched = present([target], [original]);
+  const absent = { kind: "absent", destination: { declarations: [optional] } };
+  const members = [matched, absent];
+  const input = fixture(() => ({ kind: "available", members }));
+  const owner = subject({});
+  const destination = {};
+  const selected = input.flow.membersFor(owner, destination);
+  assert.equal(Object.isFrozen(selected) && selected.length === 2 && selected[0] === matched && selected[1] === absent, true,
+    "optional absence and exact checked source/destination member rows remain intact");
+  members.length = 0;
+  const declarations = input.flow.declarationsFor(owner, target, destination);
+  assert.equal(declarations.length === 1 && declarations[0] === original, true);
+  assert.equal(input.flow.membersFor(owner, destination) === selected && selected.length === 2 && input.calls.length === 1, true,
+    "the owning completed index isolates its sequence and serves both consumers without duplicate correspondence reads");
+  assert.equal(input.budget.failure() === undefined, true);
+});
+
+test("optional-only member inventories reserve every retained relationship before copying or publishing their index", () => {
+  const input = fixture(() => ({ kind: "available", members: Array.from({ length: 20 }, () =>
+    ({ kind: "absent", destination: { declarations: [{}] } })) }), { maximumTransportRows: 8 });
+  const owner = subject({}); const destination = {};
+  assert.equal(input.flow.membersFor(owner, destination) === undefined, true);
+  assert.equal(input.budget.failure() === "Source storage rows require a live owner and a finite positive reservation.", true,
+    "the complete copied row family is individually larger than the selected finite ceiling");
+  assert.equal(input.flow.membersFor(owner, destination) === undefined && input.calls.length === 1, true,
+    "neither an empty declaration index nor a cache hit can bypass an oversized exact relationship family");
+});

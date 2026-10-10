@@ -287,11 +287,9 @@ export function createSourceStorageDomains(
         types.add(current.type);
         visited.set(current.subject, types);
         const file = transport.sourceFileFor(current.subject);
-        const type = sourceStorageSubjectType(source, current.subject, file);
-        if (file === undefined || type === undefined) continue;
-        const relation = semantics.forFile(file).types.structuralMembers(type, current.type);
-        if (relation.kind !== "available") continue;
-        for (const member of relation.members) {
+        if (file === undefined) continue;
+        const members = transport.memberFlow.membersFor(current.subject, current.type);
+        for (const member of members ?? []) {
           if (!budget.step()) break;
           if (member.kind !== "present") continue;
           let matches = false;

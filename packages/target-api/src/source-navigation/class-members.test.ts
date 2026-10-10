@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { sourceClassFieldHasStorage } from "./class-members.js";
 import {
   createTargetSourceProgram,
   sourceClassFieldIsTypeOnly,
@@ -39,6 +40,33 @@ test("type-only field classification preserves original declarations without gue
     assert.equal(sourceClassFieldIsTypeOnly(source.ast, member), index < 3);
     if (index < original.length) assert.equal(member, original[index]);
   });
+});
+
+test("authored field storage excludes abstract contracts without changing their type-only classification", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",
+    compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: { "/src/index.ts": `abstract class Value {
+      abstract required: object;
+      declare readonly phantom: object;
+      ordinary?: object;
+      value: object = {};
+      constructor(public item: object) {}
+    }` },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "ordinary abstract/declared/authored field source checks");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts")!;
+  const declaration = source.ast.statements(file)[0]!;
+  const members = source.ast.members(declaration);
+  assert.equal(members.every(member => member !== undefined), true);
+  assert.equal(sourceClassFieldIsTypeOnly(source.ast, members[0]!) === false &&
+    sourceClassFieldHasStorage(source.ast, members[0]!) === false, true,
+  "abstract contracts are not ambient declarations, but neither provides a physical field initialization");
+  for (const [index, expected] of [[1, false], [2, true], [3, true], [4, false]] as const)
+    assert.equal(sourceClassFieldHasStorage(source.ast, members[index]!) === expected, true, `member ${index}: exact authored storage`);
+  const parameter = source.ast.parameters(members[4]!)[0]!;
+  assert.equal(sourceParameterIsProperty(source.ast, parameter) && !sourceClassFieldHasStorage(source.ast, parameter), true,
+    "parameter-property initialization remains its separate exact constructor formal relationship");
 });
 
 test("parameter properties retain exact field declarations, owners and storage escape", () => {

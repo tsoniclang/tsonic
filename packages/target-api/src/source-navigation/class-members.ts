@@ -5,6 +5,11 @@ export function sourceClassFieldIsTypeOnly(ast: AstReader, declaration: Node): b
     ast.hasModifierKind(declaration, "ambient");
 }
 
+export function sourceClassFieldHasStorage(ast: AstReader, declaration: Node): boolean {
+  return ast.is.IsPropertyDeclaration(declaration) && !sourceClassFieldIsTypeOnly(ast, declaration) &&
+    !ast.hasModifierKind(declaration, "abstract");
+}
+
 export function sourceParameterIsProperty(ast: AstReader, declaration: Node): boolean {
   if (ast.kindName(declaration) !== "KindParameter") return false;
   const constructor = ast.parent(declaration);

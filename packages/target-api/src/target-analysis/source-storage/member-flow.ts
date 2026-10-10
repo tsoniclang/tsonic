@@ -1,10 +1,14 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
+import type { SourceStructuralMemberPair } from "../../source-semantics/structural-members.js";
 import { sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 
-type MemberIndex = ReadonlyMap<Node, readonly Node[]>;
+interface MemberIndex {
+  readonly members: readonly SourceStructuralMemberPair[];
+  readonly declarations: ReadonlyMap<Node, readonly Node[]>;
+}
 
 export function createSourceStorageMemberFlow(
   source: TargetSourceProgram,
@@ -20,6 +24,8 @@ export function createSourceStorageMemberFlow(
     const selected = source.semantics.forFile(file).types.structuralMembers(from, to);
     let index: MemberIndex | undefined;
     if (selected.kind === "available") {
+      const memberRows = budget.createRows();
+      if (!memberRows.add(1 + selected.members.length)) return undefined;
       const members = new Map<Node, Set<Node>>();
       for (const member of selected.members) {
         if (!budget.step()) return undefined;
@@ -40,7 +46,8 @@ export function createSourceStorageMemberFlow(
           }
         }
       }
-      index = new Map([...members].map(([target, originals]) => [target, Object.freeze([...originals])]));
+      index = Object.freeze({ members: Object.freeze([...selected.members]),
+        declarations: new Map([...members].map(([target, originals]) => [target, Object.freeze([...originals])])) });
     }
     if (!budget.row() || sources === undefined && !budget.row() || destinations === undefined && !budget.row()) return undefined;
     const retainedSources = sources ?? new Map<Type, Map<Type, MemberIndex | undefined>>();
@@ -50,17 +57,25 @@ export function createSourceStorageMemberFlow(
     selections.set(file, retainedSources);
     return index;
   };
-  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): readonly Node[] | undefined => {
+  const selectedIndex = (owner: SourceStorageSubject, destinationType: Type): MemberIndex | undefined => {
     if (!budget.step()) return undefined;
     const file = sourceFileFor(owner);
     const type = sourceStorageSubjectType(source, owner, file);
     if (file === undefined || type === undefined) return undefined;
-    const declarations = indexFor(file, type, destinationType)?.get(declaration);
+    return indexFor(file, type, destinationType);
+  };
+  const declarationsFor = (owner: SourceStorageSubject, declaration: Node, destinationType: Type): readonly Node[] | undefined => {
+    const index = selectedIndex(owner, destinationType);
+    const declarations = index?.declarations.get(declaration);
     if (declarations === undefined || declarations.length === 0) return undefined;
+    const file = sourceFileFor(owner);
+    if (file === undefined) return undefined;
     for (const original of declarations) {
       if (!budget.step() || !retainCheckedContext(original, file)) return undefined;
     }
     return declarations;
   };
-  return Object.freeze({ declarationsFor });
+  return Object.freeze({ declarationsFor,
+    membersFor: (owner: SourceStorageSubject, destinationType: Type): readonly SourceStructuralMemberPair[] | undefined =>
+      selectedIndex(owner, destinationType)?.members });
 }

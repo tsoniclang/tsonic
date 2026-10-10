@@ -155,7 +155,7 @@ test("collector exceptions discard unfinished cells and restore the idle query o
 });
 
 test("private values are immutable collector-scoped borrows, including retained iterators and forEach views", () => {
-  for (const access of ["size", "has", "entries", "keys", "values", "iterate", "forEach", "next"]) {
+  for (const access of ["size", "has", "entries", "keys", "values", "iterate", "forEach", "next", "exhausted-next", "dispose", "iterator-method"]) {
     const { budget, graph } = fixture();
     let borrowed; let iterator;
     const sizes = [];
@@ -165,6 +165,7 @@ test("private values are immutable collector-scoped borrows, including retained 
       assert.equal(Object.isFrozen(borrowed) && borrowed.add === undefined, true);
       borrowed.forEach((_value, _key, view) => assert.equal(view === borrowed, true));
       iterator = borrowed.values();
+      if (access === "exhausted-next") while (!iterator.next().done) {}
       return copy(borrowed, add) && add(key);
     });
     graph.seal();
@@ -177,7 +178,9 @@ test("private values are immutable collector-scoped borrows, including retained 
       if (access === "has") return borrowed.has("original");
       if (access === "iterate") return [...borrowed];
       if (access === "forEach") return borrowed.forEach(() => {});
-      if (access === "next") return iterator.next();
+      if (access === "next" || access === "exhausted-next") return iterator.next();
+      if (access === "dispose") return iterator[Symbol.dispose]();
+      if (access === "iterator-method") return iterator[Symbol.iterator]();
       return borrowed[access]();
     };
     assert.throws(use, /active collector/u);
