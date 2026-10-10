@@ -14,6 +14,7 @@ interface QueryEntry {
   readonly reads: Set<Dependency>;
   readonly parents: Set<QueryEntry>;
   readonly children: Set<QueryEntry>;
+  inheritedReads: ReadonlySet<Dependency> | undefined;
 }
 
 export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
@@ -22,25 +23,8 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
   let sealed = false;
   let active: QueryEntry | undefined;
   const inheritsRead = (entry: QueryEntry, dependency: Dependency): boolean => {
-    if (entry.children.size === 0) return false;
     const only = entry.children.size === 1 ? entry.children.values().next().value : undefined;
-    if (only !== undefined) {
-      if (only.reads.has(dependency)) return true;
-      if (only.children.size === 0) return false;
-    }
-    const pending = [...entry.children];
-    const visited = new Set<QueryEntry>();
-    while (pending.length !== 0 && budget.step()) {
-      const child = pending.pop()!;
-      if (visited.has(child)) continue;
-      visited.add(child);
-      if (child.reads.has(dependency)) return true;
-      for (const descendant of child.children) {
-        if (!budget.step()) return false;
-        pending.push(descendant);
-      }
-    }
-    return false;
+    return only !== undefined && (only.reads.has(dependency) || only.inheritedReads?.has(dependency) === true);
   };
   const depend = (parent: QueryEntry | undefined, child: QueryEntry): boolean => {
     if (sealed || parent === undefined || parent.children.has(child) || child.reads.size === 0 && child.children.size === 0) return true;
@@ -58,6 +42,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
     entry.reads.clear();
     entry.children.clear();
     entry.parents.clear();
+    entry.inheritedReads = undefined;
     entry.dependencyRows.release();
     entry.rows.release();
   };
@@ -81,6 +66,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 for (const child of selected.children) { if (!budget.step()) return; child.parents.delete(selected); }
                 selected.reads.clear();
                 selected.children.clear();
+                selected.inheritedReads = undefined;
                 selected.dependencyRows.release();
                 if (selected.parents.size !== 0) {
                   if (!rows.add(1)) return;
@@ -145,7 +131,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         const rows = budget.createRows();
         if (!rows.add(1)) return undefined;
         const entry: QueryEntry = { live: true, rows, dependencyRows: budget.createRows(), remove: () => { selections.delete(key); },
-          reads: new Set(), parents: new Set(), children: new Set() };
+          reads: new Set(), parents: new Set(), children: new Set(), inheritedReads: undefined };
         selections.set(key, { entry });
         let values: ReadonlySet<Value> | undefined;
         active = entry;
@@ -162,6 +148,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
         if (values === undefined || budget.failure() !== undefined || !depend(parent, entry)) {
           discard(entry);
           return undefined;
+        }
+        if (!sealed && entry.children.size === 1) {
+          const child = entry.children.values().next().value!;
+          entry.inheritedReads = child.children.size === 0 ? child.reads : child.inheritedReads;
         }
         selections.set(key, { entry, values });
         return values;
