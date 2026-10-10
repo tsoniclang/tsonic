@@ -1,0 +1,193 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createCompilerSessionFromFiles } from "@tsonic/tsts";
+import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
+import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+
+function fixture(body, extraFiles = {}) {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src", compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: { "/src/index.ts": `export {}; ${body}`, ...extraFiles },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length === 0, true, "ordinary authored source checks without target annotations");
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  const nodes = [];
+  const pending = [file];
+  while (pending.length !== 0) {
+    const node = pending.pop();
+    nodes.push(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
+  }
+  const initializer = name => Node_Initializer(source.ast, nodes.find(node =>
+    source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name));
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, {
+    ...defaultSourceStorageLimits, maximumSteps: 65_536, maximumTransportRows: 4096,
+  });
+  const subject = name => {
+    const selected = storage.subjectFor(initializer(name));
+    assert.equal(selected.kind === "resolved", true, `${name}: exact checked graph subject`);
+    return selected.subject;
+  };
+  const result = (name, kind = "complete") => {
+    const selected = storage.closedOriginsFor(subject(name));
+    assert.equal(selected.kind === kind, true, `${name}: finite ${kind} recursive relation`);
+    assert.equal(storage.failureReason() === undefined, true, "independent resource protection remains intact");
+    assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.origins), true, "only completed immutable evidence is exposed");
+    return selected;
+  };
+  return { source, file, storage, initializer, subject, result };
+}
+
+const nesting = `
+function nest(callback: () => object, count: number): () => object {
+  return count === 0 ? callback : nest(() => callback(), count - 1);
+}
+`;
+
+test("recursive returned closures retain both their seed and recursive creation without growing capture histories", () => {
+  const current = fixture(`${nesting}
+    const firstValue = {}; const secondValue = {};
+    const firstSeed = () => firstValue; const secondSeed = () => secondValue;
+    const first = nest(firstSeed, 3); const second = nest(secondSeed, 4);
+  `);
+  for (const [name, own, foreign] of [["first", "firstSeed", "secondSeed"], ["second", "secondSeed", "firstSeed"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 2, true, "exact seed and authored recursive closure identities");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(own)), true, "selected seed survives");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false, "independent caller is never imported");
+  }
+});
+
+for (const [name, declarations, invocation] of [
+  ["direct recursion", nesting, "nest"],
+  ["mutual recursion", `
+    function first(callback: () => object, count: number): () => object {
+      return count === 0 ? callback : second(() => callback(), count - 1);
+    }
+    function second(callback: () => object, count: number): () => object {
+      return count === 0 ? callback : first(() => callback(), count - 1);
+    }
+  `, "first"],
+]) {
+  test(`${name} preserves exact invoked results through recursively captured callback environments`, () => {
+    const current = fixture(`${declarations}
+      const leftValue = { left: 1 }; const rightValue = { right: 1 };
+      const leftReader = ${invocation}(() => leftValue, 3);
+      const rightReader = ${invocation}(() => rightValue, 4);
+      const left = leftReader(); const right = rightReader();
+    `);
+    for (const [name, own, foreign] of [["left", "leftValue", "rightValue"], ["right", "rightValue", "leftValue"]]) {
+      const selected = current.result(name);
+      assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+        "only the selected caller's original return remains");
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+        "recursive context folding cannot merge independent roots");
+    }
+  });
+}
+
+test("recursive capture keeps an exposed mutable storage witness even when its original producer equals a private input", () => {
+  const current = fixture(`${nesting}
+    const original = {};
+    export let exposed: object = original;
+    const privateReader = nest(() => original, 3);
+    const exposedReader = nest(() => exposed, 3);
+    const privateResult = privateReader(); const exposedResult = exposedReader();
+  `);
+  for (const [name, kind] of [["privateResult", "complete"], ["exposedResult", "open"]]) {
+    const selected = current.result(name, kind);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject("original"), true,
+      "exact original producer survives recursive capture");
+    if (kind === "open") assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-write"), true,
+      "a recursive relation must not normalize away its writable captured location");
+  }
+});
+
+test("recursive complete binding tuples retain every rotation and keep separate entry tuples independent", () => {
+  const current = fixture(`
+    function rotate(left: () => object, middle: () => object, right: () => object, count: number): object {
+      return count === 0 ? left() : rotate(middle, right, left, count - 1);
+    }
+    const firstLeft = {}; const firstMiddle = {}; const firstRight = {};
+    const secondLeft = {}; const secondMiddle = {}; const secondRight = {};
+    const first = rotate(() => firstLeft, () => firstMiddle, () => firstRight, 3);
+    const second = rotate(() => secondLeft, () => secondMiddle, () => secondRight, 4);
+  `);
+  for (const [name, own, foreign] of [["first", "first", "second"], ["second", "second", "first"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 3, true, "all three finite rotations, not an arbitrary unfolding cutoff");
+    for (const suffix of ["Left", "Middle", "Right"]) {
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(`${own}${suffix}`)), true,
+        "the complete selected binding tuple remains reachable");
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(`${foreign}${suffix}`)), false,
+        "another entry tuple is never widened into this relation");
+    }
+  }
+});
+
+test("recursive callee and argument alternatives remain correlated as one complete invocation tuple", () => {
+  const current = fixture(`
+    function rotate(first: (value: object) => object, second: (value: object) => object,
+      left: object, right: object, count: number): object {
+      return count === 0 ? first(left) : rotate(second, first, right, left, count - 1);
+    }
+    const firstIdentity = {}; const firstConstant = {}; const firstForbidden = {};
+    const secondIdentity = {}; const secondConstant = {}; const secondForbidden = {};
+    const first = rotate(value => value, () => firstConstant, firstIdentity, firstForbidden, 4);
+    const second = rotate(value => value, () => secondConstant, secondIdentity, secondForbidden, 5);
+  `);
+  for (const [name, own, foreign] of [["first", "first", "second"], ["second", "second", "first"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 2, true, "whole tuple yields only identity and constant results");
+    for (const suffix of ["Identity", "Constant"]) {
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(`${own}${suffix}`)), true,
+        "a reachable complete invocation alternative survives");
+      assert.equal(selected.origins.some(origin => origin.subject === current.subject(`${foreign}${suffix}`)), false,
+        "independent entry roots never become a possible tuple");
+    }
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(`${own}Forbidden`)), false,
+      "independent unions of callee and argument would manufacture this unreachable result");
+  }
+});
+
+test("recursive callback containers retain selected member and written receiver provenance", () => {
+  const current = fixture(`
+    class Box { value: object = {}; read(): object { return this.value; } }
+    interface Reader { readonly read: () => object; }
+    function nest(reader: Reader, count: number): Reader {
+      return count === 0 ? reader : nest({ read: () => reader.read() }, count - 1);
+    }
+    function outer(box: Box, token: object): object {
+      box.value = token;
+      return nest({ read: () => box.read() }, 3).read();
+    }
+    const firstToken = {}; const secondToken = {};
+    const first = outer(new Box(), firstToken); const second = outer(new Box(), secondToken);
+  `);
+  for (const [name, own, foreign] of [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(own)), true,
+      "selected caller's receiver write reaches its recursively captured reader");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+      "stored member transport does not erase the selected caller");
+  }
+});
+
+test("recursive source context relations keep exact cross-file generic declaration identities", () => {
+  const current = fixture(`
+    import { nest } from "./nest.js";
+    const leftValue = { left: 1 }; const rightValue = { right: 1 };
+    const leftReader = nest(() => leftValue, 3); const rightReader = nest(() => rightValue, 4);
+    const left = leftReader(); const right = rightReader();
+  `, { "/src/nest.ts": `
+    export function nest<Value>(callback: () => Value, count: number): () => Value {
+      return count === 0 ? callback : nest(() => callback(), count - 1);
+    }
+  ` });
+  for (const [name, own] of [["left", "leftValue"], ["right", "rightValue"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+      "generic cross-file return and capture relations preserve original checked identity");
+  }
+});
