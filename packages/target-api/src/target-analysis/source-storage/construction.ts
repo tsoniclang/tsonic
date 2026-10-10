@@ -29,3 +29,23 @@ export function sourceStorageConstructedClass(
   }
   return undefined;
 }
+
+export function sourceStorageSuperConstructor(
+  invocation: Node,
+  source: TargetSourceProgram,
+  step: () => boolean,
+): { readonly owner: Node; readonly callee: Node } | undefined {
+  const { ast, navigation } = source;
+  if (!ast.is.IsCallExpression(invocation) || ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") return undefined;
+  for (let owner = ast.parent(invocation); owner !== undefined && step(); owner = ast.parent(owner)) {
+    if (!ast.is.IsConstructorDeclaration(owner)) continue;
+    const declaration = ast.parent(owner);
+    if (declaration === undefined) return undefined;
+    const heritage = navigation.declaredHeritage(declaration);
+    if (heritage.kind !== "resolved") return undefined;
+    const bases = heritage.edges.filter(edge => edge.kind === "extends");
+    const callee = bases.length === 1 ? ast.as.AsExpressionWithTypeArguments(bases[0]!.heritage)?.Expression : undefined;
+    return callee === undefined ? undefined : Object.freeze({ owner, callee });
+  }
+  return undefined;
+}

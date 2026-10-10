@@ -3,6 +3,7 @@ import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import { sourceStorageSuperConstructor } from "./construction.js";
 
 export interface SourceStorageInvocationInputs {
   readonly subjects: ReadonlySet<SourceStorageSubject>;
@@ -36,9 +37,13 @@ export function createSourceStorageInvocationInputs(
     };
     if (formal.kind === "receiver") {
       if (formal.node !== candidate) subjects.add(formal);
-      else add(ast.is.IsNewExpression(invocation) ? subject(invocation)
-        : subjectFor(selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
-          ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression));
+      else {
+        const base = sourceStorageSuperConstructor(invocation, source, budget.step);
+        add(ast.is.IsNewExpression(invocation) ? subject(invocation)
+          : base !== undefined ? subject(base.owner, "receiver")
+          : subjectFor(selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression
+            ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression));
+      }
     } else {
       const index = ast.parameters(candidate).indexOf(formal.node);
       if (index === -1) subjects.add(formal);

@@ -73,7 +73,11 @@ export function createSourceStorageInvocationResults(
     const captures = new Set<SourceStorageSubstitutions>();
     if (source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate))
       instanceCaptures(candidate, values, captures);
-    else for (const value of values ?? []) {
+    else if (source.ast.is.IsConstructorDeclaration(candidate)) {
+      const owner = source.ast.parent(candidate);
+      if (owner !== undefined && (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner)))
+        instanceCaptures(owner, values, captures);
+    } else for (const value of values ?? []) {
       if (!budget.step()) break;
       const selected = source.navigation.callableImplementation(value.subject.node);
       if (selected.kind === "resolved" && selected.implementation.declaration === candidate) captures.add(value.bindings);

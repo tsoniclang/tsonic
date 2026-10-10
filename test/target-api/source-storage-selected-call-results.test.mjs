@@ -115,6 +115,32 @@ test("selected returned closure retains captured mutable locations rather than o
     "same normalized producer does not erase the captured exposed storage witness");
 });
 
+for (const expression of ["owner.read()", 'owner["read"]()', "alias()", "identity(owner.read)()"])
+  test(`property-held closure invocation ${expression} retains its own selected creator and public bindings`, () => {
+    const current = fixture(`
+      function identity<Value>(value: Value): Value { return value; }
+      function make(token: object) { return { read: () => token }; }
+      function invoke(owner: { read: () => object }): object {
+        const alias = owner.read;
+        return ${expression};
+      }
+      const leftValue = {}; const rightValue = {};
+      const left = invoke(make(leftValue)); const right = invoke(make(rightValue));
+    `);
+    const invoke = current.declaration("invoke");
+    const returned = current.storage.subject(invoke, "return");
+    assert.equal(returned.kind === "resolved", true);
+    for (const name of ["left", "right"]) {
+      exactResult(current, current.initializer(name), current.initializer(`${name}Value`));
+      const selected = current.storage.bindingsForInvocation(invoke, current.initializer(name));
+      assert.equal(selected.kind === "resolved", true);
+      const result = current.storage.closedOriginsFor(returned.subject, selected.bindings);
+      assert.equal(result.kind === "complete" && result.origins.length === 1 &&
+        result.origins[0].subject.node === current.initializer(`${name}Value`), true,
+      "an implementation declaration cannot replace the actual property-held closure's environment");
+    }
+  });
+
 test("recursive forwarding converges without importing sibling callback identities", () => {
   const current = fixture(`
     declare const done: boolean;
@@ -191,6 +217,18 @@ test("selected constructor receiver keeps its allocation identity without recurs
   assert.equal(observed.kind === "resolved" && observed.subjects.length === 1 &&
     observed.subjects[0].node === current.initializer("original"), true, "exact authored new expression");
   assert.equal(current.storage.failureReason() === undefined, true);
+});
+
+test("explicit base construction retains its checked class callee, arguments and inherited member initialization", () => {
+  const current = fixture(`
+    class Base { constructor(public readonly value: object) {} }
+    class Derived extends Base { constructor(value: object) { super(value); } }
+    const leftValue = {}; const rightValue = {};
+    const left = new Derived(leftValue).value;
+    const right = new Derived(rightValue).value;
+  `);
+  for (const name of ["left", "right"])
+    exactResult(current, current.initializer(name), current.initializer(`${name}Value`));
 });
 
 test("selected callback bindings reject foreign query evidence and exhausted analysis without a partial result", () => {

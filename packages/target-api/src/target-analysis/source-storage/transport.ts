@@ -10,7 +10,7 @@ import { createSourceStorageStructuralFlow } from "./structural-flow.js";
 import { createSourceStorageEdges } from "./edges.js";
 import type { SourceStorageEdgeTypes } from "./edges.js";
 import { createSourceStorageExecutionRegions } from "./execution-regions.js";
-import { sourceStorageConstructedClass } from "./construction.js";
+import { sourceStorageConstructedClass, sourceStorageSuperConstructor } from "./construction.js";
 import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
@@ -309,11 +309,10 @@ export function createSourceStorageTransport(
       }
       if (selected !== undefined && signature !== undefined) {
         invocationDeclarations.set(node, signature);
-        const implementation = navigation.callableImplementation(signature);
-        const callee = Node_Expression(ast, node);
-        const target = implementation.kind === "resolved" && ast.body(implementation.implementation.declaration) !== undefined
-          ? subject(implementation.implementation.declaration) : subjectFor(callee);
+        const target = subjectFor(Node_Expression(ast, node));
         if (target !== undefined) invocationTargets.set(node, target);
+        const base = sourceStorageSuperConstructor(node, source, step);
+        if (base !== undefined) connect(subjectFor(base.callee), target);
         invocationArguments.set(node, Object.freeze([
           ...selected.sourceArguments.map(argument => argument.expression),
           ...(selected.sourceReceiver === undefined ? [] : [selected.sourceReceiver.expression]),
@@ -438,6 +437,12 @@ export function createSourceStorageTransport(
     const implementations = new Set<Node>();
     const declaration = invocationDeclarations.get(invocation);
     const target = invocationTargets.get(invocation);
+    const construction = ast.is.IsNewExpression(invocation) || ast.kindName(Node_Expression(ast, invocation)) === "KindSuperKeyword";
+    if (construction && declaration !== undefined) {
+      const selected = navigation.callableImplementation(declaration);
+      if (selected.kind === "resolved" && ast.is.IsConstructorDeclaration(selected.implementation.declaration))
+        implementations.add(selected.implementation.declaration);
+    }
     const member = declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
       ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
     if (member) {
