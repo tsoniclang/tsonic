@@ -56,7 +56,7 @@ export function createSourceStorageProjectionFlow(
   const literal = (node: Node): void => {
     const owner = subjectFor(node);
     const queries = semantics.forNode(node);
-    const type = queries.types.contextualType(node) ?? queries.types.expressionType(node);
+    const type = queries.types.expressionType(node) ?? queries.types.contextualType(node);
     const tuple = type !== undefined && queries.types.isTuple(type);
     let tupleIndex = 0;
     for (const element of ast.elements(node)) {

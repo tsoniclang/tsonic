@@ -217,23 +217,7 @@ export function createSourceStorageDomains(
       }
       return selected;
     }
-    if (incoming.size !== 0 || subject.projection.length === 0) return incoming;
-    const root = transport.subject(subject.node, subject.kind);
-    const file = root === undefined ? undefined : transport.sourceFileFor(root);
-    const type = root === undefined ? undefined : sourceStorageSubjectType(source, root, file);
-    if (root === undefined || type === undefined || file === undefined) return incoming;
-    const context = semantics.forFile(file);
-    if (!context.types.couldContainTypeVariables(type)) return incoming;
-    const selected = new Set<SourceStorageSubject>();
-    for (const origin of transport.incomingFor(root)) {
-      if (!budget.step()) break;
-      const originType = sourceStorageSubjectType(source, origin, transport.sourceFileFor(origin));
-      if (originType === undefined || !context.types.isIdentical(type, originType)) continue;
-      const projected = transport.subject(origin.node, origin.kind, [...origin.projection, ...subject.projection]);
-      if (projected !== undefined && (transport.substitutions.selection(projected, bindings) !== undefined ||
-        transport.incomingFor(origin).size !== 0)) selected.add(projected);
-    }
-    return selected;
+    return incoming;
   };
   const dispatchInputs = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): readonly SourceStorageSubject[] => {
     const node = subject.node;
@@ -361,28 +345,14 @@ export function createSourceStorageDomains(
     }
     const node = subject.node;
     const invocation = transport.invocations.has(node) || transport.accessorTargets.has(node);
-    if (ast.is.IsNewExpression(node) && transport.invocationEffects.get(node)?.resultAlias === undefined) {
-      const selected: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-      for (const candidate of transport.invocationImplementations(node, origin => transport.substitutions.origins(origin, bindings))) {
-        if (!budget.step()) break;
-        const result = transport.subject(candidate, "return", subject.projection);
-        if (result === undefined || transport.incomingFor(result).size === 0) continue;
-        const state = transport.substitutions.forInvocation(candidate, node, bindings);
-        if (state !== undefined) selected.push({ subject: result, bindings: state });
-      }
-      return selected;
+    if (transport.invocationResults.hasAllocation(subject)) {
+      return transport.invocationResults.select(subject, bindings) ?? [];
     }
     if (invocation && transport.invocationEffects.get(node)?.resultAlias === undefined && !opaque.has(node) &&
       (!externalEntry || !dispatchInputs(subject, bindings).some(input => externalInput(input, bindings))) &&
       (ast.is.IsCallExpression(node) || transport.accessorTargets.has(node))) {
-      const selected: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
-      for (const candidate of transport.invocationImplementations(node, origin => transport.substitutions.origins(origin, bindings))) {
-        if (!budget.step()) break;
-        const state = transport.substitutions.forInvocation(candidate, node, bindings);
-        const result = transport.subject(candidate, "return", subject.projection);
-        if (state !== undefined && result !== undefined) selected.push({ subject: result, bindings: state });
-      }
-      if (selected.length !== 0) return selected;
+      const selected = transport.invocationResults.select(subject, bindings);
+      if (selected !== undefined) return selected;
     }
     if (invocation && externalEntry && dispatchInputs(subject, bindings).some(input => externalInput(input, bindings))) return [];
     const inputs: { readonly subject: SourceStorageSubject; readonly bindings: SourceStorageSubstitutions }[] = [];
@@ -420,8 +390,7 @@ export function createSourceStorageDomains(
       checked.add(current.subject);
       visited.set(current.bindings, checked);
       const inputs = effectiveInputs(current.subject, current.bindings, externalEntry);
-      if (inputs.size === 0 || ast.is.IsNewExpression(current.subject.node) &&
-        transport.invocationEffects.get(current.subject.node)?.resultAlias === undefined) origins.add(current.subject);
+      if (inputs.size === 0 || transport.invocationResults.hasAllocation(current.subject)) origins.add(current.subject);
       for (const input of inputs) {
         if (!budget.step()) break;
         pending.push(input);
@@ -482,8 +451,8 @@ export function createSourceStorageDomains(
       }
       const incoming = stores === undefined || bound !== undefined ? effectiveInputs(current.subject, current.bindings)
         : new Set([...stores].map(stored => ({ subject: stored, bindings: current.bindings })));
-      if (current.collect && (incoming.size === 0 || sourceStorageHasOriginalCallableValue(current.subject, ast) || ast.is.IsNewExpression(node) &&
-        transport.invocationEffects.get(node)?.resultAlias === undefined)) origins.add(current.subject);
+      if (current.collect && (incoming.size === 0 || sourceStorageHasOriginalCallableValue(current.subject, ast) ||
+        transport.invocationResults.hasAllocation(current.subject))) origins.add(current.subject);
       for (const origin of incoming) {
         if (!budget.step()) break;
         pending.push({ ...origin, collect: current.collect });
