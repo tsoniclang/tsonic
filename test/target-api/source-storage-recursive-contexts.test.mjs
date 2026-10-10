@@ -274,3 +274,40 @@ test("selected receiver feedback completes its storage dependency without requir
       "the fixed point cannot broaden the selected receiver to another caller");
   }
 });
+
+test("constructor parameter-property producers retain the entry snapshot independently of local parameter rebinding", () => {
+  for (const body of ["", "value = other;"]) {
+    const current = fixture(`
+      class Box { constructor(public readonly value: object, other: object) { ${body} } }
+      const firstToken = {}; const firstReplacement = {};
+      const secondToken = {}; const secondReplacement = {};
+      const first = new Box(firstToken, firstReplacement).value;
+      const second = new Box(secondToken, secondReplacement).value;
+    `);
+    for (const [name, own, foreign] of [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]]) {
+      const values = current.result(name);
+      const producers = current.storage.storageProducersFor(current.subject(name));
+      assert.equal(producers.kind === "complete", true, "a parameter field has a genuine physical initialization, not a formal self-cycle");
+      assert.equal(values.origins.length === 1 && values.origins[0].subject === current.subject(own), true,
+        "a later local parameter assignment cannot overwrite the constructor's member initialization");
+      assert.equal(producers.producers.length === 1 && producers.producers[0].subject === current.subject(own), true,
+        "physical producers preserve the selected constructor-entry snapshot");
+      assert.equal(producers.producers.some(producer => producer.subject === current.subject(foreign)), false,
+        "separate constructor invocations never share an input snapshot");
+    }
+  }
+});
+
+test("actual constructor member writes survive physical producer selection without becoming a formal binding override", () => {
+  const current = fixture(`
+    class Box { constructor(public readonly value: object, other: object) { this.value = other; } }
+    const original = {}; const replacement = {};
+    const selected = new Box(original, replacement).value;
+  `);
+  const producers = current.storage.storageProducersFor(current.subject("selected"));
+  assert.equal(producers.kind === "complete", true, "physical initialization and actual member write are both closed");
+  assert.equal(producers.producers.length === 2, true, "the entry snapshot and later physical writer remain distinct producers");
+  for (const name of ["original", "replacement"]) assert.equal(producers.producers.some(producer =>
+    producer.subject === current.subject(name)), true, "a constructor formal cannot suppress an actual member store");
+  assert.equal(current.storage.failureReason() === undefined, true, "member identity is not repaired by widening resource ceilings");
+});
