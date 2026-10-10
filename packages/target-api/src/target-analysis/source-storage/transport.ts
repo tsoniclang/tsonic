@@ -582,11 +582,11 @@ export function createSourceStorageTransport(
   const contextualInputs = (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> => {
     const cached = contextualSelections.get(origin);
     if (cached !== undefined) return cached;
-    const inputs = new Set(incomingFor(origin));
+    const node = origin.node;
+    const inputs = new Set(invocations.has(node) || accessorTargets.has(node) ? [] : incomingFor(origin));
     const add = (selected: SourceStorageSubject | undefined): void => {
       if (selected !== undefined && !inputs.has(selected) && budget.row()) inputs.add(selected);
     };
-    const node = origin.node;
     if (origin.kind === "value" && origin.projection.length === 0) {
       if (ast.is.IsObjectLiteralExpression(node)) for (const property of ast.properties(node)) {
         if (!step()) break;
@@ -600,8 +600,8 @@ export function createSourceStorageTransport(
           add(subject(node, "value", [component]));
         }
       }
-      if ((ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) || ast.is.IsFunctionDeclaration(node)) && ast.body(node) !== undefined) {
-        const captures = sourceLexicalCaptures(node, [ast.body(node)!], ast, navigation);
+      if (ast.body(node) !== undefined || ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
+        const captures = sourceLexicalCaptures(node, [node], ast, navigation);
         for (const capture of captures.captures) {
           if (!step()) break;
           add(subjectFor(capture.declaration));
