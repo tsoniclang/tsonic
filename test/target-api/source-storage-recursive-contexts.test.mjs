@@ -191,3 +191,66 @@ test("recursive source context relations keep exact cross-file generic declarati
       "generic cross-file return and capture relations preserve original checked identity");
   }
 });
+
+test("recursive graph membership cannot admit an invocation whose correlated callee selects another implementation", () => {
+  const current = fixture(`
+    declare const choose: boolean;
+    type Step = (next: Step, value: object) => object;
+    const own = {}; const constant = {}; const forbidden = {}; const foreign = {};
+    function step(next: Step, value: object): object {
+      return choose ? value : next(next, forbidden);
+    }
+    const first = step((_next: Step, _value: object) => constant, own);
+    const unrelated = step(step, foreign);
+  `);
+  const selected = current.result("first");
+  assert.equal(selected.origins.length === 2, true, "only the actual input and selected callback result are reachable");
+  for (const name of ["own", "constant"]) assert.equal(selected.origins.some(origin =>
+    origin.subject === current.subject(name)), true, "selected caller has its original root");
+  for (const name of ["forbidden", "foreign"]) assert.equal(selected.origins.some(origin =>
+    origin.subject === current.subject(name)), false, "a globally possible recursive edge is not a selected caller transition");
+});
+
+test("callee-scoped defaults remain finite when a nested returned closure captures the defaulted parameter", () => {
+  const current = fixture(`${nesting}
+    const own = {}; const foreign = {};
+    function outer(seed: object = own): object { return nest(() => seed, 2)(); }
+    const first = outer(); const second = outer(foreign);
+  `);
+  for (const [name, own, foreign] of [["first", "own", "foreign"], ["second", "foreign", "own"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+      "default or explicit input belongs to exactly this completed invocation");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+      "a cyclic callee frame cannot import another invocation's input");
+  }
+});
+
+for (const [name, declarations, left, right] of [
+  ["property-held closure", `
+    function make(token: object): { read: () => object } { return { read: () => token }; }
+    function read(box: { read: () => object }): object { return box.read(); }
+  `, "read(make(leftToken))", "read(make(rightToken))"],
+  ["returned record field", `
+    function make(token: object): { value: object } { return { value: token }; }
+    function read(box: { value: object }): object { return box.value; }
+  `, "read(make(leftToken))", "read(make(rightToken))"],
+  ["constructor field through getter", `
+    class Box { constructor(public value: object) {} get current(): object { return this.value; } }
+    function read(box: Box): object { return box.current; }
+  `, "read(new Box(leftToken))", "read(new Box(rightToken))"],
+]) {
+  test(`selected ${name} retains its producer context rather than the member reader context`, () => {
+    const current = fixture(`${declarations}
+      const leftToken = {}; const rightToken = {};
+      const left = ${left}; const right = ${right};
+    `);
+    for (const [selected, own, foreign] of [["left", "leftToken", "rightToken"], ["right", "rightToken", "leftToken"]]) {
+      const result = current.result(selected);
+      assert.equal(result.origins.length === 1 && result.origins[0].subject === current.subject(own), true,
+        "exact checked member correspondence carries the original creator's scope");
+      assert.equal(result.origins.some(origin => origin.subject === current.subject(foreign)), false,
+        "member traversal cannot combine separate producer and reader invocations");
+    }
+  });
+}
