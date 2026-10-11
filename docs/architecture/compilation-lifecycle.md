@@ -49,6 +49,14 @@ original checked identities, invocation substitutions and finite accounting.
 The latter returns immutable typed `producers`, not a certificate about unknown
 external input values.
 
+`typeFor` returns the subject's checked storage type; `incomingFor` inventories
+its exact immediate edges and rejects locally missing edge evidence. Neither
+query proves complete transitive origins or executes the provenance solver.
+For example, an external object's member can have an exact checked type while
+its physical producer remains unknown. Consumers requiring closed producers
+must request the corresponding origin or storage-domain proof. Every query
+still validates graph ownership, component identity and the shared finite budget.
+
 For example, a class's readonly callback initializer supplies its original
 native field ABI even when a public function accepts that class. The public
 parameter's member value remains logically unknown. Its selected concrete

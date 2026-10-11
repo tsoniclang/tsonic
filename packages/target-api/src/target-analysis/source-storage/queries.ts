@@ -38,12 +38,14 @@ export function createSourceStorageQuery(
     return Object.freeze({ kind: "resolved", subject });
   };
   const subjectReason = (subject: SourceStorageSubject): string | undefined => {
-    if (budget.failure() !== undefined) return budget.failure();
+    if (!budget.step()) return budget.failure();
     if (!transport.identities.has(subject)) return "A source storage subject belongs to a different transport graph.";
     if (subject.projection.length !== 0 && sourceStorageSubjectType(source, subject, transport.sourceFileFor(subject)) === undefined)
       return "A source storage projection has no exact checked component type.";
-    return transport.unresolvedFor(subject) ?? budget.failure();
+    return undefined;
   };
+  const ancestryReason = (subject: SourceStorageSubject): string | undefined =>
+    subjectReason(subject) ?? transport.unresolvedFor(subject) ?? budget.failure();
   const selectedSubjects = (subjects: Iterable<SourceStorageSubject> | undefined): SourceStorageSubjectsSelection => {
     if (subjects === undefined || budget.failure() !== undefined)
       return unresolved(budget.failure() ?? "Source storage ancestry has no exact bounded selection.");
@@ -88,7 +90,7 @@ export function createSourceStorageQuery(
     return source.ast.is.IsNewExpression(invocation) && transport.regions.instance(invocation).some(region => region.owner === candidate);
   };
   const boundOrigins = (subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection => {
-    const reason = subjectReason(subject);
+    const reason = ancestryReason(subject);
     if (reason !== undefined) return unresolved(reason);
     const states = bindingStates.get(bindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
@@ -104,7 +106,7 @@ export function createSourceStorageQuery(
     return selectedSubjects(subjects);
   };
   const originSubjectsFor: SourceStorageQueries["originSubjectsFor"] = subject => {
-    const reason = subjectReason(subject);
+    const reason = ancestryReason(subject);
     if (reason !== undefined) return unresolved(reason);
     const ancestors = transport.ancestorSubjects(subject);
     if (ancestors === undefined || budget.failure() !== undefined)
@@ -133,7 +135,7 @@ export function createSourceStorageQuery(
   };
   const selectDomain = (subject: SourceStorageSubject, bindings: SourceStorageBindings,
     purpose: "values" | "storage-producers") => {
-    const reason = subjectReason(subject);
+    const reason = ancestryReason(subject);
     if (reason !== undefined) return unresolved(reason);
     const states = bindingStates.get(bindings);
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
@@ -190,11 +192,11 @@ export function createSourceStorageQuery(
         : Object.freeze({ kind: "resolved", type, sourceFile });
     },
     incomingFor(subject) {
-      const reason = subjectReason(subject);
+      const reason = subjectReason(subject) ?? transport.directlyUnresolvedFor(subject);
       return reason === undefined ? selectedSubjects(transport.incomingFor(subject)) : unresolved(reason);
     },
     ancestorsFor(subject) {
-      const reason = subjectReason(subject);
+      const reason = ancestryReason(subject);
       return reason === undefined ? selectedSubjects(transport.ancestorSubjects(subject)) : unresolved(reason);
     },
     originSubjectsFor,
@@ -233,7 +235,7 @@ export function createSourceStorageQuery(
       }
       return Object.freeze({ kind: "resolved", nodes: Object.freeze(nodes) });
     },
-    unresolvedFor: subjectReason,
+    unresolvedFor: ancestryReason,
     invocationImplementationsFor(invocation, bindings) {
       if (!checkedInvocation(invocation)) return unresolved(budget.failure() ?? "An invocation has no checked source transport.");
       const states = bindings === undefined ? undefined : bindingStates.get(bindings);
@@ -250,7 +252,7 @@ export function createSourceStorageQuery(
         : Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]) });
     },
     invocationOriginsFor(subject, candidate, invocation) {
-      const reason = subjectReason(subject);
+      const reason = ancestryReason(subject);
       if (reason !== undefined) return unresolved(reason);
       if (!checkedCandidate(candidate, invocation))
         return unresolved(budget.failure() ?? "Invocation substitution requires its exact selected implementation.");

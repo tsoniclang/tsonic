@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageUnresolvedQuery } from "../../packages/target-api/dist/target-analysis/source-storage/unresolved.js";
+import { createSourceStorageUnresolvedQueries } from "../../packages/target-api/dist/target-analysis/source-storage/unresolved.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 
@@ -16,7 +16,7 @@ const relation = (...subjects) => ({ subjects: subjects.map(subject => ({ subjec
 test("sealed graphs without unresolved witnesses need no second ancestry traversal", () => {
   const { budget, subject, selected } = fixture();
   const owner = selected();
-  const unresolved = createSourceStorageUnresolvedQuery(budget, subject,
+  const { ancestryFor: unresolved } = createSourceStorageUnresolvedQueries(budget, subject,
     () => assert.fail("no unresolved witness exists to propagate"), new Map());
   assert.equal(unresolved(owner), undefined);
   assert.equal(unresolved(owner), undefined);
@@ -30,7 +30,7 @@ test("unresolved queries cache exact roots without certifying scoped witnesses a
   const intermediate = selected();
   const start = selected();
   let reads = 0;
-  const unresolved = createSourceStorageUnresolvedQuery(budget, subject, owner => {
+  const { ancestryFor: unresolved } = createSourceStorageUnresolvedQueries(budget, subject, owner => {
     reads += 1;
     return owner === start ? relation(intermediate, safe)
       : owner === intermediate ? relation(broken, safe) : relation(owner);
@@ -50,7 +50,7 @@ test("sealed unresolved queries preserve projected prefix failures and cyclic an
   const projected = subject(backing, "value", [{ kind: "array-element" }]);
   const left = selected();
   const right = selected();
-  const unresolved = createSourceStorageUnresolvedQuery(budget, subject,
+  const { ancestryFor: unresolved } = createSourceStorageUnresolvedQueries(budget, subject,
     owner => owner === left || owner === right ? relation(left, right) : relation(owner),
     new Map([[root, "exact backing failure"]]));
   assert.equal(unresolved(projected), "exact backing failure");
@@ -64,9 +64,9 @@ test("unresolved ancestry preserves incomplete and failed scoped selections", ()
   const owner = selected();
   const boundary = selected();
   const failures = new Map([[boundary, "unproved boundary"]]);
-  assert.match(createSourceStorageUnresolvedQuery(budget, subject, () => undefined, failures)(owner), /completed scoped ancestry/u);
-  assert.equal(createSourceStorageUnresolvedQuery(budget, subject,
-    () => ({ subjects: [], reason: "incomplete invocation" }), failures)(owner), "incomplete invocation");
+  assert.match(createSourceStorageUnresolvedQueries(budget, subject, () => undefined, failures).ancestryFor(owner), /completed scoped ancestry/u);
+  assert.equal(createSourceStorageUnresolvedQueries(budget, subject,
+    () => ({ subjects: [], reason: "incomplete invocation" }), failures).ancestryFor(owner), "incomplete invocation");
 });
 
 test("sealed unresolved caching remains fail-closed under independent row and work ceilings", () => {
@@ -74,14 +74,27 @@ test("sealed unresolved caching remains fail-closed under independent row and wo
     const { budget, subject, selected } = fixture({ ...defaultSourceStorageLimits, ...limits });
     const first = selected();
     const second = selected();
-    const unresolved = createSourceStorageUnresolvedQuery(budget, subject, owner => relation(owner), new Map());
+    const { ancestryFor: unresolved } = createSourceStorageUnresolvedQueries(budget, subject, owner => relation(owner), new Map());
     assert.equal(unresolved(first), undefined, "the first bounded selection fits exactly");
     assert.equal(typeof unresolved(second), "string", "the next selection cannot exceed its independent ceiling");
     assert.equal(typeof unresolved(first), "string", "cached entries do not bypass the poisoned budget");
   }
   const { budget, subject, selected } = fixture({ ...defaultSourceStorageLimits, maximumSteps: 1 });
   const value = selected();
-  const unresolved = createSourceStorageUnresolvedQuery(budget, subject, owner => relation(owner), new Map());
+  const { ancestryFor: unresolved } = createSourceStorageUnresolvedQueries(budget, subject, owner => relation(owner), new Map());
   assert.equal(unresolved(value), undefined);
   assert.match(unresolved(value), /analysis-work/u, "cache hits remain work bounded");
+});
+
+test("direct evidence preserves local projected failures without executing ancestry", () => {
+  const { budget, subject, selected } = fixture();
+  const owner = selected();
+  const broken = selected();
+  const projected = subject(broken.node, broken.kind, [{ kind: "array-element" }]);
+  const queries = createSourceStorageUnresolvedQueries(budget, subject,
+    () => assert.fail("an immediate edge query must not execute its transitive producers"),
+    new Map([[broken, "exact local failure"]]));
+  assert.equal(queries.directFor(owner), undefined);
+  assert.equal(queries.directFor(projected), "exact local failure");
+  assert.equal(budget.failure() === undefined, true);
 });

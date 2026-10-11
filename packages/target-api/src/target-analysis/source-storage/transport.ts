@@ -13,7 +13,7 @@ import type { SourceStorageEdgeTypes } from "./edges.js";
 import { createSourceStorageExecutionRegions } from "./execution-regions.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import { sourceStorageConstructedClass, sourceStorageSuperConstructor } from "./construction.js";
-import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
+import { createSourceStorageUnresolvedQueries } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs } from "./invocation-inputs.js";
@@ -636,7 +636,7 @@ export function createSourceStorageTransport(
     storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);
-  const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject,
+  const unresolved = createSourceStorageUnresolvedQueries(budget, subject,
     selected => substitutions.walk(selected, substitutions.empty), unresolvedSubjects);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
@@ -677,5 +677,6 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
-    invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, unresolvedFor };
+    invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation,
+    unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };
 }

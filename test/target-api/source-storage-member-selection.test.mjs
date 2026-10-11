@@ -487,6 +487,12 @@ test("opaque missing members are not silently certified as an impossible allocat
   `);
   const selected = current.storage.subjectFor(current.variable("result"));
   assert.equal(selected.kind === "resolved", true);
+  const type = current.storage.typeFor(selected.subject);
+  assert.equal(type.kind === "resolved", true, "a checked storage type does not claim closed physical provenance");
+  const incoming = current.storage.incomingFor(selected.subject);
+  assert.equal(incoming.kind === "resolved" && incoming.subjects.length !== 0, true,
+    "exact immediate edges do not claim closed transitive producers");
+  assert.equal(current.storage.failureReason() === undefined, true, "inventory queries do not execute unknown members");
   const origins = current.storage.closedOriginsFor(selected.subject);
   assert.equal(origins.kind === "unresolved", true, "the opaque receiver has no exact allocated shape");
   assert.equal(current.storage.failureReason() === "Source storage members require exact checked correspondence.", true,
