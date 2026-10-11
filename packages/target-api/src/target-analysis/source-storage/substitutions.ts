@@ -209,8 +209,13 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (successor === undefined || !emit(successor, true)) return false;
           continue;
         }
-        const successor = retain(term, current.kind !== "guarded");
+        const terminal = term.kind === "leaf" || term.kind === "unresolved";
+        const successor = retain(term, current.kind !== "guarded" || terminal);
         if (successor === undefined) return false;
+        if (terminal) {
+          if (!emit(successor, true)) return false;
+          continue;
+        }
         if (current.kind !== "guarded") {
           if (!emit(successor, false)) return false;
           continue;

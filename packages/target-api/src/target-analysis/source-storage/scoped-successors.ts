@@ -139,7 +139,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.receiver.kind !== "leaf") {
       const replace = (receiver: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, receiver });
       return !correlated && term.mode === "value" && passiveMember(declaration)
-        ? materializeChild(term.receiver, replace) : replaceChild(term.receiver, replace);
+        ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace);
     }
     const originals = new Set<Node>();
     const selections = term.mode === "execution" ? [
@@ -220,7 +220,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return { kind: "replace", terms, witnesses };
   };
   const materializeChild = (child: SourceStorageTerm,
-    replace: (child: SourceStorageTerm) => SourceStorageTerm, independentCallee?: Node): SourceStorageReduction | undefined => {
+    select: (child: SourceStorageReference) => readonly SourceStorageTerm[] | undefined,
+    independentCallee?: Node): SourceStorageReduction | undefined => {
     const values = readRelation(child);
     if (values === undefined) return undefined;
     const terms: SourceStorageTerm[] = [];
@@ -236,10 +237,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             continue;
           }
         }
-        terms.push(replace(value));
+        const selected = select(value);
+        if (selected === undefined) return undefined;
+        terms.push(...selected);
       }
     }
-    return { kind: "replace", terms, dependencies: [child] };
+    return { kind: "replace", terms };
   };
   const replaceChild = (child: SourceStorageTerm,
     replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStorageReduction | undefined => {
@@ -248,7 +251,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const independent = closed(child);
       if (independent === undefined) return undefined;
       if (independent || context.independentCallee !== undefined)
-        return materializeChild(child, replace, independent ? undefined : context.independentCallee);
+        return materializeChild(child, value => [replace(value)], independent ? undefined : context.independentCallee);
     }
     const selected = reduce(child, context.correlated ?? true);
     return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(replace), dependencies: selected.dependencies,
@@ -267,20 +270,26 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const subject = transport.subject(candidate);
     return subject !== undefined && transport.contextualInputs(subject)?.size === 0 ? candidate : undefined;
   };
+  const guardedLeaf = (reference: Node, value: SourceStorageReference): readonly SourceStorageTerm[] | undefined => {
+    const admitted = transport.guardedValues.admits(value.subject, reference);
+    if (budget.failure() !== undefined) return undefined;
+    if (admitted === false) return [];
+    if (admitted === true) return [value];
+    const guards = transport.guardedValues.conjoin(value.guards, reference);
+    return budget.failure() !== undefined ? undefined : guards === null ? []
+      : guards === value.guards ? [value] : [Object.freeze({ ...value, guards })];
+  };
   const reduce = (term: SourceStorageTerm, correlated = false): SourceStorageReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
     if (term.kind === "guarded") {
       if (term.value.kind !== "leaf") {
         const replace = (value: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, value });
-        return correlated ? replaceChild(term.value, replace, { contributes: false, correlated }) : materializeChild(term.value, replace);
+        return correlated ? replaceChild(term.value, replace, { contributes: false, correlated })
+          : materializeChild(term.value, value => guardedLeaf(term.reference, value));
       }
-      const admitted = transport.guardedValues.admits(term.value.subject, term.reference);
-      if (budget.failure() !== undefined) return undefined;
-      if (admitted === false) return { kind: "replace", terms: [] };
-      const guards = transport.guardedValues.conjoin(term.value.guards, term.reference);
-      return budget.failure() !== undefined ? undefined : { kind: "replace", terms: guards === null ? []
-        : guards === term.value.guards ? [term.value] : [Object.freeze({ ...term.value, guards })] };
+      const terms = guardedLeaf(term.reference, term.value);
+      return terms === undefined ? undefined : { kind: "replace", terms };
     }
     if (term.kind === "execution-root") {
       const terms: SourceStorageTerm[] = [];

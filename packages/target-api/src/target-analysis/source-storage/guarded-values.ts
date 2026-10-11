@@ -23,6 +23,7 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
   const retained = budget.createRows();
   const plans = new Map<Node, GuardPlan | null>();
+  const admissions = new Map<Node, Map<SourceStorageSubject, boolean | null>>();
   const conjunctions = new Map<string, SourceStorageValueGuards | null>();
   const classMatches = (candidate: Node, target: Node): boolean | undefined => budget.withRows(rows => {
     let current = candidate;
@@ -80,8 +81,21 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
   };
   const admits = (owner: SourceStorageSubject, reference: Node): boolean | undefined => {
     if (!budget.step()) return undefined;
-    const selected = selectSourceGuardedValueMembers(context, reference, [owner], guardFor, instanceOf);
-    return budget.failure() !== undefined || selected === undefined ? undefined : selected.length !== 0;
+    const previous = admissions.get(reference);
+    const cached = previous?.get(owner);
+    if (cached !== undefined) return cached ?? undefined;
+    let unknown = false;
+    const selected = selectSourceGuardedValueMembers(context, reference, [owner], guardFor, (subject, predicate) => {
+      const result = instanceOf(subject, predicate);
+      unknown ||= result === undefined;
+      return result;
+    });
+    if (budget.failure() !== undefined || !retained.add(previous === undefined ? 2 : 1)) return undefined;
+    const admitted = selected === undefined ? null : selected.length === 0 ? false : unknown ? null : true;
+    const values = previous ?? new Map<SourceStorageSubject, boolean | null>();
+    values.set(owner, admitted);
+    admissions.set(reference, values);
+    return admitted ?? undefined;
   };
   const conjoin = (existing: SourceStorageValueGuards | undefined, reference: Node): SourceStorageValueGuards | null | undefined =>
     budget.withRows(rows => {

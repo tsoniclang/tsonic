@@ -48,13 +48,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     calls.set(invocation, selected); owners.set(candidate, calls); bindings.set(subject, owners);
     return selected;
   };
-  const dependencies = graph.fixedPoint<SourceStorageSubject | ContextBinding, SourceStorageSubject>((current, read, emit) => {
-    const forward = (subject: SourceStorageSubject | ContextBinding): boolean => {
-      const values = read(subject);
-      if (values === undefined) return false;
-      for (const value of values) if (!budget.step() || !emit(value)) return false;
-      return true;
-    };
+  const dependencies = graph.fixedPoint<SourceStorageSubject | ContextBinding, SourceStorageSubject>((current, read, emit, forward) => {
     const instantiate = (port: SourceStorageSubject, candidate: Node, invocation: Node): boolean => {
       if (!ownsPort(port, candidate)) return true;
       const inputs = queries.invocationInputs(port, candidate, invocation);

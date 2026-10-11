@@ -51,13 +51,17 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     variables.set(key, selected);
     return selected;
   };
-  const variablesFor = graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit) => {
+  const variablesFor = graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit, forward) => {
     if (scope.kind === "variable") return emit(scope);
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
         ...[...scope.entries.values()].flatMap(entries => entries.map(entry => entry.scope))];
     for (const input of inputs) {
       if (!budget.step()) return false;
+      if (scope.kind !== "substitution") {
+        if (!forward(input)) return false;
+        continue;
+      }
       const variables = read(input);
       if (variables === undefined) return false;
       for (const variable of variables) {
