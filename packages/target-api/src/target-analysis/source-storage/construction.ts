@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../../source-navigation/index.js";
+import { AsExpressionWithTypeArguments, Node_Expression, Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 
 export function sourceStorageConstructedClass(
@@ -54,7 +54,7 @@ export function sourceStorageSuperConstructor(
     const heritage = navigation.declaredHeritage(declaration);
     if (heritage.kind !== "resolved") return undefined;
     const bases = heritage.edges.filter(edge => edge.kind === "extends");
-    const callee = bases.length === 1 ? ast.as.AsExpressionWithTypeArguments(bases[0]!.heritage)?.Expression : undefined;
+    const callee = bases.length === 1 ? AsExpressionWithTypeArguments(ast, bases[0]!.heritage)?.Expression : undefined;
     return callee === undefined ? undefined : Object.freeze({ owner, callee });
   }
   return undefined;

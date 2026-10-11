@@ -69,7 +69,8 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/target-analysis/source-storage/global-call-effects.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/invocation-inputs.ts": 1,
   "packages/target-api/src/target-analysis/source-storage/lexical-regions.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/transport.ts": 4,
+  "packages/target-api/src/target-analysis/source-storage/member-accessors.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/transport.ts": 3,
 });
 
 test("every generated shared source-processing AST cast has an exact local kind predicate", async () => {

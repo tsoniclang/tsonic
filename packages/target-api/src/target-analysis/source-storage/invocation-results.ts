@@ -1,4 +1,5 @@
 import type { Node } from "@tsonic/tsts";
+import { AsExpressionWithTypeArguments } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
@@ -54,7 +55,7 @@ export function createSourceStorageInvocationResults(
         for (const edge of heritage.edges) {
           if (!budget.step()) return;
           if (edge.kind !== "extends") continue;
-          const subject = queries.subjectFor(source.ast.as.AsExpressionWithTypeArguments(edge.heritage)?.Expression);
+          const subject = queries.subjectFor(AsExpressionWithTypeArguments(source.ast, edge.heritage)?.Expression);
           const inherited = subject === undefined ? undefined : queries.valuesFor(subject, value.bindings);
           for (const selected of inherited ?? []) if (!budget.step() || !schedule(selected)) return;
         }
