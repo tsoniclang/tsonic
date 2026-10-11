@@ -68,6 +68,9 @@ test("a stopped publication trace does not replace complete values or import ano
     const origins = current.transport.substitutions.origins(current.subject(name), current.transport.substitutions.empty);
     assert.equal(origins !== undefined && origins.has(current.subject(own)) && !origins.has(current.subject(foreign)), true,
       `${name}: a bounded trace never publishes an unfinished or mixed complete value family`);
+    const traced = current.transport.substitutions.walk(current.subject(name), current.transport.substitutions.empty);
+    assert.equal(traced !== undefined && traced.origins.size === origins.size && [...traced.origins].every(origin => origins.has(origin)), true,
+      `${name}: an unstopped relation walk preserves every exact complete origin`);
   }
   assert.equal(current.budget.failure() === undefined, true);
 });
