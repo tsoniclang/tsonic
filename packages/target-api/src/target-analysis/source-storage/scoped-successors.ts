@@ -170,7 +170,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined) {
         terms.push(sourceStorageReference(subject, term.receiver.scope)); continue;
       }
-      if (stores === undefined) { terms.push(sourceStorageReference(subject, term.receiver.scope)); continue; }
+      if (stores === undefined) {
+        terms.push(ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined
+          ? leaf(subject, creatorScope(original, term.receiver.scope)) : sourceStorageReference(subject, term.receiver.scope));
+        continue;
+      }
       for (const store of stores) {
         if (!budget.step()) return undefined;
         if (store.reason !== undefined) continue;

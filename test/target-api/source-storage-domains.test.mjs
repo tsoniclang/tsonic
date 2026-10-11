@@ -700,16 +700,18 @@ test("native method definitions remain original values through reciprocal checke
   const methods = ["Base", "Derived"].map(name => current.source.ast.members(namedDeclaration(current.source.ast, current.file, name))
     .find(node => current.source.ast.is.IsMethodDeclaration(node) && current.source.ast.text(current.source.ast.name(node)) === "echo"));
   const subject = current.subject(current.variable("alias"));
-  for (const selected of [current.storage.originSubjectsFor(subject), current.storage.boundOriginsFor(subject, current.storage.emptyBindings)]) {
-    assert.equal(selected.kind === "resolved", true, "authored callable body supplies a real origin");
-    assert.equal(methods.every(method => selected.subjects.some(origin => origin.kind === "value" && origin.node === method)), true,
-      "all contributing native definitions survive the structural cycle");
-    assert.equal(selected.subjects.every(origin => origin.kind === "value" && methods.includes(origin.node)), true,
-      "no invented receiver, call result or signature origin");
-  }
+  const unbound = current.storage.originSubjectsFor(subject);
+  assert.equal(unbound.kind === "resolved", true, "authored callable bodies supply real unbound origins");
+  assert.equal(methods.every(method => unbound.subjects.some(origin => origin.kind === "value" && origin.node === method)), true,
+    "all global structural contract implementations survive in the unbound graph");
+  assert.equal(unbound.subjects.every(origin => origin.kind === "value" && methods.includes(origin.node)), true,
+    "no invented receiver, call result or signature origin");
+  const bound = current.storage.boundOriginsFor(subject, current.storage.emptyBindings);
+  assert.equal(bound.kind === "resolved" && bound.subjects.length === 1 && bound.subjects[0].kind === "value" &&
+    bound.subjects[0].node === methods[1], true, "the actual Derived instance selects only its own authored override");
   const origins = complete(current.storage.closedOriginsFor(subject), "closed checked method definition origins");
-  assert.equal(origins.every(origin => methods.includes(origin.subject.node)), true);
-  assert.equal(methods.every(method => origins.some(origin => origin.subject.node === method)), true);
+  assert.equal(origins.length === 1 && origins[0].subject.node === methods[1], true,
+    "a global structural cycle cannot manufacture a Base method for the selected Derived instance");
   assert.equal(current.storage.failureReason(), undefined);
 });
 
