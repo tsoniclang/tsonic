@@ -4,8 +4,8 @@ import { createSourceStorageScopedRecursion } from "../../packages/target-api/di
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
-function fixture() {
-  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096 });
+function fixture(limits = {}) {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096, ...limits });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const first = { parameters: [] }; const second = { parameters: [] };
   first.body = { parent: first }; second.body = { parent: second };
@@ -32,9 +32,62 @@ test("recursive call graph publishes one exact complete SCC only after every ori
   const selected = current.recursion.componentFor(current.first);
   assert.equal(selected?.size === 2 && selected.has(current.first) && selected.has(current.second), true);
   assert.equal(current.recursion.componentFor(current.second) === selected, true, "one component identity is shared");
-  assert.equal(current.recursion.edgesFor(current.first)[0].invocation === current.firstCall &&
-    current.recursion.edgesFor(current.first)[0].candidate === current.second, true, "exact checked edge identities survive");
+  assert.equal(current.recursion.incomingFor(current.second)[0].invocation === current.firstCall &&
+    current.recursion.incomingFor(current.second)[0].caller === current.first, true, "exact checked edge identities survive");
+  assert.equal(Object.isFrozen(current.recursion.incomingFor(current.second)), true);
   assert.equal(current.calls() === 2 && current.budget.failure() === undefined, true, "a complete immutable index is reused");
+});
+
+test("selected incoming sites preserve complete recursive rings, self calls and external entry identity within linear work", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4096, maximumSteps: 8192 });
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const owners = Array.from({ length: 128 }, () => ({ parameters: [] }));
+  const external = { parameters: [] };
+  for (const owner of [...owners, external]) {
+    owner.body = { parent: owner };
+    owner.parameters.push({ parent: owner });
+  }
+  const calls = owners.map((caller, index) => ({ region: caller.body, caller, candidate: owners[(index + 1) % owners.length] }));
+  const self = { region: owners[1].body, caller: owners[1], candidate: owners[1] };
+  const entry = { region: external.body, caller: external, candidate: owners[1] };
+  const source = { ast: { parent: node => node.parent, body: node => node.body, parameters: node => node.parameters,
+    is: { IsClassDeclaration: () => false, IsClassExpression: () => false } } };
+  let selections = 0;
+  const recursion = createSourceStorageScopedRecursion(source, budget, {
+    subject, invocations: new Set([...calls, self, entry]), accessorTargets: new Map(),
+    regions: { enclosing: node => node.region }, invocationImplementations: node => {
+      selections += 1;
+      return new Set([node.candidate]);
+    },
+  }, (_formal, _candidate, invocation) => ({ context: "caller",
+    subjects: new Set([subject(invocation.caller.parameters[0], "input")]) }));
+  const component = recursion.componentFor(owners[0]);
+  assert.equal(component?.size === owners.length && owners.every(owner => component.has(owner)) && !component.has(external), true,
+    "graph transposition preserves exact strongly connected membership, not reachability alone");
+  const selected = recursion.incomingFor(owners[1]);
+  assert.equal(selected.length === 3 && selected[0].caller === owners[0] && selected[0].invocation === calls[0] &&
+    selected[1].caller === owners[1] && selected[1].invocation === self && selected[2].caller === external && selected[2].invocation === entry, true,
+    "all original sites retain their exact caller and invocation without unrelated component scans");
+  assert.equal(Object.isFrozen(selected) && selected.every(Object.isFrozen), true);
+  const formal = subject(owners[70].parameters[0], "input", [{ kind: "array-element" }]);
+  const equation = { identity: 0, component, entry: owners[0] };
+  const input = recursion.entryInputFor(formal, { kind: "variable", equation, owner: owners[70] });
+  assert.equal(input === subject(owners[0].parameters[0], "input", formal.projection), true,
+    "only component-internal predecessors prove the same exact projected entry port");
+  for (let repeat = 0; repeat < 100; repeat += 1) assert.equal(recursion.incomingFor(owners[1]) === selected, true);
+  assert.equal(selections === calls.length + 2 && budget.failure() === undefined, true,
+    "one checked graph index serves every demand inside the unchanged finite budget");
+});
+
+test("recursive incoming-index discovery preserves independent finite row and work guards", () => {
+  for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
+    const current = fixture(limits);
+    assert.equal(current.recursion.componentFor(current.first) === undefined, true);
+    assert.equal(current.budget.failure() !== undefined, true, "no partial SCC publishes around exhaustion");
+    assert.equal(current.recursion.componentFor(current.second) === undefined, true, "failure remains sticky on a cached demand");
+    assert.equal(current.recursion.incomingFor(current.second) === undefined, true,
+      "an unavailable graph cannot masquerade as a complete empty call-site relation");
+  }
 });
 
 test("a throwing recursive index releases unpublished rows and retries the entire graph instead of a partial component", () => {

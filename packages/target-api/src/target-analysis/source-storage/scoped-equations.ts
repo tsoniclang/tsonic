@@ -52,14 +52,17 @@ export function createSourceStorageEquations(budget: SourceStorageBudget,
       if (initial === undefined) return undefined;
       alternatives.push(initial);
     }
-    for (const caller of equation.component) for (const edge of recursion.edgesFor(caller)) {
+    const callers = recursion.incomingFor(owner);
+    if (callers === undefined) return undefined;
+    for (const site of callers) {
       if (!budget.step()) return undefined;
-      if (edge.candidate !== owner) continue;
+      const caller = site.caller;
+      if (!equation.component.has(caller)) continue;
       const previous = scopes.variable(equation, caller);
-      const target = transport.invocationTargets.get(edge.invocation);
+      const target = transport.invocationTargets.get(site.invocation);
       if (previous === undefined || target === undefined) return undefined;
-      const capture = scopes.variable(equation, owner, edge.invocation);
-      const frame = capture === undefined ? undefined : scopes.frameFor(owner, edge.invocation, previous, capture, equation);
+      const capture = scopes.variable(equation, owner, site.invocation);
+      const frame = capture === undefined ? undefined : scopes.frameFor(owner, site.invocation, previous, capture, equation);
       const value = frame === undefined ? undefined : replace(frame);
       if (capture === undefined || value === undefined) return undefined;
       alternatives.push(Object.freeze({ kind: "transition", capture,

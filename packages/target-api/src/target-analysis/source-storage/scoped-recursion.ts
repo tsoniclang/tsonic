@@ -9,10 +9,17 @@ import type { SourceStorageVariable } from "./scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
 
+interface SourceStorageIncomingCallSite {
+  readonly invocation: Node;
+  readonly caller: Node;
+}
+
+const noSites: readonly SourceStorageIncomingCallSite[] = Object.freeze([]);
+
 export function createSourceStorageScopedRecursion(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, invocationInputs: SourceStorageInvocationInputQuery) {
   const rows = budget.createRows();
-  let index: { readonly edges: ReadonlyMap<Node, readonly { readonly invocation: Node; readonly candidate: Node }[]>;
+  let index: { readonly incoming: ReadonlyMap<Node, readonly SourceStorageIncomingCallSite[]>;
     readonly recursive: ReadonlyMap<Node, ReadonlySet<Node>> } | undefined;
   const ports = new Map<SourceStorageSubject, ReadonlyMap<Node, SourceStorageSubject> | null>();
   let initializing = false;
@@ -28,7 +35,7 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
     let complete = false;
     initializing = true;
     try {
-      const edges = new Map<Node, { readonly invocation: Node; readonly candidate: Node }[]>();
+      const incoming = new Map<Node, SourceStorageIncomingCallSite[]>();
       const vertices = new Set<Node>();
       const recursive = new Map<Node, ReadonlySet<Node>>();
       for (const invocations of [transport.invocations, transport.accessorTargets.keys()]) for (const invocation of invocations) {
@@ -36,23 +43,22 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
         const owner = ownerFor(invocation);
         if (owner === undefined) continue;
         if (!vertices.has(owner)) { if (!owned.add(1)) return undefined; vertices.add(owner); }
-        const targets = edges.get(owner) ?? [];
-        if (!edges.has(owner) && !owned.add(1)) return undefined;
         for (const candidate of transport.invocationImplementations(invocation)) {
           if (!budget.step()) return undefined;
           if (!vertices.has(candidate)) { if (!owned.add(1)) return undefined; vertices.add(candidate); }
-          if (!owned.add(1)) return undefined;
-          targets.push(Object.freeze({ invocation, candidate }));
+          const callers = incoming.get(candidate) ?? [];
+          if (!owned.add(incoming.has(candidate) ? 1 : 2)) return undefined;
+          callers.push(Object.freeze({ invocation, caller: owner }));
+          incoming.set(candidate, callers);
         }
-        edges.set(owner, targets);
       }
       const resolved = budget.withRows(temporary => {
         if (vertices.size !== 0 && !temporary.add(7 * vertices.size)) return false;
-        const components = targetStronglyConnectedComponents(vertices, owner => (edges.get(owner) ?? []).map(edge => edge.candidate), budget.step);
+        const components = targetStronglyConnectedComponents(vertices, owner => (incoming.get(owner) ?? []).map(site => site.caller), budget.step);
         if (components.kind !== "resolved") { budget.reject(components.reason); return false; }
         for (const members of components.components) {
           if (!budget.step()) return false;
-          if (members.length === 1 && !(edges.get(members[0]!) ?? []).some(edge => edge.candidate === members[0])) continue;
+          if (members.length === 1 && !(incoming.get(members[0]!) ?? []).some(site => site.caller === members[0])) continue;
           if (!owned.add(1 + members.length)) return false;
           const component = new Set(members);
           for (const member of members) { if (!budget.step()) return false; recursive.set(member, component); }
@@ -60,7 +66,11 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
         return true;
       });
       if (!resolved || budget.failure() !== undefined) return undefined;
-      index = Object.freeze({ edges, recursive }); complete = true;
+      for (const sites of incoming.values()) {
+        if (!budget.step()) return undefined;
+        Object.freeze(sites);
+      }
+      index = Object.freeze({ incoming, recursive }); complete = true;
       return index;
     } finally { initializing = false; if (!complete) owned.release(); }
   };
@@ -97,10 +107,11 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
         if (!budget.step()) return undefined;
         const formal = pending.pop()!;
         const owner = formalOwner(formal)!;
-        for (const caller of component) for (const edge of index!.edges.get(caller) ?? []) {
+        for (const site of index!.incoming.get(owner) ?? []) {
           if (!budget.step()) return undefined;
-          if (edge.candidate !== owner) continue;
-          const inputs = invocationInputs(formal, owner, edge.invocation);
+          const caller = site.caller;
+          if (!component.has(caller)) continue;
+          const inputs = invocationInputs(formal, owner, site.invocation);
           if (inputs.context !== "caller" || inputs.subjects.size !== 1) return undefined;
           const input = budget.withRows(temporary => {
             let input = inputs.subjects.values().next().value!;
@@ -138,7 +149,10 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
   };
   return Object.freeze({ ownerFor, entryInputFor,
     componentFor: (candidate: Node): ReadonlySet<Node> | undefined => initialize()?.recursive.get(candidate),
-    edgesFor: (caller: Node) => initialize()?.edges.get(caller) ?? [] });
+    incomingFor: (candidate: Node): readonly SourceStorageIncomingCallSite[] | undefined => {
+      const selected = initialize();
+      return selected === undefined ? undefined : selected.incoming.get(candidate) ?? noSites;
+    } });
 }
 
 export type SourceStorageScopedRecursion = ReturnType<typeof createSourceStorageScopedRecursion>;
