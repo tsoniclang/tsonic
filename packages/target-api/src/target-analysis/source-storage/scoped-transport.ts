@@ -1,6 +1,7 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
+import type { SourceStorageStoredProjection } from "./store-projections.js";
 import type { SourceStorageCallEffect } from "./types.js";
 import type { createSourceStorageExecutionRegions } from "./execution-regions.js";
 import type { createSourceStorageMemberFlow } from "./member-flow.js";
@@ -23,7 +24,7 @@ export interface SourceStorageScopedTransport {
   incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
   readonly contextualInputs: ReturnType<typeof createSourceStorageContextInputs>;
   contextLocation(subject: SourceStorageSubject): SourceStorageContextLocation | undefined;
-  storedValuesFor(subject: SourceStorageSubject): Iterable<SourceStorageStore> | undefined;
+  storedValuesFor(subject: SourceStorageSubject): readonly SourceStorageStoredProjection[] | undefined;
   storesIn(region: Node): Iterable<SourceStorageStore> | undefined;
   invocationImplementations(invocation: Node): ReadonlySet<Node>;
   memberAccessorsFor(declaration: Node): ReadonlySet<Node> | undefined;

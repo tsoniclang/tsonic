@@ -45,6 +45,71 @@ test("generic nested array calls retain finite checked types and exact scoped or
   }
 });
 
+for (const access of ["this.values", 'this["values"]']) for (const tuple of [false, true]) {
+  test(`projected ${tuple ? "tuple" : "array"} stores retain writer activation and physical receiver for ${access}`, () => {
+    const current = fixture(`
+      function identity<Value>(value: Value): Value { return value; }
+      class Box {
+        values: ${tuple ? "[object]" : "object[]"};
+        constructor(value: object) { this.values = [value]; }
+        replace(value: object): void { ${access} = [identity(value)]; }
+        read(): object { return ${access}[0]!; }
+      }
+      const initial = {}; const replacement = {}; const otherInitial = {}; const otherReplacement = {};
+      const first = new Box(initial); const second = new Box(otherInitial);
+      first.replace(replacement); second.replace(otherReplacement);
+      const one = first.read(); const two = second.read();
+    `);
+    current.expect("one", ["initial", "replacement"]);
+    current.expect("two", ["otherInitial", "otherReplacement"]);
+  });
+}
+
+test("projected closure-owned stores do not execute uninvoked writers or mix captured activations", () => {
+  const current = fixture(`
+    function make(seed: object) {
+      const values: object[][] = [[seed]];
+      return {
+        replace(value: object): void { values[0] = [value]; },
+        read(): object { return values[0]![0]!; },
+      };
+    }
+    const initial = {}; const replacement = {}; const other = {}; const unused = {};
+    const first = make(initial); const second = make(other);
+    first.replace(replacement);
+    function never(): void { second.replace(unused); }
+    const one = first.read(); const two = second.read();
+  `);
+  current.expect("one", ["initial", "replacement"]);
+  current.expect("two", ["other"]);
+});
+
+test("abstract local queries retain writes in their own entry region without inventing a caller", () => {
+  const current = fixture(`
+    const initial = {}; const replacement = {};
+    export function choose(flag: boolean): object {
+      let value: object = initial;
+      if (flag) value = replacement;
+      const selected = value;
+      return selected;
+    }
+  `);
+  current.expect("selected", ["initial", "replacement"]);
+});
+
+test("implicit construction retains initializer receivers inside an uninvoked exported entry", () => {
+  const current = fixture(`
+    const token = {};
+    export class Box { readonly value: object = token; }
+    export function inspect(): object {
+      const box = new Box();
+      const selected = box.value;
+      return selected;
+    }
+  `);
+  current.expect("selected", ["token"]);
+});
+
 for (const exported of [false, true]) for (const access of ["value.value", 'value["value"]']) for (const reverse of [false, true]) {
   test(`recursive data projection retains separate tree entries (${exported ? "exported" : "private"}, ${access}, ${reverse})`, () => {
     const current = fixture(`

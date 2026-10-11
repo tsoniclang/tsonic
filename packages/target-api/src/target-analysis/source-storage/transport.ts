@@ -23,6 +23,7 @@ import { snapshotSourceStorageCallEffect } from "./call-effects.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "./member-flow.js";
 import { createSourceStorageStoredValues } from "./stored-values.js";
+import { createSourceStorageStoreProjections } from "./store-projections.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "./graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
 import { createSourceStorageAncestorQuery } from "./ancestors.js";
@@ -628,10 +629,11 @@ export function createSourceStorageTransport(
     bindingsFor: (candidate, invocation, bindings, captured) => substitutions.forInvocation(candidate, invocation, bindings, captured),
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
+  const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
-    storedValuesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
+    storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);
   const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject,
@@ -669,7 +671,7 @@ export function createSourceStorageTransport(
   sealed = true;
   return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
-    storedValuesFor: storedValues.storesFor,
+    storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,

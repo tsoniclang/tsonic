@@ -20,7 +20,7 @@ function fixture(body) {
     predicate(node) && source.ast.text(source.ast.name(node)) === name);
   const field = name => declaration(name, source.ast.is.IsPropertyDeclaration);
   const variable = name => declaration(name, source.ast.is.IsVariableDeclaration);
-  const stores = (node, kind) => [...transport.storedValuesFor(transport.subject(node, kind)) ?? []];
+  const stores = (node, kind) => [...transport.storesFor(transport.subject(node, kind)) ?? []];
   return { source, budget, transport, declaration, field, variable, stores };
 }
 

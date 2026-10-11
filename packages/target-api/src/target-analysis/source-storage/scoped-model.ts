@@ -63,7 +63,7 @@ export type SourceStorageTerm =
   | { readonly kind: "transition"; readonly capture: SourceStorageVariable;
       readonly condition: SourceStorageTerm; readonly value: SourceStorageTerm }
   | { readonly kind: "guarded"; readonly reference: Node; readonly value: SourceStorageTerm }
-  | { readonly kind: "store"; readonly destination: SourceStorageReference; readonly receiver: SourceStorageTerm;
+  | { readonly kind: "store"; readonly destination: SourceStorageTerm; readonly receiver: SourceStorageTerm;
       readonly value: SourceStorageTerm }
   | { readonly kind: "execution-root"; readonly demand: Node }
   | { readonly kind: "region"; readonly region: Node; readonly scope: SourceStorageScope; readonly demand: Node }

@@ -43,6 +43,27 @@ export function createSourceStorageEdges(
     destinations.set(destination.node, kinds);
     return true;
   };
+  const projectOrigin = (origin: SourceStorageSubject, destination: SourceStorageSubject, selected: SourceStorageSubject,
+    collect: (origin: SourceStorageSubject) => void): void => {
+    if (destination.node !== selected.node || destination.kind !== selected.kind ||
+      destination.projection.length > selected.projection.length || !destination.projection.every((component, index) =>
+        equalProjection(component, selected.projection[index]!))) return;
+    const remaining = selected.projection.slice(destination.projection.length);
+    if (remaining.length === 0) { collect(origin); return; }
+    const fromFile = sourceFileFor(origin);
+    const toFile = sourceFileFor(destination);
+    const variants = destinations.get(destination.node)?.get(destination.kind)?.components.get(destination)?.get(origin);
+    for (const types of variants ?? [undefined]) {
+      if (!budget.step()) return;
+      const from = types?.from ?? sourceStorageSubjectType(source, origin, fromFile);
+      const to = types?.to ?? sourceStorageSubjectType(source, destination, toFile);
+      if (from === undefined || to === undefined || fromFile === undefined) continue;
+      projectEdge(origin, from, to, remaining, source.semantics.forFile(fromFile), budget, projection => {
+        const projected = subject(origin.node, origin.kind, projection);
+        if (projected !== undefined) collect(projected);
+      });
+    }
+  };
   const incomingFor: SourceStorageIncomingQuery = selected => {
     const destinationEdges = destinations.get(selected.node)?.get(selected.kind);
     const revision = destinationEdges?.revision ?? 0;
@@ -56,28 +77,12 @@ export function createSourceStorageEdges(
     try {
       for (const [destination, origins] of destinationEdges?.components ?? []) {
         if (!budget.step()) break;
-        if (destination.projection.length > selected.projection.length || !destination.projection.every((component, index) =>
-          equalProjection(component, selected.projection[index]!))) continue;
-        const remaining = selected.projection.slice(destination.projection.length);
-        for (const [origin, variants] of origins) {
+        for (const origin of origins.keys()) {
           if (!budget.step()) break;
-          if (remaining.length === 0) {
-            if (!result.has(origin) && retained.add(1)) result.add(origin);
-            continue;
-          }
-          const fromFile = sourceFileFor(origin);
-          const toFile = sourceFileFor(destination);
-          for (const types of variants) {
-            if (!budget.step()) break;
-            const from = types?.from ?? sourceStorageSubjectType(source, origin, fromFile);
-            const to = types?.to ?? sourceStorageSubjectType(source, destination, toFile);
-            if (from === undefined || to === undefined || fromFile === undefined) continue;
-            const semantics = source.semantics.forFile(fromFile);
-            projectEdge(origin, from, to, remaining, semantics, budget, projection => {
-              const projected = subject(origin.node, origin.kind, projection);
-              if (projected !== undefined && projected !== selected && !result.has(projected) && budget.edge() && retained.add(1)) result.add(projected);
-            });
-          }
+          projectOrigin(origin, destination, selected, projected => {
+            if (projected !== selected && !result.has(projected) &&
+              (projected === origin || budget.edge()) && retained.add(1)) result.add(projected);
+          });
         }
       }
       selections.set(selected, { revision, origins: result, release: retained.release });
@@ -87,7 +92,7 @@ export function createSourceStorageEdges(
       if (!completed) retained.release();
     }
   };
-  return Object.freeze({ add, incomingFor });
+  return Object.freeze({ add, incomingFor, projectOrigin });
 }
 
 function projectEdge(

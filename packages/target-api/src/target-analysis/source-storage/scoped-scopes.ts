@@ -166,7 +166,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const destination = applyTerm(term.destination, replacements);
       const receiver = applyTerm(term.receiver, replacements);
       const value = applyTerm(term.value, replacements);
-      return destination?.kind !== "leaf" && destination?.kind !== "reference" || receiver === undefined || value === undefined
+      return destination === undefined || receiver === undefined || value === undefined
         ? undefined : Object.freeze({ ...term, destination, receiver, value });
     }
     const scope = applyScope(term.scope, replacements);

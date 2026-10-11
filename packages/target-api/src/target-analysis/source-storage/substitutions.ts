@@ -107,8 +107,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       break;
     }
     if (term.kind === "store") {
+      const destination = normalize(term.destination, witnesses, temporary, false);
       const receiver = normalize(term.receiver, witnesses, temporary, false); const value = normalize(term.value, witnesses, temporary, contributes);
-      return receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, receiver, value });
+      return destination === undefined || receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, destination, receiver, value });
     }
     if (term.kind === "guarded") {
       let current: SourceStorageTerm = term;
