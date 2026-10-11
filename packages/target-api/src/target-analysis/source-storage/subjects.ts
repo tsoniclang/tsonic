@@ -17,6 +17,13 @@ export type SourceStorageSubjectQuery = (
   projection?: readonly SourceStorageProjection[],
 ) => SourceStorageSubject | undefined;
 
+export function sourceStorageFormalOwner(subject: SourceStorageSubject, ast: AstReader): Node | undefined {
+  if (subject.kind === "receiver") return subject.node;
+  if (subject.kind !== "input" || !ast.is.IsParameterDeclaration(subject.node)) return undefined;
+  const owner = ast.parent(subject.node);
+  return owner !== undefined && ast.parameters(owner).includes(subject.node) ? owner : undefined;
+}
+
 export function sourceStorageIsDataMember(node: Node, ast: AstReader): boolean {
   return ast.is.IsPropertyDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node) ||
     ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node) || sourceParameterIsProperty(ast, node);

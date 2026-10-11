@@ -24,7 +24,8 @@ function fixture(limits = {}, length = 50) {
     IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
     IsVariableDeclaration: () => false, IsParameterDeclaration: node => node === parameter || node === innerParameter },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
-    parameters: node => node.parameters, body: () => undefined } };
+    parameters: node => node.parameters, body: () => undefined,
+    parent: node => node === parameter ? outer : node === innerParameter ? inner : node === inner ? outer : undefined } };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(source, budget, subject,

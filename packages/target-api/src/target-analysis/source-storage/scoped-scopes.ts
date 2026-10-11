@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import { sourceStorageFormalOwner } from "./subjects.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import { sourceStorageReference } from "./scoped-model.js";
@@ -53,7 +54,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const variablesFor = graphQueries.fixedPoint<SourceStorageScope, SourceStorageVariable>((scope, read, emit) => {
     if (scope.kind === "variable") return emit(scope);
     const inputs = scope.kind === "substitution" ? [scope.scope]
-      : [...scope.parents, ...[...scope.entries.values()].flatMap(entries => entries.map(entry => entry.scope))];
+      : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
+        ...[...scope.entries.values()].flatMap(entries => entries.map(entry => entry.scope))];
     for (const input of inputs) {
       if (!budget.step()) return false;
       const variables = read(input);
@@ -203,6 +205,14 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   };
   const selectVariable = (origin: SourceStorageSubject, variable: SourceStorageVariable,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
+    const owner = sourceStorageFormalOwner(origin, source.ast);
+    if (owner === undefined) return undefined;
+    let lexical = variable.capture === undefined ? variable.owner : source.ast.parent(variable.owner);
+    while (lexical !== undefined && lexical !== owner) {
+      if (!budget.step()) return undefined;
+      lexical = source.ast.parent(lexical);
+    }
+    if (lexical !== owner) return undefined;
     const initial = entryInputFor(origin, variable);
     if (initial === undefined) return Object.freeze({ kind: "expand", variable });
     if (!retain(1)) return undefined;
@@ -219,7 +229,11 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         { replacements: scope.substitutions, parent: undefined }, retain) : undefined);
     }
     for (const current of traverse(scope)) {
-      if (current.scope.kind === "variable") return selectVariable(origin, current.scope, current.path, retain);
+      if (current.scope.kind === "variable") {
+        const selected = selectVariable(origin, current.scope, current.path, retain);
+        if (selected !== undefined) return selected;
+        continue;
+      }
       const entries = current.scope.entries.get(root);
       if (entries !== undefined) return selectEntries(origin, entries, current.path, retain);
     }
@@ -250,7 +264,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (cached !== undefined) return cached;
     const entries = new Map<SourceStorageSubject, readonly SourceStorageReference[]>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, equation, entries,
-      parents: Object.freeze(captured === parent ? [parent] : [captured, parent]) });
+      parents: Object.freeze([captured]) });
     const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? [] : source.ast.parameters(candidate);
     for (const parameter of [...parameters, candidate]) {
       if (parameter === undefined) continue;

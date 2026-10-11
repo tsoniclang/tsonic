@@ -13,7 +13,8 @@ function fixture(limits = {}) {
   first.parameters.push(firstInput); second.parameters.push(secondInput);
   const firstCall = { region: first.body }; const secondCall = { region: second.body };
   const source = { ast: { parent: node => node.parent, body: node => node.body,
-    parameters: node => node.parameters, is: { IsClassDeclaration: () => false, IsClassExpression: () => false } } };
+    parameters: node => node.parameters, is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
+      IsParameterDeclaration: node => node === firstInput || node === secondInput } } };
   let calls = 0; let inspect = () => {}; let context = "caller";
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([firstCall, secondCall]), accessorTargets: new Map(),
@@ -50,8 +51,9 @@ test("selected incoming sites preserve complete recursive rings, self calls and 
   const calls = owners.map((caller, index) => ({ region: caller.body, caller, candidate: owners[(index + 1) % owners.length] }));
   const self = { region: owners[1].body, caller: owners[1], candidate: owners[1] };
   const entry = { region: external.body, caller: external, candidate: owners[1] };
+  const parameters = new Set([...owners, external].flatMap(owner => owner.parameters));
   const source = { ast: { parent: node => node.parent, body: node => node.body, parameters: node => node.parameters,
-    is: { IsClassDeclaration: () => false, IsClassExpression: () => false } } };
+    is: { IsClassDeclaration: () => false, IsClassExpression: () => false, IsParameterDeclaration: node => parameters.has(node) } } };
   let selections = 0;
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([...calls, self, entry]), accessorTargets: new Map(),

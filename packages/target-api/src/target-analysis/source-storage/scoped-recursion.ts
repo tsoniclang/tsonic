@@ -5,6 +5,7 @@ import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { SourceStorageSubject } from "./subjects.js";
+import { sourceStorageFormalOwner } from "./subjects.js";
 import type { SourceStorageVariable } from "./scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
@@ -74,12 +75,7 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
       return index;
     } finally { initializing = false; if (!complete) owned.release(); }
   };
-  const formalOwner = (subject: SourceStorageSubject): Node | undefined => {
-    if (subject.kind === "receiver") return subject.node;
-    if (subject.kind !== "input") return undefined;
-    const owner = source.ast.parent(subject.node);
-    return owner !== undefined && source.ast.parameters(owner).includes(subject.node) ? owner : undefined;
-  };
+  const formalOwner = (subject: SourceStorageSubject): Node | undefined => sourceStorageFormalOwner(subject, source.ast);
   const invariantPorts = (root: SourceStorageSubject, component: ReadonlySet<Node>): ReadonlyMap<Node, SourceStorageSubject> | undefined => {
     if (ports.has(root)) return ports.get(root) ?? undefined;
     const owned = budget.createRows();
