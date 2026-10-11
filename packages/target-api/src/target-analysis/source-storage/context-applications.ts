@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
-import type { createSourceStorageGraphQueries } from "./graph-queries.js";
+import type { createSourceStorageGraphQueries, SourceStorageForwardSelection } from "./graph-queries.js";
 import type { SourceStorageContextFootprint } from "./context-footprints.js";
 import type { SourceStorageContextLocation } from "./context-locations.js";
 
@@ -27,6 +27,9 @@ interface ContextBinding {
   readonly invocation: Node;
 }
 
+type ContextSubject = SourceStorageSubject | ContextBinding;
+type ContextSelection = SourceStorageForwardSelection<ContextSubject, SourceStorageSubject>;
+
 export function createSourceStorageContextApplications(source: TargetSourceProgram, budget: SourceStorageBudget,
   queries: ContextApplicationQueries, graph: ReturnType<typeof createSourceStorageGraphQueries>) {
   const rows = budget.createRows();
@@ -48,29 +51,22 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     calls.set(invocation, selected); owners.set(candidate, calls); bindings.set(subject, owners);
     return selected;
   };
-  const dependencies = graph.fixedPoint<SourceStorageSubject | ContextBinding, SourceStorageSubject>((current, read, emit, forward) => {
-    const instantiate = (port: SourceStorageSubject, candidate: Node, invocation: Node): boolean => {
-      if (!ownsPort(port, candidate)) return true;
-      const inputs = queries.invocationInputs(port, candidate, invocation);
-      for (const input of inputs.subjects) {
-        if (!budget.step()) return false;
-        if (input === port) { if (!emit(port)) return false; continue; }
-        const selected = inputs.context === "callee" ? binding(input, candidate, invocation) : input;
-        if (selected === undefined || !forward(selected)) return false;
-      }
-      return budget.failure() === undefined;
-    };
-    if (current.kind === "binding") {
-      const values = read(current.subject);
-      if (values === undefined) return false;
-      for (const value of values) {
-        if (!budget.step()) return false;
-        if (ownsPort(value, current.candidate)) {
-          if (!instantiate(value, current.candidate, current.invocation)) return false;
-        } else if (!emit(value)) return false;
-      }
-      return budget.failure() === undefined;
+  const instantiate = (port: SourceStorageSubject, candidate: Node, invocation: Node): readonly ContextSelection[] | undefined => {
+    if (!ownsPort(port, candidate)) return [];
+    const result: ContextSelection[] = [];
+    const inputs = queries.invocationInputs(port, candidate, invocation);
+    for (const input of inputs.subjects) {
+      if (!budget.step()) return undefined;
+      if (input === port) { result.push({ kind: "value", value: port }); continue; }
+      const selected = inputs.context === "callee" ? binding(input, candidate, invocation) : input;
+      if (selected === undefined) return undefined;
+      result.push({ kind: "relation", key: selected });
     }
+    return budget.failure() === undefined ? result : undefined;
+  };
+  const dependencies = graph.fixedPoint<ContextSubject, SourceStorageSubject>((current, _read, emit, forward) => {
+    if (current.kind === "binding") return forward(current.subject, value => ownsPort(value, current.candidate)
+      ? instantiate(value, current.candidate, current.invocation) : [{ kind: "value", value }]);
     if (isPort(current)) return emit(current);
     const location = queries.locationFor(current);
     if (location !== undefined && !emit(current)) return false;
@@ -93,13 +89,8 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     for (const candidate of candidates) {
       if (!budget.step()) return false;
       const result = queries.subject(candidate, "return", current.projection);
-      const values = result === undefined ? undefined : read(result);
-      if (values === undefined) return false;
-      for (const value of values) {
-        if (!budget.step()) return false;
-        if (isPort(value)) { if (!instantiate(value, candidate, current.node)) return false; }
-        else if (queries.ownerFor(value.node) === candidate && !emit(current)) return false;
-      }
+      if (result === undefined || !forward(result, value => isPort(value) ? instantiate(value, candidate, current.node)
+        : queries.ownerFor(value.node) === candidate ? [{ kind: "value", value: current }] : [])) return false;
     }
     return budget.failure() === undefined;
   });

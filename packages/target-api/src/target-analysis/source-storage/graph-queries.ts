@@ -29,11 +29,11 @@ interface Reaction {
   entry: QueryEntry | undefined;
 }
 
-type ForwardSelection<Key, Value> =
+export type SourceStorageForwardSelection<Key, Value> =
   | { readonly kind: "value"; readonly value: Value }
   | { readonly kind: "relation"; readonly key: Key };
 
-type ValueProjection<Key, Value> = ((value: Value) => readonly ForwardSelection<Key, Value>[] | undefined) | undefined;
+type ValueProjection<Key, Value> = ((value: Value) => readonly SourceStorageForwardSelection<Key, Value>[] | undefined) | undefined;
 
 interface FixedPointTransfer<Key, Value> {
   readonly projections: Set<ValueProjection<Key, Value>>;
