@@ -221,29 +221,16 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const materializeChild = (child: SourceStorageTerm,
     select: (child: SourceStorageReference) => readonly SourceStorageTerm[] | undefined,
-    independentCallee?: Node): SourceStorageReduction | undefined => {
-    const values = readRelation(child);
-    if (values === undefined) return undefined;
-    const terms: SourceStorageTerm[] = [];
-    for (const value of values) {
-      if (!budget.step()) return undefined;
-      if (value.kind === "unresolved") terms.push(value);
-      else if (value.kind === "leaf") {
-        if (independentCallee !== undefined) {
-          const selected = navigation.callableImplementation(value.subject.node);
-          if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
-            terms.push(Object.freeze({ kind: "unresolved", subject: value.subject, scope: value.scope,
-              reason: "Source storage shared dispatch requires its exact context-independent implementation." }));
-            continue;
-          }
+    independentCallee?: Node): SourceStorageReduction => ({ kind: "project", input: child, select: value => {
+      if (independentCallee !== undefined) {
+        const selected = navigation.callableImplementation(value.subject.node);
+        if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
+          return [Object.freeze({ kind: "unresolved", subject: value.subject, scope: value.scope,
+            reason: "Source storage shared dispatch requires its exact context-independent implementation." })];
         }
-        const selected = select(value);
-        if (selected === undefined) return undefined;
-        terms.push(...selected);
       }
-    }
-    return { kind: "replace", terms };
-  };
+      return select(value);
+    } });
   const replaceChild = (child: SourceStorageTerm,
     replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStorageReduction | undefined => {
     if (child.kind === "unresolved") return { kind: "replace", terms: [child] };
@@ -254,6 +241,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return materializeChild(child, value => [replace(value)], independent ? undefined : context.independentCallee);
     }
     const selected = reduce(child, context.correlated ?? true);
+    if (selected?.kind === "project") return { kind: "project", input: selected.input,
+      select: value => selected.select(value)?.map(replace) };
     return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(replace), dependencies: selected.dependencies,
       witnesses: [...(selected.witnesses ?? []).map(witness => context.contributes !== false ? witness : { ...witness, contributes: false }),
         ...child.kind === "reference" || child.kind === "leaf"
@@ -471,5 +460,5 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       dependencies: transport.invocations.has(node) || transport.accessorTargets.has(node)
       ? dispatchDependencies(node, term.scope) : undefined };
   };
-  return Object.freeze({ reduce, guardedLeaf });
+  return Object.freeze({ reduce });
 }

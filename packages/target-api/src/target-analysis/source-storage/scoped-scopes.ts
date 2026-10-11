@@ -8,7 +8,7 @@ import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import { createSourceStorageScopedTraversal } from "./scoped-traversal.js";
 import type { SourceStorageSubstitutionPath } from "./scoped-traversal.js";
-import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageReduction, SourceStorageReference,
+import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageBinding, SourceStorageReference,
   SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "./scoped-model.js";
 
 function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
@@ -82,11 +82,11 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     readonly add: (cost: number) => boolean;
     readonly owners: Map<SourceStorageScope, Map<Node, SourceStorageScope | null>>;
     readonly families: Map<SourceStorageScope, SourceStorageEquation | null>;
-    readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>;
+    readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageBinding | null>>;
   }
   const withTraversal = scopedMemo<TraversalMemo>(budget, add => ({ add, owners: new Map(), families: new Map(), lookups: new Map() }));
   const withQueryMemo = scopedMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>(),
-    lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>() }));
+    lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageBinding | null>>() }));
   const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
     [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
       .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
@@ -196,7 +196,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return selected;
   };
   const selectEntries = (origin: SourceStorageSubject, entries: readonly SourceStorageReference[],
-    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
+    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageBinding | undefined => {
     const terms: SourceStorageTerm[] = [];
     for (const entry of entries) {
       if (!budget.step() || !retain(1)) return undefined;
@@ -208,7 +208,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
   };
   const selectVariable = (origin: SourceStorageSubject, variable: SourceStorageVariable,
-    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
+    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageBinding | undefined => {
     const owner = sourceStorageFormalOwner(origin, source.ast);
     if (owner === undefined) return undefined;
     let lexical = variable.capture === undefined ? variable.owner : source.ast.parent(variable.owner);
@@ -224,7 +224,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]) });
   };
   const selectInput = (origin: SourceStorageSubject, root: SourceStorageSubject, scope: SourceStorageScope,
-    retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
+    retain: (cost: number) => boolean): SourceStorageBinding | undefined => {
     if (scope.kind === "variable") return selectVariable(origin, scope, undefined, retain);
     const local = (scope.kind === "substitution" ? scope.scope : scope).entries.get(root);
     if (local !== undefined) {
@@ -243,7 +243,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return undefined;
   };
-  const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
+  const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageBinding | undefined => {
     if (!budget.step() || origin.kind !== "input" && origin.kind !== "receiver") return undefined;
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
@@ -254,7 +254,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (retained !== undefined) return retained ?? undefined;
       const selected = selectInput(origin, root, scope, memo.add);
       if (budget.failure() !== undefined || !memo.add(selections === undefined ? 2 : 1)) return undefined;
-      const inputs = selections ?? new Map<SourceStorageSubject, SourceStorageReduction | null>();
+      const inputs = selections ?? new Map<SourceStorageSubject, SourceStorageBinding | null>();
       inputs.set(origin, selected ?? null); memo.lookups.set(scope, inputs);
       return selected;
     });

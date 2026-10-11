@@ -195,14 +195,16 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     currentRead = term => select(term, false);
     try {
       if (current.kind === "leaf" || current.kind === "unresolved" || current.kind === "effect") return emit(current, true);
-      if (current.kind === "guarded") {
-        const input = retain(current.value, false);
+      const selected = successors.reduce(current);
+      if (selected === undefined) return budget.failure() === undefined;
+      if (selected.kind === "project") {
+        const input = retain(selected.input, false);
         return input !== undefined && project(input, value => scopes.withTraversal(() => {
-          const selected = value.kind === "leaf" ? successors.guardedLeaf(current.reference, value)
+          const projected = value.kind === "leaf" ? selected.select(value)
             : value.kind === "unresolved" ? [value] : [];
-          if (selected === undefined) return undefined;
+          if (projected === undefined) return undefined;
           const outputs: SourceStorageTerm[] = [];
-          for (const output of selected) {
+          for (const output of projected) {
             if (!budget.step()) return undefined;
             const normalized = retain(output);
             if (normalized === undefined) return undefined;
@@ -211,8 +213,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           return outputs;
         }));
       }
-      const selected = successors.reduce(current);
-      if (selected === undefined) return budget.failure() === undefined;
       for (const dependency of selected.kind === "replace" ? selected.dependencies ?? [] : []) {
         if (!budget.step() || retain(dependency, false) === undefined) return false;
       }
@@ -249,7 +249,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     } finally { currentRead = previousRead; }
   });
   const results = graphQueries.fixedPoint<SourceStorageTerm, SourceStorageTerm>((current, read, emit, forward) =>
-    derive(current, read, (term, direct) => direct ? emit(term) : forward(term), forward));
+    derive(current, read, (term, direct) => direct ? emit(term) : forward(term), (input, select) =>
+      forward(input, value => select(value)?.map(term => term.kind === "leaf" || term.kind === "unresolved"
+        ? { kind: "value", value: term } : { kind: "relation", key: term }))));
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined => intern(sourceStorageReference(origin, scope));
   const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => scopes.withQuery(() => {
     const root = selectRoot(origin, scope);

@@ -69,11 +69,15 @@ export type SourceStorageTerm =
   | { readonly kind: "region"; readonly region: Node; readonly scope: SourceStorageScope; readonly demand: Node }
   | { readonly kind: "effect"; readonly store: SourceStorageStore; readonly scope: SourceStorageScope };
 
-export type SourceStorageReduction =
-  | { readonly kind: "replace"; readonly terms: readonly SourceStorageTerm[];
-      readonly witnesses?: readonly SourceStorageRelationWitness[];
-      readonly dependencies?: readonly SourceStorageTerm[] }
+export type SourceStorageBinding =
+  | { readonly kind: "replace"; readonly terms: readonly SourceStorageTerm[] }
   | { readonly kind: "expand"; readonly variable: SourceStorageVariable };
+
+export type SourceStorageReduction =
+  | SourceStorageBinding & { readonly witnesses?: readonly SourceStorageRelationWitness[];
+      readonly dependencies?: readonly SourceStorageTerm[] }
+  | { readonly kind: "project"; readonly input: SourceStorageTerm;
+      readonly select: (value: SourceStorageReference) => readonly SourceStorageTerm[] | undefined };
 
 export interface SourceStorageScopedSubject {
   readonly subject: SourceStorageSubject;

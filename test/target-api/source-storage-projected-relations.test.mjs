@@ -10,6 +10,8 @@ function fixture(limits = {}) {
   return { budget, graph };
 }
 
+const outputs = (...values) => values.map(value => ({ kind: "value", value }));
+
 test("projected recursive forwarding transforms each new immutable value once rather than rereading prefixes", () => {
   const current = fixture({ maximumSteps: 65_536 });
   const count = 128;
@@ -17,7 +19,7 @@ test("projected recursive forwarding transforms each new immutable value once ra
   let projections = 0;
   const selected = current.graph.fixedPoint((key, _read, emit, forward) => {
     collections += 1;
-    if (key === "even") return forward(0, value => { projections += 1; return value % 2 === 0 ? [value] : []; });
+    if (key === "even") return forward(0, value => { projections += 1; return value % 2 === 0 ? outputs(value) : []; });
     return emit(key) && forward((key + 1) % count);
   });
   const result = selected("even");
@@ -34,8 +36,8 @@ for (const reverse of [false, true]) {
     const current = fixture();
     let maps = 0;
     let filters = 0;
-    const map = value => { maps += 1; return [value + 10]; };
-    const filter = value => { filters += 1; return value === 2 ? [20] : []; };
+    const map = value => { maps += 1; return outputs(value + 10); };
+    const filter = value => { filters += 1; return value === 2 ? outputs(20) : []; };
     const selected = current.graph.fixedPoint((key, _read, emit, forward) => {
       if (key === "input") return emit(1) && emit(2);
       const projections = [undefined, map, filter, map];
@@ -56,7 +58,7 @@ test("a positive recursive value transformation reaches its exact fixed point", 
   let collections = 0;
   const selected = current.graph.fixedPoint((key, _read, emit, forward) => {
     collections += 1;
-    return emit(0) && forward(key, value => value < 63 ? [value + 1] : []);
+    return emit(0) && forward(key, value => value < 63 ? outputs(value + 1) : []);
   });
   const result = selected("cycle");
   assert.equal(result?.size === 64 && Array.from({ length: 64 }, (_, value) => value).every(value => result.has(value)), true);
@@ -67,7 +69,7 @@ test("a positive recursive value transformation reaches its exact fixed point", 
 test("projected forwarding of completed operands preserves independent parents and exact empty results", () => {
   const current = fixture();
   const selected = current.graph.fixedPoint((key, _read, emit, forward) => key === "input" ? emit(7)
-    : forward("input", value => key === "empty" ? [] : [value + key]));
+    : forward("input", value => key === "empty" ? [] : outputs(value + key)));
   const original = selected("input");
   assert.equal(selected("empty")?.size, 0);
   assert.deepEqual([...selected(1)], [8]);
@@ -84,7 +86,7 @@ test("a reevaluated projected collector cannot retract an already proved value",
     const trigger = read("trigger");
     if (trigger === undefined) return false;
     const initial = trigger.size === 0;
-    return forward("input", value => initial ? [value] : []);
+    return forward("input", value => initial ? outputs(value) : []);
   });
   assert.equal(selected("parent") === undefined, true);
   assert.match(current.budget.failure(), /cannot retract/u);
@@ -103,9 +105,9 @@ test("a monotonic collector replaces projected edges before a delayed child publ
     if (trigger === undefined) return false;
     const ready = trigger.size !== 0;
     return forward("input", value => {
-      if (ready) { currentProjections += 1; return [value]; }
+      if (ready) { currentProjections += 1; return outputs(value); }
       staleProjections += 1;
-      return [value + 100];
+      return outputs(value + 100);
     });
   });
   assert.deepEqual([...selected("parent")], [7]);
@@ -122,7 +124,7 @@ test("projection reevaluation can add an exact alternative without losing previo
     const trigger = read("trigger");
     if (trigger === undefined) return false;
     const ready = trigger.size !== 0;
-    return forward("input", value => ready ? [value, value + 1] : [value]);
+    return forward("input", value => ready ? outputs(value, value + 1) : outputs(value));
   });
   assert.deepEqual([...selected("parent")].sort(), [3, 4]);
   assert.deepEqual([...selected("input")], [3]);
@@ -141,7 +143,7 @@ test("an unavailable projection fails closed instead of publishing a partial ide
 test("a deferred projection cannot keep its collector's write capability alive", () => {
   const current = fixture();
   const selected = current.graph.fixedPoint((key, _read, emit, forward) => key === "input" ? emit(1)
-    : forward("input", value => emit(value) ? [value] : undefined));
+    : forward("input", value => emit(value) ? outputs(value) : undefined));
   assert.equal(selected("parent") === undefined, true);
   assert.match(current.budget.failure(), /writes require their active collector/u);
 });
@@ -152,7 +154,7 @@ test("a deferred projection cannot use an expired borrowed relation view", () =>
     if (key === "input") return emit(1);
     if (key === "borrowed") return forward("parent");
     const borrowed = read("borrowed");
-    return borrowed !== undefined && forward("input", value => borrowed.has(value) ? [value] : []);
+    return borrowed !== undefined && forward("input", value => borrowed.has(value) ? outputs(value) : []);
   });
   assert.throws(() => selected("parent"), /active collector/u);
   assert.match(current.budget.failure(), /active collector/u);
@@ -164,7 +166,7 @@ test("throwing projections unwind every unpublished edge before an exact retry",
     const failure = new Error("projection failed");
     let throwing = fail;
     const selected = current.graph.fixedPoint((key, _read, emit, forward) => key === "input" ? emit(1)
-      : forward("input", value => { if (throwing) throw failure; return [value + 1]; }));
+      : forward("input", value => { if (throwing) throw failure; return outputs(value + 1); }));
     if (throwing) assert.throws(() => selected("parent"), error => error === failure);
     throwing = false;
     assert.deepEqual([...selected("parent")], [2]);
@@ -180,7 +182,7 @@ for (const limits of [{ maximumSteps: 64 }, { maximumTransportRows: 32 }]) {
   test(`recursive projected growth preserves independent finite rejection ${JSON.stringify(limits)}`, () => {
     const current = fixture(limits);
     const selected = current.graph.fixedPoint((key, _read, emit, forward) =>
-      emit(0) && forward(key, value => [value + 1]));
+      emit(0) && forward(key, value => outputs(value + 1)));
     assert.equal(selected("unbounded") === undefined, true);
     assert.match(current.budget.failure(), limits.maximumSteps === undefined ? /transport-row/u : /analysis-work/u);
     assert.equal(selected("unbounded") === undefined, true);
