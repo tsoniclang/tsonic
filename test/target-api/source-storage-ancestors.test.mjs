@@ -30,6 +30,45 @@ test("ancestry admission preserves independent finite work and full-frontier res
   assert.match(work.failure(), /analysis-work/u);
 });
 
+test("filtered ancestry reuses each exact incoming read without pruning transitively required dependencies", () => {
+  const root = subject();
+  const middle = subject();
+  const leaf = subject();
+  const cyclic = subject();
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const inputs = new Map([[root, new Set([middle, cyclic])], [middle, new Set([leaf])],
+    [cyclic, new Set([root, leaf])], [leaf, new Set()]]);
+  const reads = [];
+  const select = createSourceStorageAncestorQuery(budget, node => {
+    reads.push(node);
+    return inputs.get(node);
+  });
+  const accepted = [];
+  const selected = [...select(root, (node, incoming) => {
+    accepted.push({ node, incoming });
+    return incoming.size === 0;
+  })];
+  assert.equal(selected.length === 1 && selected[0] === leaf, true,
+    "excluded intermediate nodes remain part of exact ancestry discovery");
+  assert.equal(reads.length === 4 && new Set(reads).size === 4, true,
+    "the cycle and shared descendant do not reread their incoming relationships");
+  assert.equal(accepted.length === reads.length && accepted.every((value, index) =>
+    value.node === reads[index] && value.incoming === inputs.get(value.node)), true,
+    "selection receives the identical authoritative relationship already read by traversal");
+  assert.equal(budget.failure() === undefined, true);
+});
+
+test("throwing ancestry predicates release the original bounded traversal ownership", () => {
+  const root = subject();
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
+  const select = createSourceStorageAncestorQuery(budget, () => new Set());
+  const expected = new Error("selected ancestry predicate failed");
+  for (let attempt = 0; attempt < 32; attempt += 1)
+    assert.throws(() => [...select(root, () => { throw expected; })], error => error === expected);
+  assert.equal([...select(root)][0] === root, true);
+  assert.equal(budget.failure() === undefined, true);
+});
+
 test("early closure and throwing traversal release temporary ownership without losing the original failure", () => {
   const root = subject();
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
@@ -58,7 +97,7 @@ test("derived selections retain every traversed dependency and invalidate only a
     return new Set(node === root ? [middle] : node === middle ? [selected] : []);
   };
   const ancestors = createSourceStorageAncestorQuery(budget, incoming);
-  const query = graph.query(node => new Set([...ancestors(node)].filter(value => incoming(value).size === 0)));
+  const query = graph.query(node => new Set(ancestors(node, (_value, origins) => origins.size === 0)));
   const original = query(root);
   const independent = query(unrelated);
   assert.equal(original?.size === 1 && original.has(first), true);

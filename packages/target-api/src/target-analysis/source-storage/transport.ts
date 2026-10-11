@@ -374,13 +374,9 @@ export function createSourceStorageTransport(
   }
   const walkAncestors = createSourceStorageAncestorQuery(budget, incomingFor);
   const originSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
-    const originals = new Set<SourceStorageSubject>();
-    for (const origin of walkAncestors(selected)) {
-      if (!step()) return undefined;
-      if (ast.is.IsParameterDeclaration(origin.node) || ast.is.IsObjectLiteralExpression(origin.node) ||
-        ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalValue(origin, ast, incomingFor(origin).size !== 0))
-        originals.add(origin);
-    }
+    const originals = new Set(walkAncestors(selected, (origin, incoming) => step() &&
+      (ast.is.IsParameterDeclaration(origin.node) || ast.is.IsObjectLiteralExpression(origin.node) ||
+        ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalValue(origin, ast, incoming.size !== 0))));
     return budget.failure() === undefined ? originals : undefined;
   });
   const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
