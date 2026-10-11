@@ -278,6 +278,48 @@ test("substituting only a lexical capture cannot manufacture another physical ca
   assert.equal(current.budget.failure() === undefined, true);
 });
 
+test("distinct lexical substitutions reuse the exact completed physical caller instead of retraversing its history", () => {
+  const current = fixture({ maximumSteps: 4096, maximumTransportRows: 8192 }, 1);
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const variable = current.scopes.variable(equation, current.outer);
+  const candidate = { parameters: [] };
+  let caller = current.scopes.empty;
+  for (let depth = 0; depth < 40; depth += 1) caller = current.scopes.frameFor(candidate, {}, caller, caller);
+  const frame = current.scopes.frameFor(candidate, {}, caller, variable);
+  const original = current.scopes.activation(frame);
+  assert.equal(original !== undefined && original.variable === undefined, true);
+  assert.equal(current.scopes.variablesFor(caller)?.size === 0, true, "the physical caller has no free equation variable");
+  for (let repeat = 0; repeat < 30; repeat += 1) {
+    const captured = current.scopes.frameFor(candidate, {}, current.scopes.empty, current.scopes.empty);
+    const view = current.scopes.applyScope(frame, new Map([[variable, captured]]));
+    assert.equal(view?.kind === "substitution", true);
+    assert.equal(current.scopes.activation(view) === original, true,
+      "each distinct capture retains the same proven invocation and exact actual caller activation");
+  }
+  assert.equal(current.budget.failure() === undefined, true, "work depends on the new caller edge, not repeated complete history");
+});
+
+test("activation caller cycles and missing callers cannot publish an invented completed identity", () => {
+  for (const cyclic of [false, true]) {
+    const current = fixture({}, 1);
+    const frame = { kind: "frame", entries: new Map(), parents: Object.freeze([]), invocation: {}, caller: undefined };
+    if (cyclic) frame.caller = frame;
+    Object.freeze(frame);
+    assert.equal(current.scopes.activation(frame) === undefined, true, "only a completed exact caller chain may publish an activation");
+    assert.match(current.budget.failure(), /activation ownership must be acyclic/u);
+    assert.equal(current.scopes.activation(current.scopes.empty) === undefined, true, "failure cannot be hidden by root identity reuse");
+  }
+});
+
+test("activation indexing preserves independent finite work and live row rejection", () => {
+  for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 2 }]) {
+    const current = fixture(limits, 1);
+    assert.equal(current.scopes.activation(current.scopes.empty) === undefined, true);
+    assert.match(current.budget.failure(), limits.maximumSteps === undefined ? /transport-row/u : /analysis-work/u);
+    assert.equal(current.scopes.activation(current.scopes.empty) === undefined, true, "a failed request cannot expose a partially interned activation");
+  }
+});
+
 test("deep cyclic capture discovery reuses the bounded completed relation owner", () => {
   const current = fixture();
   const candidate = { parameters: [] };

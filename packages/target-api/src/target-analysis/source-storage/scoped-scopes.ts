@@ -326,21 +326,32 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       activationKeys.set(scope, value);
       return true;
     };
-    const pending: { readonly scope: SourceStorageFrame; readonly unmodified: boolean }[] = [];
+    const pending: { readonly scope: SourceStorageScope; readonly invocation: Node }[] = [];
+    const visited = new Set<SourceStorageScope>();
     let selected: SourceStorageActivation | undefined;
-    for (const current of traverse(scope, "caller")) {
+    let current: SourceStorageScope | undefined = scope;
+    while (current !== undefined) {
       if (!budget.step()) return undefined;
-      const retained = current.path === undefined ? activationKeys.get(current.scope) : undefined;
+      const retained = activationKeys.get(current);
       if (retained !== undefined) { selected = retained; break; }
-      if (current.scope.kind === "variable" || current.scope.invocation === undefined) {
-        selected = intern(current.scope.kind === "variable"
-          ? `v${current.scope.equation.identity}:${identity(current.scope.owner)}:${current.scope.capture === undefined ? "" : identity(current.scope.capture)}` : "root",
-          current.scope.kind === "variable" ? current.scope : undefined);
-        if (selected === undefined || !remember(current.scope, selected)) return undefined;
+      if (visited.has(current)) break;
+      if (!temporary.add(1)) return undefined;
+      visited.add(current);
+      const frame: SourceStorageFrame | SourceStorageVariable = current.kind === "substitution" ? current.scope : current;
+      if (frame.kind === "variable" || frame.invocation === undefined) {
+        selected = intern(frame.kind === "variable"
+          ? `v${frame.equation.identity}:${identity(frame.owner)}:${frame.capture === undefined ? "" : identity(frame.capture)}` : "root",
+          frame.kind === "variable" ? frame : undefined);
+        if (selected === undefined || !remember(current, selected)) return undefined;
         break;
       }
       if (!temporary.add(1)) return undefined;
-      pending.push({ scope: current.scope, unmodified: current.path === undefined });
+      pending.push({ scope: current, invocation: frame.invocation });
+      if (frame.caller === undefined) break;
+      const caller: SourceStorageScope | undefined = current.kind === "substitution"
+        ? applyScope(frame.caller, current.substitutions) : frame.caller;
+      if (caller === undefined) return undefined;
+      current = caller;
     }
     if (selected === undefined) {
       budget.reject("Source storage activation ownership must be acyclic."); return undefined;
@@ -348,8 +359,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     for (let index = pending.length - 1; index >= 0; index -= 1) {
       if (!budget.step()) return undefined;
       const current = pending[index]!;
-      selected = intern(`f${identity(current.scope.invocation!)}:${selected.key}`, selected.variable);
-      if (selected === undefined || current.unmodified && !remember(current.scope, selected)) return undefined;
+      selected = intern(`f${identity(current.invocation)}:${selected.key}`, selected.variable);
+      if (selected === undefined || !remember(current.scope, selected)) return undefined;
     }
     return remember(scope, selected) ? selected : undefined;
   });
