@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject } from "./subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "./context-inputs.js";
 import { createSourceStorageContextLocations } from "./context-locations.js";
@@ -155,7 +155,7 @@ export function createSourceStorageTransport(
     const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
     const selected = property ?? (ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined);
     const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
-    return declaration !== undefined && sourceStorageIsDataMember(declaration, ast)
+    return declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast))
       ? sourceStorageMemberSubject(declaration, ast, subject) : subjectFor(node);
   };
   const connect = (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined,
@@ -411,28 +411,40 @@ export function createSourceStorageTransport(
     const exact = new Set<Node>();
     const slots = new Set<SourceStorageSubject>();
     let unknown = receiverSubject === undefined;
+    const selectMember = (member: Node): void => {
+      if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member)) {
+        exact.add(member);
+        return;
+      }
+      const slot = sourceStorageMemberSubject(member, ast, subject);
+      if (slot !== undefined) slots.add(slot);
+      const values = slot === undefined ? undefined : originsFor(slot);
+      for (const value of values ?? []) {
+        if (!step()) return;
+        if (!sourceStorageHasOriginalValue(value, ast, incomingFor(value).size !== 0)) continue;
+        const implementation = navigation.callableImplementation(value.node);
+        if (implementation.kind !== "resolved") { unknown = true; continue; }
+        exact.add(implementation.implementation.declaration);
+      }
+    };
     for (const origin of origins ?? []) {
       if (!step()) return { nodes: selected, exact: false };
       if (ast.is.IsParameterDeclaration(origin.node)) unknown = true;
       if (incomingFor(origin).size !== 0) continue;
       const concrete = sourceStorageConstructedClass(origin.node, source, step);
       const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
-      if (target?.kind === "resolved") exact.add(target.implementation.declaration);
+      if (target?.kind === "resolved") {
+        const original = target.implementation.declaration;
+        exact.add(original);
+        const slot = sourceStorageMemberSubject(original, ast, subject);
+        if (slot !== undefined && storedValues.storesFor(slot) !== undefined) selectMember(original);
+      }
       else if (ast.is.IsObjectLiteralExpression(origin.node)) {
         const members = receiverType === undefined ? undefined : memberFlow.declarationsFor(origin, declaration, receiverType);
         unknown ||= members === undefined;
         for (const member of members ?? []) {
           if (!step()) return { nodes: selected, exact: false };
-          const slot = subject(member, sourceStorageIsDataMember(member, ast) ? "member" : "value");
-          if (slot !== undefined) slots.add(slot);
-          const values = slot === undefined ? undefined : originsFor(slot);
-          for (const value of values ?? []) {
-            if (!step()) return { nodes: selected, exact: false };
-            if (incomingFor(value).size !== 0) continue;
-            const implementation = navigation.callableImplementation(value.node);
-            if (implementation.kind !== "resolved") { unknown = true; continue; }
-            exact.add(implementation.implementation.declaration);
-          }
+          selectMember(member);
         }
       } else unknown = true;
     }
@@ -529,8 +541,7 @@ export function createSourceStorageTransport(
         if (!once(origin)) continue;
         for (const member of memberFlow.declarationsFor(origin, declaration, selected.receiver.type) ?? []) {
           if (!step()) break;
-          if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member) ||
-            ast.is.IsMethodDeclaration(member) || ast.is.IsMethodSignatureDeclaration(member)) continue;
+          if (ast.is.IsGetAccessorDeclaration(member) || ast.is.IsSetAccessorDeclaration(member)) continue;
           const location = sourceStorageMemberSubject(member, ast, subject);
           if (assignment?.Left === access && ast.operatorKindName(parent!) === "KindEqualsToken")
             connect(subjectFor(assignment.Right), location);

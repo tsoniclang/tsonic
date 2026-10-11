@@ -175,6 +175,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           ? leaf(subject, creatorScope(original, term.receiver.scope)) : sourceStorageReference(subject, term.receiver.scope));
         continue;
       }
+      if (ast.is.IsMethodDeclaration(original) && ast.body(original) !== undefined)
+        terms.push(leaf(subject, creatorScope(original, term.receiver.scope)));
       for (const store of stores) {
         if (!budget.step()) return undefined;
         if (store.reason !== undefined) continue;
@@ -199,19 +201,30 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return { kind: "replace", terms, witnesses };
   };
   const replaceChild = (child: SourceStorageTerm,
-    replace: (child: SourceStorageTerm) => SourceStorageTerm, contributes = true): SourceStorageReduction | undefined => {
+    replace: (child: SourceStorageTerm) => SourceStorageTerm, contributes = true,
+    independentCallee?: Node): SourceStorageReduction | undefined => {
     if (child.kind === "unresolved") return { kind: "replace", terms: [child] };
     if (child.kind === "reference" || child.kind === "application" || child.kind === "member" || child.kind === "guarded") {
       const independent = closed(child);
       if (independent === undefined) return undefined;
-      if (independent) {
+      if (independent || independentCallee !== undefined) {
         const values = readRelation(child);
         if (values === undefined) return undefined;
         const terms: SourceStorageTerm[] = [];
         for (const value of values) {
           if (!budget.step()) return undefined;
           if (value.kind === "unresolved") terms.push(value);
-          else if (value.kind === "leaf") terms.push(replace(value));
+          else if (value.kind === "leaf") {
+            if (!independent && independentCallee !== undefined) {
+              const selected = navigation.callableImplementation(value.subject.node);
+              if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
+                terms.push(Object.freeze({ kind: "unresolved", subject: value.subject, scope: value.scope,
+                  reason: "Source storage shared dispatch requires its exact context-independent implementation." }));
+                continue;
+              }
+            }
+            terms.push(replace(value));
+          }
         }
         return { kind: "replace", terms, dependencies: [child] };
       }
@@ -221,6 +234,17 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       witnesses: [...(selected.witnesses ?? []).map(witness => contributes ? witness : { ...witness, contributes: false }),
         ...child.kind === "reference" || child.kind === "leaf"
         ? [{ subject: child.subject, bindings: child.scope, contributes }] : []] } : selected;
+  };
+  const independentCalleeFor = (invocation: Node): Node | undefined => {
+    if (!budget.step()) return undefined;
+    const candidates = transport.invocationImplementations(invocation);
+    const candidate = candidates.size === 1 ? candidates.values().next().value : undefined;
+    if (candidate === undefined || ast.body(candidate) === undefined ||
+      ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate)) return undefined;
+    const region = transport.regions.enclosing(candidate);
+    if (region === undefined || sourceStorageRegionOwner(ast, region) !== undefined) return undefined;
+    const subject = transport.subject(candidate);
+    return subject !== undefined && transport.contextualInputs(subject)?.size === 0 ? candidate : undefined;
   };
   const reduce = (term: SourceStorageTerm): SourceStorageReduction | undefined => {
     if (!budget.step()) return undefined;
@@ -288,7 +312,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.kind === "application") {
       const dependencies = dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf") {
-        const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }));
+        const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }), true,
+          independentCalleeFor(term.invocation));
         return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
       }
       const node = term.callee.subject.node;

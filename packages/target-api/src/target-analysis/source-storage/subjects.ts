@@ -22,6 +22,10 @@ export function sourceStorageIsDataMember(node: Node, ast: AstReader): boolean {
     ast.is.IsPropertyAssignment(node) || ast.is.IsShorthandPropertyAssignment(node) || sourceParameterIsProperty(ast, node);
 }
 
+export function sourceStorageIsMethodMember(node: Node, ast: AstReader): boolean {
+  return ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node);
+}
+
 export function sourceStorageMemberSubject(
   node: Node,
   ast: AstReader,
