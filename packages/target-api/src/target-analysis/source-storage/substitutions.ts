@@ -19,6 +19,11 @@ import type { SourceStorageValueGuards } from "./guarded-values.js";
 export type SourceStorageSubstitutions = SourceStorageScope;
 export type SourceStorageBoundSubject = SourceStorageScopedSubject;
 
+interface SourceStorageRelation {
+  readonly children: Map<SourceStorageTerm, number>;
+  complete: boolean;
+}
+
 export function createSourceStorageSubstitutions(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, invocationInputs: SourceStorageInvocationInputQuery,
   graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
@@ -27,7 +32,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
   const equations = createSourceStorageEquations(budget, transport, scopes, recursion, keys.invocation);
   const terms = new Map<string, SourceStorageTerm>();
-  const dependencies = new Map<SourceStorageTerm, Map<SourceStorageTerm, number>>();
+  const relations = new Map<SourceStorageTerm, SourceStorageRelation>();
   interface ReferenceCell extends SourceStorageScopedSubject {
     reference?: SourceStorageTerm;
     leaf?: SourceStorageTerm;
@@ -168,8 +173,13 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     read: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined,
     emit: (term: SourceStorageTerm, direct: boolean) => boolean,
     project: (input: SourceStorageTerm, select: (value: SourceStorageTerm) => readonly SourceStorageTerm[] | undefined) => boolean): boolean => scopes.withTraversal(() => {
-    const children = dependencies.get(current) ?? new Map<SourceStorageTerm, number>();
-    if (!dependencies.has(current)) { if (!rows.add(1)) return false; dependencies.set(current, children); }
+    let relation = relations.get(current);
+    if (relation === undefined) {
+      if (!rows.add(1)) return false;
+      relation = { children: new Map(), complete: false };
+      relations.set(current, relation);
+    }
+    const children = relation.children;
     const retain = (term: SourceStorageTerm, values = true): SourceStorageTerm | undefined => {
       const selected = intern(term);
       if (selected === undefined) return undefined;
@@ -313,13 +323,16 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const stopped = collectWitnesses(current, entry.collect);
       if (stopped === undefined) return undefined;
       if (stopped) continue;
-      if (!derive(current, results, () => true, project)) return undefined;
+      if (relations.get(current)?.complete !== true) {
+        if (!derive(current, results, () => true, project)) return undefined;
+        relations.get(current)!.complete = true;
+      }
       const completed = collectWitnesses(current, entry.collect);
       if (completed === undefined) return undefined;
       if (completed) continue;
       if (entry.collect && current.kind === "leaf") origins.add(current.subject);
       if (current.kind === "unresolved") reason ??= current.reason;
-      for (const [child, mode] of dependencies.get(current) ?? []) {
+      for (const [child, mode] of relations.get(current)?.children ?? []) {
         if (!budget.step()) return undefined;
         if (child.kind !== "execution-root") pending.push({ term: child, collect: entry.collect && (mode & 2) !== 0 });
       }
