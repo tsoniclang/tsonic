@@ -25,8 +25,25 @@ function fixture(body, limits = {}) {
     `${name}: exact producers ${expected.join(", ")}`);
     assert.equal(storage.failureReason() === undefined, true, "original finite guards remain enabled");
   };
-  return { expect, query, storage };
+  return { expect, query, storage, initializer };
 }
+
+test("generic nested array calls retain finite checked types and exact scoped origins", () => {
+  const current = fixture(`
+    function first<T>(values: T[], fallback: T): T { return values.length === 0 ? fallback : values[0]!; }
+    function nested<T>(values: T[][], fallback: T): T { return first(first(values, []), fallback); }
+    const left = {}; const right = {};
+    const one = nested([[left]], left);
+    const two = nested([[right]], right);
+  `);
+  for (const [name, original] of [["one", "left"], ["two", "right"]]) {
+    const selected = current.storage.subjectFor(current.initializer(name));
+    assert.equal(selected.kind === "resolved", true, "exact checked result subject");
+    assert.equal(current.storage.typeFor(selected.subject).kind === "resolved", true,
+      "a checked generic component does not flatten unrelated invocation substitutions");
+    current.expect(name, [original]);
+  }
+});
 
 for (const exported of [false, true]) for (const access of ["value.value", 'value["value"]']) for (const reverse of [false, true]) {
   test(`recursive data projection retains separate tree entries (${exported ? "exported" : "private"}, ${access}, ${reverse})`, () => {

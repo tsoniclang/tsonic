@@ -140,7 +140,7 @@ test("member indexing preserves independent finite row and work limits on cold a
   const declaration = {};
   const original = {};
   const relation = () => ({ kind: "available", members: [present([declaration], [original])] });
-  for (const limits of [{ maximumTransportRows: 1 }, { maximumTransportRows: 4 }, { maximumSteps: 1 }]) {
+  for (const limits of [{ maximumTransportRows: 1 }, { maximumTransportRows: 4 }, { maximumTransportRows: 7 }, { maximumSteps: 1 }]) {
     const input = fixture(relation, limits);
     const owner = subject({});
     const destination = {};
@@ -210,7 +210,7 @@ test("throwing member construction releases its unpublished rows before a comple
     return [original];
   } };
   const input = fixture(() => ({ kind: "available", members: [{ kind: "present",
-    destination: { declarations: [declaration] }, source: sourceMember }] }), { maximumTransportRows: 7 });
+    destination: { declarations: [declaration] }, source: sourceMember }] }), { maximumTransportRows: 8 });
   const owner = subject({}); const destination = {};
   assert.throws(() => input.flow.declarationsFor(owner, declaration, destination), /incomplete member evidence/);
   assert.equal(input.budget.failure() === undefined, true, "an exception is not a fabricated budget failure");

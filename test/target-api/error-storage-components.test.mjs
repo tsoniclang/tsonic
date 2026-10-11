@@ -161,9 +161,9 @@ test("Error unresolved storage propagates through exact component ancestry witho
   const component = subject(root, "value", element);
   const alias = subject({}, "value", element);
   const independent = subject({}, "value", element);
-  const incoming = new Map([[alias, new Set([component])]]);
   const unresolved = new Map([[value, "unproved tuple spread"]]);
-  const reason = createSourceStorageUnresolvedQuery(budget, subject, selected => incoming.get(selected) ?? new Set(), unresolved);
+  const reason = createSourceStorageUnresolvedQuery(budget, subject,
+    selected => ({ subjects: (selected === alias ? [component] : [selected]).map(subject => ({ subject })) }), unresolved);
   assert.equal(reason(component), "unproved tuple spread");
   assert.equal(reason(alias), "unproved tuple spread");
   assert.equal(reason(independent) === undefined, true, "independent storage is not rejected");

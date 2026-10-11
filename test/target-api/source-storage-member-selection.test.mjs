@@ -32,6 +32,39 @@ function fixture(body, extraFiles = {}) {
   return { source, storage, variable, initializer, origins };
 }
 
+for (const computed of [false, true]) {
+  test(`contextual optional native slots retain independent physical writers (${computed ? "computed" : "named"})`, () => {
+    const access = owner => computed ? `${owner}["item"]` : `${owner}.item`;
+    const current = fixture(`
+      interface Slot { item?: {}; }
+      const left = {}; const right = {};
+      const first: Slot = {}; const second: Slot = {};
+      ${access("first")} = left;
+      ${access("second")} = right;
+      const seenFirst = ${access("first")};
+      const seenSecond = ${access("second")};
+    `);
+    for (const [name, original, excluded] of [["seenFirst", "left", "right"], ["seenSecond", "right", "left"]]) {
+      const origins = current.origins(name);
+      assert.equal(origins.some(origin => origin.subject.node === current.initializer(original)), true, "the selected writer remains exact");
+      assert.equal(origins.some(origin => origin.subject.node === current.initializer(excluded)), false, "the same interface does not merge receiver allocations");
+    }
+  });
+}
+
+test("contextual optional slots preserve authored getter implementations", () => {
+  const current = fixture(`
+    interface Slot { item?: {}; readonly original: {}; }
+    const token = {}; const assigned = {};
+    const holder: Slot = { get original() { return token; } };
+    holder.item = assigned;
+    const result = holder.original;
+  `);
+  const origins = current.origins("result");
+  assert.equal(origins.some(origin => origin.subject.node === current.initializer("token")), true,
+    "contextual declarations do not replace an existing accessor body");
+});
+
 for (const access of ["value.items", 'value["items"]']) {
   test(`narrowed member ${access} excludes exact sibling allocations without converting their absent field`, () => {
     const current = fixture(`

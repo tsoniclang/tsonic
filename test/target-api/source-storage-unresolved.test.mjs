@@ -11,34 +11,34 @@ const fixture = (limits = defaultSourceStorageLimits) => {
   return { budget, subject, selected };
 };
 
-test("sealed unresolved queries reuse complete shared ancestry rather than traversing each alias again", () => {
+const relation = (...subjects) => ({ subjects: subjects.map(subject => ({ subject })) });
+
+test("sealed graphs without unresolved witnesses need no second ancestry traversal", () => {
   const { budget, subject, selected } = fixture();
-  const root = selected();
-  const left = selected();
-  const right = selected();
-  const diamond = selected();
-  const edges = new Map([[diamond, new Set([left, right])], [left, new Set([root])], [right, new Set([root])]]);
-  let reads = 0;
+  const owner = selected();
   const unresolved = createSourceStorageUnresolvedQuery(budget, subject,
-    owner => { reads += 1; return edges.get(owner) ?? new Set(); }, new Map());
-  assert.equal(unresolved(diamond), undefined);
-  assert.equal(reads, 4);
-  for (const owner of [left, right, root, diamond]) assert.equal(unresolved(owner), undefined);
-  assert.equal(reads, 4, "complete sealed ancestors are already proven");
+    () => assert.fail("no unresolved witness exists to propagate"), new Map());
+  assert.equal(unresolved(owner), undefined);
+  assert.equal(unresolved(owner), undefined);
   assert.equal(budget.failure() === undefined, true);
 });
 
-test("a failed ancestry search never certifies an unfinished branch or poisons unrelated ancestors", () => {
+test("unresolved queries cache exact roots without certifying scoped witnesses as standalone roots", () => {
   const { budget, subject, selected } = fixture();
   const safe = selected();
   const broken = selected();
   const intermediate = selected();
   const start = selected();
-  const edges = new Map([[start, new Set([intermediate])], [intermediate, new Set([broken, safe])]]);
-  const unresolved = createSourceStorageUnresolvedQuery(budget, subject,
-    owner => edges.get(owner) ?? new Set(), new Map([[broken, "exact unproved boundary"]]));
-  assert.equal(unresolved(start), "exact unproved boundary");
-  assert.equal(unresolved(intermediate), "exact unproved boundary", "visited but unfinished branch is not cached as safe");
+  let reads = 0;
+  const unresolved = createSourceStorageUnresolvedQuery(budget, subject, owner => {
+    reads += 1;
+    return owner === start ? relation(intermediate, safe)
+      : owner === intermediate ? relation(broken, safe) : relation(owner);
+  }, new Map([[broken, "exact unproved boundary"]]));
+  assert.equal(unresolved(start), undefined, "this invocation binds the intermediate to its safe producer");
+  assert.equal(unresolved(start), undefined);
+  assert.equal(reads, 1, "the same completed root is cached");
+  assert.equal(unresolved(intermediate), "exact unproved boundary", "an unbound witness requires its own complete query");
   assert.equal(unresolved(safe), undefined, "unrelated completed leaf stays safe");
   assert.equal(budget.failure() === undefined, true);
 });
@@ -50,13 +50,23 @@ test("sealed unresolved queries preserve projected prefix failures and cyclic an
   const projected = subject(backing, "value", [{ kind: "array-element" }]);
   const left = selected();
   const right = selected();
-  const edges = new Map([[left, new Set([right])], [right, new Set([left])]]);
   const unresolved = createSourceStorageUnresolvedQuery(budget, subject,
-    owner => edges.get(owner) ?? new Set(), new Map([[root, "exact backing failure"]]));
+    owner => owner === left || owner === right ? relation(left, right) : relation(owner),
+    new Map([[root, "exact backing failure"]]));
   assert.equal(unresolved(projected), "exact backing failure");
   assert.equal(unresolved(left), undefined, "absence of an unresolved witness is not a closed-origin claim");
   assert.equal(unresolved(right), undefined);
   assert.equal(budget.failure() === undefined, true);
+});
+
+test("unresolved ancestry preserves incomplete and failed scoped selections", () => {
+  const { budget, subject, selected } = fixture();
+  const owner = selected();
+  const boundary = selected();
+  const failures = new Map([[boundary, "unproved boundary"]]);
+  assert.match(createSourceStorageUnresolvedQuery(budget, subject, () => undefined, failures)(owner), /completed scoped ancestry/u);
+  assert.equal(createSourceStorageUnresolvedQuery(budget, subject,
+    () => ({ subjects: [], reason: "incomplete invocation" }), failures)(owner), "incomplete invocation");
 });
 
 test("sealed unresolved caching remains fail-closed under independent row and work ceilings", () => {
@@ -64,14 +74,14 @@ test("sealed unresolved caching remains fail-closed under independent row and wo
     const { budget, subject, selected } = fixture({ ...defaultSourceStorageLimits, ...limits });
     const first = selected();
     const second = selected();
-    const unresolved = createSourceStorageUnresolvedQuery(budget, subject,
-      owner => owner === first ? new Set([second]) : new Set(), new Map());
-    assert.equal(typeof unresolved(first), "string", "no incomplete successful query after exhaustion");
-    assert.equal(typeof unresolved(second), "string", "cached entries do not bypass the poisoned budget");
+    const unresolved = createSourceStorageUnresolvedQuery(budget, subject, owner => relation(owner), new Map());
+    assert.equal(unresolved(first), undefined, "the first bounded selection fits exactly");
+    assert.equal(typeof unresolved(second), "string", "the next selection cannot exceed its independent ceiling");
+    assert.equal(typeof unresolved(first), "string", "cached entries do not bypass the poisoned budget");
   }
-  const { budget, subject, selected } = fixture({ ...defaultSourceStorageLimits, maximumSteps: 3 });
+  const { budget, subject, selected } = fixture({ ...defaultSourceStorageLimits, maximumSteps: 1 });
   const value = selected();
-  const unresolved = createSourceStorageUnresolvedQuery(budget, subject, () => new Set(), new Map());
+  const unresolved = createSourceStorageUnresolvedQuery(budget, subject, owner => relation(owner), new Map());
   assert.equal(unresolved(value), undefined);
   assert.match(unresolved(value), /analysis-work/u, "cache hits remain work bounded");
 });

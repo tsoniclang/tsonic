@@ -608,7 +608,6 @@ export function createSourceStorageTransport(
     };
   };
   graphQueries.reconcile(operations());
-  const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject, incomingFor, unresolvedSubjects);
   const contextLocation = createSourceStorageContextLocations(source, budget, storedValues.storesFor,
     subject => invocationEffects.get(subject.node)?.resultAlias !== undefined);
   const contextualInputs = createSourceStorageContextInputs(source, budget, {
@@ -635,6 +634,8 @@ export function createSourceStorageTransport(
     storedValuesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);
+  const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject,
+    selected => substitutions.walk(selected, substitutions.empty), unresolvedSubjects);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
     if (!step()) break;

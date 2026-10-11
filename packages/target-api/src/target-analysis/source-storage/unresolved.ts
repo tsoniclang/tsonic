@@ -1,11 +1,15 @@
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import type { SourceStorageIncomingQuery } from "./edges.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
+
+export interface SourceStorageUnresolvedAncestry {
+  readonly subjects: readonly { readonly subject: SourceStorageSubject }[];
+  readonly reason?: string;
+}
 
 export function createSourceStorageUnresolvedQuery(
   budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery,
-  incoming: SourceStorageIncomingQuery,
+  ancestry: (selected: SourceStorageSubject) => SourceStorageUnresolvedAncestry | undefined,
   unresolved: ReadonlyMap<SourceStorageSubject, string>,
 ): (selected: SourceStorageSubject) => string | undefined {
   const selections = new Map<SourceStorageSubject, string | undefined>();
@@ -16,20 +20,19 @@ export function createSourceStorageUnresolvedQuery(
   return selected => {
     if (!budget.step()) return budget.failure();
     if (selections.has(selected)) return selections.get(selected);
-    const pending = [selected];
-    const visited = new Set<SourceStorageSubject>();
-    while (pending.length !== 0 && budget.step()) {
-      const current = pending.pop()!;
-      if (visited.has(current)) continue;
-      if (selections.has(current)) {
-        const reason = selections.get(current);
-        if (reason !== undefined) {
-          store(selected, reason);
-          return budget.failure() ?? reason;
-        }
-        continue;
-      }
-      visited.add(current);
+    if (unresolved.size === 0) {
+      store(selected, undefined);
+      return budget.failure();
+    }
+    const relation = ancestry(selected);
+    if (relation === undefined) return budget.failure() ?? "Source storage unresolved evidence requires completed scoped ancestry.";
+    if (relation.reason !== undefined) {
+      budget.reject(relation.reason);
+      return budget.failure();
+    }
+    for (let index = -1; index < relation.subjects.length; index += 1) {
+      if (!budget.step()) break;
+      const current = index < 0 ? selected : relation.subjects[index]!.subject;
       for (let length = current.projection.length; length >= 0 && budget.step(); length -= 1) {
         const prefix = subject(current.node, current.kind, current.projection.slice(0, length));
         const reason = prefix === undefined ? undefined : unresolved.get(prefix);
@@ -38,13 +41,9 @@ export function createSourceStorageUnresolvedQuery(
           return budget.failure() ?? reason;
         }
       }
-      for (const origin of incoming(current)) {
-        if (!budget.step()) break;
-        pending.push(origin);
-      }
     }
     if (budget.failure() !== undefined) return budget.failure();
-    for (const subject of visited) store(subject, undefined);
+    store(selected, undefined);
     return budget.failure();
   };
 }
