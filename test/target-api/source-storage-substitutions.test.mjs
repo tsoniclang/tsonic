@@ -29,12 +29,13 @@ function fixture(limits = {}, length = 50) {
   graph.seal();
   const scopes = createSourceStorageScopes(source, budget, subject,
     origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }), graph, () => undefined);
-  const keys = createSourceStorageScopedKeys(source, budget, {
+  const transport = {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
     contextLocation: () => undefined,
     storedValuesFor: () => undefined, invocationEffects: new Map(), regions: { enclosing: () => undefined },
-  }, scopes);
-  return { budget, subject, scopes, keys, outer, inner, innerParameter, formal, input, nodes, inputs };
+  };
+  const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
+  return { budget, subject, scopes, keys, source, transport, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
 
 test("context traversal reserves only its live frontier while interned binding evidence retains its own rows", () => {
@@ -78,6 +79,87 @@ test("an individually oversized context and exhausted work fail closed without c
   assert.equal(work.scopes.frameFor(work.outer, {}, work.scopes.empty, work.scopes.empty) === undefined, true);
   assert.match(work.budget.failure(), /analysis-work/u);
   assert.equal(work.scopes.frameFor({ parameters: [] }, {}, work.scopes.empty, work.scopes.empty) === undefined, true);
+});
+
+test("one key encoding shares exact scoped references instead of retraversing a binding DAG as a tree", () => {
+  const current = fixture({ maximumSteps: 512, maximumTransportRows: 1024 }, 1);
+  let scope = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+  const unrelated = { parameters: [] };
+  for (let depth = 0; depth < 20; depth += 1) scope = current.scopes.frameFor(unrelated, {}, scope, scope);
+  assert.equal(scope !== undefined, true);
+  const reference = () => sourceStorageReference(current.formal, scope);
+  let term = reference();
+  for (let depth = 0; depth < 4; depth += 1) term = { kind: "store", destination: reference(), receiver: term, value: term };
+  assert.equal(typeof current.keys.encode(term) === "string", true,
+    "one complete key fits the original finite request budget without weakening exact binding identity");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("key-local memo release preserves distinct reference modes and exact closed versus symbolic evidence", () => {
+  const remainingRows = repeats => {
+    const current = fixture({ maximumTransportRows: 256, maximumSteps: 65536 }, 1);
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    const parent = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+    const original = sourceStorageReference(current.input, current.scopes.empty);
+    const leaf = { ...original, kind: "leaf" };
+    assert.equal(current.keys.encode(original) === current.keys.encode(leaf), false,
+      "equal subject and scope never merge a physical leaf with an unresolved reference mode");
+    const open = sourceStorageReference(current.formal, variable);
+    const closed = sourceStorageReference(current.formal, parent);
+    assert.equal(current.keys.closed(open), false);
+    assert.equal(current.keys.closed(closed), true);
+    const term = { kind: "store", destination: closed, receiver: open, value: open };
+    for (let repeat = 0; repeat < repeats; repeat += 1) assert.equal(current.keys.closed(term), false,
+      "reusing an independently open child cannot turn the complete request into closed evidence");
+    assert.equal(current.budget.failure() === undefined, true);
+    let remaining = 0;
+    while (current.budget.row()) remaining += 1;
+    return remaining;
+  };
+  assert.equal(remainingRows(100), remainingRows(1), "completed request history retains no memo rows");
+});
+
+test("key-local reference reuse retains independently selected scopes and cannot publish an unfinished binding", () => {
+  const current = fixture();
+  const other = current.subject({});
+  const frame = value => Object.freeze({ kind: "frame", entries: new Map([[current.formal,
+    [sourceStorageReference(value, current.scopes.empty)]]]), parents: [] });
+  const left = sourceStorageReference(current.formal, frame(current.input));
+  const right = sourceStorageReference(current.formal, frame(other));
+  const combined = value => ({ kind: "store", destination: left, receiver: value, value });
+  assert.equal(current.keys.encode(combined(left)) === current.keys.encode(combined(right)), false,
+    "one source formal with different exact binding scopes never shares its selected value encoding");
+  assert.equal(current.budget.failure() === undefined, true);
+  const entries = new Map();
+  const cyclic = Object.freeze({ kind: "frame", entries, parents: [] });
+  const reference = sourceStorageReference(current.formal, cyclic);
+  entries.set(current.formal, [reference]);
+  assert.equal(current.keys.encode(reference) === undefined, true, "a cycle is not a complete cached binding");
+  assert.match(current.budget.failure(), /unfinished encoding/u);
+});
+
+test("repeated key-reference cache hits still account finite work and reserve their complete live memo", () => {
+  for (const limits of [{ maximumSteps: 12 }, { maximumTransportRows: 3 }]) {
+    const current = fixture(limits, 1);
+    const reference = () => sourceStorageReference(current.input, current.scopes.empty);
+    let term = reference();
+    for (let depth = 0; depth < 4; depth += 1) term = { kind: "store", destination: reference(), receiver: term, value: term };
+    assert.equal(current.keys.encode(term) === undefined, true, "neither identical references nor reuse bypasses either finite guard");
+    assert.equal(current.budget.failure() !== undefined, true);
+  }
+});
+
+test("a completed unavailable key reference is not mistaken for an unfinished cyclic encoding", () => {
+  const current = fixture();
+  const scope = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+  const keys = createSourceStorageScopedKeys(current.source, current.budget,
+    { ...current.transport, contextualInputs: () => undefined }, current.scopes);
+  const reference = () => sourceStorageReference(current.nodes[0], scope);
+  const term = { kind: "store", destination: reference(), receiver: reference(), value: reference() };
+  assert.equal(keys.encode(term) === undefined, true, "the original unavailable context cannot become a fabricated key");
+  assert.equal(current.budget.failure() === undefined, true,
+    "a completed absence is not recursive unfinished evidence and cannot invent a failure reason");
 });
 
 test("checked guard continuations have one idempotent ordered key without merging different reference identities", () => {

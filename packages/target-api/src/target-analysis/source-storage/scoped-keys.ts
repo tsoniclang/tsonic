@@ -11,6 +11,16 @@ import { sourceStorageTransparentInput } from "./scoped-transport.js";
 
 type Encoded = null | string | number | readonly Encoded[];
 
+interface ReferenceEncoding {
+  readonly encoded: Encoded | undefined;
+  readonly closed: boolean;
+}
+
+interface ReferenceEncodings {
+  reference?: ReferenceEncoding | null;
+  leaf?: ReferenceEncoding | null;
+}
+
 export function createSourceStorageScopedKeys(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes) {
   const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
@@ -21,8 +31,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     const owner = subject.kind === "return" ? subject.node : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
     return scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
   };
-  const encode = (term: SourceStorageTerm, invocation = false) => {
+  const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;
+    const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
       if (selected?.variable !== undefined) closed = false;
@@ -67,8 +78,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       return [inputs, physical];
     };
-    const encodeTerm = (selected: SourceStorageTerm): Encoded | undefined => {
-      if (!budget.step()) return undefined;
+    const encodeUncachedTerm = (selected: SourceStorageTerm): Encoded | undefined => {
       if (selected.kind === "empty") return [selected.kind];
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand)];
       if (selected.kind === "guarded") {
@@ -186,9 +196,36 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
       return context === undefined || birth === undefined ? undefined : [selected.kind, scopes.identity(selected.subject), birth, context];
     };
+    const encodeTerm = (selected: SourceStorageTerm): Encoded | undefined => {
+      if (!budget.step()) return undefined;
+      if (selected.kind !== "reference" && selected.kind !== "leaf") return encodeUncachedTerm(selected);
+      const subjects = references.get(selected.scope);
+      const retained = subjects?.get(selected.subject);
+      const previous = retained?.[selected.kind];
+      if (previous === null) {
+        budget.reject("Source storage key references cannot expose an unfinished encoding.");
+        return undefined;
+      }
+      if (previous !== undefined) {
+        closed = closed && previous.closed;
+        return previous.encoded;
+      }
+      if (!rows.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
+      const encodings = retained ?? {};
+      const inputs = subjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
+      encodings[selected.kind] = null;
+      inputs.set(selected.subject, encodings); references.set(selected.scope, inputs);
+      const outerClosed = closed;
+      closed = true;
+      try {
+        const encoded = encodeUncachedTerm(selected);
+        if (budget.failure() === undefined) encodings[selected.kind] = Object.freeze({ encoded, closed });
+        return encoded;
+      } finally { closed = outerClosed && closed; }
+    };
     const encoded = encodeTerm(term);
     return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };
-  };
+  });
   const key = (term: SourceStorageTerm, invocation = false): string | undefined => {
     const selected = encode(term, invocation);
     return selected === undefined ? undefined : JSON.stringify(selected.encoded);
