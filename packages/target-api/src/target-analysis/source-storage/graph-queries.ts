@@ -36,6 +36,8 @@ interface FixedPointCell<Key, Value> {
   readonly rows: SourceStorageRows;
   readonly dependencyRows: SourceStorageRows;
   readonly parents: Set<FixedPointCell<Key, Value>>;
+  readonly forwardParents: Map<FixedPointCell<Key, Value>, number>;
+  evaluation: number;
   complete: boolean;
 }
 
@@ -252,7 +254,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
       };
     },
     fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
-      add: (value: Value) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
+      add: (value: Value) => boolean, forward: (key: Key) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();
       let running = false;
       return key => {
@@ -267,7 +269,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           const wave = new Set<FixedPointCell<Key, Value>>();
           const pending = new Set<FixedPointCell<Key, Value>>();
           const frontierRows = budget.createRows();
+          const deltaRows = budget.createRows();
+          const deltas: { readonly cell: FixedPointCell<Key, Value>; readonly value: Value }[] = [];
           let maximumFrontier = 0;
+          let maximumDeltas = 0;
           let current: FixedPointCell<Key, Value> | undefined;
           let complete = false;
           const schedule = (cell: FixedPointCell<Key, Value>): boolean => {
@@ -279,6 +284,21 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             pending.add(cell);
             return true;
           };
+          const publish = (cell: FixedPointCell<Key, Value>, value: Value): boolean => {
+            if (!budget.step()) return false;
+            if (cell.values.has(value)) return true;
+            if (!cell.rows.add(1)) return false;
+            cell.values.add(value);
+            for (const parent of cell.parents) if (!budget.step() || !schedule(parent)) return false;
+            if (cell.forwardParents.size !== 0) {
+              if (deltas.length === maximumDeltas) {
+                if (!deltaRows.add(1)) return false;
+                maximumDeltas += 1;
+              }
+              deltas.push({ cell, value });
+            }
+            return true;
+          };
           const admit = (input: Key): FixedPointCell<Key, Value> | undefined => {
             if (!budget.step()) return undefined;
             const selected = selections.get(input);
@@ -287,7 +307,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             if (!rows.add(2) || !workRows.add(1)) { rows.release(); return undefined; }
             const values = new Set<Value>();
             const cell: FixedPointCell<Key, Value> = { key: input, values, view: readonlyValues(values), rows,
-              dependencyRows: budget.createRows(), parents: new Set(), complete: false };
+              dependencyRows: budget.createRows(), parents: new Set(), forwardParents: new Map(), evaluation: 0, complete: false };
             if (!schedule(cell)) { rows.release(); return undefined; }
             selections.set(input, cell);
             wave.add(cell);
@@ -295,15 +315,28 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           };
           const evaluate = (cell: FixedPointCell<Key, Value>): boolean => budget.withRows(resultRows => {
             current = cell;
+            cell.evaluation += 1;
             let reading = true;
             const values = new Set<Value>();
             const borrowed = new Map<FixedPointCell<Key, Value>, ReadonlySet<Value>>();
+            const forwarded = new Set<FixedPointCell<Key, Value>>();
             const borrowRows = budget.createRows();
             const validate = (): void => {
               if (reading && current === cell && budget.failure() === undefined) return;
               const reason = "Source storage fixed-point values require their active collector.";
               budget.reject(reason);
               throw new Error(reason);
+            };
+            const add = (value: Value): boolean => {
+              if (!budget.step()) return false;
+              if (!reading || current !== cell) {
+                budget.reject("Source storage fixed-point writes require their active collector.");
+                return false;
+              }
+              if (values.has(value)) return true;
+              if (!resultRows.add(1)) return false;
+              values.add(value);
+              return true;
             };
             let collected: boolean;
             try {
@@ -326,15 +359,22 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 const view = readonlyValues(selected.values, validate);
                 borrowed.set(selected, view);
                 return view;
-              }, value => {
+              }, add, input => {
                 if (!budget.step()) return false;
                 if (!reading || current !== cell) {
-                  budget.reject("Source storage fixed-point writes require their active collector.");
+                  budget.reject("Source storage fixed-point forwards require their active collector.");
                   return false;
                 }
-                if (values.has(value)) return true;
+                const selected = admit(input);
+                if (selected === undefined) return false;
+                if (forwarded.has(selected)) return true;
                 if (!resultRows.add(1)) return false;
-                values.add(value);
+                forwarded.add(selected);
+                if (!selected.complete) {
+                  if (!selected.forwardParents.has(cell) && !selected.dependencyRows.add(1)) return false;
+                  selected.forwardParents.set(cell, cell.evaluation);
+                }
+                for (const value of selected.values) if (!add(value)) return false;
                 return true;
               });
             } finally {
@@ -354,17 +394,8 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 return false;
               }
             }
-            let changed = false;
             for (const value of values) {
-              if (!budget.step()) return false;
-              if (cell.values.has(value)) continue;
-              if (!cell.rows.add(1)) return false;
-              cell.values.add(value);
-              changed = true;
-            }
-            if (changed) for (const parent of cell.parents) {
-              if (!budget.step()) return false;
-              if (!schedule(parent)) return false;
+              if (!publish(cell, value)) return false;
             }
             return budget.failure() === undefined;
           });
@@ -372,8 +403,16 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
           try {
             const root = admit(key);
             if (root === undefined) return undefined;
-            while (pending.size !== 0) {
+            while (pending.size !== 0 || deltas.length !== 0) {
               if (!budget.step()) return undefined;
+              if (deltas.length !== 0) {
+                const delta = deltas.pop()!;
+                for (const [parent, evaluation] of delta.cell.forwardParents) {
+                  const active = parent.evaluation === evaluation && !pending.has(parent);
+                  if (active ? !publish(parent, delta.value) : !budget.step()) return undefined;
+                }
+                continue;
+              }
               const cell = pending.values().next().value!;
               pending.delete(cell);
               if (!evaluate(cell)) return undefined;
@@ -389,8 +428,10 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             running = false;
             current = undefined;
             pending.clear();
+            deltas.length = 0;
             for (const cell of wave) {
               cell.parents.clear();
+              cell.forwardParents.clear();
               cell.dependencyRows.release();
               if (!complete) {
                 selections.delete(cell.key);
@@ -400,6 +441,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             }
             wave.clear();
             frontierRows.release();
+            deltaRows.release();
           }
         });
       };

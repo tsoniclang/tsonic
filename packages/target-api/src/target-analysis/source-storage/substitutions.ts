@@ -225,13 +225,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return budget.failure() === undefined;
     } finally { currentRead = previousRead; }
   });
-  const results = graphQueries.fixedPoint<SourceStorageTerm, SourceStorageTerm>((current, read, emit) => derive(current, read, (term, direct) => {
-    if (direct) return emit(term);
-    const selected = read(term);
-    if (selected === undefined) return false;
-    for (const input of selected) if (!budget.step() || !emit(input)) return false;
-    return true;
-  }));
+  const results = graphQueries.fixedPoint<SourceStorageTerm, SourceStorageTerm>((current, read, emit, forward) =>
+    derive(current, read, (term, direct) => direct ? emit(term) : forward(term)));
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined => intern(sourceStorageReference(origin, scope));
   const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => scopes.withQuery(() => {
     const root = selectRoot(origin, scope);
