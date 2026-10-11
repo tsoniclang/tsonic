@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { Node_Expression, sourceLexicalCaptures } from "../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, sourceLexicalCaptures } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
@@ -36,7 +36,11 @@ export function createSourceStorageContextInputs(
     const { ast, navigation, semantics } = source;
     const node = origin.node;
     const invocation = queries.isInvocation(node);
-    const incoming = invocation ? undefined : queries.incomingFor(origin);
+    const access = origin.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node));
+    const member = !access ? undefined : ast.is.IsPropertyAccessExpression(node)
+      ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
+    if (access && member === undefined) return undefined;
+    const incoming = invocation || access ? undefined : queries.incomingFor(origin);
     const rows = budget.createRows();
     let complete = false;
     try {
@@ -45,12 +49,20 @@ export function createSourceStorageContextInputs(
       const add = (selected: SourceStorageSubject | undefined): void => {
         if (selected !== undefined && !inputs.has(selected) && rows.add(1)) inputs.add(selected);
       };
+      if (member !== undefined) {
+        const receiver = queries.subjectFor(member.receiver.expression);
+        if (receiver === undefined) return undefined;
+        add(receiver);
+      }
+      if (ast.is.IsBindingElement(node)) {
+        const pattern = ast.parent(node);
+        const owner = pattern === undefined ? undefined : ast.parent(pattern);
+        const binding = queries.subjectFor(owner);
+        if (binding === undefined) return undefined;
+        add(binding);
+        add(queries.subjectFor(Node_Initializer(ast, node)));
+      }
       if (origin.kind === "value" && origin.projection.length === 0) {
-        if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
-          const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node)
-            : semantics.forNode(node).operations.elementAccess(node);
-          add(queries.subjectFor(selected?.receiver.expression));
-        }
         if (ast.is.IsObjectLiteralExpression(node)) for (const property of ast.properties(node)) {
           if (!budget.step()) return undefined;
           add(queries.subject(property));

@@ -55,6 +55,40 @@ const output = outer(left, right);
   return { context, left: parameter(0), right: parameter(1) };
 }
 
+for (const [name, read] of [["field", "box.value"], ["computed field", "box['value']"],
+  ["aliased field", "value"], ["destructured field", "destructured"]]) {
+  test(`a selected ${name} context depends on its receiver rather than unrelated writer frames`, () => {
+    const { source, file, declaration, call } = checkedSource(`export {};
+      class Box { value: object = {}; }
+      function consume<Value>(value: Value): Value { return value; }
+      function write(box: Box, foreign: object): void { box.value = foreign; }
+      function read(box: Box): object {
+        const value = box.value;
+        const { value: destructured } = box;
+        return consume(${read});
+      }
+      const original = new Box(); const replacement = {};
+      write(original, replacement); const selected = read(original);
+    `);
+    const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+    const transport = createSourceStorageTransport(source, [file], budget);
+    const invocation = call("consume");
+    const expression = source.semantics.forNode(invocation).operations.call(invocation).sourceArguments[0].expression;
+    const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
+      transport.contextLocation, transport.contextualInputs.applicationFor);
+    const input = transport.subjectFor(expression);
+    assert.equal(input !== undefined, true, "the checked actual argument has its exact source-storage subject");
+    const selected = footprints.select(input);
+    const receiver = transport.subject(source.ast.parameters(declaration("read"))[0], "input");
+    const foreign = transport.subject(source.ast.parameters(declaration("write"))[1], "input");
+    assert.equal(selected !== undefined && selected.ports.size === 1 && selected.ports.has(receiver), true,
+      "the reader's exact receiver supplies its context");
+    assert.equal(selected.ports.has(foreign), false,
+      "the writer's parameter belongs to the separately selected execution frame");
+    assert.equal(budget.failure() === undefined, true);
+  });
+}
+
 for (const [name, body, expected] of [
   ["selected identity", `const first = identity(left); const second = identity(right); return consume(first);`, "left"],
   ["nested container", `const first = identity([left]); const second = identity([right]); return consume(first);`, "left"],

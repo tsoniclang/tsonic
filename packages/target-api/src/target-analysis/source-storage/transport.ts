@@ -137,8 +137,10 @@ export function createSourceStorageTransport(
       : selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected) ? selected : node;
     const file = ast.getSourceFile(node);
     if (selected !== undefined && file !== undefined && semantics.includes(file) && !retainCheckedContext(selected, file)) return undefined;
-    const binding = selected !== undefined && ast.is.IsBindingElement(selected) ? projections.binding(selected) : undefined;
-    if (selected !== undefined && ast.is.IsBindingElement(selected) && binding === undefined) return undefined;
+    const pattern = selected !== undefined && ast.is.IsBindingElement(selected) ? ast.parent(selected) : undefined;
+    const projected = pattern !== undefined && ast.is.IsArrayBindingPattern(pattern);
+    const binding = selected === undefined || !projected ? undefined : projections.binding(selected);
+    if (projected && binding === undefined) return undefined;
     const value = qualified ? subject(node) : binding ?? subject(target);
     if (value === undefined) return undefined;
     if (binding !== undefined) subjects.set(selected!, binding);

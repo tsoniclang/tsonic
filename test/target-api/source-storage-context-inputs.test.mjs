@@ -14,18 +14,42 @@ function fixture(limits = {}) {
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const inputs = new Map();
   const properties = new Map();
-  const source = { ast: { is: { IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false,
+  const accesses = new Map();
+  const source = { ast: { is: { IsPropertyAccessExpression: node => accesses.has(node), IsElementAccessExpression: () => false,
     IsObjectLiteralExpression: node => properties.has(node), IsArrayLiteralExpression: () => false,
-    IsClassDeclaration: () => false, IsClassExpression: () => false },
-    body: () => undefined, properties: node => properties.get(node) }, navigation: {}, semantics: {} };
+    IsClassDeclaration: () => false, IsClassExpression: () => false, IsBindingElement: () => false },
+    body: () => undefined, properties: node => properties.get(node) }, navigation: {},
+    semantics: { forNode: node => ({ operations: { propertyAccess: () => accesses.get(node) } }) } };
   const contexts = createSourceStorageContextInputs(source, budget, {
     subject, incomingFor: selected => inputs.get(selected) ?? new Set(), subjectFor: node => subject(node),
     sourceFileFor: () => undefined, isInvocation: () => false, implementationsFor: () => new Set(),
     invocationInputs: () => ({ subjects: new Set(), context: "caller" }), isLocation: () => false, argumentsFor: () => [],
     ownerFor: () => undefined,
   }, createSourceStorageGraphQueries(budget));
-  return { budget, subject, inputs, properties, contexts };
+  return { budget, subject, inputs, properties, accesses, contexts };
 }
+
+test("unavailable checked member context is never cached as an empty or globally joined result", () => {
+  const current = fixture({ maximumTransportRows: 8 });
+  const access = current.subject({});
+  const receiver = current.subject({});
+  const foreign = current.subject({}, "input");
+  current.inputs.set(access, new Set([foreign]));
+  current.accesses.set(access.node, undefined);
+  assert.equal(current.contexts(access) === undefined, true, "the member requires its exact checked receiver");
+  current.accesses.set(access.node, { receiver: { expression: undefined } });
+  assert.equal(current.contexts(access) === undefined, true, "a checked access without its owned receiver subject is unavailable");
+  current.accesses.set(access.node, { receiver: { expression: receiver.node } });
+  const selected = current.contexts(access);
+  assert.equal(selected !== undefined && selected.size === 1 && selected.has(receiver), true,
+    "only the completed checked receiver relation supplies this read's environment");
+  assert.equal(selected.has(foreign), false, "a different writer's input is not an actual binding of the reader");
+  assert.equal(current.contexts(access) === selected, true, "only a complete selection retains cached identity");
+  const remaining = current.budget.createRows();
+  assert.equal(remaining.add(6), true, "failed selection retained nothing; successful selection owns exactly two rows");
+  remaining.release();
+  assert.equal(current.budget.failure() === undefined, true);
+});
 
 test("context input caching charges every retained incoming relationship and returns one complete selection", () => {
   const current = fixture({ maximumTransportRows: 5 });
