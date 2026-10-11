@@ -104,6 +104,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const receiver = normalize(term.receiver, witnesses, temporary, false); const value = normalize(term.value, witnesses, temporary, contributes);
       return receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, receiver, value });
     }
+    if (term.kind === "guarded") {
+      const value = normalize(term.value, witnesses, temporary, false);
+      return value === undefined ? undefined : value.kind === "guarded" && value.reference === term.reference
+        ? value : Object.freeze({ ...term, value });
+    }
     if (term.kind === "transition") {
       const value = normalize(term.value, witnesses, temporary, contributes);
       return value === undefined ? undefined : Object.freeze({ ...term, value });
@@ -170,7 +175,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         if (!budget.step() || select(dependency, false) === undefined) return false;
       for (const witness of selected.kind === "replace" ? selected.witnesses ?? [] : []) {
         const reference = referenceFor(witness.subject, witnessScope(witness.subject, witness.bindings));
-        if (reference === undefined || !addWitness(current, reference)) return false;
+        if (reference === undefined || !addWitness(current, reference, witness.contributes)) return false;
       }
       const alternatives = selected.kind === "expand" ? equations.expand(selected.variable, current) : selected.terms;
       if (alternatives === undefined) return false;
@@ -181,8 +186,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       const execution = operation.kind === "execution-root" || operation.kind === "region" ||
         (operation.kind === "application" || operation.kind === "member") && operation.mode === "execution";
-      const qualified = current.kind === "reference" && current.subject.kind === "value" &&
-        source.ast.is.IsIdentifier(current.subject.node) && transport.incomingFor(current.subject).size !== 0;
       for (const term of alternatives) {
         if (!budget.step()) return false;
         if (execution) {
@@ -190,16 +193,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (successor === undefined || !emit(successor)) return false;
           continue;
         }
-        const inputs = select(term, !qualified);
+        const inputs = select(term, current.kind !== "guarded");
         if (inputs === undefined) return false;
         for (const input of inputs) {
           if (!budget.step()) return false;
-          if (qualified && input.kind === "leaf") {
-            const admitted = transport.guardedValues.admits(input.subject, current.subject.node);
-            if (budget.failure() !== undefined) return false;
-            if (admitted === false) continue;
-          }
-          if ((qualified && retain(input) === undefined) || !emit(input)) return false;
+          if ((current.kind === "guarded" && retain(input) === undefined) || !emit(input)) return false;
         }
       }
       return budget.failure() === undefined;

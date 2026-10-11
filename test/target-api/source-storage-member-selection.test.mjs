@@ -55,6 +55,27 @@ for (const access of ["value.items", 'value["items"]']) {
   });
 }
 
+for (const recursion of [false, true]) for (const selection of ["return value.items[0];", "const items = value.items; return items[0];"]) {
+  test(`nominal guards remain on the receiver when its selected field is projected (${recursion ? "recursive" : "direct"}; ${selection})`, () => {
+    const current = fixture(`
+      class Base {}
+      class Empty extends Base {}
+      class List extends Base { constructor(readonly items: readonly {}[]) { super(); } }
+      const token = {};
+      function parse(mode: boolean): Base { return mode ? new List([token]) : new Empty(); }
+      function select(value: Base, depth = 0): {} | undefined {
+        ${recursion ? "if (depth > 0) return select(value, depth - 1);" : ""}
+        if (value instanceof Empty) { const visited = value; }
+        if (value instanceof List) { ${selection} }
+        return undefined;
+      }
+      const result = select(parse(true));
+    `);
+    assert.equal(current.origins("result").some(origin => origin.subject.node === current.initializer("token")), true,
+      "the checked receiver guard precedes the independent stored-element projection");
+  });
+}
+
 for (const selection of [
   "return value instanceof List ? value as List : undefined;",
   "if (value instanceof List) return value; return undefined;",
@@ -78,6 +99,32 @@ for (const selection of [
     const origins = current.origins("result");
     assert.equal(origins.some(origin => origin.subject.node === current.initializer("token")), true);
     assert.equal(origins.some(origin => origin.subject.node === current.initializer("foreign")), false);
+  });
+}
+
+for (const [name, recursion, helpers] of [
+  ["rotated tuple", "select(other, value, depth - 1)", ""],
+  ["mutual rotated tuple", "bridge(other, value, depth - 1)",
+    "function bridge(value: Base, other: Base, depth: number): {} | undefined { return select(value, other, depth); }"],
+  ["captured rotated tuple", "nest(() => select(other, value, depth - 1), depth)()",
+    "function nest(read: () => {} | undefined, depth: number): () => {} | undefined { return depth <= 0 ? read : nest(() => read(), depth - 1); }"],
+]) {
+  test(`selected nominal receiver constraints survive symbolic ${name} continuation`, () => {
+    const current = fixture(`
+      class Base {}
+      class Empty extends Base {}
+      class List extends Base { constructor(readonly items: readonly {}[]) { super(); } }
+      const token = {};
+      function select(value: Base, other: Base, depth: number): {} | undefined {
+        if (depth > 0) return ${recursion};
+        if (value instanceof List) { const items = value.items; return items[0]; }
+        return undefined;
+      }
+      ${helpers}
+      const result = select(new List([token]), new Empty(), 3);
+    `);
+    assert.equal(current.origins("result").some(origin => origin.subject.node === current.initializer("token")), true,
+      "concrete equation expansion must apply the retained checked receiver guard before selecting its field");
   });
 }
 
@@ -188,6 +235,30 @@ test("returned nominal selection keeps an opaque writer's admitted backing-slot 
   assert.equal(selected.kind === "open", true, `nominal selection does not certify mutable contents after an opaque call (${selected.kind}; ${selected.reason ?? ""})`);
   assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true);
   assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true);
+});
+
+test("symbolic nominal continuation retains an admitted opaque writer's physical array backing", () => {
+  const current = fixture(`
+    class Base {}
+    class Empty extends Base {}
+    class List extends Base { constructor(readonly items: {}[]) { super(); } }
+    declare function mutate(value: List): void;
+    const token = {};
+    function select(value: Base, other: Base, depth: number): {} | undefined {
+      if (depth > 0) return select(other, value, depth - 1);
+      if (value instanceof List) { mutate(value); return value.items[0]; }
+      return undefined;
+    }
+    const result = select(new List([token]), new Empty(), 3);
+  `);
+  const subject = current.storage.subjectFor(current.variable("result"));
+  assert.equal(subject.kind === "resolved", true);
+  const selected = current.storage.closedOriginsFor(subject.subject);
+  assert.equal(selected.kind === "open", true, "a retained nominal guard does not close writable element contents");
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true,
+    "conditional inputs are observed without erasing the admitted writer's storage witness");
+  assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true);
+  assert.equal(current.storage.failureReason() === undefined, true);
 });
 
 test("an unqualified returned class value also retains opaque contained element writers", () => {

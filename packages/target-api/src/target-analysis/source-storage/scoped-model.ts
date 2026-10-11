@@ -58,6 +58,7 @@ export type SourceStorageTerm =
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
   | { readonly kind: "transition"; readonly capture: SourceStorageVariable;
       readonly condition: SourceStorageTerm; readonly value: SourceStorageTerm }
+  | { readonly kind: "guarded"; readonly reference: Node; readonly value: SourceStorageTerm }
   | { readonly kind: "store"; readonly destination: SourceStorageReference; readonly receiver: SourceStorageTerm;
       readonly value: SourceStorageTerm }
   | { readonly kind: "execution-root"; readonly demand: Node }
@@ -66,7 +67,7 @@ export type SourceStorageTerm =
 
 export type SourceStorageReduction =
   | { readonly kind: "replace"; readonly terms: readonly SourceStorageTerm[];
-      readonly witnesses?: readonly SourceStorageScopedSubject[];
+      readonly witnesses?: readonly SourceStorageRelationWitness[];
       readonly dependencies?: readonly SourceStorageTerm[] }
   | { readonly kind: "expand"; readonly variable: SourceStorageVariable };
 

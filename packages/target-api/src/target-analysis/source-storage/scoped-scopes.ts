@@ -127,6 +127,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageTerm | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "execution-root" || term.kind === "empty") return term;
+    if (term.kind === "guarded") {
+      const value = applyTerm(term.value, replacements);
+      return value === undefined ? undefined : Object.freeze({ ...term, value });
+    }
     if (term.kind === "transition") {
       const condition = applyTerm(term.condition, replacements);
       if (condition === undefined) return undefined;

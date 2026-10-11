@@ -80,6 +80,46 @@ test("an individually oversized context and exhausted work fail closed without c
   assert.equal(work.scopes.frameFor({ parameters: [] }, {}, work.scopes.empty, work.scopes.empty) === undefined, true);
 });
 
+test("checked guard continuations have one idempotent ordered key without merging different reference identities", () => {
+  const current = fixture();
+  const first = {}; const second = {};
+  const value = sourceStorageReference(current.input, current.scopes.empty);
+  const guarded = (reference, value) => ({ kind: "guarded", reference, value });
+  const original = current.keys.encode(guarded(first, guarded(second, value)));
+  assert.equal(typeof original === "string", true);
+  assert.equal(current.keys.encode(guarded(second, guarded(first, guarded(first, value)))) === original, true,
+    "repeated equivalent continuation predicates never grow a recursive key");
+  assert.equal(current.keys.encode(guarded({}, guarded(second, value))) === original, false,
+    "equal-looking checked reference nodes are not interchangeable evidence");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("guard continuation key construction preserves independent finite work and row reservations", () => {
+  for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 2 }]) {
+    const current = fixture(limits);
+    const term = { kind: "guarded", reference: {}, value: sourceStorageReference(current.input, current.scopes.empty) };
+    assert.equal(current.keys.encode(term) === undefined, true, "no key publishes after either independent guard is exhausted");
+    assert.equal(current.budget.failure() !== undefined, true);
+  }
+});
+
+test("throwing guard continuation key construction releases its unpublished frontier before retry", () => {
+  const current = fixture({ maximumTransportRows: 10 });
+  const failure = new Error("guarded value unavailable");
+  let ready = false;
+  const term = { kind: "guarded", reference: {}, get value() {
+    if (!ready) throw failure;
+    return sourceStorageReference(current.input, current.scopes.empty);
+  } };
+  assert.throws(() => current.keys.encode(term), error => error === failure);
+  const remaining = current.budget.createRows();
+  assert.equal(remaining.add(8), true, "only the original scope and exact guard-reference identities remain retained");
+  remaining.release();
+  ready = true;
+  assert.equal(typeof current.keys.encode(term) === "string", true, "no failed key or temporary reservation survives");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
 test("throwing context traversal releases its own temporary rows without discarding already retained facts", () => {
   const current = fixture({ maximumTransportRows: 80 });
   const parent = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);

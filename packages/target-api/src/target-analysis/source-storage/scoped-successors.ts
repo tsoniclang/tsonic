@@ -7,7 +7,7 @@ import { sourceStorageHasOriginalValue, sourceStorageMemberSubject } from "./sub
 import type { SourceStorageStore } from "./stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "./scoped-model.js";
-import type { SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageScopedSubject,
+import type { SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
   SourceStorageOperation } from "./scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -143,7 +143,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
     }
     const terms: SourceStorageTerm[] = [];
-    const witnesses: SourceStorageScopedSubject[] = [];
+    const witnesses: SourceStorageRelationWitness[] = [];
     for (const original of originals) {
       if (!budget.step()) return undefined;
       if (ast.is.IsGetAccessorDeclaration(original) || ast.is.IsSetAccessorDeclaration(original)) {
@@ -159,7 +159,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const subject = sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
       if (subject === undefined) return undefined;
-      witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope }));
+      witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
       const stores = transport.storedValuesFor(subject);
       if ((term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined) {
@@ -189,8 +189,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return { kind: "replace", terms, witnesses };
   };
   const replaceChild = (child: SourceStorageTerm,
-    replace: (child: SourceStorageTerm) => SourceStorageTerm): SourceStorageReduction | undefined => {
-    if (child.kind === "reference" || child.kind === "application" || child.kind === "member") {
+    replace: (child: SourceStorageTerm) => SourceStorageTerm, contributes = true): SourceStorageReduction | undefined => {
+    if (child.kind === "reference" || child.kind === "application" || child.kind === "member" || child.kind === "guarded") {
       const independent = closed(child);
       if (independent === undefined) return undefined;
       if (independent) {
@@ -206,12 +206,18 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     const selected = reduce(child);
     return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(replace), dependencies: selected.dependencies,
-      witnesses: [...selected.witnesses ?? [], ...child.kind === "reference" || child.kind === "leaf"
-        ? [{ subject: child.subject, bindings: child.scope }] : []] } : selected;
+      witnesses: [...(selected.witnesses ?? []).map(witness => contributes ? witness : { ...witness, contributes: false }),
+        ...child.kind === "reference" || child.kind === "leaf"
+        ? [{ subject: child.subject, bindings: child.scope, contributes }] : []] } : selected;
   };
   const reduce = (term: SourceStorageTerm): SourceStorageReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "effect" || term.kind === "empty") return undefined;
+    if (term.kind === "guarded") {
+      if (term.value.kind !== "leaf") return replaceChild(term.value, value => Object.freeze({ ...term, value }), false);
+      const admitted = transport.guardedValues.admits(term.value.subject, term.reference);
+      return budget.failure() !== undefined ? undefined : { kind: "replace", terms: admitted === false ? [] : [term.value] };
+    }
     if (term.kind === "execution-root") {
       const terms: SourceStorageTerm[] = [];
       for (const region of transport.sourceFiles) {
@@ -377,7 +383,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       .map(parent => sourceStorageReference(parent, term.scope));
     if (sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))
       terms.unshift(leaf(term.subject, creatorScope(node, term.scope)));
-    return { kind: "replace", terms, dependencies: transport.invocations.has(node) || transport.accessorTargets.has(node)
+    const qualified = term.subject.kind === "value" && ast.is.IsIdentifier(node) && parents.size !== 0;
+    return { kind: "replace", terms: qualified ? terms.map(value => Object.freeze({ kind: "guarded" as const, reference: node, value })) : terms,
+      dependencies: transport.invocations.has(node) || transport.accessorTargets.has(node)
       ? dispatchDependencies(node, term.scope) : undefined };
   };
   return Object.freeze({ reduce });

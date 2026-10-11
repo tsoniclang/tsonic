@@ -71,6 +71,21 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       if (!budget.step()) return undefined;
       if (selected.kind === "empty") return [selected.kind];
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand)];
+      if (selected.kind === "guarded") {
+        return budget.withRows(rows => {
+          const references = new Set<number>();
+          let current: SourceStorageTerm = selected;
+          while (current.kind === "guarded") {
+            if (!budget.step()) return undefined;
+            const reference = scopes.identity(current.reference);
+            if (!references.has(reference) && !rows.add(1)) return undefined;
+            references.add(reference);
+            current = current.value;
+          }
+          const value = encodeTerm(current);
+          return value === undefined ? undefined : [selected.kind, [...references].sort((left, right) => left - right), value];
+        });
+      }
       if (selected.kind === "reference" && selected.subject.kind === "value") {
         const input = sourceStorageTransparentInput(selected.subject, source.ast, transport);
         if (input !== undefined) return encodeTerm(sourceStorageReference(input, selected.scope));
