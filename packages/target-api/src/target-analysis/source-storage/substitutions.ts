@@ -1,5 +1,6 @@
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "./subjects.js";
+import { sourceStorageHasOriginalValue } from "./subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "./resource-budget.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
@@ -119,7 +120,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       !source.ast.is.IsNewExpression(term.subject.node) && !source.ast.is.IsPropertyAccessExpression(term.subject.node) &&
       !source.ast.is.IsElementAccessExpression(term.subject.node) && !transport.invocations.has(term.subject.node) &&
       !transport.accessorTargets.has(term.subject.node) && transport.storedValuesFor(term.subject) === undefined &&
-      transport.incomingFor(term.subject).size === 0) {
+      transport.incomingFor(term.subject).size === 0 && sourceStorageHasOriginalValue(term.subject, source.ast, false)) {
       return Object.freeze({ kind: "leaf", subject: term.subject, scope: witnessScope(term.subject, term.scope) });
     }
     return term;

@@ -3,7 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageHasOriginalValue, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "./scoped-model.js";
@@ -343,12 +343,14 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const stores = term.subject.kind === "value" || term.subject.kind === "member" ? transport.storedValuesFor(term.subject) : undefined;
     if (stores !== undefined) {
       const terms: SourceStorageTerm[] = [];
+      let physicalElements = false;
       for (const input of transport.incomingFor(term.subject)) {
         if (!budget.step()) return undefined;
         if (input.kind === "input" && input.node === node) terms.push(sourceStorageReference(input, term.scope));
       }
       for (const store of stores) {
         if (!budget.step()) return undefined;
+        if (store.destination === "element") physicalElements = true;
         if (store.reason !== undefined) continue;
         if (store.value === undefined) continue;
         if (store.kind === "initialization" || store.destination !== "binding") {
@@ -366,6 +368,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             terms.push(sourceStorageReference(store.value, effect.scope));
         }
       }
+      if (physicalElements) for (const input of transport.incomingFor(term.subject)) {
+        if (!budget.step()) return undefined;
+        if (input.kind !== "input" || input.node !== node) terms.push(sourceStorageReference(input, term.scope));
+      }
       return { kind: "replace", terms };
     }
     const parents = transport.incomingFor(term.subject);
@@ -374,7 +380,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const selectedBody = receiver !== undefined && scopes.lookup(receiver, term.scope) !== undefined;
     const terms = [...parents].filter(parent => !selectedBody || parent.kind !== "return")
       .map(parent => sourceStorageReference(parent, term.scope));
-    if (parents.size === 0 || sourceStorageHasOriginalCallableValue(term.subject, ast))
+    if (sourceStorageHasOriginalValue(term.subject, ast, parents.size !== 0))
       terms.unshift(leaf(term.subject, creatorScope(node, term.scope)));
     return { kind: "replace", terms, dependencies: transport.invocations.has(node) || transport.accessorTargets.has(node)
       ? dispatchDependencies(node, term.scope) : undefined };

@@ -37,6 +37,11 @@ export function sourceStorageHasOriginalCallableValue(subject: SourceStorageSubj
       ast.is.IsFunctionDeclaration(subject.node) || ast.is.IsMethodDeclaration(subject.node));
 }
 
+export function sourceStorageHasOriginalValue(subject: SourceStorageSubject, ast: AstReader, hasIncoming: boolean): boolean {
+  return sourceStorageHasOriginalCallableValue(subject, ast) || !hasIncoming &&
+    (!ast.is.IsArrayLiteralExpression(subject.node) || subject.projection.length === 0);
+}
+
 export function sourceStorageProjectionPath(projection: readonly SourceStorageProjection[]):
   readonly SourceStorageProjection[] | undefined {
   const normalized: SourceStorageProjection[] = [];

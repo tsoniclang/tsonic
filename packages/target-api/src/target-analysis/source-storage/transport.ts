@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "./context-inputs.js";
 import { createSourceStorageContextLocations } from "./context-locations.js";
@@ -377,7 +377,7 @@ export function createSourceStorageTransport(
     for (const origin of walkAncestors(selected)) {
       if (!step()) return undefined;
       if (ast.is.IsParameterDeclaration(origin.node) || ast.is.IsObjectLiteralExpression(origin.node) ||
-        ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalCallableValue(origin, ast) || incomingFor(origin).size === 0)
+        ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalValue(origin, ast, incomingFor(origin).size !== 0))
         originals.add(origin);
     }
     return budget.failure() === undefined ? originals : undefined;
@@ -500,7 +500,7 @@ export function createSourceStorageTransport(
         }
       } else {
         const incomingOrigins = incomingFor(current);
-        if (incomingOrigins.size === 0 || sourceStorageHasOriginalCallableValue(current, ast)) origins.add(current);
+        if (sourceStorageHasOriginalValue(current, ast, incomingOrigins.size !== 0)) origins.add(current);
         for (const incomingOrigin of incomingOrigins) { if (!step()) break; pending.push(incomingOrigin); }
       }
     }

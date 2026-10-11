@@ -5,7 +5,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "./resourc
 import { createSourceStorageTransport } from "./transport.js";
 import { createSourceStorageDomains } from "./domains.js";
 import type { SourceStorageSubject } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
@@ -109,9 +109,16 @@ export function createSourceStorageQuery(
     const ancestors = transport.ancestorSubjects(subject);
     if (ancestors === undefined || budget.failure() !== undefined)
       return unresolved(budget.failure() ?? "Source storage ancestry exceeds its finite query budget.");
-    const origins = [...ancestors].filter(owner => transport.incomingFor(owner).size === 0 ||
-      sourceStorageHasOriginalCallableValue(owner, source.ast));
-    return origins.length === 0 ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
+    const origins: SourceStorageSubject[] = [];
+    let terminal = false;
+    for (const owner of ancestors) {
+      if (!budget.step()) return unresolved(budget.failure()!);
+      const parents = transport.incomingFor(owner);
+      if (parents.size === 0) terminal = true;
+      if (sourceStorageHasOriginalValue(owner, source.ast, parents.size !== 0)) origins.push(owner);
+    }
+    return origins.length === 0 && !terminal
+      ? unresolved("A source storage cycle has no proven original owner.") : selectedSubjects(origins);
   };
   const typedOrigins = (subjects: readonly SourceStorageSubject[]): SourceStorageOriginsSelection => {
     const origins: SourceStorageTypedSubject[] = [];
