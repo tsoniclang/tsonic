@@ -79,6 +79,10 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       return [inputs, physical];
     };
     const encodeUncachedTerm = (selected: SourceStorageTerm): Encoded | undefined => {
+      if (selected.kind === "leaf" && selected.guards !== undefined) {
+        const value = encodeTerm({ kind: "leaf", subject: selected.subject, scope: selected.scope });
+        return value === undefined ? undefined : ["qualified", selected.guards.key, value];
+      }
       if (selected.kind === "empty") return [selected.kind];
       if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand)];
       if (selected.kind === "guarded") {
@@ -202,7 +206,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     };
     const encodeTerm = (selected: SourceStorageTerm): Encoded | undefined => {
       if (!budget.step()) return undefined;
-      if (selected.kind !== "reference" && selected.kind !== "leaf") return encodeUncachedTerm(selected);
+      if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined)
+        return encodeUncachedTerm(selected);
       const subjects = references.get(selected.scope);
       const retained = subjects?.get(selected.subject);
       const previous = retained?.[selected.kind];

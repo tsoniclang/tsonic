@@ -14,6 +14,7 @@ import { sourceStorageTransparentInput } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "./scoped-model.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
+import type { SourceStorageValueGuards } from "./guarded-values.js";
 
 export type SourceStorageSubstitutions = SourceStorageScope;
 export type SourceStorageBoundSubject = SourceStorageScopedSubject;
@@ -105,6 +106,16 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return receiver === undefined || value === undefined ? undefined : Object.freeze({ ...term, receiver, value });
     }
     if (term.kind === "guarded") {
+      let current: SourceStorageTerm = term;
+      let guards: SourceStorageValueGuards | undefined;
+      while (current.kind === "guarded") {
+        if (!budget.step()) return undefined;
+        const selected = transport.guardedValues.conjoin(guards, current.reference);
+        if (budget.failure() !== undefined) return undefined;
+        if (selected === null) return emptyTerm;
+        guards = selected;
+        current = current.value;
+      }
       const value = normalize(term.value, witnesses, temporary, false);
       return value === undefined ? undefined : value.kind === "guarded" && value.reference === term.reference
         ? value : Object.freeze({ ...term, value });
@@ -131,7 +142,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return term;
   };
   const intern = (term: SourceStorageTerm): SourceStorageTerm | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
-    const reference = term.kind === "reference" || term.kind === "leaf" ? referenceFor(term.subject, term.scope) : undefined;
+    const reference = term.kind === "reference" || term.kind === "leaf" && term.guards === undefined
+      ? referenceFor(term.subject, term.scope) : undefined;
     if (reference === undefined && !budget.step()) return undefined;
     if (budget.failure() !== undefined) return undefined;
     const cached = term.kind === "reference" || term.kind === "leaf" ? reference?.[term.kind] : undefined;

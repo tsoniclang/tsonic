@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
+import type { SourceStorageValueGuards } from "./guarded-values.js";
 
 export interface SourceStorageFrame {
   readonly kind: "frame";
@@ -43,6 +44,7 @@ export interface SourceStorageReference {
   readonly kind: "reference" | "leaf";
   readonly subject: SourceStorageSubject;
   readonly scope: SourceStorageScope;
+  readonly guards?: SourceStorageValueGuards;
 }
 
 export type SourceStorageOperation =

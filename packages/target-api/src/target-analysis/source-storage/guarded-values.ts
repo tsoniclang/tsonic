@@ -7,10 +7,41 @@ import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsScalarType, sourceStorageSubjectType } from "./components.js";
 
+export interface SourceStorageValueGuards {
+  readonly key: string;
+  readonly references: readonly Node[];
+}
+
+interface GuardPlan {
+  readonly identity: number;
+  readonly predicates: readonly Node[];
+}
+
 export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget) {
   const { ast, navigation } = source;
   const context = { ast, navigation, sourceFacts: source.sourceFacts,
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
+  const retained = budget.createRows();
+  const plans = new Map<Node, GuardPlan | null>();
+  const conjunctions = new Map<string, SourceStorageValueGuards | null>();
+  const classMatches = (candidate: Node, target: Node): boolean | undefined => budget.withRows(rows => {
+    let current = candidate;
+    const visited = new Set<Node>();
+    while (true) {
+      if (!budget.step()) return undefined;
+      if (current === target) return true;
+      if (visited.has(current) || !rows.add(1)) return undefined;
+      visited.add(current);
+      const heritage = navigation.declaredHeritage(current);
+      if (heritage.kind !== "resolved") return undefined;
+      const bases = heritage.edges.filter(edge => edge.kind === "extends");
+      if (bases.length === 0) return false;
+      if (bases.length !== 1) return undefined;
+      const base = bases[0]!.target.declaration;
+      if (!ast.is.IsClassDeclaration(base) && !ast.is.IsClassExpression(base)) return undefined;
+      current = base;
+    }
+  });
   const instanceOf = (owner: SourceStorageSubject, target: Node): boolean | undefined => {
     if (owner.projection.length !== 0) return undefined;
     const file = ast.getSourceFile(owner.node);
@@ -20,25 +51,8 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
       if (sourceStorageIsScalarType(type, semantics) || semantics.types.isNullish(type) ||
         semantics.types.isVoidLike(type) || semantics.types.isNever(type)) return false;
     }
-    let current = sourceStorageConstructedClass(owner.node, source, () => budget.step());
-    return budget.withRows(rows => {
-      const visited = new Set<Node>();
-      while (current !== undefined) {
-        if (!budget.step()) return undefined;
-        if (current === target) return true;
-        if (visited.has(current) || !rows.add(1)) return undefined;
-        visited.add(current);
-        const heritage = navigation.declaredHeritage(current);
-        if (heritage.kind !== "resolved") return undefined;
-        const bases = heritage.edges.filter(edge => edge.kind === "extends");
-        if (bases.length === 0) return false;
-        if (bases.length !== 1) return undefined;
-        const base = bases[0]!.target.declaration;
-        if (!ast.is.IsClassDeclaration(base) && !ast.is.IsClassExpression(base)) return undefined;
-        current = base;
-      }
-      return undefined;
-    });
+    const candidate = sourceStorageConstructedClass(owner.node, source, () => budget.step());
+    return candidate === undefined ? undefined : classMatches(candidate, target);
   };
   const guardFor = (expression: Node) => {
     if (!budget.step()) return undefined;
@@ -47,15 +61,56 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     const target = sourceStorageClassValue(guard.sourceConstructor, source, () => budget.step());
     return target === undefined ? undefined : { sourceOperand: guard.sourceOperand, predicate: target };
   };
-  const appliesTo = (reference: Node): boolean | undefined => {
+  const planFor = (reference: Node): GuardPlan | undefined => budget.withRows(rows => {
     if (!budget.step()) return undefined;
-    const selected = selectSourceGuardedValueMembers(context, reference, [reference], guardFor, () => undefined);
-    return budget.failure() === undefined ? selected !== undefined : undefined;
+    if (plans.has(reference)) return plans.get(reference) ?? undefined;
+    const predicates = new Set<Node>();
+    const selected = selectSourceGuardedValueMembers(context, reference, [reference], guardFor, (_member, predicate) => {
+      if (!predicates.has(predicate) && rows.add(1)) predicates.add(predicate);
+      return undefined;
+    });
+    if (budget.failure() !== undefined || !retained.add(1 + predicates.size)) return undefined;
+    const plan = selected === undefined ? null : Object.freeze({ identity: plans.size, predicates: Object.freeze([...predicates]) });
+    plans.set(reference, plan);
+    return plan ?? undefined;
+  });
+  const appliesTo = (reference: Node): boolean | undefined => {
+    const plan = planFor(reference);
+    return budget.failure() === undefined ? plan !== undefined : undefined;
   };
   const admits = (owner: SourceStorageSubject, reference: Node): boolean | undefined => {
     if (!budget.step()) return undefined;
     const selected = selectSourceGuardedValueMembers(context, reference, [owner], guardFor, instanceOf);
     return budget.failure() !== undefined || selected === undefined ? undefined : selected.length !== 0;
   };
-  return Object.freeze({ appliesTo, admits });
+  const conjoin = (existing: SourceStorageValueGuards | undefined, reference: Node): SourceStorageValueGuards | null | undefined =>
+    budget.withRows(rows => {
+      const plan = planFor(reference);
+      if (plan === undefined || existing?.references.includes(reference)) return existing;
+      const references = [...existing?.references ?? [], reference];
+      if (!rows.add(references.length)) return undefined;
+      references.sort((left, right) => plans.get(left)!.identity - plans.get(right)!.identity);
+      const key = references.map(reference => plans.get(reference)!.identity).join(":");
+      if (conjunctions.has(key)) return conjunctions.get(key);
+      const predicates = new Set<Node>();
+      for (const reference of references) for (const predicate of plans.get(reference)!.predicates) {
+        if (!budget.step()) return undefined;
+        if (!predicates.has(predicate)) {
+          if (!rows.add(1)) return undefined;
+          predicates.add(predicate);
+        }
+      }
+      if (!rows.add(predicates.size + 1)) return undefined;
+      let candidates: readonly (Node | undefined)[] = [undefined, ...predicates];
+      for (const reference of references) {
+        if (!budget.step()) return undefined;
+        candidates = selectSourceGuardedValueMembers(context, reference, candidates, guardFor,
+          (candidate, predicate) => candidate === undefined ? false : classMatches(candidate, predicate)) ?? candidates;
+      }
+      if (budget.failure() !== undefined || !retained.add(1 + (candidates.length === 0 ? 0 : references.length))) return undefined;
+      const selected = candidates.length === 0 ? null : Object.freeze({ key, references: Object.freeze(references) });
+      conjunctions.set(key, selected);
+      return selected;
+    });
+  return Object.freeze({ appliesTo, admits, conjoin });
 }
