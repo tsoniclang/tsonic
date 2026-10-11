@@ -46,6 +46,61 @@ function nest(callback: () => object, count: number): () => object {
 }
 `;
 
+for (const [name, declarations] of [
+  ["direct", `
+    function descend(root: Tree): Tree {
+      if (root.child !== undefined) descend(root.child);
+      return root;
+    }
+  `],
+  ["mutual", `
+    function descend(root: Tree): Tree {
+      if (root.child !== undefined) next(root.child);
+      return root;
+    }
+    function next(root: Tree): Tree {
+      if (root.child !== undefined) descend(root.child);
+      return root;
+    }
+  `],
+]) {
+  test(`${name} recursion retains the initial invocation input when a deeper call's result is discarded`, () => {
+    const current = fixture(`
+      interface Tree { child: Tree | undefined; }
+      ${declarations}
+      const leftLeaf: Tree = { child: undefined };
+      const rightLeaf: Tree = { child: undefined };
+      const leftBranch: Tree = { child: leftLeaf };
+      const rightBranch: Tree = { child: rightLeaf };
+      const left = descend(leftBranch);
+      const right = descend(rightBranch);
+    `);
+    for (const [name, own] of [["left", "leftBranch"], ["right", "rightBranch"]]) {
+      const selected = current.result(name);
+      assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+        "the exact initial input remains distinct from deeper activations and another caller");
+    }
+  });
+}
+
+test("a cross-file generic recursive entry retains its actual input without requiring an invariant recursive argument", () => {
+  const current = fixture(`
+    import { descend } from "./descend.js";
+    interface Tree { child: Tree | undefined; }
+    const leaf: Tree = { child: undefined };
+    const branch: Tree = { child: leaf };
+    const result = descend(branch);
+  `, { "/src/descend.ts": `
+    export function descend<Value extends { child: Value | undefined }>(root: Value): Value {
+      if (root.child !== undefined) descend(root.child);
+      return root;
+    }
+  ` });
+  const selected = current.result("result");
+  assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject("branch"), true,
+    "the initial cross-file generic input is exact even though recursive calls select its child");
+});
+
 test("recursive returned closures retain both their seed and recursive creation without growing capture histories", () => {
   const current = fixture(`${nesting}
     const firstValue = {}; const secondValue = {};

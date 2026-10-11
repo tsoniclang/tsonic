@@ -19,20 +19,18 @@ export function createSourceStorageEquations(budget: SourceStorageBudget,
     if (component === undefined) return scopes.frameFor(candidate, invocation, caller, captured);
     const previous = scopes.family(caller);
     const owner = recursion.ownerFor(invocation);
-    let equation: SourceStorageEquation | undefined;
-    if (previous?.component === component && owner !== undefined && component.has(owner)) equation = previous;
-    else {
-      const key = keyFor(term);
-      if (key === undefined) return undefined;
-      equation = equations.get(key);
-      if (equation === undefined) {
-        const initial = scopes.frameFor(candidate, invocation, caller, captured);
-        if (initial === undefined || !rows.add(1)) return undefined;
-        equation = Object.freeze({ identity: equations.size, component, entry: candidate, initial });
-        equations.set(key, equation);
-      }
+    if (previous?.component === component && owner !== undefined && component.has(owner))
+      return scopes.variable(previous, candidate);
+    const key = keyFor(term);
+    if (key === undefined) return undefined;
+    let equation = equations.get(key);
+    if (equation === undefined) {
+      const initial = scopes.frameFor(candidate, invocation, caller, captured);
+      if (initial === undefined || !rows.add(1)) return undefined;
+      equation = Object.freeze({ identity: equations.size, component, entry: candidate, initial });
+      equations.set(key, equation);
     }
-    return scopes.variable(equation, candidate);
+    return scopes.frameFor(candidate, invocation, caller, captured, equation);
   };
   const expand = (variable: SourceStorageVariable, term: SourceStorageTerm): readonly SourceStorageTerm[] | undefined => {
     if (variable.capture !== undefined) {
