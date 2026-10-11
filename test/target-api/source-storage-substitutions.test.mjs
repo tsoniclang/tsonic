@@ -465,6 +465,83 @@ test("canonical view bindings apply their exact local substitution without alloc
   assert.equal(current.budget.failure() === undefined, true);
 });
 
+test("a completed local view binding is shared across independent collectors of one bounded query", () => {
+  const current = fixture({ maximumSteps: 256, maximumTransportRows: 1024 }, 1);
+  return current.scopes.withQuery(() => {
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    const frame = current.scopes.frameFor(current.outer, {}, variable, variable);
+    const view = current.scopes.applyScope(frame, new Map([[variable, current.scopes.empty]]));
+    const original = current.scopes.lookup(current.formal, view);
+    assert.equal(original?.kind === "replace" && original.terms[0].subject === current.input &&
+      original.terms[0].scope === current.scopes.empty, true);
+    let selected = original;
+    for (let repeat = 0; repeat < 100; repeat += 1) {
+      selected = current.scopes.withTraversal(() => current.scopes.lookup(current.formal, view));
+      assert.equal(selected?.kind === "replace" && selected.terms[0].subject === current.input &&
+        selected.terms[0].scope === current.scopes.empty, true, "every independent collector retains its exact original subject and replacement scope");
+    }
+    assert.equal(selected === original, true, "one exact immutable local binding outlives collectors without another result copy");
+    assert.equal(current.budget.failure() === undefined, true);
+  });
+});
+
+test("local view lookup history releases on query return and throw while exact view identities survive", () => {
+  const remainingRows = repeats => {
+    const current = fixture({ maximumTransportRows: 128, maximumSteps: 65536 }, 1);
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    const frame = current.scopes.frameFor(current.outer, {}, variable, variable);
+    const alternative = current.scopes.frameFor(current.inner, {}, current.scopes.empty, current.scopes.empty);
+    const view = current.scopes.applyScope(frame, new Map([[variable, current.scopes.empty]]));
+    const other = current.scopes.applyScope(frame, new Map([[variable, alternative]]));
+    const projection = current.subject(current.formal.node, "input", [{ kind: "tuple-element", index: 0 }]);
+    const failure = new Error("exact local input query failure");
+    for (let repeat = 0; repeat < repeats; repeat += 1) {
+      const collect = () => current.scopes.withQuery(() => {
+        const original = current.scopes.lookup(current.formal, view);
+        const selected = current.scopes.withTraversal(() => current.scopes.lookup(current.formal, other));
+        const projected = current.scopes.lookup(projection, view);
+        assert.equal(original?.kind === "replace" && original.terms[0].subject === current.input &&
+          original.terms[0].scope === current.scopes.empty, true, "the first exact local substitution");
+        assert.equal(selected?.kind === "replace" && selected.terms[0].scope === alternative, true,
+          "another substitution of the same formal retains its separate exact scope");
+        assert.equal(projected?.kind === "replace" && projected.terms[0].subject === current.subject(current.input.node, "value", [{ kind: "tuple-element", index: 0 }]),
+          true, "the selected projection is not merged with the root formal");
+        assert.equal(current.scopes.withQuery(() => current.scopes.lookup(current.formal, view)) === original, true,
+          "a nested query reuses the exact completed input without ending its parent's lifetime");
+        if (repeat % 2 === 0) throw failure;
+      });
+      if (repeat % 2 === 0) assert.throws(collect, error => error === failure);
+      else collect();
+    }
+    assert.equal(current.budget.failure() === undefined, true);
+    assert.equal(current.scopes.applyScope(frame, new Map([[variable, current.scopes.empty]])) === view, true,
+      "query history release never releases canonical view identity");
+    let remaining = 0;
+    while (current.budget.row()) remaining += 1;
+    return remaining;
+  };
+  assert.equal(remainingRows(100), remainingRows(1), "only exact canonical evidence survives independent queries");
+});
+
+test("completed local view input hits still fail closed at the independent work ceiling", () => {
+  const current = fixture({ maximumSteps: 256 }, 1);
+  current.scopes.withQuery(() => {
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    const frame = current.scopes.frameFor(current.outer, {}, variable, variable);
+    const view = current.scopes.applyScope(frame, new Map([[variable, current.scopes.empty]]));
+    assert.equal(current.scopes.lookup(current.formal, view) !== undefined, true);
+    let selected;
+    for (let repeat = 0; repeat < 256; repeat += 1) selected = current.scopes.lookup(current.formal, view);
+    assert.equal(selected === undefined, true, "completed input evidence cannot bypass a failed work owner");
+    assert.match(current.budget.failure(), /analysis-work/u);
+  });
+  assert.equal(current.scopes.lookup(current.formal, current.scopes.empty) === undefined, true,
+    "unwinding a query does not clear an independently failed owner");
+});
+
 test("completed simultaneous composition reuses every exact selection across nested alternating collectors", () => {
   const current = fixture({ maximumSteps: 4096 }, 1);
   return current.scopes.withQuery(() => {

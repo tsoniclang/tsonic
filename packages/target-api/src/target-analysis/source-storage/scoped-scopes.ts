@@ -79,11 +79,12 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>;
   }
   const withTraversal = scopedMemo<TraversalMemo>(budget, add => ({ add, owners: new Map(), families: new Map(), lookups: new Map() }));
-  const withComposition = scopedMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>() }));
+  const withQueryMemo = scopedMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>(),
+    lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>() }));
   const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
     [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
       .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
-  const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined => withComposition(memo => {
+  const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined => withQueryMemo(memo => {
     if (!budget.step()) return undefined;
     if (scope.kind === "variable") return replacements.get(scope) ?? scope;
     const inputs = variablesFor(scope);
@@ -207,10 +208,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const selected = applyPath(sourceStorageReference(initial, variable.equation.initial), path);
     return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]) });
   };
-  const selectInput = (origin: SourceStorageSubject, scope: SourceStorageScope,
+  const selectInput = (origin: SourceStorageSubject, root: SourceStorageSubject, scope: SourceStorageScope,
     retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
-    const root = subject(origin.node, origin.kind);
-    if (root === undefined) return undefined;
     if (scope.kind === "variable") return selectVariable(origin, scope, undefined, retain);
     const local = (scope.kind === "substitution" ? scope.scope : scope).entries.get(root);
     if (local !== undefined) {
@@ -227,11 +226,14 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   };
   const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
     if (!budget.step() || origin.kind !== "input" && origin.kind !== "receiver") return undefined;
-    return withTraversal(memo => {
+    const root = subject(origin.node, origin.kind);
+    if (root === undefined) return undefined;
+    const withInputs = scope.kind === "substitution" && scope.scope.entries.has(root) ? withQueryMemo : withTraversal;
+    return withInputs(memo => {
       const selections = memo.lookups.get(scope);
       const retained = selections?.get(origin);
       if (retained !== undefined) return retained ?? undefined;
-      const selected = selectInput(origin, scope, memo.add);
+      const selected = selectInput(origin, root, scope, memo.add);
       if (budget.failure() !== undefined || !memo.add(selections === undefined ? 2 : 1)) return undefined;
       const inputs = selections ?? new Map<SourceStorageSubject, SourceStorageReduction | null>();
       inputs.set(origin, selected ?? null); memo.lookups.set(scope, inputs);
@@ -391,7 +393,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   });
   return Object.freeze({ empty, identity, variable, variablesFor, applyScope, applyTerm, lookup, frameFor,
     owningScope, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
-    withQuery: <Value>(collect: () => Value): Value => withComposition(() => collect()),
+    withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => collect()),
     withTraversal: <Value>(collect: () => Value): Value => withTraversal(() => collect()) });
 }
 
