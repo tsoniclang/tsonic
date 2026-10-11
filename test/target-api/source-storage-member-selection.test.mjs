@@ -424,6 +424,23 @@ test("exact nominal member selection preserves independent finite work and hiera
   assert.equal(budget.failure() === undefined, true, "completed temporary hierarchy reservations release after every proof");
 });
 
+test("a chained primitive result retains its exact declared method without a fabricated object carrier", () => {
+  const current = fixture(`
+    declare global { interface String { alter(search: string, replacement: string): string; } }
+    const first = "seed".alter("s", "S");
+    const read = first.alter;
+  `);
+  const access = current.initializer("read");
+  const declaration = current.source.semantics.forNode(access).operations.propertyAccess(access)?.selectedDeclaration;
+  assert.equal(declaration !== undefined, true, "the original source checker selects an exact primitive method");
+  const selected = current.storage.subjectFor(access);
+  assert.equal(selected.kind === "resolved", true);
+  const origins = current.storage.closedOriginsFor(selected.subject);
+  assert.equal(origins.kind === "open" && origins.origins.length === 1 && origins.origins[0].subject.node === declaration, true,
+    "exact native method provenance remains open for an external declaration without inventing a source implementation");
+  assert.equal(current.storage.failureReason() === undefined, true);
+});
+
 test("opaque missing members are not silently certified as an impossible allocated alternative", () => {
   const current = fixture(`
     class Base { kind: string = "base"; }

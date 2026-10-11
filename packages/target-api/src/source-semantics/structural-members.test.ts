@@ -41,6 +41,40 @@ function check(text: string, files?: Record<string, string>) {
   return inspect(text, files).results;
 }
 
+test("checked primitive member correspondence retains native carriers and exact declaration identities", () => {
+  for (const [name, carrier, literal, predicate] of [
+    ["String", "string", '"native"', "isStringLike"],
+    ["Number", "number", "7", "isNumberLike"],
+    ["Boolean", "boolean", "true", "isBooleanLike"],
+    ["BigInt", "bigint", "9007199254740993n", "isBigIntLike"],
+    ["Symbol", "symbol", "token", "isSymbolLike"],
+  ] as const) {
+    const { results, semantics, argumentTypes } = inspect(`
+      export {};
+      declare global { interface ${name} { inspectNative(): object; } }
+      declare const token: unique symbol;
+      declare function observe<Value>(value: Value): void;
+      const actual = ${literal};
+      declare const destination: ${carrier};
+      observe(actual); observe(destination);
+    `);
+    const actual = argumentTypes[0]!;
+    const destination = argumentTypes[1]!;
+    const relation = semantics.types.structuralMembers(actual, destination);
+    assert.equal(results.every(result => result.kind === "available") && relation.kind === "available", true, name);
+    if (relation.kind !== "available") continue;
+    assert.equal(relation.source.type === actual && relation.destination.type === destination, true,
+      `${name}: member evidence never substitutes a boxed carrier`);
+    assert.equal(semantics.types[predicate](relation.source.type) && semantics.types[predicate](relation.destination.type), true, name);
+    const selected = relation.members.find(member => member.destination.property.name === "inspectNative");
+    assert.equal(selected?.kind === "present" && selected.source.declarations.length === 1 &&
+      selected.source.declarations[0] === selected.destination.declarations[0], true,
+      `${name}: exact checker declaration identity, not a name-only or invented match`);
+    assert.equal(semantics.types.structuralMembers(actual, destination) === relation && Object.isFrozen(relation.members), true,
+      `${name}: one immutable checked correspondence`);
+  }
+});
+
 test("structural variable arguments retain distinct selected identities, optional absence and aliases", () => {
   const results = check(`
     declare function accept(value: { flags?: string; highWaterMark: number; mode?: number }): void;

@@ -56,10 +56,11 @@ export function createSourceStructuralMemberQuery(
   types: TypeShapeQueries,
 ): (source: Type, destination: Type) => SourceStructuralMemberCorrespondence {
   const cache = new WeakMap<Type, WeakMap<Type, SourceStructuralMemberCorrespondence>>();
-  const unresolved = (type: Type): boolean => types.isAny(type) || types.isUnknown(type) ||
-    types.isNever(type) || types.isNullish(type) || types.isUnion(type) ||
-    types.isStringLike(type) || types.isNumberLike(type) || types.isBooleanLike(type) ||
-    types.isBigIntLike(type) || types.isSymbolLike(type) || types.isVoidLike(type);
+  const unresolved = (type: Type): boolean => {
+    const shape = types.isUnion(type) ? types.getApparentType(type) : type;
+    return shape === undefined || types.isAny(shape) || types.isUnknown(shape) || types.isNever(shape) ||
+      types.isNullish(shape) || types.isVoidLike(shape) || types.isUnion(shape);
+  };
   const describe = (property: TypePropertyInfo): SourceStructuralMember => {
     const symbols = [property.symbol, ...property.rootSymbols];
     const declarations = Object.freeze([...new Set(symbols
