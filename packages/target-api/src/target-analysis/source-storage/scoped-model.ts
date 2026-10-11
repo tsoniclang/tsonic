@@ -7,6 +7,7 @@ export interface SourceStorageFrame {
   readonly owner?: Node;
   readonly invocation?: Node;
   readonly caller?: SourceStorageScope;
+  readonly equation?: SourceStorageEquation;
   readonly entries: ReadonlyMap<SourceStorageSubject, readonly SourceStorageReference[]>;
   readonly parents: readonly SourceStorageScope[];
 }
@@ -22,15 +23,21 @@ export interface SourceStorageVariable {
   readonly kind: "variable";
   readonly equation: SourceStorageEquation;
   readonly owner: Node;
+  readonly capture?: Node;
 }
 
 export interface SourceStorageScopeView {
   readonly kind: "substitution";
-  readonly scope: SourceStorageScope;
+  readonly scope: SourceStorageFrame;
   readonly substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>;
 }
 
 export type SourceStorageScope = SourceStorageFrame | SourceStorageVariable | SourceStorageScopeView;
+
+export interface SourceStorageActivation {
+  readonly key: string;
+  readonly variable: SourceStorageVariable | undefined;
+}
 
 export interface SourceStorageReference {
   readonly kind: "reference" | "leaf";
@@ -38,19 +45,23 @@ export interface SourceStorageReference {
   readonly scope: SourceStorageScope;
 }
 
+export type SourceStorageOperation =
+  | { readonly mode: "value" }
+  | { readonly mode: "execution"; readonly demand: Node };
+
 export type SourceStorageTerm =
   | SourceStorageReference
-  | { readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
-      readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
-      readonly mode: "value" | "execution" }
-  | { readonly kind: "member"; readonly access: Node; readonly receiver: SourceStorageTerm;
-      readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[];
-      readonly mode: "value" | "execution" }
-  | { readonly kind: "guard"; readonly candidate: Node; readonly condition: SourceStorageTerm; readonly value: SourceStorageTerm }
+  | { readonly kind: "empty" }
+  | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
+      readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
+  | ({ readonly kind: "member"; readonly access: Node; readonly receiver: SourceStorageTerm;
+      readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
+  | { readonly kind: "transition"; readonly capture: SourceStorageVariable;
+      readonly condition: SourceStorageTerm; readonly value: SourceStorageTerm }
   | { readonly kind: "store"; readonly destination: SourceStorageReference; readonly receiver: SourceStorageTerm;
       readonly value: SourceStorageTerm }
-  | { readonly kind: "execution-root" }
-  | { readonly kind: "region"; readonly region: Node; readonly scope: SourceStorageScope }
+  | { readonly kind: "execution-root"; readonly demand: Node }
+  | { readonly kind: "region"; readonly region: Node; readonly scope: SourceStorageScope; readonly demand: Node }
   | { readonly kind: "effect"; readonly store: SourceStorageStore; readonly scope: SourceStorageScope };
 
 export type SourceStorageReduction =

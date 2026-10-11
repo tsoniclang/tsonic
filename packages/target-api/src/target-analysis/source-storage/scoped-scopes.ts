@@ -5,12 +5,15 @@ import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import { sourceStorageReference } from "./scoped-model.js";
-import type { SourceStorageEquation, SourceStorageFrame, SourceStorageReduction, SourceStorageReference,
+import { createSourceStorageScopedTraversal } from "./scoped-traversal.js";
+import type { SourceStorageSubstitutionPath } from "./scoped-traversal.js";
+import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageReduction, SourceStorageReference,
   SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "./scoped-model.js";
 
 export function createSourceStorageScopes(source: TargetSourceProgram, budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery, invocationInputs: SourceStorageInvocationInputQuery,
-  graphQueries: ReturnType<typeof createSourceStorageGraphQueries>) {
+  graphQueries: ReturnType<typeof createSourceStorageGraphQueries>,
+  entryInputFor: (origin: SourceStorageSubject, variable: SourceStorageVariable) => SourceStorageSubject | undefined) {
   const rows = budget.createRows();
   const identities = new Map<object, number>();
   const identity = (value: object): number => {
@@ -24,13 +27,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   const empty: SourceStorageFrame = Object.freeze({ kind: "frame", entries: new Map(), parents: Object.freeze([]) });
   identity(empty);
   const variables = new Map<string, SourceStorageVariable>();
-  const variable = (equation: SourceStorageEquation, owner: Node): SourceStorageVariable | undefined => {
+  const variable = (equation: SourceStorageEquation, owner: Node, capture?: Node): SourceStorageVariable | undefined => {
     if (!budget.step()) return undefined;
-    const key = `${equation.identity}:${identity(owner)}`;
+    const key = `${equation.identity}:${identity(owner)}:${capture === undefined ? "" : identity(capture)}`;
     const cached = variables.get(key);
     if (cached !== undefined) return cached;
     if (!rows.add(1)) return undefined;
-    const selected = Object.freeze({ kind: "variable" as const, equation, owner });
+    const selected = Object.freeze({ kind: "variable" as const, equation, owner, capture });
     variables.set(key, selected);
     return selected;
   };
@@ -61,15 +64,16 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     readonly applications: Map<SourceStorageScope, { readonly key: string; readonly result: SourceStorageScope }>;
     readonly owners: Map<SourceStorageScope, Map<Node, SourceStorageScope | null>>;
     readonly families: Map<SourceStorageScope, SourceStorageEquation | null>;
+    readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>;
   }
   let activeMemo: QueryMemo | undefined;
   const withMemo = <Value>(collect: (memo: QueryMemo) => Value): Value => {
     if (activeMemo !== undefined) return collect(activeMemo);
     return budget.withRows(temporary => {
-      const memo: QueryMemo = { add: temporary.add, applications: new Map(), owners: new Map(), families: new Map() };
+      const memo: QueryMemo = { add: temporary.add, applications: new Map(), owners: new Map(), families: new Map(), lookups: new Map() };
       activeMemo = memo;
       try { return collect(memo); }
-      finally { activeMemo = undefined; memo.applications.clear(); memo.owners.clear(); memo.families.clear(); }
+      finally { activeMemo = undefined; memo.applications.clear(); memo.owners.clear(); memo.families.clear(); memo.lookups.clear(); }
     });
   };
   const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
@@ -122,11 +126,21 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   });
   const applyTerm = (term: SourceStorageTerm, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageTerm | undefined => {
     if (!budget.step()) return undefined;
-    if (term.kind === "execution-root") return term;
-    if (term.kind === "guard") {
+    if (term.kind === "execution-root" || term.kind === "empty") return term;
+    if (term.kind === "transition") {
       const condition = applyTerm(term.condition, replacements);
-      const value = applyTerm(term.value, replacements);
-      return condition === undefined || value === undefined ? undefined : Object.freeze({ ...term, condition, value });
+      if (condition === undefined) return undefined;
+      return budget.withRows(temporary => {
+        const free = new Map<SourceStorageVariable, SourceStorageScope>();
+        for (const [input, replacement] of replacements) {
+          if (!budget.step()) return undefined;
+          if (input === term.capture) continue;
+          if (!temporary.add(1)) return undefined;
+          free.set(input, replacement);
+        }
+        const value = free.size === 0 ? term.value : applyTerm(term.value, free);
+        return value === undefined ? undefined : Object.freeze({ ...term, condition, value });
+      });
     }
     if (term.kind === "store") {
       const destination = applyTerm(term.destination, replacements);
@@ -152,64 +166,66 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const projected = subject(entry.subject.node, entry.subject.kind, [...entry.subject.projection, ...origin.projection]);
     return projected === undefined ? undefined : sourceStorageReference(projected, entry.scope);
   };
-  const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => budget.withRows(temporary => {
-    if (!budget.step() || origin.kind !== "input" && origin.kind !== "receiver") return undefined;
-    const pending: { readonly scope: SourceStorageScope;
-      readonly substitutions: readonly ReadonlyMap<SourceStorageVariable, SourceStorageScope>[] }[] = [{ scope, substitutions: [] }];
-    const visited = new Map<SourceStorageScope, Set<string>>();
+  const traverse = createSourceStorageScopedTraversal(budget);
+  const applyPath = (term: SourceStorageTerm, path: SourceStorageSubstitutionPath | undefined): SourceStorageTerm | undefined => {
+    let selected: SourceStorageTerm | undefined = term;
+    for (let current = path; current !== undefined; current = current.parent) {
+      if (!budget.step() || selected === undefined) return undefined;
+      selected = applyTerm(selected, current.replacements);
+    }
+    return selected;
+  };
+  const selectInput = (origin: SourceStorageSubject, scope: SourceStorageScope,
+    retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
-    while (pending.length !== 0) {
-      if (!budget.step()) return undefined;
-      const current = pending.pop()!;
-      const key = current.substitutions.map(value => identity(value)).join(";");
-      const checked = visited.get(current.scope);
-      if (checked?.has(key)) continue;
-      if (!temporary.add(checked === undefined ? 2 : 1)) return undefined;
-      const retained = checked ?? new Set<string>(); retained.add(key); visited.set(current.scope, retained);
-      const variable = current.scope.kind === "variable" ? current.scope : undefined;
-      const replacementIndex = variable === undefined ? -1 : current.substitutions.findIndex(value => value.has(variable));
-      if (replacementIndex >= 0) {
-        pending.push({ scope: current.substitutions[replacementIndex]!.get(variable!)!,
-          substitutions: current.substitutions.slice(replacementIndex + 1) });
-        continue;
-      }
-      if (current.scope.kind === "substitution") {
-        pending.push({ scope: current.scope.scope, substitutions: [current.scope.substitutions, ...current.substitutions] });
-        continue;
-      }
+    for (const current of traverse(scope)) {
       if (current.scope.kind === "variable") {
-        if (origin.kind === "receiver" || origin.kind === "input") return { kind: "expand", variable: current.scope };
-        continue;
+        const initial = entryInputFor(origin, current.scope);
+        if (initial !== undefined) {
+          if (!retain(1)) return undefined;
+          const selected = applyPath(sourceStorageReference(initial, current.scope.equation.initial), current.path);
+          return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]) });
+        }
+        return { kind: "expand", variable: current.scope };
       }
       const entries = current.scope.entries.get(root);
       if (entries !== undefined) {
         const terms: SourceStorageTerm[] = [];
         for (const entry of entries) {
-          if (!budget.step()) return undefined;
-          let applied: SourceStorageTerm | undefined = project(entry, origin);
-          for (const replacements of current.substitutions) {
-            if (applied === undefined) return undefined;
-            applied = applyTerm(applied, replacements);
-          }
+          if (!budget.step() || !retain(1)) return undefined;
+          const projected = project(entry, origin);
+          const applied = projected === undefined ? undefined : applyPath(projected, current.path);
           if (applied === undefined) return undefined;
           terms.push(applied);
         }
         return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
       }
-      for (let index = current.scope.parents.length - 1; index >= 0; index -= 1)
-        pending.push({ scope: current.scope.parents[index]!, substitutions: current.substitutions });
     }
     return undefined;
-  });
+  };
+  const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
+    if (!budget.step() || origin.kind !== "input" && origin.kind !== "receiver") return undefined;
+    return withMemo(memo => {
+      const selections = memo.lookups.get(scope);
+      const retained = selections?.get(origin);
+      if (retained !== undefined) return retained ?? undefined;
+      const selected = selectInput(origin, scope, memo.add);
+      if (budget.failure() !== undefined || !memo.add(selections === undefined ? 2 : 1)) return undefined;
+      const inputs = selections ?? new Map<SourceStorageSubject, SourceStorageReduction | null>();
+      inputs.set(origin, selected ?? null); memo.lookups.set(scope, inputs);
+      return selected;
+    });
+  };
   const frames = new Map<string, SourceStorageFrame>();
-  const frameFor = (candidate: Node, invocation: Node, parent: SourceStorageScope, captured: SourceStorageScope): SourceStorageFrame | undefined => {
+  const frameFor = (candidate: Node, invocation: Node, parent: SourceStorageScope, captured: SourceStorageScope,
+    equation?: SourceStorageEquation): SourceStorageFrame | undefined => {
     if (!budget.step()) return undefined;
-    const key = [candidate, invocation, parent, captured].map(identity).join(":");
+    const key = `${[candidate, invocation, parent, captured].map(identity).join(":")}:${equation?.identity ?? ""}`;
     const cached = frames.get(key);
     if (cached !== undefined) return cached;
     const entries = new Map<SourceStorageSubject, readonly SourceStorageReference[]>();
-    const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, entries,
+    const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, equation, entries,
       parents: Object.freeze(captured === parent ? [parent] : [captured, parent]) });
     const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? [] : source.ast.parameters(candidate);
     for (const parameter of [...parameters, candidate]) {
@@ -231,23 +247,6 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     identity(frame);
     return frame;
   };
-  const find = (scope: SourceStorageScope, match: (scope: SourceStorageScope) => boolean): SourceStorageScope | undefined => budget.withRows(temporary => {
-    const pending = [scope]; const visited = new Set<SourceStorageScope>();
-    while (pending.length !== 0) {
-      if (!budget.step()) return undefined;
-      const current = pending.pop()!;
-      if (visited.has(current)) continue;
-      if (!temporary.add(1)) return undefined;
-      visited.add(current);
-      if (match(current)) return current;
-      if (current.kind === "variable") pending.push(current.equation.initial);
-      else if (current.kind === "substitution") {
-        const selected = find(current.scope, match);
-        if (selected !== undefined) return applyScope(selected, current.substitutions);
-      } else for (let index = current.parents.length - 1; index >= 0; index -= 1) pending.push(current.parents[index]!);
-    }
-    return undefined;
-  });
   const owningScope = (scope: SourceStorageScope, owner: Node): SourceStorageScope | undefined => withMemo(memo => {
     if (!budget.step()) return undefined;
     if (scope === empty) return undefined;
@@ -255,7 +254,16 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const selections = memo.owners.get(scope);
     const retained = selections?.get(owner);
     if (retained !== undefined) return retained ?? undefined;
-    const selected = find(scope, current => current.kind !== "substitution" && current.owner === owner);
+    let selected: SourceStorageScope | undefined;
+    for (const current of traverse(scope)) {
+      if (current.scope.owner !== owner) continue;
+      selected = current.scope;
+      for (let path = current.path; path !== undefined; path = path.parent) {
+        if (!budget.step() || selected === undefined) return undefined;
+        selected = applyScope(selected, path.replacements);
+      }
+      break;
+    }
     if (budget.failure() !== undefined || !memo.add(selections === undefined ? 2 : 1)) return undefined;
     const values = selections ?? new Map<Node, SourceStorageScope | null>();
     values.set(owner, selected ?? null);
@@ -268,51 +276,60 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (scope.kind === "variable") return scope.equation;
     const retained = memo.families.get(scope);
     if (retained !== undefined) return retained ?? undefined;
-    const selected = find(scope, current => current.kind === "variable");
-    const equation = selected?.kind === "variable" ? selected.equation : undefined;
+    let equation: SourceStorageEquation | undefined;
+    for (const current of traverse(scope, "caller")) {
+      if (current.scope.equation === undefined) continue;
+      equation = current.scope.equation;
+      break;
+    }
     if (budget.failure() !== undefined || !memo.add(1)) return undefined;
     memo.families.set(scope, equation ?? null);
     return equation;
   });
-  const activationKeys = new Map<SourceStorageScope, string>();
-  const activations = new Map<string, string>();
-  const activationKey = (scope: SourceStorageScope): string | undefined => budget.withRows(temporary => {
-    const pending: { readonly scope: SourceStorageScope; readonly children: Iterator<SourceStorageScope> }[] = [];
-    const visiting = new Set<SourceStorageScope>();
-    const enter = (scope: SourceStorageScope): boolean => {
-      if (visiting.has(scope)) { budget.reject("Source storage activation ownership must be acyclic."); return false; }
-      if (!temporary.add(1)) return false;
-      visiting.add(scope);
-      const children = scope.kind === "substitution" ? [scope.scope, ...scope.substitutions.values()]
-        : scope.kind === "frame" && scope.caller !== undefined ? [scope.caller] : [];
-      pending.push({ scope, children: children[Symbol.iterator]() });
-      return true;
-    };
+  const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
+  const activations = new Map<string, SourceStorageActivation>();
+  const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
     if (activationKeys.has(scope)) return activationKeys.get(scope);
-    if (!enter(scope)) return undefined;
-    while (pending.length !== 0) {
-      if (!budget.step()) return undefined;
-      const current = pending[pending.length - 1]!;
-      const next = current.children.next();
-      if (!next.done) {
-        if (!activationKeys.has(next.value) && !enter(next.value)) return undefined;
-        continue;
-      }
-      const owner = current.scope;
-      let key: string;
-      if (owner.kind === "variable") key = `v${owner.equation.identity}:${identity(owner.owner)}`;
-      else if (owner.kind === "substitution") key = `s${activationKeys.get(owner.scope)};${[...owner.substitutions]
-        .map(([input, replacement]) => [identity(input), activationKeys.get(replacement)] as const)
-        .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";")}`;
-      else key = owner.invocation === undefined ? "root" : `f${identity(owner.invocation)}:${activationKeys.get(owner.caller!)}`;
+    const intern = (key: string, variable: SourceStorageVariable | undefined): SourceStorageActivation | undefined => {
       let selected = activations.get(key);
-      if (!rows.add(selected === undefined ? 2 : 1)) return undefined;
-      if (selected === undefined) { selected = `${activations.size}`; activations.set(key, selected); }
-      activationKeys.set(owner, selected);
-      visiting.delete(owner); pending.pop();
+      if (selected !== undefined) return selected;
+      if (!rows.add(2)) return undefined;
+      selected = Object.freeze({ key: `${activations.size}`, variable }); activations.set(key, selected);
+      return selected;
+    };
+    const remember = (scope: SourceStorageScope, value: SourceStorageActivation): boolean => {
+      if (activationKeys.has(scope)) return true;
+      if (!rows.add(1)) return false;
+      activationKeys.set(scope, value);
+      return true;
+    };
+    const pending: { readonly scope: SourceStorageFrame; readonly unmodified: boolean }[] = [];
+    let selected: SourceStorageActivation | undefined;
+    for (const current of traverse(scope, "caller")) {
+      if (!budget.step()) return undefined;
+      const retained = current.path === undefined ? activationKeys.get(current.scope) : undefined;
+      if (retained !== undefined) { selected = retained; break; }
+      if (current.scope.kind === "variable" || current.scope.invocation === undefined) {
+        selected = intern(current.scope.kind === "variable"
+          ? `v${current.scope.equation.identity}:${identity(current.scope.owner)}:${current.scope.capture === undefined ? "" : identity(current.scope.capture)}` : "root",
+          current.scope.kind === "variable" ? current.scope : undefined);
+        if (selected === undefined || !remember(current.scope, selected)) return undefined;
+        break;
+      }
+      if (!temporary.add(1)) return undefined;
+      pending.push({ scope: current.scope, unmodified: current.path === undefined });
     }
-    return activationKeys.get(scope);
+    if (selected === undefined) {
+      budget.reject("Source storage activation ownership must be acyclic."); return undefined;
+    }
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      if (!budget.step()) return undefined;
+      const current = pending[index]!;
+      selected = intern(`f${identity(current.scope.invocation!)}:${selected.key}`, selected.variable);
+      if (selected === undefined || current.unmodified && !remember(current.scope, selected)) return undefined;
+    }
+    return remember(scope, selected) ? selected : undefined;
   });
   const formals = (scope: SourceStorageScope): ReadonlySet<SourceStorageSubject> | undefined => budget.withRows(temporary => {
     const selected = new Set<SourceStorageSubject>(); const visited = new Set<SourceStorageScope>(); const pending = [scope];
@@ -340,7 +357,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     return selected;
   });
   return Object.freeze({ empty, identity, variable, variablesFor, applyScope, applyTerm, lookup, frameFor,
-    owningScope, family, activationKey, formals,
+    owningScope, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
     withQuery: <Value>(collect: () => Value): Value => withMemo(() => collect()) });
 }
 

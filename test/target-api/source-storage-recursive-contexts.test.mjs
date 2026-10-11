@@ -31,7 +31,8 @@ function fixture(body, extraFiles = {}) {
   };
   const result = (name, kind = "complete") => {
     const selected = storage.closedOriginsFor(subject(name));
-    assert.equal(selected.kind === kind, true, `${name}: finite ${kind} recursive relation`);
+    assert.equal(selected.kind === kind, true,
+      `${name}: finite ${kind} recursive relation; actual=${selected.kind}${selected.kind === "unresolved" ? `; ${selected.reason}` : ""}`);
     assert.equal(storage.failureReason() === undefined, true, "independent resource protection remains intact");
     assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.origins), true, "only completed immutable evidence is exposed");
     return selected;
@@ -174,6 +175,32 @@ test("recursive callback containers retain selected member and written receiver 
   }
 });
 
+test("recursive record methods retain the selected receiver's entry seed through concrete equation expansion", () => {
+  const current = fixture(`
+    interface Item { value: object; }
+    class Parser {
+      constructor(private readonly value: object) {}
+      parse(): Item { return this.parseValue(2); }
+      parseValue(count: number): Item {
+        return count === 0 ? { value: this.value }
+          : count === 1 ? this.parseObject(count - 1) : this.parseArray(count - 1);
+      }
+      parseObject(count: number): Item { return { value: this.parseValue(count).value }; }
+      parseArray(count: number): Item { return this.parseValue(count); }
+    }
+    const own = {}; const foreign = {};
+    const firstParser = new Parser(own); const secondParser = new Parser(foreign);
+    const first = firstParser.parse().value; const second = secondParser.parse().value;
+  `);
+  for (const [name, own, foreign] of [["first", "own", "foreign"], ["second", "foreign", "own"]]) {
+    const selected = current.result(name);
+    assert.equal(selected.origins.length === 1 && selected.origins[0].subject === current.subject(own), true,
+      "concrete recursive entry retains its exact receiver seed");
+    assert.equal(selected.origins.some(origin => origin.subject === current.subject(foreign)), false,
+      "a different parser invocation cannot supply this receiver's value");
+  }
+});
+
 test("recursive source context relations keep exact cross-file generic declaration identities", () => {
   const current = fixture(`
     import { nest } from "./nest.js";
@@ -209,6 +236,27 @@ test("recursive graph membership cannot admit an invocation whose correlated cal
     origin.subject === current.subject(name)), true, "selected caller has its original root");
   for (const name of ["forbidden", "foreign"]) assert.equal(selected.origins.some(origin =>
     origin.subject === current.subject(name)), false, "a globally possible recursive edge is not a selected caller transition");
+});
+
+test("a recursive selected callee retains its own lexical capture rather than the invoking closure's capture", () => {
+  const current = fixture(`
+    type Step = (next: Step, count: number) => object;
+    function make(seed: object): Step {
+      function step(next: Step, count: number): object {
+        return count === 0 ? seed : next(next, count - 1);
+      }
+      return step;
+    }
+    const own = {}; const selected = {}; const unrelated = {};
+    const first = make(own)(make(selected), 3);
+    const separate = make(unrelated)(make(unrelated), 3);
+  `);
+  const result = current.result("first");
+  assert.equal(result.origins.length === 2, true, "both actual checked branch producers retain their creation environments");
+  for (const name of ["own", "selected"]) assert.equal(result.origins.some(origin =>
+    origin.subject === current.subject(name)), true, "an invoked recursive closure supplies its own captured seed");
+  assert.equal(result.origins.some(origin => origin.subject === current.subject("unrelated")), false,
+    "a separate closure creation is never an alternative of this invocation");
 });
 
 test("callee-scoped defaults remain finite when a nested returned closure captures the defaulted parameter", () => {

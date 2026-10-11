@@ -4,6 +4,7 @@ import type { SourceStorageStore } from "./stored-values.js";
 import type { SourceStorageCallEffect } from "./types.js";
 import type { createSourceStorageExecutionRegions } from "./execution-regions.js";
 import type { createSourceStorageMemberFlow } from "./member-flow.js";
+import type { createSourceStorageContextInputs } from "./context-inputs.js";
 
 export interface SourceStorageScopedTransport {
   readonly subject: SourceStorageSubjectQuery;
@@ -17,7 +18,8 @@ export interface SourceStorageScopedTransport {
   readonly memberFlow: ReturnType<typeof createSourceStorageMemberFlow>;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
   incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
-  contextualInputs(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined;
+  readonly contextualInputs: ReturnType<typeof createSourceStorageContextInputs>;
+  contextLocation(subject: SourceStorageSubject): boolean;
   storedValuesFor(subject: SourceStorageSubject): Iterable<SourceStorageStore> | undefined;
   storesIn(region: Node): Iterable<SourceStorageStore> | undefined;
   invocationImplementations(invocation: Node): ReadonlySet<Node>;

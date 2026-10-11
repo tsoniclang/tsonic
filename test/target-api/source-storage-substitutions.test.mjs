@@ -28,9 +28,10 @@ function fixture(limits = {}, length = 50) {
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
   const scopes = createSourceStorageScopes(source, budget, subject,
-    origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }), graph);
+    origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }), graph, () => undefined);
   const keys = createSourceStorageScopedKeys(source, budget, {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
+    contextLocation: () => false,
     storedValuesFor: () => undefined, invocationEffects: new Map(), regions: { enclosing: () => undefined },
   }, scopes);
   return { budget, subject, scopes, keys, outer, inner, innerParameter, formal, input, nodes, inputs };
@@ -137,6 +138,24 @@ test("activation identity retains the actual caller and does not depend on a red
   assert.equal(current.budget.failure() === undefined, true);
 });
 
+test("substituting only a lexical capture cannot manufacture another physical call activation", () => {
+  const current = fixture();
+  const candidate = { parameters: [] };
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const capture = current.scopes.variable(equation, current.outer);
+  const frame = current.scopes.frameFor(candidate, {}, current.scopes.empty, capture);
+  const replacement = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+  const substituted = current.scopes.applyScope(frame, new Map([[capture, replacement]]));
+  assert.equal(substituted?.kind === "substitution", true, "the lexical capture really changes");
+  assert.equal(current.scopes.activationKey(substituted) === current.scopes.activationKey(frame), true,
+    "physical identity follows the actual caller, not unused capture substitutions");
+  const called = current.scopes.frameFor(candidate, frame.invocation, capture, current.scopes.empty);
+  const changedCaller = current.scopes.applyScope(called, new Map([[capture, replacement]]));
+  assert.equal(current.scopes.activationKey(changedCaller) === current.scopes.activationKey(called), false,
+    "an effective caller substitution must still change physical identity");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
 test("deep cyclic capture discovery reuses the bounded completed relation owner", () => {
   const current = fixture();
   const candidate = { parameters: [] };
@@ -225,4 +244,52 @@ test("completed and throwing scope queries release temporary memo rows without l
     return remaining;
   };
   assert.equal(remainingRows(1000), remainingRows(1), "query history adds no persistent cache rows");
+});
+
+test("recursive equation identity survives its concrete entry frame without changing physical activation identity", () => {
+  const current = fixture({}, 1);
+  const invocation = {};
+  const original = current.scopes.frameFor(current.outer, invocation, current.scopes.empty, current.scopes.empty);
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer, current.inner]), initial: original };
+  const active = current.scopes.frameFor(current.outer, invocation, current.scopes.empty, current.scopes.empty, equation);
+  assert.equal(active !== undefined && active !== original, true, "equation context is a distinct exact semantic frame");
+  assert.equal(current.scopes.family(original) === undefined, true);
+  assert.equal(current.scopes.family(active) === equation, true, "expanding the entry does not erase its recursive binder");
+  assert.equal(current.scopes.activationKey(active) === current.scopes.activationKey(original), true,
+    "equation bookkeeping does not invent another physical invocation");
+  assert.equal(current.scopes.frameFor(current.outer, invocation, current.scopes.empty, current.scopes.empty, equation) === active, true);
+  const variable = current.scopes.variable(equation, current.inner);
+  const recursive = current.scopes.frameFor(current.inner, {}, variable, variable, equation);
+  const view = current.scopes.applyScope(recursive, new Map([[variable, current.scopes.empty]]));
+  assert.equal(view?.kind === "substitution" && current.scopes.family(view) === equation, true,
+    "simultaneous formal substitution does not erase active equation ownership");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("equation selection follows actual caller ownership rather than an unrelated captured environment", () => {
+  const current = fixture({}, 1);
+  const first = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const second = { identity: 1, entry: current.inner, component: new Set([current.inner]), initial: current.scopes.empty };
+  const caller = current.scopes.variable(first, current.outer);
+  const captured = current.scopes.variable(second, current.inner);
+  const frame = current.scopes.frameFor(current.inner, {}, caller, captured);
+  assert.equal(current.scopes.family(frame) === first, true, "callee capture does not elect its caller's recursion equation");
+  const view = current.scopes.applyScope(frame, new Map([[caller, current.scopes.empty]]));
+  assert.equal(current.scopes.family(view) === undefined, true, "a substituted caller is resolved before family selection");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("deep concrete substitution views retain exact equation and lexical ownership without host recursion", () => {
+  const current = fixture({}, 1);
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const variable = current.scopes.variable(equation, current.outer);
+  let scope = variable;
+  for (let depth = 0; depth < 4000; depth += 1) {
+    const frame = current.scopes.frameFor(current.inner, {}, scope, scope);
+    scope = current.scopes.applyScope(frame, new Map([[variable, variable]]));
+    assert.equal(scope?.kind === "substitution", true, "finite canonical frame view");
+  }
+  assert.equal(current.scopes.family(scope) === equation, true, "effective caller equation survives deep views");
+  assert.equal(current.scopes.owningScope(scope, current.outer) === variable, true, "exact lexical owner is unchanged");
+  assert.equal(current.budget.failure() === undefined, true, "existing finite limits do not depend on the JavaScript call stack");
 });

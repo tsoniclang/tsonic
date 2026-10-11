@@ -5,6 +5,9 @@ import { sourceStorageComponents, sourceStorageSubjectType } from "./components.
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 import type { SourceStorageIncomingQuery } from "./edges.js";
+import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
+import type { createSourceStorageGraphQueries } from "./graph-queries.js";
+import { createSourceStorageContextApplications } from "./context-applications.js";
 
 interface SourceStorageContextInputQueries {
   readonly subject: SourceStorageSubjectQuery;
@@ -13,7 +16,9 @@ interface SourceStorageContextInputQueries {
   sourceFileFor(subject: SourceStorageSubject): SourceFile | undefined;
   isInvocation(node: Node): boolean;
   implementationsFor(node: Node): ReadonlySet<Node>;
-  invocationOrigins(subject: SourceStorageSubject, candidate: Node, invocation: Node): ReadonlySet<SourceStorageSubject>;
+  readonly invocationInputs: SourceStorageInvocationInputQuery;
+  isLocation(subject: SourceStorageSubject): boolean;
+  ownerFor(node: Node): Node | undefined;
   argumentsFor(node: Node): readonly Node[];
 }
 
@@ -21,9 +26,10 @@ export function createSourceStorageContextInputs(
   source: TargetSourceProgram,
   budget: SourceStorageBudget,
   queries: SourceStorageContextInputQueries,
+  graph: ReturnType<typeof createSourceStorageGraphQueries>,
 ) {
   const selections = new Map<SourceStorageSubject, ReadonlySet<SourceStorageSubject>>();
-  return (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+  const inputsFor = (origin: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     if (!budget.step()) return undefined;
     const cached = selections.get(origin);
     if (cached !== undefined) return cached;
@@ -70,23 +76,10 @@ export function createSourceStorageContextInputs(
         }
       }
       if (invocation) {
-        for (const candidate of queries.implementationsFor(node)) {
-          if (!budget.step()) return undefined;
-          const selected = queries.subject(candidate, "return", origin.projection);
-          if (selected === undefined) continue;
-          for (const input of queries.invocationOrigins(selected, candidate, node)) {
-            if (!budget.step()) return undefined;
-            add(input);
-          }
-        }
         const call = semantics.forNode(node).operations.call(node);
         add(queries.subjectFor(Node_Expression(ast, node)));
         add(queries.subjectFor(call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
           ?? semantics.forNode(node).operations.propertyAccess(node)?.receiver.expression));
-        for (const input of queries.argumentsFor(node)) {
-          if (!budget.step()) return undefined;
-          add(queries.subjectFor(input));
-        }
       }
       if (budget.failure() !== undefined) return undefined;
       selections.set(origin, inputs);
@@ -96,4 +89,6 @@ export function createSourceStorageContextInputs(
       if (!complete) rows.release();
     }
   };
+  const applicationFor = createSourceStorageContextApplications(source, budget, { ...queries, inputsFor }, graph);
+  return Object.assign(inputsFor, { applicationFor });
 }

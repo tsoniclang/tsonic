@@ -10,6 +10,7 @@ export function createSourceStorageContextFootprints(
   budget: SourceStorageBudget,
   inputsFor: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined,
   isLocation: (subject: SourceStorageSubject) => boolean,
+  applicationFor: (subject: SourceStorageSubject) => SourceStorageContextFootprint | undefined = () => undefined,
 ) {
   const selections = new Map<SourceStorageSubject, SourceStorageContextFootprint>();
   const isPort = (subject: SourceStorageSubject): boolean => subject.kind === "receiver" || subject.kind === "input";
@@ -35,6 +36,13 @@ export function createSourceStorageContextFootprints(
         const current = pending.pop()!;
         if (isPort(current)) ports.add(current);
         else {
+          const application = applicationFor(current);
+          if (budget.failure() !== undefined) return undefined;
+          if (application !== undefined) {
+            for (const port of application.ports) { if (!budget.step()) return undefined; ports.add(port); }
+            for (const location of application.locations) { if (!budget.step()) return undefined; locations.add(location); }
+            continue;
+          }
           if (isLocation(current)) locations.add(current);
           const inputs = inputsFor(current);
           if (inputs === undefined) return undefined;

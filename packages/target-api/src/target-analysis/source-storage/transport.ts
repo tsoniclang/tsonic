@@ -2,6 +2,7 @@ import type { Node, SourceFile } from "@tsonic/tsts";
 import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "./context-inputs.js";
+import { createSourceStorageContextLocations } from "./context-locations.js";
 import { sourceExpressionSelectsOperandValue } from "../../source-navigation/expression-use.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { createSourceStorageSubjects, type SourceStorageSubject } from "./subjects.js";
@@ -10,6 +11,7 @@ import { createSourceStorageStructuralFlow } from "./structural-flow.js";
 import { createSourceStorageEdges } from "./edges.js";
 import type { SourceStorageEdgeTypes } from "./edges.js";
 import { createSourceStorageExecutionRegions } from "./execution-regions.js";
+import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import { sourceStorageConstructedClass, sourceStorageSuperConstructor } from "./construction.js";
 import { createSourceStorageUnresolvedQuery } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
@@ -608,13 +610,19 @@ export function createSourceStorageTransport(
   };
   graphQueries.reconcile(operations());
   const unresolvedFor = createSourceStorageUnresolvedQuery(budget, subject, incomingFor, unresolvedSubjects);
+  const contextLocation = createSourceStorageContextLocations(source, budget, storedValues.storesFor,
+    subject => invocationEffects.get(subject.node)?.resultAlias !== undefined);
   const contextualInputs = createSourceStorageContextInputs(source, budget, {
     subject, subjectFor, incomingFor, sourceFileFor,
     isInvocation: node => invocations.has(node) || accessorTargets.has(node),
     implementationsFor: invocationImplementations,
-    invocationOrigins,
+    invocationInputs, isLocation: contextLocation,
+    ownerFor: node => {
+      const region = regions.enclosing(node);
+      return region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    },
     argumentsFor: node => invocationArguments.get(node) ?? [],
-  });
+  }, graphQueries);
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
     subject, subjectFor,
     targetFor: invocation => invocationTargets.get(invocation),
@@ -623,7 +631,7 @@ export function createSourceStorageTransport(
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
   const substitutions = createSourceStorageSubstitutions(source, budget, {
-    subject, subjectFor, incomingFor, contextualInputs, memberFlow, regions, invocationTargets,
+    subject, subjectFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
     storedValuesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation),
@@ -667,5 +675,5 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, memberFlow, ancestorSubjects, invocationImplementations, physicalMemberInputs,
-    invocationOrigins, invocationResults, substitutions, contextualInputs, unresolvedFor };
+    invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, unresolvedFor };
 }

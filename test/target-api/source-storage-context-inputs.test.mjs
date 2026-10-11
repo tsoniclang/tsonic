@@ -7,6 +7,7 @@ import { createSourceStorageContextFootprints } from "../../packages/target-api/
 import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph-queries.js";
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
@@ -20,8 +21,9 @@ function fixture(limits = {}) {
   const contexts = createSourceStorageContextInputs(source, budget, {
     subject, incomingFor: selected => inputs.get(selected) ?? new Set(), subjectFor: node => subject(node),
     sourceFileFor: () => undefined, isInvocation: () => false, implementationsFor: () => new Set(),
-    invocationOrigins: () => new Set(), argumentsFor: () => [],
-  });
+    invocationInputs: () => ({ subjects: new Set(), context: "caller" }), isLocation: () => false, argumentsFor: () => [],
+    ownerFor: () => undefined,
+  }, createSourceStorageGraphQueries(budget));
   return { budget, subject, inputs, properties, contexts };
 }
 
@@ -80,7 +82,7 @@ test("canonical context footprints include checked object members, array compone
   const source = createTargetSourceProgram(checked);
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
-  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false);
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false, transport.contextualInputs.applicationFor);
   const parameter = transport.visitedNodes.find(node => source.ast.is.IsParameterDeclaration(node) &&
     source.ast.text(source.ast.name(node)) === "token");
   const input = transport.subject(parameter, "input");

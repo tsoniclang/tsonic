@@ -47,7 +47,7 @@ const output = outer(left, right);
   const formal = transport.subject(source.ast.parameters(declaration("consume"))[0], "input");
   const binding = transport.substitutions.selection(formal, selected);
   assert.equal(binding?.length === 1, true, "one exact actual input and its enclosing scope");
-  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false);
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false, transport.contextualInputs.applicationFor);
   const context = ports.select(binding[0].subject)?.ports;
   assert.equal(context !== undefined, true, "complete demanded caller footprint, including captured and contained values");
   assert.equal(budget.failure() === undefined, true, "all original finite guards remain intact");
@@ -72,6 +72,50 @@ for (const [name, body, expected] of [
       "an unrelated sibling invocation cannot manufacture a caller dependency");
   });
 }
+
+for (const [name, body, expected] of [
+  ["unused recursive control", `function relay(value: {}, count: number): {} {
+    return count === 0 ? value : relay(value, count - 1);
+  } return consume(relay(left, 3));`, "left"],
+  ["mapped earlier-parameter default", `function relay(value: {}, copied: {} = value): {} { return copied; }
+    return consume(relay(right));`, "right"],
+  ["captured default", `function relay(value: {} = right): {} { return value; }
+    return consume(relay());`, "right"],
+  ["nested returned closure", `function make(value: {}): () => {} { return () => value; }
+    return consume(make(left)());`, "left"],
+  ["callee-local record allocation", `function make(value: {}): { value: {} } { return { value }; }
+    return consume(make(right));`, "right"],
+]) {
+  test(`completed call summaries retain only the caller's exact dependencies for ${name}`, () => {
+    const selected = selectedContext(body);
+    assert.equal(selected.context.size === 1 && selected.context.has(selected[expected]), true,
+      "callee formal ports and unused arguments are never published as caller dependencies");
+  });
+}
+
+test("a created call result has caller-owned identity while an observed receiver is not another allocation", () => {
+  const { source, file, declaration, call } = checkedSource(`export {};
+    class Box { value: object = {}; read(): object { return this.value; } }
+    function make(value: object) { return { value }; }
+    function outer(box: Box, token: object) { return { created: make(token), observed: box.read() }; }
+    const original = {}; const result = outer(new Box(), original);
+  `);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, [file], budget);
+  const created = transport.subject(call("make"));
+  const observedNode = transport.visitedNodes.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.is.IsPropertyAccessExpression(source.ast.as.AsCallExpression(node).Expression));
+  const observed = transport.subject(observedNode);
+  const result = transport.subject(declaration("make"), "return");
+  const input = transport.contextualInputs.applicationFor(created);
+  const receiver = transport.contextualInputs.applicationFor(observed);
+  const local = transport.contextualInputs(result);
+  assert.equal(input !== undefined && input.locations.has(created), true, "the caller sees the producing call site");
+  assert.equal(receiver !== undefined && !receiver.locations.has(observed), true, "a native field read creates no new object");
+  assert.equal(local !== undefined && [...input.locations].every(location => !local.has(location)), true,
+    "callee-local producers do not acquire fake caller activations");
+  assert.equal(budget.failure() === undefined, true);
+});
 
 for (const [name, members, write, read, helpers = ""] of [
   ["getter", "get current(): {} { return this.value; }", "box.value = token;", "box.current"],

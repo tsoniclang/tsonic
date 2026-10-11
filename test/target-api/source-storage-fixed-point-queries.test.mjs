@@ -45,6 +45,17 @@ test("fixed-point cells stay isolated by canonical key and propagate deep depend
   assert.equal(budget.failure() === undefined, true);
 });
 
+test("a long fixed-point wave charges its maximum live pending frontier rather than retired queue history", () => {
+  const { budget, graph } = fixture({ maximumTransportRows: 128 });
+  const original = {};
+  const select = graph.fixedPoint((key, read, add) => key === 20 ? add(original) : copy(read(key + 1), add));
+  graph.seal();
+  const selected = select(0);
+  assert.equal(selected?.size === 1 && selected.has(original), true, "all twenty-one exact cells finish under the original finite peak");
+  assert.equal(select(20)?.has(original) && select(0) === selected, true, "completed cells and identities remain charged and reusable");
+  assert.equal(budget.failure() === undefined, true, "queue retirement changes no work or resource ceiling");
+});
+
 test("completed empty fixed points are actual empty evidence, not unfinished or broad fallback selections", () => {
   const { budget, graph } = fixture();
   const select = graph.fixedPoint((key, read, add) => copy(read(key), add));
