@@ -1,10 +1,11 @@
+import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import type { SourceStorageTerm, SourceStorageScope } from "./scoped-model.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
-import { createSourceStorageContextFootprints } from "./context-footprints.js";
+import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "./context-footprints.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
@@ -25,10 +26,34 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes) {
   const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
     transport.contextLocation, transport.contextualInputs.applicationFor);
+  const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();
+  const ownerRows = budget.createRows();
+  const locationOwner = (subject: SourceStorageSubject): Node | undefined => {
+    const region = transport.regions.enclosing(subject.node);
+    return subject.kind === "return" ? subject.node : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+  };
+  const ownersFor = (footprint: SourceStorageContextFootprint): readonly (Node | undefined)[] | undefined => {
+    if (!budget.step()) return undefined;
+    if (footprint.locations.size === 0) return [];
+    const cached = locationOwners.get(footprint);
+    if (cached !== undefined) return cached;
+    return budget.withRows(temporary => {
+      const owners = new Set<Node | undefined>();
+      for (const location of footprint.locations) {
+        if (!budget.step()) return undefined;
+        const owner = locationOwner(location);
+        if (!owners.has(owner) && !temporary.add(1)) return undefined;
+        owners.add(owner);
+      }
+      if (budget.failure() !== undefined || !ownerRows.add(1 + owners.size)) return undefined;
+      const selected = Object.freeze([...owners]);
+      locationOwners.set(footprint, selected);
+      return selected;
+    });
+  };
   const birth = (subject: SourceStorageSubject, scope: SourceStorageScope) => {
     if (!budget.step()) return undefined;
-    const region = scope === scopes.empty ? undefined : transport.regions.enclosing(subject.node);
-    const owner = subject.kind === "return" ? subject.node : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    const owner = scope === scopes.empty ? undefined : locationOwner(subject);
     return scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
   };
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
@@ -71,10 +96,13 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         inputs.push([scopes.identity(port), entry]);
       }
       const physical: Encoded[] = [];
-      for (const location of footprint.locations) {
-        const selected = birthKey(location, scope);
+      const owners = ownersFor(footprint);
+      if (owners === undefined) return undefined;
+      for (const owner of owners) {
+        if (!budget.step()) return undefined;
+        const selected = activationKey(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
         if (selected === undefined) return undefined;
-        physical.push([scopes.identity(location), selected]);
+        physical.push([owner === undefined ? null : scopes.identity(owner), selected]);
       }
       return [inputs, physical];
     };
