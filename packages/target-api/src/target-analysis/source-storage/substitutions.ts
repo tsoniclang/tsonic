@@ -166,7 +166,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   }));
   const derive = (current: SourceStorageTerm,
     read: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined,
-    emit: (term: SourceStorageTerm, direct: boolean) => boolean): boolean => scopes.withTraversal(() => {
+    emit: (term: SourceStorageTerm, direct: boolean) => boolean,
+    project: (input: SourceStorageTerm, select: (value: SourceStorageTerm) => readonly SourceStorageTerm[] | undefined) => boolean): boolean => scopes.withTraversal(() => {
     const children = dependencies.get(current) ?? new Map<SourceStorageTerm, number>();
     if (!dependencies.has(current)) { if (!rows.add(1)) return false; dependencies.set(current, children); }
     const retain = (term: SourceStorageTerm, values = true): SourceStorageTerm | undefined => {
@@ -184,6 +185,22 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     currentRead = term => select(term, false);
     try {
       if (current.kind === "leaf" || current.kind === "unresolved" || current.kind === "effect") return emit(current, true);
+      if (current.kind === "guarded") {
+        const input = retain(current.value, false);
+        return input !== undefined && project(input, value => scopes.withTraversal(() => {
+          const selected = value.kind === "leaf" ? successors.guardedLeaf(current.reference, value)
+            : value.kind === "unresolved" ? [value] : [];
+          if (selected === undefined) return undefined;
+          const outputs: SourceStorageTerm[] = [];
+          for (const output of selected) {
+            if (!budget.step()) return undefined;
+            const normalized = retain(output);
+            if (normalized === undefined) return undefined;
+            outputs.push(normalized);
+          }
+          return outputs;
+        }));
+      }
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       for (const dependency of selected.kind === "replace" ? selected.dependencies ?? [] : []) {
@@ -210,28 +227,19 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           continue;
         }
         const terminal = term.kind === "leaf" || term.kind === "unresolved";
-        const successor = retain(term, current.kind !== "guarded" || terminal);
+        const successor = retain(term);
         if (successor === undefined) return false;
         if (terminal) {
           if (!emit(successor, true)) return false;
           continue;
         }
-        if (current.kind !== "guarded") {
-          if (!emit(successor, false)) return false;
-          continue;
-        }
-        const inputs = read(successor);
-        if (inputs === undefined) return false;
-        for (const input of inputs) {
-          if (!budget.step()) return false;
-          if (retain(input) === undefined || !emit(input, true)) return false;
-        }
+        if (!emit(successor, false)) return false;
       }
       return budget.failure() === undefined;
     } finally { currentRead = previousRead; }
   });
   const results = graphQueries.fixedPoint<SourceStorageTerm, SourceStorageTerm>((current, read, emit, forward) =>
-    derive(current, read, (term, direct) => direct ? emit(term) : forward(term)));
+    derive(current, read, (term, direct) => direct ? emit(term) : forward(term), forward));
   const selectRoot = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageTerm | undefined => intern(sourceStorageReference(origin, scope));
   const values = (origin: SourceStorageSubject, scope: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined => scopes.withQuery(() => {
     const root = selectRoot(origin, scope);
@@ -271,7 +279,13 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
     const origins = new Set<SourceStorageSubject>();
     let reason: string | undefined;
-    const retainRelation = (): boolean => true;
+    const project = (input: SourceStorageTerm,
+      select: (value: SourceStorageTerm) => readonly SourceStorageTerm[] | undefined): boolean => {
+      const values = results(input);
+      if (values === undefined) return false;
+      for (const value of values) if (!budget.step() || select(value) === undefined) return false;
+      return budget.failure() === undefined;
+    };
     const collectWitnesses = (current: SourceStorageTerm, collect: boolean): boolean | undefined => {
       let stopped = false;
       for (const [reference, mode] of witnesses.get(current) ?? []) {
@@ -299,7 +313,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const stopped = collectWitnesses(current, entry.collect);
       if (stopped === undefined) return undefined;
       if (stopped) continue;
-      if (!derive(current, results, retainRelation)) return undefined;
+      if (!derive(current, results, () => true, project)) return undefined;
       const completed = collectWitnesses(current, entry.collect);
       if (completed === undefined) return undefined;
       if (completed) continue;

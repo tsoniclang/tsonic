@@ -471,5 +471,5 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       dependencies: transport.invocations.has(node) || transport.accessorTargets.has(node)
       ? dispatchDependencies(node, term.scope) : undefined };
   };
-  return Object.freeze({ reduce });
+  return Object.freeze({ reduce, guardedLeaf });
 }

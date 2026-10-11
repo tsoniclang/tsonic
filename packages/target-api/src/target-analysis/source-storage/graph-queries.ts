@@ -29,6 +29,14 @@ interface Reaction {
   entry: QueryEntry | undefined;
 }
 
+type ValueProjection<Value> = ((value: Value) => readonly Value[] | undefined) | undefined;
+
+interface FixedPointTransfer<Value> {
+  evaluation: number;
+  readonly projections: Set<ValueProjection<Value>>;
+  rows: SourceStorageRows;
+}
+
 interface FixedPointCell<Key, Value> {
   readonly key: Key;
   readonly values: Set<Value>;
@@ -36,7 +44,7 @@ interface FixedPointCell<Key, Value> {
   readonly rows: SourceStorageRows;
   readonly dependencyRows: SourceStorageRows;
   readonly parents: Set<FixedPointCell<Key, Value>>;
-  readonly forwardParents: Map<FixedPointCell<Key, Value>, number>;
+  readonly forwardParents: Map<FixedPointCell<Key, Value>, FixedPointTransfer<Value>>;
   evaluation: number;
   complete: boolean;
 }
@@ -254,7 +262,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
       };
     },
     fixedPoint<Key, Value>(collect: (key: Key, read: (key: Key) => ReadonlySet<Value> | undefined,
-      add: (value: Value) => boolean, forward: (key: Key) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
+      add: (value: Value) => boolean, forward: (key: Key, projection?: ValueProjection<Value>) => boolean) => boolean): (key: Key) => ReadonlySet<Value> | undefined {
       const selections = new Map<Key, FixedPointCell<Key, Value>>();
       let running = false;
       return key => {
@@ -299,6 +307,17 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             }
             return true;
           };
+          const project = (value: Value, projection: ValueProjection<Value>, emit: (value: Value) => boolean): boolean => {
+            if (projection === undefined) return emit(value);
+            if (!budget.step()) return false;
+            const selected = projection(value);
+            if (selected === undefined) {
+              budget.reject("Source storage fixed-point projections require an exact positive result.");
+              return false;
+            }
+            for (const result of selected) if (!emit(result)) return false;
+            return budget.failure() === undefined;
+          };
           const admit = (input: Key): FixedPointCell<Key, Value> | undefined => {
             if (!budget.step()) return undefined;
             const selected = selections.get(input);
@@ -319,7 +338,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             let reading = true;
             const values = new Set<Value>();
             const borrowed = new Map<FixedPointCell<Key, Value>, ReadonlySet<Value>>();
-            const forwarded = new Set<FixedPointCell<Key, Value>>();
+            const forwarded = new Map<FixedPointCell<Key, Value>, Set<ValueProjection<Value>>>();
             const borrowRows = budget.createRows();
             const validate = (): void => {
               if (reading && current === cell && budget.failure() === undefined) return;
@@ -359,7 +378,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 const view = readonlyValues(selected.values, validate);
                 borrowed.set(selected, view);
                 return view;
-              }, add, input => {
+              }, add, (input, projection) => {
                 if (!budget.step()) return false;
                 if (!reading || current !== cell) {
                   budget.reject("Source storage fixed-point forwards require their active collector.");
@@ -367,14 +386,28 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
                 }
                 const selected = admit(input);
                 if (selected === undefined) return false;
-                if (forwarded.has(selected)) return true;
-                if (!resultRows.add(1)) return false;
-                forwarded.add(selected);
+                const previous = forwarded.get(selected);
+                if (previous?.has(projection)) return true;
+                if (!resultRows.add(previous === undefined ? 2 : 1)) return false;
+                const projections = previous ?? new Set<ValueProjection<Value>>();
+                projections.add(projection);
+                forwarded.set(selected, projections);
                 if (!selected.complete) {
-                  if (!selected.forwardParents.has(cell) && !selected.dependencyRows.add(1)) return false;
-                  selected.forwardParents.set(cell, cell.evaluation);
+                  let transfer = selected.forwardParents.get(cell);
+                  if (transfer === undefined) {
+                    if (!selected.dependencyRows.add(1)) return false;
+                    transfer = { evaluation: cell.evaluation, projections: new Set(), rows: budget.createRows() };
+                    selected.forwardParents.set(cell, transfer);
+                  } else if (transfer.evaluation !== cell.evaluation) {
+                    transfer.rows.release();
+                    transfer.rows = budget.createRows();
+                    transfer.projections.clear();
+                    transfer.evaluation = cell.evaluation;
+                  }
+                  if (!transfer.rows.add(1)) return false;
+                  transfer.projections.add(projection);
                 }
-                for (const value of selected.values) if (!add(value)) return false;
+                for (const value of selected.values) if (!project(value, projection, add)) return false;
                 return true;
               });
             } finally {
@@ -407,9 +440,11 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
               if (!budget.step()) return undefined;
               if (deltas.length !== 0) {
                 const delta = deltas.pop()!;
-                for (const [parent, evaluation] of delta.cell.forwardParents) {
-                  const active = parent.evaluation === evaluation && !pending.has(parent);
-                  if (active ? !publish(parent, delta.value) : !budget.step()) return undefined;
+                for (const [parent, transfer] of delta.cell.forwardParents) {
+                  const active = parent.evaluation === transfer.evaluation && !pending.has(parent);
+                  if (!active) { if (!budget.step()) return undefined; continue; }
+                  for (const projection of transfer.projections)
+                    if (!project(delta.value, projection, value => publish(parent, value))) return undefined;
                 }
                 continue;
               }
@@ -431,6 +466,7 @@ export function createSourceStorageGraphQueries(budget: SourceStorageBudget) {
             deltas.length = 0;
             for (const cell of wave) {
               cell.parents.clear();
+              for (const transfer of cell.forwardParents.values()) transfer.rows.release();
               cell.forwardParents.clear();
               cell.dependencyRows.release();
               if (!complete) {
