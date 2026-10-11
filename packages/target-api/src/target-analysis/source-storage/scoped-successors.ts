@@ -45,7 +45,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       while (pending.length !== 0) {
         if (!budget.step()) return;
         const term = pending.pop()!;
-        if (term.kind === "effect") { yield term; continue; }
+        if (term.kind === "effect" || term.kind === "unresolved") { yield term; continue; }
         const successors = readRelation(term);
         if (successors === undefined) {
           budget.reject("Source storage execution requires its active scoped relation."); return;
@@ -134,7 +134,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const unbound = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
       const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, selected.receiver.type);
-      if (members === undefined) { budget.reject("Source storage members require exact checked correspondence."); return undefined; }
+      if (members === undefined) {
+        if (budget.failure() !== undefined) return undefined;
+        const subject = transport.subject(term.access, "value", term.projection);
+        return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject,
+          scope: term.scope, reason: "Source storage members require exact checked correspondence." })] };
+      }
       for (const member of members) {
         if (!budget.step()) return undefined;
         if (ast.is.IsGetAccessorDeclaration(target) && ast.is.IsSetAccessorDeclaration(member) ||
@@ -180,6 +185,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const effects = readEffects(store);
         for (const effect of effects) {
           if (!budget.step()) return undefined;
+          if (effect.kind === "unresolved") { terms.push(effect); continue; }
           if (effect.kind !== "effect" || effect.store !== store) continue;
           terms.push(Object.freeze({ kind: "store", destination: term.receiver,
             receiver: sourceStorageReference(receiver, effect.scope), value: sourceStorageReference(store.value, effect.scope) }));
@@ -190,6 +196,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const replaceChild = (child: SourceStorageTerm,
     replace: (child: SourceStorageTerm) => SourceStorageTerm, contributes = true): SourceStorageReduction | undefined => {
+    if (child.kind === "unresolved") return { kind: "replace", terms: [child] };
     if (child.kind === "reference" || child.kind === "application" || child.kind === "member" || child.kind === "guarded") {
       const independent = closed(child);
       if (independent === undefined) return undefined;
@@ -199,7 +206,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const terms: SourceStorageTerm[] = [];
         for (const value of values) {
           if (!budget.step()) return undefined;
-          if (value.kind === "leaf") terms.push(replace(value));
+          if (value.kind === "unresolved") terms.push(value);
+          else if (value.kind === "leaf") terms.push(replace(value));
         }
         return { kind: "replace", terms, dependencies: [child] };
       }
@@ -212,7 +220,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const reduce = (term: SourceStorageTerm): SourceStorageReduction | undefined => {
     if (!budget.step()) return undefined;
-    if (term.kind === "leaf" || term.kind === "effect" || term.kind === "empty") return undefined;
+    if (term.kind === "leaf" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
     if (term.kind === "guarded") {
       if (term.value.kind !== "leaf") return replaceChild(term.value, value => Object.freeze({ ...term, value }), false);
       const admitted = transport.guardedValues.admits(term.value.subject, term.reference);
@@ -363,6 +371,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
         for (const effect of effects) {
           if (!budget.step()) return undefined;
+          if (effect.kind === "unresolved") { terms.push(effect); continue; }
           if (effect.kind !== "effect" || effect.store !== store) continue;
           const creator = owner === undefined ? scopes.empty : scopes.owningScope(effect.scope, owner);
           if (creator !== undefined && birthKey(term.subject, creator) === birthKey(term.subject, term.scope))

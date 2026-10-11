@@ -11,7 +11,7 @@ test("structural Error flow never queries a declaration outside checked-file own
   const foreign = {};
   const subject = createSourceStorageSubjects(createSourceStorageBudget(defaultSourceStorageLimits).subject, () => assert.fail("unexpected subject rejection"));
   const source = { ast: { name: () => undefined, getSourceFile: node => node === detached ? undefined : node === foreign ? foreign : file,
-    is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false } },
+    is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false, IsIdentifier: () => false } },
     semantics: { includes: selected => selected === file, forFile: selected => {
       assert.equal(selected === file, true, "unowned semantic query");
       return { declarations: { declaredValueType: node => {
@@ -49,12 +49,14 @@ test("recursive structural Error flow retains selected generic property types ev
       return { kind: "available", members: [member(fields[2], fields[3], inner[0], inner[0])] };
     } } };
   const source = { ast: { name: () => undefined, getSourceFile: node => roots.includes(node) ? file : undefined,
-    is: { IsGetAccessorDeclaration: () => false, IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false } },
+    is: { IsGetAccessorDeclaration: () => false, IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
+      IsIdentifier: () => false, IsPropertyDeclaration: () => false, IsPropertySignatureDeclaration: node => fields.includes(node) } },
     semantics: { includes: selected => selected === file, forFile: selected => {
       assert.equal(selected === file, true, "synthetic nodes retain their checked-file semantic owner");
       return semantics;
     } } };
   const connect = (from, to) => {
+    assert.equal(from.kind === "member" && to.kind === "member", true, "exact data-member subjects");
     edges.push([from.node, to.node]);
     flow(from, to);
   };

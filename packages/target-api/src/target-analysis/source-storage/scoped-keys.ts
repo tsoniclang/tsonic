@@ -194,7 +194,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       const context = encodeScope(selected.subject, selected.scope);
       const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
-      return context === undefined || birth === undefined ? undefined : [selected.kind, scopes.identity(selected.subject), birth, context];
+      if (context === undefined || birth === undefined) return undefined;
+      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason]
+        : [selected.kind, scopes.identity(selected.subject), birth, context];
     };
     const encodeTerm = (selected: SourceStorageTerm): Encoded | undefined => {
       if (!budget.step()) return undefined;

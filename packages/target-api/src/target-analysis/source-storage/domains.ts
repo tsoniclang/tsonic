@@ -259,10 +259,10 @@ export function createSourceStorageDomains(
     const receiver = transport.subject(subject.node, "receiver");
     return receiver !== undefined && transport.substitutions.isBound(receiver, bindings);
   };
-  const publicationOrigins = (subject: SourceStorageSubject, externalEntry: boolean): ReadonlySet<SourceStorageSubject> => {
-    if (!externalEntry && !(subject.kind === "value" && ast.is.IsIdentifier(subject.node)))
-      return transport.substitutions.origins(subject, transport.substitutions.empty) ?? new Set();
-    const selected = transport.substitutions.walk(subject, transport.substitutions.empty, current => {
+  const publicationOrigins = function* (subject: SourceStorageSubject, externalEntry: boolean): Iterable<SourceStorageSubject> {
+    const frontier = externalEntry || subject.kind === "value" && ast.is.IsIdentifier(subject.node);
+    const selected = !frontier ? transport.substitutions.provenance(subject, transport.substitutions.empty)
+      : transport.substitutions.walk(subject, transport.substitutions.empty, current => {
       if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
         const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
         const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
@@ -273,13 +273,15 @@ export function createSourceStorageDomains(
       domainInputs.read(current.subject);
       return domainInputs.has(current.subject);
     });
-    return selected?.origins ?? new Set();
+    yield* selected?.origins ?? [];
+    if (selected?.reason !== undefined && !selected.origins.has(subject)) yield subject;
   };
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
     const selected = transport.substitutions.walk(subject, bindings);
-    if (selected === undefined) return Object.freeze({
+    if (selected?.reason !== undefined) budget.reject(selected.reason);
+    if (selected === undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary[]),
       reason: budget.failure() ?? "Source storage requires one completed scoped relation.",
     });

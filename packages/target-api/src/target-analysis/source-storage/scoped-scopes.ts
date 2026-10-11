@@ -86,6 +86,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
   const applyScope = (scope: SourceStorageScope, replacements: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): SourceStorageScope | undefined => withQueryMemo(memo => {
     if (!budget.step()) return undefined;
+    if (scope === empty || replacements.size === 0) return scope;
     if (scope.kind === "variable") return replacements.get(scope) ?? scope;
     const inputs = variablesFor(scope);
     if (inputs === undefined) return undefined;

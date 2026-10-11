@@ -38,6 +38,38 @@ function fixture(limits = {}, length = 50) {
   return { budget, subject, scopes, keys, source, transport, outer, inner, innerParameter, formal, input, nodes, inputs };
 }
 
+test("substitution into the canonical empty scope preserves identity with one bounded operation", () => {
+  const current = fixture({ maximumSteps: 2 }, 1);
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const variable = current.scopes.variable(equation, current.outer);
+  const replacements = new Map([[variable, variable]]);
+  assert.equal(current.scopes.applyScope(current.scopes.empty, replacements) === current.scopes.empty, true,
+    "an empty scope contains no variables to traverse or substitute");
+  assert.equal(current.budget.failure() === undefined, true);
+  assert.equal(current.scopes.applyScope(current.scopes.empty, replacements) === undefined, true,
+    "identity substitution remains subject to the original finite work guard");
+  assert.match(current.budget.failure(), /analysis-work/u);
+});
+
+test("an empty substitution preserves a populated scope without traversing its bindings", () => {
+  const remaining = apply => {
+    const current = fixture({ maximumSteps: 1024 }, 1);
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    const frame = current.scopes.frameFor(current.inner, {}, variable, variable);
+    assert.equal(frame !== undefined, true);
+    if (apply) assert.equal(current.scopes.applyScope(frame, new Map()) === frame, true,
+      "the unchanged frame retains its exact entries, parents and activation identity");
+    assert.equal(current.budget.failure() === undefined, true);
+    let steps = 0;
+    while (current.budget.step()) steps += 1;
+    assert.equal(current.scopes.applyScope(frame, new Map()) === undefined, true);
+    assert.match(current.budget.failure(), /analysis-work/u);
+    return steps;
+  };
+  assert.equal(remaining(false) - remaining(true), 1, "identity substitution consumes one operation, not a graph traversal");
+});
+
 test("context traversal reserves only its live frontier while interned binding evidence retains its own rows", () => {
   const current = fixture({ maximumTransportRows: 80, maximumSteps: 4096 });
   const { scopes, keys, budget } = current;

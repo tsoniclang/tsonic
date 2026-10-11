@@ -51,6 +51,8 @@ export type SourceStorageOperation =
 
 export type SourceStorageTerm =
   | SourceStorageReference
+  | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
+      readonly scope: SourceStorageScope; readonly reason: string }
   | { readonly kind: "empty" }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
