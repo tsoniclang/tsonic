@@ -175,16 +175,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const selected = successors.reduce(current);
       if (selected === undefined) return budget.failure() === undefined;
       for (const dependency of selected.kind === "replace" ? selected.dependencies ?? [] : []) {
-        if (!budget.step()) return false;
-        const retained = retain(dependency, false);
-        if (retained === undefined) return false;
-        if (retained.kind === "leaf" || retained.kind === "effect") continue;
-        const inputs = read(retained);
-        if (inputs === undefined) return false;
-        for (const input of inputs) {
-          if (!budget.step()) return false;
-          if (input.kind === "unresolved" && !emit(input, true)) return false;
-        }
+        if (!budget.step() || retain(dependency, false) === undefined) return false;
       }
       for (const witness of selected.kind === "replace" ? selected.witnesses ?? [] : []) {
         const reference = referenceFor(witness.subject, witnessScope(witness.subject, witness.bindings));
