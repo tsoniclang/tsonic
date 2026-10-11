@@ -62,6 +62,17 @@ right operand. Missing write evidence rejects instead of publishing a partial
 producer inventory. Targets must still prove that every contributing producer
 has the required native carrier and ownership relationship.
 
+Each source-storage query has independent finite limits: 1,048,576 source
+nodes, 262,144 edges, 1,048,576 subject rows, 4,194,304 live transport rows and
+33,554,432 analysis-work steps. `defaultSourceStorageLimits` and
+`createSourceStorageQuery` are exported from `@tsonic/target-api/analysis`.
+An explicit selection may tighten these limits, never increase them. Selections
+must contain positive safe-integer data fields; executable getters are rejected.
+Temporary row owners release only their own reservations. Exhaustion is sticky
+and rejects analysis rather than publishing incomplete ownership evidence.
+The limits bound compiler analysis, not native value ranges or runtime storage;
+raising a ceiling does not allocate that capacity eagerly.
+
 ## 5. Sealed target program
 
 After analysis, the target seals an immutable program containing the complete

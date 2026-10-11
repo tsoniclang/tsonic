@@ -9,8 +9,8 @@ export const defaultSourceStorageLimits: SourceStorageLimits = Object.freeze({
   maximumNodes: 1_048_576,
   maximumEdges: 262_144,
   maximumSubjectRows: 1_048_576,
-  maximumTransportRows: 1_048_576,
-  maximumSteps: 4_194_304,
+  maximumTransportRows: 4_194_304,
+  maximumSteps: 33_554_432,
 });
 
 export function createSourceStorageBudget(selection: SourceStorageLimits) {

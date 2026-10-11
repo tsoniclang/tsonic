@@ -3,6 +3,50 @@ import test from "node:test";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
 
+test("default source storage capacity remains immutable, independent and exact at every finite ceiling", () => {
+  assert.equal(Object.isFrozen(defaultSourceStorageLimits), true);
+  const cases = [
+    ["maximumNodes", "node", 1_048_576], ["maximumEdges", "edge", 262_144],
+    ["maximumSubjectRows", "subject", 1_048_576], ["maximumTransportRows", "row", 4_194_304],
+    ["maximumSteps", "step", 33_554_432],
+  ];
+  for (const [limit, operation, maximum] of cases) {
+    assert.equal(defaultSourceStorageLimits[limit], maximum, limit);
+    const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+    let accepted = 0;
+    while (accepted < maximum && budget[operation](1)) accepted += 1;
+    assert.equal(accepted, maximum, `${operation}: complete finite capacity`);
+    assert.equal(budget.failure() === undefined, true, `${operation}: exact boundary is admitted`);
+    assert.equal(budget[operation](1), false, `${operation}: first excessive reservation rejects`);
+    assert.equal(budget.step(), false, `${operation}: exhaustion cannot switch accounting families`);
+    const independent = createSourceStorageBudget(defaultSourceStorageLimits);
+    assert.equal(independent[operation](1), true, `${operation}: another compilation owns a separate budget`);
+  }
+});
+
+test("adequate finite capacity admits the same workload rejected by a tightened selection", () => {
+  const rowCount = 2_097_153;
+  const stepCount = 4_194_305;
+  const selected = createSourceStorageBudget(defaultSourceStorageLimits);
+  const retained = selected.createRows();
+  assert.equal(retained.add(rowCount), true, "complete live workload is reserved, not just its first row");
+  let completed = 0;
+  while (completed < stepCount && selected.step()) completed += 1;
+  assert.equal(completed, stepCount, "adequate finite work capacity");
+  assert.equal(selected.failure() === undefined, true);
+  retained.release();
+  assert.equal(selected.createRows().add(defaultSourceStorageLimits.maximumTransportRows), true,
+    "released workload does not remain charged against another live owner");
+  assert.equal(selected.row(), false, "all retained owners still share one finite ceiling");
+  const smallRows = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: rowCount - 1 });
+  assert.equal(smallRows.createRows().add(rowCount), false, "tightened finite row selection still rejects");
+  const smallWork = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: stepCount - 1 });
+  let bounded = 0;
+  while (bounded < stepCount && smallWork.step()) bounded += 1;
+  assert.equal(bounded, stepCount - 1, "tightened finite work selection still rejects exactly");
+  assert.equal(smallWork.row(), false, "work exhaustion does not fabricate an available query");
+});
+
 test("source storage preserves independent finite node, edge, subject, transport-row and work guards", () => {
   const cases = [
     ["maximumNodes", "node"], ["maximumEdges", "edge"], ["maximumSubjectRows", "subject"],
