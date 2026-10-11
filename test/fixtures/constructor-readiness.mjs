@@ -1,3 +1,31 @@
+export const constructorFieldLocationSource = `
+import type { int32 } from "@tsonic/core/types.js";
+class Segment {
+  length: int32;
+  constructor(length: int32) { this.length = length; }
+  at(index: int32): int32 { return index; }
+}
+class Reader {
+  source: Segment;
+  count: int32;
+  label: string;
+  constructor(length: int32) {
+    this.source = new Segment(length);
+    this.count = 0;
+    this.label = "kept";
+    for (let index: int32 = 0; index < this.source.length; index++) {
+      if (this.source.at(index) === index) this.count++;
+    }
+    this.source.length += 1;
+    this.label = "done";
+  }
+}
+export function run(): boolean {
+  const value = new Reader(4);
+  return value.source.length === 5 && value.count === 4 && value.label === "done";
+}
+`;
+
 export const constructorLinkageFiles = {
   "base.ts": `
 import type { int32 } from "@tsonic/core/types.js";
