@@ -27,7 +27,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   closed: (term: SourceStorageTerm) => boolean | undefined,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
   const { ast, navigation, semantics } = source;
-  const dataMember = (declaration: Node): boolean => sourceStorageIsDataMember(declaration, ast) &&
+  const passiveMember = (declaration: Node): boolean => (sourceStorageIsDataMember(declaration, ast) ||
+    ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration)) &&
     transport.memberAccessorsFor(declaration)?.size === 0;
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
   const readEffects = function* (store: SourceStorageStore) {
@@ -137,7 +138,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.receiver.kind !== "leaf") {
       const replace = (receiver: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, receiver });
-      return !correlated && term.mode === "value" && dataMember(declaration)
+      return !correlated && term.mode === "value" && passiveMember(declaration)
         ? materializeChild(term.receiver, replace) : replaceChild(term.receiver, replace);
     }
     const originals = new Set<Node>();
@@ -270,7 +271,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
     if (term.kind === "guarded") {
-      if (term.value.kind !== "leaf") return replaceChild(term.value, value => Object.freeze({ ...term, value }), { contributes: false, correlated });
+      if (term.value.kind !== "leaf") {
+        const replace = (value: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, value });
+        return correlated ? replaceChild(term.value, replace, { contributes: false, correlated }) : materializeChild(term.value, replace);
+      }
       const admitted = transport.guardedValues.admits(term.value.subject, term.reference);
       if (budget.failure() !== undefined) return undefined;
       if (admitted === false) return { kind: "replace", terms: [] };
