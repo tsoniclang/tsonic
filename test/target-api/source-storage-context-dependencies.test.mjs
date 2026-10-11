@@ -47,7 +47,7 @@ const output = outer(left, right);
   const formal = transport.subject(source.ast.parameters(declaration("consume"))[0], "input");
   const binding = transport.substitutions.selection(formal, selected);
   assert.equal(binding?.length === 1, true, "one exact actual input and its enclosing scope");
-  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false, transport.contextualInputs.applicationFor);
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => undefined, transport.contextualInputs.applicationFor);
   const context = ports.select(binding[0].subject)?.ports;
   assert.equal(context !== undefined, true, "complete demanded caller footprint, including captured and contained values");
   assert.equal(budget.failure() === undefined, true, "all original finite guards remain intact");
@@ -149,6 +149,45 @@ test("a created call result has caller-owned identity while an observed receiver
   assert.equal(local !== undefined && [...input.locations].every(location => !local.has(location)), true,
     "callee-local producers do not acquire fake caller activations");
   assert.equal(budget.failure() === undefined, true);
+});
+
+test("captured mutable locals retain their physical context without importing their writers' formal parameters", () => {
+  const { source, file, nodes } = checkedSource(`export {};
+    function make(token: object) {
+      let cell = token;
+      const read = () => cell;
+      const write = (replacement: object): void => { cell = replacement; };
+      return { read, write };
+    }
+    const original = {}; const replacement = {};
+    const first = make(original); const second = make(original);
+    first.write(replacement);
+    const written = first.read(); const untouched = second.read();
+  `);
+  const variable = name => nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, [file], budget);
+  const cell = transport.subject(variable("cell"));
+  assert.equal(transport.contextLocation(cell) === "binding", true, "one physical mutable-binding classification owner");
+  const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
+    transport.contextLocation, transport.contextualInputs.applicationFor);
+  const read = footprints.select(transport.subject(Node_Initializer(source.ast, variable("read"))));
+  assert.equal(read !== undefined && read.ports.size === 0 && read.locations.size === 1 && read.locations.has(cell), true,
+    "the captured cell's creator activation, not every potential stored value, owns the environment");
+  assert.equal(budget.failure() === undefined, true);
+  const storage = createSourceStorageQuery(source, [file]);
+  const subject = name => {
+    const selected = storage.subjectFor(Node_Initializer(source.ast, variable(name)));
+    assert.equal(selected.kind === "resolved", true, name);
+    return selected.subject;
+  };
+  const written = storage.closedOriginsFor(subject("written"));
+  const untouched = storage.closedOriginsFor(subject("untouched"));
+  assert.equal(written.kind === "complete" && written.origins.some(origin => origin.subject === subject("replacement")), true,
+    "the actual selected writer still supplies its exact stored value");
+  assert.equal(untouched.kind === "complete" && untouched.origins.length === 1 && untouched.origins[0].subject === subject("original"), true,
+    "equal initial values never merge separate activation-owned binding cells");
+  assert.equal(storage.failureReason() === undefined, true);
 });
 
 for (const [name, members, write, read, helpers = ""] of [

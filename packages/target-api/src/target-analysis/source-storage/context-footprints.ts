@@ -1,5 +1,6 @@
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
+import type { SourceStorageContextLocation } from "./context-locations.js";
 
 export interface SourceStorageContextFootprint {
   readonly ports: ReadonlySet<SourceStorageSubject>;
@@ -9,7 +10,7 @@ export interface SourceStorageContextFootprint {
 export function createSourceStorageContextFootprints(
   budget: SourceStorageBudget,
   inputsFor: (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject> | undefined,
-  isLocation: (subject: SourceStorageSubject) => boolean,
+  locationFor: (subject: SourceStorageSubject) => SourceStorageContextLocation | undefined,
   applicationFor: (subject: SourceStorageSubject) => SourceStorageContextFootprint | undefined = () => undefined,
 ) {
   const selections = new Map<SourceStorageSubject, SourceStorageContextFootprint>();
@@ -43,7 +44,9 @@ export function createSourceStorageContextFootprints(
             for (const location of application.locations) { if (!budget.step()) return undefined; locations.add(location); }
             continue;
           }
-          if (isLocation(current)) locations.add(current);
+          const location = locationFor(current);
+          if (location !== undefined) locations.add(current);
+          if (location === "binding") continue;
           const inputs = inputsFor(current);
           if (inputs === undefined) return undefined;
           for (const input of inputs) {

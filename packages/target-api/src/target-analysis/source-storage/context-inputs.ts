@@ -8,6 +8,7 @@ import type { SourceStorageIncomingQuery } from "./edges.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import { createSourceStorageContextApplications } from "./context-applications.js";
+import type { SourceStorageContextLocation } from "./context-locations.js";
 
 interface SourceStorageContextInputQueries {
   readonly subject: SourceStorageSubjectQuery;
@@ -17,7 +18,7 @@ interface SourceStorageContextInputQueries {
   isInvocation(node: Node): boolean;
   implementationsFor(node: Node): ReadonlySet<Node>;
   readonly invocationInputs: SourceStorageInvocationInputQuery;
-  isLocation(subject: SourceStorageSubject): boolean;
+  locationFor(subject: SourceStorageSubject): SourceStorageContextLocation | undefined;
   ownerFor(node: Node): Node | undefined;
   argumentsFor(node: Node): readonly Node[];
 }

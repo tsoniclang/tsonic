@@ -31,7 +31,7 @@ function fixture(limits = {}, length = 50) {
     origin => ({ subjects: origin === formal ? new Set([input]) : origin.node === innerParameter ? new Set([nodes[0]]) : new Set(), context: "caller" }), graph, () => undefined);
   const keys = createSourceStorageScopedKeys(source, budget, {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
-    contextLocation: () => false,
+    contextLocation: () => undefined,
     storedValuesFor: () => undefined, invocationEffects: new Map(), regions: { enclosing: () => undefined },
   }, scopes);
   return { budget, subject, scopes, keys, outer, inner, innerParameter, formal, input, nodes, inputs };

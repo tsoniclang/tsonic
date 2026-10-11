@@ -23,7 +23,7 @@ function fixture(limits = {}) {
   const contexts = createSourceStorageContextInputs(source, budget, {
     subject, incomingFor: selected => inputs.get(selected) ?? new Set(), subjectFor: node => subject(node),
     sourceFileFor: () => undefined, isInvocation: () => false, implementationsFor: () => new Set(),
-    invocationInputs: () => ({ subjects: new Set(), context: "caller" }), isLocation: () => false, argumentsFor: () => [],
+    invocationInputs: () => ({ subjects: new Set(), context: "caller" }), locationFor: () => undefined, argumentsFor: () => [],
     ownerFor: () => undefined,
   }, createSourceStorageGraphQueries(budget));
   return { budget, subject, inputs, properties, accesses, contexts };
@@ -106,7 +106,7 @@ test("canonical context footprints include checked object members, array compone
   const source = createTargetSourceProgram(checked);
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
   const transport = createSourceStorageTransport(source, source.navigation.sourceFiles, budget);
-  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => false, transport.contextualInputs.applicationFor);
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => undefined, transport.contextualInputs.applicationFor);
   const parameter = transport.visitedNodes.find(node => source.ast.is.IsParameterDeclaration(node) &&
     source.ast.text(source.ast.name(node)) === "token");
   const input = transport.subject(parameter, "input");

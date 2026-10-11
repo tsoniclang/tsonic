@@ -12,7 +12,7 @@ function fixture(limits = {}) {
   const ports = createSourceStorageContextFootprints(budget, selected => {
     reads += 1;
     return inputs.get(selected) ?? new Set();
-  }, () => false);
+  }, () => undefined);
   const parameter = () => subject({}, "input");
   return { budget, subject, parameter, inputs, ports, reads: () => reads };
 }
@@ -22,7 +22,7 @@ test("missing contextual evidence cannot become an empty completed port relation
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
   const root = subject({});
   let available = false;
-  const ports = createSourceStorageContextFootprints(budget, () => available ? new Set() : undefined, () => false);
+  const ports = createSourceStorageContextFootprints(budget, () => available ? new Set() : undefined, () => undefined);
   assert.equal(ports.select(root)?.ports === undefined, true, "unavailable dependencies are not published as complete");
   available = true;
   assert.equal(ports.select(root)?.ports?.size === 0, true, "an independent later exact empty relation remains queryable");
@@ -127,7 +127,7 @@ test("one completed context footprint retains locations and ports from the ident
   const footprints = createSourceStorageContextFootprints(budget, selected => {
     reads += 1;
     return inputs.get(selected) ?? new Set();
-  }, selected => selected === location || selected === beyond);
+  }, selected => selected === location || selected === beyond ? "allocation" : undefined);
   const selected = footprints.select(root);
   assert.equal(selected?.ports.size === 1 && selected.ports.has(formal), true, "one exact formal boundary");
   assert.equal(selected?.locations.size === 1 && selected.locations.has(location), true, "no location beyond a selected port");
@@ -139,6 +139,30 @@ test("one completed context footprint retains locations and ports from the ident
   assert.equal(budget.failure() === undefined, true);
 });
 
+test("mutable binding contexts stop at the exact physical cell without erasing its separately selected values", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 8, maximumSteps: 16 });
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const root = subject({});
+  const cell = subject({});
+  const writer = subject({}, "input");
+  let reads = 0;
+  const inputs = new Map([[root, new Set([cell])], [cell, new Set([writer])]]);
+  const footprints = createSourceStorageContextFootprints(budget, selected => {
+    reads += 1;
+    return inputs.get(selected);
+  }, selected => selected === cell ? "binding" : undefined);
+  const selected = footprints.select(root);
+  assert.equal(selected !== undefined && selected.locations.size === 1 && selected.locations.has(cell), true,
+    "the exact captured cell is an environment dependency");
+  assert.equal(selected.ports.size === 0 && reads === 1, true,
+    "another writer's values are not bindings of this cell's reader");
+  assert.equal(inputs.get(cell).has(writer), true, "the independent value relation remains unchanged");
+  assert.equal(footprints.select(root) === selected && budget.failure() === undefined, true);
+  const remaining = budget.createRows();
+  assert.equal(remaining.add(6), true, "only the completed footprint and one physical cell remain charged");
+  remaining.release();
+});
+
 test("a throwing location query cannot retain an unfinished footprint or its traversal rows", () => {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 4 });
   const subject = createSourceStorageSubjects(budget.subject, budget.reject);
@@ -147,7 +171,7 @@ test("a throwing location query cannot retain an unfinished footprint or its tra
   let ready = false;
   const footprints = createSourceStorageContextFootprints(budget, () => new Set(), () => {
     if (!ready) throw expected;
-    return true;
+    return "allocation";
   });
   assert.throws(() => footprints.select(root), error => error === expected);
   const remaining = budget.createRows();

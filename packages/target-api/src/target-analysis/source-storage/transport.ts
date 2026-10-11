@@ -395,9 +395,16 @@ export function createSourceStorageTransport(
     if (ast.hasModifierKind(declaration, "static") || ast.hasModifierKind(declaration, "private") ||
       !ast.is.IsMethodDeclaration(declaration) && ast.kindName(declaration) !== "KindMethodSignature" &&
       !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration)) return { nodes: selected, exact: false };
-    const call = semantics.forNode(invocation).operations.call(invocation);
+    const queries = semantics.forNode(invocation);
+    const call = queries.operations.call(invocation);
+    const access = queries.operations.propertyAccess(invocation);
     const receiver = call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
-      ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.expression;
+      ?? access?.receiver.expression;
+    const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type ?? access?.receiver.type;
+    const valueType = receiver === undefined ? undefined : queries.types.expressionType(receiver);
+    if (valueType !== undefined && (queries.types.isStringLike(valueType) || queries.types.isNumberLike(valueType) ||
+      queries.types.isBooleanLike(valueType) || queries.types.isBigIntLike(valueType) || queries.types.isSymbolLike(valueType)))
+      return { nodes: selected, exact: true };
     if (ast.kindName(receiver) === "KindSuperKeyword") return { nodes: selected, exact: true };
     const receiverSubject = subjectFor(receiver);
     const origins = receiverSubject === undefined ? undefined : originsFor(receiverSubject);
@@ -412,8 +419,6 @@ export function createSourceStorageTransport(
       const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
       if (target?.kind === "resolved") exact.add(target.implementation.declaration);
       else if (ast.is.IsObjectLiteralExpression(origin.node)) {
-        const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type
-          ?? semantics.forNode(invocation).operations.propertyAccess(invocation)?.receiver.type;
         const members = receiverType === undefined ? undefined : memberFlow.declarationsFor(origin, declaration, receiverType);
         unknown ||= members === undefined;
         for (const member of members ?? []) {
@@ -615,7 +620,7 @@ export function createSourceStorageTransport(
     subject, subjectFor, incomingFor, sourceFileFor,
     isInvocation: node => invocations.has(node) || accessorTargets.has(node),
     implementationsFor: invocationImplementations,
-    invocationInputs, isLocation: contextLocation,
+    invocationInputs, locationFor: contextLocation,
     ownerFor: node => {
       const region = regions.enclosing(node);
       return region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);

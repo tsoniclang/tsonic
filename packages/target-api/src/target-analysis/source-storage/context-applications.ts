@@ -5,6 +5,7 @@ import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import type { SourceStorageContextFootprint } from "./context-footprints.js";
+import type { SourceStorageContextLocation } from "./context-locations.js";
 
 interface ContextApplicationQueries {
   readonly subject: SourceStorageSubjectQuery;
@@ -15,7 +16,7 @@ interface ContextApplicationQueries {
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
   implementationsFor(node: Node): ReadonlySet<Node>;
   isInvocation(node: Node): boolean;
-  isLocation(subject: SourceStorageSubject): boolean;
+  locationFor(subject: SourceStorageSubject): SourceStorageContextLocation | undefined;
   ownerFor(node: Node): Node | undefined;
 }
 
@@ -77,7 +78,9 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
       return budget.failure() === undefined;
     }
     if (isPort(current)) return emit(current);
-    if (queries.isLocation(current) && !emit(current)) return false;
+    const location = queries.locationFor(current);
+    if (location !== undefined && !emit(current)) return false;
+    if (location === "binding") return budget.failure() === undefined;
     const direct = queries.inputsFor(current);
     if (direct === undefined) return false;
     for (const input of direct) if (!budget.step() || !forward(input)) return false;
