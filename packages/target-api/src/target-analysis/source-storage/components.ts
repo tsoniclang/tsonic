@@ -4,6 +4,11 @@ import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.j
 import { Node_Initializer } from "../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../source-semantics/array-types.js";
 
+export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
+  return semantics.types.isStringLike(type) || semantics.types.isNumberLike(type) || semantics.types.isBooleanLike(type) ||
+    semantics.types.isBigIntLike(type) || semantics.types.isSymbolLike(type);
+}
+
 export function sourcePresentStorageType(type: Type, semantics: SourceFileSemantics): Type | undefined {
   if (!semantics.types.isUnion(type)) return type;
   const present = semantics.types.unionOrIntersectionTypes(type).filter(member => !semantics.types.isNullish(member));

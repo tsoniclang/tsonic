@@ -27,6 +27,7 @@ import { createSourceStorageGraphQueries, type SourceStorageReconciliation } fro
 import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
 import { createSourceStorageAncestorQuery } from "./ancestors.js";
 import { createSourceStorageGuardedValues } from "./guarded-values.js";
+import { sourceStorageIsScalarType } from "./components.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -402,8 +403,7 @@ export function createSourceStorageTransport(
       ?? access?.receiver.expression;
     const receiverType = call?.sourceReceiver?.type ?? call?.sourceCalleeAccess?.receiver.type ?? access?.receiver.type;
     const valueType = receiver === undefined ? undefined : queries.types.expressionType(receiver);
-    if (valueType !== undefined && (queries.types.isStringLike(valueType) || queries.types.isNumberLike(valueType) ||
-      queries.types.isBooleanLike(valueType) || queries.types.isBigIntLike(valueType) || queries.types.isSymbolLike(valueType)))
+    if (valueType !== undefined && sourceStorageIsScalarType(valueType, queries))
       return { nodes: selected, exact: true };
     if (ast.kindName(receiver) === "KindSuperKeyword") return { nodes: selected, exact: true };
     const receiverSubject = subjectFor(receiver);

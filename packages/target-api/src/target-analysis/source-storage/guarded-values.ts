@@ -5,6 +5,7 @@ import { selectSourceGuardedValueMembers } from "../../source-semantics/value-fl
 import { sourceStorageClassValue, sourceStorageConstructedClass } from "./construction.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
+import { sourceStorageIsScalarType, sourceStorageSubjectType } from "./components.js";
 
 export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget) {
   const { ast, navigation } = source;
@@ -12,6 +13,13 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
   const instanceOf = (owner: SourceStorageSubject, target: Node): boolean | undefined => {
     if (owner.projection.length !== 0) return undefined;
+    const file = ast.getSourceFile(owner.node);
+    const type = sourceStorageSubjectType(source, owner, file);
+    if (type !== undefined && file !== undefined) {
+      const semantics = source.semantics.forFile(file);
+      if (sourceStorageIsScalarType(type, semantics) || semantics.types.isNullish(type) ||
+        semantics.types.isVoidLike(type) || semantics.types.isNever(type)) return false;
+    }
     let current = sourceStorageConstructedClass(owner.node, source, () => budget.step());
     return budget.withRows(rows => {
       const visited = new Set<Node>();

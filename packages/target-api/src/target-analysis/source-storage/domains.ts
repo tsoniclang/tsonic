@@ -2,7 +2,8 @@ import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType } from "./components.js";
+import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType,
+  sourceStorageIsScalarType } from "./components.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import { sourceStorageMemberSubject } from "./subjects.js";
@@ -128,8 +129,7 @@ export function createSourceStorageDomains(
         }
         continue;
       }
-      if (context.types.isStringLike(present) || context.types.isNumberLike(present) || context.types.isBooleanLike(present) ||
-        context.types.isBigIntLike(present) || context.types.isSymbolLike(present) || context.types.isNullish(present) ||
+      if (sourceStorageIsScalarType(present, context) || context.types.isNullish(present) ||
         context.types.isVoidLike(present) || context.types.isNever(present)) continue;
       if (context.types.propertyInfos(present).length === 0 && context.types.indexInfos(present).length === 0 &&
         context.types.callSignatures(present).length === 0 && context.types.constructSignatures(present).length === 0) continue;
