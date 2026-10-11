@@ -187,36 +187,41 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return selected;
   };
+  const selectEntries = (origin: SourceStorageSubject, entries: readonly SourceStorageReference[],
+    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
+    const terms: SourceStorageTerm[] = [];
+    for (const entry of entries) {
+      if (!budget.step() || !retain(1)) return undefined;
+      const projected = project(entry, origin);
+      const applied = projected === undefined ? undefined : applyPath(projected, path);
+      if (applied === undefined) return undefined;
+      terms.push(applied);
+    }
+    return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
+  };
+  const selectVariable = (origin: SourceStorageSubject, variable: SourceStorageVariable,
+    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
+    const initial = entryInputFor(origin, variable);
+    if (initial === undefined) return Object.freeze({ kind: "expand", variable });
+    if (!retain(1)) return undefined;
+    const selected = applyPath(sourceStorageReference(initial, variable.equation.initial), path);
+    return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]) });
+  };
   const selectInput = (origin: SourceStorageSubject, scope: SourceStorageScope,
     retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
-    const selectEntries = (entries: readonly SourceStorageReference[],
-      path: SourceStorageSubstitutionPath | undefined): SourceStorageReduction | undefined => {
-      const terms: SourceStorageTerm[] = [];
-      for (const entry of entries) {
-        if (!budget.step() || !retain(1)) return undefined;
-        const projected = project(entry, origin);
-        const applied = projected === undefined ? undefined : applyPath(projected, path);
-        if (applied === undefined) return undefined;
-        terms.push(applied);
-      }
-      return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
-    };
-    const local = scope.kind === "frame" ? scope.entries.get(root) : undefined;
-    if (local !== undefined) return selectEntries(local, undefined);
+    if (scope.kind === "variable") return selectVariable(origin, scope, undefined, retain);
+    const local = (scope.kind === "substitution" ? scope.scope : scope).entries.get(root);
+    if (local !== undefined) {
+      if (scope.kind === "frame") return selectEntries(origin, local, undefined, retain);
+      return budget.withRows(rows => rows.add(1) ? selectEntries(origin, local,
+        { replacements: scope.substitutions, parent: undefined }, retain) : undefined);
+    }
     for (const current of traverse(scope)) {
-      if (current.scope.kind === "variable") {
-        const initial = entryInputFor(origin, current.scope);
-        if (initial !== undefined) {
-          if (!retain(1)) return undefined;
-          const selected = applyPath(sourceStorageReference(initial, current.scope.equation.initial), current.path);
-          return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]) });
-        }
-        return { kind: "expand", variable: current.scope };
-      }
+      if (current.scope.kind === "variable") return selectVariable(origin, current.scope, current.path, retain);
       const entries = current.scope.entries.get(root);
-      if (entries !== undefined) return selectEntries(entries, current.path);
+      if (entries !== undefined) return selectEntries(origin, entries, current.path, retain);
     }
     return undefined;
   };

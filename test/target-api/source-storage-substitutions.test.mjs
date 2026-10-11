@@ -390,6 +390,39 @@ test("replacement selection intersects exact free variables on the smaller side 
   assert.equal(budget.failure() === undefined, true);
 });
 
+test("a root equation variable selects its exact expansion within the finite local index budget", () => {
+  for (const maximumTransportRows of [4, 5]) {
+    const current = fixture({ maximumTransportRows }, 1);
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+    const variable = current.scopes.variable(equation, current.outer);
+    assert.equal(variable !== undefined, true);
+    const selected = current.scopes.lookup(current.formal, variable);
+    if (maximumTransportRows === 5) {
+      assert.equal(selected?.kind === "expand" && selected.variable === variable, true, "the original equation variable is retained, not an invented binding");
+      assert.equal(current.budget.failure() === undefined, true);
+    } else {
+      assert.equal(selected === undefined, true, "the indexed result still reserves every retained row before publication");
+      assert.match(current.budget.failure(), /transport-row/u);
+    }
+  }
+});
+
+test("canonical view bindings apply their exact local substitution without allocating an ancestry frontier", () => {
+  const current = fixture({ maximumSteps: 768, maximumTransportRows: 1024 }, 1);
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const variable = current.scopes.variable(equation, current.outer);
+  const frame = current.scopes.frameFor(current.outer, {}, variable, variable);
+  const view = current.scopes.applyScope(frame, new Map([[variable, current.scopes.empty]]));
+  assert.equal(view?.kind === "substitution", true);
+  for (let repeat = 0; repeat < 100; repeat += 1) {
+    const selected = current.scopes.lookup(current.formal, view);
+    assert.equal(selected?.kind === "replace" && selected.terms.length === 1 &&
+      selected.terms[0].subject === current.input && selected.terms[0].scope === current.scopes.empty, true,
+      "the indexed binding retains its exact simultaneous replacement and original subject");
+  }
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
 test("completed simultaneous composition reuses every exact selection across nested alternating collectors", () => {
   const current = fixture({ maximumSteps: 4096 }, 1);
   return current.scopes.withQuery(() => {
