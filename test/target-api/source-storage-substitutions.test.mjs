@@ -320,7 +320,7 @@ test("completed simultaneous substitution operations reuse their canonical resul
 
 test("owning scope and equation queries retain exact presence and absence without rescanning immutable parent chains", () => {
   const current = fixture({ maximumSteps: 1024 }, 1);
-  return current.scopes.withQuery(() => {
+  return current.scopes.withTraversal(() => {
     const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
     const variable = current.scopes.variable(equation, current.outer);
     let scope = variable;
@@ -339,6 +339,63 @@ test("owning scope and equation queries retain exact presence and absence withou
   });
 });
 
+test("completed simultaneous composition reuses every exact selection across nested alternating collectors", () => {
+  const current = fixture({ maximumSteps: 4096 }, 1);
+  return current.scopes.withQuery(() => {
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer, current.inner]), initial: current.scopes.empty };
+    const outer = current.scopes.variable(equation, current.outer);
+    const inner = current.scopes.variable(equation, current.inner);
+    const frame = current.scopes.frameFor(current.inner, {}, outer, outer);
+    const replacement = current.scopes.frameFor(current.outer, {}, inner, inner);
+    let first = current.scopes.applyScope(frame, new Map([[outer, replacement]]));
+    for (let depth = 0; depth < 8; depth += 1) first = current.scopes.applyScope(first, new Map([[inner, replacement]]));
+    const alternative = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+    const completed = current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]]));
+    const changed = current.scopes.applyScope(first, new Map([[inner, alternative]]));
+    assert.equal(completed !== undefined && changed !== undefined && completed !== changed, true,
+      "independent replacement scopes retain separate canonical complete transformations");
+    for (let repeat = 0; repeat < 40; repeat += 1) {
+      assert.equal(current.scopes.withTraversal(() => current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]]))) === completed, true);
+      assert.equal(current.scopes.withTraversal(() => current.scopes.applyScope(first, new Map([[inner, alternative]]))) === changed, true);
+    }
+    assert.equal(current.budget.failure() === undefined, true, "completed immutable operations do not expire or overwrite other selections within one query");
+    let result = completed;
+    for (let repeat = 0; repeat < 4096 && result !== undefined; repeat += 1)
+      result = current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]]));
+    assert.equal(result === undefined, true, "nested collector hits still obey the original finite work guard");
+    assert.match(current.budget.failure(), /analysis-work/u);
+  });
+});
+
+test("completed and throwing composition queries release request history without releasing canonical views", () => {
+  const remainingRows = repeats => {
+    const current = fixture({ maximumTransportRows: 256, maximumSteps: 65536 }, 1);
+    const equation = { identity: 0, entry: current.outer, component: new Set([current.outer, current.inner]), initial: current.scopes.empty };
+    const outer = current.scopes.variable(equation, current.outer);
+    const inner = current.scopes.variable(equation, current.inner);
+    const frame = current.scopes.frameFor(current.inner, {}, outer, outer);
+    const replacement = current.scopes.frameFor(current.outer, {}, inner, inner);
+    const first = current.scopes.applyScope(frame, new Map([[outer, replacement]]));
+    const completed = current.scopes.applyScope(first, new Map([[inner, current.scopes.empty]]));
+    assert.equal(completed !== undefined, true);
+    const failure = new Error("exact composition query failure");
+    for (let repeat = 0; repeat < repeats; repeat += 1) {
+      const collect = () => current.scopes.withQuery(() => {
+        assert.equal(current.scopes.withTraversal(() => current.scopes.applyScope(first,
+          new Map([[inner, current.scopes.empty]]))) === completed, true);
+        if (repeat % 2 === 0) throw failure;
+      });
+      if (repeat % 2 === 0) assert.throws(collect, error => error === failure);
+      else collect();
+    }
+    assert.equal(current.budget.failure() === undefined, true, "both context lifetimes unwind without inventing exhaustion");
+    let remaining = 0;
+    while (current.budget.row()) remaining += 1;
+    return remaining;
+  };
+  assert.equal(remainingRows(100), remainingRows(1), "only complete canonical views survive repeated requests and throws");
+});
+
 test("completed and throwing scope queries release temporary memo rows without losing canonical identities", () => {
   const remainingRows = repeats => {
     const current = fixture({ maximumTransportRows: 128, maximumSteps: 65536 }, 1);
@@ -348,10 +405,10 @@ test("completed and throwing scope queries release temporary memo rows without l
     const failure = new Error("exact query failure");
     for (let repeat = 0; repeat < repeats; repeat += 1) {
       const missing = {};
-      const collect = () => current.scopes.withQuery(() => {
+      const collect = () => current.scopes.withTraversal(() => {
         assert.equal(current.scopes.owningScope(frame, current.outer) === variable, true);
         assert.equal(current.scopes.owningScope(frame, missing) === undefined, true);
-        current.scopes.withQuery(() => {
+        current.scopes.withTraversal(() => {
           assert.equal(current.scopes.family(frame) === equation, true);
           assert.equal(current.scopes.owningScope(frame, current.outer) === variable, true);
         });
