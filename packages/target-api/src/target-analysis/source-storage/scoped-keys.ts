@@ -8,7 +8,6 @@ import { createSourceStorageContextFootprints } from "./context-footprints.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
-import { createSourceStorageQueryMemo } from "./query-memo.js";
 
 type Encoded = null | string | number | readonly Encoded[];
 
@@ -26,17 +25,15 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes) {
   const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
     transport.contextLocation, transport.contextualInputs.applicationFor);
-  const withQueryMemo = createSourceStorageQueryMemo(budget, add => ({ add,
-    references: new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>() }));
   const birth = (subject: SourceStorageSubject, scope: SourceStorageScope) => {
     if (!budget.step()) return undefined;
     const region = scope === scopes.empty ? undefined : transport.regions.enclosing(subject.node);
     const owner = subject.kind === "return" ? subject.node : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
     return scopes.activation(owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope);
   };
-  const encode = (term: SourceStorageTerm, invocation = false) => withQueryMemo(memo => {
+  const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;
-    const references = memo.references;
+    const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
       if (selected?.variable !== undefined) closed = false;
@@ -213,7 +210,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         closed = closed && previous.closed;
         return previous.encoded;
       }
-      if (!memo.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
+      if (!rows.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
       const encodings = retained ?? {};
       const inputs = subjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
       encodings[selected.kind] = null;
@@ -234,7 +231,6 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     return selected === undefined ? undefined : JSON.stringify(selected.encoded);
   };
   return Object.freeze({ encode: key,
-    withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => collect()),
     closed: (term: SourceStorageTerm): boolean | undefined => encode(term)?.closed,
     birthKey: (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);

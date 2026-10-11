@@ -130,7 +130,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return term;
   };
-  const intern = (term: SourceStorageTerm): SourceStorageTerm | undefined => keys.withQuery(() => scopes.withTraversal(() => budget.withRows(temporary => {
+  const intern = (term: SourceStorageTerm): SourceStorageTerm | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
     const reference = term.kind === "reference" || term.kind === "leaf" ? referenceFor(term.subject, term.scope) : undefined;
     if (reference === undefined && !budget.step()) return undefined;
     if (budget.failure() !== undefined) return undefined;
@@ -151,7 +151,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (!addWitness(selected, witness.reference, witness.contributes)) return undefined;
     if (reference !== undefined && (term.kind === "reference" || term.kind === "leaf")) reference[term.kind] = selected;
     return selected;
-  })));
+  }));
   const results = graphQueries.fixedPoint<SourceStorageTerm, SourceStorageTerm>((current, read, emit) => scopes.withTraversal(() => {
     const children = dependencies.get(current) ?? new Map<SourceStorageTerm, number>();
     if (!dependencies.has(current)) { if (!rows.add(1)) return false; dependencies.set(current, children); }
