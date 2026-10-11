@@ -9,8 +9,7 @@ import { createSourceStorageContextFootprints, type SourceStorageContextFootprin
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
-
-type Encoded = null | string | number | readonly Encoded[];
+import { encodeSourceStorageKey, type SourceStorageKeyValue as Encoded } from "./key-encoding.js";
 
 interface ReferenceEncoding {
   readonly encoded: Encoded | undefined;
@@ -138,15 +137,15 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         while (value.kind === "transition") { if (!budget.step()) return undefined; guards.push(value); value = value.value; }
         const encoded = encodeTerm(value);
         if (encoded === undefined) return undefined;
-        const conditions = new Set<string>();
+        const conditions: Encoded[] = [];
         for (let index = guards.length - 1; index >= 0; index -= 1) {
           const guard = guards[index]!;
           const condition = encodeTerm(guard.condition);
           if (condition === undefined) return undefined;
-          conditions.add(JSON.stringify([guard.capture.equation.identity, scopes.identity(guard.capture.owner),
-            scopes.identity(guard.capture.capture!), condition]));
+          conditions.push([guard.capture.equation.identity, scopes.identity(guard.capture.owner),
+            scopes.identity(guard.capture.capture!), condition]);
         }
-        return ["transition", [...conditions].sort(), encoded];
+        return ["transition", { kind: "set", values: conditions }, encoded];
       }
       if (selected.kind === "store") {
         const destination = encodeTerm(selected.destination); const receiver = encodeTerm(selected.receiver); const value = encodeTerm(selected.value);
@@ -265,7 +264,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   });
   const key = (term: SourceStorageTerm, invocation = false): string | undefined => {
     const selected = encode(term, invocation);
-    return selected === undefined ? undefined : JSON.stringify(selected.encoded);
+    return selected === undefined ? undefined : encodeSourceStorageKey(selected.encoded, budget);
   };
   return Object.freeze({ encode: key,
     closed: (term: SourceStorageTerm): boolean | undefined => encode(term)?.closed,
