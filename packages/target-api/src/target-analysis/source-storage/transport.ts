@@ -26,6 +26,7 @@ import { createSourceStorageStoredValues } from "./stored-values.js";
 import { createSourceStorageGraphQueries, type SourceStorageReconciliation } from "./graph-queries.js";
 import { sourceBindingWriteAtReference } from "../../source-navigation/references-usage.js";
 import { createSourceStorageAncestorQuery } from "./ancestors.js";
+import { createSourceStorageGuardedValues } from "./guarded-values.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -34,6 +35,7 @@ export function createSourceStorageTransport(
   effects: SourceStorageEffects = {},
 ) {
   const { ast, navigation, semantics } = source;
+  const guardedValues = createSourceStorageGuardedValues(source, budget);
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
@@ -122,28 +124,27 @@ export function createSourceStorageTransport(
       return value;
     }
     const reference = ast.is.IsBindingElement(node) ? node : navigation.sourceReferenceFor(node)?.declaration;
-    if (reference !== undefined && ast.is.IsBindingElement(reference)) {
-      const value = projections.binding(reference);
-      if (value !== undefined) {
-        subjects.set(reference, value);
-        subjects.set(node, value);
-        subjects.set(original, value);
-        return value;
-      }
-    }
     const selected = ast.is.IsElementAccessExpression(node) || ast.is.IsCallExpression(node) ? node
       : ast.is.IsPropertyAccessExpression(node)
         ? semantics.forNode(node).operations.propertyAccess(node)?.selectedReadDeclaration
           ?? semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration
-      : navigation.sourceReferenceFor(node)?.declaration;
-    const target = ast.is.IsPropertyAccessExpression(node) ? node
+      : reference;
+    const qualified = ast.is.IsIdentifier(node) && selected !== undefined && node !== selected &&
+      (ast.is.IsVariableDeclaration(selected) || ast.is.IsParameterDeclaration(selected) || ast.is.IsBindingElement(selected)) &&
+      sourceBindingWriteAtReference(ast, node) === undefined && guardedValues.appliesTo(node) === true;
+    if (budget.failure() !== undefined) return undefined;
+    const target = ast.is.IsPropertyAccessExpression(node) || qualified ? node
       : selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected) ? selected : node;
     const file = ast.getSourceFile(node);
     if (selected !== undefined && file !== undefined && semantics.includes(file) && !retainCheckedContext(selected, file)) return undefined;
-    const value = subject(target);
+    const binding = selected !== undefined && ast.is.IsBindingElement(selected) ? projections.binding(selected) : undefined;
+    if (selected !== undefined && ast.is.IsBindingElement(selected) && binding === undefined) return undefined;
+    const value = qualified ? subject(node) : binding ?? subject(target);
     if (value === undefined) return undefined;
+    if (binding !== undefined) subjects.set(selected!, binding);
     subjects.set(node, value);
     subjects.set(original, value);
+    if (qualified) connect(binding ?? subjectFor(selected), value);
     return value;
   };
   const locationFor = (node: Node | undefined): SourceStorageSubject | undefined => {
@@ -634,7 +635,7 @@ export function createSourceStorageTransport(
     subject, subjectFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
     storedValuesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
-    isOpaque: invocation => opaqueInvocations.has(invocation),
+    isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues,
   }, invocationInputs, graphQueries);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {
@@ -674,6 +675,6 @@ export function createSourceStorageTransport(
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
-    accessorTargets, visitedNodes, regions, memberFlow, ancestorSubjects, invocationImplementations, physicalMemberInputs,
+    accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
     invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, unresolvedFor };
 }

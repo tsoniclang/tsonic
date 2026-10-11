@@ -13,7 +13,6 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
-import { createSourceStorageGuardedMembers } from "./guarded-members.js";
 
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
@@ -23,7 +22,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
   const { ast, navigation, semantics } = source;
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
-  const guardedMembers = createSourceStorageGuardedMembers(source, budget);
   const readEffects = function* (store: SourceStorageStore) {
     const rows = budget.createRows();
     const frontier = budget.createRows();
@@ -130,9 +128,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (selected === undefined || declaration === undefined) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }
-    const admitted = guardedMembers(term.receiver.subject, selected.receiver.expression);
-    if (budget.failure() !== undefined) return undefined;
-    if (admitted === false) return { kind: "replace", terms: [] };
     const originals = new Set<Node>();
     for (const target of term.mode === "execution" ? transport.accessorTargets.get(term.access) ?? [] : [declaration]) {
       if (!budget.step()) return undefined;

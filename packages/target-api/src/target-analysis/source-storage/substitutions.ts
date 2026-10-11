@@ -181,6 +181,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       }
       const execution = operation.kind === "execution-root" || operation.kind === "region" ||
         (operation.kind === "application" || operation.kind === "member") && operation.mode === "execution";
+      const qualified = current.kind === "reference" && current.subject.kind === "value" &&
+        source.ast.is.IsIdentifier(current.subject.node) && transport.incomingFor(current.subject).size !== 0;
       for (const term of alternatives) {
         if (!budget.step()) return false;
         if (execution) {
@@ -188,9 +190,17 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
           if (successor === undefined || !emit(successor)) return false;
           continue;
         }
-        const inputs = select(term);
+        const inputs = select(term, !qualified);
         if (inputs === undefined) return false;
-        for (const input of inputs) if (!budget.step() || !emit(input)) return false;
+        for (const input of inputs) {
+          if (!budget.step()) return false;
+          if (qualified && input.kind === "leaf") {
+            const admitted = transport.guardedValues.admits(input.subject, current.subject.node);
+            if (budget.failure() !== undefined) return false;
+            if (admitted === false) continue;
+          }
+          if ((qualified && retain(input) === undefined) || !emit(input)) return false;
+        }
       }
       return budget.failure() === undefined;
     } finally { currentRead = undefined; }

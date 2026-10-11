@@ -49,9 +49,10 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
   const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
     (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
   const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
-  const allocationLiteral = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node);
+  const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
+    value.kind === "value" && source.ast.is.IsIdentifier(value.node);
   const nodeType = bindingContainer ? initializer === undefined ? undefined : semantics.types.expressionType(initializer)
-    : allocationLiteral ? semantics.types.expressionType(value.node)
+    : expressionValue ? semantics.types.expressionType(value.node)
       : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
   const signatures = value.kind !== "return" || nodeType === undefined ? [] : semantics.types.callSignatures(nodeType)
     .filter(signature => semantics.declarations.signatureDeclaration(signature) === value.node);

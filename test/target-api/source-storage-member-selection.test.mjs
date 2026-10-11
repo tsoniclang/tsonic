@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceStorageGuardedMembers } from "../../packages/target-api/dist/target-analysis/source-storage/guarded-members.js";
+import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/guarded-values.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
@@ -23,7 +23,9 @@ function fixture(body, extraFiles = {}) {
     const selected = storage.subjectFor(variable(name));
     assert.equal(selected.kind === "resolved", true, `${name}: exact source subject`);
     const result = storage.closedOriginsFor(selected.subject);
-    assert.equal(result.kind === "complete", true, `${name}: complete selected member evidence`);
+    const boundaries = result.boundaries?.slice(0, 8).map(boundary =>
+      `${boundary.kind}:${source.ast.text(source.ast.name(boundary.subject.node))}:${boundary.subject.kind}:${source.ast.kindName(boundary.exposure)}`);
+    assert.equal(result.kind === "complete", true, `${name}: complete selected member evidence (${result.kind}; ${result.reason ?? ""}; ${boundaries?.join(",") ?? ""})`);
     assert.equal(storage.failureReason() === undefined, true, `${name}: no missing owner evidence`);
     return result.origins;
   };
@@ -53,6 +55,32 @@ for (const access of ["value.items", 'value["items"]']) {
   });
 }
 
+for (const selection of [
+  "return value instanceof List ? value as List : undefined;",
+  "if (value instanceof List) return value; return undefined;",
+  "if (!(value instanceof List)) return undefined; return value;",
+]) {
+  test(`nominal selection survives a returned value before its method receiver (${selection})`, () => {
+    const current = fixture(`
+      class Base { kind: string = "base"; }
+      const foreign = {};
+      class Scalar extends Base { readonly value: {} = foreign; }
+      class List extends Base {
+        constructor(readonly items: {}[]) { super(); }
+        read(): {} { return this.items[0]; }
+      }
+      const token = {};
+      function parse(mode: boolean): Base { return mode ? new List([token]) : new Scalar(); }
+      function select(value: Base): List | undefined { ${selection} }
+      const selected = select(parse(true));
+      const result = selected!.read();
+    `);
+    const origins = current.origins("result");
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("token")), true);
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("foreign")), false);
+  });
+}
+
 test("cross-file immutable class aliases retain exact producer selection and inherited members", () => {
   const current = fixture(`
     import { Base, List, Scalar } from "./models.js";
@@ -75,6 +103,125 @@ test("cross-file immutable class aliases retain exact producer selection and inh
   assert.equal(origins.some(origin => origin.subject.node === current.initializer("token")), true);
   assert.equal(origins.some(origin => origin.subject.node === current.initializer("foreign")), false);
 });
+
+for (const input of ["value: Base", "[value]: [Base]"]) {
+  test(`guarded aliases preserve returned selection from exact physical binding (${input})`, () => {
+    const argument = input.startsWith("[") ? "[parse(true)]" : "parse(true)";
+    const current = fixture(`
+      class Base {}
+      class List extends Base { constructor(readonly items: {}[]) { super(); } read(): {} { return this.items[0]; } }
+      class Scalar extends Base { readonly value = {}; }
+      const token = {};
+      function parse(mode: boolean): Base { return mode ? new List([token]) : new Scalar(); }
+      function select(${input}): List | undefined {
+        if (value instanceof List) { const alias = value; return alias; }
+        return undefined;
+      }
+      const result = select(${argument})!.read();
+    `);
+    assert.equal(current.origins("result").some(origin => origin.subject.node === current.initializer("token")), true);
+  });
+}
+
+for (const mutable of [false, true]) {
+  test(`cross-file generic returned guards retain exact same-shape nominal alternatives (${mutable ? "mutable" : "readonly"} backing)`, () => {
+    const current = fixture(`
+      import { Base, List, Sibling, select } from "./models.js";
+      const token = {};
+      const foreign = {};
+      function parse(mode: boolean): Base { return mode ? new List([token]) : new Sibling([foreign]); }
+      const result = select(parse(true))!.read();
+    `, { "/src/models.ts": `
+      export class Base {}
+      export class List extends Base { constructor(readonly items: ${mutable ? "" : "readonly "}{}[]) { super(); } read(): {} { return this.items[0]; } }
+      export class Sibling extends Base { constructor(readonly items: ${mutable ? "" : "readonly "}{}[]) { super(); } read(): {} { return this.items[0]; } }
+      export function select<Value extends Base>(value: Value): List | undefined {
+        if (value instanceof List) return value;
+        return undefined;
+      }
+    ` });
+    const subject = current.storage.subjectFor(current.variable("result"));
+    assert.equal(subject.kind === "resolved", true);
+    const selection = current.storage.closedOriginsFor(subject.subject);
+    assert.equal(selection.kind === (mutable ? "open" : "complete"), true,
+      `checked returned guard preserves the native public member contract (${selection.kind}; ${selection.reason ?? ""})`);
+    if (mutable) assert.equal(selection.boundaries.some(boundary => boundary.kind === "external-write"), true);
+    const origins = selection.origins;
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("token")), true);
+    assert.equal(origins.some(origin => origin.subject.node === current.initializer("foreign")), false);
+  });
+}
+
+test("a replaced returned binding is not filtered using an invalidated nominal guard", () => {
+  const current = fixture(`
+    class Base {}
+    class List extends Base { constructor(readonly items: {}[]) { super(); } read(): {} { return this.items[0]; } }
+    class Sibling extends Base { constructor(readonly items: {}[]) { super(); } read(): {} { return this.items[0]; } }
+    const token = {};
+    const foreign = {};
+    function select(value: Base): List | undefined {
+      if (value instanceof List) { value = new Sibling([foreign]); return value as List; }
+      return undefined;
+    }
+    const result = select(new List([token]))!.read();
+  `);
+  assert.equal(current.origins("result").some(origin => origin.subject.node === current.initializer("foreign")), true);
+});
+
+test("returned nominal selection keeps an opaque writer's admitted backing-slot evidence", () => {
+  const current = fixture(`
+    class Base {}
+    class List extends Base { constructor(readonly items: {}[]) { super(); } read(): {} { return this.items[0]; } }
+    class Scalar extends Base { readonly value = {}; }
+    declare function mutate(value: List): void;
+    const token = {};
+    function parse(mode: boolean): Base { return mode ? new List([token]) : new Scalar(); }
+    function select(value: Base): List | undefined {
+      if (value instanceof List) { mutate(value); return value; }
+      return undefined;
+    }
+    const result = select(parse(true))!.read();
+  `);
+  const subject = current.storage.subjectFor(current.variable("result"));
+  assert.equal(subject.kind === "resolved", true);
+  const selected = current.storage.closedOriginsFor(subject.subject);
+  assert.equal(selected.kind === "open", true, `nominal selection does not certify mutable contents after an opaque call (${selected.kind}; ${selected.reason ?? ""})`);
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true);
+  assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true);
+});
+
+test("an unqualified returned class value also retains opaque contained element writers", () => {
+  const current = fixture(`
+    class List { constructor(readonly items: {}[]) {} read(): {} { return this.items[0]; } }
+    declare function mutate(value: List): void;
+    const token = {};
+    function select(value: List): List { mutate(value); return value; }
+    const result = select(new List([token])).read();
+  `);
+  const subject = current.storage.subjectFor(current.variable("result"));
+  assert.equal(subject.kind === "resolved", true);
+  const selected = current.storage.closedOriginsFor(subject.subject);
+  assert.equal(selected.kind === "open", true, `original unqualified publication (${selected.kind}; ${selected.reason ?? ""})`);
+  assert.equal(selected.boundaries.some(boundary => boundary.kind === "opaque-write"), true);
+});
+
+for (const publication of ["export const published = new List([token]);",
+  "const published = new List([token]); export function cached(): List { return published; }"]) {
+  test(`real published class instances retain their exact exposed backing writers (${publication})`, () => {
+    const current = fixture(`
+      export class List { constructor(readonly items: {}[]) {} read(): {} { return this.items[0]; } }
+      const token = {};
+      ${publication}
+      const result = published.read();
+    `);
+    const subject = current.storage.subjectFor(current.variable("result"));
+    assert.equal(subject.kind === "resolved", true);
+    const selected = current.storage.closedOriginsFor(subject.subject);
+    assert.equal(selected.kind === "open", true);
+    assert.equal(selected.boundaries.some(boundary => boundary.kind === "external-write"), true);
+    assert.equal(selected.origins.some(origin => origin.subject.node === current.initializer("token")), true);
+  });
+}
 
 test("selected structural adaptation still preserves real members from a distinct exact class", () => {
   const current = fixture(`
@@ -194,14 +341,14 @@ test("exact nominal member selection preserves independent finite work and hiera
   const receiver = current.source.ast.as.AsPropertyAccessExpression(access).Expression;
   for (const limits of [{ maximumSteps: 1 }, { maximumTransportRows: 1 }]) {
     const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-    const guarded = createSourceStorageGuardedMembers(current.source, budget);
-    assert.equal(guarded(selected.subject, receiver) === undefined, true, "no result publishes around independent exhaustion");
+    const guarded = createSourceStorageGuardedValues(current.source, budget);
+    assert.equal(guarded.admits(selected.subject, receiver) === undefined, true, "no result publishes around independent exhaustion");
     assert.equal(budget.failure() !== undefined, true, "the failed proof preserves its owning resource diagnostic");
   }
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
-  const guarded = createSourceStorageGuardedMembers(current.source, budget);
+  const guarded = createSourceStorageGuardedValues(current.source, budget);
   for (let replay = 0; replay < 100; replay += 1) {
-    assert.equal(guarded(selected.subject, receiver), false);
+    assert.equal(guarded.admits(selected.subject, receiver), false);
   }
   assert.equal(budget.failure() === undefined, true, "completed temporary hierarchy reservations release after every proof");
 });

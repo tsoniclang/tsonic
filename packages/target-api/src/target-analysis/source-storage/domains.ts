@@ -260,8 +260,15 @@ export function createSourceStorageDomains(
     return receiver !== undefined && transport.substitutions.isBound(receiver, bindings);
   };
   const publicationOrigins = (subject: SourceStorageSubject, externalEntry: boolean): ReadonlySet<SourceStorageSubject> => {
-    if (!externalEntry) return transport.substitutions.origins(subject, transport.substitutions.empty) ?? new Set();
+    if (!externalEntry && !(subject.kind === "value" && ast.is.IsIdentifier(subject.node)))
+      return transport.substitutions.origins(subject, transport.substitutions.empty) ?? new Set();
     const selected = transport.substitutions.walk(subject, transport.substitutions.empty, current => {
+      if (current.subject.kind === "value" && ast.is.IsIdentifier(current.subject.node)) {
+        const declaration = navigation.sourceReferenceFor(current.subject.node)?.declaration;
+        const input = declaration !== undefined && ast.is.IsParameterDeclaration(declaration) ? transport.subject(declaration, "input") : undefined;
+        if (input !== undefined && !transport.substitutions.isBound(input, current.bindings) &&
+          transport.guardedValues.appliesTo(current.subject.node) === true) return true;
+      }
       if (!externalEntry || transport.substitutions.isBound(current.subject, current.bindings)) return false;
       domainInputs.read(current.subject);
       return domainInputs.has(current.subject);

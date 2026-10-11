@@ -14,10 +14,11 @@ function fixture(relation, limits = {}, context = () => true) {
   const retained = [];
   const source = {
     ast: { name: () => undefined, getSourceFile: () => undefined,
-      is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false } },
+      is: { IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
+        IsIdentifier: node => node.kind === "identifier" } },
     semantics: { includes: () => true, forFile: file => ({
       declarations: { declaredValueType: node => node.type },
-      types: { expressionType: () => undefined, isUnion: () => false, structuralMembers: (from, to) => {
+      types: { expressionType: node => node.expressionType, isUnion: () => false, structuralMembers: (from, to) => {
         calls.push({ file, from, to });
         return relation(file, from, to);
       } },
@@ -27,6 +28,34 @@ function fixture(relation, limits = {}, context = () => true) {
     (node, file) => { retained.push({ node, file }); return context(node, file); });
   return { flow, budget, file, calls, retained };
 }
+
+test("checked value occurrences index their selected expression type instead of the broader binding type", () => {
+  const declared = {};
+  const expression = {};
+  const destination = {};
+  const target = {};
+  const original = {};
+  const input = fixture((_file, from) => from === expression
+    ? { kind: "available", members: [present([target], [original])] }
+    : { kind: "unavailable", reason: "missing-required-member" });
+  const owner = { ...subject(declared), node: { kind: "identifier", type: declared, expressionType: expression } };
+  const selected = input.flow.declarationsFor(owner, target, destination);
+  assert.equal(selected?.length === 1 && selected[0] === original, true);
+  assert.equal(input.calls.length === 1 && input.calls[0].from === expression, true,
+    "one exact checked read view owns both the relationship and its cache identity");
+  assert.equal(input.budget.failure() === undefined, true);
+});
+
+test("an unavailable checked read type cannot fall back to an unrelated declared binding carrier", () => {
+  const target = {};
+  const original = {};
+  const input = fixture(() => ({ kind: "available", members: [present([target], [original])] }));
+  const owner = { ...subject({}), node: { kind: "identifier", type: {} } };
+  assert.equal(input.flow.declarationsFor(owner, target, {}) === undefined, true,
+    "a declaration alone is not evidence for an unresolved checked read view");
+  assert.equal(input.calls.length, 0);
+  assert.equal(input.budget.failure() === undefined, true);
+});
 
 test("immutable checked member relationships are indexed once across aliases and exact selected declarations", () => {
   const targets = Array.from({ length: 64 }, () => ({}));

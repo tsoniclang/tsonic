@@ -6,7 +6,7 @@ import { sourceStorageClassValue, sourceStorageConstructedClass } from "./constr
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
 
-export function createSourceStorageGuardedMembers(source: TargetSourceProgram, budget: SourceStorageBudget) {
+export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget) {
   const { ast, navigation } = source;
   const context = { ast, navigation, sourceFacts: source.sourceFacts,
     semanticsFor: (node: Node) => source.semantics.forNode(node) };
@@ -32,15 +32,22 @@ export function createSourceStorageGuardedMembers(source: TargetSourceProgram, b
       return undefined;
     });
   };
-  return (owner: SourceStorageSubject, reference: Node): boolean | undefined => {
+  const guardFor = (expression: Node) => {
     if (!budget.step()) return undefined;
-    const selected = selectSourceGuardedValueMembers(context, reference, [owner], expression => {
-      if (!budget.step()) return undefined;
-      const guard = selectSourceNativeValueGuard(context, expression);
-      if (guard?.kind !== "nominal") return undefined;
-      const target = sourceStorageClassValue(guard.sourceConstructor, source, () => budget.step());
-      return target === undefined ? undefined : { sourceOperand: guard.sourceOperand, predicate: target };
-    }, instanceOf);
+    const guard = selectSourceNativeValueGuard(context, expression);
+    if (guard?.kind !== "nominal") return undefined;
+    const target = sourceStorageClassValue(guard.sourceConstructor, source, () => budget.step());
+    return target === undefined ? undefined : { sourceOperand: guard.sourceOperand, predicate: target };
+  };
+  const appliesTo = (reference: Node): boolean | undefined => {
+    if (!budget.step()) return undefined;
+    const selected = selectSourceGuardedValueMembers(context, reference, [reference], guardFor, () => undefined);
+    return budget.failure() === undefined ? selected !== undefined : undefined;
+  };
+  const admits = (owner: SourceStorageSubject, reference: Node): boolean | undefined => {
+    if (!budget.step()) return undefined;
+    const selected = selectSourceGuardedValueMembers(context, reference, [owner], guardFor, instanceOf);
     return budget.failure() !== undefined || selected === undefined ? undefined : selected.length !== 0;
   };
+  return Object.freeze({ appliesTo, admits });
 }
