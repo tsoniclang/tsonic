@@ -420,9 +420,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           terms.push(sourceStorageReference(store.value, store.kind === "initialization"
             ? creatorScope(store.storage.node, term.scope) : term.scope)); continue;
         }
-        const effects = readEffects(store);
         const region = transport.regions.enclosing(node);
         const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
+        const local = store.region === region
+          ? owner === undefined ? scopes.empty : scopes.owningScope(term.scope, owner) : undefined;
+        if (local !== undefined) {
+          terms.push(sourceStorageReference(store.value, local));
+          continue;
+        }
+        const effects = readEffects(store);
         for (const effect of effects) {
           if (!budget.step()) return undefined;
           if (effect.kind === "unresolved") { terms.push(effect); continue; }
