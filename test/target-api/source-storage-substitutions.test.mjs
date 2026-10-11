@@ -339,6 +339,57 @@ test("owning scope and equation queries retain exact presence and absence withou
   });
 });
 
+test("an exact local formal binding reads its frame index without an unrelated ancestry frontier", () => {
+  const current = fixture({ maximumTransportRows: 10 }, 1);
+  const frame = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty);
+  assert.equal(frame !== undefined, true);
+  const selected = current.scopes.lookup(current.formal, frame);
+  assert.equal(selected?.kind === "replace" && selected.terms.length === 1 &&
+    selected.terms[0].subject === current.input && selected.terms[0].scope === current.scopes.empty, true,
+    "the exact original slot and caller binding fit the finite live row budget");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("an indexed frame reads its own equation without allocating a caller traversal", () => {
+  const current = fixture({ maximumTransportRows: 10 }, 1);
+  const equation = { identity: 0, entry: current.outer, component: new Set([current.outer]), initial: current.scopes.empty };
+  const frame = current.scopes.frameFor(current.outer, {}, current.scopes.empty, current.scopes.empty, equation);
+  assert.equal(frame !== undefined, true);
+  assert.equal(current.scopes.family(frame) === equation, true, "the authoritative equation is the exact original object");
+  assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("replacement selection intersects exact free variables on the smaller side in both directions", () => {
+  const current = fixture({}, 1);
+  let steps = 0;
+  const budget = { ...current.budget, step: () => { steps += 1; return current.budget.step(); } };
+  const graph = createSourceStorageGraphQueries(budget);
+  graph.seal();
+  const scopes = createSourceStorageScopes(current.source, budget, current.subject,
+    () => ({ subjects: new Set(), context: "caller" }), graph, () => undefined);
+  const owners = Array.from({ length: 64 }, () => ({ parameters: [] }));
+  const equation = { identity: 0, entry: owners[0], component: new Set(owners), initial: scopes.empty };
+  const variables = owners.map(owner => scopes.variable(equation, owner));
+  const candidate = { parameters: [] };
+  let wide = scopes.empty;
+  for (const variable of variables) wide = scopes.frameFor(candidate, {}, wide, variable);
+  const narrow = scopes.frameFor(candidate, {}, scopes.empty, variables[0]);
+  assert.equal(scopes.variablesFor(wide)?.size === 64 && scopes.variablesFor(narrow)?.size === 1, true);
+  for (const [scope, replacements, selectedVariable] of [
+    [wide, new Map([[variables[63], scopes.empty]]), variables[63]],
+    [narrow, new Map(variables.map(variable => [variable, scopes.empty])), variables[0]],
+  ]) {
+    const started = steps;
+    const selected = scopes.applyScope(scope, replacements);
+    assert.equal(selected?.kind === "substitution" && selected.substitutions.size === 1 &&
+      selected.substitutions.get(selectedVariable) === scopes.empty, true, "only the exact intersection contributes to the canonical view");
+    for (let repeat = 0; repeat < 100; repeat += 1)
+      assert.equal(scopes.applyScope(scope, replacements) === selected, true);
+    assert.equal(steps - started < 700, true, "selection work is proportional to the smaller exact set, not its unrelated entries");
+  }
+  assert.equal(budget.failure() === undefined, true);
+});
+
 test("completed simultaneous composition reuses every exact selection across nested alternating collectors", () => {
   const current = fixture({ maximumSteps: 4096 }, 1);
   return current.scopes.withQuery(() => {

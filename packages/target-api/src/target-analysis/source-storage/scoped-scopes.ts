@@ -89,8 +89,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const inputs = variablesFor(scope);
     if (inputs === undefined) return undefined;
     const selected = new Map<SourceStorageVariable, SourceStorageScope>();
-    for (const input of inputs) {
+    const candidates = replacements.size < inputs.size ? replacements.keys() : inputs;
+    for (const input of candidates) {
       if (!budget.step()) return undefined;
+      if (!inputs.has(input)) continue;
       const replacement = replacements.get(input);
       if (replacement !== undefined) selected.set(input, replacement);
     }
@@ -189,6 +191,20 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     retain: (cost: number) => boolean): SourceStorageReduction | undefined => {
     const root = subject(origin.node, origin.kind);
     if (root === undefined) return undefined;
+    const selectEntries = (entries: readonly SourceStorageReference[],
+      path: SourceStorageSubstitutionPath | undefined): SourceStorageReduction | undefined => {
+      const terms: SourceStorageTerm[] = [];
+      for (const entry of entries) {
+        if (!budget.step() || !retain(1)) return undefined;
+        const projected = project(entry, origin);
+        const applied = projected === undefined ? undefined : applyPath(projected, path);
+        if (applied === undefined) return undefined;
+        terms.push(applied);
+      }
+      return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
+    };
+    const local = scope.kind === "frame" ? scope.entries.get(root) : undefined;
+    if (local !== undefined) return selectEntries(local, undefined);
     for (const current of traverse(scope)) {
       if (current.scope.kind === "variable") {
         const initial = entryInputFor(origin, current.scope);
@@ -200,17 +216,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         return { kind: "expand", variable: current.scope };
       }
       const entries = current.scope.entries.get(root);
-      if (entries !== undefined) {
-        const terms: SourceStorageTerm[] = [];
-        for (const entry of entries) {
-          if (!budget.step() || !retain(1)) return undefined;
-          const projected = project(entry, origin);
-          const applied = projected === undefined ? undefined : applyPath(projected, current.path);
-          if (applied === undefined) return undefined;
-          terms.push(applied);
-        }
-        return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
-      }
+      if (entries !== undefined) return selectEntries(entries, current.path);
     }
     return undefined;
   };
@@ -284,6 +290,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (!budget.step()) return undefined;
     if (scope === empty) return undefined;
     if (scope.kind === "variable") return scope.equation;
+    if (scope.kind === "frame" && scope.equation !== undefined) return scope.equation;
     const retained = memo.families.get(scope);
     if (retained !== undefined) return retained ?? undefined;
     let equation: SourceStorageEquation | undefined;
