@@ -30,10 +30,11 @@ function fixture() {
         AsParenthesizedExpression: node => ({ Expression: node.expression }),
         AsVariableDeclaration: node => ({ Initializer: node.initializer }),
       },
+      variableDeclarationKind: node => node.declarationKind ?? "const",
     },
     navigation: {
       sourceReferenceFor: node => node.declaration === undefined ? undefined : { declaration: node.declaration },
-      declarationUseSummary: node => ({ bindingWritten: node.mutable === true }),
+      declarationUseSummary: node => ({ bindingWritten: node.mutable === true, exported: node.exported === true }),
       isProjectDeclaration: node => node === selected,
     },
   };
@@ -63,4 +64,15 @@ test("construction storage rejects foreign, cyclic, missing and budget-exhausted
   assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true,
     "a constructor parameter's result type is not its runtime identity");
   assert.equal(sourceStorageConstructedClass({ kind: "call" }, value.source, () => true) === undefined, true);
+});
+
+test("public mutable constructor aliases remain opaque without assuming a visible write", () => {
+  const value = fixture();
+  value.alias.exported = true;
+  value.alias.declarationKind = "let";
+  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === undefined, true,
+    "external assignments are possible even when no project assignment is recorded");
+  value.alias.declarationKind = "const";
+  assert.equal(sourceStorageConstructedClass(value.invocation, value.source, () => true) === value.selected, true,
+    "publication alone does not make an immutable constructor binding writable");
 });

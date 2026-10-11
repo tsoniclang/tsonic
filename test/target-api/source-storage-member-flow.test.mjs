@@ -172,3 +172,21 @@ test("optional-only member inventories reserve every retained relationship befor
   assert.equal(input.flow.membersFor(owner, destination) === undefined && input.calls.length === 1, true,
     "neither an empty declaration index nor a cache hit can bypass an oversized exact relationship family");
 });
+
+test("throwing member construction releases its unpublished rows before a complete bounded retry", () => {
+  const declaration = {}; const original = {};
+  let fail = true;
+  const sourceMember = { get declarations() {
+    if (fail) { fail = false; throw new Error("incomplete member evidence"); }
+    return [original];
+  } };
+  const input = fixture(() => ({ kind: "available", members: [{ kind: "present",
+    destination: { declarations: [declaration] }, source: sourceMember }] }), { maximumTransportRows: 7 });
+  const owner = subject({}); const destination = {};
+  assert.throws(() => input.flow.declarationsFor(owner, declaration, destination), /incomplete member evidence/);
+  assert.equal(input.budget.failure() === undefined, true, "an exception is not a fabricated budget failure");
+  const selected = input.flow.declarationsFor(owner, declaration, destination);
+  assert.equal(selected?.length === 1 && selected[0] === original, true, "no failed index or reservation survives");
+  assert.equal(input.flow.declarationsFor(owner, declaration, destination) === selected, true);
+  assert.equal(input.calls.length === 2 && input.budget.failure() === undefined, true);
+});

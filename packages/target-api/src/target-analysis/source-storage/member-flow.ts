@@ -23,42 +23,48 @@ export function createSourceStorageMemberFlow(
     const sources = selections.get(file);
     const destinations = sources?.get(from);
     if (destinations?.has(to)) return destinations.get(to);
-    const selected = source.semantics.forFile(file).types.structuralMembers(from, to);
-    let index: MemberIndex | undefined;
-    if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
-    if (selected.kind === "available") {
-      const memberRows = budget.createRows();
-      if (!memberRows.add(1 + selected.members.length)) return undefined;
-      const members = new Map<Node, Set<Node>>();
-      for (const member of selected.members) {
-        if (!budget.step()) return undefined;
-        if (member.kind !== "present") continue;
-        for (const target of member.destination.declarations) {
+    const rows = budget.createRows();
+    let published = false;
+    try {
+      const selected = source.semantics.forFile(file).types.structuralMembers(from, to);
+      let index: MemberIndex | undefined;
+      if (selected.kind === "unavailable" && selected.reason === "disjoint-shape") index = noMembers;
+      if (selected.kind === "available") {
+        if (!rows.add(1 + selected.members.length)) return undefined;
+        const members = new Map<Node, Set<Node>>();
+        for (const member of selected.members) {
           if (!budget.step()) return undefined;
-          let originals = members.get(target);
-          if (originals === undefined) {
-            if (!budget.row()) return undefined;
-            originals = new Set();
-            members.set(target, originals);
-          }
-          for (const original of member.source.declarations) {
+          if (member.kind !== "present") continue;
+          for (const target of member.destination.declarations) {
             if (!budget.step()) return undefined;
-            if (originals.has(original)) continue;
-            if (!budget.row()) return undefined;
-            originals.add(original);
+            let originals = members.get(target);
+            if (originals === undefined) {
+              if (!rows.add(1)) return undefined;
+              originals = new Set();
+              members.set(target, originals);
+            }
+            for (const original of member.source.declarations) {
+              if (!budget.step()) return undefined;
+              if (originals.has(original)) continue;
+              if (!rows.add(1)) return undefined;
+              originals.add(original);
+            }
           }
         }
+        index = Object.freeze({ members: Object.freeze([...selected.members]),
+          declarations: new Map([...members].map(([target, originals]) => [target, Object.freeze([...originals])])) });
       }
-      index = Object.freeze({ members: Object.freeze([...selected.members]),
-        declarations: new Map([...members].map(([target, originals]) => [target, Object.freeze([...originals])])) });
+      if (!rows.add(1 + (sources === undefined ? 1 : 0) + (destinations === undefined ? 1 : 0))) return undefined;
+      const retainedSources = sources ?? new Map<Type, Map<Type, MemberIndex | undefined>>();
+      const retainedDestinations = destinations ?? new Map<Type, MemberIndex | undefined>();
+      retainedDestinations.set(to, index);
+      retainedSources.set(from, retainedDestinations);
+      selections.set(file, retainedSources);
+      published = true;
+      return index;
+    } finally {
+      if (!published) rows.release();
     }
-    if (!budget.row() || sources === undefined && !budget.row() || destinations === undefined && !budget.row()) return undefined;
-    const retainedSources = sources ?? new Map<Type, Map<Type, MemberIndex | undefined>>();
-    const retainedDestinations = destinations ?? new Map<Type, MemberIndex | undefined>();
-    retainedDestinations.set(to, index);
-    retainedSources.set(from, retainedDestinations);
-    selections.set(file, retainedSources);
-    return index;
   };
   const selectedIndex = (owner: SourceStorageSubject, destinationType: Type): MemberIndex | undefined => {
     if (!budget.step()) return undefined;

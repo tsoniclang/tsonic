@@ -7,10 +7,19 @@ export function sourceStorageConstructedClass(
   source: TargetSourceProgram,
   step: () => boolean,
 ): Node | undefined {
-  const { ast, navigation } = source;
+  const { ast } = source;
   if (!ast.is.IsNewExpression(invocation)) return undefined;
+  return sourceStorageClassValue(Node_Expression(ast, invocation), source, step);
+}
+
+export function sourceStorageClassValue(
+  expression: Node | undefined,
+  source: TargetSourceProgram,
+  step: () => boolean,
+): Node | undefined {
+  const { ast, navigation } = source;
   const visited = new Set<Node>();
-  let current = Node_Expression(ast, invocation);
+  let current = expression;
   while (current !== undefined && !visited.has(current) && step()) {
     visited.add(current);
     if (ast.is.IsClassExpression(current)) return navigation.isProjectDeclaration(current) ? current : undefined;
@@ -23,8 +32,9 @@ export function sourceStorageConstructedClass(
     if (declaration === undefined) return undefined;
     if (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))
       return navigation.isProjectDeclaration(declaration) ? declaration : undefined;
-    if (!ast.is.IsVariableDeclaration(declaration) || navigation.declarationUseSummary(declaration).bindingWritten)
-      return undefined;
+    if (!ast.is.IsVariableDeclaration(declaration)) return undefined;
+    const uses = navigation.declarationUseSummary(declaration);
+    if (uses.bindingWritten || uses.exported && ast.variableDeclarationKind(declaration) !== "const") return undefined;
     current = Node_Initializer(ast, declaration);
   }
   return undefined;
