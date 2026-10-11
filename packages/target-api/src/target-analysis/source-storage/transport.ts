@@ -28,6 +28,7 @@ import { sourceBindingWriteAtReference } from "../../source-navigation/reference
 import { createSourceStorageAncestorQuery } from "./ancestors.js";
 import { createSourceStorageGuardedValues } from "./guarded-values.js";
 import { sourceStorageIsScalarType } from "./components.js";
+import { createSourceStorageMemberAccessors } from "./member-accessors.js";
 
 export function createSourceStorageTransport(
   source: TargetSourceProgram,
@@ -49,7 +50,6 @@ export function createSourceStorageTransport(
   const argumentTransports = new Map<Node, readonly SourceStorageArgumentTransport[]>();
   const checkedSourceFiles = new Map<Node, SourceFile>();
   const unresolvedInvocations = new Map<Node, string>();
-  const accessorTargets = new Map<Node, readonly Node[]>();
   const memberImplementations = new Map<Node, Set<Node>>();
   const thrownOrigins = new Map<Node, Set<SourceStorageSubject>>();
   const unresolvedThrows = new Map<Node, string>();
@@ -180,6 +180,11 @@ export function createSourceStorageTransport(
   };
 
   const regions = createSourceStorageExecutionRegions(source, budget);
+  const memberAccessors = createSourceStorageMemberAccessors(source, budget, {
+    subject, subjectFor, incomingFor, connect, recordInvocation: regions.recordInvocation,
+    implementationsFor: (declaration, invocation) => implementationsFor(declaration, invocation).nodes,
+  }, graphQueries);
+  const accessorTargets = memberAccessors.targets;
   const storedValues = createSourceStorageStoredValues(ast, budget, regions.enclosing, node => {
     const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node)
       : ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined;
@@ -214,9 +219,12 @@ export function createSourceStorageTransport(
       }
     }
     if (ast.is.IsVariableDeclaration(node)) {
-      connectValueFlow(Node_Initializer(ast, node));
-      connect(subjectFor(Node_Initializer(ast, node)), subject(node));
-      storedValues.initialize(subject(node), Node_Initializer(ast, node) ?? node, subjectFor(Node_Initializer(ast, node)));
+      const initializer = Node_Initializer(ast, node);
+      const parent = ast.parent(node);
+      const original = parent !== undefined && ast.is.IsCatchClause(parent) ? subject(node, "input") : subjectFor(initializer);
+      connectValueFlow(initializer);
+      connect(original, subject(node));
+      storedValues.initialize(subject(node), initializer ?? node, original);
     }
     if (ast.is.IsIdentifier(node) || ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
       const write = storedValues.writeFor(node, subjectFor);
@@ -261,15 +269,7 @@ export function createSourceStorageTransport(
       if (declaration !== undefined && !ast.is.IsGetAccessorDeclaration(declaration) &&
         (ast.is.IsPropertyAccessExpression(node) || sourceStorageIsDataMember(declaration, ast)))
         connect(sourceStorageMemberSubject(declaration, ast, subject), subjectFor(node));
-      const targets = [
-        ...(selected?.accessMode === "write" ? [] : [property?.selectedReadDeclaration ?? selected?.selectedDeclaration]),
-        ...(selected?.accessMode === "read" ? [] : [property?.selectedWriteDeclaration ?? selected?.selectedDeclaration]),
-      ].filter((target): target is Node => target !== undefined &&
-        (ast.is.IsGetAccessorDeclaration(target) || ast.is.IsSetAccessorDeclaration(target)));
-      if (targets.length !== 0) {
-        accessorTargets.set(node, Object.freeze(targets));
-        regions.recordInvocation(node);
-      }
+      if (selected?.selectedDeclaration !== undefined) memberAccessors.record(node);
       if (selected !== undefined && selected.accessMode !== "read") {
         const owner = subjectFor(selected.receiver.expression);
         if (owner !== undefined) mutationOwners.set(node, owner);
@@ -279,7 +279,7 @@ export function createSourceStorageTransport(
     if (ast.is.IsThrowStatement(node)) {
       const origin = subjectFor(Node_Expression(ast, node));
       const caught = regions.catchDestination(node);
-      if (caught !== undefined) connect(origin, subject(caught));
+      if (caught !== undefined) connect(origin, subject(caught, "input"));
       else {
         const region = regions.enclosing(node);
         if (region !== undefined && origin !== undefined) recordThrow(region, origin);
@@ -458,6 +458,7 @@ export function createSourceStorageTransport(
   };
   const collectInvocationImplementations = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> => {
+    graphQueries.read({ node: invocation, kind: accessorTargets });
     const implementations = new Set<Node>();
     const declaration = invocationDeclarations.get(invocation);
     const target = invocationTargets.get(invocation);
@@ -570,31 +571,14 @@ export function createSourceStorageTransport(
         }
       }
     };
-    for (const [access, accessors] of accessorTargets) yield once => {
-      for (const accessor of accessors) {
-        for (const candidate of implementationsFor(accessor, access).nodes) {
-          if (!once(candidate)) continue;
-          const receiver = semantics.forNode(access).operations.propertyAccess(access)?.receiver.expression;
-          connect(subjectFor(receiver), subject(candidate, "receiver"));
-          if (ast.is.IsGetAccessorDeclaration(accessor)) connect(subject(candidate, "return"), subjectFor(access));
-          else {
-            const parent = ast.parent(access);
-            const assignment = parent === undefined || !ast.is.IsBinaryExpression(parent)
-              ? undefined : ast.as.AsBinaryExpression(parent);
-            if (assignment?.Left === access && ast.operatorKindName(parent) === "KindEqualsToken") {
-              connect(subjectFor(assignment.Right), subject(ast.parameters(candidate)[0], "input"));
-            }
-          }
-        }
-      }
-    };
-    for (const invocation of new Set([...invocations, ...accessorTargets.keys()])) yield () => {
+    yield* memberAccessors.operations();
+    for (const invocation of new Set([...invocations, ...memberAccessors.sites])) yield () => {
       if (!step()) return;
       const destination = regions.catchDestination(invocation);
       const enclosing = destination === undefined ? regions.enclosing(invocation) : undefined;
       const reason = unresolvedInvocations.get(invocation);
       if (reason !== undefined) {
-        const caught = destination === undefined ? undefined : subject(destination);
+        const caught = destination === undefined ? undefined : subject(destination, "input");
         if (caught !== undefined) unresolvedSubjects.set(caught, reason);
         else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
         return;
@@ -609,13 +593,13 @@ export function createSourceStorageTransport(
           graphQueries.read({ node: region, kind: thrownOrigins });
           const reason = unresolvedThrows.get(region);
           if (reason !== undefined) {
-            const caught = destination === undefined ? undefined : subject(destination);
+            const caught = destination === undefined ? undefined : subject(destination, "input");
             if (caught !== undefined) unresolvedSubjects.set(caught, reason);
             else if (enclosing !== undefined) recordUnresolvedThrow(enclosing, reason);
           }
           for (const origin of thrownOrigins.get(region) ?? []) {
             for (const actual of invocationOrigins(origin, target.candidate, invocation)) {
-              if (destination !== undefined) connect(actual, subject(destination));
+              if (destination !== undefined) connect(actual, subject(destination, "input"));
               else if (enclosing !== undefined) recordThrow(enclosing, actual);
             }
           }
@@ -649,7 +633,7 @@ export function createSourceStorageTransport(
     subject, subjectFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
     storedValuesFor: storedValues.storesFor, storesIn: storedValues.storesIn, invocationImplementations,
-    isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues,
+    isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);
   const boundaries: SourceStorageBoundary[] = [];
   for (const invocation of invocations) {

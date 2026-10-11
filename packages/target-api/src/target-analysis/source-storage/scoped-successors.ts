@@ -3,7 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./subjects.js";
-import { sourceStorageHasOriginalValue, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "./scoped-model.js";
@@ -14,6 +14,12 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 
+interface SourceStorageChildContext {
+  readonly contributes?: boolean;
+  readonly independentCallee?: Node;
+  readonly correlated?: boolean;
+}
+
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   equations: ReturnType<typeof createSourceStorageEquations>,
@@ -21,6 +27,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   closed: (term: SourceStorageTerm) => boolean | undefined,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
   const { ast, navigation, semantics } = source;
+  const dataMember = (declaration: Node): boolean => sourceStorageIsDataMember(declaration, ast) &&
+    transport.memberAccessorsFor(declaration)?.size === 0;
   const reachability = createSourceStorageExecutionReachability(source, budget, transport);
   const readEffects = function* (store: SourceStorageStore) {
     const rows = budget.createRows();
@@ -119,8 +127,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const original = birthKey(input.subject, input.scope);
     return original !== undefined && original === birthKey(allocation.subject, allocation.scope) ? scope : undefined;
   };
-  const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>): SourceStorageReduction | undefined => {
-    if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver => Object.freeze({ ...term, receiver }));
+  const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
     const selected = ast.is.IsPropertyAccessExpression(term.access) ? semantics.forNode(term.access).operations.propertyAccess(term.access)
       : semantics.forNode(term.access).operations.elementAccess(term.access);
     const property = ast.is.IsPropertyAccessExpression(term.access) ? semantics.forNode(term.access).operations.propertyAccess(term.access) : undefined;
@@ -128,9 +135,19 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (selected === undefined || declaration === undefined) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }
+    if (term.receiver.kind !== "leaf") {
+      const replace = (receiver: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, receiver });
+      return !correlated && term.mode === "value" && dataMember(declaration)
+        ? materializeChild(term.receiver, replace) : replaceChild(term.receiver, replace);
+    }
     const originals = new Set<Node>();
-    for (const target of term.mode === "execution" ? transport.accessorTargets.get(term.access) ?? [] : [declaration]) {
+    const selections = term.mode === "execution" ? [
+      ...(selected.accessMode === "write" ? [] : [{ target: property?.selectedReadDeclaration ?? selected.selectedDeclaration, read: true }]),
+      ...(selected.accessMode === "read" ? [] : [{ target: property?.selectedWriteDeclaration ?? selected.selectedDeclaration, read: false }]),
+    ] : [{ target: declaration, read: true }];
+    for (const { target, read } of selections) {
       if (!budget.step()) return undefined;
+      if (target === undefined) continue;
       const unbound = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
       const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, selected.receiver.type);
@@ -142,8 +159,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       for (const member of members) {
         if (!budget.step()) return undefined;
-        if (ast.is.IsGetAccessorDeclaration(target) && ast.is.IsSetAccessorDeclaration(member) ||
-          ast.is.IsSetAccessorDeclaration(target) && ast.is.IsGetAccessorDeclaration(member)) continue;
+        const getter = ast.is.IsGetAccessorDeclaration(member);
+        const setter = ast.is.IsSetAccessorDeclaration(member);
+        if (read && setter || !read && getter || term.mode === "execution" && !getter && !setter) continue;
         originals.add(member);
       }
     }
@@ -200,40 +218,42 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     return { kind: "replace", terms, witnesses };
   };
+  const materializeChild = (child: SourceStorageTerm,
+    replace: (child: SourceStorageTerm) => SourceStorageTerm, independentCallee?: Node): SourceStorageReduction | undefined => {
+    const values = readRelation(child);
+    if (values === undefined) return undefined;
+    const terms: SourceStorageTerm[] = [];
+    for (const value of values) {
+      if (!budget.step()) return undefined;
+      if (value.kind === "unresolved") terms.push(value);
+      else if (value.kind === "leaf") {
+        if (independentCallee !== undefined) {
+          const selected = navigation.callableImplementation(value.subject.node);
+          if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
+            terms.push(Object.freeze({ kind: "unresolved", subject: value.subject, scope: value.scope,
+              reason: "Source storage shared dispatch requires its exact context-independent implementation." }));
+            continue;
+          }
+        }
+        terms.push(replace(value));
+      }
+    }
+    return { kind: "replace", terms, dependencies: [child] };
+  };
   const replaceChild = (child: SourceStorageTerm,
-    replace: (child: SourceStorageTerm) => SourceStorageTerm, contributes = true,
-    independentCallee?: Node): SourceStorageReduction | undefined => {
+    replace: (child: SourceStorageTerm) => SourceStorageTerm, context: SourceStorageChildContext = {}): SourceStorageReduction | undefined => {
     if (child.kind === "unresolved") return { kind: "replace", terms: [child] };
     if (child.kind === "reference" || child.kind === "application" || child.kind === "member" || child.kind === "guarded") {
       const independent = closed(child);
       if (independent === undefined) return undefined;
-      if (independent || independentCallee !== undefined) {
-        const values = readRelation(child);
-        if (values === undefined) return undefined;
-        const terms: SourceStorageTerm[] = [];
-        for (const value of values) {
-          if (!budget.step()) return undefined;
-          if (value.kind === "unresolved") terms.push(value);
-          else if (value.kind === "leaf") {
-            if (!independent && independentCallee !== undefined) {
-              const selected = navigation.callableImplementation(value.subject.node);
-              if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
-                terms.push(Object.freeze({ kind: "unresolved", subject: value.subject, scope: value.scope,
-                  reason: "Source storage shared dispatch requires its exact context-independent implementation." }));
-                continue;
-              }
-            }
-            terms.push(replace(value));
-          }
-        }
-        return { kind: "replace", terms, dependencies: [child] };
-      }
+      if (independent || context.independentCallee !== undefined)
+        return materializeChild(child, replace, independent ? undefined : context.independentCallee);
     }
-    const selected = reduce(child);
+    const selected = reduce(child, context.correlated ?? true);
     return selected?.kind === "replace" ? { kind: "replace", terms: selected.terms.map(replace), dependencies: selected.dependencies,
-      witnesses: [...(selected.witnesses ?? []).map(witness => contributes ? witness : { ...witness, contributes: false }),
+      witnesses: [...(selected.witnesses ?? []).map(witness => context.contributes !== false ? witness : { ...witness, contributes: false }),
         ...child.kind === "reference" || child.kind === "leaf"
-        ? [{ subject: child.subject, bindings: child.scope, contributes }] : []] } : selected;
+        ? [{ subject: child.subject, bindings: child.scope, contributes: context.contributes !== false }] : []] } : selected;
   };
   const independentCalleeFor = (invocation: Node): Node | undefined => {
     if (!budget.step()) return undefined;
@@ -246,11 +266,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const subject = transport.subject(candidate);
     return subject !== undefined && transport.contextualInputs(subject)?.size === 0 ? candidate : undefined;
   };
-  const reduce = (term: SourceStorageTerm): SourceStorageReduction | undefined => {
+  const reduce = (term: SourceStorageTerm, correlated = false): SourceStorageReduction | undefined => {
     if (!budget.step()) return undefined;
     if (term.kind === "leaf" || term.kind === "unresolved" || term.kind === "effect" || term.kind === "empty") return undefined;
     if (term.kind === "guarded") {
-      if (term.value.kind !== "leaf") return replaceChild(term.value, value => Object.freeze({ ...term, value }), false);
+      if (term.value.kind !== "leaf") return replaceChild(term.value, value => Object.freeze({ ...term, value }), { contributes: false, correlated });
       const admitted = transport.guardedValues.admits(term.value.subject, term.reference);
       if (budget.failure() !== undefined) return undefined;
       if (admitted === false) return { kind: "replace", terms: [] };
@@ -308,12 +328,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const value = scopes.applyTerm(term.value, new Map([[term.capture, term.condition.scope]]));
       return value === undefined ? undefined : { kind: "replace", terms: [value] };
     }
-    if (term.kind === "member") return member(term);
+    if (term.kind === "member") return member(term, correlated);
     if (term.kind === "application") {
       const dependencies = dispatchDependencies(term.invocation, term.scope);
       if (term.callee.kind !== "leaf") {
-        const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }), true,
-          independentCalleeFor(term.invocation));
+        const selected = replaceChild(term.callee, callee => Object.freeze({ ...term, callee }), {
+          independentCallee: independentCalleeFor(term.invocation),
+        });
         return selected?.kind !== "replace" ? selected : { ...selected, dependencies: [...selected.dependencies ?? [], ...dependencies] };
       }
       const node = term.callee.subject.node;
