@@ -6,22 +6,10 @@ import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import { createSourceStorageScopedTraversal } from "./scoped-traversal.js";
+import { createSourceStorageQueryMemo } from "./query-memo.js";
 import type { SourceStorageSubstitutionPath } from "./scoped-traversal.js";
 import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageReduction, SourceStorageReference,
   SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "./scoped-model.js";
-
-function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
-  let active: Memo | undefined;
-  return <Value>(collect: (memo: Memo) => Value): Value => {
-    if (active !== undefined) return collect(active);
-    return budget.withRows(rows => {
-      const memo = create(rows.add);
-      active = memo;
-      try { return collect(memo); }
-      finally { active = undefined; }
-    });
-  };
-}
 
 export function createSourceStorageScopes(source: TargetSourceProgram, budget: SourceStorageBudget,
   subject: SourceStorageSubjectQuery, invocationInputs: SourceStorageInvocationInputQuery,
@@ -78,8 +66,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     readonly families: Map<SourceStorageScope, SourceStorageEquation | null>;
     readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>;
   }
-  const withTraversal = scopedMemo<TraversalMemo>(budget, add => ({ add, owners: new Map(), families: new Map(), lookups: new Map() }));
-  const withQueryMemo = scopedMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>(),
+  const withTraversal = createSourceStorageQueryMemo<TraversalMemo>(budget, add => ({ add, owners: new Map(), families: new Map(), lookups: new Map() }));
+  const withQueryMemo = createSourceStorageQueryMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>(),
     lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageReduction | null>>() }));
   const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
     [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
