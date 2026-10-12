@@ -115,6 +115,12 @@ export function createSourceStorageStoredValues(
     } };
   };
   return Object.freeze({
+    *mutations(): Iterable<SourceStorageStore> {
+      for (const store of occurrences.values()) {
+        if (!budget.step()) return;
+        if (store.kind === "mutation") yield store;
+      }
+    },
     initialize(storage: SourceStorageSubject | undefined, occurrence: Node, value?: SourceStorageSubject): void {
       if (storage !== undefined) record(storage, { reference: occurrence, operation: storage.node, value }, "initialization");
     },

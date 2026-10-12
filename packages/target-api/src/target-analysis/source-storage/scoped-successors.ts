@@ -3,7 +3,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./subjects.js";
-import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "./scoped-model.js";
@@ -13,6 +13,8 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
+import { sourceStorageComponentType, sourceStorageSubjectType } from "./components.js";
+import { sourceStorageProjectComponents } from "./component-projections.js";
 
 interface SourceStorageChildContext {
   readonly contributes?: boolean;
@@ -128,12 +130,64 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const original = birthKey(input.subject, input.scope);
     return original !== undefined && original === birthKey(allocation.subject, allocation.scope) ? scope : undefined;
   };
+  const symbolicProjection = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
+    const terms: SourceStorageTerm[] = [leaf(subject, scope)];
+    const owner = sourceStorageFormalOwner(subject, ast);
+    const region = owner === undefined ? undefined : ast.body(owner);
+    if (region === undefined || subject.projection.length === 0) return { kind: "replace", terms };
+    for (const store of transport.mutations()) {
+      if (!budget.step()) return undefined;
+      if (store.receiver === undefined || store.destination === "binding") continue;
+      const reaches = reachability.region(region, store.region);
+      if (reaches === undefined) return undefined;
+      if (!reaches) continue;
+      for (const [index, component] of subject.projection.entries()) {
+        if (!budget.step()) return undefined;
+        if ((component.kind === "member") !== (store.destination === "member")) continue;
+        const writeComponent = store.storage.projection[store.storage.projection.length - 1];
+        if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
+        const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
+        const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver);
+        if (receiver === undefined || receiverType === undefined) return undefined;
+        const context = semantics.forNode(receiver.node);
+        if (component.kind === "member") {
+          const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
+            : semantics.forNode(store.reference).operations.elementAccess(store.reference);
+          const members = access === undefined ? undefined : transport.memberFlow.declarationsFor(receiver, store.storage.node, access.receiver.type);
+          if (members === undefined || !members.includes(component.declaration)) continue;
+        }
+        const selectedType = sourceStorageComponentType(receiverType, component, context);
+        const valueType = store.value === undefined ? undefined : sourceStorageSubjectType(source, store.value);
+        if (selectedType === undefined || valueType === undefined || store.reason !== undefined) {
+          terms.push(Object.freeze({ kind: "unresolved", subject, scope,
+            reason: store.reason ?? "A symbolic storage mutation requires its exact checked producer and component type." }));
+          continue;
+        }
+        const values: SourceStorageSubject[] = [];
+        sourceStorageProjectComponents(store.value!.projection, valueType, selectedType, subject.projection.slice(index + 1),
+          semantics.forNode(store.value!.node), budget, projection => {
+            const value = transport.subject(store.value!.node, store.value!.kind, projection);
+            if (value !== undefined) values.push(value);
+          });
+        const execution: SourceStorageTerm = Object.freeze({ kind: "region", region, scope, demand: store.region });
+        for (const effect of readEffects(store, execution)) {
+          if (!budget.step()) return undefined;
+          if (effect.kind === "unresolved") { terms.push(effect); continue; }
+          if (effect.kind !== "effect" || effect.store !== store) continue;
+          for (const value of values) terms.push(Object.freeze({ kind: "store", destination: leaf(receiver, scope),
+            receiver: sourceStorageReference(store.receiver, effect.scope), value: sourceStorageReference(value, effect.scope) }));
+        }
+      }
+    }
+    return { kind: "replace", terms };
+  };
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
-    const selected = ast.is.IsPropertyAccessExpression(term.access) ? semantics.forNode(term.access).operations.propertyAccess(term.access)
-      : semantics.forNode(term.access).operations.elementAccess(term.access);
-    const property = ast.is.IsPropertyAccessExpression(term.access) ? semantics.forNode(term.access).operations.propertyAccess(term.access) : undefined;
-    const declaration = property?.selectedReadDeclaration ?? selected?.selectedDeclaration;
-    if (selected === undefined || declaration === undefined) {
+    const access = term.selection.kind === "access" ? term.selection.node : undefined;
+    const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
+    const selected = access === undefined ? undefined : property ?? semantics.forNode(access).operations.elementAccess(access);
+    const declaration = term.selection.kind === "projection" ? term.selection.declaration : property?.selectedReadDeclaration ?? selected?.selectedDeclaration;
+    const receiverType = term.selection.kind === "projection" ? sourceStorageSubjectType(source, term.selection.subject) : selected?.receiver.type;
+    if (receiverType === undefined || declaration === undefined) {
       budget.reject("Source storage member reads require their exact checked declaration and receiver."); return undefined;
     }
     if (term.receiver.kind !== "leaf") {
@@ -142,7 +196,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         ? materializeChild(term.receiver, receiver => [replace(receiver)]) : replaceChild(term.receiver, replace);
     }
     const originals = new Set<Node>();
-    const selections = term.mode === "execution" ? [
+    const selections = term.mode === "execution" && selected !== undefined ? [
       ...(selected.accessMode === "write" ? [] : [{ target: property?.selectedReadDeclaration ?? selected.selectedDeclaration, read: true }]),
       ...(selected.accessMode === "read" ? [] : [{ target: property?.selectedWriteDeclaration ?? selected.selectedDeclaration, read: false }]),
     ] : [{ target: declaration, read: true }];
@@ -151,10 +205,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (target === undefined) continue;
       const unbound = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
-      const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, selected.receiver.type);
+      const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, receiverType);
       if (members === undefined) {
         if (budget.failure() !== undefined) return undefined;
-        const subject = transport.subject(term.access, "value", term.projection);
+        const subject = term.selection.kind === "projection" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
         return subject === undefined ? undefined : { kind: "replace", terms: [Object.freeze({ kind: "unresolved", subject,
           scope: term.scope, reason: "Source storage members require exact checked correspondence." })] };
       }
@@ -171,11 +225,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     for (const original of originals) {
       if (!budget.step()) return undefined;
       if (ast.is.IsGetAccessorDeclaration(original) || ast.is.IsSetAccessorDeclaration(original)) {
-        const scope = scopes.frameFor(original, term.access, term.scope, term.receiver.scope);
+        if (access === undefined) { budget.reject("A projected storage member cannot manufacture an accessor invocation."); return undefined; }
+        const scope = scopes.frameFor(original, access, term.scope, term.receiver.scope);
         const result = transport.subject(original, "return", term.projection);
         if (scope === undefined || result === undefined) return undefined;
         if (term.mode === "execution") {
-          const regions = regionsFor(original, term.access, scope, term.demand);
+          const regions = regionsFor(original, access, scope, term.demand);
           if (regions === undefined) return undefined;
           terms.push(...regions);
         } else terms.push(sourceStorageReference(result, scope));
@@ -183,6 +238,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const subject = sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
       if (subject === undefined) return undefined;
+      if (scopes.isSymbolic(term.receiver) && sourceStorageIsDataMember(original, ast)) {
+        const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
+          [...term.receiver.subject.projection, { kind: "member", declaration: original }, ...term.projection]);
+        if (projected === undefined) return undefined;
+        terms.push(sourceStorageReference(projected, term.receiver.scope));
+        continue;
+      }
       witnesses.push(Object.freeze({ subject, bindings: term.receiver.scope, contributes: true }));
       const stores = transport.storedValuesFor(subject);
       if ((term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
@@ -316,7 +378,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             : semantics.forNode(invocation).operations.elementAccess(invocation);
           const receiver = transport.subjectFor(operation?.receiver.expression);
           if (receiver === undefined) return undefined;
-          terms.push(Object.freeze({ kind: "member", access: invocation, receiver: sourceStorageReference(receiver, term.scope),
+          terms.push(Object.freeze({ kind: "member", selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, term.scope),
             scope: term.scope, projection: [], mode: "execution", demand: term.demand }));
         }
       }
@@ -383,13 +445,24 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     const bound = scopes.lookup(term.subject, term.scope);
     if (bound !== undefined) return bound;
+    if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
+      sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
+    const memberIndex = term.subject.projection.findIndex(component => component.kind === "member");
+    const component = term.subject.projection[memberIndex];
+    if (component?.kind === "member") {
+      const receiver = transport.subject(node, term.subject.kind, term.subject.projection.slice(0, memberIndex));
+      if (receiver === undefined) return undefined;
+      return { kind: "replace", terms: [Object.freeze({ kind: "member",
+        selection: Object.freeze({ kind: "projection", subject: receiver, declaration: component.declaration }), scope: term.scope,
+        receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection.slice(memberIndex + 1), mode: "value" })] };
+    }
     if (term.subject.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node))) {
       const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
       if (selected?.selectedDeclaration !== undefined) {
         const receiver = transport.subjectFor(selected.receiver.expression);
         if (receiver === undefined) return undefined;
-        return { kind: "replace", terms: [Object.freeze({ kind: "member", access: node, scope: term.scope,
+        return { kind: "replace", terms: [Object.freeze({ kind: "member", selection: Object.freeze({ kind: "access", node }), scope: term.scope,
           receiver: sourceStorageReference(receiver, term.scope), projection: term.subject.projection, mode: "value" })] };
       }
     }

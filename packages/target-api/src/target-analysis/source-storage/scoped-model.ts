@@ -6,6 +6,7 @@ import type { SourceStorageValueGuards } from "./guarded-values.js";
 export interface SourceStorageFrame {
   readonly kind: "frame";
   readonly owner?: Node;
+  readonly boundary?: "declaration";
   readonly invocation?: Node;
   readonly caller?: SourceStorageScope;
   readonly equation?: SourceStorageEquation;
@@ -51,6 +52,10 @@ export type SourceStorageOperation =
   | { readonly mode: "value" }
   | { readonly mode: "execution"; readonly demand: Node };
 
+export type SourceStorageMemberSelection =
+  | { readonly kind: "access"; readonly node: Node }
+  | { readonly kind: "projection"; readonly subject: SourceStorageSubject; readonly declaration: Node };
+
 export type SourceStorageTerm =
   | SourceStorageReference
   | { readonly kind: "unresolved"; readonly subject: SourceStorageSubject;
@@ -58,7 +63,7 @@ export type SourceStorageTerm =
   | { readonly kind: "empty" }
   | ({ readonly kind: "application"; readonly invocation: Node; readonly callee: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
-  | ({ readonly kind: "member"; readonly access: Node; readonly receiver: SourceStorageTerm;
+  | ({ readonly kind: "member"; readonly selection: SourceStorageMemberSelection; readonly receiver: SourceStorageTerm;
       readonly scope: SourceStorageScope; readonly projection: readonly SourceStorageProjection[] } & SourceStorageOperation)
   | { readonly kind: "transition"; readonly capture: SourceStorageVariable;
       readonly condition: SourceStorageTerm; readonly value: SourceStorageTerm }

@@ -3,7 +3,8 @@ import { sourceParameterIsProperty } from "../../source-navigation/class-members
 
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
-  | { readonly kind: "tuple-element"; readonly index: number };
+  | { readonly kind: "tuple-element"; readonly index: number }
+  | { readonly kind: "member"; readonly declaration: Node };
 
 export interface SourceStorageSubject {
   readonly kind: "input" | "value" | "member" | "return" | "receiver";
@@ -64,9 +65,13 @@ export function sourceStorageProjectionPath(projection: readonly SourceStoragePr
       ? Object.getOwnPropertyDescriptor(component, "kind")?.value : undefined;
     const ordinal: unknown = component !== null && typeof component === "object"
       ? Object.getOwnPropertyDescriptor(component, "index")?.value : undefined;
+    const declaration: unknown = component !== null && typeof component === "object"
+      ? Object.getOwnPropertyDescriptor(component, "declaration")?.value : undefined;
     if (kind === "array-element") normalized.push(Object.freeze({ kind }));
     else if (kind === "tuple-element" && typeof ordinal === "number" && Number.isSafeInteger(ordinal) && ordinal >= 0)
       normalized.push(Object.freeze({ kind, index: ordinal }));
+    else if (kind === "member" && declaration !== null && typeof declaration === "object")
+      normalized.push(Object.freeze({ kind, declaration: declaration as Node }));
     else valid = false;
   }
   return valid ? Object.freeze(normalized) : undefined;
@@ -77,16 +82,29 @@ export function createSourceStorageSubjects(
   reject: (reason: string) => void,
 ): SourceStorageSubjectQuery {
   const kinds = new Map<SourceStorageSubject["kind"], Map<Node, Map<string, SourceStorageSubject>>>();
+  const members = new Map<Node, number>();
   return (node, kind = "value", projection = []) => {
     if (node === undefined) return undefined;
     const normalized = sourceStorageProjectionPath(projection);
     if (normalized === undefined) {
-      reject("Source storage projection requires a finite exact array/tuple component path.");
+      reject("Source storage projection requires a finite exact member/array/tuple component path.");
       return undefined;
     }
     const subjects = kinds.get(kind) ?? new Map<Node, Map<string, SourceStorageSubject>>();
     const components = subjects.get(node) ?? new Map<string, SourceStorageSubject>();
-    const key = normalized.map(component => component.kind === "array-element" ? "a" : `t${component.index}`).join("/");
+    const componentsKey: string[] = [];
+    for (const component of normalized) {
+      if (component.kind === "member") {
+        let identity = members.get(component.declaration);
+        if (identity === undefined) {
+          if (!admit(1)) return undefined;
+          identity = members.size;
+          members.set(component.declaration, identity);
+        }
+        componentsKey.push(`m${identity}`);
+      } else componentsKey.push(component.kind === "array-element" ? "a" : `t${component.index}`);
+    }
+    const key = componentsKey.join("/");
     let selected = components.get(key);
     if (selected === undefined) {
       if (!admit(1 + normalized.length)) return undefined;

@@ -633,7 +633,7 @@ export function createSourceStorageTransport(
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
-    storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
+    storedValuesFor: storedProjections, storesIn: storedValues.storesIn, mutations: storedValues.mutations, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);
   const unresolved = createSourceStorageUnresolvedQueries(budget, subject,

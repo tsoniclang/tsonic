@@ -24,6 +24,7 @@ export function createSourceStorageQuery(
   const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageSubstitutions[]>();
   const bindingViews = new Map<string, SourceStorageBindings>();
   const bindingRows = budget.createRows();
+  let declarations: ReadonlySet<Node> | undefined;
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
   const checkedNode = (node: Node): boolean => {
     if (!budget.step()) return false;
@@ -259,6 +260,32 @@ export function createSourceStorageQuery(
       const transportReason = transport.unresolvedInvocations.get(invocation);
       if (transportReason !== undefined) return unresolved(transportReason);
       return selectedSubjects(transport.invocationOrigins(subject, candidate, invocation));
+    },
+    bindingsForDeclaration(declaration, parent = emptyBindings) {
+      const states = bindingStates.get(parent);
+      if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+      if (declarations === undefined) {
+        if (!bindingRows.add(1 + transport.visitedNodes.length)) return unresolved(budget.failure()!);
+        declarations = new Set(transport.visitedNodes);
+      }
+      const ast = source.ast;
+      if (!declarations.has(declaration) || !checkedNode(declaration) ||
+        !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) &&
+        !ast.is.IsFunctionDeclaration(declaration) && !ast.is.IsFunctionExpression(declaration) &&
+        !ast.is.IsArrowFunction(declaration) && !ast.is.IsMethodDeclaration(declaration) &&
+        !ast.is.IsConstructorDeclaration(declaration) && !ast.is.IsGetAccessorDeclaration(declaration) &&
+        !ast.is.IsSetAccessorDeclaration(declaration))
+        return unresolved(budget.failure() ?? "Declaration substitution requires an exact checked callable or class owner.");
+      const selected: SourceStorageSubstitutions[] = [];
+      for (const state of states) {
+        const binding = transport.substitutions.forDeclaration(declaration, state);
+        if (binding === undefined) return unresolved(budget.failure() ?? "Declaration substitution has no bounded context.");
+        selected.push(binding);
+      }
+      const view = bindingView(selected);
+      return view === undefined || budget.failure() !== undefined
+        ? unresolved(budget.failure() ?? "Declaration substitution exceeds its finite context budget.")
+        : Object.freeze({ kind: "resolved", bindings: view });
     },
     bindingsForInvocation(candidate, invocation, parent = emptyBindings) {
       const states = bindingStates.get(parent);

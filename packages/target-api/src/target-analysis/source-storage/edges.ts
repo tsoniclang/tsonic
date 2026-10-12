@@ -1,6 +1,7 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
-import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
-import { sourceStorageComponentType, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
+import type { TargetSourceProgram } from "../../source-semantics/index.js";
+import { sourceStorageSubjectType } from "./components.js";
+import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
 
@@ -58,7 +59,7 @@ export function createSourceStorageEdges(
       const from = types?.from ?? sourceStorageSubjectType(source, origin, fromFile);
       const to = types?.to ?? sourceStorageSubjectType(source, destination, toFile);
       if (from === undefined || to === undefined || fromFile === undefined) continue;
-      projectEdge(origin, from, to, remaining, source.semantics.forFile(fromFile), budget, projection => {
+      sourceStorageProjectComponents(origin.projection, from, to, remaining, source.semantics.forFile(fromFile), budget, projection => {
         const projected = subject(origin.node, origin.kind, projection);
         if (projected !== undefined) collect(projected);
       });
@@ -95,59 +96,8 @@ export function createSourceStorageEdges(
   return Object.freeze({ add, incomingFor, projectOrigin });
 }
 
-function projectEdge(
-  origin: SourceStorageSubject,
-  from: Type,
-  to: Type,
-  remaining: readonly SourceStorageProjection[],
-  semantics: SourceFileSemantics,
-  budget: SourceStorageBudget,
-  collect: (projection: readonly SourceStorageProjection[]) => void,
-): void {
-  if (semantics.types.couldContainTypeVariables(to) && semantics.types.isIdentical(from, to)) {
-    collect([...origin.projection, ...remaining]);
-    return;
-  }
-  let candidates: { readonly projection: readonly SourceStorageProjection[]; readonly from: Type; readonly to: Type }[] = [];
-  let frontierRows = budget.createRows();
-  let nextRows: ReturnType<SourceStorageBudget["createRows"]> | undefined;
-  try {
-    if (!frontierRows.add(1)) return;
-    candidates.push({ projection: origin.projection, from, to });
-    for (const component of remaining) {
-      const next: typeof candidates = [];
-      nextRows = budget.createRows();
-      for (const candidate of candidates) {
-        if (!budget.step()) return;
-        const target = sourceStorageComponentType(candidate.to, component, semantics);
-        if (target === undefined) continue;
-        const components: Iterable<SourceStorageProjection> = component.kind === "array-element"
-          ? sourceStorageComponents(candidate.from, semantics)
-          : [semantics.types.isTuple(candidate.from) ? component : { kind: "array-element" }];
-        for (const original of components) {
-          if (!budget.step()) return;
-          const sourceType = sourceStorageComponentType(candidate.from, original, semantics);
-          if (sourceType === undefined) continue;
-          if (!nextRows.add(1)) return;
-          next.push({ projection: [...candidate.projection, original], from: sourceType, to: target });
-        }
-      }
-      frontierRows.release();
-      frontierRows = nextRows;
-      nextRows = undefined;
-      candidates = next;
-      if (candidates.length === 0) return;
-    }
-    for (const candidate of candidates) {
-      if (!budget.step()) return;
-      collect(candidate.projection);
-    }
-  } finally {
-    frontierRows.release();
-    nextRows?.release();
-  }
-}
-
 function equalProjection(left: SourceStorageProjection, right: SourceStorageProjection): boolean {
-  return left.kind === right.kind && (left.kind === "array-element" || right.kind === "tuple-element" && left.index === right.index);
+  return left.kind === right.kind && (left.kind === "array-element" ||
+    left.kind === "tuple-element" && right.kind === "tuple-element" && left.index === right.index ||
+    left.kind === "member" && right.kind === "member" && left.declaration === right.declaration);
 }

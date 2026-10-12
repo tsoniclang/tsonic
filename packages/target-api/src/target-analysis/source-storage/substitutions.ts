@@ -139,6 +139,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return callee === undefined ? undefined : Object.freeze({ ...term, callee });
     }
     if (term.kind === "reference" && term.subject.kind === "value" &&
+      !term.subject.projection.some(component => component.kind === "member") &&
       !source.ast.is.IsNewExpression(term.subject.node) && !source.ast.is.IsPropertyAccessExpression(term.subject.node) &&
       !source.ast.is.IsElementAccessExpression(term.subject.node) && !transport.invocations.has(term.subject.node) &&
       !transport.accessorTargets.has(term.subject.node) && transport.storedValuesFor(term.subject) === undefined &&
@@ -366,6 +367,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   });
   return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, selection, formals: scopes.formals,
     isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean =>
-      scopes.withTraversal(() => scopes.lookup(origin, scope) !== undefined),
-    forInvocation: scopes.frameFor, identityFor: scopes.identity });
+      scopes.withTraversal(() => {
+        const bound = scopes.lookup(origin, scope);
+        return bound !== undefined && (bound.kind !== "replace" || !bound.terms.some(term => term.kind === "leaf" && scopes.isSymbolic(term)));
+      }),
+    forDeclaration: scopes.declarationFor, forInvocation: scopes.frameFor, identityFor: scopes.identity });
 }

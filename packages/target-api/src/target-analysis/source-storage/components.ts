@@ -22,6 +22,13 @@ export function sourceStorageComponentType(
 ): Type | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
+  if (component.kind === "member") {
+    const correspondence = semantics.types.structuralMembers(selected, selected);
+    if (correspondence.kind !== "available") return undefined;
+    const members = correspondence.members.filter(member => member.kind === "present" &&
+      member.destination.read === "property" && member.destination.declarations.includes(component.declaration));
+    return members.length === 1 ? members[0]!.destination.property.type : undefined;
+  }
   if (component.kind === "tuple-element") {
     if (!semantics.types.isTuple(selected)) return undefined;
     const elements = semantics.types.tupleElementInfos(selected);
@@ -29,6 +36,23 @@ export function sourceStorageComponentType(
     return element?.elementKind === "required" || element?.elementKind === "optional" ? element.type : undefined;
   }
   return sourceArrayElementType(selected, semantics);
+}
+
+export function sourceStorageOriginalComponents(
+  from: Type,
+  to: Type,
+  component: SourceStorageProjection,
+  semantics: SourceFileSemantics,
+): Iterable<SourceStorageProjection> {
+  if (component.kind === "member") {
+    const correspondence = semantics.types.structuralMembers(from, to);
+    if (correspondence.kind !== "available") return [];
+    return correspondence.members.flatMap(member => member.kind === "present" && member.source.read === "property" &&
+      member.destination.declarations.includes(component.declaration)
+      ? member.source.declarations.map(declaration => ({ kind: "member" as const, declaration })) : []);
+  }
+  return component.kind === "array-element" ? sourceStorageComponents(from, semantics)
+    : [semantics.types.isTuple(from) ? component : { kind: "array-element" }];
 }
 
 export function* sourceStorageComponents(

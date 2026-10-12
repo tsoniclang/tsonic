@@ -1,7 +1,8 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
-import type { SourceStorageSubject } from "./subjects.js";
+import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
+import { sourceStorageFormalOwner } from "./subjects.js";
 import type { SourceStorageTerm, SourceStorageScope } from "./scoped-model.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -58,6 +59,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;
     const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
+    const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
+      component.kind === "member" ? [component.kind, scopes.identity(component.declaration)] :
+        component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);
       if (selected?.variable !== undefined) closed = false;
@@ -70,6 +74,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     };
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
       if (scope === scopes.empty) return [];
+      if (scope.kind === "frame" && scope.boundary === "declaration" && sourceStorageFormalOwner(subject, source.ast) === scope.owner)
+        return ["declaration", scopes.identity(scope.owner!)];
       if (!budget.step()) return undefined;
       const footprint = footprints.select(subject);
       if (footprint === undefined) return undefined;
@@ -175,14 +181,16 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       if (selected.kind === "member") {
         const receiver = encodeTerm(selected.receiver);
-        const subject = transport.subject(selected.access);
+        const subject = selected.selection.kind === "access" ? transport.subject(selected.selection.node) : selected.selection.subject;
         const footprint = subject === undefined ? undefined : footprints.select(subject);
         const context = selected.mode === "execution"
           ? subject === undefined ? undefined : encodeScope(subject, selected.scope)
           : footprint === undefined ? undefined : footprint.locations.has(subject!) ? activationKey(selected.scope) : null;
         return receiver === undefined || context === undefined ? undefined : [selected.kind, selected.mode,
-          selected.mode === "execution" ? scopes.identity(selected.demand) : null, scopes.identity(selected.access), receiver,
-          context, JSON.stringify(selected.projection)];
+          selected.mode === "execution" ? scopes.identity(selected.demand) : null,
+          selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
+            : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration)], receiver,
+          context, encodeProjection(selected.projection)];
       }
       if (selected.kind === "application") {
         const physicalInvocation = invocation && selected === term;
@@ -191,7 +199,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const receiverExpression = call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
           ?? source.semantics.forNode(selected.invocation).operations.propertyAccess(selected.invocation)?.receiver.expression;
         const receiverSubject = transport.subjectFor(receiverExpression);
-        const selectedReceiver = selected.callee.kind === "member" && selected.callee.access === call?.sourceCalleeAccess?.expression &&
+        const selectedReceiver = selected.callee.kind === "member" && selected.callee.selection.kind === "access" &&
+          selected.callee.selection.node === call?.sourceCalleeAccess?.expression &&
           call?.sourceCalleeAccess?.receiver.expression === receiverExpression ? selected.callee.receiver
           : receiverSubject === undefined ? undefined : sourceStorageReference(receiverSubject, selected.scope);
         const receiver = selectedReceiver === undefined ? null : encodeTerm(selectedReceiver);
@@ -211,7 +220,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         if (physicalInvocation) return ["invocation", scopes.identity(selected.invocation), activation, callee, receiver, arguments_];
         return [selected.kind, selected.mode, selected.mode === "execution" ? scopes.identity(selected.demand) : null,
           scopes.identity(selected.invocation), activation, callee, receiver,
-          arguments_, JSON.stringify(selected.projection)];
+          arguments_, encodeProjection(selected.projection)];
       }
       if (selected.kind === "reference" && (selected.subject.kind === "input" || selected.subject.kind === "receiver")) {
         const bound = scopes.lookup(selected.subject, selected.scope);

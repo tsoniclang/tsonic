@@ -136,6 +136,7 @@ export interface SourceStorageQueries {
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
   invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageNodesSelection;
   invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
+  bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
   invocationArgumentsFor(invocation: Node): SourceStorageNodesSelection;
