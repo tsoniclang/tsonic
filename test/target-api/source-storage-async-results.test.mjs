@@ -108,3 +108,46 @@ test("a source async call keeps argument and activation evidence without aliasin
   assert.equal(current.storage.storageProducersFor(first[0].subject, { ...first[0].bindings }).kind === "unresolved", true,
     "copied activation tokens cannot acquire graph ownership");
 });
+
+test("deferred producer evidence keeps symbolic and forwarded caller activations separate in either query order", async () => {
+  for (const symbolicFirst of [true, false]) {
+    const current = await fixture(`storage-async-result-symbolic-${symbolicFirst}`, `
+      export async function source<Value>(value: Value): Promise<Value> { return value; }
+      export function retain<Other>(value: Other): Promise<Other> { return source(value); }
+      export function consumer<Actual>(value: Actual): Promise<Actual> { return retain(value); }
+    `);
+    const { ast } = current.source;
+    const nodes = [];
+    const visit = node => { nodes.push(node); ast.forEachChild(node, child => { if (child !== undefined) visit(child); }); };
+    current.source.sourceFiles.filter(file => ast.getFileName(file).endsWith("/src/index.ts")).forEach(visit);
+    const declaration = name => nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === name);
+    const retain = declaration("retain");
+    const consumer = declaration("consumer");
+    const select = owner => {
+      const subject = current.storage.subject(owner, "return");
+      const binding = current.storage.bindingsForDeclaration(owner);
+      assert.equal(subject.kind === "resolved" && binding.kind === "resolved", true, "owned source query");
+      const selected = current.storage.storageProducersFor(subject.subject, binding.bindings);
+      assert.equal(selected.kind === "complete" && selected.producers.length === 1, true, "one exact deferred producer");
+      return selected.producers[0];
+    };
+    let symbolic;
+    if (symbolicFirst) symbolic = select(retain);
+    const forwarded = select(consumer);
+    if (!symbolicFirst) symbolic = select(retain);
+    assert.equal(symbolic.subject === forwarded.subject, true, "the authored async operation is unchanged");
+    const symbolicOwner = current.storage.boundActivationsFor(retain, symbolic.bindings);
+    const forwardedOwner = current.storage.boundActivationsFor(retain, forwarded.bindings);
+    assert.equal(symbolicOwner.kind === "resolved" && symbolicOwner.activations[0]?.kind === "declaration", true);
+    assert.equal(forwardedOwner.kind === "resolved" && forwardedOwner.activations[0]?.kind === "invocation", true,
+      "a deferred result retains the actual caller, not the first equal fulfilled-value context");
+    const source = declaration("source");
+    const activated = current.storage.bindingsForInvocation(source, forwarded.subject.node, forwarded.bindings);
+    assert.equal(activated.kind, "resolved");
+    const parameter = current.storage.subject(ast.parameters(source)[0], "input");
+    const origins = current.storage.boundOriginsFor(parameter.subject, activated.bindings);
+    assert.equal(origins.kind === "resolved" && origins.subjects.length === 1 && origins.subjects[0].node === ast.parameters(consumer)[0], true,
+      "the producer argument reaches its original receiving formal");
+    assert.equal(select(retain).bindings === symbolic.bindings, true, "a later caller does not overwrite the symbolic producer");
+  }
+});

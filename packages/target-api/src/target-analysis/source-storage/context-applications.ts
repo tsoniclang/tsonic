@@ -76,7 +76,9 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     for (const input of direct) if (!budget.step() || !forward(input)) return false;
     if (!queries.isInvocation(current.node)) return budget.failure() === undefined;
     const candidates = queries.implementationsFor(current.node);
-    if (candidates.size === 0 || source.ast.is.IsNewExpression(current.node)) {
+    const deferred = [...candidates].some(candidate => source.ast.hasModifierKind(candidate, "async"));
+    if (deferred && !emit(current)) return false;
+    if (candidates.size === 0 || source.ast.is.IsNewExpression(current.node) || deferred) {
       for (const expression of queries.argumentsFor(current.node)) {
         if (!budget.step()) return false;
         const subject = queries.subjectFor(expression);
@@ -88,6 +90,7 @@ export function createSourceStorageContextApplications(source: TargetSourceProgr
     }
     for (const candidate of candidates) {
       if (!budget.step()) return false;
+      if (source.ast.hasModifierKind(candidate, "async")) continue;
       const result = queries.subject(candidate, "return", current.projection);
       if (result === undefined || !forward(result, value => isPort(value) ? instantiate(value, candidate, current.node)
         : queries.ownerFor(value.node) === candidate ? [{ kind: "value", value: current }] : [])) return false;
