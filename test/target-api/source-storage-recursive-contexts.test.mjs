@@ -207,7 +207,7 @@ test("recursive callee and argument alternatives remain correlated as one comple
   }
 });
 
-test("recursive callback containers retain selected member and written receiver provenance", () => {
+for (const reverse of [false, true]) test(`recursive callback containers retain selected member and written receiver provenance${reverse ? " in reverse query order" : ""}`, () => {
   const current = fixture(`
     class Box { value: object = {}; read(): object { return this.value; } }
     interface Reader { readonly read: () => object; }
@@ -221,7 +221,9 @@ test("recursive callback containers retain selected member and written receiver 
     const firstToken = {}; const secondToken = {};
     const first = outer(new Box(), firstToken); const second = outer(new Box(), secondToken);
   `);
-  for (const [name, own, foreign] of [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]]) {
+  const entries = [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]];
+  if (reverse) entries.reverse();
+  for (const [name, own, foreign] of [...entries, ...entries]) {
     const selected = current.result(name);
     assert.equal(selected.origins.some(origin => origin.subject === current.subject(own)), true,
       "selected caller's receiver write reaches its recursively captured reader");

@@ -280,6 +280,36 @@ test("nested retained activations expose exact caller bindings without guessing 
   assert.equal(input.frontier.length === 1 && input.frontier[0].subject === subject(initializer(current.original)), true);
 });
 
+test("equal actual values retain their own call activation at an ordered conversion boundary", async () => {
+  const current = await fixture("source-value-frontier-equal-actual-activation", `
+    const original = () => 3;
+    function retain<Value>(callback: () => Value) {
+      const adapted: (left: number) => Value = callback;
+      return () => adapted;
+    }
+    const first = retain(original);
+    const second = retain(original);
+    const firstResult = first();
+    const secondResult = second();
+  `);
+  const { storage, subject, variable, initializer, declaration, source } = current;
+  const boundary = subject(initializer(variable("adapted")));
+  for (const name of ["first", "second", "second", "first"]) {
+    const selected = storage.boundValueFrontierFor(subject(variable(`${name}Result`)), storage.emptyBindings, [boundary]);
+    assert.equal(selected.kind === "resolved", true, name);
+    assert.equal(selected.frontier.length === 1 && selected.frontier[0].subject === boundary, true,
+      `${name}: equal forwarded values never merge another call's conversion activation`);
+    const activation = storage.boundActivationsFor(declaration("retain"), selected.frontier[0].bindings);
+    assert.equal(activation.kind === "resolved" && activation.activations.length === 1 &&
+      activation.activations[0].kind === "invocation" && activation.activations[0].invocation === initializer(variable(name)), true,
+    `${name}: the exact selected caller survives query order`);
+    const actual = storage.argumentTransportsFor(activation.activations[0].invocation);
+    assert.equal(actual.kind === "resolved" && actual.arguments.length === 1 &&
+      actual.arguments[0].actual.node === source.ast.arguments(initializer(variable(name)))[0], true,
+    `${name}: binding identity does not replace the authored actual read`);
+  }
+});
+
 test("value frontiers and activation queries cannot bypass any independent source storage budget", async () => {
   const current = await fixture("source-value-frontier-finite-budgets");
   for (const key of Object.keys(defaultSourceStorageLimits)) {

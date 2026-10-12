@@ -8,6 +8,7 @@ import type { createSourceStorageMemberFlow } from "./member-flow.js";
 import type { createSourceStorageContextInputs } from "./context-inputs.js";
 import type { createSourceStorageGuardedValues } from "./guarded-values.js";
 import type { SourceStorageContextLocation } from "./context-locations.js";
+import type { SourceStorageBudget } from "./resource-budget.js";
 
 export interface SourceStorageScopedTransport {
   readonly subject: SourceStorageSubjectQuery;
@@ -38,4 +39,35 @@ export function sourceStorageTransparentInput(subject: SourceStorageSubject, ast
   const input = parents.size === 1 ? parents.values().next().value : undefined;
   if (input?.kind === "input" && input.node === subject.node) return input;
   return ast.is.IsVariableDeclaration(subject.node) && ast.variableDeclarationKind(subject.node) === "const" ? input : undefined;
+}
+
+export function sourceStorageBindingInput(subject: SourceStorageSubject, ast: AstReader,
+  transport: Pick<SourceStorageScopedTransport, "incomingFor" | "guardedValues">,
+  budget: SourceStorageBudget): SourceStorageSubject | undefined {
+  const transparent = sourceStorageTransparentInput(subject, ast, transport);
+  if (transparent !== undefined) return transparent;
+  return budget.withRows(rows => {
+    let current = subject;
+    let first: SourceStorageSubject | undefined;
+    const visited = new Set<SourceStorageSubject>();
+    while (current.kind === "value") {
+      if (!budget.step()) return undefined;
+      if (visited.has(current)) {
+        budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
+      }
+      if (!rows.add(1)) return undefined;
+      visited.add(current);
+      let input = sourceStorageTransparentInput(current, ast, transport);
+      if (input === undefined) {
+        if (!ast.is.IsIdentifier(current.node) && ast.kindName(current.node) !== "KindThisKeyword" ||
+          transport.guardedValues.appliesTo(current.node) !== false) return undefined;
+        const inputs = transport.incomingFor(current);
+        input = inputs.size === 1 ? inputs.values().next().value : undefined;
+      }
+      if (input === undefined) return undefined;
+      first ??= input;
+      current = input;
+    }
+    return current.kind === "input" || current.kind === "receiver" ? first : undefined;
+  });
 }

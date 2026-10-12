@@ -9,7 +9,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "./context-footprints.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageBindingInput, sourceStorageTransparentInput } from "./scoped-transport.js";
 import { encodeSourceStorageKey, type SourceStorageKeyValue as Encoded } from "./key-encoding.js";
 
 interface ReferenceEncoding {
@@ -92,7 +92,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         } else if (bound?.kind === "replace") {
           const values: Encoded[] = [];
           for (const value of bound.terms) {
-            const encoded = encodeTerm(value);
+            const encoded = encodeBinding(value);
             if (encoded === undefined) return undefined;
             values.push(encoded);
           }
@@ -180,7 +180,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return activation === undefined ? undefined : [selected.kind, scopes.identity(selected.region), scopes.identity(selected.demand), activation, inputs];
       }
       if (selected.kind === "member") {
-        const receiver = encodeTerm(selected.receiver);
+        const receiver = encodeBinding(selected.receiver);
         const subject = selected.selection.kind === "access" ? transport.subject(selected.selection.node) : selected.selection.subject;
         const footprint = subject === undefined ? undefined : footprints.select(subject);
         const context = selected.mode === "execution"
@@ -194,7 +194,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       }
       if (selected.kind === "application") {
         const physicalInvocation = invocation && selected === term;
-        const callee = encodeTerm(selected.callee);
+        const callee = encodeBinding(selected.callee);
         const call = source.semantics.forNode(selected.invocation).operations.call(selected.invocation);
         const receiverExpression = call?.sourceReceiver?.expression ?? call?.sourceCalleeAccess?.receiver.expression
           ?? source.semantics.forNode(selected.invocation).operations.propertyAccess(selected.invocation)?.receiver.expression;
@@ -203,7 +203,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           selected.callee.selection.node === call?.sourceCalleeAccess?.expression &&
           call?.sourceCalleeAccess?.receiver.expression === receiverExpression ? selected.callee.receiver
           : receiverSubject === undefined ? undefined : sourceStorageReference(receiverSubject, selected.scope);
-        const receiver = selectedReceiver === undefined ? null : encodeTerm(selectedReceiver);
+        const receiver = selectedReceiver === undefined ? null : encodeBinding(selectedReceiver);
         const subject = transport.subject(selected.invocation, "value", selected.projection);
         const footprint = subject === undefined ? undefined : footprints.select(subject);
         if (footprint === undefined) return undefined;
@@ -213,7 +213,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const arguments_: Encoded[] = [];
         for (const argument of call?.sourceArguments ?? []) {
           const subject = transport.subjectFor(argument.expression);
-          const encoded = subject === undefined ? undefined : encodeTerm(sourceStorageReference(subject, selected.scope));
+          const encoded = subject === undefined ? undefined : encodeBinding(sourceStorageReference(subject, selected.scope));
           if (encoded === undefined) return undefined;
           arguments_.push(encoded);
         }
@@ -227,7 +227,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         if (bound?.kind === "replace") {
           const values: Encoded[] = [];
           for (const term of bound.terms) {
-            const value = encodeTerm(term);
+            const value = encodeBinding(term);
             if (value === undefined) return undefined;
             values.push(value);
           }
@@ -239,6 +239,24 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       if (context === undefined || birth === undefined) return undefined;
       return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason]
         : [selected.kind, scopes.identity(selected.subject), birth, context];
+    };
+    const encodeBinding = (selected: SourceStorageTerm): Encoded | undefined => {
+      if (selected.kind !== "reference" || selected.subject.kind !== "value") return encodeTerm(selected);
+      return budget.withRows(rows => {
+        let subject = selected.subject;
+        const visited = new Set<SourceStorageSubject>();
+        while (true) {
+          if (!budget.step()) return undefined;
+          if (visited.has(subject)) {
+            budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
+          }
+          if (!rows.add(1)) return undefined;
+          visited.add(subject);
+          const input = sourceStorageBindingInput(subject, source.ast, transport, budget);
+          if (input === undefined) return encodeTerm(sourceStorageReference(subject, selected.scope));
+          subject = input;
+        }
+      });
     };
     const encodeTerm = (selected: SourceStorageTerm): Encoded | undefined => {
       if (!budget.step()) return undefined;

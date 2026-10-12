@@ -19,12 +19,12 @@ function fixture(limits = {}, length = 50) {
   const nodes = Array.from({ length }, () => subject({}));
   const inputs = new Map(nodes.map((node, index) => [node, new Set([nodes[index + 1] ?? formal])]));
   const source = { ast: { is: { IsClassDeclaration: () => false, IsClassExpression: () => false,
-    IsCallExpression: () => false, IsNewExpression: () => false,
+    IsCallExpression: () => false, IsNewExpression: () => false, IsIdentifier: () => false,
     IsPropertyAccessExpression: () => false, IsElementAccessExpression: () => false,
     IsObjectLiteralExpression: () => false, IsArrayLiteralExpression: () => false,
     IsVariableDeclaration: () => false, IsParameterDeclaration: node => node === parameter || node === innerParameter },
     as: { AsParameterDeclaration: () => ({ Initializer: undefined }) },
-    parameters: node => node.parameters, body: () => undefined,
+    parameters: node => node.parameters, body: () => undefined, kindName: () => "test-node",
     parent: node => node === parameter ? outer : node === innerParameter ? inner : node === inner ? outer : undefined } };
   const graph = createSourceStorageGraphQueries(budget);
   graph.seal();
