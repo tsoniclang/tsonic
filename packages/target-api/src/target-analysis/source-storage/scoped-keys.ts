@@ -75,7 +75,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     const encodeScope = (subject: SourceStorageSubject, scope: SourceStorageScope): Encoded | undefined => {
       if (scope === scopes.empty) return [];
       if (scope.kind === "frame" && scope.boundary === "declaration" && sourceStorageFormalOwner(subject, source.ast) === scope.owner)
-        return ["declaration", scopes.identity(scope.owner!)];
+        return ["declaration", scopes.identity(scope)];
       if (!budget.step()) return undefined;
       const footprint = footprints.select(subject);
       if (footprint === undefined) return undefined;
