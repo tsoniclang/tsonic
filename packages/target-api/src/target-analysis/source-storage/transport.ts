@@ -15,6 +15,7 @@ import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import { sourceStorageConstructedClass, sourceStorageSuperConstructor } from "./construction.js";
 import { createSourceStorageUnresolvedQueries } from "./unresolved.js";
 import { createSourceStorageSubstitutions } from "./substitutions.js";
+import { createSourceStorageBindingInputs } from "./scoped-transport.js";
 import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs } from "./invocation-inputs.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
@@ -125,7 +126,7 @@ export function createSourceStorageTransport(
         ? semantics.forNode(node).operations.propertyAccess(node)?.selectedReadDeclaration
           ?? semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration
       : reference;
-    const qualified = ast.is.IsIdentifier(node) && selected !== undefined && node !== selected &&
+    const qualified = ast.is.IsIdentifier(node) && selected !== undefined && node !== selected && ast.name(selected) !== node &&
       (ast.is.IsVariableDeclaration(selected) || ast.is.IsParameterDeclaration(selected) || ast.is.IsBindingElement(selected) ||
         ast.is.IsFunctionDeclaration(selected) || ast.is.IsFunctionExpression(selected)) &&
       sourceBindingWriteAtReference(ast, node) === undefined;
@@ -140,6 +141,8 @@ export function createSourceStorageTransport(
     if (projected && binding === undefined) return undefined;
     const value = qualified ? subject(node) : binding ?? subject(target);
     if (value === undefined) return undefined;
+    if (pattern !== undefined && ast.is.IsObjectBindingPattern(pattern))
+      unresolvedSubjects.set(value, "An object binding requires exact checked source storage component transport.");
     if (binding !== undefined) subjects.set(selected!, binding);
     subjects.set(node, value);
     if (qualified) connect(binding ?? subjectFor(selected), value);
@@ -658,8 +661,9 @@ export function createSourceStorageTransport(
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
+  const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
-    subject, subjectFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
+    subject, subjectFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles,
     storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,

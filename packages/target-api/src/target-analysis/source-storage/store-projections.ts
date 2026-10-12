@@ -11,11 +11,11 @@ export interface SourceStorageStoredProjection {
 export function createSourceStorageStoreProjections(budget: SourceStorageBudget, subject: SourceStorageSubjectQuery,
   storesFor: (subject: SourceStorageSubject) => Iterable<SourceStorageStore> | undefined,
   projectOrigin: ReturnType<typeof createSourceStorageEdges>["projectOrigin"]) {
-  const selections = new Map<SourceStorageSubject, readonly SourceStorageStoredProjection[]>();
+  const selections = new Map<SourceStorageSubject, readonly SourceStorageStoredProjection[] | null>();
   return (selected: SourceStorageSubject): readonly SourceStorageStoredProjection[] | undefined => {
     if (!budget.step()) return undefined;
     const cached = selections.get(selected);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return cached ?? undefined;
     const rows = budget.createRows();
     const temporary = budget.createRows();
     let published = false;
@@ -44,7 +44,12 @@ export function createSourceStorageStoreProjections(budget: SourceStorageBudget,
           else projectOrigin(store.value, prefix, selected, value => collect(store, value));
         }
       }
-      if (!hasStores || budget.failure() !== undefined || !rows.add(1)) return undefined;
+      if (budget.failure() !== undefined || !rows.add(1)) return undefined;
+      if (!hasStores) {
+        selections.set(selected, null);
+        published = true;
+        return undefined;
+      }
       const selection = Object.freeze(result);
       selections.set(selected, selection);
       published = true;

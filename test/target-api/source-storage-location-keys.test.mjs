@@ -22,6 +22,7 @@ function fixture(count = 4, limits = {}) {
   const source = { ast: { is: { IsVariableDeclaration: () => false },
     parent: node => node.parent, body: node => node.body } };
   const transport = {
+    bindingInputFor: () => assert.fail("This physical-location fixture has no binding alias inputs."),
     incomingFor: () => new Set(), contextualInputs: current => inputs.get(current) ?? new Set(),
     contextLocation: current => locations.has(current) ? "allocation" : undefined,
     regions: { enclosing: node => {

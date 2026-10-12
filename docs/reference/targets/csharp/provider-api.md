@@ -50,6 +50,14 @@ Providers must not attach target-specific fields to closed TSTS values. They
 publish only through the C# target's public relation, type, policy, and runtime
 contribution contracts.
 
+Binary execution drivers own startup before any selected asynchronous work is
+created. `runMethodName` names a parameterless pump; the method selected by
+`runWithEntrypointMethodName` accepts an entry factory (`Action` for synchronous
+initialization or `Func<Task>` for asynchronous initialization), not an eagerly
+started `Task`. The generated entrypoint invokes the factory inside the driver's
+native execution context. JS Promise continuations and Node handles select this
+driver through their operation or provider contract; native-only Tasks do not.
+
 Ownership optimization has the same evidence boundary as every other target:
 use checked source uses and native compiler-understood types, signatures and
 qualifiers. An exact provider mapping does not authorize an invented wrapper

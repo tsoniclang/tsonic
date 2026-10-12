@@ -53,7 +53,10 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
       if (!identities.has(value)) identities.set(value, identities.size);
       return identities.get(value);
     } };
-  const keys = createSourceStorageScopedKeys({}, current, { contextualInputs: () => new Set() }, scopes);
+  const keys = createSourceStorageScopedKeys({}, current, {
+    contextualInputs: () => new Set(),
+    bindingInputFor: () => assert.fail("This key DAG contains only formal input references and original leaves."),
+  }, scopes);
   const selected = keys.encode(term);
   assert.equal(typeof selected === "string" && selected.length < 4096, true, "the exact 20-level binding DAG is a bounded key");
   assert.equal(current.failure() === undefined, true);

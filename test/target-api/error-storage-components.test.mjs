@@ -150,7 +150,8 @@ selected.message = "changed";
   const binding = requiredNode(source.ast, file, node => source.ast.is.IsBindingElement(node));
   assert.equal(demands.storageFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not writable evidence");
   assert.equal(demands.storageOriginsFor(requiredStorageSubject(storage, binding)).kind, "unresolved", "unproved binding is not exact origin evidence");
-  assert.equal(demands.storageFor(requiredStorageSubject(storage, variable("untouched"))).kind, "immutable", "independent owner is unaffected");
+  const independent = demands.storageFor(requiredStorageSubject(storage, variable("untouched")));
+  assert.equal(independent.kind, "immutable", independent.kind === "unresolved" ? independent.reason : "independent owner is unaffected");
 });
 
 test("Error unresolved storage propagates through exact component ancestry without contaminating independent owners", () => {

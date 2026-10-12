@@ -11,7 +11,7 @@ import { createSourceStorageEquations } from "./scoped-equations.js";
 import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
 import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageBindingInput, sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageTransparentInput } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "./scoped-model.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
@@ -76,7 +76,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         witnesses.push({ subject: term.subject, bindings: witnessScope(term.subject, term.scope), contributes });
       } else if (!budget.step()) return undefined;
       if (term.kind === "reference") {
-        const input = binding ? sourceStorageBindingInput(term.subject, source.ast, transport, budget)
+        const input = binding ? transport.bindingInputFor(term.subject)
           : sourceStorageTransparentInput(term.subject, source.ast, transport);
         if (input !== undefined) { term = sourceStorageReference(input, term.scope); continue; }
         if (term.subject.kind === "input" || term.subject.kind === "receiver") {

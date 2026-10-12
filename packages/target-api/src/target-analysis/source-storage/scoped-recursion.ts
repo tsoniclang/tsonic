@@ -8,7 +8,6 @@ import type { SourceStorageSubject } from "./subjects.js";
 import { sourceStorageFormalOwner } from "./subjects.js";
 import type { SourceStorageVariable } from "./scoped-model.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageBindingInput } from "./scoped-transport.js";
 
 interface SourceStorageIncomingCallSite {
   readonly invocation: Node;
@@ -115,7 +114,7 @@ export function createSourceStorageScopedRecursion(source: TargetSourceProgram, 
             while (input.kind === "value") {
               if (!budget.step() || visited.has(input) || !temporary.add(1)) return undefined;
               visited.add(input);
-              const original = sourceStorageBindingInput(input, source.ast, transport, budget);
+              const original = transport.bindingInputFor(input);
               if (original === undefined) return undefined;
               input = original;
             }

@@ -9,7 +9,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "./context-footprints.js";
 import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
-import { sourceStorageBindingInput, sourceStorageTransparentInput } from "./scoped-transport.js";
+import { sourceStorageTransparentInput } from "./scoped-transport.js";
 import { encodeSourceStorageKey, type SourceStorageKeyValue as Encoded } from "./key-encoding.js";
 
 interface ReferenceEncoding {
@@ -252,7 +252,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           }
           if (!rows.add(1)) return undefined;
           visited.add(subject);
-          const input = sourceStorageBindingInput(subject, source.ast, transport, budget);
+          const input = transport.bindingInputFor(subject);
           if (input === undefined) return encodeTerm(sourceStorageReference(subject, selected.scope));
           subject = input;
         }

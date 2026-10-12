@@ -24,6 +24,20 @@ function fixture(body) {
   return { source, budget, transport, declaration, field, variable, stores };
 }
 
+test("declaration names retain binding storage rather than manufacturing a runtime read", () => {
+  const current = fixture(`
+    const value = {};
+    function accept(input: object): object { return input; }
+  `);
+  const callable = current.declaration("accept", current.source.ast.is.IsFunctionDeclaration);
+  for (const declaration of [current.variable("value"), callable, current.source.ast.parameters(callable)[0]]) {
+    const name = current.source.ast.name(declaration);
+    assert.equal(current.transport.subjectFor(name) === current.transport.subjectFor(declaration), true,
+      "the authored name is the same checked binding, not an evaluated read occurrence");
+  }
+  assert.equal(current.budget.failure(), undefined);
+});
+
 test("one store inventory retains exact creator, constructor, method, accessor and helper write regions", () => {
   const current = fixture(`
     class Box {

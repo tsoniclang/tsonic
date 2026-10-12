@@ -40,9 +40,11 @@ export function createSourceStorageStoredValues(
       if (!ast.is.IsVariableDeclaration(declaration) && !sourceClassFieldHasStorage(ast, declaration) &&
         !ast.is.IsPropertyAssignment(declaration) && !ast.is.IsShorthandPropertyAssignment(declaration) &&
         !sourceParameterIsProperty(ast, declaration)) return;
-      for (let owner: Node | undefined = declaration; owner !== undefined && budget.step(); owner = ast.parent(owner)) {
+      let lexical: Node | undefined = ast.is.IsVariableDeclaration(declaration) ? ast.parent(declaration) : declaration;
+      if (lexical !== undefined && ast.is.IsVariableDeclarationList(lexical)) lexical = ast.parent(lexical);
+      for (let owner: Node | undefined = lexical; owner !== undefined && !ast.is.IsSourceFile(owner); owner = ast.parent(owner)) {
+        if (!budget.step()) return;
         if (ast.hasModifierKind(owner, "ambient")) return;
-        if (ast.is.IsSourceFile(owner)) break;
       }
     }
     const previous = occurrences.get(write.reference);

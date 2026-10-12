@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceStorageScopes } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-scopes.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-keys.js";
+import { createSourceStorageBindingInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-transport.js";
 import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-model.js";
 import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph-queries.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
@@ -34,7 +35,9 @@ function fixture(limits = {}, length = 50) {
     incomingFor: origin => inputs.get(origin) ?? new Set(), contextualInputs: origin => inputs.get(origin) ?? new Set(),
     contextLocation: () => undefined,
     storedValuesFor: () => undefined, invocationEffects: new Map(), regions: { enclosing: () => undefined },
+    guardedValues: { appliesTo: () => false },
   };
+  transport.bindingInputFor = createSourceStorageBindingInputs(source.ast, transport, budget);
   const keys = createSourceStorageScopedKeys(source, budget, transport, scopes);
   return { budget, subject, scopes, keys, source, transport, outer, inner, innerParameter, formal, input, nodes, inputs };
 }

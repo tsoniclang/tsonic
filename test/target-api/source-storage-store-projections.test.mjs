@@ -23,8 +23,12 @@ function fixture(limits = {}) {
   const store = Object.freeze({ reference: values.node, operation: values.node, storage: values, value: pair,
     region: file, kind: "initialization", destination: "binding" });
   const edges = createSourceStorageEdges(source, budget, subject, () => file);
-  const read = createSourceStorageStoreProjections(budget, subject, candidate => candidate === values ? [store] : undefined, edges.projectOrigin);
-  return { budget, subject, pair, values, selected, store, read };
+  let storeLookups = 0;
+  const read = createSourceStorageStoreProjections(budget, subject, candidate => {
+    storeLookups += 1;
+    return candidate === values ? [store] : undefined;
+  }, edges.projectOrigin);
+  return { budget, subject, pair, values, selected, store, read, storeLookups: () => storeLookups };
 }
 
 test("projected stores preserve canonical occurrence identity and every exact tuple-to-array component", () => {
@@ -48,6 +52,17 @@ test("unrelated or impossible components cannot invent a projected store produce
   const result = current.read(invalid);
   assert.equal(Object.isFrozen(result) && result.length === 0, true, "an object element has no nested array component");
   assert.equal(current.budget.failure() === undefined, true);
+});
+
+test("the exact absence of stores is reused without bypassing a failed owner", () => {
+  const current = fixture();
+  assert.equal(current.read(current.pair) === undefined, true);
+  const lookups = current.storeLookups();
+  for (let repeat = 0; repeat < 32; repeat += 1) assert.equal(current.read(current.pair) === undefined, true);
+  assert.equal(current.storeLookups(), lookups, "a complete negative projection is not rebuilt");
+  current.budget.reject("independent exhausted guard");
+  assert.equal(current.read(current.pair) === undefined, true);
+  assert.equal(current.budget.failure(), "independent exhausted guard");
 });
 
 for (const limits of [{ maximumTransportRows: 1 }, { maximumSteps: 1 }, { maximumEdges: 1 }]) {

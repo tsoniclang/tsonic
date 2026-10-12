@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-keys.js";
+import { createSourceStorageBindingInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-transport.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
 function fixture(limits = {}) {
@@ -21,6 +22,7 @@ function fixture(limits = {}) {
     contextualInputs: value => value === destination ? new Set([formal]) : new Set(),
     contextLocation: () => undefined, regions: { enclosing: () => undefined },
     guardedValues: { appliesTo: node => guards.has(node) } };
+  transport.bindingInputFor = createSourceStorageBindingInputs(ast, transport, budget);
   const scopes = { empty,
     lookup: (value, scope) => value === formal && scope.input !== undefined
       ? { kind: "replace", terms: [{ kind: "reference", subject: scope.input, scope: empty }] } : undefined,

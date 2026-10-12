@@ -22,6 +22,7 @@ export interface SourceStorageScopedTransport {
   readonly memberFlow: ReturnType<typeof createSourceStorageMemberFlow>;
   readonly guardedValues: ReturnType<typeof createSourceStorageGuardedValues>;
   subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+  bindingInputFor(subject: SourceStorageSubject): SourceStorageSubject | undefined;
   incomingFor(subject: SourceStorageSubject): ReadonlySet<SourceStorageSubject>;
   readonly contextualInputs: ReturnType<typeof createSourceStorageContextInputs>;
   contextLocation(subject: SourceStorageSubject): SourceStorageContextLocation | undefined;
@@ -41,33 +42,47 @@ export function sourceStorageTransparentInput(subject: SourceStorageSubject, ast
   return ast.is.IsVariableDeclaration(subject.node) && ast.variableDeclarationKind(subject.node) === "const" ? input : undefined;
 }
 
-export function sourceStorageBindingInput(subject: SourceStorageSubject, ast: AstReader,
+export function createSourceStorageBindingInputs(ast: AstReader,
   transport: Pick<SourceStorageScopedTransport, "incomingFor" | "guardedValues">,
-  budget: SourceStorageBudget): SourceStorageSubject | undefined {
-  const transparent = sourceStorageTransparentInput(subject, ast, transport);
-  if (transparent !== undefined) return transparent;
-  return budget.withRows(rows => {
-    let current = subject;
-    let first: SourceStorageSubject | undefined;
-    const visited = new Set<SourceStorageSubject>();
-    while (current.kind === "value") {
-      if (!budget.step()) return undefined;
-      if (visited.has(current)) {
-        budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
+  budget: SourceStorageBudget): (subject: SourceStorageSubject) => SourceStorageSubject | undefined {
+  const selections = new Map<SourceStorageSubject, SourceStorageSubject | null>();
+  const retained = budget.createRows();
+  return subject => {
+    if (!budget.step()) return undefined;
+    const transparent = sourceStorageTransparentInput(subject, ast, transport);
+    if (transparent !== undefined) return transparent;
+    if (subject.kind !== "value" || !ast.is.IsIdentifier(subject.node) && ast.kindName(subject.node) !== "KindThisKeyword")
+      return undefined;
+    const previous = selections.get(subject);
+    if (previous !== undefined) return previous ?? undefined;
+    const selected = budget.withRows(rows => {
+      let current = subject;
+      let first: SourceStorageSubject | undefined;
+      const visited = new Set<SourceStorageSubject>();
+      while (current.kind === "value") {
+        if (!budget.step()) return undefined;
+        if (visited.has(current)) {
+          budget.reject("Source storage binding aliases require an acyclic exact input."); return undefined;
+        }
+        if (!rows.add(1)) return undefined;
+        visited.add(current);
+        const completed = current === subject ? undefined : selections.get(current);
+        if (completed !== undefined) return completed === null ? undefined : first ?? completed;
+        let input = sourceStorageTransparentInput(current, ast, transport);
+        if (input === undefined) {
+          if (!ast.is.IsIdentifier(current.node) && ast.kindName(current.node) !== "KindThisKeyword" ||
+            transport.guardedValues.appliesTo(current.node) !== false) return undefined;
+          const inputs = transport.incomingFor(current);
+          input = inputs.size === 1 ? inputs.values().next().value : undefined;
+        }
+        if (input === undefined) return undefined;
+        first ??= input;
+        current = input;
       }
-      if (!rows.add(1)) return undefined;
-      visited.add(current);
-      let input = sourceStorageTransparentInput(current, ast, transport);
-      if (input === undefined) {
-        if (!ast.is.IsIdentifier(current.node) && ast.kindName(current.node) !== "KindThisKeyword" ||
-          transport.guardedValues.appliesTo(current.node) !== false) return undefined;
-        const inputs = transport.incomingFor(current);
-        input = inputs.size === 1 ? inputs.values().next().value : undefined;
-      }
-      if (input === undefined) return undefined;
-      first ??= input;
-      current = input;
-    }
-    return current.kind === "input" || current.kind === "receiver" ? first : undefined;
-  });
+      return current.kind === "input" || current.kind === "receiver" ? first : undefined;
+    });
+    if (budget.failure() !== undefined || !retained.add(1)) return undefined;
+    selections.set(subject, selected ?? null);
+    return selected;
+  };
 }
