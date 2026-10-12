@@ -39,6 +39,10 @@ export interface SourceStorageTypedSubject {
   readonly sourceFile: SourceFile;
 }
 
+export interface SourceStorageProducer extends SourceStorageTypedSubject {
+  readonly bindings: SourceStorageBindings;
+}
+
 export type SourceStorageTypeSelection =
   | { readonly kind: "resolved"; readonly type: Type; readonly sourceFile: SourceFile }
   | SourceStorageUnresolved;
@@ -61,8 +65,8 @@ export type SourceStorageClosedOriginsSelection =
   | SourceStorageUnresolved;
 
 export type SourceStorageProducersSelection =
-  | { readonly kind: "complete"; readonly producers: readonly SourceStorageTypedSubject[] }
-  | { readonly kind: "open"; readonly producers: readonly SourceStorageTypedSubject[];
+  | { readonly kind: "complete"; readonly producers: readonly SourceStorageProducer[] }
+  | { readonly kind: "open"; readonly producers: readonly SourceStorageProducer[];
       readonly boundaries: readonly SourceStorageDomainBoundary[] }
   | SourceStorageUnresolved;
 

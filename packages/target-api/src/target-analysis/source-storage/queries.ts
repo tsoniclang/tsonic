@@ -9,7 +9,7 @@ import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, s
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
-  SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved,
+  SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer,
 } from "./types.js";
 
 export function createSourceStorageQuery(
@@ -142,21 +142,33 @@ export function createSourceStorageQuery(
     if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
     const subjects = new Set<SourceStorageSubject>();
     const boundaries = new Set<ReturnType<typeof domains.select>["boundaries"][number]>();
+    const producerStates = new Map<SourceStorageSubject, Set<SourceStorageSubstitutions>>();
     for (const state of states) {
       if (!budget.step()) return unresolved(budget.failure()!);
       const selected = domains.select(subject, state, purpose);
       if (selected.reason !== undefined) return unresolved(selected.reason);
       for (const origin of selected.subjects) { if (!budget.step()) return unresolved(budget.failure()!); subjects.add(origin); }
+      if (purpose === "storage-producers") for (const origin of selected.boundSubjects) {
+        if (!budget.step()) return unresolved(budget.failure()!);
+        const states = producerStates.get(origin.subject) ?? new Set<SourceStorageSubstitutions>();
+        states.add(origin.bindings);
+        producerStates.set(origin.subject, states);
+      }
       for (const boundary of selected.boundaries) { if (!budget.step()) return unresolved(budget.failure()!); boundaries.add(boundary); }
     }
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
     if (subjects.size === 0) return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects]);
     if (origins.kind === "unresolved") return origins;
-    return boundaries.size === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins })
-      : Object.freeze({ kind: "open" as const, origins: origins.origins, boundaries: Object.freeze([...boundaries]) });
+    return boundaries.size === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
+      : Object.freeze({ kind: "open" as const, origins: origins.origins, producerStates, boundaries: Object.freeze([...boundaries]) });
   };
-  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => selectDomain(subject, bindings, "values");
+  const closedOriginsFor: SourceStorageQueries["closedOriginsFor"] = (subject, bindings = emptyBindings) => {
+    const selected = selectDomain(subject, bindings, "values");
+    return selected.kind === "unresolved" ? selected : selected.kind === "complete"
+      ? Object.freeze({ kind: "complete", origins: selected.origins })
+      : Object.freeze({ kind: "open", origins: selected.origins, boundaries: selected.boundaries });
+  };
   return Object.freeze({
     source,
     sourceFiles: Object.freeze([...sourceFiles]),
@@ -208,10 +220,24 @@ export function createSourceStorageQuery(
     },
     closedOriginsFor,
     storageProducersFor(subject, bindings = emptyBindings) {
+      return budget.withRows(rows => {
       const selected = selectDomain(subject, bindings, "storage-producers");
-      return selected.kind === "unresolved" ? selected : selected.kind === "complete"
-        ? Object.freeze({ kind: "complete", producers: selected.origins })
-        : Object.freeze({ kind: "open", producers: selected.origins, boundaries: selected.boundaries });
+      if (selected.kind === "unresolved") return selected;
+      const producers: SourceStorageProducer[] = [];
+      for (const origin of selected.origins) {
+        const states = selected.producerStates.get(origin.subject);
+        if (states === undefined || states.size === 0) return unresolved("A source storage producer lost its exact lexical activation.");
+        for (const state of states) {
+          if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+          const bindings = bindingView([state]);
+          if (bindings === undefined) return unresolved(budget.failure() ?? "A source storage producer has no owned activation bindings.");
+          producers.push(Object.freeze({ ...origin, bindings }));
+        }
+      }
+      return selected.kind === "complete"
+        ? Object.freeze({ kind: "complete", producers: Object.freeze(producers) })
+        : Object.freeze({ kind: "open", producers: Object.freeze(producers), boundaries: selected.boundaries });
+      });
     },
     localCallableCreationsFor(expression) {
       const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;

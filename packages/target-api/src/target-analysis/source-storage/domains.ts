@@ -283,6 +283,7 @@ export function createSourceStorageDomains(
     if (selected?.reason !== undefined) budget.reject(selected.reason);
     if (selected === undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary[]),
+      boundSubjects: Object.freeze([] as import("./substitutions.js").SourceStorageBoundSubject[]),
       reason: budget.failure() ?? "Source storage requires one completed scoped relation.",
     });
     const boundaries = new Set<SourceStorageDomainBoundary>();
@@ -321,7 +322,16 @@ export function createSourceStorageDomains(
       if (!rows.add(1)) break;
       boundaries.add(Object.freeze({ kind: "external-input", subject: origin, exposure: origin.node }));
     }
-    return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundaries: Object.freeze([...boundaries]), reason });
+    const boundSubjects: import("./substitutions.js").SourceStorageBoundSubject[] = [];
+    for (const candidate of selected.subjects) {
+      if (!budget.step()) break;
+      if (!candidate.contributes || !selected.origins.has(candidate.subject)) continue;
+      if (!rows.add(1)) break;
+      boundSubjects.push(candidate);
+    }
+    if (budget.failure() !== undefined) reason = budget.failure();
+    return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundSubjects: Object.freeze(boundSubjects),
+      boundaries: Object.freeze([...boundaries]), reason });
   });
   return Object.freeze({ select });
 }

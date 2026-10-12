@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatDiagnostics } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createTargetSourceProgram, Node_Expression } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
@@ -41,6 +41,40 @@ function producers(selected) {
 function open(selected, kind) {
   assert.equal(selected.kind === "open" && selected.boundaries.some(boundary => boundary.kind === kind), true, kind);
 }
+
+test("stored invocation producers retain exact independent activation bindings", async () => {
+  const current = await fixture("storage-producer-activation", `
+    function retain(callback: () => {}): {} { return callback(); }
+    export function inspect(left: () => {}, right: () => {}) {
+      const first = retain(left); const second = retain(right); return second;
+    }
+  `);
+  const { ast } = current.source;
+  const inspect = namedDeclaration(ast, current.file, "inspect");
+  const retain = namedDeclaration(ast, current.file, "retain");
+  const bindings = current.storage.bindingsForDeclaration(inspect);
+  assert.equal(bindings.kind, "resolved");
+  const formal = current.storage.subject(ast.parameters(retain)[0], "input");
+  assert.equal(formal.kind, "resolved");
+  const origins = [];
+  for (const [index, name] of ["first", "second"].entries()) {
+    const selected = current.storage.storageProducersFor(current.subject(current.variable(name)), bindings.bindings);
+    assert.equal(selected.kind !== "unresolved", true, selected.reason);
+    const original = selected.producers.find(value => ast.is.IsCallExpression(value.subject.node) &&
+      ast.text(Node_Expression(ast, value.subject.node)) === "callback");
+    assert.equal(original !== undefined, true, "exact producer operation is retained");
+    assert.equal(Object.isFrozen(original.bindings) && Object.isFrozen(original.bindings.substitutions), true);
+    const actual = current.storage.boundOriginsFor(formal.subject, original.bindings);
+    assert.equal(actual.kind, "resolved");
+    assert.equal(actual.subjects.length, 1);
+    assert.equal(actual.subjects[0].node === ast.parameters(inspect)[index], true, "caller input identity survives the return edge");
+    assert.equal(current.storage.boundOriginsFor(formal.subject, { ...original.bindings }).kind, "unresolved",
+      "copied activation views cannot mint ownership");
+    origins.push(original);
+  }
+  assert.equal(origins[0].subject === origins[1].subject, true, "one source operation");
+  assert.equal(origins[0].bindings === origins[1].bindings, false, "distinct selected invocation activation");
+});
 
 test("concrete field producers remain exact independently of unknown public readonly reads", async () => {
   const current = await fixture("storage-producer-public-read", `

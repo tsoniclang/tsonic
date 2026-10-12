@@ -51,7 +51,7 @@ export type {
   SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion,
   SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection,
   SourceStorageOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection,
-  SourceStorageSubjectsSelection, SourceStorageSubstitution, SourceStorageTypedSubject,
+  SourceStorageSubjectsSelection, SourceStorageSubstitution, SourceStorageTypedSubject, SourceStorageProducer,
   SourceStorageTypeSelection, SourceStorageUnresolved,
   SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary,
   SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary, SourceStorageProducersSelection,
