@@ -107,6 +107,42 @@ test("returned closures and nested declaration scopes preserve captured local in
   sameSubjects(current.origins(current.subject(current.declaration("nested"), "return"), nested), [current.input("nested", 0)], "nested parameter owns its symbol");
 });
 
+test("symbolic callback results retain their exact invocation and activation without selecting concrete callers", () => {
+  const current = fixture(`
+    function invoke(callback: () => object) { return callback(); }
+    function forward(callback: () => object) { return invoke(callback); }
+    export function pair(left: () => object, right: () => object) {
+      const first = forward(left); const second = forward(right); return second;
+    }
+    const leftValue = {}; const rightValue = {};
+    const selected = pair(() => leftValue, () => rightValue);
+  `);
+  const { ast } = current.source;
+  const invocation = current.nodes.find(node => ast.is.IsCallExpression(node) &&
+    ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+  assert.equal(invocation !== undefined, true, "original symbolic invocation exists");
+  const contexts = [];
+  for (const [index, name] of ["first", "second"].entries()) {
+    const selected = current.storage.storageProducersFor(current.subject(current.declaration(name)), current.bindings("pair"));
+    assert.equal(selected.kind !== "unresolved", true, selected.reason);
+    assert.equal(selected.producers.length === 1 && selected.producers[0].subject.node === invocation, true,
+      "result is the original operation, not an argument or another caller's value");
+    const producer = selected.producers[0];
+    sameSubjects(current.origins(current.input("invoke", 0), producer.bindings), [current.input("pair", index)],
+      "transitive producer retains the exact caller input");
+    contexts.push(producer.bindings);
+    const values = current.storage.closedOriginsFor(current.subject(current.declaration(name)), current.bindings("pair"));
+    assert.equal(values.kind === "open" && values.boundaries.some(boundary => boundary.kind === "external-input"), true,
+      "an exact symbolic producer is not proof of a closed external value domain");
+  }
+  assert.equal(contexts[0] !== contexts[1], true, "equal invocation syntax has distinct activations");
+  const concrete = current.storage.storageProducersFor(current.subject(current.declaration("selected")));
+  assert.equal(concrete.kind !== "unresolved", true, concrete.reason);
+  assert.equal(concrete.producers.length === 1 && concrete.producers[0].subject.node === current.initializer("rightValue"), true,
+    "ordinary concrete invocation still follows its selected implementation");
+  assert.equal(current.storage.failureReason(), undefined, "a valid symbolic application does not poison shared queries");
+});
+
 test("generic member and array projections preserve exact input-relative owner and selected type", () => {
   const current = fixture(`
     interface Callback<Value> { (value: Value): Value; }

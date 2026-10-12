@@ -430,6 +430,13 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         }
         return { kind: "replace", terms, dependencies };
       }
+      if (scopes.isSymbolic(term.callee)) {
+        const result = transport.subject(term.invocation, "value", term.projection);
+        if (result === undefined) return undefined;
+        return { kind: "replace", terms: [term.mode === "value" ? leaf(result, term.scope)
+          : Object.freeze({ kind: "unresolved", subject: result, scope: term.scope,
+            reason: "A symbolic callable invocation has no selected implementation execution." })], dependencies };
+      }
       const selected = navigation.callableImplementation(node);
       if (selected.kind !== "resolved") {
         if (transport.isOpaque(term.invocation)) return { kind: "replace", terms: [] };
