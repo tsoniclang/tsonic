@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { selectSourceNativeValueGuard } from "../../source-semantics/native-value-guards.js";
-import { selectSourceGuardedValueMembers } from "../../source-semantics/value-flow-conditions.js";
+import { selectSourceGuardedValueMembers, type SourceNativeGuard } from "../../source-semantics/value-flow-conditions.js";
 import { sourceStorageClassValue, sourceStorageConstructedClass } from "./construction.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject } from "./subjects.js";
@@ -16,6 +16,14 @@ interface GuardPlan {
   readonly identity: number;
   readonly predicates: readonly Node[];
 }
+
+type GuardPredicate =
+  | { readonly kind: "nominal"; readonly declaration: Node }
+  | { readonly kind: "absence"; readonly negated: boolean };
+
+type GuardCandidate =
+  | { readonly kind: "absence" }
+  | { readonly kind: "present"; readonly declaration?: Node };
 
 export function createSourceStorageGuardedValues(source: TargetSourceProgram, budget: SourceStorageBudget) {
   const { ast, navigation } = source;
@@ -55,19 +63,50 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     const candidate = sourceStorageConstructedClass(owner.node, source, () => budget.step());
     return candidate === undefined ? undefined : classMatches(candidate, target);
   };
-  const guardFor = (expression: Node) => {
+  const absent = (owner: SourceStorageSubject): boolean | undefined => {
+    const file = ast.getSourceFile(owner.node);
+    const type = sourceStorageSubjectType(source, owner, file);
+    if (file === undefined || type === undefined) return undefined;
+    const { types } = source.semantics.forFile(file);
+    const members = types.isUnion(type) ? types.unionOrIntersectionTypes(type) : [type];
+    let result: boolean | undefined;
+    for (const member of members) {
+      if (!budget.step()) return undefined;
+      if (types.isNever(member)) continue;
+      let selected: boolean;
+      if (types.isNullish(member) || types.isVoidLike(member)) selected = true;
+      else {
+        if (types.isAny(member) || types.isUnknown(member)) return undefined;
+        const present = types.nonNullableType(member);
+        if (present === undefined || !types.isIdentical(member, present)) return undefined;
+        selected = false;
+      }
+      if (result !== undefined && selected !== result) return undefined;
+      result = selected;
+    }
+    return result;
+  };
+  const testOwner = (owner: SourceStorageSubject, predicate: GuardPredicate): boolean | undefined => {
+    if (predicate.kind === "nominal") return instanceOf(owner, predicate.declaration);
+    const result = absent(owner);
+    return result === undefined ? undefined : result !== predicate.negated;
+  };
+  const guardFor = (expression: Node): SourceNativeGuard<GuardPredicate> | undefined => {
     if (!budget.step()) return undefined;
     const guard = selectSourceNativeValueGuard(context, expression);
+    if (guard?.kind === "absence") return { sourceOperand: guard.sourceOperand,
+      predicate: { kind: "absence", negated: guard.negated } };
     if (guard?.kind !== "nominal") return undefined;
     const target = sourceStorageClassValue(guard.sourceConstructor, source, () => budget.step());
-    return target === undefined ? undefined : { sourceOperand: guard.sourceOperand, predicate: target };
+    return target === undefined ? undefined : { sourceOperand: guard.sourceOperand,
+      predicate: { kind: "nominal", declaration: target } };
   };
   const planFor = (reference: Node): GuardPlan | undefined => budget.withRows(rows => {
     if (!budget.step()) return undefined;
     if (plans.has(reference)) return plans.get(reference) ?? undefined;
     const predicates = new Set<Node>();
     const selected = selectSourceGuardedValueMembers(context, reference, [reference], guardFor, (_member, predicate) => {
-      if (!predicates.has(predicate) && rows.add(1)) predicates.add(predicate);
+      if (predicate.kind === "nominal" && !predicates.has(predicate.declaration) && rows.add(1)) predicates.add(predicate.declaration);
       return undefined;
     });
     if (budget.failure() !== undefined || !retained.add(1 + predicates.size)) return undefined;
@@ -86,7 +125,7 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
     if (cached !== undefined) return cached ?? undefined;
     let unknown = false;
     const selected = selectSourceGuardedValueMembers(context, reference, [owner], guardFor, (subject, predicate) => {
-      const result = instanceOf(subject, predicate);
+      const result = testOwner(subject, predicate);
       unknown ||= result === undefined;
       return result;
     });
@@ -114,12 +153,19 @@ export function createSourceStorageGuardedValues(source: TargetSourceProgram, bu
           predicates.add(predicate);
         }
       }
-      if (!rows.add(predicates.size + 1)) return undefined;
-      let candidates: readonly (Node | undefined)[] = [undefined, ...predicates];
+      if (!rows.add(predicates.size + 2)) return undefined;
+      const possibilities: GuardCandidate[] = [{ kind: "absence" }, { kind: "present" }];
+      for (const declaration of predicates) {
+        if (!budget.step()) return undefined;
+        possibilities.push({ kind: "present", declaration });
+      }
+      let candidates: readonly GuardCandidate[] = possibilities;
       for (const reference of references) {
         if (!budget.step()) return undefined;
         candidates = selectSourceGuardedValueMembers(context, reference, candidates, guardFor,
-          (candidate, predicate) => candidate === undefined ? false : classMatches(candidate, predicate)) ?? candidates;
+          (candidate, predicate) => predicate.kind === "absence" ? (candidate.kind === "absence") !== predicate.negated
+            : candidate.kind === "absence" || candidate.declaration === undefined ? false
+              : classMatches(candidate.declaration, predicate.declaration)) ?? candidates;
       }
       if (budget.failure() !== undefined || !retained.add(1 + (candidates.length === 0 ? 0 : references.length))) return undefined;
       const selected = candidates.length === 0 ? null : Object.freeze({ key, references: Object.freeze(references) });
