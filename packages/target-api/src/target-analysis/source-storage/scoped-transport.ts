@@ -26,7 +26,6 @@ export interface SourceStorageScopedTransport {
   contextLocation(subject: SourceStorageSubject): SourceStorageContextLocation | undefined;
   storedValuesFor(subject: SourceStorageSubject): readonly SourceStorageStoredProjection[] | undefined;
   storesIn(region: Node): Iterable<SourceStorageStore> | undefined;
-  mutations(): Iterable<SourceStorageStore>;
   invocationImplementations(invocation: Node): ReadonlySet<Node>;
   memberAccessorsFor(declaration: Node): ReadonlySet<Node> | undefined;
   isOpaque(invocation: Node): boolean;

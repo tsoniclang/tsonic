@@ -6,8 +6,9 @@ import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {
   let index: { readonly callers: ReadonlyMap<Node, ReadonlySet<Node>>;
+    readonly callees: ReadonlyMap<Node, ReadonlySet<Node>>;
     readonly entries: ReadonlyMap<Node, ReadonlySet<Node>> } | undefined;
-  const selections = new Map<Node, ReadonlySet<Node>>();
+  const selections = { callers: new Map<Node, ReadonlySet<Node>>(), callees: new Map<Node, ReadonlySet<Node>>() };
   let initializing = false;
   const initialize = () => {
     if (index !== undefined) return index;
@@ -17,7 +18,16 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
     initializing = true;
     try {
       const callers = new Map<Node, Set<Node>>();
+      const callees = new Map<Node, Set<Node>>();
       const entries = new Map<Node, Set<Node>>();
+      const connect = (adjacency: Map<Node, Set<Node>>, origin: Node, destination: Node): boolean => {
+        const previous = adjacency.get(origin);
+        if (previous?.has(destination)) return true;
+        if (!owned.add(previous === undefined ? 2 : 1)) return false;
+        const retained = previous ?? new Set<Node>();
+        retained.add(destination); adjacency.set(origin, retained);
+        return true;
+      };
       for (const invocations of [transport.invocations, transport.accessorTargets.keys()]) for (const invocation of invocations) {
         if (!budget.step()) return undefined;
         if (entries.has(invocation)) continue;
@@ -34,12 +44,7 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
             if (!owned.add(1)) return false;
             selected.add(child);
           }
-          const parents = callers.get(child);
-          if (parents?.has(region)) return true;
-          if (!owned.add(parents === undefined ? 2 : 1)) return false;
-          const retained = parents ?? new Set<Node>();
-          retained.add(region); callers.set(child, retained);
-          return true;
+          return connect(callers, child, region) && connect(callees, region, child);
         };
         for (const candidate of transport.invocationImplementations(invocation)) {
           if (!budget.step()) return undefined;
@@ -50,13 +55,13 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
           if (!add(child.node)) return undefined;
       }
       if (budget.failure() !== undefined) return undefined;
-      index = Object.freeze({ callers, entries }); complete = true;
+      index = Object.freeze({ callers, callees, entries }); complete = true;
       return index;
     } finally { initializing = false; if (!complete) owned.release(); }
   };
-  const reaching = (target: Node): ReadonlySet<Node> | undefined => {
+  const reaching = (target: Node, direction: "callers" | "callees"): ReadonlySet<Node> | undefined => {
     if (!budget.step()) return undefined;
-    const cached = selections.get(target);
+    const cached = selections[direction].get(target);
     if (cached !== undefined) return cached;
     const graph = initialize();
     if (graph === undefined) return undefined;
@@ -80,18 +85,19 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
       if (!schedule(target)) return undefined;
       while (pending.length !== 0) {
         if (!budget.step()) return undefined;
-        for (const parent of graph.callers.get(pending.pop()!) ?? []) if (!schedule(parent)) return undefined;
+        for (const adjacent of graph[direction].get(pending.pop()!) ?? []) if (!schedule(adjacent)) return undefined;
       }
       if (!owned.add(1)) return undefined;
-      selections.set(target, selected);
+      selections[direction].set(target, selected);
       complete = true;
       return selected;
     }); } finally { if (!complete) owned.release(); }
   };
   return Object.freeze({
-    region: (region: Node, target: Node): boolean | undefined => reaching(target)?.has(region),
+    reachableFrom: (region: Node): ReadonlySet<Node> | undefined => reaching(region, "callees"),
+    region: (region: Node, target: Node): boolean | undefined => reaching(target, "callers")?.has(region),
     invocation: (invocation: Node, target: Node): boolean | undefined => {
-      const selected = reaching(target);
+      const selected = reaching(target, "callers");
       if (selected === undefined || index === undefined) return undefined;
       const entries = index.entries.get(invocation);
       if (entries === undefined) {

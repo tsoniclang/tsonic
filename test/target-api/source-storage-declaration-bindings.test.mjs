@@ -3,6 +3,8 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
+import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport.js";
 
 function fixture(text, limits = {}) {
   const checked = createCompilerSessionFromFiles({
@@ -252,6 +254,59 @@ test("symbolic array elements do not erase writes through an aliased formal", ()
   const selected = current.origins(current.subject(current.declaration("replace"), "return"), context);
   sameSubjects(selected, [current.input("replace", 0, [{ kind: "array-element" }]), current.input("replace", 1)],
     "a symbolic element retains both its entry storage and the aliased write's producer");
+});
+
+for (const [label, implementation, invoke] of [
+  ["helper call", "function write(owner: Holder, replacement: () => object) { owner.callback = replacement; }", "write(owner, replacement);"],
+  ["getter", "", "const action = { get apply() { owner.callback = replacement; return 0; } }; const applied = action.apply;"],
+  ["constructor", "class Writer { constructor(owner: Holder, replacement: () => object) { owner.callback = replacement; } }", "new Writer(owner, replacement);"],
+]) {
+  test(`symbolic projections retain mutations reached through a ${label}`, () => {
+    const current = fixture(`
+      interface Holder { callback: () => object; }
+      ${implementation}
+      function replace(owner: Holder, replacement: () => object) { ${invoke} return owner.callback; }
+    `);
+    const selected = current.origins(current.subject(current.declaration("replace"), "return"), current.bindings("replace"));
+    sameSubjects(selected, [current.input("replace", 0, [{ kind: "member", declaration: current.declaration("callback") }]), current.input("replace", 1)],
+      `${label} preserves the entry and exact replacement input`);
+  });
+}
+
+test("a local symbolic projection does not scan unrelated mutation regions", () => {
+  const work = [];
+  for (const count of [0, 256]) {
+    const current = fixture(`
+      interface Holder { callback: () => object; }
+      function replace(owner: Holder, replacement: () => object) {
+        const alias = owner; alias.callback = replacement; return owner.callback;
+      }
+      ${Array.from({ length: count }, (_, index) => `function unrelated${index}(owner: Holder, replacement: () => object) {
+        owner.callback = replacement;
+      }`).join("\n")}
+    `);
+    const base = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 1_000_000 });
+    let localSteps;
+    const budget = { ...base, step() {
+      if (localSteps !== undefined && ++localSteps > 4096) base.reject("Local symbolic projection exceeded its fixed work allowance.");
+      return base.step();
+    } };
+    const transport = createSourceStorageTransport(current.source, [current.file], budget);
+    const owner = current.declaration("replace");
+    const scope = transport.substitutions.forDeclaration(owner, transport.substitutions.empty);
+    const parameters = current.source.ast.parameters(owner);
+    const entry = transport.subject(parameters[0], "input", [{ kind: "member", declaration: current.declaration("callback") }]);
+    const replacement = transport.subject(parameters[1], "input");
+    const returned = transport.subject(owner, "return");
+    assert.equal(scope !== undefined && entry !== undefined && replacement !== undefined && returned !== undefined, true, "exact owner evidence");
+    localSteps = 0;
+    const selected = transport.substitutions.origins(returned, scope);
+    assert.equal(selected !== undefined && selected.size === 2 && selected.has(entry) && selected.has(replacement), true,
+      `${count} unrelated writes cannot change local mutation alternatives: ${budget.failure() ?? "no budget failure"}`);
+    assert.equal(budget.failure() === undefined, true, "local query fits an independent finite 4096-step allowance");
+    work.push(localSteps);
+  }
+  assert.equal(work[1], work[0], "256 unrelated mutations add no work to the local projection query");
 });
 
 test("symbolic declaration inputs do not certify a closed external value domain", () => {

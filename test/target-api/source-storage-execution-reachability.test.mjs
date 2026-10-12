@@ -17,13 +17,60 @@ function fixture(length = 16, maximumTransportRows = 128) {
 }
 
 test("exact execution reachability charges each completed region once and only the live pending frontier", () => {
-  const current = fixture(16, 83);
+  const current = fixture(16, 115);
   const target = current.regions[16];
   assert.equal(current.query.region(current.regions[0], target), true, "every original call edge reaches the demanded region");
   for (const call of current.calls) assert.equal(current.query.invocation(call, target), true, "exact indexed invocation survives");
   assert.equal(current.query.region({}, target), false, "an unrelated original region is not imported");
   assert.equal(current.inspected() === 16 && current.budget.failure() === undefined, true,
-    "one complete checked index and result are reused under the same eighty-three live-row ceiling");
+    "96 bidirectional index rows plus 18 selected rows and one live frontier row suffice");
+});
+
+test("forward and reverse execution selections share one exact bidirectional index", () => {
+  const current = fixture(16, 133);
+  const origin = current.regions[0];
+  const target = current.regions[16];
+  const reachable = current.query.reachableFrom(origin);
+  assert.equal(reachable !== undefined && reachable.size === 17 && current.regions.every(region => reachable.has(region)), true,
+    "the entry and every transitive callee retain exact identity");
+  assert.equal(current.query.region(origin, target), true, "reverse selection remains independent of the forward cache");
+  assert.equal(current.query.reachableFrom(origin) === reachable, true, "forward evidence is interned by entry region");
+  assert.equal(current.inspected(), 16, "both directions initialize each original invocation only once");
+  assert.equal(current.budget.failure() === undefined, true, "one index, both retained selections and only a live frontier fit");
+});
+
+for (const direction of ["callers", "callees"]) {
+  test(`${direction} execution traversal rejects one row below its exact live requirement`, () => {
+    const current = fixture(16, 114);
+    const selected = direction === "callers" ? current.query.region(current.regions[0], current.regions[16])
+      : current.query.reachableFrom(current.regions[0]);
+    assert.equal(selected === undefined, true, "no partial selection is published at the live row ceiling");
+    assert.match(current.budget.failure(), /transport-row/u);
+  });
+}
+
+test("forward execution retains calls, accessors, constructor initializers and cycles without unrelated regions", () => {
+  const [entry, helper, accessor, constructor, initializer, unrelated, outside] = Array.from({ length: 7 }, () => ({}));
+  const calls = [
+    { region: entry, target: helper },
+    { region: accessor, target: constructor, initialize: initializer },
+    { region: constructor, target: helper },
+    { region: unrelated, target: outside },
+  ];
+  const access = { region: helper, target: accessor };
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 256, maximumTransportRows: 128 });
+  const query = createSourceStorageExecutionReachability({ ast: { is: { IsNewExpression: node => node.initialize !== undefined } } }, budget, {
+    invocations: new Set(calls), accessorTargets: new Map([[access, [access.target]]]),
+    regions: { enclosing: node => node.region, callable: node => [node], instance: node => [{ node: node.initialize }] },
+    invocationImplementations: node => new Set([node.target]),
+  });
+  const reachable = query.reachableFrom(entry);
+  assert.equal(reachable !== undefined && reachable.size === 5 &&
+    [entry, helper, accessor, constructor, initializer].every(region => reachable.has(region)), true, "all native execution edge kinds survive");
+  assert.equal(query.invocation(calls[1], initializer), true, "constructor invocation retains its initializer entry");
+  assert.equal(query.region(unrelated, initializer), false, "unrelated callers are not imported");
+  assert.equal(query.region(helper, entry), false, "forward direction never leaks into reverse selection");
+  assert.equal(budget.failure() === undefined, true);
 });
 
 test("unindexed execution calls reject instead of certifying an empty selected region", () => {
