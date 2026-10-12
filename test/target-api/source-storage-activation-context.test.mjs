@@ -79,9 +79,11 @@ test("symbolic nested parameter frontier retains the declaration and its enclosi
   const owner = declaration("run");
   const arrow = nodes.find(node => ast.is.IsArrowFunction(node));
   const independent = resolved(storage.bindingsForDeclaration(arrow)).bindings;
+  const lexical = resolved(storage.bindingsForLexicalOwner(arrow)).bindings;
   resolved(storage.boundValueFrontierFor(subject(ast.parameters(arrow)[0], "input"), independent, []));
   const enclosingBindings = resolved(storage.bindingsForDeclaration(owner)).bindings;
   const arrowBindings = resolved(storage.bindingsForDeclaration(arrow, enclosingBindings)).bindings;
+  assert.equal(lexical === arrowBindings, true, "lexical selection retains exactly the checked enclosing declarations");
   const frontier = resolved(storage.boundValueFrontierFor(subject(ast.parameters(arrow)[0], "input"), arrowBindings, []));
   assert.equal(frontier.frontier.length, 1, "one exact symbolic parameter activation");
   assert.equal(frontier.frontier[0].subject.node === ast.parameters(arrow)[0], true);

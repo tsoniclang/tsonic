@@ -408,7 +408,8 @@ export function createSourceStorageTransport(
     if (implementation.kind === "resolved") selected.add(implementation.implementation.declaration);
     if (ast.hasModifierKind(declaration, "static") || ast.hasModifierKind(declaration, "private") ||
       !ast.is.IsMethodDeclaration(declaration) && ast.kindName(declaration) !== "KindMethodSignature" &&
-      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration)) return { nodes: selected, exact: false };
+      !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration))
+        return { nodes: selected, exact: implementation.kind === "resolved" };
     const queries = semantics.forNode(invocation);
     const call = queries.operations.call(invocation);
     const access = queries.operations.propertyAccess(invocation);
@@ -470,7 +471,8 @@ export function createSourceStorageTransport(
     return { nodes: selected, exact: false };
   };
   const collectInvocationImplementations = (invocation: Node,
-    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> => {
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects):
+      { readonly nodes: ReadonlySet<Node>; readonly exact: boolean } => {
     graphQueries.read({ node: invocation, kind: accessorTargets });
     const implementations = new Set<Node>();
     const declaration = invocationDeclarations.get(invocation);
@@ -483,28 +485,42 @@ export function createSourceStorageTransport(
     }
     const member = declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
       ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
+    let exact = !member && (target !== undefined || construction && implicitConstructions.has(invocation));
     if (member) {
       const selected = implementationsFor(declaration, invocation, originsFor);
-      if (selected.exact) return selected.nodes;
+      if (selected.exact) return selected;
       for (const implementation of selected.nodes) implementations.add(implementation);
     }
-    for (const candidate of target === undefined ? [] : originsFor(target) ?? []) {
+    const origins = target === undefined ? undefined : originsFor(target);
+    if (target !== undefined && origins === undefined) exact = false;
+    for (const candidate of origins ?? []) {
       if (!step()) break;
-      if (candidate.kind !== "value") continue;
+      if (candidate.kind !== "value") { exact = false; continue; }
       const owner = member ? sourceMemberOwner(ast, candidate.node) : undefined;
       if (owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsInterfaceDeclaration(owner))) continue;
-      for (const implementation of implementationsFor(candidate.node, invocation, originsFor).nodes) implementations.add(implementation);
+      const selected = implementationsFor(candidate.node, invocation, originsFor);
+      const selectedClass = construction && (ast.is.IsClassDeclaration(candidate.node) || ast.is.IsClassExpression(candidate.node)) &&
+        (implicitConstructions.has(invocation) || declaration !== undefined && ast.is.IsConstructorDeclaration(declaration) &&
+          ast.parent(declaration) === candidate.node);
+      if (!selected.exact && !selectedClass) exact = false;
+      for (const implementation of selected.nodes) implementations.add(implementation);
     }
     for (const accessor of accessorTargets.get(invocation) ?? []) {
-      for (const implementation of implementationsFor(accessor, invocation, originsFor).nodes) implementations.add(implementation);
+      const selected = implementationsFor(accessor, invocation, originsFor);
+      exact = target === undefined ? selected.exact : exact && selected.exact;
+      for (const implementation of selected.nodes) implementations.add(implementation);
     }
-    return implementations;
+    return Object.freeze({ nodes: implementations, exact });
   };
-  const selectedInvocationImplementations = graphQueries.query((invocation: Node) => collectInvocationImplementations(invocation));
+  const selectedInvocationImplementations = graphQueries.query((invocation: Node) =>
+    new Set([collectInvocationImplementations(invocation)]));
+  const invocationImplementationSelection = (invocation: Node,
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects) =>
+    originsFor === originSubjects ? selectedInvocationImplementations(invocation)?.values().next().value
+      : collectInvocationImplementations(invocation, originsFor);
   const invocationImplementations = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<Node> =>
-    originsFor === originSubjects ? selectedInvocationImplementations(invocation) ?? new Set()
-      : collectInvocationImplementations(invocation, originsFor);
+    invocationImplementationSelection(invocation, originsFor)?.nodes ?? new Set();
   const physicalMemberInputs = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects): ReadonlySet<SourceStorageSubject> | undefined => {
     const declaration = invocationDeclarations.get(invocation) ?? accessorTargets.get(invocation)?.[0];
@@ -654,8 +670,9 @@ export function createSourceStorageTransport(
   for (const invocation of invocations) {
     if (!step()) break;
     const reason = unresolvedInvocations.get(invocation);
-    if (reason === undefined && (implicitConstructions.has(invocation) ||
-      [...invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined))) continue;
+    const implementations = invocationImplementationSelection(invocation);
+    if (reason === undefined && implementations?.exact === true && (implicitConstructions.has(invocation) ||
+      [...implementations.nodes].some(candidate => ast.body(candidate) !== undefined))) continue;
     const selected = new Set<SourceStorageSubject>();
     const result = subject(invocation);
     if (result !== undefined) {
@@ -685,6 +702,7 @@ export function createSourceStorageTransport(
     storedInputsFor: storedValues.inputsFor,
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,
+    invocationImplementationSelection,
     unresolvedStoredInputsFor: storedValues.unresolvedFor,
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,

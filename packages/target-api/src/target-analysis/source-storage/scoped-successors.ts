@@ -374,7 +374,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (reaches === undefined) return undefined;
         if (!reaches) continue;
         const target = transport.invocationTargets.get(invocation);
-        if (target !== undefined && !transport.isOpaque(invocation)) terms.push(application(invocation, target, term.scope, [],
+        if (target !== undefined) terms.push(application(invocation, target, term.scope, [],
           { mode: "execution", demand: term.demand }));
         else if (transport.accessorTargets.has(invocation)) {
           const operation = ast.is.IsPropertyAccessExpression(invocation) ? semantics.forNode(invocation).operations.propertyAccess(invocation)
@@ -440,7 +440,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const selected = navigation.callableImplementation(node);
       if (selected.kind !== "resolved") {
-        if (transport.isOpaque(term.invocation)) return { kind: "replace", terms: [] };
+        if (transport.isOpaque(term.invocation)) {
+          const result = transport.subject(term.invocation, "value", term.projection);
+          return result === undefined ? undefined : { kind: "replace", terms: term.mode === "value"
+            ? [leaf(result, term.scope)] : [], dependencies };
+        }
         budget.reject("Source storage invocation requires its exact checked original implementation."); return undefined;
       }
       const candidate = selected.implementation.declaration;
@@ -495,7 +499,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         ? [] : [application(node, target, term.scope, term.subject.projection, { mode: "value" })]], dependencies: dispatchDependencies(node, term.scope) };
     }
     if ((transport.invocations.has(node) || transport.accessorTargets.has(node)) &&
-      transport.invocationEffects.get(node)?.resultAlias === undefined && !transport.isOpaque(node)) {
+      transport.invocationEffects.get(node)?.resultAlias === undefined) {
       const target = transport.invocationTargets.get(node);
       if (target !== undefined) return { kind: "replace", terms: [application(node, target, term.scope, term.subject.projection, { mode: "value" })] };
     }

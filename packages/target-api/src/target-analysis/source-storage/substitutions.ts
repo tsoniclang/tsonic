@@ -40,16 +40,9 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     reference?: SourceStorageRelation;
     leaf?: SourceStorageRelation;
   }
-  let activeMemo: { readonly references: Map<SourceStorageSubject, Map<SourceStorageScope, ReferenceMemo>>;
-    readonly rows: SourceStorageRows } | undefined;
-  const withQuery = <Value>(collect: () => Value): Value => scopes.withQuery(() => {
-    if (activeMemo !== undefined) return collect();
-    return budget.withRows(rows => {
-      activeMemo = { references: new Map(), rows };
-      try { return collect(); }
-      finally { activeMemo = undefined; }
-    });
-  });
+  const references = new Map<SourceStorageSubject, Map<SourceStorageScope, ReferenceMemo>>();
+  const referenceRows = budget.createRows();
+  const withQuery = scopes.withQuery;
   const rows = budget.createRows();
   const emptyTerm: SourceStorageTerm = Object.freeze({ kind: "empty" });
   const witnessScope = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScope => {
@@ -148,12 +141,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
   };
   const intern = (term: SourceStorageTerm): SourceStorageRelation | undefined => scopes.withTraversal(() => budget.withRows(temporary => {
     if (!budget.step()) return undefined;
-    const memo = activeMemo;
-    if (memo === undefined) {
-      budget.reject("Source storage interning requires its owning query memo."); return undefined;
-    }
     const reference = term.kind === "reference" || term.kind === "leaf" && term.guards === undefined ? term : undefined;
-    const contexts = reference === undefined ? undefined : memo.references.get(reference.subject);
+    const contexts = reference === undefined ? undefined : references.get(reference.subject);
     const retainedMemo = reference === undefined ? undefined : contexts?.get(reference.scope);
     const cached = reference === undefined ? undefined : retainedMemo?.[reference.kind];
     if (cached !== undefined) return cached;
@@ -171,11 +160,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (selected.term.kind !== "empty") for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
     if (reference !== undefined) {
-      if (retainedMemo === undefined && !memo.rows.add(contexts === undefined ? 3 : 2)) return undefined;
+      if (retainedMemo === undefined && !referenceRows.add(contexts === undefined ? 3 : 2)) return undefined;
       const retained = retainedMemo ?? {};
       retained[reference.kind] = selected;
       const entries = contexts ?? new Map<SourceStorageScope, ReferenceMemo>();
-      entries.set(reference.scope, retained); memo.references.set(reference.subject, entries);
+      entries.set(reference.scope, retained); references.set(reference.subject, entries);
     }
     return selected;
   }));

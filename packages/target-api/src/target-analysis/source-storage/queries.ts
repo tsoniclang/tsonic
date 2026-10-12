@@ -4,13 +4,14 @@ import { sourceStorageSubjectType } from "./components.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./resource-budget.js";
 import { createSourceStorageTransport } from "./transport.js";
 import { createSourceStorageDomains } from "./domains.js";
+import { sourceStorageRegionOwner } from "./lexical-regions.js";
 import type { SourceStorageSubject } from "./subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
-  SourceStorageBoundActivation,
+  SourceStorageBoundActivation, SourceStorageBindingsSelection,
 } from "./types.js";
 
 export function createSourceStorageQuery(
@@ -98,6 +99,51 @@ export function createSourceStorageQuery(
   const emptyBindings: SourceStorageBindings = Object.freeze({ substitutions: Object.freeze([]) });
   bindingStates.set(emptyBindings, Object.freeze([transport.substitutions.empty]));
   bindingViews.set("0", emptyBindings);
+  const declarationBindings: SourceStorageQueries["bindingsForDeclaration"] = (declaration, parent = emptyBindings) => {
+    const states = bindingStates.get(parent);
+    if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+    if (!checkedDeclaration(declaration))
+      return unresolved(budget.failure() ?? "Declaration substitution requires an exact checked callable or class owner.");
+    const selected: SourceStorageSubstitutions[] = [];
+    for (const state of states) {
+      const binding = transport.substitutions.forDeclaration(declaration, state);
+      if (binding === undefined) return unresolved(budget.failure() ?? "Declaration substitution has no bounded context.");
+      selected.push(binding);
+    }
+    const view = bindingView(selected);
+    return view === undefined || budget.failure() !== undefined
+      ? unresolved(budget.failure() ?? "Declaration substitution exceeds its finite context budget.")
+      : Object.freeze({ kind: "resolved", bindings: view });
+  };
+  const lexicalBindings = new Map<Node, SourceStorageBindings>();
+  const lexicalRows = budget.createRows();
+  const bindingsForLexicalOwner = (node: Node): SourceStorageBindingsSelection => {
+    if (!checkedNode(node)) return unresolved(budget.failure() ?? "Lexical substitution requires an exact checked source node.");
+    const owners: Node[] = [];
+    const visited = new Set<Node>();
+    let current: Node | undefined = node;
+    let parent = emptyBindings;
+    while (current !== undefined) {
+      if (!budget.step()) return unresolved(budget.failure()!);
+      const existing = lexicalBindings.get(current);
+      if (existing !== undefined) { parent = existing; break; }
+      if (visited.has(current)) return unresolved("Lexical substitution has a cyclic declaration ancestry.");
+      visited.add(current);
+      if (checkedDeclaration(current)) owners.push(current);
+      const region = transport.regions.enclosing(current);
+      current = region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    }
+    while (owners.length !== 0) {
+      const owner = owners.pop()!;
+      const selected = declarationBindings(owner, parent);
+      if (selected.kind === "unresolved") return selected;
+      if (!lexicalRows.add(1)) return unresolved(budget.failure()!);
+      parent = selected.bindings;
+      lexicalBindings.set(owner, parent);
+    }
+    return budget.failure() !== undefined ? unresolved(budget.failure()!)
+      : Object.freeze({ kind: "resolved", bindings: parent });
+  };
   const checkedInvocation = (node: Node): boolean => checkedNode(node) &&
     (transport.invocations.has(node) || transport.accessorTargets.has(node));
   const checkedCandidate = (candidate: Node, invocation: Node): boolean => {
@@ -285,14 +331,19 @@ export function createSourceStorageQuery(
       if (bindings !== undefined && states === undefined)
         return unresolved("Invocation substitutions belong to a different source storage query.");
       const nodes = new Set<Node>();
-      if (states === undefined) for (const node of transport.invocationImplementations(invocation)) nodes.add(node);
-      else for (const state of states) for (const node of transport.invocationImplementations(invocation,
-        origin => transport.substitutions.origins(origin, state))) {
-        if (!budget.step()) return unresolved(budget.failure()!);
-        nodes.add(node);
+      let exact = true;
+      for (const state of states ?? [undefined]) {
+        const selected = transport.invocationImplementationSelection(invocation, state === undefined ? undefined
+          : origin => transport.substitutions.origins(origin, state));
+        if (selected === undefined) return unresolved(budget.failure() ?? "Invocation dispatch has no completed selection.");
+        exact &&= selected.exact;
+        for (const node of selected.nodes) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          nodes.add(node);
+        }
       }
       return budget.failure() !== undefined ? unresolved(budget.failure()!)
-        : Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]) });
+        : Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact });
     },
     invocationOriginsFor(subject, candidate, invocation) {
       const reason = ancestryReason(subject);
@@ -303,22 +354,8 @@ export function createSourceStorageQuery(
       if (transportReason !== undefined) return unresolved(transportReason);
       return selectedSubjects(transport.invocationOrigins(subject, candidate, invocation));
     },
-    bindingsForDeclaration(declaration, parent = emptyBindings) {
-      const states = bindingStates.get(parent);
-      if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
-      if (!checkedDeclaration(declaration))
-        return unresolved(budget.failure() ?? "Declaration substitution requires an exact checked callable or class owner.");
-      const selected: SourceStorageSubstitutions[] = [];
-      for (const state of states) {
-        const binding = transport.substitutions.forDeclaration(declaration, state);
-        if (binding === undefined) return unresolved(budget.failure() ?? "Declaration substitution has no bounded context.");
-        selected.push(binding);
-      }
-      const view = bindingView(selected);
-      return view === undefined || budget.failure() !== undefined
-        ? unresolved(budget.failure() ?? "Declaration substitution exceeds its finite context budget.")
-        : Object.freeze({ kind: "resolved", bindings: view });
-    },
+    bindingsForDeclaration: declarationBindings,
+    bindingsForLexicalOwner,
     bindingsForInvocation(candidate, invocation, parent = emptyBindings) {
       const states = bindingStates.get(parent);
       if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");

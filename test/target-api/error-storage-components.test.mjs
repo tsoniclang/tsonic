@@ -4,7 +4,7 @@ import { formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceErrorStorageDemandQuery, createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageUnresolvedQuery } from "../../packages/target-api/dist/target-analysis/source-storage/unresolved.js";
+import { createSourceStorageUnresolvedQueries } from "../../packages/target-api/dist/target-analysis/source-storage/unresolved.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode, requiredStorageSubject } from "../fixtures/source-navigation.mjs";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
 
@@ -162,7 +162,7 @@ test("Error unresolved storage propagates through exact component ancestry witho
   const alias = subject({}, "value", element);
   const independent = subject({}, "value", element);
   const unresolved = new Map([[value, "unproved tuple spread"]]);
-  const reason = createSourceStorageUnresolvedQuery(budget, subject,
+  const { ancestryFor: reason } = createSourceStorageUnresolvedQueries(budget, subject,
     selected => ({ subjects: (selected === alias ? [component] : [selected]).map(subject => ({ subject })) }), unresolved);
   assert.equal(reason(component), "unproved tuple spread");
   assert.equal(reason(alias), "unproved tuple spread");

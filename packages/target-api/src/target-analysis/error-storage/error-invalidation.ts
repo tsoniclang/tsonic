@@ -23,7 +23,9 @@ export function createSourceErrorInvalidationQuery(
     const ancestors = storage.ancestorsFor(selectedOwner.subject);
     if (ancestors.kind === "unresolved") return ancestors;
     const sourceOwners = new Set(ancestors.subjects);
-    const pending = [{ node: expression, bindings: storage.emptyBindings }];
+    const lexical = storage.bindingsForLexicalOwner(expression);
+    if (lexical.kind === "unresolved") return lexical;
+    const pending = [{ node: expression, bindings: lexical.bindings }];
     const visited = new Map<SourceStorageBindings, Set<Node>>();
     let unresolved: string | undefined;
     let unproven: string | undefined;
@@ -36,7 +38,7 @@ export function createSourceErrorInvalidationQuery(
         if (!step()) return Object.freeze({ kind: "unresolved" as const, reason: failureReason()! });
         if (sourceOwners.has(origin.subject)) return Object.freeze({ kind: "overlap" as const });
       }
-      ownerOrigins ??= storage.closedOriginsFor(selectedOwner.subject);
+      ownerOrigins ??= storage.closedOriginsFor(selectedOwner.subject, lexical.bindings);
       if (ownerOrigins.kind === "unresolved") return ownerOrigins;
       if (ownerRoots === undefined) {
         ownerRoots = new Set<SourceStorageSubject>();
@@ -82,7 +84,8 @@ export function createSourceErrorInvalidationQuery(
       if (storage.isAccessorInvocation(node)) {
         const implementations = storage.invocationImplementationsFor(node, bindings);
         if (implementations.kind === "unresolved") return implementations;
-        if (implementations.nodes.length === 0) unproven = "An accessor invocation has no exact source mutation footprint.";
+        if (!implementations.exact || implementations.nodes.length === 0)
+          unproven = "An accessor invocation has no exact source mutation footprint.";
         for (const implementation of implementations.nodes) appendCallableRegions(implementation, node, bindings);
       }
       if ((ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) && !pureInvocations.has(node) && !capturedStackTargets.has(node)) {
@@ -104,7 +107,7 @@ export function createSourceErrorInvalidationQuery(
             pending.push({ node: region.node, bindings: selected.bindings });
           }
         }
-        if (!resolved && native?.kind !== "complete") {
+        if ((!implementations.exact || !resolved) && native?.kind !== "complete") {
           const arguments_ = storage.invocationArgumentsFor(node);
           if (arguments_.kind === "unresolved") return arguments_;
           for (const argument of arguments_.nodes) {

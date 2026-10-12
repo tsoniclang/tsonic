@@ -74,6 +74,10 @@ export type SourceStorageNodesSelection =
   | { readonly kind: "resolved"; readonly nodes: readonly Node[] }
   | SourceStorageUnresolved;
 
+export type SourceStorageImplementationsSelection =
+  | { readonly kind: "resolved"; readonly nodes: readonly Node[]; readonly exact: boolean }
+  | SourceStorageUnresolved;
+
 export interface SourceStorageArgumentTransport {
   readonly actual: SourceStorageSubject;
   readonly formal: SourceStorageSubject;
@@ -157,9 +161,10 @@ export interface SourceStorageQueries {
   storageProducersFor(subject: SourceStorageSubject, bindings?: SourceStorageBindings): SourceStorageProducersSelection;
   localCallableCreationsFor(expression: Node): SourceStorageNodesSelection;
   unresolvedFor(subject: SourceStorageSubject): string | undefined;
-  invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageNodesSelection;
+  invocationImplementationsFor(invocation: Node, bindings?: SourceStorageBindings): SourceStorageImplementationsSelection;
   invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
   bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
+  bindingsForLexicalOwner(node: Node): SourceStorageBindingsSelection;
   bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
   boundActivationsFor(declaration: Node, bindings: SourceStorageBindings): SourceStorageActivationsSelection;

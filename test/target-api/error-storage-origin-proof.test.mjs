@@ -30,8 +30,14 @@ async function analyzed(name, body, limits = defaultSourceStorageLimits) {
     storageMutators: [], retention: () => ({ kind: "ordinary" }) }, storage);
   const variable = name => namedVariable(source.ast, file, name);
   const declaration = name => namedDeclaration(source.ast, file, name);
-  const call = name => requiredNode(source.ast, file, node => source.ast.is.IsCallExpression(node) &&
-    source.ast.text(source.ast.as.AsCallExpression(node).Expression) === name);
+  const call = name => requiredNode(source.ast, file, node => {
+    if (!source.ast.is.IsCallExpression(node)) return false;
+    const expression = source.ast.as.AsCallExpression(node).Expression;
+    if (source.ast.is.IsIdentifier(expression)) return source.ast.text(expression) === name;
+    const access = source.ast.as.AsPropertyAccessExpression(expression);
+    return access !== undefined && source.ast.is.IsIdentifier(access.Expression) &&
+      `${source.ast.text(access.Expression)}.${source.ast.text(source.ast.name(expression))}` === name;
+  });
   const write = name => requiredNode(source.ast, file, node => {
     if (!source.ast.is.IsBinaryExpression(node)) return false;
     const left = source.ast.as.AsBinaryExpression(node).Left;
@@ -158,4 +164,33 @@ test("Error complete-origin wrappers preserve projected typed roots and reject e
     { ...defaultSourceStorageLimits, maximumSteps: 1 });
   assert.equal(bounded.demand.closedStorageOriginsFor(selected.subject).kind === "unresolved", true);
   assert.equal(bounded.demand.invalidationFor(bounded.variable("owner"), bounded.variable("owner"), new Set()).kind === "unresolved", true);
+});
+
+test("observed local implementations never close an externally supplied receiver's mutation footprint", async () => {
+  const current = await analyzed("error-origin-open-dispatch", `
+    interface Reporter { describe(value: Stored): string; }
+    class Plain implements Reporter { describe(_value: Stored): string { return "plain"; } }
+    export function inspect(reporter: Reporter): string {
+      const owner: Stored = { message: "owner" };
+      return owner.message + reporter.describe(owner);
+    }
+    const plain = new Plain();
+    const original: Stored = { message: "original" };
+    const local = plain.describe(original);
+    const observed = inspect(plain);
+  `);
+  const invocation = current.call("reporter.describe");
+  const selected = current.storage.invocationImplementationsFor(invocation);
+  assert.equal(selected.kind, "resolved");
+  assert.equal(selected.nodes.length, 1, "the local implementation is still reported");
+  assert.equal(selected.exact, false, "observations do not close an exported interface input");
+  assert.equal(current.demand.invalidationFor(current.variable("owner"), invocation, new Set()).kind, "unproven");
+  const field = current.source.ast.members(current.declaration("Stored"))[0];
+  const projected = current.storage.storageSubjectFor(current.variable("owner"), [{ kind: "member", declaration: field }]);
+  assert.equal(projected.kind, "resolved");
+  assert.equal(current.storage.closedOriginsFor(projected.subject).kind, "open");
+  const exact = current.storage.invocationImplementationsFor(current.call("plain.describe"));
+  assert.equal(exact.kind, "resolved");
+  assert.equal(exact.exact, true, "a constructed local receiver keeps its exact implementation");
+  assert.equal(current.demand.invalidationFor(current.variable("original"), current.call("plain.describe"), new Set()).kind, "preserved");
 });
