@@ -206,7 +206,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     for (const { target, read } of selections) {
       if (!budget.step()) return undefined;
       if (target === undefined) continue;
-      const unbound = (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
+      const unbound = scopes.isSymbolic(term.receiver) || (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
       const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, receiverType);
       if (members === undefined) {

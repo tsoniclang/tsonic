@@ -359,3 +359,28 @@ test("declaration-local scope creation preserves finite resource rejection", () 
   assert.equal(selected.kind === "unresolved", true, "finite scope accounting remains mandatory");
   assert.match(current.storage.failureReason(), /finite|rows/u);
 });
+
+for (const access of ["value.item", 'value["item"]']) {
+  test(`checked generic predicate members retain symbolic declaration roles (${access})`, () => {
+    const current = fixture(`
+      interface Base { kind(): number; }
+      interface Box<Value> extends Base { readonly item: Value; }
+      interface Factory<Value> { accepts(value: Base | undefined): value is Box<Value>; }
+      function extract<Value>(factory: Factory<Value>, value: Base | undefined, otherwise: Value): Value {
+        return factory.accepts(value) ? ${access} : otherwise;
+      }
+    `);
+    const owner = current.declaration("extract");
+    const bindings = current.bindings("extract");
+    const result = current.subject(owner, "return");
+    const origins = current.origins(result, bindings);
+    assert.equal(current.storage.failureReason() === undefined, true, "a symbolic formal is not a physical receiver allocation");
+    assert.equal(origins.some(subject => subject.node === current.input("extract", 1).node &&
+      subject.kind === "input" && subject.projection.length === 1 && subject.projection[0].kind === "member" &&
+      subject.projection[0].declaration === current.declaration("item")), true,
+      "the selected checked field retains its exact declaration");
+    assert.equal(origins.includes(current.input("extract", 2)), true, "the independent fallback input is preserved");
+    assert.equal(current.storage.closedOriginsFor(result, bindings).kind, "unresolved",
+      "a narrowed symbolic member does not manufacture physical caller storage or its projected type");
+  });
+}
