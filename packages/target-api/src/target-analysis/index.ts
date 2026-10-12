@@ -49,6 +49,8 @@ export { defaultSourceStorageLimits } from "./source-storage/resource-budget.js"
 export type { SourceStorageProjection, SourceStorageSubject } from "./source-storage/subjects.js";
 export type {
   SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion,
+  SourceStorageBoundActivation, SourceStorageActivationsSelection,
+  SourceStorageValueFrontier, SourceStorageValueFrontierSelection,
   SourceStorageInstanceRegionsSelection, SourceStorageLimits, SourceStorageNodesSelection,
   SourceStorageOriginsSelection, SourceStorageQueries, SourceStorageSubjectSelection,
   SourceStorageSubjectsSelection, SourceStorageSubstitution, SourceStorageTypedSubject, SourceStorageProducer,

@@ -375,6 +375,17 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     memo.families.set(scope, equation ?? null);
     return equation;
   });
+  const boundActivation = (scope: SourceStorageScope, owner: Node):
+    { readonly scope: SourceStorageScope; readonly invocation?: Node; readonly caller?: SourceStorageScope } | undefined => withTraversal(() => {
+    const selected = owningScope(scope, owner);
+    if (selected === undefined || selected.kind === "variable") return undefined;
+    const frame = selected.kind === "substitution" ? selected.scope : selected;
+    if (frame.owner !== owner) return undefined;
+    if (frame.boundary === "declaration") return { scope: selected };
+    if (frame.invocation === undefined || frame.caller === undefined) return undefined;
+    const caller = selected.kind === "substitution" ? applyScope(frame.caller, selected.substitutions) : frame.caller;
+    return caller === undefined ? undefined : { scope: selected, invocation: frame.invocation, caller };
+  });
   const activationKeys = new Map<SourceStorageScope, SourceStorageActivation>();
   const activations = new Map<string, SourceStorageActivation>();
   const activation = (scope: SourceStorageScope): SourceStorageActivation | undefined => budget.withRows(temporary => {
@@ -459,7 +470,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
   return Object.freeze({ empty, identity, variable, variablesFor, applyScope, applyTerm, lookup, frameFor, declarationFor,
     isSymbolic: (value: SourceStorageReference): boolean => value.kind === "leaf" && value.scope.kind === "frame" &&
       value.scope.boundary === "declaration" && sourceStorageFormalOwner(value.subject, source.ast) === value.scope.owner,
-    owningScope, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
+    owningScope, boundActivation, family, activation, activationKey: (scope: SourceStorageScope) => activation(scope)?.key, formals,
     withQuery: <Value>(collect: () => Value): Value => withQueryMemo(() => collect()),
     withTraversal: <Value>(collect: () => Value): Value => withTraversal(() => collect()) });
 }

@@ -106,6 +106,25 @@ export type SourceStorageBindingsSelection =
   | { readonly kind: "resolved"; readonly bindings: SourceStorageBindings }
   | SourceStorageUnresolved;
 
+export type SourceStorageBoundActivation =
+  | { readonly kind: "declaration"; readonly declaration: Node; readonly bindings: SourceStorageBindings }
+  | { readonly kind: "invocation"; readonly declaration: Node; readonly invocation: Node;
+      readonly bindings: SourceStorageBindings; readonly callerBindings: SourceStorageBindings };
+
+export type SourceStorageActivationsSelection =
+  | { readonly kind: "resolved"; readonly activations: readonly SourceStorageBoundActivation[] }
+  | SourceStorageUnresolved;
+
+export interface SourceStorageValueFrontier {
+  readonly kind: "boundary" | "origin";
+  readonly subject: SourceStorageSubject;
+  readonly bindings: SourceStorageBindings;
+}
+
+export type SourceStorageValueFrontierSelection =
+  | { readonly kind: "resolved"; readonly frontier: readonly SourceStorageValueFrontier[] }
+  | SourceStorageUnresolved;
+
 export interface SourceStorageInstanceRegion {
   readonly owner: Node;
   readonly node: Node;
@@ -143,6 +162,9 @@ export interface SourceStorageQueries {
   bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;
+  boundActivationsFor(declaration: Node, bindings: SourceStorageBindings): SourceStorageActivationsSelection;
+  boundValueFrontierFor(subject: SourceStorageSubject, bindings: SourceStorageBindings,
+    boundaries: readonly SourceStorageSubject[], position?: "value" | "input"): SourceStorageValueFrontierSelection;
   invocationArgumentsFor(invocation: Node): SourceStorageNodesSelection;
   argumentTransportsFor(invocation: Node): SourceStorageArgumentsSelection;
   mutationOwnerFor(node: Node): SourceStorageSubject | undefined;

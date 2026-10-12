@@ -3,7 +3,8 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./subjects.js";
-import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
+import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
+  sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "./scoped-model.js";
@@ -292,7 +293,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   };
   const materializeChild = (child: SourceStorageTerm,
     select: (child: SourceStorageReference) => readonly SourceStorageTerm[] | undefined,
-    independentCallee?: Node): SourceStorageReduction => ({ kind: "project", input: child, select: value => {
+    independentCallee?: Node): Extract<SourceStorageReduction, { readonly kind: "project" }> => ({ kind: "project", input: child, select: value => {
       if (independentCallee !== undefined) {
         const selected = navigation.callableImplementation(value.subject.node);
         if (selected.kind !== "resolved" || selected.implementation.declaration !== independentCallee) {
@@ -346,7 +347,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (term.value.kind !== "leaf") {
         const replace = (value: SourceStorageTerm): SourceStorageTerm => Object.freeze({ ...term, value });
         return correlated ? replaceChild(term.value, replace, { contributes: false, correlated })
-          : materializeChild(term.value, value => guardedLeaf(term.reference, value));
+          : { ...materializeChild(term.value, value => guardedLeaf(term.reference, value)), valueFilter: term.reference };
       }
       const terms = guardedLeaf(term.reference, term.value);
       return terms === undefined ? undefined : { kind: "replace", terms };
@@ -472,7 +473,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.subject.kind === "value" && (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node))) {
       const selected = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : semantics.forNode(node).operations.elementAccess(node);
-      if (selected?.selectedDeclaration !== undefined) {
+      const declaration = selected?.selectedDeclaration;
+      if (selected !== undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
+        sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration))) {
         const receiver = transport.subjectFor(selected.receiver.expression);
         if (receiver === undefined) return undefined;
         return { kind: "replace", terms: [Object.freeze({ kind: "member", selection: Object.freeze({ kind: "access", node }), scope: term.scope,

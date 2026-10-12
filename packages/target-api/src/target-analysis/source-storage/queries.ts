@@ -9,7 +9,8 @@ import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, s
 import type { SourceStorageSubstitutions } from "./substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
-  SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer,
+  SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
+  SourceStorageBoundActivation,
 } from "./types.js";
 
 export function createSourceStorageQuery(
@@ -24,12 +25,27 @@ export function createSourceStorageQuery(
   const bindingStates = new WeakMap<SourceStorageBindings, readonly SourceStorageSubstitutions[]>();
   const bindingViews = new Map<string, SourceStorageBindings>();
   const bindingRows = budget.createRows();
+  const frontierBoundaries = new WeakMap<readonly SourceStorageSubject[], ReadonlySet<SourceStorageSubject>>();
+  const frontierRows = budget.createRows();
   let declarations: ReadonlySet<Node> | undefined;
   const unresolved = (reason: string): SourceStorageUnresolved => Object.freeze({ kind: "unresolved", reason });
   const checkedNode = (node: Node): boolean => {
     if (!budget.step()) return false;
     const file = source.ast.getSourceFile(node);
     return file !== undefined && source.semantics.includes(file);
+  };
+  const checkedDeclaration = (declaration: Node): boolean => {
+    if (declarations === undefined) {
+      if (!bindingRows.add(1 + transport.visitedNodes.length)) return false;
+      declarations = new Set(transport.visitedNodes);
+    }
+    if (!declarations.has(declaration) || !checkedNode(declaration)) return false;
+    const ast = source.ast;
+    return ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) ||
+      ast.is.IsFunctionDeclaration(declaration) || ast.is.IsFunctionExpression(declaration) ||
+      ast.is.IsArrowFunction(declaration) || ast.is.IsMethodDeclaration(declaration) ||
+      ast.is.IsConstructorDeclaration(declaration) || ast.is.IsGetAccessorDeclaration(declaration) ||
+      ast.is.IsSetAccessorDeclaration(declaration);
   };
   const selectedSubject = (subject: SourceStorageSubject | undefined): SourceStorageSubjectSelection => {
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
@@ -290,17 +306,7 @@ export function createSourceStorageQuery(
     bindingsForDeclaration(declaration, parent = emptyBindings) {
       const states = bindingStates.get(parent);
       if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
-      if (declarations === undefined) {
-        if (!bindingRows.add(1 + transport.visitedNodes.length)) return unresolved(budget.failure()!);
-        declarations = new Set(transport.visitedNodes);
-      }
-      const ast = source.ast;
-      if (!declarations.has(declaration) || !checkedNode(declaration) ||
-        !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) &&
-        !ast.is.IsFunctionDeclaration(declaration) && !ast.is.IsFunctionExpression(declaration) &&
-        !ast.is.IsArrowFunction(declaration) && !ast.is.IsMethodDeclaration(declaration) &&
-        !ast.is.IsConstructorDeclaration(declaration) && !ast.is.IsGetAccessorDeclaration(declaration) &&
-        !ast.is.IsSetAccessorDeclaration(declaration))
+      if (!checkedDeclaration(declaration))
         return unresolved(budget.failure() ?? "Declaration substitution requires an exact checked callable or class owner.");
       const selected: SourceStorageSubstitutions[] = [];
       for (const state of states) {
@@ -331,6 +337,78 @@ export function createSourceStorageQuery(
         : Object.freeze({ kind: "resolved", bindings: view });
     },
     boundOriginsFor: boundOrigins,
+    boundActivationsFor(declaration, bindings) {
+      return budget.withRows(rows => {
+        const states = bindingStates.get(bindings);
+        if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+        if (!checkedDeclaration(declaration)) return unresolved(budget.failure() ?? "An activation requires its exact checked declaration.");
+        const activations: SourceStorageBoundActivation[] = [];
+        const seen = new Set<SourceStorageSubstitutions>();
+        for (const state of states) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          const selected = transport.substitutions.boundActivation(state, declaration);
+          if (selected === undefined) return unresolved(budget.failure() ?? "Source storage has no exact owning activation for this declaration.");
+          if (seen.has(selected.scope)) continue;
+          if (!rows.add(2)) return unresolved(budget.failure()!);
+          seen.add(selected.scope);
+          const owned = bindingView([selected.scope]);
+          if (owned === undefined) return unresolved(budget.failure() ?? "An activation requires its retained declaration bindings.");
+          if (selected.invocation === undefined) activations.push(Object.freeze({ kind: "declaration", declaration, bindings: owned }));
+          else {
+            const caller = selected.caller === undefined ? undefined : bindingView([selected.caller]);
+            if (caller === undefined) return unresolved(budget.failure() ?? "An invocation activation requires exact caller bindings.");
+            activations.push(Object.freeze({ kind: "invocation", declaration, invocation: selected.invocation,
+              bindings: owned, callerBindings: caller }));
+          }
+        }
+        return budget.failure() !== undefined ? unresolved(budget.failure()!)
+          : Object.freeze({ kind: "resolved", activations: Object.freeze(activations) });
+      });
+    },
+    boundValueFrontierFor(subject, bindings, boundaries, position = "value") {
+      return budget.withRows(rows => {
+        const reason = subjectReason(subject);
+        if (reason !== undefined) return unresolved(reason);
+        const states = bindingStates.get(bindings);
+        if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
+        if (position !== "value" && position !== "input" || !Array.isArray(boundaries))
+          return unresolved("A source value frontier requires an exact position and owned boundary subjects.");
+        let stops = frontierBoundaries.get(boundaries);
+        if (stops === undefined) {
+          const selected = new Set<SourceStorageSubject>();
+          for (let index = 0; index < boundaries.length; index += 1) {
+            if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+            const descriptor = Object.getOwnPropertyDescriptor(boundaries, String(index));
+            const boundary = descriptor === undefined || descriptor.get !== undefined || descriptor.set !== undefined
+              ? undefined : descriptor.value as SourceStorageSubject | undefined;
+            const invalid = boundary === undefined ? "A source value frontier boundary is not an owned subject." : subjectReason(boundary);
+            if (invalid !== undefined) return unresolved(invalid);
+            selected.add(boundary!);
+          }
+          stops = selected;
+          if (Object.isFrozen(boundaries)) {
+            if (!frontierRows.add(1 + stops.size)) return unresolved(budget.failure()!);
+            frontierBoundaries.set(boundaries, stops);
+          }
+        }
+        const frontier: SourceStorageValueFrontier[] = [];
+        for (const state of states) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          const selected = transport.substitutions.frontier(subject, state, stops, position);
+          if (selected === undefined || selected.reason !== undefined)
+            return unresolved(selected?.reason ?? budget.failure() ?? "Source value transport has no completed frontier.");
+          for (const current of selected.subjects) {
+            if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+            const retained = bindingView([current.bindings]);
+            if (retained === undefined) return unresolved(budget.failure() ?? "Source value transport lost its activation bindings.");
+            frontier.push(Object.freeze({ kind: current.kind, subject: current.subject, bindings: retained }));
+          }
+        }
+        return budget.failure() !== undefined ? unresolved(budget.failure()!) : frontier.length === 0
+          ? unresolved("A source value transport cycle has no proven frontier.")
+          : Object.freeze({ kind: "resolved", frontier: Object.freeze(frontier) });
+      });
+    },
     invocationArgumentsFor(invocation) {
       if (!checkedInvocation(invocation)) return unresolved(budget.failure() ?? "An invocation has no checked source argument transport.");
       return Object.freeze({ kind: "resolved", nodes: transport.invocationArguments.get(invocation) ?? Object.freeze([]) });

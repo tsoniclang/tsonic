@@ -82,6 +82,7 @@ export type SourceStorageReduction =
   | SourceStorageBinding & { readonly witnesses?: readonly SourceStorageRelationWitness[];
       readonly dependencies?: readonly SourceStorageTerm[] }
   | { readonly kind: "project"; readonly input: SourceStorageTerm;
+      readonly valueFilter?: Node;
       readonly select: (value: SourceStorageReference) => readonly SourceStorageTerm[] | undefined };
 
 export interface SourceStorageScopedSubject {

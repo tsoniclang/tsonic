@@ -10,6 +10,7 @@ export function createSourceStorageProjectionFlow(
   step: () => boolean,
   subject: SourceStorageSubjectQuery,
   subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
+  locationFor: (node: Node | undefined) => SourceStorageSubject | undefined,
   connect: (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined) => void,
   unresolved: (subject: SourceStorageSubject, reason: string) => void,
   sourceFileFor: (subject: SourceStorageSubject) => SourceFile | undefined,
@@ -18,7 +19,7 @@ export function createSourceStorageProjectionFlow(
   const project = (owner: SourceStorageSubject | undefined, component: SourceStorageProjection):
     SourceStorageSubject | undefined => owner === undefined ? undefined
       : subject(owner.node, owner.kind, [...owner.projection, component]);
-  const indexed = (node: Node): SourceStorageSubject | undefined => {
+  const indexed = (node: Node, location = false): SourceStorageSubject | undefined => {
     const queries = semantics.forNode(node);
     const access = queries.operations.elementAccess(node);
     const component = access === undefined ? undefined
@@ -27,7 +28,8 @@ export function createSourceStorageProjectionFlow(
     if (component === undefined && declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) ||
       sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration)))
       return subject(node);
-    const value = component === undefined ? subject(node) : project(subjectFor(access?.receiver.expression), component);
+    const value = component === undefined ? subject(node)
+      : project((location ? locationFor : subjectFor)(access?.receiver.expression), component);
     if (value !== undefined && component === undefined)
       unresolved(value, "An indexed value has no exact checked array/tuple storage component.");
     return value;

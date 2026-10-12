@@ -99,30 +99,24 @@ export function createSourceStorageTransport(
     }
     return undefined;
   };
-  const subjectFor = (node: Node | undefined): SourceStorageSubject | undefined => {
-    if (node === undefined) return undefined;
-    const original = node;
-    while (step()) {
-      const cached = subjects.get(node);
-      if (cached !== undefined) return cached;
-      if (!ast.is.IsParenthesizedExpression(node) && !ast.is.IsAsExpression(node) &&
-        !ast.is.IsSatisfiesExpression(node) && !ast.is.IsNonNullExpression(node) && !ast.is.IsTypeAssertion(node)) break;
-      const expression = Node_Expression(ast, node);
-      if (expression === undefined) return undefined;
-      node = expression;
-    }
-    if (budget.failure() !== undefined) return undefined;
+  const valueWrapper = (node: Node): boolean => ast.is.IsParenthesizedExpression(node) || ast.is.IsAsExpression(node) ||
+    ast.is.IsSatisfiesExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsTypeAssertion(node);
+  const valueSubjectFor = (node: Node): SourceStorageSubject | undefined => {
+    if (!step()) return undefined;
+    const cached = subjects.get(node);
+    if (cached !== undefined) return cached;
     if (ast.kindName(node) === "KindThisKeyword") {
       const receiver = receiverFor(node);
-      if (receiver !== undefined) subjects.set(node, receiver);
-      return receiver;
+      const value = receiver === undefined ? undefined : subject(node);
+      if (value !== undefined) subjects.set(node, value);
+      connect(receiver, value);
+      return value;
     }
     if (ast.is.IsElementAccessExpression(node)) {
-      const value = projections.indexed(node);
-      if (value !== undefined) {
-        subjects.set(original, value);
-        subjects.set(node, value);
-      }
+      const indexed = projections.indexed(node);
+      const value = indexed === undefined ? undefined : subject(node);
+      if (value !== undefined) subjects.set(node, value);
+      connect(indexed, value);
       return value;
     }
     const reference = ast.is.IsBindingElement(node) ? node : navigation.sourceReferenceFor(node)?.declaration;
@@ -132,8 +126,9 @@ export function createSourceStorageTransport(
           ?? semantics.forNode(node).operations.propertyAccess(node)?.selectedDeclaration
       : reference;
     const qualified = ast.is.IsIdentifier(node) && selected !== undefined && node !== selected &&
-      (ast.is.IsVariableDeclaration(selected) || ast.is.IsParameterDeclaration(selected) || ast.is.IsBindingElement(selected)) &&
-      sourceBindingWriteAtReference(ast, node) === undefined && guardedValues.appliesTo(node) === true;
+      (ast.is.IsVariableDeclaration(selected) || ast.is.IsParameterDeclaration(selected) || ast.is.IsBindingElement(selected) ||
+        ast.is.IsFunctionDeclaration(selected) || ast.is.IsFunctionExpression(selected)) &&
+      sourceBindingWriteAtReference(ast, node) === undefined;
     if (budget.failure() !== undefined) return undefined;
     const target = ast.is.IsPropertyAccessExpression(node) || qualified ? node
       : selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected) ? selected : node;
@@ -147,17 +142,45 @@ export function createSourceStorageTransport(
     if (value === undefined) return undefined;
     if (binding !== undefined) subjects.set(selected!, binding);
     subjects.set(node, value);
-    subjects.set(original, value);
     if (qualified) connect(binding ?? subjectFor(selected), value);
     return value;
   };
+  const subjectFor = (node: Node | undefined): SourceStorageSubject | undefined => budget.withRows(rows => {
+    const wrappers: Node[] = [];
+    while (node !== undefined && !subjects.has(node) && valueWrapper(node)) {
+      if (!step() || !rows.add(1)) return undefined;
+      wrappers.push(node);
+      node = Node_Expression(ast, node);
+    }
+    let value = node === undefined ? undefined : valueSubjectFor(node);
+    for (let index = wrappers.length - 1; value !== undefined && index >= 0; index -= 1) {
+      if (!step()) return undefined;
+      const wrapper = wrappers[index]!;
+      const selected = subject(wrapper);
+      if (selected === undefined) return undefined;
+      subjects.set(wrapper, selected);
+      connect(value, selected);
+      value = selected;
+    }
+    return value;
+  });
   const locationFor = (node: Node | undefined): SourceStorageSubject | undefined => {
+    while (node !== undefined && valueWrapper(node)) {
+      if (!step()) return undefined;
+      node = Node_Expression(ast, node);
+    }
     if (node === undefined) return undefined;
+    if (ast.is.IsIdentifier(node)) {
+      const declaration = navigation.sourceReferenceFor(node)?.declaration;
+      return declaration === undefined ? subjectFor(node) : subjectFor(declaration);
+    }
+    if (ast.kindName(node) === "KindThisKeyword") return receiverFor(node);
     const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
     const selected = property ?? (ast.is.IsElementAccessExpression(node) ? semantics.forNode(node).operations.elementAccess(node) : undefined);
     const declaration = property?.selectedWriteDeclaration ?? selected?.selectedDeclaration;
     return declaration !== undefined && (sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast))
-      ? sourceStorageMemberSubject(declaration, ast, subject) : subjectFor(node);
+      ? sourceStorageMemberSubject(declaration, ast, subject)
+      : ast.is.IsElementAccessExpression(node) ? projections.indexed(node, true) : subjectFor(node);
   };
   const connect = (origin: SourceStorageSubject | undefined, destination: SourceStorageSubject | undefined,
     types?: SourceStorageEdgeTypes): void => {
@@ -169,17 +192,8 @@ export function createSourceStorageTransport(
   };
   const connectStructuralFlow = createSourceStorageStructuralFlow(source, step, subject, connect,
     sourceFileFor, retainCheckedContext);
-  const projections = createSourceStorageProjectionFlow(source, step, subject, subjectFor, connect,
+  const projections = createSourceStorageProjectionFlow(source, step, subject, subjectFor, locationFor, connect,
     (subject, reason) => unresolvedSubjects.set(subject, reason), sourceFileFor);
-  const connectValueFlow = (expression: Node | undefined): void => {
-    if (expression === undefined) return;
-    const subject = subjectFor(expression);
-    for (const declaration of navigation.expressionValueFlow(expression).aliasDeclarations) {
-      if (!step()) return;
-      connect(subject, subjectFor(declaration));
-    }
-  };
-
   const regions = createSourceStorageExecutionRegions(source, budget);
   const memberAccessors = createSourceStorageMemberAccessors(source, budget, {
     subject, subjectFor, incomingFor, connect, recordInvocation: regions.recordInvocation,
@@ -206,7 +220,8 @@ export function createSourceStorageTransport(
   const visit = (node: Node): void => {
     visitedNodes.push(node);
     if (ast.is.IsIdentifier(node) || ast.is.IsVariableDeclaration(node) || ast.is.IsParameterDeclaration(node) ||
-      ast.is.IsPropertyDeclaration(node) || ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node)) subjectFor(node);
+      ast.is.IsPropertyDeclaration(node) || ast.is.IsFunctionDeclaration(node) || ast.is.IsArrowFunction(node) ||
+      ast.is.IsElementAccessExpression(node) || valueWrapper(node) || ast.kindName(node) === "KindThisKeyword") subjectFor(node);
     if ((ast.is.IsMethodDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||
       ast.is.IsSetAccessorDeclaration(node)) && ast.body(node) !== undefined) {
       const contracts = navigation.memberContracts(node);
@@ -223,7 +238,6 @@ export function createSourceStorageTransport(
       const initializer = Node_Initializer(ast, node);
       const parent = ast.parent(node);
       const original = parent !== undefined && ast.is.IsCatchClause(parent) ? subject(node, "input") : subjectFor(initializer);
-      connectValueFlow(initializer);
       connect(original, subject(node));
       storedValues.initialize(subject(node), initializer ?? node, original);
     }
@@ -260,8 +274,7 @@ export function createSourceStorageTransport(
     }
     if (ast.is.IsBinaryExpression(node) && ast.operatorKindName(node) === "KindEqualsToken") {
       const binary = ast.as.AsBinaryExpression(node);
-      connectValueFlow(binary?.Right);
-      if (binary?.Left !== undefined && !ast.is.IsIdentifier(binary.Left)) connect(subjectFor(binary.Right), locationFor(binary.Left));
+      if (binary?.Left !== undefined) connect(subjectFor(binary.Right), locationFor(binary.Left));
     }
     if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
       const property = ast.is.IsPropertyAccessExpression(node) ? semantics.forNode(node).operations.propertyAccess(node) : undefined;
@@ -355,7 +368,6 @@ export function createSourceStorageTransport(
       } else {
         unresolvedInvocations.set(node, "An invocation has no exact checked selected signature transport.");
       }
-      if (ast.is.IsNewExpression(node)) connectValueFlow(node);
     }
   };
   const pendingNodes: Node[] = [];
