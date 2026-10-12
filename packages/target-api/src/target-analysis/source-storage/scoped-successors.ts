@@ -442,6 +442,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const regions = regionsFor(candidate, term.invocation, scope, term.demand);
         return regions === undefined ? undefined : { kind: "replace", terms: regions };
       }
+      if (ast.hasModifierKind(candidate, "async")) {
+        const result = transport.subject(term.invocation, "value", term.projection);
+        return result === undefined ? undefined : { kind: "replace", terms: [leaf(result, term.scope)], dependencies };
+      }
       const result = transport.subject(candidate, "return", term.projection);
       return result === undefined ? undefined : { kind: "replace", terms: [sourceStorageReference(result, scope)], dependencies };
     }

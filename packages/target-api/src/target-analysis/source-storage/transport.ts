@@ -556,7 +556,7 @@ export function createSourceStorageTransport(
         if (!once(candidate)) continue;
         const selected = semantics.forNode(invocation).operations.call(invocation);
         const result = selected === undefined ? undefined : semantics.forNode(invocation).operations.callResult(selected);
-        if (ast.is.IsCallExpression(invocation)) connect(subject(candidate, "return"), subject(invocation),
+        if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async")) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
         connect(ast.is.IsNewExpression(invocation) ? subject(invocation)
           : subjectFor(selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression),
