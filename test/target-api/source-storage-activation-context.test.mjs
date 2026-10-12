@@ -60,6 +60,13 @@ test("argument closure frontier retains its caller's symbolic enclosing activati
   const activation = resolved(storage.boundActivationsFor(owner, frontier.frontier[0].bindings));
   assert.equal(activation.activations.length === 1 && activation.activations[0].kind === "declaration" &&
     activation.activations[0].bindings === callerBindings, true);
+  const boundary = subject(arrow, "value");
+  const stopped = resolved(storage.boundValueFrontierFor(subject(ast.parameters(callee)[0], "input"), calledBindings, [boundary]));
+  assert.equal(stopped.frontier.length === 1 && stopped.frontier[0].kind === "boundary" &&
+    stopped.frontier[0].subject === boundary && stopped.frontier[0].bindings === callerBindings, true,
+  "a closure expression boundary retains its creation environment");
+  assert.equal(storage.boundActivationsFor(arrow, stopped.frontier[0].bindings).kind, "unresolved",
+    "creating a closure does not fabricate an activation of its body");
 });
 
 test("symbolic nested parameter frontier retains the declaration and its enclosing activation", async () => {
