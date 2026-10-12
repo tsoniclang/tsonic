@@ -114,7 +114,7 @@ export function createSourceStorageDomains(
         }
         if (passing !== undefined && passing.mode !== "by-value" && passing.mode !== "byref-readonly" && passing.mode !== "borrow-shared" ||
           pointer?.operation === "address-of" || flow?.state === "borrowed-mut")
-          add(storage === undefined ? subject : transport.subjectFor(storage), "opaque-write", boundary.invocation);
+          add(transport.locationFor(storage ?? expression), "opaque-write", boundary.invocation);
       }
     }
     for (let index = 0; index < publications.size() && budget.step(); index += 1) {

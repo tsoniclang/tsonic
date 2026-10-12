@@ -296,6 +296,26 @@ test("opaque byref writes use the exact fact-owned source storage without expres
   open(current.selection("token"), "opaque-write", "underlying byref storage remains externally writable");
 });
 
+for (const marker of ["mutableborrow", "readwriteref"]) {
+  test(`opaque ${marker} writes retain wrapped locations without exposing independent reads`, async () => {
+    const current = await fixture(`storage-domain-wrapped-${marker}`, `
+      import { ${marker} } from "@tsonic/core/lang.js";
+      declare function outside(value: {}): void;
+      let token: {} = {};
+      const independent = {};
+      outside(${marker}((token)));
+      const selected = token;
+      const separate = independent;
+    `, { sourceCore: true });
+    complete(current.selection("separate"), "independent read before location query remains closed");
+    open(current.selection("token"), "opaque-write", "wrapped fact addresses the original writable declaration");
+    open(current.selection("selected"), "opaque-write", "a subsequent read retains the exact writable location edge");
+    complete(current.selection("independent"), "the writable location cannot contaminate another producer");
+    complete(current.selection("separate"), "location query order cannot broaden an unrelated read");
+    assert.equal(current.storage.failureReason() === undefined, true, "all location and read queries remain bounded");
+  });
+}
+
 test("checked construction result closure is separate from fresh allocation, opaque calls and constructor dispatch", async () => {
   const current = await fixture("storage-domain-native-construction", `
     declare class Native { constructor(); readonly token: {}; }

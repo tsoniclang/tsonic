@@ -681,7 +681,7 @@ export function createSourceStorageTransport(
   regions.seal();
   graphQueries.seal();
   sealed = true;
-  return { subject, subjectFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
+  return { subject, subjectFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,

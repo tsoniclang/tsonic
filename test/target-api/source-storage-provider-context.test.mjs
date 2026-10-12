@@ -130,7 +130,12 @@ test("virtual structural members transport aliases, fields and cross-file calls 
   assert.equal(incoming.kind === "resolved" && incoming.subjects.some(subject => subject.node === property), true, "exact authored property origin");
   const again = storage.argumentTransportsFor(invocation(source, second, "record")).arguments[0];
   assert.equal(again.formal === record, true, "one provider formal identity across files");
-  assert.equal(again.actual.node === namedVariable(source.ast, second, "independent"), true, "independent source remains exact");
+  assert.equal(again.actual.node === source.ast.arguments(invocation(source, second, "record"))[0], true,
+    "independent actual read remains exact");
+  const independent = storage.incomingFor(again.actual);
+  assert.equal(independent.kind === "resolved" && independent.subjects.length === 1 &&
+    independent.subjects[0].node === namedVariable(source.ast, second, "independent"), true,
+  "independent read retains the exact declaration in its source file");
   const originalSubject = storage.subjectFor(original).subject;
   assert.equal(storage.typeFor(originalSubject).sourceFile === file, true, "authored source context never changes");
   const origins = storage.originsFor(originalSubject);

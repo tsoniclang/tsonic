@@ -71,10 +71,22 @@ test("equal RHS producers retain distinct write occurrences and checked computed
   const mutations = current.stores(property).filter(store => store.kind === "mutation");
   assert.equal(mutations.length === 2 && mutations[0].reference !== mutations[1].reference, true,
     "equal stored values cannot erase different writer occurrences");
-  assert.equal(mutations.every(store => store.value === current.transport.subject(current.variable("token"))), true);
-  assert.equal(mutations.some(store => store.receiver === current.transport.subject(current.variable("box"))) &&
-    mutations.some(store => store.receiver === current.transport.subject(current.variable("alias"))), true,
-  "structural reconciliation retains each occurrence's selected receiver, not only the physical member");
+  assert.equal(mutations[0].value !== mutations[1].value && mutations[0].receiver !== mutations[1].receiver, true,
+    "separate RHS and receiver reads retain their authored occurrence identity");
+  for (const store of mutations) {
+    const assignment = current.source.ast.as.AsBinaryExpression(store.operation);
+    const receiver = current.source.ast.as.AsPropertyAccessExpression(store.reference)?.Expression ??
+      current.source.ast.as.AsElementAccessExpression(store.reference)?.Expression;
+    assert.equal(store.value?.node === assignment.Right && store.receiver?.node === receiver, true,
+      "stored value and receiver are the exact checked reads, not reconstructed declarations");
+    const inputs = current.transport.incomingFor(store.value);
+    assert.equal(inputs.size === 1 && inputs.has(current.transport.subject(current.variable("token"))), true,
+      "both read occurrences retain the identical producer declaration");
+    const owner = current.source.ast.is.IsPropertyAccessExpression(store.reference) ? "box" : "alias";
+    const receivers = current.transport.incomingFor(store.receiver);
+    assert.equal(receivers.size === 1 && receivers.has(current.transport.subject(current.variable(owner))), true,
+      "structural reconciliation retains each exact authored receiver alias");
+  }
 });
 
 test("constructor parameter-property initialization uses its actual formal in the constructor region", () => {

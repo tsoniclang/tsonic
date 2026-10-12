@@ -194,8 +194,13 @@ const independent: Children = [[undefined]];
     const selected = resolvedSubject(storage.storageSubjectFor(variable("alias"), projection), `depth ${depth}`);
     const parents = storage.incomingFor(selected);
     assert.equal(parents.kind, "resolved", `exact depth ${depth}`);
-    assert.equal(parents.subjects.some(parent => parent.node === variable("original") && parent.projection.length === depth), true,
-      `exact alias correspondence at depth ${depth}`);
+    const read = resolvedSubject(storage.storageSubjectFor(initializer("alias"), projection), `read depth ${depth}`);
+    assert.equal(parents.subjects.length === 1 && parents.subjects[0] === read, true,
+      `exact immediate alias read at depth ${depth}`);
+    const declarations = storage.incomingFor(read);
+    assert.equal(declarations.kind === "resolved" && declarations.subjects.length === 1 &&
+      declarations.subjects[0].node === variable("original") && declarations.subjects[0].projection.length === depth, true,
+    `exact read-to-declaration correspondence at depth ${depth}`);
     assert.equal(parents.subjects.some(parent => parent.node === variable("independent") || parent.node === initializer("independent")), false,
       "independent container is not an origin");
   }
@@ -229,7 +234,10 @@ alias = original;
   assert.equal(arguments_.kind === "resolved", true);
   assert.equal(arguments_.arguments.length, 1);
   assert.equal(arguments_.arguments[0].formal.node === source.ast.parameters(identity)[0], true, "selected formal");
-  assert.equal(arguments_.arguments[0].actual.node === variable("original"), true, "selected actual alias");
+  assert.equal(arguments_.arguments[0].actual.node === source.ast.arguments(invocation)[0], true, "selected actual read occurrence");
+  const actualOrigins = storage.incomingFor(arguments_.arguments[0].actual);
+  assert.equal(actualOrigins.kind === "resolved" && actualOrigins.subjects.length === 1 &&
+    actualOrigins.subjects[0].node === variable("original"), true, "selected actual read retains its exact declaration");
   const selectedCall = source.semantics.forNode(invocation).operations.call(invocation);
   assert.equal(arguments_.arguments[0].binding.selectedArgumentType === selectedCall.sourceArgumentBindings[0].selectedArgumentType, true);
   assert.equal(arguments_.arguments[0].binding.selectedParameterType === selectedCall.sourceArgumentBindings[0].selectedParameterType, true);
@@ -458,9 +466,13 @@ export function throwRest(...values: Box<number>[]): never { throw values[0]; }`
   const declaration = namedDeclaration(source.ast, provider, "native");
   const boundary = storage.boundaries.find(boundary => boundary.invocation === native);
   assert.equal(boundary !== undefined && boundary.kind === "opaque-invocation" && boundary.declaration === declaration, true);
-  assert.equal(boundary.subjects.some(value => value === subject("callback")), true, "exact callback transport subject");
+  const callbackRead = resolvedSubject(storage.subjectFor(source.ast.arguments(native)[0]), "callback read");
+  assert.equal(boundary.subjects.some(value => value === callbackRead), true, "exact callback read transport subject");
+  const callbackSource = storage.incomingFor(callbackRead);
+  assert.equal(callbackSource.kind === "resolved" && callbackSource.subjects.length === 1 &&
+    callbackSource.subjects[0] === subject("callback"), true, "callback read retains its exact source declaration");
   const formal = resolvedSubject(storage.subject(source.ast.parameters(declaration)[0], "input"), "native formal input");
-  assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(subject("callback")), true);
+  assert.equal(storage.incomingFor(formal).kind === "resolved" && storage.incomingFor(formal).subjects.includes(callbackRead), true);
   const rest = call("spread");
   assert.equal(storage.argumentTransportsFor(rest).kind, "unresolved", "unsupported rest transport is explicit, never guessed");
   const restDeclaration = namedDeclaration(source.ast, provider, "spread");
