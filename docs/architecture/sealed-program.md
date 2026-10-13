@@ -54,7 +54,7 @@ Rust's family reader accepts the original checked subject:
 
 ```typescript
 export interface RustRecordFamily<T> {
-  get(subject: ExtensionFactSubject | undefined): T | undefined;
+  readonly get: (subject: ExtensionFactSubject | undefined) => T | undefined;
 }
 ```
 
@@ -66,7 +66,9 @@ the node's spelling when the record is absent.
 C# groups its existing typed queries under the same `<family>.get` idiom. Their
 parameters and result types remain exact. Not every query was a single-node,
 optional lookup: required types, booleans, collections and compound contextual
-queries retain their contracts. Examples include:
+queries retain their contracts. Both targets declare the getter function
+property readonly; freezing the runtime object is not a substitute for this
+typed boundary. Examples include:
 
 ```typescript
 program.records.physicalStorageType.get(declaration, logicalType);
@@ -91,7 +93,11 @@ consumer APIs.
 
 Rust's constructor is `createRustProgramRecordBuilder`, in
 `src/analysis/program/records/create.ts`. Its analysis-only writer publishes
-through `records.<family>.set(subject, value, evidence?)`. It preserves:
+through `records.<family>.set(subject, value, evidence?)`. The optional third
+argument is `readonly unknown[]`, retained from the original formal writer
+signature during the mechanical migration. The store ignores those notes;
+they do not establish or validate a semantic proof. Producer consolidation may
+remove them after proving the affected caller/evaluation behavior. It preserves:
 
 1. Exact checked subject identity and each family's original equality rule.
 2. Rejection of conflicting evidence rather than last-write-wins replacement.

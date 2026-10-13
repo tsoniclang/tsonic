@@ -43,6 +43,7 @@ closed carrier only where its actual source/native contract requires one.
 | Direct source `await f()` | Native body/awaiter using the admitted .NET completion | Ordinary native body if non-suspending; native future if suspending | One body; no JS object solely for the direct call |
 | Local stored Promise awaited later | Existing `Task<T>` contract | `JsPromise<'a, T>` | Remains an object in this PR |
 | Promise parameter, field, collection element or package ABI | `Task<T>`; `Task` for void | `JsPromise<'a, T>` | One JS rejection contract, independent of producer |
+| `Promise<int32 \| null \| undefined>` | `Task<int?>` | `JsPromise<'a, Option<i32>>` | One optional payload, not separate null/undefined variants |
 | JS rejection reason | `object?` and `TsThrownValueException` | `JsValue` | Preserve exact thrown value/Error identity |
 | Authored broad `unknown` value | Core `TsValue` | JS `JsValue` | Closed payload admission; no arbitrary object reflection |
 | Variadic `unknown[]` callback | Dense sequence of `TsValue` with exact delegate/rest contract | Dense sequence of `JsValue` with exact callable/rest contract | Preserve arity, selected argument types and ownership |
@@ -63,6 +64,11 @@ Declared methods/properties and additional native contracts must be handled
 through their own checked forms. An absent key and a present nullish payload
 can be observed through dictionary membership without inventing two source
 absence tags.
+
+A broad value already admitting the single absence state does not acquire an
+extra optional wrapper for `unknown | null | undefined`. Generic optional
+storage consumes the same selected type/absence policy; it must not treat a
+present integer zero as an absent default value.
 
 Current vocabulary already includes C# `TsValue` and dictionary contracts and
 Rust `JsValue`/`Record`. That does not prove all parameter admission sites use
