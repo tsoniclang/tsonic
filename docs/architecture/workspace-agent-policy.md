@@ -486,6 +486,14 @@ policy.
   do not authorize hidden copying, conversion, storage, bookkeeping or a slower
   emulation path. Document native differences; do not simulate another runtime
   merely to avoid those differences.
+- A bare-metal-speed native option with the selected target's native semantics
+  is mandatory for supported common operations, including when a JS or Node
+  surface is selected. Compatibility must never introduce a performance
+  regression on retained paths. Explicit JS/Node compatibility may cost at most
+  3x an equivalent idiomatic handwritten native implementation with the same
+  supported behavior. This is an absolute ceiling, not an optimization target
+  or permission for avoidable overhead. Anything above it requires a measured,
+  explicitly approved exception and must never be a hot or common path.
 - This applies across generated code, analysis-selected representations,
   provider adapters, call boundaries, runtimes and benchmark dispatchers, not
   only individual runtime functions. Audit implicit copies, allocations,
