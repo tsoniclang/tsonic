@@ -145,6 +145,8 @@ async function verifyPublicInstall({ version, selection }) {
       '  ok(readFileSync("message.txt", "utf8") === "Rust public install\\n");',
       "}",
       "",
+      "main();",
+      "",
     ].join("\n"),
     message: "Rust public install\n",
   }];

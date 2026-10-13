@@ -35,17 +35,22 @@ Tsonic formats every generated `.rs` artifact with the selected edition's
 for a user-owned Cargo project, but never changes Rust source authored by the
 user. A missing formatter or a formatting failure rejects publication.
 
-`outputType: "bin"` requires an exported entry function:
+`outputType: "bin"` executes the entry module's top-level code:
 
 ```ts
 export function main(): void {
   // application startup
 }
+
+main();
 ```
 
-This may also be `async function main(): Promise<void>`. A fallible entry is
-emitted as a native `Result` path. `outputType: "lib"` instead exposes
-supported TypeScript exports as Rust library declarations.
+An asynchronous startup may call `await main()` at top level. Exporting `main`
+alone never invokes it; an uncalled binary-entry export is diagnosed. Top-level
+code needs no named entry function. Fallible module initialization retains its
+selected native error boundary. `outputType: "lib"` instead exposes supported
+TypeScript exports as Rust library declarations; a native caller owns its
+startup and any native `Termination` return contract.
 
 ## Foundation
 

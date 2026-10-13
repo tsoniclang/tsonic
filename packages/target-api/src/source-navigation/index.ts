@@ -1,4 +1,6 @@
 export * from "./navigation.js";
+export { validateSourceBinaryEntry } from "./entry-validation.js";
+export type { SourceBinaryEntryIssue } from "./entry-validation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
 export { sourceCallableDefinitionIsDiscarded } from "./expression-use.js";

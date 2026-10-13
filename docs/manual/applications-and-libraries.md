@@ -32,8 +32,8 @@ runtime contract supports it.
 
 ## Rust applications
 
-A generated Rust binary requires the entry module to export `main` with a unit
-result:
+A generated binary executes the entry module's top-level code on both targets.
+An exported `main` is an ordinary function and must be called explicitly:
 
 ```ts
 export function main(): void {
@@ -42,12 +42,15 @@ export function main(): void {
     throw new Error("invalid length");
   }
 }
+
+main();
 ```
 
-Tsonic generates native Rust `main`, performs required module initialization,
-then calls the exported function. An async entry may return `Promise<void>`.
-Fallible and asynchronous entry contracts are lowered only when analysis
-proves the complete native path.
+Tsonic generates native startup and performs required module initialization;
+it never adds a second call to the exported function. An asynchronous startup
+may use `await main()` at top level. A module containing top-level operations
+does not need to export `main`. An exported but uncalled binary-entry `main`
+rejects with `TSONIC_UNCALLED_BINARY_ENTRY_MAIN`.
 
 ## Libraries
 

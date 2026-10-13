@@ -23,7 +23,9 @@ export function main(): void {}
 ```
 
 For executable output, call it from top-level code. The generated
-`TsonicEntrypoint.Main` runs the entry module.
+`TsonicEntrypoint.Main` runs the entry module. An exported but uncalled
+binary-entry `main` rejects with `TSONIC_UNCALLED_BINARY_ENTRY_MAIN`, matching
+the Rust entry contract. Library exports are unaffected.
 
 C# library module initialization must be synchronous. Top-level `await` in a
 library entry graph is rejected because a CLR module initializer cannot await.

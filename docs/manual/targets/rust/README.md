@@ -16,11 +16,14 @@ export function main(): void {
     throw new Error("missing answer");
   }
 }
+
+main();
 ```
 
-For binary output, the entry module exports `main` returning `void`. An async
-entry may return `Promise<void>`. The target emits native Rust `main`, performs
-module initialization, and calls that function.
+For binary output, the entry module's top-level code is the program, as on C#.
+The target emits native Rust startup and performs module initialization; it
+never implicitly calls an exported function. An async startup may use
+`await main()` at top level. Exporting `main` without calling it is diagnosed.
 
 The standard-library import is produced from the selected Rust toolchain.
 TypeScript checking selects the source declaration. Rust analysis then closes

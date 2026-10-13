@@ -57,7 +57,7 @@ entry exporting `main` but never calling that checked declaration rejects with
 `TSONIC_UNCALLED_BINARY_ENTRY_MAIN`. Library exports and non-entry modules do
 not acquire that binary-entry requirement.
 
-Shared `source-navigation/entry-validation.ts` is the planned validator owner.
+Shared `source-navigation/entry-validation.ts` is the validator owner.
 It uses checked declaration/call correspondence, including aliases, rather
 than matching the text `main`. Each target consumes the same validation and
 its own module-initialization analysis orders imports and top-level work.

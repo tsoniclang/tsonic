@@ -111,6 +111,8 @@ async function verifyRust(registryOrigin) {
     '  console.log([1, 2, 3].map((value) => value * 2).join(","));',
     "}",
     "",
+    "main();",
+    "",
   ].join("\n"));
   const richerOutput = run(
     "npm",
@@ -137,6 +139,8 @@ async function verifyRust(registryOrigin) {
     "export function main(): void {",
     '  ok(readFileSync("message.txt", "utf8") === "Rust Node capability\\n");',
     "}",
+    "",
+    "main();",
     "",
   ].join("\n"));
   run("npm", ["start", "--silent"], { cwd: root, capture: true });
