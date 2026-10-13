@@ -78,6 +78,12 @@
     "architecture/README.md",
     "architecture/compilation-lifecycle.md",
     "architecture/csharp-rust-structure.md",
+    "architecture/source-storage-design.md",
+    "architecture/ownership-contract.md",
+    "architecture/sealed-program.md",
+    "architecture/js-surface-carriers.md",
+    "architecture/event-loop-contract.md",
+    "architecture/node-stream-contract.md",
     "architecture/indexed-type-correspondence.md",
     "architecture/memory-type-contracts.md",
     "architecture/proven-integer-operations.md",
@@ -85,6 +91,7 @@
     "architecture/target-pack-contract.md",
     "architecture/provider-and-runtime-ownership.md",
     "architecture/test-execution.md",
+    "architecture/test-design.md",
     "architecture/workspace-agent-policy.md"
   ],
   "validation": [
