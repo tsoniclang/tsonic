@@ -382,7 +382,7 @@
     "source": "import { Widget } from \"@tsonic/rust/crates/widget_alias/index.js\";",
     "classification": "implemented",
     "action": "retain rustdoc-backed exact provider declarations",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.standard-library-breadth",
@@ -391,7 +391,7 @@
     "classification": "implemented",
     "action": "retain requested compiler-backed public standard-library exports",
     "csharpReference": "tsonic-csharp/src/providers/native/acquisition",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/rust-stdlib-provider.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/rust-stdlib-provider.test.mjs"
   },
   {
     "id": "providers.generic-bounds",
@@ -400,7 +400,7 @@
     "classification": "implemented",
     "action": "retain exact Clone and Copy provider bounds through declaration models and generated generic requirements",
     "csharpReference": "tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-generic-constraints.test.mjs",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.copy-static-borrowed-results",
@@ -408,7 +408,7 @@
     "source": "const name = item.staticName(); const copied = item.borrowedCount();",
     "classification": "implemented",
     "action": "retain exact static-string and Copy-value projections from compiler-selected borrowed results",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.escaping-borrowed-results",
@@ -416,7 +416,7 @@
     "source": "const view = buffer.asSlice();",
     "classification": "target-limit",
     "action": "Retain exact lifetime-bearing borrowed-result checks. Re-audit this broad capability classification separately; this source-reference inventory does not certify an escaping-borrow capability gap.",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.owned-custom-receivers",
@@ -424,7 +424,7 @@
     "source": "const value = boxed.consume();",
     "classification": "implemented",
     "action": "retain exact owned custom receiver projection such as Box<Self> through provider-selected UFCS",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.borrowed-custom-receivers",
@@ -432,7 +432,7 @@
     "source": "pinned.poll(context);",
     "classification": "target-limit",
     "action": "reject nested borrowed custom receivers before source projection; retain owned custom receivers such as Box<Self>",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.c-variadics",
@@ -440,7 +440,7 @@
     "source": "unsafe(() => variadic(format, first, second));",
     "classification": "implemented",
     "action": "retain C variadic tails as an explicit unsafe provider ABI without treating them as ordinary Rust rest parameters",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.mutable-statics",
@@ -448,7 +448,7 @@
     "source": "unsafe(() => externalCounter.value++);",
     "classification": "implemented",
     "action": "retain exact unsafe read and write operations over the selected mutable static identity",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.closed-trait-associated-items",
@@ -456,7 +456,7 @@
     "source": "const value = iterator.next();",
     "classification": "implemented",
     "action": "retain exact trait methods, associated constants, and concrete associated-type substitutions",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.open-associated-types",
@@ -464,7 +464,7 @@
     "source": "const value: Family<T>::Item<U> = family.make(input);",
     "classification": "target-limit",
     "action": "reject open associated and generic-associated projections because TypeScript has no higher-kinded projection type; retain compiler-resolved concrete substitutions",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.rust-unions",
@@ -472,7 +472,7 @@
     "source": "unsafe(() => payload.integer);",
     "classification": "implemented",
     "action": "retain union fields as explicit unsafe selected operations over exact provider identities",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   },
   {
     "id": "providers.macros",
@@ -504,6 +504,6 @@
     "source": "import { Widget } from \"@tsonic/rust/crates/widget_alias/index.js\";",
     "classification": "implemented",
     "action": "retain source-only publication without mutating Cargo.toml",
-    "rustReference": "tsonic-rust/test/providers/native/rustdoc/compiler-provider-cargo-integration-and-rejections.test.mjs"
+    "rustReference": "tsonic-rust/test/providers/native/acquisition/compiler-provider-cargo-integration-and-rejections.test.mjs"
   }
 ]
