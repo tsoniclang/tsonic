@@ -191,6 +191,19 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     const findings = evaluateKeelLayers(repo, model);
     const writes = findings.filter(entry => entry.check === "AC3");
     assert.equal(writes.length, 2, "both taking the writer and invoking it violate the same ownership boundary");
+    assert.equal(new Set(writes.map(entry => entry.id)).size, 2, "both source obligations retain distinct fingerprints");
     assert.equal(writes.every(entry => entry.reason.includes("Only analysis") && entry.evidence.target === `${schema}#Writer.set`), true);
   });
 }
+
+test("repeated identical source text retains every distinct violating call site", () => {
+  const schema = "src/target-model/records/program.ts";
+  const planner = "src/backend/planner/expressions/plan.ts";
+  const model = keelFixtureModel([
+    [schema, "export interface Writer { readonly set: (subject: number, value: number) => void; }"],
+    [planner, 'import type { Writer } from "../../../target-model/records/program.js"; export function plan(writer: Writer): void { writer.set(1, 2); writer.set(1, 2); }'],
+  ]);
+  const findings = evaluateKeelLayers("tsonic-rust", model).filter(entry => entry.check === "AC3");
+  assert.equal(findings.length, 4, "each invocation and writer access remains visible");
+  assert.equal(new Set(findings.map(entry => entry.id)).size, 4, "identical text cannot collapse independent source sites");
+});

@@ -10,7 +10,11 @@ export function evaluateKeelLayers(repo, model, census = {}) {
   const classifications = new Map();
   const evidenceFor = entry => ({ bodySha256: entry.bodySha256 });
   const emit = (check, entry, reason, evidence = evidenceFor(entry)) => {
-    findings.push(keelFinding(check, repo, entry.file, entry.symbol ?? entry.owner, reason, evidence));
+    findings.push(keelFinding(check, repo, entry.file, entry.symbol ?? entry.owner, reason, {
+      ...evidenceFor(entry), ...evidence,
+      ...(Number.isSafeInteger(entry.offset) ? { offset: entry.offset } : {}),
+      ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}),
+    }));
   };
 
   for (const entry of census.functions ?? []) {
