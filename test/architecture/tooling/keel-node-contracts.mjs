@@ -19,7 +19,7 @@ const common = [
   ["stream", "stream.ts", "stream/declarations.ts"],
   ["timers", "timers.ts", "timers/declarations.ts"],
   ["tls", "tls.ts", "tls/declarations.ts"],
-  ["url", "url/identities.ts", "url.ts"],
+  ["url", "url/identities.ts", "url/declarations.ts"],
   ["util", "util/declarations.ts", "util/declarations.ts"],
   ["v8", "v8.ts", "v8.ts"],
   ["worker_threads", "worker-threads.ts", "worker-threads/declarations.ts"],

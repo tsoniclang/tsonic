@@ -14,6 +14,7 @@ import {
 import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certification-checks.mjs";
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
+import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
 
 export const keelWorkspaceRepositories = Object.freeze([
   "tsonic", "tsonic-csharp", "tsonic-rust", "tsts-legacy",
@@ -86,7 +87,7 @@ export function evaluateKeelWorkspace(workspace, manifest, { final = false, dete
       runtimes.set(repo, new Map([...sources].filter(([file]) => file.endsWith(".rs") || file.endsWith(".cs"))));
     }
     if (repo === "csharp-nodejs" || repo === "rust-nodejs") {
-      nodeModels.set(repo, model);
+      nodeModels.set(repo, { ...model, moduleRegistry: readKeelNodeModuleRegistry(workspace, repo) });
       const nodeSources = new Map([...typed].filter(([file]) => file.startsWith("nodejs/src/")));
       const target = repo === "csharp-nodejs" ? "Csharp" : "Rust";
       findings.push(...evaluateNodeProviderContract(nodeSources, {
@@ -123,6 +124,11 @@ export function evaluateKeelWorkspace(workspace, manifest, { final = false, dete
     if (git(root, ["rev-parse", "HEAD"]).trim() !== pins[repo] ||
       digestInventory(productSources(root, repo)) !== sourceDigests[repo]) {
       throw new Error(`Keel inputs changed during the census in '${repo}'; no result is certified.`);
+    }
+  }
+  for (const [repo, model] of nodeModels) {
+    if (keelDigest(readFileSync(model.moduleRegistry.artifact.path)) !== model.moduleRegistry.artifact.sha256) {
+      throw new Error(`Built Node registry changed during the census: ${repo}.`);
     }
   }
   return Object.freeze({ findings: sortKeelFindings(findings), capabilityGaps: Object.freeze(capabilityGaps), pins, sourceDigests, totalFunctions,

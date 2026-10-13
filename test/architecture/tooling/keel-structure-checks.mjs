@@ -169,7 +169,16 @@ export function evaluateKeelRuntimeFamilies(runtimeSources, register = []) {
 export function evaluateKeelNodeModules(moduleRows, nativeDifferences = [], moduleEvidence = new Map()) {
   const findings = [];
   const capabilityGaps = [];
-  const moduleSet = repo => new Set((moduleRows.get(repo) ?? []).filter(row => row.exposed).map(row => row.module));
+  const moduleSet = repo => {
+    const modules = moduleEvidence.get(repo)?.moduleRegistry?.modules;
+    if (!Array.isArray(modules) || modules.some(module => typeof module !== "string" || !module.startsWith("node:")) ||
+      new Set(modules).size !== modules.length) {
+      findings.push(keelFinding("AC10", repo, "nodejs/src/provider/assembly/modules.ts", "public registry",
+        "Public Node module-set verification requires the actual built registry, not identifier spelling."));
+      return new Set();
+    }
+    return new Set(modules);
+  };
   const csharp = moduleSet("csharp-nodejs");
   const rust = moduleSet("rust-nodejs");
   for (const module of new Set([...csharp, ...rust])) {
@@ -189,6 +198,7 @@ export function evaluateKeelNodeModules(moduleRows, nativeDifferences = [], modu
   }
   for (const [repo, rows] of moduleRows) {
     const model = moduleEvidence.get(repo);
+    const actualModules = repo === "csharp-nodejs" ? csharp : rust;
     const reachable = new Set(["nodejs/src/provider/package.ts"]);
     const pending = [...reachable];
     while (pending.length > 0) {
@@ -204,13 +214,12 @@ export function evaluateKeelNodeModules(moduleRows, nativeDifferences = [], modu
       if (!validPath(row.file) || typeof row.module !== "string" || !row.module.startsWith("node:") ||
         typeof row.exposed !== "boolean" || seen.has(row.module)) throw new Error("Invalid or duplicate Node module row.");
       seen.add(row.module);
-      if (row.exposed && (model === undefined || !reachable.has(row.file) ||
+      if (row.exposed && (model === undefined || !actualModules.has(row.module) || !reachable.has(row.file) ||
         !model.stringLiterals.some(literal => literal.file === row.file && literal.text === row.module))) {
         findings.push(keelFinding("AC10", repo, row.file, row.module,
           "Exposed module registration lacks exact literal and package-reachability evidence."));
       }
-      if (!row.exposed && model?.declarations.some(declaration => declaration.exported &&
-        declaration.file === row.file && declaration.literal === row.module && reachable.has(row.file))) {
+      if (!row.exposed && actualModules.has(row.module)) {
         findings.push(keelFinding("AC10", repo, row.file, row.module,
           "A reachable provider declaration cannot be relabeled native-only to hide a parity gap."));
       }
@@ -219,12 +228,10 @@ export function evaluateKeelNodeModules(moduleRows, nativeDifferences = [], modu
           "Native-only implementation requires its checked reachability evidence, never automatic deletion."));
       }
     }
-    for (const declaration of model?.declarations ?? []) {
-      if (!declaration.exported || !declaration.file.startsWith("nodejs/src/provider/modules/") ||
-        typeof declaration.literal !== "string" || !declaration.literal.startsWith("node:") || declaration.literal.includes("::")) continue;
-      if (reachable.has(declaration.file) && !seen.has(declaration.literal)) {
-        findings.push(keelFinding("AC10", repo, declaration.file, declaration.literal,
-          "A reachable exported module identity is missing from the exact provider parity inventory."));
+    for (const module of actualModules) {
+      if (!seen.has(module)) {
+        findings.push(keelFinding("AC10", repo, "nodejs/src/provider/assembly/modules.ts", module,
+          "A public module registration is missing from the exact provider parity inventory."));
       }
     }
   }

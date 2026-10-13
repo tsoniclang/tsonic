@@ -156,10 +156,10 @@ test("AC10 runtime ownership is exact, paired and layer-consistent", () => {
 test("AC10 Node parity uses checked identities and reachability, retaining native-only modules", () => {
   const packageFile = "nodejs/src/provider/package.ts";
   const moduleFile = "nodejs/src/provider/modules/fs.ts";
-  const evidence = new Map(["csharp-nodejs", "rust-nodejs"].map(repo => [repo, keelFixtureModel([
+  const evidence = new Map(["csharp-nodejs", "rust-nodejs"].map(repo => [repo, { ...keelFixtureModel([
     [packageFile, 'import { moduleSpecifier } from "./modules/fs.js"; export const module = moduleSpecifier;'],
     [moduleFile, 'export const moduleSpecifier = "node:fs";'],
-  ])]));
+  ]), moduleRegistry: { modules: ["node:fs"] } }]));
   const rows = new Map(["csharp-nodejs", "rust-nodejs"].map(repo => [repo, [
     { module: "node:fs", file: moduleFile, exposed: true },
   ]]));
@@ -167,10 +167,31 @@ test("AC10 Node parity uses checked identities and reachability, retaining nativ
   rows.get("rust-nodejs").push({ module: "node:cluster", file: "rust/crates/tsonic_rust_node/src/cluster/mod.rs", exposed: false, nativeReachable: true, evidence: "Native cluster implementation remains checked; no public provider is claimed." });
   assert.equal(evaluateKeelNodeModules(rows, [], evidence).findings.length, 0);
   rows.get("csharp-nodejs").push({ module: "node:extra", file: moduleFile, exposed: true });
+  evidence.get("csharp-nodejs").moduleRegistry.modules.push("node:extra");
   assert.equal(keelFixtureHas(evaluateKeelNodeModules(rows, [], evidence).findings, "AC10", "module sets differ"), true);
   assert.equal(keelFixtureHas(evaluateKeelNodeModules(rows, [], evidence).findings, "AC10", "exact literal"), true);
   rows.get("rust-nodejs")[0] = { ...rows.get("rust-nodejs")[0], file: "nodejs/src/provider/modules/orphan.ts" };
   assert.equal(keelFixtureHas(evaluateKeelNodeModules(rows, [], evidence).findings, "AC10", "package-reachability"), true);
+});
+
+test("AC10 distinguishes actual public modules from reachable signature and export identifiers", () => {
+  const packageFile = "nodejs/src/provider/package.ts";
+  const moduleFile = "nodejs/src/provider/modules/fs.ts";
+  const evidence = new Map(["csharp-nodejs", "rust-nodejs"].map(repo => [repo, {
+    ...keelFixtureModel([
+      [packageFile, 'import { moduleSpecifier, signature } from "./modules/fs.js"; export const metadata = [moduleSpecifier, signature];'],
+      [moduleFile, 'export const moduleSpecifier = "node:fs"; export const signature = "node:fs.readFile(System.String)"; export const exportIdentity = "node:fs::readFile";'],
+    ]), moduleRegistry: { modules: ["node:fs"] },
+  }]));
+  const rows = new Map(["csharp-nodejs", "rust-nodejs"].map(repo => [repo, [
+    { module: "node:fs", file: moduleFile, exposed: true },
+  ]]));
+  assert.equal(evaluateKeelNodeModules(rows, [], evidence).findings.length, 0,
+    "native signature spelling is not module identity");
+  evidence.get("rust-nodejs").moduleRegistry.modules.push("node:unregistered");
+  assert.equal(keelFixtureHas(evaluateKeelNodeModules(rows, [], evidence).findings, "AC10", "public module registration"), true);
+  delete evidence.get("csharp-nodejs").moduleRegistry;
+  assert.equal(keelFixtureHas(evaluateKeelNodeModules(rows, [], evidence).findings, "AC10", "actual built registry"), true);
 });
 
 test("AC10 excluded native API gaps stay visible; retained counterpart and ownership defects still fail", () => {
@@ -189,10 +210,11 @@ test("AC10 excluded native API gaps stay visible; retained counterpart and owner
 
 test("AC10 missing optional perf_hooks exposure is not a native exception; requiring it fails the retained gate", () => {
   const moduleFile = "nodejs/src/provider/modules/performance.ts";
-  const evidence = new Map([["rust-nodejs", keelFixtureModel([
+  const evidence = new Map([["rust-nodejs", { ...keelFixtureModel([
     ["nodejs/src/provider/package.ts", 'import { moduleSpecifier } from "./modules/performance.js"; export const module = moduleSpecifier;'],
     [moduleFile, 'export const moduleSpecifier = "node:perf_hooks";'],
-  ])]]);
+  ]), moduleRegistry: { modules: ["node:perf_hooks"] } }],
+  ["csharp-nodejs", { moduleRegistry: { modules: [] } }]]);
   const row = { module: "node:perf_hooks", file: moduleFile, exposed: true, required: false, scopeEvidence: "D-K01" };
   const rows = new Map([["csharp-nodejs", []], ["rust-nodejs", [row]]]);
   const result = evaluateKeelNodeModules(rows, [], evidence);
