@@ -20,8 +20,7 @@ export const keelBasePins = Object.freeze({
   "tsumo-csharp": "ef9451d8a13ca2e2249e15cb3dbce545317ac8d8",
 });
 
-const rustQueries = "src/target-model/facts/selections.ts";
-const rustKeys = "src/target-model/facts/keys.ts";
+const rustKeys = "src/analysis/program/records/key.ts";
 
 export const keelOwnedTargets = Object.freeze({
   "tsonic-csharp": Object.freeze({
@@ -36,11 +35,6 @@ export const keelOwnedTargets = Object.freeze({
   "tsonic-rust": Object.freeze({
     programType: { file: "src/analysis/program/model.ts", symbol: "RustTargetProgram" },
     diagnosticCodeFields: [{ file: "external/tsonic/packages/target-api/src/artifacts.ts", symbol: "TargetDiagnostic.code" }],
-    keyReaders: ["get", "resolve", "getFact", "getRuntimeCarrierFact", "getSelectedTargetCall",
-      "getSelectedTargetOperation", "getSelectedTargetProperty", "getSelectedTargetElementAccess",
-      "getSelectedTargetOperator", "getSelectedTargetIteration", "getTargetConversionFact", "getArgumentPassingFact"]
-      .map(name => ({ file: rustQueries, symbol: `RustPlanQueries.${name}` })),
-    keyWriters: [{ file: rustQueries, symbol: "RustPlanWriter.set" }],
     keyDefinitions: [{ file: rustKeys, symbol: "defineRustPlanKey" }],
     keyTypes: [{ file: rustKeys, symbol: "RustPlanKey" }],
     diagnosticCalls: ["unsupportedStatementDiagnostic", "missingFactDiagnostic", "unsupportedConstructDiagnostic"].map(symbol => ({
