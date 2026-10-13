@@ -16,80 +16,9 @@ export function evaluateArchitecture({
   hardLineLimit = 900,
   lineLimitExceptions = new Map(),
 }) {
-  const findings = [];
-  for (const edge of edges) {
-    if (edge.unresolved) {
-      findings.push(finding(
-        "ARCH-MODULE-001",
-        edge.source,
-        undefined,
-        `Relative module '${edge.specifier}' does not resolve to exactly one authored source file.`,
-      ));
-      continue;
-    }
-    if (edge.kind === "package") {
-      const forbidden = forbiddenPackages.find((entry) =>
-        edge.specifier === entry.prefix || edge.specifier.startsWith(`${entry.prefix}/`)
-      );
-      if (forbidden !== undefined) {
-        findings.push(finding(
-          forbidden.ruleId,
-          edge.source,
-          edge.specifier,
-          forbidden.reason,
-        ));
-      }
-      const packageLayer = packageLayers.find((entry) =>
-        edge.specifier === entry.prefix || edge.specifier.startsWith(`${entry.prefix}/`)
-      )?.layer;
-      const sourceLayer = classifications.get(edge.source);
-      const layerPolicy = layerPolicies.find((rule) => rule.source === sourceLayer);
-      if (
-        forbidden === undefined &&
-        packageLayer !== undefined &&
-        sourceLayer !== packageLayer &&
-        layerPolicy !== undefined &&
-        !layerPolicy.allowed.has(packageLayer)
-      ) {
-        findings.push(finding(
-          layerPolicy.ruleId,
-          edge.source,
-          edge.specifier,
-          layerPolicy.reason,
-        ));
-      }
-      continue;
-    }
-    const sourceLayer = classifications.get(edge.source);
-    const targetLayer = classifications.get(edge.target);
-    const layerPolicy = layerPolicies.find((rule) =>
-      rule.source === sourceLayer
-    );
-    if (
-      sourceLayer !== targetLayer &&
-      layerPolicy !== undefined &&
-      !layerPolicy.allowed.has(targetLayer)
-    ) {
-      findings.push(finding(
-        layerPolicy.ruleId,
-        edge.source,
-        edge.target,
-        layerPolicy.reason,
-      ));
-      continue;
-    }
-    const blocked = forbiddenLayerEdges.find((rule) =>
-      rule.source === sourceLayer && rule.targets.includes(targetLayer)
-    );
-    if (blocked !== undefined) {
-      findings.push(finding(
-        blocked.ruleId,
-        edge.source,
-        edge.target,
-        blocked.reason,
-      ));
-    }
-  }
+  const findings = [...evaluateModuleLayerDependencies({
+    edges, classifications, forbiddenLayerEdges, layerPolicies, forbiddenPackages, packageLayers,
+  })];
 
   for (const [file, text] of sourceFiles) {
     for (const rule of sourceRules) {
@@ -174,6 +103,91 @@ export function evaluateArchitecture({
     ),
     components,
   });
+}
+
+export function evaluateModuleLayerDependencies({
+  edges,
+  classifications,
+  forbiddenLayerEdges = [],
+  layerPolicies = [],
+  forbiddenPackages = [],
+  packageLayers = [],
+}) {
+  const findings = [];
+  for (const edge of edges) {
+    if (edge.unresolved) {
+      findings.push(finding(
+        "ARCH-MODULE-001",
+        edge.source,
+        undefined,
+        `Relative module '${edge.specifier}' does not resolve to exactly one authored source file.`,
+      ));
+      continue;
+    }
+    if (edge.kind === "package") {
+      const forbidden = forbiddenPackages.find((entry) =>
+        edge.specifier === entry.prefix || edge.specifier.startsWith(`${entry.prefix}/`)
+      );
+      if (forbidden !== undefined) {
+        findings.push(finding(
+          forbidden.ruleId,
+          edge.source,
+          edge.specifier,
+          forbidden.reason,
+        ));
+      }
+      const packageLayer = packageLayers.find((entry) =>
+        edge.specifier === entry.prefix || edge.specifier.startsWith(`${entry.prefix}/`)
+      )?.layer;
+      const sourceLayer = classifications.get(edge.source);
+      const layerPolicy = layerPolicies.find((rule) => rule.source === sourceLayer);
+      if (
+        forbidden === undefined &&
+        packageLayer !== undefined &&
+        sourceLayer !== packageLayer &&
+        layerPolicy !== undefined &&
+        !layerPolicy.allowed.has(packageLayer)
+      ) {
+        findings.push(finding(
+          layerPolicy.ruleId,
+          edge.source,
+          edge.specifier,
+          layerPolicy.reason,
+        ));
+      }
+      continue;
+    }
+    const sourceLayer = classifications.get(edge.source);
+    const targetLayer = classifications.get(edge.target);
+    const layerPolicy = layerPolicies.find((rule) =>
+      rule.source === sourceLayer
+    );
+    if (
+      sourceLayer !== targetLayer &&
+      layerPolicy !== undefined &&
+      !layerPolicy.allowed.has(targetLayer)
+    ) {
+      findings.push(finding(
+        layerPolicy.ruleId,
+        edge.source,
+        edge.target,
+        layerPolicy.reason,
+      ));
+      continue;
+    }
+    const blocked = forbiddenLayerEdges.find((rule) =>
+      rule.source === sourceLayer && rule.targets.includes(targetLayer)
+    );
+    if (blocked !== undefined) {
+      findings.push(finding(
+        blocked.ruleId,
+        edge.source,
+        edge.target,
+        blocked.reason,
+      ));
+    }
+  }
+  return Object.freeze(sortFindings(findings));
 }
 
 export function evaluateBarrelModules(
