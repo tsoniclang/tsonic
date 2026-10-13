@@ -390,7 +390,7 @@
     "source": "import { PathBuf } from \"@tsonic/rust/std/path.js\";",
     "classification": "implemented",
     "action": "retain requested compiler-backed public standard-library exports",
-    "csharpReference": "tsonic-csharp/src/providers/native/reflection",
+    "csharpReference": "tsonic-csharp/src/providers/native/acquisition",
     "rustReference": "tsonic-rust/test/providers/native/rustdoc/rust-stdlib-provider.test.mjs"
   },
   {
