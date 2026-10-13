@@ -4,8 +4,8 @@ import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { requiredNode } from "../fixtures/source-navigation.mjs";
-import { createSourceStorageDomainWitnesses } from "../../packages/target-api/dist/target-analysis/source-storage/domain-witnesses.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageDomainWitnesses } from "../../packages/target-api/dist/target-analysis/source-storage/graph/domain-witnesses.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const subject = (node = {}, kind = "value", projection = []) => ({ node, kind, projection });
 

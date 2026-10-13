@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageStructuralFlow } from "../../packages/target-api/dist/target-analysis/source-storage/structural-flow.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageStructuralFlow } from "../../packages/target-api/dist/target-analysis/source-storage/model/structural-flow.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 test("structural Error flow never queries a declaration outside checked-file ownership", () => {
   const file = {};

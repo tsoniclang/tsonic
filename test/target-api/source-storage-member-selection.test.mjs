@@ -3,8 +3,8 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram, Node_Initializer } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/guarded-values.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageGuardedValues } from "../../packages/target-api/dist/target-analysis/source-storage/graph/guarded-values.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(body, extraFiles = {}) {

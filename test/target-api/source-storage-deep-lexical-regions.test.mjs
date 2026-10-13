@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageLexicalSelections } from "../../packages/target-api/dist/target-analysis/source-storage/lexical-regions.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageLexicalSelections } from "../../packages/target-api/dist/target-analysis/source-storage/graph/lexical-regions.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture(depth, limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });

@@ -3,7 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
-import { sourceStorageSubjectType } from "../../packages/target-api/dist/target-analysis/source-storage/components.js";
+import { sourceStorageSubjectType } from "../../packages/target-api/dist/target-analysis/source-storage/model/components.js";
 
 function fixture() {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src",

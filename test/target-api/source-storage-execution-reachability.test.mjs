@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageExecutionReachability } from "../../packages/target-api/dist/target-analysis/source-storage/execution-reachability.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageExecutionReachability } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/execution-reachability.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture(length = 16, maximumTransportRows = 128) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows, maximumSteps: 4096 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageMemberFlow } from "../../packages/target-api/dist/target-analysis/source-storage/member-flow.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageMemberFlow } from "../../packages/target-api/dist/target-analysis/source-storage/graph/member-flow.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const subject = type => ({ node: { type }, kind: "value", projection: [] });
 const present = (destination, originals) => ({ kind: "present",

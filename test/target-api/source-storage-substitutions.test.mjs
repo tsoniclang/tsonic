@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageScopes } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-scopes.js";
-import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-keys.js";
-import { createSourceStorageBindingInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-transport.js";
-import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-model.js";
-import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph-queries.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
+import { createSourceStorageScopes } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-scopes.js";
+import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
+import { createSourceStorageBindingInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-transport.js";
+import { sourceStorageReference } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-model.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
 
 function fixture(limits = {}, length = 50) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });

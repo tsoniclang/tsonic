@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageAncestorQuery } from "../../packages/target-api/dist/target-analysis/source-storage/ancestors.js";
-import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph-queries.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageAncestorQuery } from "../../packages/target-api/dist/target-analysis/source-storage/graph/ancestors.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const subject = () => Object.freeze({ node: {}, kind: "value", projection: Object.freeze([]) });
 

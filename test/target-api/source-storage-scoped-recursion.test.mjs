@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageScopedRecursion } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-recursion.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageScopedRecursion } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-recursion.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 128, maximumSteps: 4096, ...limits });

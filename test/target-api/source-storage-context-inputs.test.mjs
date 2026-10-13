@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageContextInputs } from "../../packages/target-api/dist/target-analysis/source-storage/context-inputs.js";
-import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/context-footprints.js";
-import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
-import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph-queries.js";
+import { createSourceStorageContextInputs } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/context-inputs.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageGraphQueries } from "../../packages/target-api/dist/target-analysis/source-storage/graph/graph-queries.js";
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });

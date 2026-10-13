@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sourceStorageConstructedClass } from "../../packages/target-api/dist/target-analysis/source-storage/construction.js";
+import { sourceStorageConstructedClass } from "../../packages/target-api/dist/target-analysis/source-storage/model/construction.js";
 
 function fixture() {
   const selected = { kind: "class" };

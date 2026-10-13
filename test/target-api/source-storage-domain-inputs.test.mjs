@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageDomainInputs } from "../../packages/target-api/dist/target-analysis/source-storage/domain-inputs.js";
-import { createSourceStorageDomainWitnesses } from "../../packages/target-api/dist/target-analysis/source-storage/domain-witnesses.js";
-import { createSourceStorageDomainPublications } from "../../packages/target-api/dist/target-analysis/source-storage/domain-publications.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageDomainInputs } from "../../packages/target-api/dist/target-analysis/source-storage/transport/domain-inputs.js";
+import { createSourceStorageDomainWitnesses } from "../../packages/target-api/dist/target-analysis/source-storage/graph/domain-witnesses.js";
+import { createSourceStorageDomainPublications } from "../../packages/target-api/dist/target-analysis/source-storage/graph/domain-publications.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 function fixture(limits = {}) {
   const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });

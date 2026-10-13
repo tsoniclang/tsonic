@@ -3,8 +3,8 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { snapshotSourceStorageCallEffect } from "../../packages/target-api/dist/target-analysis/source-storage/call-effects.js";
-import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { snapshotSourceStorageCallEffect } from "../../packages/target-api/dist/target-analysis/source-storage/graph/call-effects.js";
+import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture() {
