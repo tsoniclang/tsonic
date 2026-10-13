@@ -64,13 +64,13 @@ const expectedCastCounts = Object.freeze({
   "packages/target-api/src/source-semantics/type-syntax.ts": 7,
   "packages/target-api/src/source-semantics/value-flow-conditions.ts": 3,
   "packages/target-api/src/target-analysis/error-storage/error-storage-demands.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/projections.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/stored-values.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/global-call-effects.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/invocation-inputs.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/lexical-regions.ts": 2,
-  "packages/target-api/src/target-analysis/source-storage/member-accessors.ts": 1,
-  "packages/target-api/src/target-analysis/source-storage/transport.ts": 3,
+  "packages/target-api/src/target-analysis/source-storage/model/projections.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/graph/stored-values.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/model/global-call-effects.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/graph/invocation-inputs.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/graph/lexical-regions.ts": 2,
+  "packages/target-api/src/target-analysis/source-storage/scoped/member-accessors.ts": 1,
+  "packages/target-api/src/target-analysis/source-storage/transport/transport.ts": 3,
 });
 
 test("every generated shared source-processing AST cast has an exact local kind predicate", async () => {

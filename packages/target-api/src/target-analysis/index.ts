@@ -43,10 +43,10 @@ export type { TargetGraphComponentsSelection } from "./graph-components.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
-export { createSourceGlobalCallStorageEffects } from "./source-storage/global-call-effects.js";
-export type { SourceGlobalCallStorageEffect } from "./source-storage/global-call-effects.js";
-export { defaultSourceStorageLimits } from "./source-storage/resource-budget.js";
-export type { SourceStorageProjection, SourceStorageSubject } from "./source-storage/subjects.js";
+export { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
+export type { SourceGlobalCallStorageEffect } from "./source-storage/model/global-call-effects.js";
+export { defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
+export type { SourceStorageProjection, SourceStorageSubject } from "./source-storage/model/subjects.js";
 export type {
   SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion,
   SourceStorageBoundActivation, SourceStorageActivationsSelection,
@@ -58,7 +58,7 @@ export type {
   SourceStorageArgumentTransport, SourceStorageArgumentsSelection, SourceStorageBoundary,
   SourceStorageClosedOriginsSelection, SourceStorageDomainBoundary, SourceStorageProducersSelection,
   SourceStorageCallEffect, SourceStorageEffects,
-} from "./source-storage/types.js";
+} from "./source-storage/model/types.js";
 export type { SourceErrorRetainedDemand, SourceErrorStorageProtocol } from "./error-storage/protocol.js";
 export type {
   TargetUseSiteRef,

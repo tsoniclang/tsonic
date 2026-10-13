@@ -3,10 +3,10 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, TstsSourceProviderContractVersion } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/edges.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
-import { sourceStorageSubjectType } from "../../packages/target-api/dist/target-analysis/source-storage/components.js";
+import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/graph/edges.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageBudget } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { sourceStorageSubjectType } from "../../packages/target-api/dist/target-analysis/source-storage/model/components.js";
 import { namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const model = {

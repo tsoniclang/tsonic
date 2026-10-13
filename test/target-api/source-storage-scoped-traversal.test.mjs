@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceStorageScopedTraversal } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-traversal.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageScopedTraversal } from "../../packages/target-api/dist/target-analysis/source-storage/graph/scoped-traversal.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const frame = (parents = [], caller) => Object.freeze({ kind: "frame", entries: new Map(), parents: Object.freeze(parents), caller });
 const variable = initial => Object.freeze({ kind: "variable", equation: { initial }, owner: {} });

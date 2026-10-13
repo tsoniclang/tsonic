@@ -1,18 +1,18 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
-import { sourceStorageSubjectType } from "./components.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "./resource-budget.js";
-import { createSourceStorageTransport } from "./transport.js";
-import { createSourceStorageDomains } from "./domains.js";
-import { sourceStorageRegionOwner } from "./lexical-regions.js";
-import type { SourceStorageSubject } from "./subjects.js";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./subjects.js";
-import type { SourceStorageSubstitutions } from "./substitutions.js";
+import { sourceStorageSubjectType } from "./model/components.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
+import { createSourceStorageTransport } from "./transport/transport.js";
+import { createSourceStorageDomains } from "./transport/domains.js";
+import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
+import type { SourceStorageSubject } from "./model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./model/subjects.js";
+import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
 import type {
   SourceStorageBindings, SourceStorageEffects, SourceStorageLimits, SourceStorageQueries, SourceStorageSubjectsSelection, SourceStorageOriginsSelection,
   SourceStorageSubjectSelection, SourceStorageTypedSubject, SourceStorageUnresolved, SourceStorageProducer, SourceStorageValueFrontier,
   SourceStorageBoundActivation, SourceStorageBindingsSelection,
-} from "./types.js";
+} from "./model/types.js";
 
 export function createSourceStorageQuery(
   source: TargetSourceProgram,

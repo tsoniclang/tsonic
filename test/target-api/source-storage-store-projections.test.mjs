@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
-import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/subjects.js";
-import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/edges.js";
-import { createSourceStorageStoreProjections } from "../../packages/target-api/dist/target-analysis/source-storage/store-projections.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+import { createSourceStorageEdges } from "../../packages/target-api/dist/target-analysis/source-storage/graph/edges.js";
+import { createSourceStorageStoreProjections } from "../../packages/target-api/dist/target-analysis/source-storage/graph/store-projections.js";
 import { namedVariable } from "../fixtures/source-navigation.mjs";
 
 function fixture(limits = {}) {

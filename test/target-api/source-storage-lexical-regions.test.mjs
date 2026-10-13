@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
-import { createSourceStorageLexicalSelections } from "../../packages/target-api/dist/target-analysis/source-storage/lexical-regions.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { createSourceStorageLexicalSelections } from "../../packages/target-api/dist/target-analysis/source-storage/graph/lexical-regions.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 import { checkedSource, namedDeclaration, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 import { Node_Expression, Node_Initializer } from "../../packages/target-api/dist/source-navigation/index.js";
 

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { encodeSourceStorageKey } from "../../packages/target-api/dist/target-analysis/source-storage/key-encoding.js";
-import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped-keys.js";
-import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/resource-budget.js";
+import { encodeSourceStorageKey } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
+import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const set = (...values) => ({ kind: "set", values });
 const budget = limits => createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
