@@ -226,11 +226,30 @@ export function analyzeKeelTypeScript(sourceFiles, {
   function declarationName(node) {
     const names = [];
     for (let current = node; current !== undefined; current = ast.parent(current)) {
-      if (!namedKinds.has(ast.kindName(current))) continue;
+      const kind = ast.kindName(current);
+      if (!namedKinds.has(kind)) continue;
       const name = ast.name(current);
-      if (name !== undefined) names.unshift(nameText(name));
+      if (name !== undefined) {
+        const accessor = kind === "KindGetAccessor" ? ".<get>" : kind === "KindSetAccessor" ? ".<set>" : "";
+        names.unshift(`${nameText(name)}${accessor}`);
+      } else if ((kind === "KindArrowFunction" || kind === "KindFunctionExpression") && !callableHasDirectBinding(current)) {
+        const range = ast.authoredRange(current);
+        if (range.kind === "authored") names.unshift(`<${kind.slice(4)}@${range.start}>`);
+      }
     }
     return names.length === 0 ? undefined : names.join(".");
+  }
+
+  function callableHasDirectBinding(node) {
+    let value = node;
+    let parent = ast.parent(value);
+    while (["KindParenthesizedExpression", "KindAsExpression", "KindNonNullExpression", "KindSatisfiesExpression",
+      "KindTypeAssertionExpression"].includes(ast.kindName(parent)) && parent.Expression === value) {
+      value = parent;
+      parent = ast.parent(value);
+    }
+    return ["KindVariableDeclaration", "KindPropertyAssignment", "KindParameter", "KindParameterDeclaration"]
+      .includes(ast.kindName(parent)) && parent.Initializer === value && ast.name(parent) !== undefined;
   }
 
   function exported(node) {

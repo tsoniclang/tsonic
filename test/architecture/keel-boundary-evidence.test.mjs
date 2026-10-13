@@ -157,6 +157,28 @@ test("standard generic containers retain exact compiler declarations", () => {
   assert.equal(model.calls.some(call => call.target?.file === "libraries/lib.es2015.collection.d.ts" && call.target.symbol === "WeakMap.get"), true);
 });
 
+test("anonymous callable and accessor evidence has exact noncompeting authored owners", () => {
+  const file = "src/policy/types/selected.ts";
+  const model = keelFixtureModel([[file,
+    `export function select(values: number[]): number[] {
+      return values.map(value => { for (const item of [value]) { if (item < 0) return 0; } return value; })
+        .filter(value => { for (const item of [value]) { if (item === 0) return false; } return true; });
+    }
+    export const bound = ((value: number): number => value);
+    export class Holder { get value(): number { return 0; } set value(value: number) {} }`,
+  ]]);
+  const functions = model.functions.filter(entry => entry.file === file);
+  assert.equal(new Set(functions.map(entry => entry.symbol)).size, functions.length,
+    "distinct authored callable bodies never share a proof identity");
+  assert.equal(functions.filter(entry => entry.symbol === "select").length, 1);
+  assert.equal(functions.filter(entry => entry.symbol === "bound").length, 1,
+    "transparent syntax retains the exact named binding");
+  assert.equal(new Set(model.loops.filter(loop => loop.file === file).map(loop => loop.owner)).size, 2,
+    "each callback traversal belongs to its actual callable, not the enclosing selector");
+  assert.equal(functions.some(entry => entry.symbol === "Holder.value.<get>"), true);
+  assert.equal(functions.some(entry => entry.symbol === "Holder.value.<set>"), true);
+});
+
 for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
   test(`${repo}: immutable function-property readers and analysis-only writers retain checked ownership`, () => {
     const schema = "src/target-model/records/program.ts";
