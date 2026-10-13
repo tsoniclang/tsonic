@@ -45,8 +45,17 @@ export function main(): void {
 main();
 ```
 
-An asynchronous startup may call `await main()` at top level. Exporting `main`
-alone never invokes it; an uncalled binary-entry export is diagnosed. Top-level
+An asynchronous startup follows the same explicit contract:
+
+```ts
+export async function main(): Promise<void> {
+  // asynchronous application startup
+}
+
+await main();
+```
+
+Exporting `main` alone never invokes it; an uncalled binary-entry export is diagnosed. Top-level
 code needs no named entry function. Fallible module initialization retains its
 selected native error boundary. `outputType: "lib"` instead exposes supported
 TypeScript exports as Rust library declarations; a native caller owns its

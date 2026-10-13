@@ -108,10 +108,13 @@ export function main(): void {
     throw new Error("unexpected greeting");
   }
 }
+
+main();
 ```
 
 Each application gets its own `tsonic.json`. Both consume the same source
-package. This keeps target entry rules out of shared code.
+package. Both execute authored top-level startup; native project configuration
+and APIs stay in each application.
 
 ## Generated or user-owned project
 

@@ -8,6 +8,7 @@ export function main(): void {
   const result = capture();
   if (result instanceof Error || result !== exact) throw new Error("typed scalar payload lost precision or category");
 }
+main();
 `],
   ["async-object-unit", `
 async function fail(): Promise<void> { throw new Error("selected rejection"); }
@@ -17,6 +18,7 @@ export async function main(): Promise<void> {
   try { await api.dispatch(); } catch { caught = true; }
   if (!caught) throw new Error("async object method lost its rejection");
 }
+await main();
 `],
   ["caught-record-contribution", `
 interface Envelope { value: unknown; }
@@ -31,6 +33,7 @@ export function main(): void {
     throw new Error("record contribution lost its error");
   }
 }
+main();
 `],
   ["caught-project-error", `
 class Failure extends Error {}
@@ -46,6 +49,7 @@ export function main(): void {
     throw new Error("project record contribution lost its error");
   }
 }
+main();
 `],
   ["caught-closed-payload", `
 interface Envelope { value: unknown; }
@@ -60,5 +64,6 @@ export function main(): void {
     throw new Error("non-Error record contribution changed its payload");
   }
 }
+main();
 `],
 ].map(row => Object.freeze(row)));

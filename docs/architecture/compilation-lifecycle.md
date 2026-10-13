@@ -1,10 +1,10 @@
 # Compilation lifecycle
 
 This document describes the approved pipeline and its phase boundaries.
-Existing source-storage semantics and bounds remain current. Keel's common
-entry validation, ownership/result-use decisions and canonical sealed-family
-readers are implementation obligations until their paired gates pass; the
-Phase 1 skeleton alone does not certify them.
+Existing source-storage semantics and bounds remain current. Shared explicit
+entry validation and paired immutable family readers are implemented; their
+focused gates do not certify the complete workspace. Keel's ownership/result-use
+reconstruction and unconditional final gates remain implementation obligations.
 
 The sole workspace policy owner governs native semantics, performance,
 absence, identifier preservation and greenfield replacements:
