@@ -1,0 +1,253 @@
+import {
+  keelFinding, keelNativeDifferences, keelRootFamilies, keelSkeletonFamilies,
+  keelStorageStages, sortKeelFindings, validateKeelDifferences, validPath,
+} from "./keel-contract.mjs";
+import { keelNativeNodeDomains } from "./keel-native-tokens.mjs";
+import { stronglyConnectedComponents } from "./strongly-connected-components.mjs";
+
+export function evaluateKeelSkeleton(targetSources, differences = keelNativeDifferences) {
+  validateKeelDifferences(differences);
+  const findings = [];
+  const responsibilities = new Map();
+  for (const [repo, sources] of targetSources) {
+    const families = new Set();
+    for (const file of sources.keys()) {
+      if (!file.startsWith("src/")) continue;
+      const path = file.slice(4);
+      if (!path.includes("/")) {
+        if (path !== "index.ts") findings.push(keelFinding("AC7", repo, file, "src", "Only the public barrel occupies the source root."));
+        continue;
+      }
+      const root = path.split("/")[0];
+      if (!keelRootFamilies.includes(root)) {
+        findings.push(keelFinding("AC7", repo, file, root, "Source responsibility is outside the prescribed skeleton."));
+        continue;
+      }
+      for (const [parent, children] of Object.entries(keelSkeletonFamilies)) {
+        if (!path.startsWith(`${parent}/`)) continue;
+        const suffix = path.slice(parent.length + 1);
+        const child = suffix.split("/")[0].replace(/\.(?:ts|tsx)$/u, "");
+        const responsibility = `${parent}/${child}`;
+        if (!suffix.includes("/") && flatEntrypoint(parent, child)) continue;
+        const native = differences.find(entry => entry.target === repo && entry.path === responsibility);
+        if (!children.includes(child) && native === undefined) {
+          findings.push(keelFinding("AC7", repo, file, responsibility, "Responsibility needs its prescribed slot or an exact native-difference registration."));
+        } else {
+          families.add(responsibility);
+        }
+      }
+    }
+    for (const path of ["analysis/project-types/catalog", "providers/packages/validation", "print/source/expressions"]) {
+      if ([...sources.keys()].some(file => file === `src/${path}.ts` || file.startsWith(`src/${path}/`))) families.add(path);
+    }
+    responsibilities.set(repo, families);
+  }
+  const csharp = responsibilities.get("tsonic-csharp") ?? new Set();
+  const rust = responsibilities.get("tsonic-rust") ?? new Set();
+  for (const path of new Set([...csharp, ...rust])) {
+    if (csharp.has(path) === rust.has(path)) continue;
+    const present = csharp.has(path) ? "tsonic-csharp" : "tsonic-rust";
+    if (differences.some(entry => entry.target === present && entry.path === path)) continue;
+    findings.push(keelFinding("AC7", present, `src/${path}`, path,
+      "A compiler responsibility is one-sided without a native constraint."));
+  }
+  return sortKeelFindings(findings);
+}
+
+export function evaluateKeelTestSkeleton(targetTests) {
+  const findings = [];
+  const domains = new Set(["analysis", "architecture", "backend", "fixtures", "helpers", "integration", "policy", "providers", "source", "target-model", "toolchain"]);
+  for (const [repo, files] of targetTests) {
+    for (const file of files) {
+      if (!file.startsWith("test/") || !file.slice(5).includes("/")) continue;
+      const domain = file.slice(5).split("/")[0];
+      if (!domains.has(domain)) findings.push(keelFinding("AC7", repo, file, domain, "Target tests must use the shared responsibility domains."));
+      if (/^test\/(?:source\/semantics|policy\/(?:evidence|safety|js-value-operations)|providers\/native\/(?:reflection|protocol|snapshot)|backend\/target-ast\/roslyn)\//u.test(file)) {
+        findings.push(keelFinding("AC7", repo, file, domain, "Moved source responsibilities require matching test placement."));
+      }
+    }
+  }
+  return sortKeelFindings(findings);
+}
+
+export function evaluateKeelStorageStages(sourceFiles, edges) {
+  const prefix = "packages/target-api/src/target-analysis/source-storage/";
+  const findings = [];
+  const stageFor = file => {
+    if (!file?.startsWith(prefix)) return undefined;
+    const relative = file.slice(prefix.length);
+    if (relative === "queries.ts") return keelStorageStages.length;
+    const stage = keelStorageStages.indexOf(relative.split("/")[0]);
+    return stage < 0 ? undefined : stage;
+  };
+  for (const file of sourceFiles.keys()) {
+    if (file.startsWith(prefix) && stageFor(file) === undefined) {
+      findings.push(keelFinding("AC8", "tsonic", file, "source-storage", "Shared storage source needs an exact staged owner."));
+    }
+  }
+  for (const edge of edges) {
+    const from = stageFor(edge.source);
+    if (from === undefined || edge.kind !== "relative") continue;
+    const to = stageFor(edge.target);
+    if (edge.unresolved || to !== undefined && to > from) {
+      findings.push(keelFinding("AC8", "tsonic", edge.source, edge.specifier,
+        "Storage stage imports may only point to the same or an earlier stage.", { target: edge.target, from, to }));
+    }
+  }
+  const vertices = [...sourceFiles.keys()].filter(file => file.startsWith(prefix));
+  const dependencies = edges.filter(edge => edge.source.startsWith(prefix) && edge.target?.startsWith(prefix));
+  for (const component of stronglyConnectedComponents(vertices, dependencies)) {
+    if (component.length > 1 || dependencies.some(edge => edge.source === component[0] && edge.target === component[0])) {
+      findings.push(keelFinding("AC8", "tsonic", component[0], "source-storage cycle",
+        "The complete shared-storage module graph must be acyclic, including same-stage and self dependencies.", { component }));
+    }
+  }
+  return sortKeelFindings(findings);
+}
+
+export function evaluateKeelCoreDomains(runtimeSources) {
+  const findings = [];
+  for (const [repo, sources] of runtimeSources) {
+    if (repo !== "rust-runtime" && repo !== "csharp-runtime") throw new Error("AC9 accepts core runtime source only.");
+    for (const [file, text] of sources) {
+      for (const domain of keelNativeNodeDomains(text)) {
+        findings.push(keelFinding("AC9", repo, file, domain.domain,
+          "Core dispatch cannot know a JS/Node domain; domain packages register their own phases.", { offset: domain.offset }));
+      }
+    }
+  }
+  return sortKeelFindings(findings);
+}
+
+export function evaluateKeelRuntimeFamilies(runtimeSources, register = []) {
+  const findings = [];
+  const capabilityGaps = [];
+  const used = new Set();
+  for (const entry of register) {
+    if (typeof entry.family !== "string" || entry.family.length === 0 ||
+      typeof entry.evidence !== "string" || entry.evidence.length === 0 ||
+      !Array.isArray(entry.owners) || entry.owners.length === 0) throw new Error("Invalid runtime family registration.");
+    const targets = new Set();
+    const tiers = new Set();
+    for (const owner of entry.owners) {
+      if (!runtimeSources.has(owner.repo) || !validPath(owner.path)) throw new Error("Runtime family needs exact source ownership.");
+      const root = keelRuntimeRoots[owner.repo];
+      if (root === undefined || !owner.path.startsWith(`${root}/`)) throw new Error("A runtime family cannot claim an entire package or an unrelated root.");
+      const id = `${owner.repo}:${owner.path}`;
+      if (used.has(id)) throw new Error(`Duplicate runtime responsibility '${id}'.`);
+      used.add(id);
+      targets.add(owner.repo.startsWith("csharp-") ? "csharp" : "rust");
+      tiers.add(owner.repo.split("-").slice(1).join("-"));
+      const files = runtimeSources.get(owner.repo);
+      if (![...files.keys()].some(file => within(file, owner.path))) {
+        findings.push(keelFinding("AC10", owner.repo, owner.path, entry.family, "Registered runtime responsibility has no implementation."));
+      }
+    }
+    if (tiers.size !== 1) throw new Error("A runtime responsibility cannot be paired across core, JS and Node layers.");
+    if (targets.size !== 2 && entry.api !== undefined && entry.required === false) {
+      if (typeof entry.api !== "string" || entry.api.length === 0 || typeof entry.scopeEvidence !== "string" || entry.scopeEvidence.length === 0) {
+        throw new Error("A native API outside the common contract needs its exact identity and signed scope evidence.");
+      }
+      capabilityGaps.push(Object.freeze({ family: entry.family, api: entry.api, owners: entry.owners,
+        required: false, reason: "Native API counterpart is not part of the retained common contract; no API parity is certified.", scopeEvidence: entry.scopeEvidence }));
+    } else if (targets.size !== 2 && (typeof entry.nativeReason !== "string" || entry.nativeReason.length === 0)) {
+      const owner = entry.owners[0];
+      findings.push(keelFinding("AC10", owner.repo, owner.path, entry.family, "One-sided runtime family requires its demonstrated native constraint."));
+    }
+  }
+  for (const [repo, files] of runtimeSources) {
+    for (const file of files.keys()) {
+      const matches = register.flatMap(entry => entry.owners.filter(owner =>
+        owner.repo === repo && within(file, owner.path)).map(() => entry.family));
+      if (matches.length !== 1) findings.push(keelFinding("AC10", repo, file, "runtime ownership",
+        "Every native implementation needs exactly one registered responsibility.", { families: matches }));
+    }
+  }
+  return Object.freeze({ findings: sortKeelFindings(findings), capabilityGaps: Object.freeze(capabilityGaps) });
+}
+
+export function evaluateKeelNodeModules(moduleRows, nativeDifferences = [], moduleEvidence = new Map()) {
+  const findings = [];
+  const capabilityGaps = [];
+  const moduleSet = repo => new Set((moduleRows.get(repo) ?? []).filter(row => row.exposed).map(row => row.module));
+  const csharp = moduleSet("csharp-nodejs");
+  const rust = moduleSet("rust-nodejs");
+  for (const module of new Set([...csharp, ...rust])) {
+    if (csharp.has(module) === rust.has(module)) continue;
+    const repo = csharp.has(module) ? "csharp-nodejs" : "rust-nodejs";
+    const registration = nativeDifferences.find(entry => entry.repo === repo && entry.module === module);
+    if (registration?.reason?.length > 0 && registration?.evidence?.length > 0) continue;
+    const declarations = [...moduleRows.values()].flat().filter(row => row.module === module);
+    if (declarations.length > 0 && declarations.every(row => row.required === false && row.scopeEvidence?.length > 0)) {
+      capabilityGaps.push(Object.freeze({ module, repo, required: false,
+        reason: "Current provider exposure is one-sided outside the retained contract; no API parity is certified.",
+        scopeEvidence: declarations.map(row => row.scopeEvidence) }));
+      continue;
+    }
+    findings.push(keelFinding("AC10", repo, "nodejs/src/provider/modules", module,
+      "Exposed Node module sets differ without a demonstrated native constraint."));
+  }
+  for (const [repo, rows] of moduleRows) {
+    const model = moduleEvidence.get(repo);
+    const reachable = new Set(["nodejs/src/provider/package.ts"]);
+    const pending = [...reachable];
+    while (pending.length > 0) {
+      const source = pending.pop();
+      for (const edge of model?.edges ?? []) {
+        if (edge.source !== source || edge.target === undefined || reachable.has(edge.target)) continue;
+        reachable.add(edge.target);
+        pending.push(edge.target);
+      }
+    }
+    const seen = new Set();
+    for (const row of rows) {
+      if (!validPath(row.file) || typeof row.module !== "string" || !row.module.startsWith("node:") ||
+        typeof row.exposed !== "boolean" || seen.has(row.module)) throw new Error("Invalid or duplicate Node module row.");
+      seen.add(row.module);
+      if (row.exposed && (model === undefined || !reachable.has(row.file) ||
+        !model.stringLiterals.some(literal => literal.file === row.file && literal.text === row.module))) {
+        findings.push(keelFinding("AC10", repo, row.file, row.module,
+          "Exposed module registration lacks exact literal and package-reachability evidence."));
+      }
+      if (!row.exposed && model?.declarations.some(declaration => declaration.exported &&
+        declaration.file === row.file && declaration.literal === row.module && reachable.has(row.file))) {
+        findings.push(keelFinding("AC10", repo, row.file, row.module,
+          "A reachable provider declaration cannot be relabeled native-only to hide a parity gap."));
+      }
+      if (!row.exposed && row.nativeReachable && !row.evidence?.length) {
+        findings.push(keelFinding("AC10", repo, row.file, row.module,
+          "Native-only implementation requires its checked reachability evidence, never automatic deletion."));
+      }
+    }
+    for (const declaration of model?.declarations ?? []) {
+      if (!declaration.exported || !declaration.file.startsWith("nodejs/src/provider/modules/") ||
+        typeof declaration.literal !== "string" || !declaration.literal.startsWith("node:") || declaration.literal.includes("::")) continue;
+      if (reachable.has(declaration.file) && !seen.has(declaration.literal)) {
+        findings.push(keelFinding("AC10", repo, declaration.file, declaration.literal,
+          "A reachable exported module identity is missing from the exact provider parity inventory."));
+      }
+    }
+  }
+  return Object.freeze({ findings: sortKeelFindings(findings), capabilityGaps: Object.freeze(capabilityGaps) });
+}
+
+export const keelRuntimeRoots = Object.freeze({
+  "csharp-runtime": "src/Tsonic.CSharp.Runtime",
+  "rust-runtime": "crates/tsonic_rust_runtime/src",
+  "csharp-js": "src/Tsonic.CSharp.Js",
+  "rust-js": "crates/tsonic_rust_js/src",
+  "csharp-nodejs": "csharp/src/Tsonic.CSharp.Node",
+  "rust-nodejs": "rust/crates/tsonic_rust_node/src",
+});
+
+function flatEntrypoint(parent, child) {
+  if (child === "index") return true;
+  return parent === "backend" && child === "compile" ||
+    parent === "backend/planner" && ["context", "diagnostics"].includes(child) ||
+    parent === "policy/types" && child === "conditional-numeric-carrier" ||
+    parent === "providers" && ["catalog"].includes(child);
+}
+
+function within(file, path) {
+  return file === path || file.startsWith(`${path}/`);
+}

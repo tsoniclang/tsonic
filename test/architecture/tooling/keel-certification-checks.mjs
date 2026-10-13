@@ -1,0 +1,184 @@
+import { keelCheckIds, keelFinding, keelTargetNames, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelDigest } from "./keel-source-analysis.mjs";
+import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
+import { isAbsolute } from "node:path";
+
+export function evaluateKeelDeterminism(samples, requiredPrograms) {
+  const findings = [];
+  const seen = new Set();
+  const requirements = new Set();
+  for (const program of requiredPrograms) {
+    const id = `${program.target}:${program.id}`;
+    if (!keelTargetNames.includes(program.target) || !validPath(program.id) || requirements.has(id)) {
+      throw new Error(`Invalid or duplicate determinism requirement '${id}'.`);
+    }
+    requirements.add(id);
+  }
+  for (const sample of samples) {
+    const id = `${sample.target}:${sample.id}`;
+    const expected = requiredPrograms.find(program => program.target === sample.target && program.id === sample.id);
+    if (seen.has(id) || expected === undefined) throw new Error(`Unexpected or duplicate determinism sample '${id}'.`);
+    seen.add(id);
+    const fail = (reason, evidence = {}) => findings.push(keelFinding("AC11", sample.target,
+      sample.id, "double generation", reason, evidence));
+    if (!/^[a-f0-9]{64}$/u.test(expected.sourceDigest) || sample.sourceDigest !== expected.sourceDigest ||
+      pinIdentity(sample.pins) !== pinIdentity(expected.pins) || !["acceptance", "catalogue"].includes(expected.family)) {
+      fail("Generation evidence does not match the prescribed source inputs and repository pins.");
+    }
+    if (!(sample.first instanceof Map) || !(sample.second instanceof Map) ||
+      sample.first.size === 0 || sample.second.size === 0) {
+      fail("Both independent generations must publish a nonempty artifact set.");
+      continue;
+    }
+    if (sample.first === sample.second || sample.firstGuard?.log === sample.secondGuard?.log) {
+      fail("Double generation requires independent outputs and distinct guarded runs, not one receipt reused twice.");
+    }
+    for (const [file, bytes] of sample.first) {
+      if (!validPath(file) || !Buffer.isBuffer(bytes) && !(bytes instanceof Uint8Array)) throw new Error("Invalid generated artifact bytes or path.");
+      const second = sample.second.get(file);
+      if (second === undefined || !Buffer.from(bytes).equals(Buffer.from(second))) {
+        fail("The two generated artifact sets differ.", { file });
+      }
+    }
+    for (const file of sample.second.keys()) {
+      if (!sample.first.has(file)) fail("The second generation publishes an extra artifact.", { file });
+    }
+    if (!guardSucceeded(sample.firstGuard) || !guardSucceeded(sample.secondGuard)) {
+      fail("Each generation needs its own complete successful process-group guard receipt.");
+    }
+  }
+  for (const program of requiredPrograms) {
+    if (!seen.has(`${program.target}:${program.id}`)) findings.push(keelFinding("AC11", program.target,
+      program.id, "double generation", "Required acceptance/catalogue determinism evidence is missing."));
+  }
+  if (keelTargetNames.some(target => ["acceptance", "catalogue"].some(family =>
+    !requiredPrograms.some(program => program.target === target && program.family === family)))) {
+    findings.push(keelFinding("AC11", "tsonic", "test/architecture", "determinism scope",
+      "Determinism must cover the prescribed acceptance and catalogue scopes; empty coverage is not certification."));
+  }
+  return sortKeelFindings(findings);
+}
+
+export function guardSucceeded(receipt) {
+  if (receipt === undefined || receipt === null || receipt.exitCode !== 0 ||
+    receipt.swapMax !== 0 || receipt.calibration !== false || receipt.scopeDrained !== true ||
+    ![null, "success"].includes(receipt.scopeResult) ||
+    !Number.isSafeInteger(receipt.oomBefore) || receipt.oomBefore < 0 || receipt.oomBefore !== receipt.oomAfter) return false;
+  return ["memoryMiB", "tasksMax", "timeoutSeconds", "logMaxBytes"].every(key =>
+    Number.isSafeInteger(receipt[key]) && receipt[key] > 0) &&
+    typeof receipt.log === "string" && (validPath(receipt.log) || isAbsolute(receipt.log) && validPath(receipt.log.slice(1))) &&
+    receipt.budget !== undefined && Number.isSafeInteger(receipt.budget.workers) && receipt.budget.workers > 0 &&
+    Number.isSafeInteger(receipt.budget.childJobs) && receipt.budget.childJobs > 0 &&
+    Number.isSafeInteger(receipt.budget.cpuBudget) && receipt.budget.cpuBudget > 0 &&
+    receipt.budget.memoryMiB === receipt.memoryMiB;
+}
+
+export function evaluateKeelSafety({ repo, trackedFiles, currentSources, baseSources, currentModel, baseModel }) {
+  const findings = [];
+  for (const file of trackedFiles) {
+    if (file.split("/").includes(".analysis")) findings.push(keelFinding("AC12", repo, file,
+      "tracked analysis", "Analysis records must be ignored and untracked."));
+  }
+  const beforeAssertions = countBy(assertionRows(baseModel).map(row => row.bodySha256));
+  for (const row of assertionRows(currentModel)) {
+    const id = row.bodySha256;
+    if (take(beforeAssertions, id)) continue;
+    findings.push(keelFinding("AC12", repo, row.file, row.owner, "A new unchecked any assertion is forbidden.", {
+      bodySha256: row.bodySha256,
+    }));
+  }
+  const beforeSuppressions = countBy((baseModel?.suppressions ?? []).map(row => row.bodySha256));
+  for (const row of currentModel?.suppressions ?? []) {
+    if (take(beforeSuppressions, row.bodySha256)) continue;
+    findings.push(keelFinding("AC12", repo, row.file, "type-check suppression",
+      "A new type-check suppression is forbidden.", { bodySha256: row.bodySha256 }));
+  }
+  const nativeBase = [...baseSources].filter(([file]) => file.endsWith(".rs") || file.endsWith(".cs"));
+  const beforeIgnores = countBy(nativeBase.flatMap(([_file, text]) => keelNativeTokens(text)
+    .filter(token => token.kind === "comment" && /@ts-ignore\b/u.test(token.text)).map(token => token.text)));
+  const beforeUnsafe = countBy(nativeBase.flatMap(([_file, text]) => keelNativeUnsafeSites(text)));
+  for (const [file, text] of currentSources) {
+    if (!file.endsWith(".rs") && !file.endsWith(".cs")) continue;
+    for (const token of keelNativeTokens(text)) {
+      if (token.kind !== "comment" || !/@ts-ignore\b/u.test(token.text) || take(beforeIgnores, token.text)) continue;
+      findings.push(keelFinding("AC12", repo, file, "type-check suppression", "A new type-check suppression is forbidden.", {
+        bodySha256: keelDigest(token.text),
+      }));
+    }
+    for (const site of keelNativeUnsafeSites(text)) {
+      if (take(beforeUnsafe, site)) continue;
+      findings.push(keelFinding("AC12", repo, file, "native safety", "A new native unsafe site is forbidden.", {
+        bodySha256: keelDigest(site),
+      }));
+    }
+  }
+  return sortKeelFindings(findings);
+}
+
+export function createKeelViolationInventory(findings, origin) {
+  const inventory = Object.freeze({
+    schemaVersion: 1, rules: keelCheckIds, origin,
+    violations: sortKeelFindings(findings),
+  });
+  validateKeelViolationInventory(inventory);
+  return inventory;
+}
+
+export function evaluateKeelViolationInventory(findings, inventory, manifestSha256) {
+  validateKeelViolationInventory(inventory);
+  if (manifestSha256 !== undefined && inventory.origin.manifestSha256 !== manifestSha256) {
+    throw new Error("Keel contracts changed; the exact inventory requires a fresh reviewed origin, not an unchecked rebaseline.");
+  }
+  const allowed = new Set(inventory.violations.map(finding => finding.id));
+  const actual = new Set(findings.map(finding => finding.id));
+  return Object.freeze({
+    newViolations: sortKeelFindings(findings.filter(finding => !allowed.has(finding.id))),
+    removedViolations: sortKeelFindings(inventory.violations.filter(finding => !actual.has(finding.id))),
+    inventory: createKeelViolationInventory(inventory.violations.filter(finding => actual.has(finding.id)), inventory.origin),
+  });
+}
+
+export function validateKeelViolationInventory(inventory) {
+  if (inventory?.schemaVersion !== 1 || JSON.stringify(inventory.rules) !== JSON.stringify(keelCheckIds) ||
+    !Array.isArray(inventory.violations) || !/^[a-f0-9]{64}$/u.test(inventory.origin?.manifestSha256) ||
+    typeof inventory.origin?.pins !== "object" || inventory.origin.pins === null ||
+    Object.keys(inventory.origin.pins).length === 0 || Object.entries(inventory.origin.pins).some(([repo, sha]) =>
+      !validPath(repo) || repo.includes("/") || !/^[a-f0-9]{40}$/u.test(sha))) {
+    throw new Error("Invalid Keel violation inventory origin or schema.");
+  }
+  const seen = new Set();
+  for (const entry of inventory.violations) {
+    if (!keelCheckIds.includes(entry.check) || !validPath(entry.repo) || !validPath(entry.file) ||
+      typeof entry.subject !== "string" || entry.subject.length === 0 ||
+      typeof entry.reason !== "string" || entry.reason.length === 0 || entry.evidence === null || Array.isArray(entry.evidence) ||
+      typeof entry.evidence !== "object" || seen.has(entry.id)) throw new Error("Invalid or duplicate Keel baseline violation.");
+    const { id, ...identity } = entry;
+    if (id !== keelDigest(JSON.stringify(identity))) throw new Error("A Keel violation fingerprint does not match its exact evidence.");
+    seen.add(id);
+  }
+}
+
+function assertionRows(model) {
+  return model?.assertions ?? [];
+}
+
+function pinIdentity(pins) {
+  if (pins === null || typeof pins !== "object" || Object.keys(pins).length === 0 ||
+    Object.entries(pins).some(([repo, sha]) => !validPath(repo) || !/^[a-f0-9]{40}$/u.test(sha))) {
+    throw new Error("Invalid generation repository pins.");
+  }
+  return JSON.stringify(Object.entries(pins).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function countBy(values) {
+  const counts = new Map();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return counts;
+}
+
+function take(counts, key) {
+  const count = counts.get(key) ?? 0;
+  if (count === 0) return false;
+  counts.set(key, count - 1);
+  return true;
+}
