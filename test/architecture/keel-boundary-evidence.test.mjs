@@ -156,3 +156,19 @@ test("standard generic containers retain exact compiler declarations", () => {
   ]]);
   assert.equal(model.calls.some(call => call.target?.file === "libraries/lib.es2015.collection.d.ts" && call.target.symbol === "WeakMap.get"), true);
 });
+
+for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
+  test(`${repo}: immutable function-property readers and analysis-only writers retain checked ownership`, () => {
+    const schema = "src/target-model/records/program.ts";
+    const planner = "src/backend/planner/expressions/plan.ts";
+    const model = keelFixtureModel([
+      [schema, "export interface Reader { readonly get: (subject: number) => number; } export interface Writer extends Reader { readonly set: (subject: number, value: number) => void; }"],
+      [planner, 'import type { Reader, Writer } from "../../../target-model/records/program.js"; export function plan(reader: Reader, writer: Writer): number { writer.set(1, 2); return reader.get(1); }'],
+    ]);
+    assert.equal(model.declarations.some(entry => entry.file === schema && entry.symbol === "Reader.get" && entry.functionProperty), true);
+    const findings = evaluateKeelLayers(repo, model);
+    const writes = findings.filter(entry => entry.check === "AC3");
+    assert.equal(writes.length, 2, "both taking the writer and invoking it violate the same ownership boundary");
+    assert.equal(writes.every(entry => entry.reason.includes("Only analysis") && entry.evidence.target === `${schema}#Writer.set`), true);
+  });
+}

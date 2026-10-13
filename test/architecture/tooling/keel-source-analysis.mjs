@@ -95,6 +95,8 @@ export function analyzeKeelTypeScript(sourceFiles, {
       if (range.kind !== "authored") return;
       const row = Object.freeze({
         file, symbol, kind: ast.kindName(node), offset: range.start,
+        functionProperty: ["KindPropertySignature", "KindPropertyDeclaration"].includes(ast.kindName(node)) &&
+          ast.kindName(ast.typeNode(node)) === "KindFunctionType",
         bodySha256: keelDigest(authoredText(node)),
         exported: exported(node),
         parameters: Object.freeze((functionKinds.has(ast.kindName(node)) || ast.kindName(node) === "KindMethodSignature"

@@ -66,7 +66,7 @@ export function evaluateKeelLayers(repo, model, census = {}) {
   const recordRoots = referenceSet(census.recordRoots ?? [], "record boundary");
   for (const entry of model.declarations) {
     if (!entry.file.startsWith("src/target-model/records/") && !entry.file.startsWith("src/analysis/program/records/")) continue;
-    if (entry.kind !== "KindMethodSignature") continue;
+    if (entry.kind !== "KindMethodSignature" && entry.functionProperty !== true) continue;
     const name = entry.symbol.split(".").at(-1);
     if (name === "get") recordReaders.add(keelSymbolIdentity(entry));
     if (name === "set") recordWriters.add(keelSymbolIdentity(entry));
