@@ -2,7 +2,7 @@ import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
 import { sourceStorageIsMemberProjection } from "./subjects.js";
-import { Node_Initializer } from "../../source-navigation/index.js";
+import { Node_Initializer, sourceEnclosingCallable } from "../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../source-semantics/array-types.js";
 
 export function sourceStorageIsScalarType(type: Type, semantics: SourceFileSemantics): boolean {
@@ -92,12 +92,42 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
   const signatures = value.kind !== "return" || nodeType === undefined ? [] : semantics.types.callSignatures(nodeType)
     .filter(signature => semantics.declarations.signatureDeclaration(signature) === value.node);
   let selected = value.kind === "return" ? signatures.length === 1 ? semantics.types.returnType(signatures[0]!) : undefined
-    : value.kind === "receiver" ? semantics.declarations.declaredType(value.node) : nodeType;
+    : value.kind === "receiver" ? sourceStorageReceiverType(source, value.node, semantics) : nodeType;
   for (const component of value.projection) {
     if (selected === undefined) return undefined;
     selected = sourceStorageComponentType(selected, component, semantics);
   }
   return selected;
+}
+
+function sourceStorageReceiverType(source: TargetSourceProgram, node: Node, semantics: SourceFileSemantics): Type | undefined {
+  const visited = new Set<Node>();
+  for (let depth = 0; depth < 128 && !visited.has(node); depth += 1) {
+    visited.add(node);
+    const explicit = semantics.types.declarationSignatureInfo(node)?.thisParameter?.type;
+    if (explicit !== undefined) return explicit;
+    if (source.ast.is.IsArrowFunction(node)) {
+      const owner = sourceEnclosingCallable(source.ast.parent(node), source.ast);
+      if (owner === undefined) return undefined;
+      node = owner;
+      continue;
+    }
+    const owner = source.ast.parent(node);
+    if (owner !== undefined && source.ast.is.IsObjectLiteralExpression(owner)) {
+      const element = semantics.operations.objectLiteralElement(node);
+      const kind = source.ast.is.IsMethodDeclaration(node) ? "method"
+        : source.ast.is.IsGetAccessorDeclaration(node) ? "get" : source.ast.is.IsSetAccessorDeclaration(node) ? "set" : undefined;
+      return element?.element === node && element.objectLiteral === owner && element.elementKind === kind && kind !== undefined
+        ? element.contextualType ?? element.objectLiteralType : undefined;
+    }
+    if (source.ast.is.IsClassDeclaration(node) || source.ast.is.IsClassExpression(node) || source.ast.is.IsInterfaceDeclaration(node))
+      return semantics.declarations.declaredType(node);
+    if (owner !== undefined && (source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ||
+      source.ast.is.IsInterfaceDeclaration(owner))) return source.ast.hasModifierKind(node, "static")
+        ? semantics.declarations.declaredValueType(owner) : semantics.declarations.declaredType(owner);
+    return undefined;
+  }
+  return undefined;
 }
 
 export function sourceIndexedStorageProjection(
