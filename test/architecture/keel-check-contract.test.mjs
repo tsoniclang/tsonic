@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -13,6 +12,9 @@ import { evaluateKeelDeterminism } from "./tooling/keel-certification-checks.mjs
 import { collectFiles, readSourceInventory } from "./tooling/file-inventory.mjs";
 import { evaluateKeelRuntimeFamilies, keelRuntimeRoots } from "./tooling/keel-structure-checks.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./tooling/keel-determinism-contracts.mjs";
+
+const fixtureRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../.temp/keel-architecture");
+mkdirSync(fixtureRoot, { recursive: true });
 
 test("committed Keel contracts and public declaration inputs do not require private analysis or generated host builds", () => {
   const manifest = keelDefaultManifest();
@@ -51,7 +53,7 @@ test("committed runtime responsibilities cover actual native sources without bro
 });
 
 test("the fixed generation scope has real source owners, exact raw inputs, and no private catalogue fallback", () => {
-  const root = mkdtempSync(resolve(tmpdir(), "keel-source-inputs-"));
+  const root = mkdtempSync(resolve(fixtureRoot, "source-inputs-"));
   try {
     const program = keelOwnedDeterminismPrograms.find(entry => entry.id === "tsumo/rust/engine");
     mkdirSync(resolve(root, "tsumo-rust/packages/engine/src"), { recursive: true });
@@ -82,8 +84,8 @@ test("CLI cannot turn final certification into a baseline pass or replace an inv
 });
 
 test("AC11 evidence adapter reads complete real output trees and drained guard summaries, rejects omissions and escapes", () => {
-  const root = mkdtempSync(resolve(tmpdir(), "keel-artifacts-"));
-  const outside = mkdtempSync(resolve(tmpdir(), "keel-outside-"));
+  const root = mkdtempSync(resolve(fixtureRoot, "artifacts-"));
+  const outside = mkdtempSync(resolve(fixtureRoot, "outside-"));
   try {
     const { programs, samples } = keelFixtureGeneration();
     const packetSamples = samples.map((sample, index) => {
