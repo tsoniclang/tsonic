@@ -1,7 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageSubject } from "./subjects.js";
-import { sourceStorageHasOriginalValue } from "./subjects.js";
+import { sourceStorageHasOriginalValue, sourceStorageIsMemberProjection } from "./subjects.js";
 import type { SourceStorageBudget, SourceStorageRows } from "./resource-budget.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
 import type { createSourceStorageGraphQueries } from "./graph-queries.js";
@@ -130,7 +130,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       return callee === undefined ? undefined : Object.freeze({ ...term, callee });
     }
     if (term.kind === "reference" && term.subject.kind === "value" &&
-      !term.subject.projection.some(component => component.kind === "member") &&
+      !term.subject.projection.some(sourceStorageIsMemberProjection) &&
       !source.ast.is.IsNewExpression(term.subject.node) && !source.ast.is.IsPropertyAccessExpression(term.subject.node) &&
       !source.ast.is.IsElementAccessExpression(term.subject.node) && !transport.invocations.has(term.subject.node) &&
       !transport.accessorTargets.has(term.subject.node) && transport.storedValuesFor(term.subject) === undefined &&

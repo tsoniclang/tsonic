@@ -4,7 +4,14 @@ import { sourceParameterIsProperty } from "../../source-navigation/class-members
 export type SourceStorageProjection =
   | { readonly kind: "array-element" }
   | { readonly kind: "tuple-element"; readonly index: number }
-  | { readonly kind: "member"; readonly declaration: Node };
+  | { readonly kind: "member"; readonly declaration: Node }
+  | { readonly kind: "method-value"; readonly declaration: Node };
+
+export function sourceStorageIsMemberProjection(
+  component: SourceStorageProjection,
+): component is Extract<SourceStorageProjection, { readonly declaration: Node }> {
+  return component.kind === "member" || component.kind === "method-value";
+}
 
 export interface SourceStorageSubject {
   readonly kind: "input" | "value" | "member" | "return" | "receiver";
@@ -70,7 +77,7 @@ export function sourceStorageProjectionPath(projection: readonly SourceStoragePr
     if (kind === "array-element") normalized.push(Object.freeze({ kind }));
     else if (kind === "tuple-element" && typeof ordinal === "number" && Number.isSafeInteger(ordinal) && ordinal >= 0)
       normalized.push(Object.freeze({ kind, index: ordinal }));
-    else if (kind === "member" && declaration !== null && typeof declaration === "object")
+    else if ((kind === "member" || kind === "method-value") && declaration !== null && typeof declaration === "object")
       normalized.push(Object.freeze({ kind, declaration: declaration as Node }));
     else valid = false;
   }
@@ -94,14 +101,14 @@ export function createSourceStorageSubjects(
     const components = subjects.get(node) ?? new Map<string, SourceStorageSubject>();
     const componentsKey: string[] = [];
     for (const component of normalized) {
-      if (component.kind === "member") {
+      if (sourceStorageIsMemberProjection(component)) {
         let identity = members.get(component.declaration);
         if (identity === undefined) {
           if (!admit(1)) return undefined;
           identity = members.size;
           members.set(component.declaration, identity);
         }
-        componentsKey.push(`m${identity}`);
+        componentsKey.push(`${component.kind === "member" ? "m" : "v"}${identity}`);
       } else componentsKey.push(component.kind === "array-element" ? "a" : `t${component.index}`);
     }
     const key = componentsKey.join("/");

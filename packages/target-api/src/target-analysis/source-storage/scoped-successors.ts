@@ -4,7 +4,7 @@ import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "./subjects.js";
 import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
-  sourceStorageMemberSubject } from "./subjects.js";
+  sourceStorageIsMemberProjection, sourceStorageMemberSubject } from "./subjects.js";
 import type { SourceStorageStore } from "./stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "./scoped-model.js";
@@ -145,14 +145,14 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         if (store.kind !== "mutation" || store.receiver === undefined || store.destination === "binding") continue;
         for (const [index, component] of subject.projection.entries()) {
           if (!budget.step()) return undefined;
-          if ((component.kind === "member") !== (store.destination === "member")) continue;
+          if (sourceStorageIsMemberProjection(component) !== (store.destination === "member")) continue;
           const writeComponent = store.storage.projection[store.storage.projection.length - 1];
           if (component.kind === "tuple-element" && writeComponent?.kind === "tuple-element" && component.index !== writeComponent.index) continue;
           const receiver = transport.subject(subject.node, subject.kind, subject.projection.slice(0, index));
           const receiverType = receiver === undefined ? undefined : sourceStorageSubjectType(source, receiver);
           if (receiver === undefined || receiverType === undefined) return undefined;
           const context = semantics.forNode(receiver.node);
-          if (component.kind === "member") {
+          if (sourceStorageIsMemberProjection(component)) {
             const access = ast.is.IsPropertyAccessExpression(store.reference) ? semantics.forNode(store.reference).operations.propertyAccess(store.reference)
               : semantics.forNode(store.reference).operations.elementAccess(store.reference);
             const members = access === undefined ? undefined : transport.memberFlow.declarationsFor(receiver, store.storage.node, access.receiver.type);
@@ -241,9 +241,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       }
       const subject = sourceStorageMemberSubject(original, ast, transport.subject, term.projection);
       if (subject === undefined) return undefined;
-      if (scopes.isSymbolic(term.receiver) && sourceStorageIsDataMember(original, ast)) {
+      if (scopes.isSymbolic(term.receiver) && (sourceStorageIsDataMember(original, ast) || sourceStorageIsMethodMember(original, ast))) {
         const projected = transport.subject(term.receiver.subject.node, term.receiver.subject.kind,
-          [...term.receiver.subject.projection, { kind: "member", declaration: original }, ...term.projection]);
+          [...term.receiver.subject.projection, { kind: sourceStorageIsMethodMember(original, ast) ? "method-value" : "member",
+            declaration: original }, ...term.projection]);
         if (projected === undefined) return undefined;
         terms.push(sourceStorageReference(projected, term.receiver.scope));
         continue;
@@ -466,9 +467,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.scope.kind === "frame" && term.scope.boundary === "declaration" &&
       sourceStorageFormalOwner(term.subject, ast) === term.scope.owner) return symbolicProjection(term.subject, term.scope);
     const node = term.subject.node;
-    const memberIndex = term.subject.projection.findIndex(component => component.kind === "member");
+    const memberIndex = term.subject.projection.findIndex(sourceStorageIsMemberProjection);
     const component = term.subject.projection[memberIndex];
-    if (component?.kind === "member") {
+    if (component !== undefined && sourceStorageIsMemberProjection(component)) {
       const receiver = transport.subject(node, term.subject.kind, term.subject.projection.slice(0, memberIndex));
       if (receiver === undefined) return undefined;
       return { kind: "replace", terms: [Object.freeze({ kind: "member",

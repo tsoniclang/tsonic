@@ -4,6 +4,7 @@ import { sourceStorageSubjectType } from "./components.js";
 import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
+import { sourceStorageIsMemberProjection } from "./subjects.js";
 
 export type SourceStorageIncomingQuery = (subject: SourceStorageSubject) => ReadonlySet<SourceStorageSubject>;
 
@@ -99,5 +100,5 @@ export function createSourceStorageEdges(
 function equalProjection(left: SourceStorageProjection, right: SourceStorageProjection): boolean {
   return left.kind === right.kind && (left.kind === "array-element" ||
     left.kind === "tuple-element" && right.kind === "tuple-element" && left.index === right.index ||
-    left.kind === "member" && right.kind === "member" && left.declaration === right.declaration);
+    sourceStorageIsMemberProjection(left) && sourceStorageIsMemberProjection(right) && left.declaration === right.declaration);
 }

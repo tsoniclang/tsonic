@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
-import { sourceStorageFormalOwner } from "./subjects.js";
+import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "./subjects.js";
 import type { SourceStorageTerm, SourceStorageScope } from "./scoped-model.js";
 import { sourceStorageReference } from "./scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
@@ -60,7 +60,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     let closed = true;
     const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
-      component.kind === "member" ? [component.kind, scopes.identity(component.declaration)] :
+      sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
     const activationKey = (scope: SourceStorageScope): string | undefined => {
       const selected = scopes.activation(scope);

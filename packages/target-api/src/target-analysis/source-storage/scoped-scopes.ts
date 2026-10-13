@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import { sourceStorageFormalOwner } from "./subjects.js";
+import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "./subjects.js";
 import { sourceStorageSubjectType } from "./components.js";
 import { sourceStorageProjectComponents } from "./component-projections.js";
 import type { SourceStorageInvocationInputQuery } from "./invocation-inputs.js";
@@ -191,7 +191,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (projected !== undefined && retain(1)) selected.push(Object.freeze({ ...entry, subject: projected,
         kind: entry.scope.kind === "frame" && entry.scope.boundary === "declaration" ? "reference" : entry.kind }));
     };
-    if (!origin.projection.some(component => component.kind === "member"))
+    if (!origin.projection.some(sourceStorageIsMemberProjection))
       collect([...entry.subject.projection, ...origin.projection]);
     else {
       const root = subject(origin.node, origin.kind);

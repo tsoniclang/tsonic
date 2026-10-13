@@ -1,6 +1,7 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/index.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "./subjects.js";
+import { sourceStorageIsMemberProjection } from "./subjects.js";
 import { Node_Initializer } from "../../source-navigation/index.js";
 import { sourceArrayElementType } from "../../source-semantics/array-types.js";
 
@@ -22,11 +23,12 @@ export function sourceStorageComponentType(
 ): Type | undefined {
   const selected = sourcePresentStorageType(type, semantics);
   if (selected === undefined) return undefined;
-  if (component.kind === "member") {
+  if (sourceStorageIsMemberProjection(component)) {
     const correspondence = semantics.types.structuralMembers(selected, selected);
     if (correspondence.kind !== "available") return undefined;
     const members = correspondence.members.filter(member => member.kind === "present" &&
-      member.destination.read === "property" && member.destination.declarations.includes(component.declaration));
+      member.destination.read === (component.kind === "member" ? "property" : "method") &&
+      member.destination.declarations.includes(component.declaration));
     return members.length === 1 ? members[0]!.destination.property.type : undefined;
   }
   if (component.kind === "tuple-element") {
@@ -44,12 +46,16 @@ export function sourceStorageOriginalComponents(
   component: SourceStorageProjection,
   semantics: SourceFileSemantics,
 ): Iterable<SourceStorageProjection> {
-  if (component.kind === "member") {
+  if (sourceStorageIsMemberProjection(component)) {
     const correspondence = semantics.types.structuralMembers(from, to);
     if (correspondence.kind !== "available") return [];
-    return correspondence.members.flatMap(member => member.kind === "present" && member.source.read === "property" &&
+    return correspondence.members.flatMap(member => member.kind === "present" &&
+      member.destination.read === (component.kind === "member" ? "property" : "method") &&
+      (member.source.read === "property" || member.source.read === "method") &&
       member.destination.declarations.includes(component.declaration)
-      ? member.source.declarations.map(declaration => ({ kind: "member" as const, declaration })) : []);
+      ? member.source.declarations.map(declaration => ({
+          kind: member.source.read === "method" ? "method-value" as const : "member" as const, declaration,
+        })) : []);
   }
   return component.kind === "array-element" ? sourceStorageComponents(from, semantics)
     : [semantics.types.isTuple(from) ? component : { kind: "array-element" }];
