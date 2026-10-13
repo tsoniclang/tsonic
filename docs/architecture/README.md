@@ -50,12 +50,22 @@ using different target facts and algorithms inside them.
 
 ## Documents
 
+These documents describe architectural contracts. Their stated implementation
+status and proof obligations distinguish approved design from verified behavior.
+
 - [Compilation lifecycle](compilation-lifecycle.md)
 - [Target-pack contract](target-pack-contract.md)
 - [C# and Rust source structure](csharp-rust-structure.md)
+- [Shared source-storage design](source-storage-design.md)
+- [Shared ownership and async result-use](ownership-contract.md)
+- [Sealed target programs and records](sealed-program.md)
 - [Provider and runtime ownership](provider-and-runtime-ownership.md)
+- [JS-surface carriers](js-surface-carriers.md)
+- [JS event-loop contract](event-loop-contract.md)
+- [Node stream contract](node-stream-contract.md)
 - [Memory type contracts](memory-type-contracts.md)
 - [Indexed type correspondence](indexed-type-correspondence.md)
 - [Proven integer operations](proven-integer-operations.md)
+- [Test design](test-design.md)
 - [Test execution and resource budgets](test-execution.md)
 - [Workspace agent policy](workspace-agent-policy.md)
