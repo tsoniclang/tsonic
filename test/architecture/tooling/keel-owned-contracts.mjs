@@ -1,6 +1,8 @@
 import { keelOwnedRuntimeFamilies } from "./keel-runtime-contracts.mjs";
 import { keelOwnedNodeModules } from "./keel-node-contracts.mjs";
 import { keelOwnedDeterminismPrograms } from "./keel-determinism-contracts.mjs";
+import { keelOwnedCsharpResponsibilities } from "./keel-owned-roles-csharp.mjs";
+import { keelOwnedRustResponsibilities } from "./keel-owned-roles-rust.mjs";
 
 export const keelBasePins = Object.freeze({
   tsonic: "401ac1353e927c5509767e3153aad546fd0fa1ab",
@@ -31,6 +33,7 @@ export const keelOwnedTargets = Object.freeze({
     diagnosticCalls: ["selectedPolicyDiagnostic", "targetPolicyDiagnostic", "unsupportedNodeDiagnostic"].map(symbol => ({
       file: "src/backend/planner/diagnostics.ts", symbol,
     })),
+    ...keelOwnedCsharpResponsibilities,
   }),
   "tsonic-rust": Object.freeze({
     programType: { file: "src/analysis/program/model.ts", symbol: "RustTargetProgram" },
@@ -61,6 +64,7 @@ export const keelOwnedTargets = Object.freeze({
         file: "src/policy/ownership/source-callable-abi.ts", symbol: `createRustSourceCallableAbiResolver.${name}`,
       })),
     ],
+    ...keelOwnedRustResponsibilities,
   }),
 });
 
