@@ -26,14 +26,19 @@ export function buildTypeScriptModuleAnalysis(sourceFiles) {
     },
   });
   const source = session.checkSource();
+  return analyzeCheckedTypeScriptModules(source, sourceFiles);
+}
+
+export function analyzeCheckedTypeScriptModules(source, sourceFiles, prefix = "/architecture/") {
   const edges = [];
   const modules = [];
   for (const sourceFile of source.sourceFiles) {
     const absoluteFileName = source.ast.getFileName(sourceFile);
-    if (!absoluteFileName.startsWith("/architecture/")) {
+    if (!absoluteFileName.startsWith(prefix)) {
       continue;
     }
-    const file = absoluteFileName.slice("/architecture/".length);
+    const file = absoluteFileName.slice(prefix.length);
+    if (!sourceFiles.has(file)) continue;
     modules.push(Object.freeze({
       file,
       topLevelKinds: Object.freeze(
