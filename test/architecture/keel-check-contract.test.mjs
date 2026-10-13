@@ -25,6 +25,7 @@ test("committed Keel contracts and public declaration inputs do not require priv
   assert.equal(manifest.nodeModules["csharp-nodejs"].length, 24);
   assert.equal(manifest.nodeModules["rust-nodejs"].length, 25);
   assert.equal(manifest.determinismPrograms.length, 209);
+  assert.equal(manifest.determinismPrograms.filter(program => program.expectation.kind === "source-rejected").length, 18);
   assert.throws(() => validateKeelManifest({ ...manifest, determinismPrograms: manifest.determinismPrograms.slice(1) }), /cannot omit/u);
   const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
   const inputs = readKeelDeclarations(workspace);

@@ -145,6 +145,10 @@ export function readKeelDeterminism(packetPath) {
       ...sample,
       first: artifactSet(sample.firstDirectory, sample.files),
       second: artifactSet(sample.secondDirectory, sample.files),
+      firstRejection: sample.firstRejectionFile === undefined ? undefined
+        : JSON.parse(readFileSync(ownedPath(sample.firstRejectionFile), "utf8")),
+      secondRejection: sample.secondRejectionFile === undefined ? undefined
+        : JSON.parse(readFileSync(ownedPath(sample.secondRejectionFile), "utf8")),
       firstGuard: guardReceipt(sample.firstGuardFile, sample.firstGuardSummary),
       secondGuard: guardReceipt(sample.secondGuardFile, sample.secondGuardSummary),
     };
@@ -160,7 +164,7 @@ export function readKeelDeterminism(packetPath) {
 
   function artifactSet(directory, files) {
     const absolute = ownedPath(directory);
-    if (!Array.isArray(files) || files.length === 0 || files.some(file => !validPath(file))) throw new Error("Invalid deterministic artifact scope.");
+    if (!Array.isArray(files) || files.some(file => !validPath(file))) throw new Error("Invalid deterministic artifact scope.");
     const actual = collectFiles(absolute);
     if (JSON.stringify([...new Set(files)].sort()) !== JSON.stringify(actual)) {
       throw new Error("Declared determinism artifacts must exactly cover each complete output tree.");

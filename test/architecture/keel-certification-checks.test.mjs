@@ -41,6 +41,30 @@ test("AC11 guard proof requires finite aggregate limits, zero swap, no OOM and a
   ]) assert.equal(guardSucceeded(keelFixtureGuard(overrides)), false, Object.keys(overrides).join(","));
 });
 
+test("AC11 retains exact unavailable-surface controls without treating native failures as rejection evidence", () => {
+  const { programs, samples } = keelFixtureGeneration();
+  const diagnostic = { code: "TSTS_DIAGNOSTIC", category: "error", message: "Required JS API is unavailable.",
+    evidence: ["tsts.code=TS2339"], sourceSpan: { fileName: "index.ts", line: 1, column: 1, endLine: 1, endColumn: 4 } };
+  const observation = { stage: "source", nativeProgramCompilationInvoked: false,
+    publishedArtifacts: [], diagnostics: [diagnostic] };
+  const requirement = { ...programs[0], expectation: { kind: "source-rejected", diagnosticCodes: ["TS2339"] } };
+  const proof = { ...samples[0], first: new Map(), second: new Map(),
+    firstRejection: observation, secondRejection: { ...observation },
+    firstGuard: { ...samples[0].firstGuard, exitCode: 1, scopeResult: "exit-code" },
+    secondGuard: { ...samples[0].secondGuard, exitCode: 1, scopeResult: "exit-code" } };
+  const check = candidate => evaluateKeelDeterminism([candidate, ...samples.slice(1)], [requirement, ...programs.slice(1)]);
+  assert.equal(check(proof).length, 0);
+  for (const changed of [
+    { ...proof, first: samples[0].first },
+    { ...proof, firstRejection: undefined },
+    { ...proof, secondRejection: { ...observation, nativeProgramCompilationInvoked: true } },
+    { ...proof, secondRejection: { ...observation, diagnostics: [{ ...diagnostic, message: "Changed diagnostic." }] } },
+    { ...proof, firstGuard: undefined },
+    { ...proof, firstGuard: { ...proof.firstGuard, exitCode: 0 } },
+  ]) assert.equal(keelFixtureHas(check(changed), "AC11"), true);
+  assert.equal(keelFixtureHas(evaluateKeelDeterminism([proof, ...samples.slice(1)], programs), "AC11", "nonempty"), true);
+});
+
 test("AC12 uses checked assertion/directive syntax, preserves existing occurrences, and counts additions", () => {
   const file = "src/analysis/program/value.ts";
   const previous = "export function value(input: unknown): unknown { return input as any; }";

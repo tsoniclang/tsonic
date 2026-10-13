@@ -2,6 +2,7 @@ import { keelCheckIds, keelFinding, keelTargetNames, sortKeelFindings, validPath
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
 import { isAbsolute } from "node:path";
+import { keelSourceRejectionIdentity } from "./keel-source-rejection.mjs";
 
 export function evaluateKeelDeterminism(samples, requiredPrograms) {
   const findings = [];
@@ -25,11 +26,24 @@ export function evaluateKeelDeterminism(samples, requiredPrograms) {
       pinIdentity(sample.pins) !== pinIdentity(expected.pins) || !["acceptance", "catalogue"].includes(expected.family)) {
       fail("Generation evidence does not match the prescribed source inputs and repository pins.");
     }
-    if (!(sample.first instanceof Map) || !(sample.second instanceof Map) ||
+    const sourceRejected = expected.expectation?.kind === "source-rejected";
+    if (sourceRejected) {
+      if (!(sample.first instanceof Map) || !(sample.second instanceof Map) || sample.first.size !== 0 || sample.second.size !== 0) {
+        fail("A source-rejection control cannot publish target artifacts.");
+      }
+      try {
+        const first = keelSourceRejectionIdentity(sample.firstRejection, expected.expectation.diagnosticCodes);
+        const second = keelSourceRejectionIdentity(sample.secondRejection, expected.expectation.diagnosticCodes);
+        if (first !== second) fail("The independent source-rejection diagnostics differ.");
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+    } else if (!(sample.first instanceof Map) || !(sample.second instanceof Map) ||
       sample.first.size === 0 || sample.second.size === 0) {
       fail("Both independent generations must publish a nonempty artifact set.");
       continue;
     }
+    if (!(sample.first instanceof Map) || !(sample.second instanceof Map)) continue;
     if (sample.first === sample.second || sample.firstGuard?.log === sample.secondGuard?.log) {
       fail("Double generation requires independent outputs and distinct guarded runs, not one receipt reused twice.");
     }
@@ -43,7 +57,7 @@ export function evaluateKeelDeterminism(samples, requiredPrograms) {
     for (const file of sample.second.keys()) {
       if (!sample.first.has(file)) fail("The second generation publishes an extra artifact.", { file });
     }
-    if (!guardSucceeded(sample.firstGuard) || !guardSucceeded(sample.secondGuard)) {
+    if (!guardSucceeded(sample.firstGuard, sourceRejected ? 1 : 0) || !guardSucceeded(sample.secondGuard, sourceRejected ? 1 : 0)) {
       fail("Each generation needs its own complete successful process-group guard receipt.");
     }
   }
@@ -59,10 +73,10 @@ export function evaluateKeelDeterminism(samples, requiredPrograms) {
   return sortKeelFindings(findings);
 }
 
-export function guardSucceeded(receipt) {
-  if (receipt === undefined || receipt === null || receipt.exitCode !== 0 ||
+export function guardSucceeded(receipt, expectedExitCode = 0) {
+  if (![0, 1].includes(expectedExitCode) || receipt === undefined || receipt === null || receipt.exitCode !== expectedExitCode ||
     receipt.swapMax !== 0 || receipt.calibration !== false || receipt.scopeDrained !== true ||
-    ![null, "success"].includes(receipt.scopeResult) ||
+    !(expectedExitCode === 1 ? [null, "success", "exit-code"] : [null, "success"]).includes(receipt.scopeResult) ||
     !Number.isSafeInteger(receipt.oomBefore) || receipt.oomBefore < 0 || receipt.oomBefore !== receipt.oomAfter) return false;
   return ["memoryMiB", "tasksMax", "timeoutSeconds", "logMaxBytes"].every(key =>
     Number.isSafeInteger(receipt[key]) && receipt[key] > 0) &&

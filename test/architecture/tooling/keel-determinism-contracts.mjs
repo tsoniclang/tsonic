@@ -4,6 +4,17 @@ import { collectFiles } from "./file-inventory.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
 
 export const keelCatalogueOwner = Object.freeze({ repo: "tsonic", path: "test/fixtures/catalogue/cases.json" });
+const nativeSourceRejections = Object.freeze({
+  "cases-arrayPushSum": { csharp: ["TS2339"], rust: ["TS2339"] },
+  "cases-arrayIndexSum": { csharp: ["TS2339", "TS2551"], rust: ["TS2339"] },
+  "cases-arrayPipeline": { csharp: ["TS2339", "TS7006"], rust: ["TS2339", "TS7006"] },
+  "cases-stringBuild": { csharp: ["TS2551"], rust: ["TS2339"] },
+  "cases-stringOps": { csharp: ["TS2550", "TS2551"], rust: ["TS2339", "TS2550"] },
+  "cases-stringTemplate": { csharp: ["TS2551"], rust: ["TS2339"] },
+  "cases-mapCount": { csharp: ["TS2583"], rust: ["TS2583"] },
+  "cases-jsonStringify": { csharp: ["TS2304"], rust: ["TS2304"] },
+  "cases-unionArea": { csharp: ["TS2339"], rust: ["TS2339"] },
+});
 const acceptance = [
   ["pudding/csharp/aspnet-ef","tsonic-csharp","csharp-pudding",["aspnetcore/packages/blog-ef"]],
   ["pudding/csharp/aspnet-blog","tsonic-csharp","csharp-pudding",["aspnetcore/packages/blog"]],
@@ -139,11 +150,16 @@ const catalogue = [
 
 export const keelOwnedDeterminismPrograms = Object.freeze([
   ...acceptance.map(([id, target, repo, paths]) => Object.freeze({
-    id, target, family: "acceptance", inputs: paths.map(path => Object.freeze({ repo, path })),
+    id, target, family: "acceptance", expectation: Object.freeze({ kind: "accepted" }),
+    inputs: paths.map(path => Object.freeze({ repo, path })),
   })),
   ...catalogue.flatMap(([caseId, seedSha256, targets, surfaces]) => targets.flatMap(target => surfaces.map(surface => Object.freeze({
     id: `catalogue/${target}/${surface}/${caseId}`, target: `tsonic-${target}`, family: "catalogue",
     caseId, surface, seedSha256, inputs: [keelCatalogueOwner],
+    expectation: surface === "native" && Object.hasOwn(nativeSourceRejections, caseId)
+      ? Object.freeze({ kind: "source-rejected", diagnosticCodes: Object.freeze(nativeSourceRejections[caseId][target]),
+        reason: "The requested JS API is not declared by the selected native source profile." })
+      : Object.freeze({ kind: "accepted" }),
   })))),
 ]);
 
