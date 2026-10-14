@@ -126,3 +126,16 @@ test("a structural family absent on the counterpart cannot hide behind its gener
   const right = { rows, vocabulary: { ...vocabulary, kinds: ["target-named"] } };
   assert.equal(validateCarrierRegistrySymmetry(left, right, signed).includes("Unexplained one-sided carrier: kind:source-primitive"), true);
 });
+
+test("an existing registered counterpart with the wrong structural kind is rejected in either direction", () => {
+  for (const divergence of [undefined, { register: "NATIVE-01", reason: "A claimed native constraint does not change a known structural kind." }]) {
+    const incorrect = rows.map(entry => entry.id === "kind:source-primitive"
+      ? { ...entry, counterpart: { module: constructors, symbol: "named" }, ...(divergence === undefined ? {} : { divergence }) } : entry);
+    const valid = { rows, vocabulary };
+    const invalid = { rows: incorrect, vocabulary };
+    for (const [left, right] of [[valid, invalid], [invalid, valid]]) {
+      assert.equal(validateCarrierRegistrySymmetry(left, right, signed)
+        .includes("Structural carrier counterpart kind mismatch: kind:source-primitive"), true);
+    }
+  }
+});

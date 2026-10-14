@@ -178,7 +178,9 @@ export function deriveCarrierVocabulary(files, rootDeclaration) {
   }
   const contracts = [...candidates].filter(([identity]) => exports.has(identity) && constructs(identity))
     .map(([, { declaration }]) => declaration);
-  return { kinds, contracts, exports };
+  const declarationKinds = new Map([...types].filter(([identity]) => exports.has(identity)).map(([identity, node]) =>
+    [identity, [...new Set(kindsFor(node, declarations.get(identity).declaration.module))].filter(kind => knownKinds.has(kind))]));
+  return { kinds, contracts, exports, declarationKinds };
 }
 
 export function validateCarrierRegistry(rows, vocabulary) {
@@ -221,14 +223,17 @@ export function validateCarrierRegistrySymmetry(left, right, signedDifferences) 
   for (const [current, counterpart] of [[left, right], [right, left]]) {
     const opposite = new Set(counterpart.rows.map(row => carrierDeclarationId(row.declaration)));
     for (const row of current.rows) {
-      if (row.counterpart === null) {
-        if (row.divergence === undefined) failures.push(`Unexplained one-sided carrier: ${row.id}`);
-      } else {
+      if ((row.counterpart === null || row.id.startsWith("kind:") && !counterpart.vocabulary.kinds.includes(row.kinds[0])) &&
+          row.divergence === undefined) failures.push(`Unexplained one-sided carrier: ${row.id}`);
+      if (row.counterpart !== null) {
         const selected = carrierDeclarationId(row.counterpart);
         if (!counterpart.vocabulary.exports.has(selected) || !opposite.has(selected)) failures.push(`Missing carrier counterpart: ${row.id}`);
-      }
-      if (row.id.startsWith("kind:") && !counterpart.vocabulary.kinds.includes(row.kinds[0]) && row.divergence === undefined) {
-        failures.push(`Unexplained one-sided carrier: ${row.id}`);
+        if (row.id.startsWith("kind:") && counterpart.vocabulary.kinds.includes(row.kinds[0]) &&
+            !counterpart.vocabulary.declarationKinds.get(selected)?.includes(row.kinds[0]) &&
+            !counterpart.rows.some(candidate => carrierDeclarationId(candidate.declaration) === selected &&
+              candidate.kinds.includes(row.kinds[0]))) {
+          failures.push(`Structural carrier counterpart kind mismatch: ${row.id}`);
+        }
       }
       if (row.divergence !== undefined && (!signedDifferences.has(row.divergence.register) ||
           typeof row.divergence.reason !== "string" || row.divergence.reason.trim().length === 0)) {
