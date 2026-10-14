@@ -17,3 +17,13 @@ test("built C# and Rust carrier registries share checked counterparts or signed 
   assert.equal(signedDifferences.size > 0, true);
   assert.deepEqual(validateCarrierRegistrySymmetry(registries[0], registries[1], signedDifferences), []);
 });
+
+test("an existing built native primitive constructor cannot masquerade as the structural array counterpart", () => {
+  const [current, counterpart] = registries;
+  const incorrect = counterpart.rows.find(row => !row.id.startsWith("kind:") &&
+    row.kinds.length === 1 && row.kinds[0] === "source-primitive");
+  assert.equal(incorrect !== undefined, true);
+  const rows = current.rows.map(row => row.id === "kind:array" ? { ...row, counterpart: incorrect.declaration } : row);
+  assert.equal(validateCarrierRegistrySymmetry({ ...current, rows }, counterpart, signedDifferences)
+    .includes("Structural carrier counterpart kind mismatch: kind:array"), true);
+});
