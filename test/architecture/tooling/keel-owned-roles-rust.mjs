@@ -1,5 +1,8 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/operations/indexed-call-keys.ts", symbol: "selectRustIndexedCallKeys",
+      bodySha256: "38c1cac2b554bfa03c1eabab5dd8fd6dcb5f80afbb2500bc5dbb173227e90f41", role: "analysis",
+      evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/objects/class-values.ts", symbol: "selectRustClassValue",
       bodySha256: "3b28208af03a6b11b581c991cacd31f32c6fac28df872088e5048e37c10c5d3d", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
