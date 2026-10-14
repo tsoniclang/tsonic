@@ -19,7 +19,8 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     const present = types.nonNullableType(type);
     return present === undefined || !types.isIdentical(type, present);
   };
-  const callable = (declaration: Node, invocation: Node | undefined): readonly Node[] => {
+  const callable = (declaration: Node, invocation: Node | undefined,
+    argumentTypes?: (expression: Node) => readonly Type[] | undefined): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
     const regions = [body];
@@ -29,8 +30,13 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       const initializer = parameter === undefined ? undefined : Node_Initializer(ast, parameter);
       if (initializer === undefined) continue;
       const bindings = selection?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === index);
-      if (bindings === undefined || bindings.length === 0 || bindings.some(binding =>
-        binding.sourceForm === "spread-sequence" || typeMayBeAbsent(binding.selectedArgumentType, invocation!))) {
+      if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
+        if (binding.sourceForm === "spread-sequence") return true;
+        const expression = selection?.sourceArguments[binding.sourceArgumentIndex]?.expression;
+        const types = argumentTypes === undefined ? [binding.selectedArgumentType]
+          : expression === undefined ? undefined : argumentTypes(expression);
+        return types === undefined || types.length === 0 || types.some(type => typeMayBeAbsent(type, invocation!));
+      })) {
         regions.push(initializer);
       }
     }

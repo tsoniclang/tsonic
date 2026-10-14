@@ -32,7 +32,7 @@ interface SourceContinuationFlowInput {
   readonly budget: SourceOwnershipBudget;
   readonly candidate: Node;
   readonly invocation: Node;
-  readonly bindings: SourceStorageBindings;
+  readonly callerBindings: SourceStorageBindings;
   readonly suspensions: SourceSuspensionQueries;
   readonly dependencies: SourceContinuationDependencyQueries;
   readonly limits: Partial<SourceFlowLimits>;
@@ -45,17 +45,27 @@ export function resolveSourceContinuationFlow(input: SourceContinuationFlowInput
 }
 
 function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuationTransfer): SourceContinuationClosureSelection {
-  const { source, storage, budget, candidate, invocation, bindings, suspensions } = input;
-  const selected = createSourceControlFlow(source, candidate, { limits: input.limits, invocation: { storage, call: invocation } });
+  const { source, storage, budget, candidate, invocation, suspensions } = input;
+  const selected = createSourceControlFlow(source, candidate, { limits: input.limits,
+    invocation: { storage, call: invocation, callerBindings: input.callerBindings } });
   if (selected.kind === "unresolved") return sourceOwnershipUnresolved(selected.source ?? candidate, selected.reason);
   const graph = selected.graph;
+  const contextFor = (node: Node) => {
+    const region = storage.enclosingRegionFor(node);
+    const context = region === undefined ? undefined : graph.executionRegions.get(region);
+    return context === undefined ? sourceOwnershipUnresolved(node, "Continuation flow requires the exact checked execution-region bindings.")
+      : context.selection.kind === "unresolved" ? sourceOwnershipUnresolved(node, context.selection.reason)
+      : { kind: "resolved" as const, owner: context.owner, bindings: context.selection.bindings };
+  };
   let failure: SourceOwnershipUnresolved | undefined;
   const solution = solveSourceFlow(graph, {
     direction: "forward", lattice: transfer.lattice,
     transfer(point, state) {
       if (!budget.step()) { failure = sourceOwnershipUnresolved(point.source ?? candidate, budget.failure()!); return undefined; }
       if (point.operation.kind !== "await" || point.source === undefined) return state;
-      const suspension = suspensions.forAwait(point.source, bindings);
+      const context = contextFor(point.source);
+      if (context.kind === "unresolved") { failure = context; return undefined; }
+      const suspension = suspensions.forAwait(point.source, context.bindings);
       if (suspension.kind === "unresolved") { failure = suspension; return undefined; }
       return suspension.kind === "never" ? state : transfer.suspend(state, suspension.pending);
     },
@@ -99,39 +109,36 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
       if (!budget.step()) return sourceOwnershipUnresolved(point.source ?? candidate, budget.failure()!);
       if (!solution.reachable.has(point.id) || point.source === undefined) continue;
       const state = solution.before.get(point.id)!;
+      const context = contextFor(point.source);
       const reference = sourceContinuationRead(source, point);
       if (reference !== undefined) {
+        if (context.kind === "unresolved") return context;
         let read = localReads.get(reference);
         if (read === undefined) {
           if (!rows.add(1)) return sourceOwnershipUnresolved(reference, budget.failure()!);
-          read = Object.freeze({ reference, candidate, bindings });
+          read = Object.freeze({ reference, candidate: context.owner, bindings: context.bindings });
           localReads.set(reference, read);
         }
         const problem = observe(read, state);
         if (problem !== undefined) return problem;
       }
       if (point.operation.kind === "await") {
-        const suspension = suspensions.forAwait(point.source, bindings);
+        if (context.kind === "unresolved") return context;
+        const suspension = suspensions.forAwait(point.source, context.bindings);
         if (suspension.kind === "unresolved") return suspension;
         if (suspension.kind === "resolved") {
           maySuspend = true;
           const held = transfer.suspend(transfer.lattice.empty(), suspension.pending);
           if (held === undefined) return sourceOwnershipUnresolved(point.source, budget.failure()!);
-          const owned = input.dependencies.forRead(held, suspension.pending.expression, candidate, bindings);
+          const owned = input.dependencies.forRead(held, suspension.pending.expression, context.owner, context.bindings);
           if (owned.kind === "unresolved") return owned;
           for (const dependency of owned.dependencies) if (!append(dependency)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
         }
       }
-      if (point.operation.kind === "evaluate" && source.ast.is.IsNewExpression(point.source)) {
-        const regions = storage.instanceRegionsFor(point.source);
-        if (regions.kind === "unresolved") return sourceOwnershipUnresolved(point.source, regions.reason);
-        if (regions.regions.length > 0) {
-          return sourceOwnershipUnresolved(point.source, "Continuation closure requires the checked instance-initializer execution graph.");
-        }
-      }
       if (point.operation.kind === "evaluate" && (source.ast.is.IsCallExpression(point.source) ||
         source.ast.is.IsNewExpression(point.source) || storage.isAccessorInvocation(point.source))) {
-        const nested = input.invocationFor(point.source, bindings);
+        if (context.kind === "unresolved") return context;
+        const nested = input.invocationFor(point.source, context.bindings);
         if (nested.kind === "unresolved") return nested;
         for (const dependency of nested.dependencies) if (!append(dependency)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
         for (const read of nested.reads) {
@@ -143,8 +150,9 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
         const result = source.ast.is.IsReturnStatement(point.source) ? source.ast.as.AsReturnStatement(point.source)?.Expression
           : point.source === source.ast.body(candidate) ? point.source : undefined;
         if (result !== undefined) {
+          if (context.kind === "unresolved") return context;
           if (!rows.add(1)) return sourceOwnershipUnresolved(result, budget.failure()!);
-          results.push(Object.freeze({ reference: result, candidate, bindings }));
+          results.push(Object.freeze({ reference: result, candidate: context.owner, bindings: context.bindings }));
         }
       }
     }

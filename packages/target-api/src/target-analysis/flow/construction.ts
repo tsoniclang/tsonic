@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";
 import type { SourceControlFlowGraph, SourceFlowEdge, SourceFlowEdgeKind,
-  SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
+  SourceFlowExecutionRegion, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
 import { createSourceFlowBudget, SourceFlowFailure } from "./resources.js";
 
 export interface SourceFlowContext {
@@ -23,6 +23,7 @@ interface OpenPoint {
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
   readonly parameterInitializers: ReadonlySet<Node> | undefined;
+  readonly superInitializers: readonly Node[];
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
   readonly point: (source: Node | undefined, operation: SourceFlowOperation) => number;
   readonly edge: (from: number, to: number, kind?: SourceFlowEdgeKind) => void;
@@ -81,11 +82,12 @@ export function createSourceFlowConstruction(declaration: Node,
   return {
     point, edge, emit, step: budget.step,
     nested,
-    finish(entry: number, exit: number, exceptionExit: number): SourceControlFlowGraph {
+    finish(entry: number, exit: number, exceptionExit: number,
+      executionRegions: ReadonlyMap<Node, SourceFlowExecutionRegion>): SourceControlFlowGraph {
       const sealed: SourceFlowPoint[] = points.map(selected => Object.freeze({ ...selected,
         successors: Object.freeze(selected.successors), predecessors: Object.freeze(selected.predecessors) }));
       return Object.freeze({ declaration, entry, exit, exceptionExit, points: Object.freeze(sealed),
-        sourcePoints: new Map([...sourcePoints].map(([node, ids]) => [node, Object.freeze(ids)])), bindings });
+        sourcePoints: new Map([...sourcePoints].map(([node, ids]) => [node, Object.freeze(ids)])), bindings, executionRegions });
     },
   };
 }

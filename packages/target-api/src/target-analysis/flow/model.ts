@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -34,6 +34,12 @@ export interface SourceControlFlowGraph {
   readonly points: readonly SourceFlowPoint[];
   readonly sourcePoints: ReadonlyMap<Node, readonly number[]>;
   readonly bindings: ReadonlySet<Node>;
+  readonly executionRegions: ReadonlyMap<Node, SourceFlowExecutionRegion>;
+}
+
+export interface SourceFlowExecutionRegion {
+  readonly owner: Node;
+  readonly selection: SourceStorageBindingsSelection;
 }
 
 export interface SourceFlowUnresolved {
@@ -55,7 +61,8 @@ export interface SourceFlowLimits {
 
 export interface SourceControlFlowOptions {
   readonly limits?: Partial<SourceFlowLimits>;
-  readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node };
+  readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node;
+    readonly callerBindings?: SourceStorageBindings };
 }
 
 export interface SourceFlowWork {

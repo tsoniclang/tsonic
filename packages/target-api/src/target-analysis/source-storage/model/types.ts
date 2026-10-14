@@ -174,7 +174,7 @@ export interface SourceStorageQueries {
   argumentTransportsFor(invocation: Node): SourceStorageArgumentsSelection;
   mutationOwnerFor(node: Node): SourceStorageSubject | undefined;
   isAccessorInvocation(node: Node): boolean;
-  executionRegionsFor(candidate: Node, invocation?: Node): SourceStorageNodesSelection;
+  executionRegionsFor(candidate: Node, invocation?: Node, callerBindings?: SourceStorageBindings): SourceStorageNodesSelection;
   instanceRegionsFor(invocation: Node): SourceStorageInstanceRegionsSelection;
   enclosingRegionFor(node: Node): Node | undefined;
 }
