@@ -1,8 +1,28 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowWork } from "./model.js";
+import type { SourceControlFlowGraph, SourceFlowLattice, SourceFlowLimits, SourceFlowSolution,
+  SourceFlowUnresolved, SourceFlowWork } from "./model.js";
 import { solveSourceFlow } from "./solver.js";
 
-export function analyzeSourceLiveness(graph: SourceControlFlowGraph, limits: Partial<SourceFlowLimits> = {}) {
+export type SourceFlowWriteCount = 0 | 1 | 2;
+
+export type SourceFlowLivenessSelection = SourceFlowUnresolved |
+  (Extract<SourceFlowSolution<ReadonlySet<Node>>, { kind: "resolved" }> & {
+    readonly lastUsePoints: ReadonlySet<number>;
+    readonly lastUses: ReadonlySet<Node>;
+  });
+
+export type SourceFlowDefiniteAssignmentSelection = SourceFlowUnresolved |
+  (Extract<SourceFlowSolution<ReadonlySet<Node>>, { kind: "resolved" }> & {
+    readonly unassignedReads: ReadonlySet<Node>;
+  });
+
+export type SourceFlowWritesSelection = SourceFlowUnresolved |
+  (Extract<SourceFlowSolution<ReadonlyMap<Node, SourceFlowWriteCount>>, { kind: "resolved" }> & {
+    readonly maximum: ReadonlyMap<Node, SourceFlowWriteCount>;
+  });
+
+export function analyzeSourceLiveness(graph: SourceControlFlowGraph,
+  limits: Partial<SourceFlowLimits> = {}): SourceFlowLivenessSelection {
   const solution = solveSourceFlow<ReadonlySet<Node>>(graph, {
     direction: "backward", lattice: sourceFlowSetLattice("union", new Set()),
     transfer(point, input, work) {
@@ -27,7 +47,8 @@ export function analyzeSourceLiveness(graph: SourceControlFlowGraph, limits: Par
   return Object.freeze({ ...solution, lastUsePoints, lastUses });
 }
 
-export function analyzeSourceDefiniteAssignment(graph: SourceControlFlowGraph, limits: Partial<SourceFlowLimits> = {}) {
+export function analyzeSourceDefiniteAssignment(graph: SourceControlFlowGraph,
+  limits: Partial<SourceFlowLimits> = {}): SourceFlowDefiniteAssignmentSelection {
   const initial = new Set(graph.bindings);
   for (const point of graph.points) {
     const operation = point.operation;
@@ -54,9 +75,8 @@ export function analyzeSourceDefiniteAssignment(graph: SourceControlFlowGraph, l
   return Object.freeze({ ...solution, unassignedReads });
 }
 
-export type SourceFlowWriteCount = 0 | 1 | 2;
-
-export function analyzeSourceWrites(graph: SourceControlFlowGraph, limits: Partial<SourceFlowLimits> = {}) {
+export function analyzeSourceWrites(graph: SourceControlFlowGraph,
+  limits: Partial<SourceFlowLimits> = {}): SourceFlowWritesSelection {
   type State = ReadonlyMap<Node, SourceFlowWriteCount>;
   const empty: State = new Map();
   const solution = solveSourceFlow<State>(graph, {
