@@ -58,6 +58,29 @@ export interface TargetCompilationStages<Program, Plan> {
   readonly materialize: (plan: Plan) => TargetCompileOutput;
 }
 
+class TargetPlannerInvariantFailure extends Error {
+  readonly diagnostic: TargetDiagnostic;
+
+  constructor(source: string, message: string, sourceNode?: Node) {
+    super(message);
+    this.diagnostic = Object.freeze({
+      code: "TSONIC_INTERNAL_PLANNER_INVARIANT",
+      category: "error",
+      source,
+      message,
+      sourceNode,
+    });
+  }
+}
+
+export function failTargetPlannerInvariant(
+  source: string,
+  message: string,
+  sourceNode?: Node,
+): never {
+  throw new TargetPlannerInvariantFailure(source, message, sourceNode);
+}
+
 export function resolvedTargetStage<T>(
   value: T,
   diagnostics: readonly TargetDiagnostic[] = [],
@@ -91,7 +114,15 @@ export function runTargetCompilationStages<Program, Plan>(
   if (analysis.kind === "rejected") {
     return rejectedTargetStage(analysis.diagnostics);
   }
-  const planning = stages.plan(analysis.value);
+  let planning: TargetStageResult<Plan>;
+  try {
+    planning = stages.plan(analysis.value);
+  } catch (failure) {
+    if (!(failure instanceof TargetPlannerInvariantFailure)) {
+      throw failure;
+    }
+    return rejectedTargetStage([...analysis.diagnostics, failure.diagnostic]);
+  }
   const diagnostics = Object.freeze([
     ...analysis.diagnostics,
     ...planning.diagnostics,

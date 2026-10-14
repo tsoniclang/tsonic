@@ -12,6 +12,7 @@ export type {
   TargetSourceFile,
 } from "../artifacts.js";
 export {
+  failTargetPlannerInvariant,
   rejectedTargetStage,
   resolvedTargetStage,
   runTargetCompilationStages,
