@@ -3,6 +3,8 @@ export { validateSourceBinaryEntry } from "./entry-validation.js";
 export type { SourceBinaryEntryIssue } from "./entry-validation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
 export { forEachSourceImmediateEvaluationChild } from "./immediate-evaluation.js";
+export { sourceReceiverBoundary, sourceReceiverOwner } from "./receiver-owner.js";
+export type { SourceReceiverBoundary } from "./receiver-owner.js";
 export { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition } from "./expression-use.js";
 export type { SourceExpressionResultDisposition } from "./expression-use.js";
 export { generatedTypeParameterNames, authoredTypeParameterNames } from "./generic-bindings.js";

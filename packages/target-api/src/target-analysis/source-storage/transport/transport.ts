@@ -1,6 +1,7 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject } from "../model/subjects.js";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch } from "../../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch,
+  sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
 import { sourceExpressionSelectsOperandValue } from "../../../source-navigation/expression-use.js";
@@ -92,13 +93,8 @@ export function createSourceStorageTransport(
     return undefined;
   };
   const receiverFor = (node: Node): SourceStorageSubject | undefined => {
-    for (let parent = ast.parent(node); parent !== undefined && step(); parent = ast.parent(parent)) {
-      if (ast.is.IsClassDeclaration(parent) || ast.is.IsClassExpression(parent)) return subject(parent, "receiver");
-      if (ast.is.IsFunctionDeclaration(parent) || ast.is.IsFunctionExpression(parent) ||
-        ast.is.IsMethodDeclaration(parent) || ast.is.IsConstructorDeclaration(parent) ||
-        ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent)) return subject(parent, "receiver");
-    }
-    return undefined;
+    const owner = sourceReceiverOwner(node, ast, "storage", step);
+    return owner === undefined ? undefined : subject(owner, "receiver");
   };
   const valueWrapper = (node: Node): boolean => ast.is.IsParenthesizedExpression(node) || ast.is.IsAsExpression(node) ||
     ast.is.IsSatisfiesExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsTypeAssertion(node);
