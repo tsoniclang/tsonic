@@ -3,6 +3,7 @@ export type {
   TargetArtifactKind,
   TargetCompileOutput,
   TargetCompileResult,
+  TargetCompilationObserver,
   TargetCompilationStages,
   TargetDiagnostic,
   TargetDiagnosticSourceSpan,

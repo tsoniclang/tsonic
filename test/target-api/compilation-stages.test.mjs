@@ -197,3 +197,143 @@ for (const phase of ["analyze", "plan", "materialize"]) {
     }
   });
 }
+
+test("stage observers receive exact successful values in production stage order", async () => {
+  const source = await checkedSource("stage-observer-identity", {
+    "src/index.ts": "export const value = 1;",
+  });
+  const program = Object.freeze({ source });
+  const plan = Object.freeze({ program });
+  const output = Object.freeze({ artifacts: Object.freeze([]) });
+  const events = [];
+  const result = runTargetCompilationStages({
+    analyze() {
+      events.push("analyze");
+      return resolvedTargetStage(program, [warning]);
+    },
+    plan(received) {
+      assert.equal(received === program, true, "the planner receives the exact accepted program");
+      events.push("plan");
+      return resolvedTargetStage(plan);
+    },
+    materialize(received) {
+      assert.equal(received === plan, true, "emission receives the exact accepted plan");
+      events.push("materialize");
+      return output;
+    },
+  }, {
+    analyzed(received) {
+      assert.equal(received === program, true, "analysis observation preserves identity");
+      assert.equal(received.source === source, true, "checked source identity is preserved");
+      events.push("observed:analysis");
+    },
+    planned(received) {
+      assert.equal(received === plan, true, "planning observation preserves identity");
+      events.push("observed:plan");
+    },
+  });
+  assert.deepEqual(events, ["analyze", "observed:analysis", "plan", "observed:plan", "materialize"]);
+  assert.equal(result.kind, "resolved");
+  assert.equal(result.value === output, true, "observation does not replace output");
+  assert.deepEqual(result.diagnostics, [warning]);
+  assert.deepEqual(Object.keys(result).sort(), ["diagnostics", "kind", "value"]);
+  assert.deepEqual(Object.keys(result.value), ["artifacts"]);
+});
+
+for (const rejectedPhase of ["analyze", "plan", "invariant"]) {
+  test(`stage observers never expose rejected ${rejectedPhase} values or partial output`, () => {
+    const program = Object.freeze({ accepted: true });
+    const events = [];
+    const result = runTargetCompilationStages({
+      analyze() {
+        events.push("analyze");
+        return rejectedPhase === "analyze"
+          ? rejectedTargetStage([error])
+          : resolvedTargetStage(program, [warning]);
+      },
+      plan(received) {
+        assert.equal(received === program, true, rejectedPhase);
+        events.push("plan");
+        if (rejectedPhase === "invariant") {
+          failTargetPlannerInvariant("observer-test", "sealed invariant");
+        }
+        return rejectedTargetStage([error]);
+      },
+      materialize() {
+        assert.fail("A rejected stage must not reach emission.");
+      },
+    }, {
+      analyzed(received) {
+        assert.equal(received === program, true, rejectedPhase);
+        events.push("observed:analysis");
+      },
+      planned() {
+        assert.fail("A rejected plan must not be observed.");
+      },
+    });
+    assert.equal(result.kind, "rejected");
+    assert.equal(Object.hasOwn(result, "value"), false);
+    assert.equal(Object.hasOwn(result, "program"), false);
+    assert.equal(Object.hasOwn(result, "plan"), false);
+    assert.deepEqual(events, rejectedPhase === "analyze"
+      ? ["analyze"] : ["analyze", "observed:analysis", "plan"]);
+    assert.equal(result.diagnostics.at(-1).code,
+      rejectedPhase === "invariant" ? "TSONIC_INTERNAL_PLANNER_INVARIANT" : error.code);
+  });
+}
+
+test("stage observation does not recover output after failed emission", () => {
+  const program = Object.freeze({ accepted: true });
+  const plan = Object.freeze({ accepted: true });
+  const failure = new Error("emission failed");
+  const observed = [];
+  assert.throws(() => runTargetCompilationStages({
+    analyze: () => resolvedTargetStage(program),
+    plan: () => resolvedTargetStage(plan),
+    materialize() { throw failure; },
+  }, {
+    analyzed(value) { observed.push(value); },
+    planned(value) { observed.push(value); },
+  }), caught => caught === failure);
+  assert.equal(observed.length, 2);
+  assert.equal(observed[0] === program, true);
+  assert.equal(observed[1] === plan, true);
+});
+
+for (const callback of ["analyzed", "planned"]) {
+  test(`a failing ${callback} observer is not mistaken for a planner rejection`, () => {
+    let failure;
+    try {
+      failTargetPlannerInvariant("observer-test", "observer failed outside the planner");
+    } catch (caught) {
+      failure = caught;
+    }
+    const events = [];
+    assert.throws(() => runTargetCompilationStages({
+      analyze: () => resolvedTargetStage({}),
+      plan() {
+        events.push("plan");
+        return resolvedTargetStage({});
+      },
+      materialize() { assert.fail("A failed observer cannot continue emission."); },
+    }, { [callback]() { throw failure; } }), caught => caught === failure);
+    assert.deepEqual(events, callback === "analyzed" ? [] : ["plan"]);
+  });
+}
+
+test("omitted, empty and partial observers preserve ordinary compilation results", () => {
+  const program = Object.freeze({});
+  const plan = Object.freeze({});
+  const output = Object.freeze({ artifacts: Object.freeze([]) });
+  const stages = {
+    analyze: () => resolvedTargetStage(program, [warning]),
+    plan: () => resolvedTargetStage(plan),
+    materialize: () => output,
+  };
+  const ordinary = runTargetCompilationStages(stages);
+  for (const observer of [{}, { analyzed() {} }, { planned() {} }]) {
+    const observed = runTargetCompilationStages(stages, observer);
+    assert.equal(observed.value === ordinary.value, true);
+    assert.deepEqual(observed, ordinary);
+  }
+});
