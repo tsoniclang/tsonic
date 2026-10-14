@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
 import { sourceFlowPattern } from "./bindings.js";
 import { createSourceFlowCaptureQuery } from "./captures.js";
 import { createSourceFlowConstruction, sourceFlowSequence, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
@@ -9,16 +10,13 @@ import type { SourceControlFlowOptions, SourceControlFlowSelection } from "./mod
 import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
 import { sourceFlowStatement } from "./statements.js";
 
-const callableKinds: ReadonlySet<string> = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction",
-  "KindMethodDeclaration", "KindGetAccessor", "KindSetAccessor", "KindConstructor"]);
-
 export function createSourceControlFlow(source: TargetSourceProgram, declaration: Node,
   options: SourceControlFlowOptions = {}): SourceControlFlowSelection {
   try {
     const { ast } = source;
     const file = ast.getSourceFile(declaration);
     if (file === undefined || !source.sourceFiles.includes(file) ||
-      !callableKinds.has(ast.kindName(declaration)) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) {
+      !isSourceCallableBodyBoundary(ast, declaration) && !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration)) {
       throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
     }
     if (options === null || typeof options !== "object" ||

@@ -35,6 +35,17 @@ export type {
   TargetPlanningSourceNavigation,
 } from "./source-navigation-snapshot.js";
 export {
+  createTargetSafetyApplicationIndex,
+} from "./safety-applications.js";
+export type {
+  TargetSafetyApplication,
+  TargetSafetyApplicationFact,
+  TargetSafetyApplicationIndex,
+  TargetSafetyApplicationIndexInput,
+  TargetSafetyApplicationPlacement,
+  TargetSafetyOperation,
+} from "./safety-applications.js";
+export {
   targetUseSiteIdentity,
   targetUseSiteRef,
 } from "./use-sites.js";
