@@ -38,7 +38,7 @@ export const keelOwnedTargets = Object.freeze({
   "tsonic-rust": Object.freeze({
     programType: { file: "src/analysis/program/model.ts", symbol: "RustTargetProgram" },
     diagnosticCodeFields: [{ file: "external/tsonic/packages/target-api/src/artifacts.ts", symbol: "TargetDiagnostic.code" }],
-    keyDefinitions: [{ file: rustKeys, symbol: "defineRustPlanKey" }],
+    keyDefinitions: [],
     keyTypes: [{ file: rustKeys, symbol: "RustPlanKey" }],
     diagnosticCalls: ["unsupportedStatementDiagnostic", "missingFactDiagnostic", "unsupportedConstructDiagnostic"].map(symbol => ({
       file: "src/backend/planner/diagnostics.ts", symbol,

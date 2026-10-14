@@ -1,5 +1,17 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/operations/native-flow-refinement.ts", symbol: "selectRustGuardedValueCarrier",
+      bodySha256: "536625290b906c3376ce3988e599c015f996bf3b175614f78320501d11284805", role: "analysis",
+      evidence: [{ kind: "parameter", name: "reference" }] },
+    { file: "src/analysis/operations/provider/result.ts", symbol: "selectedMemberReceiverCarrier",
+      bodySha256: "a3d03d738c72eb04c9890f9c28ac3c4c49b75cd70d4d53ebe0271f33d5878b0d", role: "analysis",
+      evidence: [{ kind: "parameter", name: "request" }] },
+    { file: "src/analysis/operations/selected-values.ts", symbol: "selectedValueCarrier",
+      bodySha256: "368a355774cba1e489d566b3c4699524a8c4650aec97b49230bd3991d7bc26ee", role: "analysis",
+      evidence: [{ kind: "parameter", name: "expression" }] },
+    { file: "src/analysis/program/walk.ts", symbol: "selectExpressionOperation",
+      bodySha256: "d5c9880aa68051984a257d04fb69c113f09169820f94969543ff115327d655d4", role: "analysis",
+      evidence: [{ kind: "parameter", name: "expression" }] },
     { file: "src/policy/operations/iteration/selection.ts", symbol: "rustIterableTargetPolicy",
       bodySha256: "db745525c27ca52ad43d9d902e3a15bf6d14cb22b4ee73f4626ada633cdef847", role: "selection",
       evidence: [{ kind: "parameter", name: "iterable" }] },
