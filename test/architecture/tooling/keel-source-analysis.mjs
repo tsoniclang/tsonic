@@ -161,6 +161,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
           const declaration = declarationFor(node);
           if (declaration !== undefined) typedDeclarations.push(Object.freeze({
             ...declaration, kind, through: Object.freeze(references),
+            receiverThrough: Object.freeze(origins(checker, ast.name(node), new Set(), true)),
           }));
         }
       }
@@ -192,6 +193,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
           ...base, kind: kind === "KindNewExpression" ? "construct" : "call",
           target, access: Object.freeze(accessPath(expression)),
           through: Object.freeze(origins(checker, expression)),
+          receiverThrough: Object.freeze(origins(checker, expression, new Set(), true)),
           expressionTarget: symbolFor(checker, expression),
           arguments: Object.freeze(ast.arguments(node).map(argument => Object.freeze({
             kind: ast.kindName(argument), text: literalText(argument),
@@ -203,6 +205,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
         accesses.push(Object.freeze({
           ...base, target: symbolFor(checker, node), access: Object.freeze(accessPath(node)),
           through: Object.freeze(origins(checker, node)),
+          receiverThrough: Object.freeze(origins(checker, node, new Set(), true)),
         }));
       }
       if (loopKinds.has(kind)) loops.push(Object.freeze({ ...base, kind }));
@@ -249,7 +252,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
   });
 
   function walk(node, visit) {
-    visit(node);
+    if (visit(node) === false) return;
     ast.forEachChild(node, child => walk(child, visit));
   }
 
@@ -329,19 +332,37 @@ export function analyzeKeelTypeScript(sourceFiles, {
     return declarationFor(checker.getSymbolValueDeclaration(symbol) ?? checker.getPrimarySymbolDeclaration(symbol));
   }
 
-  function origins(checker, node, seen = new Set()) {
+  function origins(checker, node, seen = new Set(), receiverOnly = false) {
     if (checker === undefined || node === undefined || seen.has(node)) return [];
     seen.add(node);
     const result = [];
     const selected = symbolFor(checker, node);
     if (selected !== undefined) result.push(selected);
     const kind = ast.kindName(node);
+    let type;
+    let shapes;
     if (["KindIdentifier", "KindPropertyAccessExpression", "KindElementAccessExpression"].includes(kind)) {
-      const type = checker.getTypeAtLocation(node);
-      if (type !== undefined) result.push(...checkedTypeOrigins(checker, source.getSourceFileQueries(ast.getSourceFile(node)).typeShape, type));
+      type = checker.getTypeAtLocation(node);
+      shapes = source.getSourceFileQueries(ast.getSourceFile(node)).typeShape;
+      if (type !== undefined) result.push(...checkedTypeOrigins(checker, shapes, type));
     }
-    if (kind === "KindPropertyAccessExpression") result.push(...origins(checker, ast.as.AsPropertyAccessExpression(node)?.Expression, seen));
-    if (kind === "KindElementAccessExpression") result.push(...origins(checker, ast.as.AsElementAccessExpression(node)?.Expression, seen));
+    if (["KindPropertyAccessExpression", "KindElementAccessExpression"].includes(kind)) {
+      const receiver = kind === "KindPropertyAccessExpression"
+        ? ast.as.AsPropertyAccessExpression(node)?.Expression : ast.as.AsElementAccessExpression(node)?.Expression;
+      if (!receiverOnly || selected === undefined || type === undefined || shapes.isAny(type) || shapes.isUnknown(type) ||
+        checker.getCallSignaturesOfType(type).length !== 0) {
+        result.push(...origins(checker, receiver, seen, receiverOnly));
+      }
+      if (receiverOnly) {
+        const symbol = checker.getResolvedSymbolOrNil(node);
+        result.push(...annotationOrigins(checker, symbol === undefined ? undefined
+          : checker.getSymbolValueDeclaration(symbol) ?? checker.getPrimarySymbolDeclaration(symbol), seen, receiverOnly));
+      }
+    }
+    if (receiverOnly && ["KindParenthesizedExpression", "KindAsExpression", "KindTypeAssertionExpression", "KindNonNullExpression", "KindSatisfiesExpression"].includes(kind)) {
+      result.push(...annotationOrigins(checker, node, seen, receiverOnly));
+      result.push(...origins(checker, node.Expression, seen, receiverOnly));
+    }
     if (kind === "KindIdentifier") {
       const symbol = checker.getLexicallyResolvedSymbol(node);
       const declaration = symbol === undefined ? undefined
@@ -353,16 +374,38 @@ export function analyzeKeelTypeScript(sourceFiles, {
             checker.getSymbolValueDeclaration(alias) ?? checker.getPrimarySymbolDeclaration(alias));
           if (resolved !== undefined) result.push(resolved);
         }
-        const type = ast.typeNode(declaration);
-        if (type !== undefined) walk(type, child => {
-          if (ast.kindName(child) === "KindIdentifier") result.push(...origins(checker, child, seen));
-        });
-        if (ast.kindName(declaration) === "KindVariableDeclaration" && ast.variableDeclarationKind(declaration) === "const") {
-          result.push(...origins(checker, ast.as.AsVariableDeclaration(declaration)?.Initializer, seen));
+        result.push(...annotationOrigins(checker, declaration, seen, receiverOnly));
+        if (ast.kindName(declaration) === "KindVariableDeclaration" &&
+          (receiverOnly || ast.variableDeclarationKind(declaration) === "const")) {
+          result.push(...origins(checker, ast.as.AsVariableDeclaration(declaration)?.Initializer, seen, receiverOnly));
+        }
+        if (receiverOnly && ast.kindName(declaration) === "KindBindingElement") {
+          const binding = ast.as.AsBindingElement(declaration);
+          const property = binding?.PropertyName ?? ast.name(declaration);
+          const pattern = ast.parent(declaration);
+          const receiverType = checker.getTypeAtLocation(pattern);
+          const symbol = receiverType === undefined || property === undefined ||
+            !["KindIdentifier", "KindStringLiteral"].includes(ast.kindName(property)) ? undefined
+            : checker.getPropertyOfType(receiverType, ast.text(property));
+          const selectedDeclaration = symbol === undefined ? undefined
+            : checker.getSymbolValueDeclaration(symbol) ?? checker.getPrimarySymbolDeclaration(symbol);
+          const reference = declarationFor(selectedDeclaration);
+          if (reference !== undefined) result.push(reference);
+          result.push(...annotationOrigins(checker, selectedDeclaration, seen, receiverOnly));
         }
       }
     }
     return [...new Map(result.map(reference => [keelSymbolIdentity(reference), reference])).values()];
+  }
+
+  function annotationOrigins(checker, declaration, seen, receiverOnly) {
+    const result = [];
+    const type = declaration === undefined ? undefined : ast.typeNode(declaration);
+    if (type !== undefined) walk(type, child => {
+      if (receiverOnly && ["KindTypeLiteral", "KindFunctionType", "KindConstructorType", "KindMappedType"].includes(ast.kindName(child))) return false;
+      if (ast.kindName(child) === "KindIdentifier") result.push(...origins(checker, child, seen, receiverOnly));
+    });
+    return result;
   }
 
   function checkedTypeOrigins(checker, shapes, type) {

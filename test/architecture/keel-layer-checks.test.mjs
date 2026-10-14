@@ -248,6 +248,123 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(findings.filter(entry => entry.check === "AC4").every(entry => entry.file === planner), true);
   });
 
+  test(`${repo}: AC4 checks the selected receiver, not diagnostic siblings in an aggregate context`, () => {
+    const types = "src/target-model/records/provenance.ts";
+    const planner = "src/backend/planner/program/worker-entries.ts";
+    const model = keelFixtureModel([
+      [types, "export interface Diagnostic { code: string; } export interface AstReader { getFileName(source: number): string; } export interface Registry { targets(): readonly number[]; }"],
+      [planner, `import type { AstReader, Diagnostic, Registry } from "../../../target-model/records/provenance.js";
+        export function direct(context: { ast: AstReader; diagnostics: Diagnostic[] }): string {
+          return context.ast.getFileName(1);
+        }
+        export function nested(context: { planning: { source: { ast: AstReader } }; diagnostics: Diagnostic[] }): string {
+          return context.planning.source.ast.getFileName(1);
+        }
+        export function readerAlias(context: { ast: AstReader; diagnostics: Diagnostic[] }): string {
+          const reader = context.ast; return reader.getFileName(1);
+        }
+        export function contextAlias(context: { ast: AstReader; diagnostics: Diagnostic[] }): string {
+          const copy = context; return copy.ast.getFileName(1);
+        }
+        export function destructured(context: { ast: AstReader; diagnostics: Diagnostic[] }): string {
+          const { ast: reader } = context; return reader.getFileName(1);
+        }
+        export function element(context: { ast: AstReader; diagnostics: Diagnostic[] }): string {
+          return context["ast"]["getFileName"](1);
+        }
+        export function callback(context: { ast: AstReader; sources: readonly number[]; diagnostics: Diagnostic[] }): string[] {
+          return context.sources.map(source => context.ast.getFileName(source));
+        }
+        export function collection(context: { values: ReadonlyMap<number, string>; diagnostics: Diagnostic[] }): string | undefined {
+          return context.values.get(1);
+        }
+        export function registry(context: { registry: Registry; diagnostics: Diagnostic[] }): readonly number[] {
+          return context.registry.targets();
+        }
+        export function colocated(context: { read(source: number): string; diagnostics: Diagnostic[] }): string {
+          return context.read(1);
+        }
+        export function functionProperty(context: { read: (source: Diagnostic) => string; diagnostics: Diagnostic[] }, value: Diagnostic): string {
+          return context.read(value);
+        }`],
+    ]);
+    const calls = model.calls.filter(call => call.target?.file === types && call.target.symbol === "AstReader.getFileName");
+    assert.equal(calls.length, 7, "every ordinary call has the exact checked AST-reader declaration");
+    assert.equal(calls.find(call => call.owner === "direct").through.some(reference => reference.file === types && reference.symbol === "Diagnostic"), true,
+      "aggregate evidence remains available to record and syntax boundary checks");
+    assert.equal(calls.every(call => call.receiverThrough.every(reference => reference.file !== types || reference.symbol !== "Diagnostic")), true,
+      "the exact AST reader never inherits a sibling diagnostic collection");
+    assert.equal(evaluateKeelLayers(repo, model, {
+      diagnosticCodeFields: [keelFixtureReference(types, "Diagnostic.code")],
+    }).filter(finding => finding.check === "AC4").length, 0);
+  });
+
+  test(`${repo}: AC4 requires current checked receiver evidence rather than falling back to aggregate guesses`, () => {
+    const planner = "src/backend/planner/expressions/plan.ts";
+    const model = keelFixtureModel([[planner,
+      "interface State { readonly count: number; } export function plan(values: number[]): void { values.push(1); }",
+    ]]);
+    for (const field of ["calls", "accesses", "typedDeclarations"]) {
+      const incomplete = model[field].map(({ receiverThrough, ...entry }) => entry);
+      assert.throws(() => evaluateKeelLayers(repo, { ...model, [field]: incomplete }), /requires checked receiver provenance/u, field);
+    }
+  });
+
+  for (const [label, expression] of [
+    ["direct receiver", "context.diagnostics.push(value)"],
+    ["inferred alias", "const errors = context.diagnostics; errors.push(value)"],
+    ["mutable alias", "let errors = context.diagnostics; errors.push(value)"],
+    ["destructured alias", "const { diagnostics: errors } = context; errors.push(value)"],
+    ["method alias", "const append = context.diagnostics.push; append(value)"],
+    ["element access", 'context["diagnostics"]["push"](value)'],
+    ["bound method", "const append = context.diagnostics.push.bind(context.diagnostics); append(value)"],
+    ["unresolved method", "context.diagnostics.missing(value)"],
+    ["non-null receiver", "context.diagnostics!.push(value)"],
+  ]) test(`${repo}: AC4 retains exact diagnostic collection ownership through ${label}`, () => {
+    const types = "src/target-model/records/provenance.ts";
+    const planner = "src/backend/planner/expressions/plan.ts";
+    const model = keelFixtureModel([
+      [types, "export interface Diagnostic { code: string; } export interface Context { diagnostics: Diagnostic[]; }"],
+      [planner, `import type { Context, Diagnostic } from "../../../target-model/records/provenance.js";
+        export function plan(context: Context, value: Diagnostic): void { ${expression}; }`],
+    ]);
+    for (const vocabulary of [
+      { diagnosticSinks: [keelFixtureReference(types, "Context.diagnostics")] },
+      { diagnosticCodeFields: [keelFixtureReference(types, "Diagnostic.code")] },
+    ]) {
+      assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, vocabulary), "AC4", "diagnostic sink"), true, label);
+    }
+  });
+
+  for (const [label, annotation, expression] of [
+    ["missing context", "RemoteContext", 'context.errors.push({ code: "REJECT" })'],
+    ["missing collection alias", "RemoteContext", 'const errors = context.errors; errors.push({ code: "REJECT" })'],
+    ["nullable missing context", "RemoteContext | null", 'context!.errors.push({ code: "REJECT" })'],
+    ["missing member type", "{ errors: RemoteContext[] }", 'context.errors.push({ code: "REJECT" })'],
+  ]) test(`${repo}: AC4 fails closed for ${label} provenance`, () => {
+    const planner = "src/backend/planner/expressions/plan.ts";
+    const model = keelFixtureModel([[planner,
+      `import type { MissingContext as RemoteContext } from "@missing/diagnostics";
+        export function plan(context: ${annotation}): void { ${expression}; }`,
+    ]]);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+      externalBoundaryTypes: [{ file: planner, symbol: "RemoteContext", kind: "diagnostics" }],
+    }), "AC4", "unresolved collection method"), true);
+  });
+
+  test(`${repo}: AC4 receiver precision preserves unresolved aggregate record-boundary evidence`, () => {
+    const planner = "src/backend/planner/expressions/plan.ts";
+    const model = keelFixtureModel([[planner,
+      'import type { MissingRecords as RemoteRecords } from "@missing/records"; export function plan(context: { records: RemoteRecords; diagnostics: string[] }): number { const record = context.records; return record.get(1); }',
+    ]]);
+    const call = model.calls.find(entry => entry.kind === "call");
+    assert.equal(call !== undefined, true);
+    assert.equal(call.through.some(reference => reference.file === planner && reference.symbol === "RemoteRecords"), true);
+    assert.equal(keelFixtureHas(evaluateKeelLayers(repo, model, {
+      externalBoundaryTypes: [{ file: planner, symbol: "RemoteRecords", kind: "records" }],
+    }), "AC3", "no exact checked declaration"), true);
+  });
+
   test(`${repo}: AC6 approves only a reviewed local traversal and detects body changes`, () => {
     const file = "src/policy/types/local.ts";
     const source = "export function chooseCarrier(values: number[]): number { let result = 0; for (const value of values) result += value; return result; }";
