@@ -1,5 +1,8 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/callables/producer-errors.ts", symbol: "selectRustProducerError",
+      bodySha256: "132118f80e47d9f8ed3ca66f125b8825edbf661bd74663dd570c43bce787382e", role: "analysis",
+      evidence: [{ kind: "import", file: "src/analysis/callables/native-producers.ts" }] },
     { file: "src/policy/ownership/source-lexical-callable.ts", symbol: "selectSourceDirectCalls",
       bodySha256: "3f6b9e6c9cb5adc5d95804ee7422e8154b921ebd3ea5c6cba0188ce6c97e381a", role: "analysis",
       evidence: [{"kind":"loop","offset":3173}] },
