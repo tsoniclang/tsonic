@@ -127,7 +127,9 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
   const diagnosticCodeFields = referenceSet(census.diagnosticCodeFields ?? [], "diagnostic code field");
   const diagnosticTypes = new Set([...diagnosticCodeFields].map(id => id.slice(0, id.lastIndexOf("."))));
   for (const entry of model.typedDeclarations ?? []) {
-    if (["KindPropertySignature", "KindPropertyDeclaration"].includes(entry.kind) && entry.through.some(reference =>
+    if (!["KindPropertySignature", "KindPropertyDeclaration"].includes(entry.kind)) continue;
+    if (!Array.isArray(entry.receiverThrough)) throw new Error("Keel property evidence requires checked receiver provenance.");
+    if (entry.receiverThrough.some(reference =>
       diagnosticTypes.has(keelSymbolIdentity(reference)))) diagnosticSinks.add(keelSymbolIdentity(entry));
   }
   const diagnosticCalls = referenceSet(census.diagnosticCalls ?? [], "diagnostic producer");
@@ -202,7 +204,8 @@ export function evaluateKeelLayers(repo, model, census = {}, roleObligations = [
     const origins = site.through ?? [];
     const throughRecord = origins.some(reference => recordRoots.has(keelSymbolIdentity(reference)) ||
       externalBoundaries.get(keelSymbolIdentity(reference)) === "records");
-    const throughDiagnostics = origins.some(reference => diagnosticTypes.has(keelSymbolIdentity(reference)) ||
+    if (!Array.isArray(site.receiverThrough)) throw new Error("Keel call/access evidence requires checked receiver provenance.");
+    const throughDiagnostics = site.receiverThrough.some(reference => diagnosticTypes.has(keelSymbolIdentity(reference)) ||
       diagnosticSinks.has(keelSymbolIdentity(reference)) ||
       externalBoundaries.get(keelSymbolIdentity(reference)) === "diagnostics");
     const callable = site.target === undefined ? false : (declarations.get(target) ?? []).some(entry =>
