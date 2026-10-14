@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceLexicalCapture } from "../../source-navigation/lexical-captures.js";
 import type { SourceControlFlowGraph, SourceFlowEdge, SourceFlowEdgeKind,
   SourceFlowLimits, SourceFlowOperation, SourceFlowPoint } from "./model.js";
 import { createSourceFlowBudget, SourceFlowFailure } from "./resources.js";
@@ -21,6 +22,7 @@ interface OpenPoint {
 
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
+  readonly captures: (source: Node) => readonly SourceLexicalCapture[];
   readonly point: (source: Node | undefined, operation: SourceFlowOperation) => number;
   readonly edge: (from: number, to: number, kind?: SourceFlowEdgeKind) => void;
   readonly emit: (source: Node, operation: SourceFlowOperation, next: number,

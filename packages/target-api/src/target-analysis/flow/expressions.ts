@@ -1,6 +1,5 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
-import { sourceLexicalCaptures } from "../../source-navigation/lexical-captures.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceFlowBinding, sourceFlowReference } from "./bindings.js";
 import { sourceFlowBooleanEdges, sourceFlowNullishEdges } from "./conditions.js";
@@ -215,7 +214,7 @@ function branchEdges(build: SourceFlowConstruction, point: number, condition: No
 }
 
 export function sourceFlowClosure(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {
-  const captures = sourceLexicalCaptures(node, [node], build.source.ast, build.source.navigation).captures;
+  const captures = build.captures(node);
   let entry = build.emit(node, { kind: "evaluate" }, next, context);
   for (let index = captures.length - 1; index >= 0; index -= 1) {
     const capture = captures[index]!;

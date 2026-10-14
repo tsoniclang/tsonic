@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/target-analysis/flow/captures.js";
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
 let caseNumber = 0;
@@ -347,4 +348,34 @@ test("flow non-null assertions preserve an optional chain but parentheses still 
     const skippedEntry = branch.successors.find(edge => edge.kind === "nullish").to;
     assert.equal(reachable(current.graph, skippedEntry, call(current, "argument")[0].id), !skipped, expression);
   }
+});
+
+test("flow class captures use canonical evaluation roots rather than eager static or computed evaluation", async () => {
+  for (const [member, count] of [["static field = value;", 0], ["[value]() {}", 0], ["field = value;", 1], ["read() { return value; }", 1]]) {
+    const current = await fixture(`function run(value: number) { class Entry { ${member} } return Entry; }`);
+    assert.equal(points(current, point => point.operation.kind === "capture").length, count, member);
+  }
+});
+
+test("flow closures created in eager class initialization do not become class-environment captures", async () => {
+  for (const member of ["static field = () => value;", "[(() => value)()]() {}"]) {
+    const current = await fixture(`function run(value: number) { class Entry { ${member} } return Entry; }`);
+    const captures = points(current, point => point.operation.kind === "capture");
+    assert.equal(captures.length, 1, member);
+    assert.equal(current.ast.is.IsArrowFunction(captures[0].source), true, member);
+  }
+});
+
+test("flow closure capture facts are computed once per exact checked scope", async () => {
+  const current = await fixture("function run(value: number) { class Entry { read() { return value; } } return Entry; }");
+  const declaration = one(current, (point, ast) => point.operation.kind === "write" && ast.is.IsClassDeclaration(point.source)).source;
+  let steps = 0;
+  const query = createSourceFlowCaptureQuery(current.source, () => { steps += 1; });
+  const first = query(declaration);
+  const beforeRepeat = steps;
+  const repeated = query(declaration);
+  assert.equal(first === repeated, true);
+  assert.equal(steps - beforeRepeat, 1, "completed reads charge work without recomputing source facts");
+  assert.equal(first.length, 1);
+  assert.equal(Object.isFrozen(first) && Object.isFrozen(first[0]) && Object.isFrozen(first[0].references), true);
 });
