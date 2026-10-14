@@ -34,7 +34,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
       bodySha256: "d7429d8f9a1ad46b97b91a70fe89b64bae1dfdc11bee0730d454259af966e096", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/callables/signatures.ts", symbol: "selectRustSourceCallableReturn",
-      bodySha256: "538dd8b2cfbc28a4195cc492c0616f22e8844a8d56387a2358439f8b1d2a87f1", role: "analysis",
+      bodySha256: "b6d0f1062949c34cb9a6560381e3520bf6796456e20b1ca21bdb2651661248ca", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/operations/indexed-call-keys.ts", symbol: "selectRustIndexedCallKeys",
       bodySha256: "38c1cac2b554bfa03c1eabab5dd8fd6dcb5f80afbb2500bc5dbb173227e90f41", role: "analysis",
