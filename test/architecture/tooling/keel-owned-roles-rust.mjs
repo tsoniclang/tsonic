@@ -1,5 +1,8 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/policy/operations/syntax/regexp-literal.ts", symbol: "selectRustRegularExpressionLiteral",
+      bodySha256: "b9d82f3ed2647bf0bf3745540c95750270d8f538c55c7e5f3890e17b25825e45", role: "selection",
+      evidence: [{ kind: "parameter", name: "pattern" }] },
     { file: "src/analysis/operations/native-flow-refinement.ts", symbol: "selectRustGuardedValueCarrier",
       bodySha256: "536625290b906c3376ce3988e599c015f996bf3b175614f78320501d11284805", role: "analysis",
       evidence: [{ kind: "parameter", name: "reference" }] },
