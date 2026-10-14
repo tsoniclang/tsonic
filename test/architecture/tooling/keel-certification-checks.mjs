@@ -2,6 +2,7 @@ import { keelCheckIds, keelFinding, keelTargetNames, sortKeelFindings, validPath
 import { keelDigest } from "./keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./keel-native-tokens.mjs";
 import { isAbsolute } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { keelSourceRejectionIdentity } from "./keel-source-rejection.mjs";
 
 export function evaluateKeelDeterminism(samples, requiredPrograms) {
@@ -140,16 +141,54 @@ export function createKeelViolationInventory(findings, origin) {
 
 export function evaluateKeelViolationInventory(findings, inventory, manifestSha256) {
   validateKeelViolationInventory(inventory);
+  validateKeelViolationInventory({ ...inventory, violations: findings });
   if (manifestSha256 !== undefined && inventory.origin.manifestSha256 !== manifestSha256) {
     throw new Error("Keel contracts changed; the exact inventory requires a fresh reviewed origin, not an unchecked rebaseline.");
   }
-  const allowed = new Set(inventory.violations.map(finding => finding.id));
-  const actual = new Set(findings.map(finding => finding.id));
+  const available = new Map(inventory.violations.map(finding => [finding.id, finding]));
+  const unmatched = [];
+  for (const finding of sortKeelFindings(findings)) {
+    if (!available.delete(finding.id)) unmatched.push(finding);
+  }
+  const sites = new Map();
+  for (const finding of available.values()) {
+    const site = relocationSite(finding);
+    if (site === undefined) continue;
+    const group = sites.get(site.key) ?? [];
+    group.push({ finding, identity: site.identity });
+    sites.set(site.key, group);
+  }
+  const newViolations = [];
+  const relocatedViolations = [];
+  for (const finding of unmatched) {
+    const site = relocationSite(finding);
+    const group = site === undefined ? [] : sites.get(site.key) ?? [];
+    const index = group.findIndex(candidate => isDeepStrictEqual(candidate.identity, site.identity));
+    if (index === -1) {
+      newViolations.push(finding);
+      continue;
+    }
+    const [{ finding: original }] = group.splice(index, 1);
+    available.delete(original.id);
+    relocatedViolations.push(Object.freeze({ originalId: original.id, currentId: finding.id }));
+  }
   return Object.freeze({
-    newViolations: sortKeelFindings(findings.filter(finding => !allowed.has(finding.id))),
-    removedViolations: sortKeelFindings(inventory.violations.filter(finding => !actual.has(finding.id))),
-    inventory: createKeelViolationInventory(inventory.violations.filter(finding => actual.has(finding.id)), inventory.origin),
+    newViolations: sortKeelFindings(newViolations),
+    removedViolations: sortKeelFindings([...available.values()]),
+    relocatedViolations: Object.freeze(relocatedViolations),
+    inventory: createKeelViolationInventory(inventory.violations.filter(finding => !available.has(finding.id)), inventory.origin),
   });
+}
+
+function relocationSite(finding) {
+  const { id, evidence, ...identity } = finding;
+  if (typeof evidence.bodySha256 !== "string" || !/^[a-f0-9]{64}$/u.test(evidence.bodySha256) ||
+    !Number.isSafeInteger(evidence.offset) || evidence.offset < 0) return undefined;
+  const { offset, ...proof } = evidence;
+  return {
+    key: JSON.stringify([finding.check, finding.repo, finding.file, finding.subject, finding.reason, evidence.bodySha256]),
+    identity: { ...identity, evidence: proof },
+  };
 }
 
 export function validateKeelViolationInventory(inventory) {
