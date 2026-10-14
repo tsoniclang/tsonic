@@ -19,7 +19,7 @@ export const keelOwnedRuntimeFamilies = Object.freeze([
     nativeReason: "S11-05/S11-07: Rust lib.rs composes native crate modules and core/alloc/std features; CLR project/assembly composition is not a runtime algorithm.",
   }),
   family("js", "Arrays", ["Arrays"], ["array"]),
-  family("js", "Asynchronous", ["Asynchronous"], ["event_loop.rs", "promise_jobs.rs", "promise.rs", "promise", "timers.rs", "timers"]),
+  family("js", "Asynchronous", ["Asynchronous"], ["event_loop.rs", "event_loop", "promise_jobs.rs", "promise_jobs", "promise.rs", "promise", "timers.rs", "timers"]),
   family("js", "Binary", ["Binary"], ["array_buffer", "atomics.rs", "data_view.rs", "typed_array"]),
   family("js", "Collections", ["Collections"], ["map.rs", "set.rs", "weak_collections.rs"]),
   family("js", "Errors", ["Errors"], ["errors.rs"]),
@@ -68,7 +68,7 @@ export const keelOwnedRuntimeFamilies = Object.freeze([
     ["zlib", ["zlib"], ["zlib"]],
   ].map(([name, csharp, rust]) => family("nodejs", name, csharp, rust)),
   family("nodejs", "Composition", ["Properties"], ["abi.rs", "lib.rs"]),
-  family("nodejs", "Dispatch and native retention", ["BackgroundDispatch.cs"], ["background.rs", "background", "event_loop.rs", "readiness.rs", "retained_listener.rs", "runtime_resources.rs", "runtime_resources", "runtime_tasks.rs", "runtime_tasks", "sync.rs"]),
+  family("nodejs", "Dispatch and native retention", ["BackgroundDispatch.cs", "NodePhases.cs"], ["background.rs", "background", "event_loop.rs", "phases.rs", "readiness.rs", "retained_listener.rs", "runtime_resources.rs", "runtime_resources", "runtime_tasks.rs", "runtime_tasks", "sync.rs"]),
   family("nodejs", "Checked numeric adapters", ["JsNumeric.cs"], [], {
     nativeReason: "JsNumeric.cs owns CLR checked native casts and port/nonnegative validation. Rust uses native integer carriers/try-conversions at each typed declaration; no matching runtime class is required.",
   }),

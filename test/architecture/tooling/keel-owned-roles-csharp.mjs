@@ -1,5 +1,11 @@
 export const keelOwnedCsharpResponsibilities = Object.freeze({
   functions: [
+    { file: "src/policy/operations/js-values/selection.ts", symbol: "selectCsharpJsValueBinaryOperation",
+      bodySha256: "db97ff5d766ac1179cfae77af36f799a333f717aad6d1da1d350ecbf63086f54", role: "selection",
+      evidence: [{ "kind": "parameter", "name": "operator" }] },
+    { file: "src/policy/operations/js-values/selection.ts", symbol: "selectCsharpJsValueUnaryOperation",
+      bodySha256: "811f50296ded798b7e050f09bd799c0c4cac4795b0b16d2df4e1ffb9655abfca", role: "selection",
+      evidence: [{ "kind": "parameter", "name": "operator" }] },
     { file: "src/policy/operations/source-profiles/js/regexp.ts", symbol: "regexpReceiverHasNativeExecution",
       bodySha256: "82506690799a6d69a7739cbba8cf2f18bdbdfe2aa58e951ec3923ed7b616472c", role: "analysis",
       evidence: [{"kind":"loop","offset":17907}] },
