@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceFlowLimits } from "../flow/model.js";
 import { defaultSourceFlowLimits } from "../flow/resources.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
+import { sourceStorageConstructedClass } from "../source-storage/model/construction.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceSuspensionSelection } from "./model.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
@@ -63,7 +64,10 @@ export function createSourceContinuationClosureQuery(input: {
     const existing = cache.get(call)?.get(bindings);
     if (existing !== undefined) return existing;
     let result: SourceContinuationClosureSelection;
-    if (implementations.nodes.length === 0) {
+    const implicit = implementations.exact && implementations.nodes.length === 0
+      ? sourceStorageConstructedClass(call, source, budget.step) : undefined;
+    const candidates = implicit === undefined ? implementations.nodes : [implicit];
+    if (candidates.length === 0) {
       const semantics = source.semantics.forNode(call);
       const selected = semantics.operations.call(call);
       const declaration = selected?.sourceSelectedSignatureKind === "resolved"
@@ -75,23 +79,21 @@ export function createSourceContinuationClosureQuery(input: {
       }
       result = nativeClosure(call, declaration, bindings);
     } else {
-      if (!implementations.exact || implementations.nodes.length === 0) {
+      if (!implementations.exact) {
         return sourceOwnershipUnresolved(call, "An open callable domain cannot prove complete continuation dependencies.");
       }
       const completed: Extract<SourceContinuationClosureSelection, { kind: "resolved" }>[] = [];
-      for (const candidate of implementations.nodes) {
+      for (const candidate of candidates) {
         if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
         if (active.has(candidate)) return sourceOwnershipUnresolved(call, "Recursive continuation execution has no closed finite summary.");
         if (active.size >= (input.flowLimits?.maximumDepth ?? defaultSourceFlowLimits.maximumDepth)) {
           return sourceOwnershipUnresolved(call, "Continuation execution exceeds its finite call-depth budget.");
         }
-        const bound = storage.bindingsForInvocation(candidate, call, bindings);
-        if (bound.kind === "unresolved") return sourceOwnershipUnresolved(call, bound.reason);
         active.add(candidate);
         let closure: SourceContinuationClosureSelection;
         try {
           closure = resolveSourceContinuationFlow({ source, storage, budget, candidate, invocation: call,
-            bindings: bound.bindings, suspensions, dependencies,
+            callerBindings: bindings, suspensions, dependencies,
             limits: input.flowLimits ?? {}, invocationFor: forInvocation });
         } finally { active.delete(candidate); }
         if (closure.kind === "unresolved") return closure;

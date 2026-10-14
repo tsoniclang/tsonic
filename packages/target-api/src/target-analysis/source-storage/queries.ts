@@ -1,6 +1,7 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/index.js";
 import { sourceStorageSubjectType } from "./model/components.js";
+import { sourceStorageConstructedClass } from "./model/construction.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/resource-budget.js";
 import { createSourceStorageTransport } from "./transport/transport.js";
 import { createSourceStorageDomains } from "./transport/domains.js";
@@ -150,6 +151,7 @@ export function createSourceStorageQuery(
     if (!checkedNode(candidate) || !checkedInvocation(invocation)) return false;
     if (transport.invocationImplementations(invocation).has(candidate)) return true;
     if (transport.invocationDeclarations.get(invocation) === candidate) return true;
+    if (sourceStorageConstructedClass(invocation, source, budget.step) === candidate) return true;
     return source.ast.is.IsNewExpression(invocation) && transport.regions.instance(invocation).some(region => region.owner === candidate);
   };
   const boundOrigins = (subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection => {
@@ -460,11 +462,24 @@ export function createSourceStorageQuery(
     },
     mutationOwnerFor(node) { return budget.failure() === undefined ? transport.mutationOwners.get(node) : undefined; },
     isAccessorInvocation(node) { return transport.accessorTargets.has(node); },
-    executionRegionsFor(candidate, invocation) {
-      if (!checkedNode(candidate) || invocation !== undefined && !checkedCandidate(candidate, invocation))
+    executionRegionsFor(candidate, invocation, callerBindings = emptyBindings) {
+      if (!bindingStates.has(callerBindings))
+        return unresolved("Invocation substitutions belong to a different source storage query.");
+      if (!checkedDeclaration(candidate) || invocation !== undefined && !checkedCandidate(candidate, invocation))
         return unresolved(budget.failure() ?? "An execution region requires exact checked callable ownership.");
-      const nodes = transport.regions.callable(candidate, invocation);
-      return budget.failure() !== undefined ? unresolved(budget.failure()!)
+      let failure: string | undefined;
+      const nodes = transport.regions.callable(candidate, invocation, expression => {
+        const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;
+        if (subject === undefined) {
+          failure = budget.failure() ?? "Execution selection requires its exact checked argument subject.";
+          return undefined;
+        }
+        const selected = boundOrigins(subject, callerBindings);
+        const typed = selected.kind === "unresolved" ? selected : typedOrigins(selected.subjects);
+        if (typed.kind === "unresolved") { failure = typed.reason; return undefined; }
+        return typed.origins.map(origin => origin.type);
+      });
+      return failure !== undefined || budget.failure() !== undefined ? unresolved(failure ?? budget.failure()!)
         : Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]) });
     },
     instanceRegionsFor(invocation) {
