@@ -1,5 +1,11 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/policy/operations/iteration/selection.ts", symbol: "rustIterableTargetPolicy",
+      bodySha256: "db745525c27ca52ad43d9d902e3a15bf6d14cb22b4ee73f4626ada633cdef847", role: "selection",
+      evidence: [{ kind: "parameter", name: "iterable" }] },
+    { file: "src/policy/operations/iteration/selection.ts", symbol: "selectRustIterationLowering",
+      bodySha256: "bb515c3c4732692d6b7bbbab1b9f5fa0e2d73798e8948ad51f2e72ee750c158d", role: "selection",
+      evidence: [{ kind: "parameter", name: "target" }] },
     { file: "src/policy/operations/operators/rules.ts", symbol: "selectRustBinaryOperator",
       bodySha256: "2983dcb65b141d0ff5cf77cf6d3e28eff3457257ab18a14fdca00864a1241992", role: "selection",
       evidence: [{ kind: "parameter", name: "left" }] },
