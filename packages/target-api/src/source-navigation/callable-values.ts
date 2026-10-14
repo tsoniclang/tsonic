@@ -1,6 +1,7 @@
 import type { AstReader, Node, ResolvedSourcePropertyAccessInfo, ResolvedSourceElementAccessInfo } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
 import { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
+import { Node_Expression } from "./ast.js";
 
 export interface SourceCallableValue {
   readonly expression: Node;
@@ -11,18 +12,31 @@ export interface SourceCallableValue {
   readonly aliases: readonly Node[];
 }
 
-export function sourceCallableValueExpression(ast: AstReader, node: Node | undefined): Node | undefined {
+interface SourceCallableValueOptions {
+  readonly typeAssertions?: "transparent";
+  readonly stopAtDeclaration?: Node;
+}
+
+export function sourceCallableValueExpression(
+  ast: AstReader,
+  node: Node | undefined,
+  options: SourceCallableValueOptions = {},
+): Node | undefined {
   for (let depth = 0; node !== undefined && depth < 256; depth += 1) {
     if (ast.is.IsParenthesizedExpression(node)) node = ast.as.AsParenthesizedExpression(node)?.Expression;
     else if (ast.is.IsSatisfiesExpression(node)) node = ast.as.AsSatisfiesExpression(node)?.Expression;
+    else if (options.typeAssertions === "transparent" &&
+      (ast.is.IsAsExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsTypeAssertion(node))) node = Node_Expression(ast, node);
     else return node;
   }
   return undefined;
 }
 
-export function createSourceCallableValueQuery(source: TargetSourceProgram):
+export function createSourceCallableValueQuery(source: TargetSourceProgram, options: SourceCallableValueOptions = {}):
   (expression: Node) => SourceCallableValue | undefined {
   const { ast, navigation } = source;
+  const expressionOptions = Object.freeze({ typeAssertions: options.typeAssertions });
+  const stopAtDeclaration = options.stopAtDeclaration;
   const cache = new WeakMap<Node, SourceCallableValue | null>();
   const member = (node: Node): boolean => ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node);
   const receiverCache = new WeakMap<Node, boolean>();
@@ -71,10 +85,13 @@ export function createSourceCallableValueQuery(source: TargetSourceProgram):
     const visited = new Set<Node>();
     const resolve = (inputExpression: Node, depth: number): SourceCallableValue | undefined => {
       if (depth >= 256) return undefined;
-      let expression = sourceCallableValueExpression(ast, inputExpression);
+      let expression = sourceCallableValueExpression(ast, inputExpression, expressionOptions);
       while (expression !== undefined && ast.is.IsIdentifier(expression)) {
         const declaration = navigation.sourceReferenceFor(expression)?.declaration;
         if (declaration === undefined || navigation.declarationUseSummary(declaration).bindingWritten) return undefined;
+        if (declaration === stopAtDeclaration) return {
+          expression, selectedDeclaration: declaration, aliases: Object.freeze([...aliases]),
+        };
         const initializer = ast.is.IsVariableDeclaration(declaration)
           ? ast.as.AsVariableDeclaration(declaration)?.Initializer : undefined;
         if (initializer === undefined) return {
@@ -85,7 +102,7 @@ export function createSourceCallableValueQuery(source: TargetSourceProgram):
           sourceMayReadBeforeInitialization(declaration, ast, navigation)) return undefined;
         visited.add(declaration);
         aliases.add(declaration);
-        expression = sourceCallableValueExpression(ast, initializer);
+        expression = sourceCallableValueExpression(ast, initializer, expressionOptions);
       }
       if (expression === undefined || !member(expression)) return undefined;
       const operations = source.semantics.forNode(expression).operations;

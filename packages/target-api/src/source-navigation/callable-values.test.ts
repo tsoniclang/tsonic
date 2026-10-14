@@ -5,7 +5,7 @@ import type { Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { createSourceCallableValueQuery } from "./callable-values.js";
 
-function fixture(body: string) {
+function fixture(body: string, options: Parameters<typeof createSourceCallableValueQuery>[1] = {}) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": `export {};
 interface Operations { apply(value: object): object; }
@@ -26,8 +26,8 @@ ${body}`,
   const file = checked.getSourceFile("/src/index.ts");
   assert.equal(file !== undefined, true);
   visit(file!);
-  const query = createSourceCallableValueQuery(source);
-  return { source, select(name = "selected") {
+  const query = createSourceCallableValueQuery(source, options);
+  return { source, expressions, select(name = "selected") {
     const expression = expressions.get(name);
     assert.equal(expression !== undefined, true, name);
     return query(expression!);
@@ -51,6 +51,46 @@ test("general callable identity does not require invocation-only use", () => {
   const selected = current.select();
   assert.equal(selected !== undefined && selected.property !== undefined, true);
   assert.equal(current.source.ast.text(current.source.ast.name(selected!.receiverDeclaration)), "operations");
+});
+
+test("lexical callable identity can inspect erased assertions without certifying a physical asserted origin", () => {
+  for (const wrapper of ["original as typeof original", "original!", "<typeof original>original", "(original satisfies typeof original)"]) {
+    const body = `const original = operations.apply; const alias = ${wrapper}; const selected = alias;`;
+    const current = fixture(body, { typeAssertions: "transparent" });
+    const original = current.select("original");
+    const selected = current.select();
+    assert.equal(original !== undefined && selected !== undefined, true, wrapper);
+    assert.equal(selected!.selectedDeclaration === original!.selectedDeclaration, true, wrapper);
+    if (!wrapper.includes("satisfies")) assert.equal(fixture(body).select() === undefined, true, "physical callable proof remains assertion-free");
+  }
+});
+
+test("exact callable identity does not turn conditional or short-circuit may-flow into an alias", () => {
+  for (const initializer of ["false ? original : other", "false && original || other", "(false ? original : other) as typeof original"]) {
+    const current = fixture(`const original = (): void => {}; const other = (): void => {}; const selected = ${initializer};`,
+      { typeAssertions: "transparent" });
+    assert.equal(current.select() === undefined, true, initializer);
+  }
+});
+
+test("exact binding identity stops at its checked declaration without guessing an opaque initializer", () => {
+  const current = fixture(`const original: () => void = false ? (): void => {} : (): void => {};
+    const alias = original; const selected = alias; const other = (): void => {};`);
+  const declaration = current.source.ast.parent(current.expressions.get("original")!);
+  const select = createSourceCallableValueQuery(current.source, { stopAtDeclaration: declaration });
+  const selected = select(current.expressions.get("selected")!);
+  assert.equal(selected !== undefined, true);
+  assert.equal(selected!.selectedDeclaration === declaration, true, "the exact binding, not an inferred signature or branch");
+  assert.equal(selected!.aliases.length, 1, "the checked destination terminates the alias walk");
+  assert.equal(select(current.expressions.get("other")!)?.selectedDeclaration === declaration, false, "a different implementation stays different");
+  assert.equal(current.select() === undefined, true, "the physical value query still requires its concrete origin");
+});
+
+test("callable identity query snapshots its expression proof options", () => {
+  const options: { typeAssertions?: "transparent" } = { typeAssertions: "transparent" };
+  const current = fixture("const original = operations.apply; const selected = original as typeof original;", options);
+  delete options.typeAssertions;
+  assert.equal(current.select() !== undefined, true, "later caller mutation cannot alter query authority");
 });
 
 test("foreign callable and receiver parameters remain exact values, never signature declarations", () => {
