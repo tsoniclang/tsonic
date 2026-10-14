@@ -1,6 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../source-semantics/types.js";
-import { sourceCallableValueExpression } from "./callable-values.js";
+import { createSourceCallableValueQuery, sourceCallableValueExpression } from "./callable-values.js";
 
 export interface SourceBinaryEntryIssue {
   readonly code: "TSONIC_UNCALLED_BINARY_ENTRY_MAIN";
@@ -19,22 +19,22 @@ export function validateSourceBinaryEntry(
   const semantics = source.semantics.forNode(exported.declaration);
   const type = semantics.types.typeOfSymbol(exported.symbol);
   if (type === undefined || semantics.types.callSignatures(type).length === 0) return Object.freeze([]);
-  const bindings = new Set<Node>([callableImplementation(exported.declaration)]);
-  for (const use of source.navigation.declarationUses(exported.declaration)) {
-    if (use.role !== "storage" || use.throughMember) continue;
-    const flow = source.navigation.expressionValueFlow(use.reference);
-    if (flow.aliasDeclarations.every(declaration => source.ast.variableDeclarationKind(declaration) === "const" &&
-      !source.navigation.declarationUseSummary(declaration).bindingWritten)) {
-      for (const declaration of flow.aliasDeclarations) bindings.add(callableImplementation(declaration));
-    }
-  }
+  const options = { typeAssertions: "transparent", stopAtDeclaration: exported.declaration } as const;
+  const selectValue = createSourceCallableValueQuery(source, options);
+  const implementation = callableImplementation(exported.declaration);
+  const matchesEntry = (declaration: Node): boolean => callableImplementation(declaration) === implementation;
   let called = false;
   const visit = (node: Node): void => {
     if (called) return;
     if (source.ast.is.IsCallExpression(node)) {
-      const expression = sourceCallableValueExpression(source.ast, source.ast.as.AsCallExpression(node)?.Expression);
+      const expression = sourceCallableValueExpression(source.ast, source.ast.as.AsCallExpression(node)?.Expression, options);
       const reference = source.navigation.sourceReferenceFor(expression);
-      if (reference !== undefined && bindings.has(callableImplementation(reference.declaration))) {
+      if (reference !== undefined && matchesEntry(reference.declaration)) {
+        called = true;
+        return;
+      }
+      const value = expression === undefined ? undefined : selectValue(expression);
+      if (value !== undefined && matchesEntry(value.selectedDeclaration)) {
         called = true;
         return;
       }
