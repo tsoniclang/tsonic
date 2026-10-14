@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { sourceBindingScope } from "./lexical-captures.js";
+import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 
 export function sourceMayReadBeforeInitialization(
   declaration: Node,
@@ -28,7 +29,7 @@ export function sourceMayReadBeforeInitialization(
         const parent = ast.parent(current);
         if (parent === undefined) return true;
         if ((ast.body(parent) === current || ast.is.IsParameterDeclaration(current)) &&
-          isCallable(ast, parent)) {
+          isSourceCallableBodyBoundary(ast, parent)) {
           const literal = ast.parent(parent);
           if (literal !== undefined && ast.is.IsObjectLiteralExpression(literal) &&
             (ast.is.IsMethodDeclaration(parent) || ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent))) {
@@ -53,13 +54,6 @@ export function sourceMayReadBeforeInitialization(
     }
   }
   return false;
-}
-
-function isCallable(ast: AstReader, node: Node): boolean {
-  return ast.is.IsFunctionDeclaration(node) || ast.is.IsFunctionExpression(node) ||
-    ast.is.IsArrowFunction(node) || ast.is.IsMethodDeclaration(node) ||
-    ast.is.IsConstructorDeclaration(node) || ast.is.IsGetAccessorDeclaration(node) ||
-    ast.is.IsSetAccessorDeclaration(node);
 }
 
 function callableOwner(node: Node, ast: AstReader): Node | undefined {

@@ -15,6 +15,7 @@ export { sourceBindingCapturedBeforeInitialization } from "./deferred-captures.j
 export { sourceLexicalFunctionValueCreation, sourceLexicalFunctionValueOrder } from "./lexical-value-creation.js";
 export type { SourceLexicalValueCreation } from "./lexical-value-creation.js";
 export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexicalFunctionIsUnused } from "./callable-invocations.js";
+export { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
 export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
