@@ -1,6 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
 import { isTypeSyntaxNode } from "./syntax.js";
+import { sourceReceiverOwner } from "./receiver-owner.js";
 
 export interface SourceLexicalCapture {
   readonly declaration: Node;
@@ -28,7 +29,7 @@ export function sourceLexicalCaptures(
     visited.add(node);
     const nodeKind = ast.kindName(node);
     if (nodeKind === "KindThisKeyword" || nodeKind === "KindSuperKeyword") {
-      const owner = receiverOwner(node, ast);
+      const owner = sourceReceiverOwner(node, ast, "lexical-capture");
       if (owner !== undefined && !within(owner, scope, ast)) {
         const references = receivers.get(owner) ?? [];
         references.push(node);
@@ -135,12 +136,4 @@ function within(node: Node, ancestor: Node, ast: AstReader): boolean {
     if (current === ancestor) return true;
   }
   return false;
-}
-
-function receiverOwner(node: Node, ast: AstReader): Node | undefined {
-  for (let owner = ast.parent(node); owner !== undefined; owner = ast.parent(owner)) {
-    if (["KindFunctionDeclaration", "KindFunctionExpression", "KindMethodDeclaration", "KindConstructor",
-      "KindGetAccessor", "KindSetAccessor", "KindPropertyDeclaration", "KindClassStaticBlockDeclaration", "KindSourceFile"].includes(ast.kindName(owner))) return owner;
-  }
-  return undefined;
 }

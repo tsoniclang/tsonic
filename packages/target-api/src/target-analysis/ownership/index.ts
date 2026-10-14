@@ -9,6 +9,8 @@ export { resolveSourceAsyncResultDisposition } from "./result-use.js";
 export { decideSourceAsyncResultUse } from "./result-decision.js";
 export { createSourceOwnershipQuery } from "./query.js";
 export type { SourceOwnershipQueries } from "./query.js";
+export { analyzeSourceReceiverOccurrences } from "./receiver-occurrences.js";
+export type { SourceReceiverOccurrencesSelection } from "./receiver-occurrences.js";
 export type {
   SourceAsyncCompletionSelection, SourceAsyncOwnershipDiagnostic, SourceAsyncOwnershipSelection,
   SourceAsyncResultDisposition, SourceContinuationDependenciesSelection, SourceContinuationDependency,
