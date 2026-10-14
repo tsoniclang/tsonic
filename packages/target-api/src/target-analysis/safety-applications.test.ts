@@ -10,7 +10,7 @@ import {
 } from "./safety-applications.js";
 
 type TestBuilderFact =
-  | (TargetSafetyApplicationFact & { readonly contract: string })
+  | TargetSafetyApplicationFact
   | { readonly kind: "builder-state"; readonly label?: string };
 
 function guarded<T extends object>(value: T, sealed: () => boolean, path: string, accesses: Map<string, number>): T {
@@ -57,7 +57,7 @@ mark("unregistered");
 export {};
 `;
 
-function fixture(text = sourceText) {
+function fixture(text = sourceText, contracts: Readonly<Record<string, string>> = {}, unresolved: readonly string[] = []) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": text,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
@@ -93,18 +93,25 @@ function fixture(text = sourceText) {
     placement: TargetSafetyApplicationPlacement,
     selected: readonly Node[],
     applicationTarget: Node = value,
-  ): TestBuilderFact => ({
+  ): TargetSafetyApplicationFact => ({
     kind: "application", contract: "requires-unsafe", applicationTarget, applicationPlacement: placement,
     selectedMemberDeclarations: selected, selectedMemberDeclaration: selected[0], selectedMember: selected[0],
   });
+  const adjusted = (name: string, fact: TargetSafetyApplicationFact): TestBuilderFact => ({
+    ...fact,
+    ...(contracts[name] === undefined ? {} : { contract: contracts[name] }),
+    ...(unresolved.includes(name)
+      ? { selectedMemberDeclarations: [], selectedMemberDeclaration: undefined, selectedMember: undefined }
+      : {}),
+  });
   const facts = new Map<string, TestBuilderFact>([
-    ["getter", application("getter", [getter, setter])],
-    ["setter", application("setter", [getter, setter])],
-    ["field", application("getter", [field])],
-    ["index", application("setter", [indexSignature!])],
-    ["declaration", application("declaration", [getter, setter])],
-    ["constructor", application("constructor", [], value)],
-    ["parenthesized", application("getter", [getter, setter])],
+    ["getter", adjusted("getter", application("getter", [getter, setter]))],
+    ["setter", adjusted("setter", application("setter", [getter, setter]))],
+    ["field", adjusted("field", application("getter", [field]))],
+    ["index", adjusted("index", application("setter", [indexSignature!]))],
+    ["declaration", adjusted("declaration", application("declaration", [getter, setter]))],
+    ["constructor", adjusted("constructor", application("constructor", [], value))],
+    ["parenthesized", adjusted("parenthesized", application("getter", [getter, setter]))],
     ["state", { kind: "builder-state" }],
     ["nested", { kind: "builder-state", label: "nested" }],
     ["wrapped-exact", { kind: "builder-state", label: "inner" }],
@@ -233,6 +240,7 @@ test("no index query reads the AST, navigation or fact readers after constructio
   assert.equal(index.forDeclaration(getter).length, 3);
   assert.equal(index.forDeclaration(setter).length, 2);
   assert.equal(index.forSourceFile(sourceFile).length, 7);
+  assert.equal(index.findings(sourceFile).applications.length, 7);
   assert.equal(index.isCompileTimeApplicationReference(getter, inside), true);
   assert.equal(index.isCompileTimeApplicationReference(setter, inside), false);
   assert.equal(index.operationForExpression(nestedWrapper!)?.kind, "safety-builder");
@@ -278,4 +286,33 @@ test("each nested parenthesis operand is inspected exactly once during construct
     assert.equal(current.constructionReads.get("ast.as.AsParenthesizedExpression"), before,
       "published queries never inspect an operand");
   }
+});
+
+test("findings classify every application once and report each conflicting declaration from its first application", () => {
+  const { index, call, getter } = fixture(sourceText, { parenthesized: "safe" }, ["field"]);
+  const sourceFile = index.all[0]!.sourceFile;
+  const names = ["getter", "setter", "field", "index", "declaration", "constructor", "parenthesized"];
+  const nameOf = (subject: Node): string | undefined => names.find(name => call(name) === subject);
+  const findings = index.findings(sourceFile);
+  assert.deepEqual(findings.applications.map(entry => `${nameOf(entry.application.sourceSubject)}:${entry.status}`), [
+    "getter:conflicting",
+    "setter:candidate",
+    "field:target-not-resolved",
+    "index:candidate",
+    "declaration:conflicting",
+    "constructor:candidate",
+    "parenthesized:conflicting",
+  ]);
+  assert.equal(findings.conflicts.length, 1);
+  assert.equal(findings.conflicts[0]!.declaration === getter, true, "the conflicting getter is reported once");
+  assert.equal(nameOf(findings.conflicts[0]!.first.sourceSubject), "getter", "the first application by source position reports it");
+  assert.equal(Object.isFrozen(findings) && Object.isFrozen(findings.applications) && Object.isFrozen(findings.conflicts), true);
+  assert.equal(index.findings(sourceFile) === findings, true, "findings are computed once at construction");
+});
+
+test("matching contracts produce no conflict findings", () => {
+  const { index } = fixture();
+  const findings = index.findings(index.all[0]!.sourceFile);
+  assert.equal(findings.conflicts.length, 0);
+  assert.deepEqual([...new Set(findings.applications.map(entry => entry.status))], ["candidate"]);
 });

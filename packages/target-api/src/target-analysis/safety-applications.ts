@@ -16,6 +16,7 @@ export type TargetSafetyApplicationPlacement =
 
 export interface TargetSafetyApplicationFact {
   readonly kind: "application";
+  readonly contract: string;
   readonly applicationTarget: ExtensionFactSubject;
   readonly selectedMember?: ExtensionFactSubject;
   readonly selectedMemberDeclaration?: Node;
@@ -33,6 +34,13 @@ export type TargetSafetyApplication<Fact extends TargetSafetyApplicationFact> = 
   readonly targetDeclarations: readonly Node[];
 };
 
+export type TargetSafetyApplicationStatus = "target-not-resolved" | "conflicting" | "candidate";
+
+export interface TargetSafetyApplicationFindings<Application> {
+  readonly conflicts: readonly { readonly declaration: Node; readonly first: Application }[];
+  readonly applications: readonly { readonly application: Application; readonly status: TargetSafetyApplicationStatus }[];
+}
+
 export type TargetSafetyOperation<UnsafeContext, Builder> =
   | { readonly kind: "unsafe-context"; readonly fact: UnsafeContext }
   | { readonly kind: "safety-builder"; readonly fact: Builder };
@@ -49,6 +57,7 @@ export interface TargetSafetyApplicationIndex<UnsafeContext, Builder, Applicatio
   readonly all: readonly Application[];
   forSourceFile(sourceFile: SourceFile): readonly Application[];
   forDeclaration(declaration: Node): readonly Application[];
+  findings(sourceFile: SourceFile): TargetSafetyApplicationFindings<Application>;
   isCompileTimeApplicationReference(declaration: Node, reference: Node): boolean;
   operationForSubject(subject: Node): TargetSafetyOperation<UnsafeContext, Builder> | undefined;
   operationForExpression(expression: Node): TargetSafetyOperation<UnsafeContext, Builder> | undefined;
@@ -112,18 +121,74 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
   }
   for (const applications of byDeclaration.values()) Object.freeze(applications);
   const emptyApplications: readonly Application[] = Object.freeze([]);
+  const findingsBySourceFile = new Map<SourceFile, TargetSafetyApplicationFindings<Application>>();
+  for (const [sourceFile, applications] of bySourceFile) {
+    findingsBySourceFile.set(sourceFile, applicationFindings(
+      sourceFile,
+      applications,
+      (declaration) => byDeclaration.get(declaration) ?? emptyApplications,
+      input.ast,
+    ));
+  }
+  const emptyFindings: TargetSafetyApplicationFindings<Application> = Object.freeze({
+    conflicts: Object.freeze([]),
+    applications: Object.freeze([]),
+  });
   return Object.freeze({
     all: Object.freeze(all),
     forSourceFile: (sourceFile: SourceFile) =>
       bySourceFile.get(sourceFile) ?? emptyApplications,
     forDeclaration: (declaration: Node) =>
       byDeclaration.get(declaration) ?? emptyApplications,
+    findings: (sourceFile: SourceFile) =>
+      findingsBySourceFile.get(sourceFile) ?? emptyFindings,
     isCompileTimeApplicationReference: (declaration: Node, reference: Node) =>
       enclosingDeclarations.get(reference)?.has(declaration) === true,
     operationForSubject: (subject: Node) => bySubject.get(subject),
     operationForExpression: (expression: Node) =>
       byExpression.get(expression),
   });
+}
+
+function applicationFindings<Application extends TargetSafetyApplication<TargetSafetyApplicationFact>>(
+  sourceFile: SourceFile,
+  applications: readonly Application[],
+  forDeclaration: (declaration: Node) => readonly Application[],
+  ast: AstReader,
+): TargetSafetyApplicationFindings<Application> {
+  const conflicting = new Set<Node>();
+  const conflicts: { readonly declaration: Node; readonly first: Application }[] = [];
+  for (const application of applications) {
+    for (const declaration of application.targetDeclarations) {
+      if (conflicting.has(declaration)) continue;
+      const related = forDeclaration(declaration)
+        .filter((candidate) => candidate.applicationPlacement === application.applicationPlacement);
+      if (new Set(related.map((candidate) => candidate.contract)).size <= 1) continue;
+      conflicting.add(declaration);
+      const first = [...related].sort((left, right) => compareApplications(ast, left, right))[0];
+      if (first?.sourceFile === sourceFile) conflicts.push(Object.freeze({ declaration, first }));
+    }
+  }
+  return Object.freeze({
+    conflicts: Object.freeze(conflicts),
+    applications: Object.freeze(applications.map((application) => Object.freeze({
+      application,
+      status: application.targetDeclarations.length === 0
+        ? "target-not-resolved" as const
+        : application.targetDeclarations.some((declaration) => conflicting.has(declaration))
+          ? "conflicting" as const
+          : "candidate" as const,
+    }))),
+  });
+}
+
+function compareApplications(
+  ast: AstReader,
+  left: TargetSafetyApplication<TargetSafetyApplicationFact>,
+  right: TargetSafetyApplication<TargetSafetyApplicationFact>,
+): number {
+  const pathOrder = ast.getPath(left.sourceFile).localeCompare(ast.getPath(right.sourceFile));
+  return pathOrder !== 0 ? pathOrder : ast.pos(left.sourceSubject) - ast.pos(right.sourceSubject);
 }
 
 function isApplicationFact<Builder extends TargetSafetyBuilderFact>(
