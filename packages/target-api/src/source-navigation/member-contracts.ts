@@ -150,6 +150,9 @@ function collectInheritedProjectTypes(
       if (!edge.target.project || !isProjectDeclaration(edge.target.declaration)) {
         continue;
       }
+      if (!isProjectType(ast, edge.target.declaration)) {
+        return "An inherited project contract requires an exact class or interface declaration, not a constructor-valued member.";
+      }
       const identity = sourceNodeIdentity(ast, edge.target.declaration);
       if (identity === undefined) {
         return "An inherited project type has no exact source-node identity.";
