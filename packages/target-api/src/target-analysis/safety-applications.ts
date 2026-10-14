@@ -23,6 +23,8 @@ export interface TargetSafetyApplicationFact {
   readonly applicationPlacement: TargetSafetyApplicationPlacement;
 }
 
+export type TargetSafetyBuilderFact = TargetSafetyApplicationFact | { readonly kind: "builder-state" };
+
 export type TargetSafetyApplication<Fact extends TargetSafetyApplicationFact> = Fact & {
   readonly sourceSubject: Node;
   readonly sourceFile: SourceFile;
@@ -35,7 +37,7 @@ export type TargetSafetyOperation<UnsafeContext, Builder> =
   | { readonly kind: "unsafe-context"; readonly fact: UnsafeContext }
   | { readonly kind: "safety-builder"; readonly fact: Builder };
 
-export interface TargetSafetyApplicationIndexInput<UnsafeContext, Builder extends { readonly kind: string }> {
+export interface TargetSafetyApplicationIndexInput<UnsafeContext, Builder extends TargetSafetyBuilderFact> {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
   readonly navigation: Pick<SourceProgramNavigation, "referenceFor" | "declarationFor" | "isProjectDeclaration">;
@@ -52,7 +54,7 @@ export interface TargetSafetyApplicationIndex<UnsafeContext, Builder, Applicatio
   operationForExpression(expression: Node): TargetSafetyOperation<UnsafeContext, Builder> | undefined;
 }
 
-export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extends { readonly kind: string }>(
+export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extends TargetSafetyBuilderFact>(
   input: TargetSafetyApplicationIndexInput<UnsafeContext, Builder>,
 ): TargetSafetyApplicationIndex<
   UnsafeContext,
@@ -64,58 +66,51 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
   const bySourceFile = new Map<SourceFile, readonly Application[]>();
   const byDeclaration = new Map<Node, Application[]>();
   const bySubject = new Map<Node, TargetSafetyOperation<UnsafeContext, Builder>>();
+  const enclosingDeclarations = new Map<Node, ReadonlySet<Node>>();
   const wrappers: Node[] = [];
   for (const sourceFile of input.sourceFiles) {
     const applications: Application[] = [];
     walkSubtree(sourceFile, input.ast, (node) => {
+      const parent = input.ast.parent(node);
+      let enclosing = parent === undefined ? undefined : enclosingDeclarations.get(parent);
       if (input.ast.is.IsParenthesizedExpression(node)) {
         wrappers.push(node);
       }
       const unsafeContext = input.readUnsafeContext(node);
       if (unsafeContext !== undefined) {
-        bySubject.set(node, { kind: "unsafe-context", fact: unsafeContext });
+        bySubject.set(node, Object.freeze({ kind: "unsafe-context", fact: unsafeContext }));
       }
       const builder = input.readSafetyBuilder(node);
-      if (builder === undefined) {
-        return;
+      if (builder !== undefined) {
+        bySubject.set(node, Object.freeze({ kind: "safety-builder", fact: builder }));
+        if (isApplicationFact(builder)) {
+          const application = resolveApplication(node, sourceFile, builder, input);
+          applications.push(application);
+          all.push(application);
+          if (application.targetDeclarations.length > 0) {
+            const declarations = new Set(enclosing);
+            for (const declaration of application.targetDeclarations) {
+              declarations.add(declaration);
+              const existing = byDeclaration.get(declaration) ?? [];
+              existing.push(application);
+              byDeclaration.set(declaration, existing);
+            }
+            enclosing = declarations;
+          }
+        }
       }
-      bySubject.set(node, { kind: "safety-builder", fact: builder });
-      if (!isApplicationFact(builder)) {
-        return;
-      }
-      const application = resolveApplication(node, sourceFile, builder, input);
-      applications.push(application);
-      all.push(application);
-      for (const declaration of application.targetDeclarations) {
-        const existing = byDeclaration.get(declaration) ?? [];
-        existing.push(application);
-        byDeclaration.set(declaration, existing);
-      }
+      if (enclosing !== undefined) enclosingDeclarations.set(node, enclosing);
     });
     bySourceFile.set(sourceFile, Object.freeze(applications));
   }
-  const byExpression = new Map<Node, TargetSafetyOperation<UnsafeContext, Builder>>();
-  for (const wrapper of wrappers) {
-    let current: Node | undefined = wrapper;
-    while (current !== undefined) {
-      const operation = bySubject.get(current);
-      if (operation !== undefined) {
-        byExpression.set(wrapper, operation);
-        break;
-      }
-      current = input.ast.is.IsParenthesizedExpression(current)
-        ? Node_Expression(input.ast, current)
-        : undefined;
-    }
+  const byExpression = new Map(bySubject);
+  for (let index = wrappers.length - 1; index >= 0; index -= 1) {
+    const wrapper = wrappers[index]!;
+    const operand = Node_Expression(input.ast, wrapper);
+    const operation = bySubject.get(wrapper) ?? (operand === undefined ? undefined : byExpression.get(operand));
+    if (operation !== undefined) byExpression.set(wrapper, operation);
   }
-  const enclosingApplications = new Map<Node, Application[]>();
-  for (const application of all) {
-    walkSubtree(application.sourceSubject, input.ast, (node) => {
-      const existing = enclosingApplications.get(node) ?? [];
-      existing.push(application);
-      enclosingApplications.set(node, existing);
-    });
-  }
+  for (const applications of byDeclaration.values()) Object.freeze(applications);
   const emptyApplications: readonly Application[] = Object.freeze([]);
   return Object.freeze({
     all: Object.freeze(all),
@@ -123,18 +118,15 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
       bySourceFile.get(sourceFile) ?? emptyApplications,
     forDeclaration: (declaration: Node) =>
       byDeclaration.get(declaration) ?? emptyApplications,
-    isCompileTimeApplicationReference(declaration: Node, reference: Node) {
-      return (enclosingApplications.get(reference) ?? emptyApplications).some(
-        (application) => application.targetDeclarations.includes(declaration),
-      );
-    },
+    isCompileTimeApplicationReference: (declaration: Node, reference: Node) =>
+      enclosingDeclarations.get(reference)?.has(declaration) === true,
     operationForSubject: (subject: Node) => bySubject.get(subject),
     operationForExpression: (expression: Node) =>
-      bySubject.get(expression) ?? byExpression.get(expression),
+      byExpression.get(expression),
   });
 }
 
-function isApplicationFact<Builder extends { readonly kind: string }>(
+function isApplicationFact<Builder extends TargetSafetyBuilderFact>(
   fact: Builder,
 ): fact is Builder & TargetSafetyApplicationFact {
   return fact.kind === "application";
@@ -144,7 +136,7 @@ function resolveApplication<Fact extends TargetSafetyApplicationFact>(
   sourceSubject: Node,
   sourceFile: SourceFile,
   fact: Fact,
-  input: Pick<TargetSafetyApplicationIndexInput<unknown, { readonly kind: string }>, "ast" | "navigation">,
+  input: Pick<TargetSafetyApplicationIndexInput<unknown, TargetSafetyBuilderFact>, "ast" | "navigation">,
 ): TargetSafetyApplication<Fact> {
   const selectedMemberDeclarations = Object.freeze(
     [
@@ -176,7 +168,7 @@ function resolveApplication<Fact extends TargetSafetyApplicationFact>(
 
 function projectDeclaration(
   subject: Node,
-  navigation: TargetSafetyApplicationIndexInput<unknown, { readonly kind: string }>["navigation"],
+  navigation: TargetSafetyApplicationIndexInput<unknown, TargetSafetyBuilderFact>["navigation"],
 ): Node | undefined {
   return navigation.referenceFor(subject)?.declaration ??
     navigation.declarationFor(subject) ??

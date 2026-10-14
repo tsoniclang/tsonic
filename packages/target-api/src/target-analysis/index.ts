@@ -43,6 +43,7 @@ export type {
   TargetSafetyApplicationIndex,
   TargetSafetyApplicationIndexInput,
   TargetSafetyApplicationPlacement,
+  TargetSafetyBuilderFact,
   TargetSafetyOperation,
 } from "./safety-applications.js";
 export {

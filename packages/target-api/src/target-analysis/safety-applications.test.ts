@@ -13,19 +13,20 @@ type TestBuilderFact =
   | (TargetSafetyApplicationFact & { readonly contract: string })
   | { readonly kind: "builder-state"; readonly label?: string };
 
-function guarded<T extends object>(value: T, sealed: () => boolean, path: string): T {
+function guarded<T extends object>(value: T, sealed: () => boolean, path: string, accesses: Map<string, number>): T {
   const copy: Record<string, unknown> = {};
   for (const key of Object.keys(value)) {
     const member: unknown = Reflect.get(value, key);
     copy[key] = typeof member === "function"
       ? (...parameters: unknown[]) => {
           if (sealed()) throw new Error(`${path}.${key} was called after index construction`);
+          accesses.set(`${path}.${key}`, (accesses.get(`${path}.${key}`) ?? 0) + 1);
           return Reflect.apply(member, value, parameters);
         }
       : member !== null && typeof member === "object" &&
           Object.keys(member).length > 0 &&
           Object.keys(member).every(name => typeof Reflect.get(member, name) === "function")
-        ? guarded(member, sealed, `${path}.${key}`)
+        ? guarded(member, sealed, `${path}.${key}`, accesses)
         : member;
   }
   return copy as T;
@@ -56,9 +57,9 @@ mark("unregistered");
 export {};
 `;
 
-function fixture() {
+function fixture(text = sourceText) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
-    "/src/index.ts": sourceText,
+    "/src/index.ts": text,
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics.filter(value => value !== undefined)));
   const source = createTargetSourceProgram(checked);
@@ -94,7 +95,6 @@ function fixture() {
     applicationTarget: Node = value,
   ): TestBuilderFact => ({
     kind: "application", contract: "requires-unsafe", applicationTarget, applicationPlacement: placement,
-    // The checked fact repeats the selected member, as source-core facts do for accessor pairs.
     selectedMemberDeclarations: selected, selectedMemberDeclaration: selected[0], selectedMember: selected[0],
   });
   const facts = new Map<string, TestBuilderFact>([
@@ -117,11 +117,12 @@ function fixture() {
   }
   let sealed = false;
   const isSealed = () => sealed;
-  const guardedAst = guarded(ast, isSealed, "ast");
+  const constructionReads = new Map<string, number>();
+  const guardedAst = guarded(ast, isSealed, "ast", constructionReads);
   const index = createTargetSafetyApplicationIndex<{ readonly kind: "remaining-block" }, TestBuilderFact>({
     ast: guardedAst,
     sourceFiles: [file!],
-    navigation: guarded(source.navigation, isSealed, "navigation"),
+    navigation: guarded(source.navigation, isSealed, "navigation", constructionReads),
     readUnsafeContext: () => {
       if (sealed) throw new Error("readUnsafeContext was called after index construction");
       return undefined;
@@ -139,7 +140,7 @@ function fixture() {
     assert.equal(found !== undefined, true, text);
     return found!;
   };
-  return { ast, guardedAst, index, call, seal, wrapperFact, getter, setter, field, value, constructor: constructor!, indexSignature: indexSignature!, nodes };
+  return { ast, guardedAst, index, call, seal, constructionReads, wrapperFact, getter, setter, field, value, constructor: constructor!, indexSignature: indexSignature!, nodes };
 }
 
 test("getter and setter applications cover only the accessor their placement names, once", () => {
@@ -239,5 +240,42 @@ test("no index query reads the AST, navigation or fact readers after constructio
     index.operationForSubject(node);
     index.operationForExpression(node);
     index.isCompileTimeApplicationReference(getter, node);
+  }
+});
+
+test("published safety memberships and operation wrappers are immutable", () => {
+  const { index, getter, call } = fixture();
+  const applications = index.forDeclaration(getter);
+  assert.equal(Object.isFrozen(applications), true);
+  assert.equal(Object.isFrozen(index.forSourceFile(applications[0]!.sourceFile)), true);
+  assert.equal(Object.isFrozen(index.operationForSubject(call("getter"))), true);
+  assert.equal(Reflect.set(applications, "length", 0), false);
+  assert.equal(index.forDeclaration(getter).length, 3);
+});
+
+test("nested application membership inherits outer declarations without crossing siblings", () => {
+  const { ast, index, call, getter, setter } = fixture(sourceText
+    .replace("declare function mark(label: string): void;", "declare function mark(label: string, ...values: unknown[]): void;")
+    .replace('mark("getter");', 'mark("getter", mark("setter"));'));
+  const outer = call("getter");
+  const inner = ast.arguments(outer)[1];
+  assert.equal(inner !== undefined, true);
+  assert.equal(index.isCompileTimeApplicationReference(getter, inner!), true);
+  assert.equal(index.isCompileTimeApplicationReference(setter, inner!), true);
+  assert.equal(index.isCompileTimeApplicationReference(setter, outer), false);
+  assert.equal(index.isCompileTimeApplicationReference(getter, call("setter")), false);
+});
+
+test("each nested parenthesis operand is inspected exactly once during construction", () => {
+  for (const depth of [8, 64, 128]) {
+    const current = fixture(sourceText.replace('((mark("nested")));',
+      `${"(".repeat(depth)}mark("nested")${")".repeat(depth)};`));
+    const wrappers = current.nodes.filter(node => current.ast.is.IsParenthesizedExpression(node));
+    assert.equal(current.constructionReads.get("ast.as.AsParenthesizedExpression"), wrappers.length,
+      `${depth}: one stored operand read per wrapper, not repeated nested walks`);
+    const before = current.constructionReads.get("ast.as.AsParenthesizedExpression");
+    for (const wrapper of wrappers) current.index.operationForExpression(wrapper);
+    assert.equal(current.constructionReads.get("ast.as.AsParenthesizedExpression"), before,
+      "published queries never inspect an operand");
   }
 });
