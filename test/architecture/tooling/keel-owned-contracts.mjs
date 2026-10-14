@@ -22,8 +22,6 @@ export const keelBasePins = Object.freeze({
   "tsumo-csharp": "ef9451d8a13ca2e2249e15cb3dbce545317ac8d8",
 });
 
-const rustKeys = "src/analysis/program/records/key.ts";
-
 export const keelOwnedTargets = Object.freeze({
   "tsonic-csharp": Object.freeze({
     providerModelPaths: ["src/providers/native/relations/index.ts", "src/providers/native/relations/relation-model.ts"],
@@ -39,7 +37,7 @@ export const keelOwnedTargets = Object.freeze({
     programType: { file: "src/analysis/program/model.ts", symbol: "RustTargetProgram" },
     diagnosticCodeFields: [{ file: "external/tsonic/packages/target-api/src/artifacts.ts", symbol: "TargetDiagnostic.code" }],
     keyDefinitions: [],
-    keyTypes: [{ file: rustKeys, symbol: "RustPlanKey" }],
+    keyTypes: [],
     diagnosticCalls: ["unsupportedStatementDiagnostic", "missingFactDiagnostic", "unsupportedConstructDiagnostic"].map(symbol => ({
       file: "src/backend/planner/diagnostics.ts", symbol,
     })),
