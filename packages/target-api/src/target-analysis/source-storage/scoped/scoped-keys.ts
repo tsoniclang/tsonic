@@ -3,23 +3,23 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject } from "../model/subjects.js";
 import { sourceStorageFormalOwner, sourceStorageIsMemberProjection } from "../model/subjects.js";
-import type { SourceStorageTerm, SourceStorageScope } from "../graph/scoped-model.js";
+import type { SourceStorageReference, SourceStorageTerm, SourceStorageScope } from "../graph/scoped-model.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageContextFootprints, type SourceStorageContextFootprint } from "../graph/context-footprints.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
-import { encodeSourceStorageKey, type SourceStorageKeyValue as Encoded } from "../graph/key-encoding.js";
+import { createSourceStorageKeyEncoder, type SourceStorageKey, type SourceStorageKeyValue as Encoded } from "../graph/key-encoding.js";
 
 interface ReferenceEncoding {
-  readonly encoded: Encoded | undefined;
+  readonly encoded: SourceStorageKey;
   readonly closed: boolean;
 }
 
 interface ReferenceEncodings {
-  reference?: ReferenceEncoding | null;
-  leaf?: ReferenceEncoding | null;
+  reference?: ReferenceEncoding;
+  leaf?: ReferenceEncoding;
 }
 
 export function createSourceStorageScopedKeys(source: TargetSourceProgram, budget: SourceStorageBudget,
@@ -28,6 +28,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     transport.contextLocation, transport.contextualInputs.applicationFor);
   const locationOwners = new Map<SourceStorageContextFootprint, readonly (Node | undefined)[]>();
   const ownerRows = budget.createRows();
+  const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
+  const referenceRows = budget.createRows();
+  const encoder = createSourceStorageKeyEncoder(budget);
   const locationOwner = (subject: SourceStorageSubject): Node | undefined => {
     const region = transport.regions.enclosing(subject.node);
     return subject.kind === "return" ? subject.node : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
@@ -58,7 +61,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   };
   const encode = (term: SourceStorageTerm, invocation = false) => budget.withRows(rows => {
     let closed = true;
-    const references = new Map<SourceStorageScope, Map<SourceStorageSubject, ReferenceEncodings>>();
+    const pending = new Map<SourceStorageScope, Map<SourceStorageSubject, Set<SourceStorageReference["kind"]>>>();
     const encodeProjection = (projection: readonly SourceStorageProjection[]): Encoded => projection.map(component =>
       sourceStorageIsMemberProjection(component) ? [component.kind, scopes.identity(component.declaration)] :
         component.kind === "tuple-element" ? [component.kind, component.index] : [component.kind]);
@@ -109,7 +112,9 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         if (selected === undefined) return undefined;
         physical.push([owner === undefined ? null : scopes.identity(owner), selected]);
       }
-      return [inputs, physical];
+      const boundInputs = encoder.intern(inputs);
+      const boundLocations = encoder.intern(physical);
+      return boundInputs === undefined || boundLocations === undefined ? undefined : [boundInputs, boundLocations];
     };
     const encodeUncachedTerm = (selected: SourceStorageTerm): Encoded | undefined => {
       if (selected.kind === "leaf" && selected.guards !== undefined) {
@@ -258,40 +263,51 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         }
       });
     };
-    const encodeTerm = (selected: SourceStorageTerm): Encoded | undefined => {
+    const encodeTerm = (selected: SourceStorageTerm): SourceStorageKey | undefined => {
       if (!budget.step()) return undefined;
-      if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined)
-        return encodeUncachedTerm(selected);
+      if (selected.kind !== "reference" && selected.kind !== "leaf" || selected.kind === "leaf" && selected.guards !== undefined) {
+        const encoded = encodeUncachedTerm(selected);
+        return encoded === undefined ? undefined : encoder.intern(encoded);
+      }
       const subjects = references.get(selected.scope);
       const retained = subjects?.get(selected.subject);
       const previous = retained?.[selected.kind];
-      if (previous === null) {
-        budget.reject("Source storage key references cannot expose an unfinished encoding.");
-        return undefined;
-      }
       if (previous !== undefined) {
         closed = closed && previous.closed;
         return previous.encoded;
       }
-      if (!rows.add(retained === undefined ? subjects === undefined ? 3 : 2 : 1)) return undefined;
-      const encodings = retained ?? {};
-      const inputs = subjects ?? new Map<SourceStorageSubject, ReferenceEncodings>();
-      encodings[selected.kind] = null;
-      inputs.set(selected.subject, encodings); references.set(selected.scope, inputs);
+      const inputs = pending.get(selected.scope) ?? new Map<SourceStorageSubject, Set<SourceStorageReference["kind"]>>();
+      const encodings = inputs.get(selected.subject) ?? new Set<SourceStorageReference["kind"]>();
+      if (encodings.has(selected.kind)) {
+        budget.reject("Source storage key references cannot expose an unfinished encoding.");
+        return undefined;
+      }
+      if (!rows.add(3)) return undefined;
+      encodings.add(selected.kind);
+      inputs.set(selected.subject, encodings); pending.set(selected.scope, inputs);
       const outerClosed = closed;
       closed = true;
       try {
         const encoded = encodeUncachedTerm(selected);
-        if (budget.failure() === undefined) encodings[selected.kind] = Object.freeze({ encoded, closed });
-        return encoded;
-      } finally { closed = outerClosed && closed; }
+        const key = encoded === undefined ? undefined : encoder.intern(encoded);
+        if (key === undefined || budget.failure() !== undefined) return undefined;
+        const completedInputs = references.get(selected.scope);
+        const completed = completedInputs?.get(selected.subject);
+        if (!referenceRows.add(completed === undefined ? completedInputs === undefined ? 3 : 2 : 1)) return undefined;
+        const completedEncodings = completed ?? {};
+        completedEncodings[selected.kind] = Object.freeze({ encoded: key, closed });
+        const completedSubjects = completedInputs ?? new Map<SourceStorageSubject, ReferenceEncodings>();
+        completedSubjects.set(selected.subject, completedEncodings);
+        references.set(selected.scope, completedSubjects);
+        return key;
+      } finally { encodings.delete(selected.kind); closed = outerClosed && closed; }
     };
     const encoded = encodeTerm(term);
     return encoded === undefined || budget.failure() !== undefined ? undefined : { encoded, closed };
   });
   const key = (term: SourceStorageTerm, invocation = false): string | undefined => {
     const selected = encode(term, invocation);
-    return selected === undefined ? undefined : encodeSourceStorageKey(selected.encoded, budget);
+    return selected === undefined ? undefined : String(selected.encoded.identity);
   };
   return Object.freeze({ encode: key,
     closed: (term: SourceStorageTerm): boolean | undefined => encode(term)?.closed,
