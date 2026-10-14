@@ -19,18 +19,21 @@ export function sourceLexicalCaptures(
   roots: readonly Node[],
   ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
+  step: (node?: Node) => void = () => {},
 ): SourceLexicalCaptureSelection {
   const captures = new Map<Node, Node[]>();
   const selfReferences: Node[] = [];
   const receivers = new Map<Node, Node[]>();
   const visited = new Set<Node>();
   const visit = (node: Node): void => {
+    step(node);
     if (visited.has(node) || isTypeSyntaxNode(ast, node)) return;
     visited.add(node);
     const nodeKind = ast.kindName(node);
     if (nodeKind === "KindThisKeyword" || nodeKind === "KindSuperKeyword") {
-      const owner = sourceReceiverOwner(node, ast, "lexical-capture");
-      if (owner !== undefined && !within(owner, scope, ast)) {
+      step(node);
+      const owner = sourceReceiverOwner(node, ast, "lexical-capture", () => { step(node); return true; });
+      if (owner !== undefined && !within(owner, scope, ast, step)) {
         const references = receivers.get(owner) ?? [];
         references.push(node);
         receivers.set(owner, references);
@@ -47,7 +50,7 @@ export function sourceLexicalCaptures(
           "KindFunctionExpression", "KindClassDeclaration", "KindClassExpression", "KindEnumDeclaration"].includes(kind);
         if (!binding || ast.name(declaration) === node) return;
         if (declaration === scope) selfReferences.push(node);
-        else if (!within(declaration, scope, ast) && !sourceDeclarationIsModuleScoped(declaration, ast)) {
+        else if (!within(declaration, scope, ast, step) && !sourceDeclarationIsModuleScoped(declaration, ast, step)) {
           const references = captures.get(declaration) ?? [];
           references.push(node);
           captures.set(declaration, references);
@@ -57,7 +60,7 @@ export function sourceLexicalCaptures(
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   for (const root of roots) {
-    if (!within(root, scope, ast)) throw new Error("A lexical-capture root must belong to its exact source scope.");
+    if (!within(root, scope, ast, step)) throw new Error("A lexical-capture root must belong to its exact source scope.");
     visit(root);
   }
   return Object.freeze({
@@ -71,9 +74,10 @@ export function sourceLexicalCaptures(
   });
 }
 
-export function sourceDeclarationIsModuleScoped(declaration: Node, ast: AstReader): boolean {
+export function sourceDeclarationIsModuleScoped(declaration: Node, ast: AstReader, step: (node?: Node) => void = () => {}): boolean {
   let current: Node | undefined = declaration;
   while (current !== undefined) {
+    step(current);
     const parent = ast.parent(current);
     if (parent === undefined) return false;
     const parentKind = ast.kindName(parent);
@@ -131,8 +135,9 @@ function rootBindingDeclaration(declaration: Node, ast: AstReader): Node | undef
   return binding;
 }
 
-function within(node: Node, ancestor: Node, ast: AstReader): boolean {
+function within(node: Node, ancestor: Node, ast: AstReader, step: (node?: Node) => void): boolean {
   for (let current: Node | undefined = node; current !== undefined; current = ast.parent(current)) {
+    step(current);
     if (current === ancestor) return true;
   }
   return false;

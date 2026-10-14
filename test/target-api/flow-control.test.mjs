@@ -464,3 +464,43 @@ test("flow closure capture facts are computed once per exact checked scope", asy
   assert.equal(first.length, 1);
   assert.equal(Object.isFrozen(first) && Object.isFrozen(first[0]) && Object.isFrozen(first[0].references), true);
 });
+
+test("flow budgets include capture-free closure scanning after syntax preflight", async () => {
+  const source = createTargetSourceProgram(await checkedSource(`flow-capture-budget-${caseNumber++}`, {
+    "src/index.ts": `export function run() { return () => { ${"0;".repeat(256)} return 0; }; }`,
+  }));
+  const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), "run");
+  const nodes = new Set();
+  const pending = [declaration];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    nodes.add(node);
+    source.ast.forEachChild(node, child => { if (child !== undefined) pending.push(child); });
+  }
+  const selection = createSourceControlFlow(source, declaration, { limits: { maximumSteps: nodes.size + 64 } });
+  assert.equal(selection.kind, "unresolved");
+  assert.equal("graph" in selection, false, "exhaustion never publishes a partial graph");
+  assert.equal(selection.reason, "Source flow exceeds its finite work budget.");
+  assert.equal(nodes.has(selection.source), true, "the failure retains the exact checked source subject");
+});
+
+test("flow capture queries never cache a partial selection after a work failure", async () => {
+  const current = await fixture("function run(value: number) { class Entry { read() { return value; } } return Entry; }");
+  const declaration = one(current, (point, ast) => point.operation.kind === "write" && ast.is.IsClassDeclaration(point.source)).source;
+  const failure = new Error("test capture budget exhausted");
+  let remaining = 2;
+  let steps = 0;
+  const query = createSourceFlowCaptureQuery(current.source, () => {
+    steps += 1;
+    remaining -= 1;
+    if (remaining < 0) throw failure;
+  });
+  assert.throws(() => query(declaration), error => error === failure);
+  remaining = 100_000;
+  const complete = query(declaration);
+  assert.equal(complete.length, 1, "a failed first scan does not cache an empty or incomplete answer");
+  assert.equal(Object.isFrozen(complete) && Object.isFrozen(complete[0]) && Object.isFrozen(complete[0].references), true);
+  const beforeRepeat = steps;
+  assert.equal(query(declaration) === complete, true, "the completed answer is canonical");
+  assert.equal(steps - beforeRepeat, 1, "a completed lookup charges entry without rescanning");
+});

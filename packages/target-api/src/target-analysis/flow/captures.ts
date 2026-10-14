@@ -10,8 +10,8 @@ export function createSourceFlowCaptureQuery(source: TargetSourceProgram, step: 
     const existing = completed.get(node);
     if (existing !== undefined) return existing;
     const immediate = new Set<Node>();
-    forEachSourceImmediateEvaluationChild(source.ast, node, child => immediate.add(child));
-    const selected = sourceLexicalCaptures(node, [node], source.ast, source.navigation).captures;
+    forEachSourceImmediateEvaluationChild(source.ast, node, child => { step(child); immediate.add(child); });
+    const selected = sourceLexicalCaptures(node, [node], source.ast, source.navigation, step).captures;
     const captures: SourceLexicalCapture[] = [];
     for (const capture of selected) {
       step(capture.declaration);
