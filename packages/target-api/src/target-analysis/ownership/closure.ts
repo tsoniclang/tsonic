@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceFlowLimits } from "../flow/model.js";
 import { defaultSourceFlowLimits } from "../flow/resources.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
-import { sourceStorageConstructedClass } from "../source-storage/model/construction.js";
+import { sourceStorageInvokedClass } from "../source-storage/model/construction.js";
 import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceOwnershipBudget, SourceOwnershipPremises, SourceSuspensionSelection } from "./model.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
@@ -64,9 +64,11 @@ export function createSourceContinuationClosureQuery(input: {
     const existing = cache.get(call)?.get(bindings);
     if (existing !== undefined) return existing;
     let result: SourceContinuationClosureSelection;
-    const implicit = implementations.exact && implementations.nodes.length === 0
-      ? sourceStorageConstructedClass(call, source, budget.step) : undefined;
-    const candidates = implicit === undefined ? implementations.nodes : [implicit];
+    const root = sourceStorageInvokedClass(call, source, budget.step);
+    const construction = root === undefined ? undefined : storage.constructionFor(call, bindings);
+    if (construction?.kind === "unresolved") return sourceOwnershipUnresolved(call, construction.reason);
+    const candidates = construction === undefined ? implementations.nodes
+      : [construction.implementation?.declaration ?? construction.root];
     if (candidates.length === 0) {
       const semantics = source.semantics.forNode(call);
       const selected = semantics.operations.call(call);
@@ -79,7 +81,7 @@ export function createSourceContinuationClosureQuery(input: {
       }
       result = nativeClosure(call, declaration, bindings);
     } else {
-      if (!implementations.exact) {
+      if (construction === undefined && !implementations.exact) {
         return sourceOwnershipUnresolved(call, "An open callable domain cannot prove complete continuation dependencies.");
       }
       const completed: Extract<SourceContinuationClosureSelection, { kind: "resolved" }>[] = [];

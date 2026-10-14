@@ -76,7 +76,7 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
   try {
     const reads = new Set<SourceContinuationRead>();
     const results: SourceContinuationRead[] = [];
-    const localReads = new Map<Node, SourceContinuationRead>();
+    const localReads = new Map<Node, Map<SourceStorageBindings, Map<Node, SourceContinuationRead>>>();
     const dependencies: SourceContinuationDependency[] = [];
     const seen = new Map<Node, Map<SourceStorageSubject, Map<SourcePendingOperation, Set<SourceRetentionPremise>>>>();
     let maySuspend = false;
@@ -113,11 +113,19 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
       const reference = sourceContinuationRead(source, point);
       if (reference !== undefined) {
         if (context.kind === "unresolved") return context;
-        let read = localReads.get(reference);
+        const byBinding = localReads.get(reference);
+        const byOwner = byBinding?.get(context.bindings);
+        let read = byOwner?.get(context.owner);
         if (read === undefined) {
-          if (!rows.add(1)) return sourceOwnershipUnresolved(reference, budget.failure()!);
+          if (!rows.add(1 + (byBinding === undefined ? 1 : 0) + (byOwner === undefined ? 1 : 0))) {
+            return sourceOwnershipUnresolved(reference, budget.failure()!);
+          }
           read = Object.freeze({ reference, candidate: context.owner, bindings: context.bindings });
-          localReads.set(reference, read);
+          const owners = byOwner ?? new Map<Node, SourceContinuationRead>();
+          const bindings = byBinding ?? new Map<SourceStorageBindings, Map<Node, SourceContinuationRead>>();
+          owners.set(context.owner, read);
+          bindings.set(context.bindings, owners);
+          localReads.set(reference, bindings);
         }
         const problem = observe(read, state);
         if (problem !== undefined) return problem;

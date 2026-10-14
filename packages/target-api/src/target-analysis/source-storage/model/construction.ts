@@ -1,5 +1,5 @@
 import type { Node } from "@tsonic/tsts";
-import { AsExpressionWithTypeArguments, Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
+import { AsExpressionWithTypeArguments, Node_Expression, Node_Initializer, sourceClassFieldIsTypeOnly } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 
 export function sourceStorageConstructedClass(
@@ -58,4 +58,22 @@ export function sourceStorageSuperConstructor(
     return callee === undefined ? undefined : Object.freeze({ owner, callee });
   }
   return undefined;
+}
+
+export function sourceStorageInvokedClass(invocation: Node, source: TargetSourceProgram, step: () => boolean): Node | undefined {
+  return source.ast.is.IsNewExpression(invocation) ? sourceStorageConstructedClass(invocation, source, step)
+    : sourceStorageClassValue(sourceStorageSuperConstructor(invocation, source, step)?.callee, source, step);
+}
+
+export function sourceStorageInstanceInitializers(declaration: Node, source: TargetSourceProgram,
+  step: () => boolean): readonly Node[] {
+  const initializers: Node[] = [];
+  for (const member of source.ast.members(declaration)) {
+    if (!step()) break;
+    if (member === undefined || !source.ast.is.IsPropertyDeclaration(member) || source.ast.hasModifierKind(member, "static") ||
+      sourceClassFieldIsTypeOnly(source.ast, member)) continue;
+    const initializer = Node_Initializer(source.ast, member);
+    if (initializer !== undefined) initializers.push(initializer);
+  }
+  return initializers;
 }

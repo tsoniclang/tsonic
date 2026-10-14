@@ -325,7 +325,8 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       const values: SourceStorageReference[] = [];
       for (const input of selected.subjects) {
         if (!budget.step()) return undefined;
-        if (input !== formal) values.push(sourceStorageReference(input, selected.context === "callee" ? frame : parent));
+        values.push(input === formal ? Object.freeze({ kind: "leaf", subject: input, scope: frame })
+          : sourceStorageReference(input, selected.context === "callee" ? frame : parent));
       }
       if (values.length === 0) continue;
       entries.set(formal, Object.freeze(values));
