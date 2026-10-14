@@ -14,7 +14,6 @@ export type TargetSafetyApplicationPlacement =
   | "getter"
   | "setter";
 
-/** The checked-source application fact fields that decide which declarations an application covers. */
 export interface TargetSafetyApplicationFact {
   readonly kind: "application";
   readonly applicationTarget: ExtensionFactSubject;
@@ -36,10 +35,6 @@ export type TargetSafetyOperation<UnsafeContext, Builder> =
   | { readonly kind: "unsafe-context"; readonly fact: UnsafeContext }
   | { readonly kind: "safety-builder"; readonly fact: Builder };
 
-/**
- * Each target supplies the readers for its checked safety facts. Which fact keys a target accepts is the
- * target's own policy; membership of an application in source declarations is decided here once.
- */
 export interface TargetSafetyApplicationIndexInput<UnsafeContext, Builder extends { readonly kind: string }> {
   readonly ast: AstReader;
   readonly sourceFiles: readonly SourceFile[];
@@ -173,12 +168,6 @@ function projectDeclaration(
     (navigation.isProjectDeclaration(subject) ? subject : undefined);
 }
 
-/**
- * A declaration application covers the selected members and the resolved root declaration. A constructor
- * application covers the class and its constructor declarations. A getter or setter application covers only the
- * selected declarations that the placement names: the matching accessor, or a property or index signature, which
- * carries both. The other accessor of the same property is not covered.
- */
 function applicationDeclarations(
   placement: TargetSafetyApplicationPlacement,
   selectedMemberDeclarations: readonly Node[],
