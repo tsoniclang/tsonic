@@ -1,4 +1,5 @@
 import type { Node } from "@tsonic/tsts";
+import type { SourceStorageQueries } from "../source-storage/model/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -50,6 +51,11 @@ export interface SourceFlowLimits {
   readonly maximumEdges: number;
   readonly maximumSteps: number;
   readonly maximumDepth: number;
+}
+
+export interface SourceControlFlowOptions {
+  readonly limits?: Partial<SourceFlowLimits>;
+  readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node };
 }
 
 export interface SourceFlowWork {

@@ -22,6 +22,7 @@ interface OpenPoint {
 
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
+  readonly parameterInitializers: ReadonlySet<Node> | undefined;
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
   readonly point: (source: Node | undefined, operation: SourceFlowOperation) => number;
   readonly edge: (from: number, to: number, kind?: SourceFlowEdgeKind) => void;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceControlFlow } from "../../packages/target-api/dist/target-analysis/flow/index.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/target-analysis/flow/captures.js";
 import { checkedSource, namedDeclaration, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
@@ -9,7 +10,7 @@ let caseNumber = 0;
 async function fixture(text, name = "run", limits) {
   const source = createTargetSourceProgram(await checkedSource(`flow-control-${caseNumber++}`, { "src/index.ts": text }));
   const declaration = namedDeclaration(source.ast, projectSourceFile(source, "src/index.ts"), name);
-  const selection = createSourceControlFlow(source, declaration, limits);
+  const selection = createSourceControlFlow(source, declaration, { limits });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
   return { source, ast: source.ast, declaration, graph: selection.graph };
 }
@@ -37,6 +38,49 @@ function reachable(graph, from, to, blocked = new Set(), exceptions = false) {
   }
   return false;
 }
+
+test("flow invocation entry omits only checked excluded parameter defaults", async () => {
+  const current = await fixture(`function fallback() { return 7; }
+    function run(value: number = fallback()) { return value; }
+    function enter(maybe: number | undefined, spread: [number?]) { run(1); run(); run(maybe); run(...spread); }`);
+  const storage = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const invocations = storage.invocations.filter(node => current.source.semantics.forNode(node).operations.call(node)
+    ?.sourceSelectedSignatureKind === "resolved" && storage.invocationImplementationsFor(node).kind === "resolved" &&
+    storage.invocationImplementationsFor(node).nodes.includes(current.declaration));
+  assert.equal(invocations.length, 4);
+  const ordered = invocations.sort((left, right) => current.ast.pos(left) - current.ast.pos(right));
+  const initializer = current.ast.as.AsParameterDeclaration(current.ast.parameters(current.declaration)[0]).Initializer;
+  for (const [index, invocation] of ordered.entries()) {
+    const selected = createSourceControlFlow(current.source, current.declaration, { invocation: { storage, call: invocation } });
+    assert.equal(selected.kind === "resolved", true, selected.kind === "unresolved" ? selected.reason : "checked entry");
+    const entries = selected.graph.points.filter(point => point.source === initializer && point.operation.kind === "evaluate");
+    assert.equal(entries.length > 0, index !== 0, `default region for checked call ${index}`);
+    assert.equal(selected.graph.points.filter(point => point.operation.kind === "branch").length, index === 0 ? 0 : 1);
+  }
+  assert.equal(current.graph.points.some(point => point.source === initializer), true, "unspecialized declaration retains its default path");
+});
+
+test("flow invocation context rejects wrong owners, foreign calls and unverified initializer lists", async () => {
+  const current = await fixture("function fallback() { return 1; } function run(value = fallback()) { return value; } function other() { return 2; } run(3); other();");
+  const storage = createSourceStorageQuery(current.source, current.source.navigation.sourceFiles);
+  const invocation = storage.invocations.find(node => storage.invocationImplementationsFor(node).kind === "resolved" &&
+    storage.invocationImplementationsFor(node).nodes.includes(current.declaration));
+  const wrong = storage.invocations.find(node => current.source.ast.is.IsIdentifier(current.source.ast.as.AsCallExpression(node).Expression) &&
+    current.source.ast.text(current.source.ast.as.AsCallExpression(node).Expression) === "other");
+  const foreign = await fixture("function run(value = 4) { return value; } run();");
+  const foreignStorage = createSourceStorageQuery(foreign.source, foreign.source.navigation.sourceFiles);
+  const foreignCall = foreignStorage.invocations[0];
+  const foreignInitializer = foreign.ast.as.AsParameterDeclaration(foreign.ast.parameters(foreign.declaration)[0]).Initializer;
+  for (const context of [{ storage, call: wrong }, { storage: foreignStorage, call: invocation },
+    { storage, call: foreignCall }, { storage, call: invocation, initializers: [foreignInitializer] }]) {
+    const selected = createSourceControlFlow(current.source, current.declaration, { invocation: context });
+    assert.equal(selected.kind, "unresolved");
+    assert.equal("graph" in selected, false);
+  }
+  const superseded = createSourceControlFlow(current.source, current.declaration, { maximumSteps: 1 });
+  assert.equal(superseded.kind, "unresolved", "the superseded flat-limits API is rejected, not silently ignored");
+  assert.match(superseded.reason, /explicit limits/u);
+});
 
 test("flow sequences checked reads and writes and retains exact binding identities", async () => {
   const current = await fixture("function run(input: number) { let value = input; value = value + 1; return value; }");
@@ -248,7 +292,7 @@ test("flow source identity excludes a callable from another checked program", as
 test("flow unsupported syntax and finite construction budgets fail closed without publishing partial graphs", async () => {
   const current = await fixture("function run(value: number) { return value + 1; }");
   for (const limits of [{ maximumSteps: 1 }, { maximumPoints: 1 }, { maximumEdges: 1 }, { maximumDepth: 1 }, { maximumSteps: Infinity }]) {
-    const selection = createSourceControlFlow(current.source, current.declaration, limits);
+    const selection = createSourceControlFlow(current.source, current.declaration, { limits });
     assert.equal(selection.kind, "unresolved");
     assert.equal("graph" in selection, false);
     assert.match(selection.reason, /finite/u);
