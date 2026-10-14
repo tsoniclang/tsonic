@@ -1,5 +1,17 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/callables/inferred-return.ts", symbol: "selectRustInferredReturn",
+      bodySha256: "6b3745819cdb0eb395259ffa5e84496093220ecf0015625d3dd1d5ea302d3586", role: "analysis",
+      evidence: [{ kind: "import", file: "src/analysis/expressions/carrier-probe.ts" }] },
+    { file: "src/analysis/operations/provider/conversions.ts", symbol: "selectRustCheckedConversion",
+      bodySha256: "345db73277e0baefb1294d0c6865fc2d047312f5f670495ea7819f8e7a11aa3f", role: "analysis",
+      evidence: [{ kind: "import", file: "src/analysis/conversions/value-carrier-queries.ts" }] },
+    { file: "src/analysis/operations/provider/type-tests.ts", symbol: "selectRustArrayTypeTest",
+      bodySha256: "42f56a02fe79f2c9f44effaa4d42abe97f3448ca1dd0397df279a29fc3335a6e", role: "analysis",
+      evidence: [{ kind: "parameter", name: "context" }] },
+    { file: "src/analysis/operations/selected-calls.ts", symbol: "selectRustCheckedCall",
+      bodySha256: "767024f12111ab884b1086098dd06682ae3ab2df2f6fcc0204ce0cc98171bae2", role: "analysis",
+      evidence: [{ kind: "call", file: "src/analysis/operations/provider/calls/selection.ts", symbol: "resolveRustCheckedCall" }] },
     { file: "src/analysis/callables/producer-errors.ts", symbol: "selectRustProducerError",
       bodySha256: "132118f80e47d9f8ed3ca66f125b8825edbf661bd74663dd570c43bce787382e", role: "analysis",
       evidence: [{ kind: "import", file: "src/analysis/callables/native-producers.ts" }] },
