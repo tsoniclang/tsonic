@@ -4,6 +4,7 @@ import { basename, join, relative } from "node:path";
 import test from "node:test";
 import { formatArchitectureFindings } from "./tooling/architecture-rules.mjs";
 import { evaluatePublicExportInventory } from "./tooling/public-export-inventory.mjs";
+import { nativeSyntaxFindings } from "./tooling/native-syntax.mjs";
 
 const repoRoot = new URL("../..", import.meta.url).pathname;
 
@@ -35,37 +36,6 @@ const bannedProductFileNames = Object.freeze([
   "selection-policy.ts",
   "module-specifier-scan.ts",
   "source-usage.ts",
-]);
-
-const forbiddenSourcePatterns = Object.freeze([
-  {
-    name: "CommonJS require call",
-    pattern: /(^|[^\w$])require\s*\(/u,
-  },
-  {
-    name: "CommonJS module.exports assignment",
-    pattern: /\bmodule\s*\.\s*exports\s*=/u,
-  },
-  {
-    name: "CommonJS exports mutation",
-    pattern: /(^|[^\w$.])exports\s*\./u,
-  },
-  {
-    name: "TypeScript export assignment",
-    pattern: /\bexport\s*=/u,
-  },
-  {
-    name: "triple-slash reference",
-    pattern: /^\s*\/\/\/\s*<reference\b/mu,
-  },
-  {
-    name: "namespace declaration shim",
-    pattern: /^\s*(?:export\s+)?namespace\s+[A-Za-z_$]/mu,
-  },
-  {
-    name: "ambient module shim",
-    pattern: /^\s*declare\s+module\s+["{]/mu,
-  },
 ]);
 
 const forbiddenSourceUsageMemberScanningPatterns = Object.freeze([
@@ -266,22 +236,17 @@ test("shared packages expose only audience-owned public entrypoints", async () =
 });
 
 test("product compiler source stays ESM-only and native-compilable", async () => {
-  const failures = [];
+  const sources = new Map();
   for (const sourceFile of await productSourceFiles()) {
-    const text = await readFile(sourceFile, "utf8");
-    for (const forbidden of forbiddenSourcePatterns) {
-      if (forbidden.pattern.test(text)) {
-        failures.push(`${repoRelative(sourceFile)}: ${forbidden.name}`);
-      }
-    }
+    sources.set(repoRelative(sourceFile), await readFile(sourceFile, "utf8"));
   }
-
-  assert.deepEqual(failures, []);
+  assert.deepEqual(nativeSyntaxFindings(sources), []);
 });
 
 test("architecture validator rejects non-ESM and non-native source snippets", () => {
   const rejectedSnippets = [
     ["CommonJS require call", "const fs = require('node:fs');"],
+    ["CommonJS require call", "import fs = require('node:fs');"],
     ["CommonJS module.exports assignment", "module.exports = {};"],
     ["CommonJS exports mutation", "exports.value = 1;"],
     ["TypeScript export assignment", "export = value;"],
@@ -292,11 +257,26 @@ test("architecture validator rejects non-ESM and non-native source snippets", ()
 
   for (const [name, text] of rejectedSnippets) {
     assert.equal(
-      forbiddenSourcePatterns.some((forbidden) => forbidden.name === name && forbidden.pattern.test(text)),
+      nativeSyntaxFindings(new Map([["snippet.ts", text]])).includes(`snippet.ts: ${name}`),
       true,
       `expected snippet to be rejected as ${name}`,
     );
   }
+});
+
+test("native syntax validation distinguishes authored text from executable syntax", () => {
+  const snippets = new Map([
+    ["literals.ts", 'export const label = "source.entry.export=main; require(1); exports.value; module.exports = 1;";'],
+    ["comments.ts", '// export = value; require(1); exports.value; module.exports = 1;\nexport const value = 1;'],
+    ["template.ts", 'export const value = `export = value; require(1); ${1 + 2}`;'],
+    ["default.ts", "const value = 1; export default value;"],
+    ["local-names.ts", "const require = (value: number): number => value; const exports = { value: 0 }; const module = { exports: 0 }; require(1); exports.value = 1; module.exports = 1;"],
+  ]);
+  assert.deepEqual(nativeSyntaxFindings(snippets), []);
+  assert.deepEqual(nativeSyntaxFindings(new Map([["interpolation.ts", 'const value = `literal ${require("native")}`;']])),
+    ["interpolation.ts: CommonJS require call"]);
+  assert.deepEqual(nativeSyntaxFindings(new Map([["parenthesized.ts", '(require)("native");']])),
+    ["parenthesized.ts: CommonJS require call"]);
 });
 
 test("product compiler source has no source-usage member scanning channel", async () => {

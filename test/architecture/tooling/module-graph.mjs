@@ -1,5 +1,5 @@
 import { dirname, extname, posix } from "node:path";
-import { createCompilerSessionFromFiles } from "../../../packages/tsts/dist/src/index.js";
+import { readArchitectureTypeScript } from "./typescript-source.mjs";
 
 const sourceExtensions = Object.freeze([".ts", ".tsx", ".mts", ".cts"]);
 
@@ -8,24 +8,7 @@ export function buildTypeScriptModuleGraph(sourceFiles) {
 }
 
 export function buildTypeScriptModuleAnalysis(sourceFiles) {
-  const files = new Map(
-    [...sourceFiles].map(([path, text]) => [`/architecture/${path}`, text]),
-  );
-  const session = createCompilerSessionFromFiles({
-    currentDirectory: "/architecture",
-    files,
-    rootFiles: [...sourceFiles.keys()],
-    compilerOptions: {
-      allowJs: true,
-      module: "esnext",
-      moduleResolution: "bundler",
-      noLib: true,
-      noResolve: true,
-      skipLibCheck: true,
-      target: "esnext",
-    },
-  });
-  const source = session.checkSource();
+  const source = readArchitectureTypeScript(sourceFiles);
   return analyzeCheckedTypeScriptModules(source, sourceFiles);
 }
 
