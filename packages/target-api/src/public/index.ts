@@ -54,3 +54,7 @@ export type {
 } from "../source-packages/model.js";
 export { createTargetRegistry } from "../registry.js";
 export type { TargetRegistry } from "../registry.js";
+export type {
+  TargetCarrierDeclaration,
+  TargetCarrierRegistryEntry,
+} from "../carrier-registry.js";

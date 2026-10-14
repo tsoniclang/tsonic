@@ -372,6 +372,7 @@ function preRunsForTask(scope, group) {
         "csharp-nodejs.build",
         "csharp-nodejs.test-build",
         ...(group === "host-keel-inventory" ? ["rust-nodejs.build"] : []),
+        ...(group === "host-carrier-registry" ? ["tsonic-rust.build"] : []),
       ];
     case "tsonic-csharp":
       return group === "csharp-provider"
