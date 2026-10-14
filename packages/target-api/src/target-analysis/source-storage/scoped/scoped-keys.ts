@@ -33,7 +33,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
   const encoder = createSourceStorageKeyEncoder(budget);
   const locationOwner = (subject: SourceStorageSubject): Node | undefined => {
     const region = transport.regions.enclosing(subject.node);
-    return subject.kind === "return" ? subject.node : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
+    return subject.kind === "return" || subject.kind === "receiver" ? subject.node
+      : region === undefined ? undefined : sourceStorageRegionOwner(source.ast, region);
   };
   const ownersFor = (footprint: SourceStorageContextFootprint): readonly (Node | undefined)[] | undefined => {
     if (!budget.step()) return undefined;
@@ -239,7 +240,11 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           return values.length === 1 ? values[0] : ["binding", values];
         }
       }
-      const context = encodeScope(selected.subject, selected.scope);
+      const frame = selected.scope.kind === "substitution" ? selected.scope.scope : selected.scope;
+      const terminalInput = selected.kind === "leaf" && (selected.subject.kind === "input" || selected.subject.kind === "receiver") &&
+        frame.kind === "frame" && frame.invocation !== undefined && frame.owner !== undefined &&
+        sourceStorageFormalOwner(selected.subject, source.ast) === frame.owner;
+      const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
       const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;
       return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason]

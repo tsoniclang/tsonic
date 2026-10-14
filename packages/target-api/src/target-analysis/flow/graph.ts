@@ -29,7 +29,7 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const owner = createSourceFlowConstruction(declaration, selectedLimits);
     const selectedEntry = sourceFlowEntry(source, declaration, options.invocation, owner.step);
     const { body, parameterInitializers, superInitializers, executionRegions } = selectedEntry;
-    const pending = [{ node: declaration, depth: 0 }];
+    const pending = [declaration, ...selectedEntry.syntaxRoots].map(node => ({ node, depth: 0 }));
     while (pending.length > 0) {
       const current = pending.pop()!;
       owner.step(current.node);
@@ -50,10 +50,12 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
     const exit = build.point(declaration, { kind: "exit" });
     const exceptionExit = build.point(declaration, { kind: "exception-exit" });
     const context: SourceFlowContext = { returnTo: exit, throwTo: exceptionExit, breaks: new Map(), continues: new Map() };
-    let entry = body === undefined ? exit : ast.is.IsBlock(body) ? build.statement(body, exit, context)
-      : build.expression(body, build.emit(body, { kind: "return" }, exit, context, false, "return"), context);
+    const completion = sourceFlowSequence(selectedEntry.completionInitializers, exit, context, build.expression);
+    const bodyContext = { ...context, returnTo: completion };
+    let entry = body === undefined ? completion : ast.is.IsBlock(body) ? build.statement(body, completion, bodyContext)
+      : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
     const implicit = ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration);
-    const parameters = implicit ? [] : ast.parameters(declaration);
+    const parameters = selectedEntry.parameters;
     const receiver = implicit ? undefined : source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
     for (let index = parameters.length - 1; index >= 0; index -= 1) {
       const parameter = parameters[index];

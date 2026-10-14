@@ -49,7 +49,7 @@ test("field reads, captures and constructor default captures retain their distin
     "both regions substitute the actual lease rather than a formal, receiver temporary or invented witness");
 });
 
-test("implicit source heritage without checked execution correspondence remains unresolved, never an empty constructor", () => {
+test("implicit source heritage closes actual inherited fields instead of treating a missing authored constructor as a native body", () => {
   const current = closureFixture({ text: `
     function constructMissing(view: Lease<number>) {
       class Base { value = view.item; }
@@ -60,8 +60,64 @@ test("implicit source heritage without checked execution correspondence remains 
     async function missingEntry() { const owner = new Owner(1); const view = borrow(owner); await afterMissing(view); }
   ` });
   const selected = current.query.continuationFor(current.call("afterMissing", "missingEntry"));
+  const dependencies = borrowed(selected, "source inherited field closure");
+  assert.equal(dependencies.length > 0, true);
+  for (const name of ["Base", "Derived"]) assert.equal(dependencies.some(dependency =>
+    current.source.ast.is.IsClassDeclaration(dependency.candidate) && current.source.ast.text(current.source.ast.name(dependency.candidate)) === name), true,
+  `${name}: the actual class initializer binding is retained`);
+});
+
+test("inherited source constructor defaults, fields and nested real super calls retain checked lease correspondence", () => {
+  const current = closureFixture({ text: `
+    function buildInherited(view: Lease<number>, supplied: boolean) {
+      class Base { first = view.item; constructor(callback = () => view.item) { callback(); } }
+      class Middle extends Base { second = () => view.item; }
+      class Derived extends Middle { third = view.item; constructor() { super(); } }
+      return new Derived();
+    }
+    async function inheritedAfter(view: Lease<number>) { await pending(); return buildInherited(view, true); }
+    async function inheritedEntry() { const owner = new Owner(1); const view = borrow(owner); await inheritedAfter(view); }
+  ` });
+  const selected = current.query.continuationFor(current.call("inheritedAfter", "inheritedEntry"));
+  const dependencies = borrowed(selected, "actual inherited constructor continuation");
+  assert.equal(dependencies.length > 0, true);
+  for (const name of ["Base", "Middle", "Derived"]) assert.equal(dependencies.some(dependency =>
+    current.source.ast.is.IsClassDeclaration(dependency.candidate) && current.source.ast.text(current.source.ast.name(dependency.candidate)) === name), true,
+  `${name}: original field identity`);
+  assert.equal(dependencies.some(dependency => current.source.ast.is.IsConstructorDeclaration(dependency.candidate)), true,
+    "the inherited default closure is entered through its actual constructor binding");
+  assert.equal(dependencies.every(dependency => current.selectedDeclaration(dependency.retention.value.node) === current.declaration("borrow")), true);
+});
+
+for (const [argument, expected] of [["() => 1", false], ["", true]]) {
+  test(`implicit generic inherited constructor ${argument === "" ? "omission" : "supplied value"} selects only the checked default closure`, () => {
+    const current = closureFixture({ text: `
+      async function genericAfter(view: Lease<number>) {
+        class Base<Value> { constructor(callback = () => view.item) { callback(); } }
+        class Derived<Item> extends Base<Item> {}
+        const Alias = Derived;
+        await pending();
+        return new Alias<number>(${argument});
+      }
+      async function genericEntry() { const owner = new Owner(1); const view = borrow(owner); await genericAfter(view); }
+    ` });
+    assert.equal(borrowed(current.query.continuationFor(current.call("genericAfter", "genericEntry")), "generic inherited default").length > 0, expected);
+  });
+}
+
+test("an inherited native constructor without a checked body or pending contract is not an empty source implementation", () => {
+  const current = closureFixture({ text: `
+    declare class NativeBase { constructor(); }
+    function constructNative(view: Lease<number>) {
+      class Derived extends NativeBase { value = view.item; }
+      return new Derived();
+    }
+    async function nativeConstructionAfter(view: Lease<number>) { await pending(); return constructNative(view); }
+    async function nativeConstructionEntry() { const owner = new Owner(1); const view = borrow(owner); await nativeConstructionAfter(view); }
+  ` });
+  const selected = current.query.continuationFor(current.call("nativeConstructionAfter", "nativeConstructionEntry"));
   assert.equal(selected.kind, "unresolved");
-  assert.match(selected.reason, /Implicit heritage|Inherited construction/u);
+  assert.match(selected.reason, /native body contracts/u);
 });
 
 test("an inferred settled result cannot be reused as an absent native invocation contract", () => {

@@ -138,6 +138,25 @@ export type SourceStorageInstanceRegionsSelection =
   | { readonly kind: "resolved"; readonly regions: readonly SourceStorageInstanceRegion[] }
   | SourceStorageUnresolved;
 
+export interface SourceStorageConstructionClass {
+  readonly owner: Node;
+  readonly regions: readonly { readonly node: Node;
+    readonly selection: Extract<SourceStorageBindingsSelection, { readonly kind: "resolved" }> }[];
+}
+
+export type SourceStorageConstructionSelection = SourceStorageUnresolved | {
+  readonly kind: "resolved";
+  readonly root: Node;
+  readonly allocation: Node;
+  readonly classes: readonly SourceStorageConstructionClass[];
+  readonly implementation: {
+    readonly declaration: Node;
+    readonly body: Node;
+    readonly regions: readonly Node[];
+    readonly selection: Extract<SourceStorageBindingsSelection, { readonly kind: "resolved" }>;
+  } | undefined;
+};
+
 export interface SourceStorageQueries {
   readonly source: TargetSourceProgram;
   readonly sourceFiles: readonly SourceFile[];
@@ -175,6 +194,7 @@ export interface SourceStorageQueries {
   mutationOwnerFor(node: Node): SourceStorageSubject | undefined;
   isAccessorInvocation(node: Node): boolean;
   executionRegionsFor(candidate: Node, invocation?: Node, callerBindings?: SourceStorageBindings): SourceStorageNodesSelection;
+  constructionFor(invocation: Node, callerBindings?: SourceStorageBindings): SourceStorageConstructionSelection;
   instanceRegionsFor(invocation: Node): SourceStorageInstanceRegionsSelection;
   enclosingRegionFor(node: Node): Node | undefined;
 }

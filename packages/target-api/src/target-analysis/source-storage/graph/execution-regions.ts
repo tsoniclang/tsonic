@@ -1,7 +1,7 @@
 import type { Node, Type } from "@tsonic/tsts";
-import { Node_Initializer, sourceClassFieldIsTypeOnly } from "../../../source-navigation/index.js";
+import { Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
-import { sourceStorageConstructedClass } from "../model/construction.js";
+import { sourceStorageConstructedClass, sourceStorageInstanceInitializers } from "../model/construction.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 
@@ -54,13 +54,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       checked.add(selected);
       if (!step()) break;
       if (!ast.is.IsClassDeclaration(selected) && !ast.is.IsClassExpression(selected)) continue;
-      for (const member of ast.members(selected)) {
-        if (!step()) break;
-        if (member === undefined || !ast.is.IsPropertyDeclaration(member) ||
-          ast.hasModifierKind(member, "static") || sourceClassFieldIsTypeOnly(ast, member)) continue;
-        const initializer = Node_Initializer(ast, member);
-        if (initializer !== undefined) regions.push({ owner: selected, node: initializer });
-      }
+      for (const initializer of sourceStorageInstanceInitializers(selected, source, step)) regions.push({ owner: selected, node: initializer });
       const heritage = navigation.declaredHeritage(selected);
       if (heritage.kind === "resolved") {
         for (const edge of heritage.edges) if (edge.kind === "extends") classes.push(edge.target.declaration);

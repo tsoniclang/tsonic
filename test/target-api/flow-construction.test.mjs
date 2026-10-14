@@ -144,14 +144,17 @@ test("computed field names execute at class evaluation and never again in constr
   assert.equal(graph.sourcePoints.has(key), false, "the class-definition computed key is not replayed");
 });
 
-test("implicit heritage and foreign allocations require actual inherited execution proof", () => {
+test("source implicit heritage uses its actual implementation while foreign and native construction remain unresolved", () => {
   const current = fixture(`${classes} class ImplicitDerived extends Base { extra = mark("extra"); }
     const instance = new ImplicitDerived(); const direct = new Derived();`);
   const missing = createSourceControlFlow(current.source, current.named("ImplicitDerived"), {
     invocation: { storage: current.storage, call: current.construct("ImplicitDerived") },
   });
   assert.equal(missing.kind, "unresolved");
-  assert.match(missing.reason, /Implicit heritage construction requires checked inherited/u);
+  assert.match(missing.reason, /actual checked construction implementation/u);
+  const inherited = flow(current, current.constructor("Base"), current.construct("ImplicitDerived"));
+  assert.equal(reachable(inherited, marked(current, inherited, "base-body").id, marked(current, inherited, "extra").id), true,
+    "the actual source constructor completes before implicit derived fields");
   const wrong = createSourceControlFlow(current.source, current.constructor("Base"), {
     invocation: { storage: current.storage, call: current.construct("Derived") },
   });
@@ -162,7 +165,102 @@ test("implicit heritage and foreign allocations require actual inherited executi
     invocation: { storage: native.storage, call: native.construct("NativeDerived") },
   });
   assert.equal(opaque.kind, "unresolved", "implicit native heritage is not expanded into an invented constructor");
-  assert.match(opaque.reason, /Implicit heritage construction requires checked inherited/u);
+  assert.match(opaque.reason, /native body contracts/u);
+});
+
+test("implicit inherited constructor order agrees with Node without replaying arguments or class-definition keys", () => {
+  const text = `
+    const key = "value";
+    class Base { [key] = mark("base-field"); constructor(value = mark("default")) { mark("base-body"); } }
+    class Middle extends Base { other = mark("middle-field"); }
+    class Derived extends Middle { last = mark("derived-field"); }
+  `;
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e",
+    `const events = []; function mark(name) { events.push(name); return 0; } ${text}
+     new Derived(); new Derived(mark("argument")); process.stdout.write(JSON.stringify(events));`],
+  { encoding: "utf8", timeout: 10000, maxBuffer: 65536 });
+  assert.deepEqual(JSON.parse(output), ["base-field", "default", "base-body", "middle-field", "derived-field",
+    "argument", "base-field", "base-body", "middle-field", "derived-field"]);
+  const current = fixture(`${text} const instance = new Derived();`);
+  const graph = flow(current, current.constructor("Base"), current.construct("Derived"));
+  const points = ["base-field", "default", "base-body", "middle-field", "derived-field"].map(name => marked(current, graph, name));
+  for (let index = 1; index < points.length; index += 1) {
+    assert.equal(reachable(graph, points[index - 1].id, points[index].id), true);
+    assert.equal(reachable(graph, points[index].id, points[index - 1].id), false);
+  }
+  const property = current.ast.members(current.named("Base")).find(current.ast.is.IsPropertyDeclaration);
+  const key = current.ast.as.AsComputedPropertyName(current.ast.name(property)).Expression;
+  assert.equal(graph.sourcePoints.has(key), false, "the real class-definition key does not become a constructor read");
+  for (const [name, owner] of [["base-field", current.named("Base")], ["default", current.constructor("Base")],
+    ["middle-field", current.named("Middle")], ["derived-field", current.named("Derived")]]) {
+    assert.equal(graph.executionRegions.get(marked(current, graph, name).source).owner === owner, true);
+  }
+});
+
+test("a wholly implicit source lineage executes original field roots base-first without a fake body", () => {
+  const current = fixture(`class Base { first = mark("base"); }
+    class Middle extends Base { second = mark("middle"); }
+    class Derived extends Middle { third = mark("derived"); }
+    const instance = new Derived();`);
+  const graph = flow(current, current.named("Derived"), current.construct("Derived"));
+  const base = marked(current, graph, "base");
+  const middle = marked(current, graph, "middle");
+  const derived = marked(current, graph, "derived");
+  assert.equal(graph.declaration === current.named("Derived"), true);
+  assert.equal(reachable(graph, graph.entry, base.id) && reachable(graph, base.id, middle.id) &&
+    reachable(graph, middle.id, derived.id) && reachable(graph, derived.id, graph.exit), true);
+  assert.equal(graph.points.every(point => point.source === undefined || current.ast.getSourceFile(point.source) ===
+    current.ast.getSourceFile(current.named("Derived"))), true, "all nodes come from the checked source, not synthesized constructors");
+});
+
+test("an actual super call into an implicit source middle keeps the original caller and allocation activations", () => {
+  const current = fixture(`class Base { first = mark("base-field"); constructor(value = mark("default")) { mark("base-body"); } }
+    class Middle extends Base { second = mark("middle-field"); }
+    class Derived extends Middle { third = mark("derived-field"); constructor() { super(); mark("derived-body"); } }
+    const instance = new Derived();`);
+  const outer = flow(current, current.constructor("Derived"), current.construct("Derived"));
+  const superCall = outer.points.find(point => point.operation.kind === "evaluate" && point.source !== undefined &&
+    current.ast.is.IsCallExpression(point.source) && current.ast.kindName(current.ast.as.AsCallExpression(point.source).Expression) === "KindSuperKeyword");
+  const caller = current.storage.bindingsForInvocation(current.constructor("Derived"), current.construct("Derived"));
+  assert.equal(caller.kind, "resolved");
+  const checked = current.storage.constructionFor(superCall.source, caller.bindings);
+  assert.equal(checked.kind === "resolved" && checked.root === current.named("Middle") &&
+    checked.allocation === current.construct("Derived") && checked.implementation.declaration === current.constructor("Base"), true);
+  const graph = flow(current, current.constructor("Base"), superCall.source, caller.bindings);
+  assert.equal(reachable(graph, marked(current, graph, "base-body").id, marked(current, graph, "middle-field").id), true);
+  assert.equal([...graph.executionRegions.values()].some(region => region.owner === current.named("Derived")), false,
+    "the caller's fields are not replayed by the inherited implementation");
+  const field = graph.executionRegions.get(marked(current, graph, "middle-field").source);
+  const activation = current.storage.boundActivationsFor(field.owner, field.selection.bindings);
+  assert.equal(activation.kind === "resolved" && activation.activations.length === 1 &&
+    activation.activations[0].kind === "invocation" && activation.activations[0].invocation === current.construct("Derived"), true);
+  assert.equal(reachable(outer, superCall.id, marked(current, outer, "derived-field").id), true);
+});
+
+test("normal constructor returns finish inherited fields after finally while abrupt completion bypasses them", () => {
+  const current = fixture(`class Base {
+      first = mark("base-field");
+      constructor(flag: boolean, value = mark("default")) {
+        try { if (flag) return; mark("base-body"); } finally { mark("finally"); }
+      }
+    }
+    class Derived extends Base { last = mark("derived-field"); }
+    const instance = new Derived(true);`);
+  const graph = flow(current, current.constructor("Base"), current.construct("Derived"));
+  const field = marked(current, graph, "derived-field");
+  const returned = graph.points.find(point => point.operation.kind === "return");
+  assert.equal(returned !== undefined && reachable(graph, returned.id, field.id), true,
+    "normal completion of the real base constructor still initializes implicit derived fields");
+  const finallyPoints = graph.points.filter(point => point.operation.kind === "evaluate" && point.source !== undefined &&
+    current.ast.is.IsCallExpression(point.source) && current.ast.arguments(point.source).some(argument =>
+      current.ast.is.IsStringLiteral(argument) && current.ast.text(argument).includes("finally")));
+  assert.equal(finallyPoints.some(point => reachable(graph, returned.id, point.id) && reachable(graph, point.id, field.id)), true);
+  for (const name of ["base-field", "default", "base-body"]) {
+    const point = marked(current, graph, name);
+    const exception = point.successors.find(edge => edge.kind === "exception");
+    assert.equal(exception !== undefined && reachable(graph, exception.to, graph.exceptionExit, true), true, name);
+    assert.equal(reachable(graph, exception.to, field.id, true), false, `${name}: throwing cannot perform later implicit fields`);
+  }
 });
 
 test("each checked super branch performs only its own initializer sequence before joining", () => {

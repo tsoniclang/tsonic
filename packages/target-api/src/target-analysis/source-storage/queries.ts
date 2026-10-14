@@ -6,6 +6,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "./model/r
 import { createSourceStorageTransport } from "./transport/transport.js";
 import { createSourceStorageDomains } from "./transport/domains.js";
 import { sourceStorageRegionOwner } from "./graph/lexical-regions.js";
+import { createSourceStorageConstructionQuery } from "./graph/construction.js";
 import type { SourceStorageSubject } from "./model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageMemberSubject } from "./model/subjects.js";
 import type { SourceStorageSubstitutions } from "./scoped/substitutions.js";
@@ -233,7 +234,7 @@ export function createSourceStorageQuery(
       ? Object.freeze({ kind: "complete", origins: selected.origins })
       : Object.freeze({ kind: "open", origins: selected.origins, boundaries: selected.boundaries });
   };
-  return Object.freeze({
+  const query: SourceStorageQueries = Object.freeze({
     source,
     sourceFiles: Object.freeze([...sourceFiles]),
     nodes: Object.freeze([...transport.visitedNodes]),
@@ -489,6 +490,13 @@ export function createSourceStorageQuery(
       return budget.failure() !== undefined ? unresolved(budget.failure()!)
         : Object.freeze({ kind: "resolved", regions: Object.freeze(regions) });
     },
+    constructionFor(invocation, callerBindings = emptyBindings) {
+      if (!bindingStates.has(callerBindings)) return unresolved("Invocation substitutions belong to a different source storage query.");
+      if (!checkedInvocation(invocation)) return unresolved(budget.failure() ?? "Construction execution requires its exact checked invocation.");
+      return construction(invocation, callerBindings);
+    },
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
   } satisfies SourceStorageQueries);
+  const construction = createSourceStorageConstructionQuery(source, budget, query);
+  return query;
 }
