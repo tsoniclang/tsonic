@@ -39,6 +39,43 @@ function reachable(graph, from, to, blocked = new Set(), exceptions = false) {
   return false;
 }
 
+test("yield resumes, injected throws and generator closure all retain their cleanup paths", async () => {
+  const current = await fixture(`declare function after(): void; declare function caught(): void; declare function cleanup(): void;
+    function* run(value: string): Generator<string, void, unknown> {
+      try { try { yield value; after(); } catch { caught(); } } finally { cleanup(); }
+    }`);
+  const suspension = one(current, point => point.operation.kind === "yield");
+  assert.deepEqual(suspension.successors.map(edge => edge.kind).sort(), ["exception", "resume", "return"]);
+  const after = call(current, "after")[0];
+  const caught = call(current, "caught")[0];
+  const cleanups = call(current, "cleanup");
+  assert.equal(cleanups.length > 0, true);
+  const resume = suspension.successors.find(edge => edge.kind === "resume").to;
+  const injectedThrow = suspension.successors.find(edge => edge.kind === "exception").to;
+  const close = suspension.successors.find(edge => edge.kind === "return").to;
+  assert.equal(reachable(current.graph, resume, after.id), true);
+  assert.equal(reachable(current.graph, injectedThrow, caught.id, new Set(), true), true);
+  assert.equal(reachable(current.graph, close, after.id, new Set(), true), false);
+  assert.equal(reachable(current.graph, close, caught.id, new Set(), true), false);
+  for (const start of [resume, injectedThrow, close]) {
+    assert.equal(cleanups.some(point => reachable(current.graph, start, point.id, new Set(), true)), true);
+  }
+});
+
+for (const [name, source] of [
+  ["empty", "function* run(): Generator<undefined, void, unknown> { yield; }"],
+  ["delegated", "function* run(values: Iterable<string>) { return yield* values; }"],
+  ["async", "async function* run(value: string) { yield await Promise.resolve(value); }"],
+]) {
+  test(`flow accounts for ${name} generator suspension without treating it as an ordinary expression`, async () => {
+    const current = await fixture(source);
+    const suspension = one(current, point => point.operation.kind === "yield");
+    assert.deepEqual(suspension.successors.map(edge => edge.kind).sort(), ["exception", "resume", "return"]);
+    assert.equal(current.ast.is.IsYieldExpression(suspension.source), true);
+    assert.equal(reachable(current.graph, current.graph.entry, suspension.id), true);
+  });
+}
+
 test("flow invocation entry omits only checked excluded parameter defaults", async () => {
   const current = await fixture(`function fallback() { return 7; }
     function run(value: number = fallback()) { return value; }
@@ -297,10 +334,14 @@ test("flow unsupported syntax and finite construction budgets fail closed withou
     assert.equal("graph" in selection, false);
     assert.match(selection.reason, /finite/u);
   }
-  const checked = createTargetSourceProgram(await checkedSource("flow-generator", { "src/index.ts": "function* run() { yield 1; }" }));
+  const checked = createTargetSourceProgram(await checkedSource("flow-unsupported-import", {
+    "src/index.ts": "function run() { return import('./value.js'); }",
+    "src/value.ts": "export const value = 1;",
+  }));
   const selection = createSourceControlFlow(checked, namedDeclaration(checked.ast, projectSourceFile(checked, "src/index.ts"), "run"));
   assert.equal(selection.kind, "unresolved");
-  assert.match(selection.reason, /KindYieldExpression/u);
+  assert.equal("graph" in selection, false);
+  assert.match(selection.reason, /KindImportKeyword/u);
 });
 
 test("flow call arguments, array elements and computed object keys preserve left-to-right order", async () => {

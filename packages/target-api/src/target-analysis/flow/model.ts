@@ -12,7 +12,7 @@ export interface SourceFlowEdge {
 
 export type SourceFlowOperation =
   | { readonly kind: "entry" | "exit" | "exception-exit" | "merge" | "branch" |
-      "evaluate" | "iteration" | "catch" | "await" | "return" | "throw" }
+      "evaluate" | "iteration" | "catch" | "await" | "yield" | "return" | "throw" }
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }

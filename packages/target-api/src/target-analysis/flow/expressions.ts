@@ -38,6 +38,12 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
     const awaitPoint = build.emit(node, { kind: "await" }, next, context, true, "resume");
     return build.expression(expression, awaitPoint, context);
   }
+  if (ast.is.IsYieldExpression(node)) {
+    const expression = ast.as.AsYieldExpression(node)?.Expression;
+    const suspension = build.emit(node, { kind: "yield" }, next, context, true, "resume");
+    build.edge(suspension, context.returnTo, "return");
+    return expression === undefined ? suspension : build.expression(expression, suspension, context);
+  }
   if (ast.is.IsConditionalExpression(node)) {
     const selected = ast.as.AsConditionalExpression(node);
     if (selected?.Condition === undefined || selected.WhenTrue === undefined || selected.WhenFalse === undefined) {

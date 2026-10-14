@@ -45,9 +45,6 @@ export const keelOwnedTargets = Object.freeze({
     })),
     cloneFields: [{ file: "src/backend/target-ast/syntax/nodes.ts", symbol: "RustExpr.method" }],
     recordReaders: [
-      ...["canMove", "canMoveCapture", "canBorrowStableValue"].map(name => ({
-        file: "src/analysis/program/value-lifetimes.ts", symbol: `RustValueLifetimePlan.${name}`,
-      })),
       ...["contractFor", "parameterFor", "resolve", "allContracts"].map(name => ({
         file: "src/target-model/lifetimes/model.ts", symbol: `RustLifetimeIndex.${name}`,
       })),
