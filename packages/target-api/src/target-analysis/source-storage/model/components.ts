@@ -80,19 +80,24 @@ export function sourceStorageSubjectType(source: TargetSourceProgram, value: Sou
   const file = sourceFile ?? source.ast.getSourceFile(value.node);
   if (file === undefined || !source.semantics.includes(file)) return undefined;
   const semantics = source.semantics.forFile(file);
-  const name = source.ast.name(value.node);
-  const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
-    (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
-  const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
-  const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
-    value.kind === "value" && source.ast.is.IsIdentifier(value.node);
-  const nodeType = bindingContainer ? initializer === undefined ? undefined : semantics.types.expressionType(initializer)
-    : expressionValue ? semantics.types.expressionType(value.node)
-      : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
-  const signatures = value.kind !== "return" || nodeType === undefined ? [] : semantics.types.callSignatures(nodeType)
-    .filter(signature => semantics.declarations.signatureDeclaration(signature) === value.node);
-  let selected = value.kind === "return" ? signatures.length === 1 ? semantics.types.returnType(signatures[0]!) : undefined
-    : value.kind === "receiver" ? sourceStorageReceiverType(source, value.node, semantics) : nodeType;
+  let selected: Type | undefined;
+  if (value.kind === "return") {
+    const signature = semantics.types.declarationSignatureInfo(value.node);
+    selected = signature !== undefined && semantics.declarations.signatureDeclaration(signature.signature) === value.node
+      ? signature.returnType : undefined;
+  } else if (value.kind === "receiver") {
+    selected = sourceStorageReceiverType(source, value.node, semantics);
+  } else {
+    const name = source.ast.name(value.node);
+    const bindingContainer = name !== undefined && source.ast.is.IsVariableDeclaration(value.node) &&
+      (source.ast.is.IsArrayBindingPattern(name) || source.ast.is.IsObjectBindingPattern(name));
+    const initializer = bindingContainer ? Node_Initializer(source.ast, value.node) : undefined;
+    const expressionValue = source.ast.is.IsObjectLiteralExpression(value.node) || source.ast.is.IsArrayLiteralExpression(value.node) ||
+      value.kind === "value" && source.ast.is.IsIdentifier(value.node);
+    selected = bindingContainer ? initializer === undefined ? undefined : semantics.types.expressionType(initializer)
+      : expressionValue ? semantics.types.expressionType(value.node)
+        : semantics.declarations.declaredValueType(value.node) ?? semantics.types.expressionType(value.node);
+  }
   for (const component of value.projection) {
     if (selected === undefined) return undefined;
     selected = sourceStorageComponentType(selected, component, semantics);
