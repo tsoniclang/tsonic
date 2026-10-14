@@ -40,6 +40,14 @@ test("only the inventory and exact registry tasks acquire the Rust provider buil
   ]);
   assert.equal(inventory.files.filter(entry => entry.scope === "tsonic-csharp").every(entry =>
     entry.preRunIds.every(id => !id.startsWith("rust-") && !id.startsWith("tsonic-rust."))), true);
+  for (const [scope, path] of [
+    ["tsonic", "test/fixtures/node-oracle/oracles.test.mjs"],
+    ["tsonic-csharp", "test/helpers/compilation-observation.test.mjs"],
+    ["tsonic-csharp", "test/helpers/node-oracles.test.mjs"],
+  ]) {
+    assert.equal(inventory.files.filter(entry => entry.scope === scope && entry.path === path).length, 1,
+      `${scope}:${path} has exactly one scheduled owner`);
+  }
   const heavy = inventory.files.filter(entry => entry.memoryMiB !== undefined);
   assert.equal(heavy.length, 1);
   assert.equal(heavy[0].path, "test/architecture/keel-violations.test.mjs");
