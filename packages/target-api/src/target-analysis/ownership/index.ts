@@ -7,6 +7,8 @@ export { createSourceSuspensionQuery } from "./suspension.js";
 export type { SourceSuspensionQueries } from "./suspension.js";
 export { resolveSourceAsyncResultDisposition } from "./result-use.js";
 export { decideSourceAsyncResultUse } from "./result-decision.js";
+export { createSourceOwnershipQuery } from "./query.js";
+export type { SourceOwnershipQueries } from "./query.js";
 export type {
   SourceAsyncCompletionSelection, SourceAsyncOwnershipDiagnostic, SourceAsyncOwnershipSelection,
   SourceAsyncResultDisposition, SourceContinuationDependenciesSelection, SourceContinuationDependency,
