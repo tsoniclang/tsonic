@@ -1,10 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "./types.js";
+import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 
-const callableKinds: ReadonlySet<string> = new Set([
-  "KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration",
-  "KindConstructor", "KindGetAccessor", "KindSetAccessor",
-]);
 const repeatedKinds: ReadonlySet<string> = new Set([
   "KindForStatement", "KindForInStatement", "KindForOfStatement", "KindWhileStatement", "KindDoStatement",
 ]);
@@ -14,7 +11,7 @@ export function sourceEnclosingCallable(node: Node | undefined, ast: AstReader):
   for (let current = node; current !== undefined; current = ast.parent(current)) {
     if (visited.has(current) || visited.size >= 128) return undefined;
     visited.add(current);
-    if (callableKinds.has(ast.kindName(current))) return current;
+    if (isSourceCallableBodyBoundary(ast, current)) return current;
   }
   return undefined;
 }
@@ -63,7 +60,7 @@ export function createSourceSingleInvocationQuery(
       if (current === owner) return true;
       const kind = ast.kindName(current);
       if (repeatedKinds.has(kind)) return false;
-      if (callableKinds.has(kind)) return ast.is.IsFunctionDeclaration(current) &&
+      if (isSourceCallableBodyBoundary(ast, current)) return ast.is.IsFunctionDeclaration(current) &&
         sourceEnclosingCallable(ast.parent(current), ast) === owner && select(current, active);
     }
     return false;

@@ -10,6 +10,7 @@ import type {
 import {
   sourceBindingWriteAtReference,
 } from "../source-navigation/index.js";
+import { isSourceCallableBodyBoundary } from "../source-navigation/callable-boundaries.js";
 import type {
   SourceBindingWrite,
   SourceCallableImplementationResult,
@@ -100,7 +101,7 @@ export function snapshotTargetPlanningSourceNavigation(
         projectConstructibleObjects.add(node);
       }
     }
-    if (isCallableDeclaration(source.ast, node)) {
+    if (isSourceCallableBodyBoundary(source.ast, node)) {
       callableImplementations.set(node, source.navigation.callableImplementation(node));
       rememberDeclaration(node);
     }
@@ -218,21 +219,6 @@ function sourceNodeIsWithin(ast: AstReader, node: Node, root: Node): boolean {
     current = ast.parent(current);
   }
   return false;
-}
-
-function isCallableDeclaration(ast: AstReader, node: Node): boolean {
-  switch (ast.kindName(node)) {
-    case "KindFunctionDeclaration":
-    case "KindFunctionExpression":
-    case "KindArrowFunction":
-    case "KindMethodDeclaration":
-    case "KindConstructor":
-    case "KindGetAccessor":
-    case "KindSetAccessor":
-      return true;
-    default:
-      return false;
-  }
 }
 
 function isMemberDeclaration(ast: AstReader, node: Node): boolean {

@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
 import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
+import { isSourceCallableBodyBoundary } from "../../source-navigation/callable-boundaries.js";
 import { sourceFlowBinding, sourceFlowReference } from "./bindings.js";
 import { sourceFlowBooleanEdges, sourceFlowNullishEdges } from "./conditions.js";
 import { sourceFlowSequence, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
@@ -16,8 +17,6 @@ const assignments: ReadonlySet<string> = new Set(["KindEqualsToken", "KindPlusEq
 const literalKinds: ReadonlySet<string> = new Set(["KindNumericLiteral", "KindBigIntLiteral", "KindStringLiteral",
   "KindNoSubstitutionTemplateLiteral", "KindRegularExpressionLiteral", "KindTrueKeyword", "KindFalseKeyword",
   "KindNullKeyword", "KindThisKeyword", "KindSuperKeyword", "KindOmittedExpression", "KindMetaProperty"]);
-const callableKinds: ReadonlySet<string> = new Set(["KindFunctionExpression", "KindArrowFunction", "KindFunctionDeclaration",
-  "KindMethodDeclaration", "KindGetAccessor", "KindSetAccessor", "KindConstructor"]);
 
 export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, next: number,
   context: SourceFlowContext): number {
@@ -29,7 +28,7 @@ export function sourceFlowExpression(build: SourceFlowConstruction, node: Node, 
     return build.emit(node, binding === undefined ? { kind: "evaluate" } : { kind: "read", binding }, next, context);
   }
   if (isTypeSyntaxNode(ast, node)) return next;
-  if (callableKinds.has(kind)) return sourceFlowClosure(build, node, next, context);
+  if (isSourceCallableBodyBoundary(ast, node)) return sourceFlowClosure(build, node, next, context);
   if (ast.is.IsBlock(node)) return build.statement(node, next, context);
   if (isChainOperand(build, node)) return chain(build, node, next, next, context);
   if (ast.is.IsAwaitExpression(node)) {

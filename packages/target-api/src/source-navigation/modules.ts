@@ -20,6 +20,7 @@ import {
   aliasedSymbol,
   primaryDeclaration,
 } from "./syntax.js";
+import { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 
 export function sourceProjectModuleExports(
   source: CheckedSourceProgram,
@@ -167,7 +168,7 @@ export function sourceFileHasTopLevelAwait(
       found = true;
       return;
     }
-    if (isFunctionBoundary(ast, node)) {
+    if (isSourceCallableBodyBoundary(ast, node)) {
       return;
     }
     ast.forEachChild(node, (child) => {
@@ -182,16 +183,6 @@ export function sourceFileHasTopLevelAwait(
     }
   }
   return found;
-}
-
-function isFunctionBoundary(ast: AstReader, node: Node): boolean {
-  return ast.is.IsFunctionDeclaration(node) ||
-    ast.is.IsFunctionExpression(node) ||
-    ast.is.IsArrowFunction(node) ||
-    ast.is.IsMethodDeclaration(node) ||
-    ast.is.IsConstructorDeclaration(node) ||
-    ast.is.IsGetAccessorDeclaration(node) ||
-    ast.is.IsSetAccessorDeclaration(node);
 }
 
 function resolveProjectDependency(
