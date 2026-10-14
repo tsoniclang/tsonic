@@ -7,6 +7,7 @@ import {
 import { keelCheckIds, keelFinding } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
 import { keelFixtureGeneration, keelFixtureGuard, keelFixtureHas, keelFixtureModel } from "./tooling/keel-test-fixtures.mjs";
+import { evaluateKeelLayers } from "./tooling/keel-layer-checks.mjs";
 
 test("AC11 covers both targets and complete independent artifact sets with guarded provenance", () => {
   const { programs, samples } = keelFixtureGeneration();
@@ -135,4 +136,135 @@ test("the exact violation baseline shrinks monotonically and cannot hide new, re
     { ...inventory, violations: [{ ...first, file: "src/*" }] },
     { ...inventory, violations: [{ ...first, reason: "A broad new waiver" }] },
   ]) assert.throws(() => validateKeelViolationInventory(changed), /Invalid|fingerprint/u);
+});
+
+function diagnosticFindings(repo, source) {
+  const producer = "src/analysis/program/diagnostics.ts";
+  const planner = "src/backend/planner/expressions/plan.ts";
+  const model = keelFixtureModel([
+    [producer, "export function diagnostic(value: string): void {} export function otherDiagnostic(value: string): void {}"],
+    ["src/backend/planner/expressions/marker.ts", "export const marker = 1;"],
+    [planner, source],
+  ]);
+  return evaluateKeelLayers(repo, model, {
+    diagnosticCalls: ["diagnostic", "otherDiagnostic"].map(symbol => ({ file: producer, symbol })),
+  }).filter(finding => finding.check === "AC4");
+}
+
+for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
+  const source = 'import { diagnostic } from "../../../analysis/program/diagnostics.js";\nexport function plan(): void { diagnostic("known"); }';
+  const origin = { manifestSha256: keelDigest("owned contracts"), pins: { [repo]: "a".repeat(40) } };
+
+  test(`${repo}: checked-site relocation preserves exact original allowances after unrelated comments and imports`, () => {
+    const previous = diagnosticFindings(repo, source);
+    assert.equal(previous.length, 1);
+    assert.equal(previous[0].evidence.kind, "call");
+    assert.match(previous[0].evidence.bodySha256, /^[a-f0-9]{64}$/u);
+    const inventory = createKeelViolationInventory(previous, origin);
+    for (const prefix of ["// An unrelated comment.\n", 'import { marker } from "./marker.js";\n']) {
+      const current = diagnosticFindings(repo, prefix + source);
+      assert.equal(current.length, 1);
+      assert.notEqual(current[0].id, previous[0].id);
+      assert.notEqual(current[0].evidence.offset, previous[0].evidence.offset);
+      assert.equal(current[0].evidence.bodySha256, previous[0].evidence.bodySha256);
+      assert.equal(current[0].evidence.target, previous[0].evidence.target);
+      const comparison = evaluateKeelViolationInventory(current, inventory);
+      assert.equal(comparison.newViolations.length, 0);
+      assert.equal(comparison.removedViolations.length, 0);
+      assert.deepEqual(comparison.relocatedViolations, [{ originalId: previous[0].id, currentId: current[0].id }]);
+      assert.equal(comparison.inventory.violations[0] === inventory.violations[0], true);
+      assert.equal(comparison.inventory.origin === origin, true);
+      assert.deepEqual(comparison.inventory, inventory);
+      assert.equal(evaluateKeelViolationInventory(current, comparison.inventory).newViolations.length, 0);
+      const retired = evaluateKeelViolationInventory([], comparison.inventory).inventory;
+      assert.equal(evaluateKeelViolationInventory(current, retired).newViolations.length, 1);
+    }
+  });
+
+  test(`${repo}: checked-site accounting consumes every original once and reserves exact matches before relocations`, () => {
+    const duplicated = source.replace('diagnostic("known");', 'diagnostic("known"); diagnostic("known");');
+    const previous = diagnosticFindings(repo, duplicated);
+    assert.equal(previous.length, 2);
+    assert.equal(previous[0].evidence.bodySha256, previous[1].evidence.bodySha256);
+    const exactAllowance = createKeelViolationInventory([previous[1]], origin);
+    for (const current of [previous, [...previous].reverse()]) {
+      const comparison = evaluateKeelViolationInventory(current, exactAllowance);
+      assert.deepEqual(comparison.newViolations.map(finding => finding.id), [previous[0].id]);
+      assert.equal(comparison.relocatedViolations.length, 0);
+      assert.equal(comparison.inventory.violations[0] === previous[1], true);
+    }
+    const inventory = createKeelViolationInventory(previous, origin);
+    const relocated = diagnosticFindings(repo, "// Moved together.\n" + duplicated);
+    const retained = evaluateKeelViolationInventory(relocated, inventory);
+    assert.equal(retained.newViolations.length, 0);
+    assert.equal(retained.relocatedViolations.length, 2);
+    assert.equal(new Set(retained.relocatedViolations.map(entry => entry.originalId)).size, 2);
+    assert.equal(new Set(retained.relocatedViolations.map(entry => entry.currentId)).size, 2);
+    const extra = diagnosticFindings(repo, "// Moved together.\n" + duplicated.replace('diagnostic("known");', 'diagnostic("known"); diagnostic("known");'));
+    assert.equal(extra.length, 3);
+    const added = evaluateKeelViolationInventory(extra, inventory);
+    assert.equal(added.newViolations.length, 1);
+    assert.equal(added.relocatedViolations.length, 2);
+    assert.equal(added.inventory.violations.length, 2);
+  });
+
+  test(`${repo}: changed checked syntax, target and lexical owner remain new obligations`, () => {
+    const previous = diagnosticFindings(repo, source);
+    const inventory = createKeelViolationInventory(previous, origin);
+    for (const currentSource of [
+      source.replace('"known"', '"changed"'),
+      source.replace("{ diagnostic }", "{ otherDiagnostic as diagnostic }"),
+      source.replace("function plan", "function renamedPlan"),
+    ]) {
+      const current = diagnosticFindings(repo, "// Changed source.\n" + currentSource);
+      assert.equal(current.length, 1);
+      const comparison = evaluateKeelViolationInventory(current, inventory);
+      assert.equal(comparison.newViolations.length, 1);
+      assert.equal(comparison.relocatedViolations.length, 0);
+      assert.equal(comparison.removedViolations.length, 1);
+      assert.equal(comparison.inventory.violations.length, 0);
+    }
+  });
+}
+
+test("site relocation requires valid exact syntax proof and retains every non-offset identity and evidence field", () => {
+  const origin = { manifestSha256: keelDigest("owned contracts"), pins: { tsonic: "a".repeat(40) } };
+  const evidence = { bodySha256: keelDigest("checked site"), offset: 10, kind: "call", target: "src/owner.ts#read", role: "syntax", proof: { scope: "closed" } };
+  const previous = keelFinding("AC4", "tsonic-rust", "src/backend/planner/plan.ts", "plan", "Known boundary", evidence);
+  const inventory = createKeelViolationInventory([previous], origin);
+  for (const changed of [
+    { ...evidence, bodySha256: undefined }, { ...evidence, bodySha256: "f".repeat(63) },
+    { ...evidence, bodySha256: "g".repeat(64) }, { ...evidence, bodySha256: 1 },
+    { ...evidence, bodySha256: keelDigest("changed site") },
+    { ...evidence, target: undefined }, { ...evidence, target: "src/other.ts#read" },
+    { ...evidence, kind: undefined }, { ...evidence, kind: "access" },
+    { ...evidence, role: "analysis" }, { ...evidence, proof: { scope: "open" } },
+    { ...evidence, offset: undefined }, { ...evidence, offset: -1 }, { ...evidence, offset: 1.5 },
+    { ...evidence, offset: Number.MAX_SAFE_INTEGER + 1 },
+  ]) {
+    const current = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason,
+      { ...changed, ...(changed.offset === evidence.offset ? { offset: 20 } : {}) });
+    assert.equal(evaluateKeelViolationInventory([current], inventory).newViolations.length, 1);
+  }
+  for (const changes of [
+    { check: "AC2" }, { repo: "tsonic-csharp" }, { file: "src/backend/planner/other.ts" },
+    { subject: "other" }, { reason: "Changed boundary" },
+  ]) {
+    const changed = { ...previous, ...changes };
+    const current = keelFinding(changed.check, changed.repo, changed.file, changed.subject, changed.reason, { ...evidence, offset: 20 });
+    assert.equal(evaluateKeelViolationInventory([current], inventory).newViolations.length, 1);
+  }
+  const offsetOnly = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason, { offset: 10 });
+  const offsetOnlyMoved = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason, { offset: 20 });
+  assert.equal(evaluateKeelViolationInventory([offsetOnlyMoved], createKeelViolationInventory([offsetOnly], origin)).newViolations.length, 1);
+  for (const unproven of [
+    { ...evidence, bodySha256: undefined }, { ...evidence, bodySha256: "not-a-digest" },
+    { ...evidence, offset: undefined }, { ...evidence, offset: -1 },
+  ]) {
+    const original = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason, unproven);
+    const current = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason, { ...unproven, offset: 20 });
+    assert.equal(evaluateKeelViolationInventory([current], createKeelViolationInventory([original], origin)).newViolations.length, 1);
+  }
+  assert.throws(() => evaluateKeelViolationInventory([{ ...previous, reason: "Tampered without fingerprint" }], inventory), /fingerprint/u);
+  assert.throws(() => evaluateKeelViolationInventory([previous, previous], inventory), /duplicate/u);
 });

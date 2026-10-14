@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { createKeelViolationInventory } from "./tooling/keel-certification-checks.mjs";
+import { createKeelViolationInventory, evaluateKeelViolationInventory } from "./tooling/keel-certification-checks.mjs";
 import { keelFinding } from "./tooling/keel-contract.mjs";
 import {
   evaluateCommittedKeelInventory, keelViolationInventoryPath, readCommittedKeelInventory,
@@ -51,6 +51,66 @@ test("every historical inventory transition only removes exact obligations, with
   }), /immutable/u);
   assert.throws(() => validateKeelInventoryHistory([], initial), /committed immutable origin/u);
   assert.throws(() => validateKeelInventoryHistory([...history, { inventory: undefined }], shrunk), /restored/u);
+});
+
+test("proven current-site relocation never authorizes rewriting immutable historical allowance records", () => {
+  const previous = keelFinding("AC4", "tsonic-rust", "src/backend/planner/plan.ts", "plan", "Known boundary", {
+    bodySha256: "f".repeat(64), offset: 10, target: "src/owner.ts#read", kind: "call",
+  });
+  const current = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason, {
+    ...previous.evidence, offset: 20,
+  });
+  const initial = sampleInventory([previous]);
+  const comparison = evaluateKeelViolationInventory([current], initial);
+  assert.equal(comparison.newViolations.length, 0);
+  assert.equal(comparison.inventory.violations[0] === previous, true);
+  assert.doesNotThrow(() => validateKeelInventoryHistory([{ inventory: initial }], comparison.inventory));
+  assert.throws(() => validateKeelInventoryHistory([{ inventory: initial }], sampleInventory([current])), /may only shrink/u);
+  const shrunk = sampleInventory([]);
+  assert.throws(() => validateKeelInventoryHistory([{ inventory: initial }, { inventory: shrunk }], sampleInventory([current])), /may only shrink/u);
+  assert.equal(evaluateKeelViolationInventory([current], shrunk).newViolations.length, 1);
+});
+
+test("real Git history rejects a committed location rewrite even when current-site comparison proves relocation", () => {
+  const scratch = new URL("../../.temp/keel-architecture", import.meta.url).pathname;
+  mkdirSync(scratch, { recursive: true });
+  const repository = mkdtempSync(resolve(scratch, "relocation-history-"));
+  const git = arguments_ => execFileSync("git", arguments_, { cwd: repository, encoding: "utf8", timeout: 30_000 });
+  const commit = message => {
+    git(["add", "."]);
+    git(["-c", "user.name=Keel test", "-c", "user.email=keel-test@example.invalid", "commit", "--quiet", "-m", message]);
+  };
+  try {
+    mkdirSync(resolve(repository, "test/architecture/tooling"), { recursive: true });
+    writeFileSync(resolve(repository, "test/architecture/tooling/rule.mjs"), "export const active = true;\n");
+    git(["init", "--quiet", "--initial-branch=keel-history"]);
+    const previous = keelFinding("AC4", "tsonic-rust", "src/backend/planner/plan.ts", "plan", "Known boundary", {
+      bodySha256: "f".repeat(64), offset: 10, target: "src/owner.ts#read", kind: "call",
+    });
+    const current = keelFinding(previous.check, previous.repo, previous.file, previous.subject, previous.reason, {
+      ...previous.evidence, offset: 20,
+    });
+    const initial = sampleInventory([previous]);
+    initial.origin.toolingSha256 = readKeelToolingDigest(repository);
+    const file = resolve(repository, keelViolationInventoryPath);
+    const originalText = JSON.stringify(initial);
+    writeFileSync(file, originalText);
+    commit("Record immutable checked-site evidence");
+    const comparison = evaluateCommittedKeelInventory({ findings: [current] }, repository);
+    assert.equal(comparison.newViolations.length, 0);
+    assert.equal(comparison.removedViolations.length, 0);
+    assert.deepEqual(comparison.relocatedViolations, [{ originalId: previous.id, currentId: current.id }]);
+    assert.equal(readFileSync(file, "utf8"), originalText);
+    assert.equal(evaluateCommittedKeelInventory({ findings: [current] }, repository, { final: true }).newViolations.length, 1);
+    writeFileSync(file, JSON.stringify({ ...initial, violations: [current] }));
+    assert.throws(() => readCommittedKeelInventory(repository), /may only shrink/u);
+    commit("Attempt to rewrite physical evidence");
+    writeFileSync(file, originalText);
+    commit("Hide the physical evidence rewrite");
+    assert.throws(() => readCommittedKeelInventory(repository), /may only shrink/u);
+  } finally {
+    rmSync(repository, { recursive: true, force: true });
+  }
 });
 
 test("missing inventories and final certification always reject all current violations instead of waiving them", () => {

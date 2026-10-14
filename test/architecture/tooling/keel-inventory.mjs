@@ -75,7 +75,8 @@ export function validateKeelInventoryHistory(history, current) {
     if (!isDeepStrictEqual(inventory.origin, origin.origin)) {
       throw new Error("The committed Keel inventory origin is immutable; a later commit cannot replace its provenance.");
     }
-    if (evaluateKeelViolationInventory(inventory.violations, previous).newViolations.length !== 0) {
+    const allowed = new Set(previous.violations.map(finding => finding.id));
+    if (inventory.violations.some(finding => !allowed.has(finding.id))) {
       throw new Error("The committed Keel inventory may only shrink; new, changed and restored obligations cannot be added.");
     }
     previous = inventory;
@@ -111,6 +112,7 @@ export function evaluateCommittedKeelInventory(actual, repository, { final = fal
   return Object.freeze({
     mode: "shrinking-baseline-not-certification", newViolations: comparison.newViolations,
     remaining: actual.findings.length, removedViolations: comparison.removedViolations,
+    relocatedViolations: comparison.relocatedViolations,
   });
 }
 
