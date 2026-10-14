@@ -58,6 +58,11 @@ export interface TargetCompilationStages<Program, Plan> {
   readonly materialize: (plan: Plan) => TargetCompileOutput;
 }
 
+export interface TargetCompilationObserver<Program, Plan> {
+  readonly analyzed?: (program: Program) => void;
+  readonly planned?: (plan: Plan) => void;
+}
+
 class TargetPlannerInvariantFailure extends Error {
   readonly diagnostic: TargetDiagnostic;
 
@@ -109,11 +114,13 @@ export function rejectedTargetStage<T>(
 
 export function runTargetCompilationStages<Program, Plan>(
   stages: TargetCompilationStages<Program, Plan>,
+  observer?: TargetCompilationObserver<Program, Plan>,
 ): TargetCompileResult {
   const analysis = stages.analyze();
   if (analysis.kind === "rejected") {
     return rejectedTargetStage(analysis.diagnostics);
   }
+  observer?.analyzed?.(analysis.value);
   let planning: TargetStageResult<Plan>;
   try {
     planning = stages.plan(analysis.value);
@@ -130,6 +137,7 @@ export function runTargetCompilationStages<Program, Plan>(
   if (planning.kind === "rejected") {
     return rejectedTargetStage(diagnostics);
   }
+  observer?.planned?.(planning.value);
   return resolvedTargetStage(stages.materialize(planning.value), diagnostics);
 }
 
