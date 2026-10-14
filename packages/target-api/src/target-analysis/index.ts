@@ -1,4 +1,7 @@
 export {
+  createSourceDeclarationMembership,
+} from "./declaration-membership.js";
+export {
   createTargetClassificationBuilder,
   createTargetClassificationKey,
   createTargetUseClassificationBuilder,
