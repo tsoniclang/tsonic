@@ -80,7 +80,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
       evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/callables/inferred-return.ts", symbol: "selectRustInferredReturn",
       bodySha256: "4f651a4a92b705cd0adb290c1290a9a309a5e6758da59bff84f909e4bb3e492d", role: "analysis",
-      evidence: [{ kind: "import", file: "src/analysis/expressions/carrier-probe.ts" }] },
+      evidence: [{ kind: "import", file: "src/analysis/program/carrier-probe.ts" }] },
     { file: "src/analysis/operations/provider/conversions.ts", symbol: "selectRustCheckedConversion",
       bodySha256: "325faacc24781a1808076ea83fce9c5e69f1d18cc28699e8cd807f1c32396164", role: "analysis",
       evidence: [{ kind: "import", file: "src/analysis/conversions/value-carrier-queries.ts" }] },
