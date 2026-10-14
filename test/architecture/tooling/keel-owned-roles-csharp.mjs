@@ -1,5 +1,9 @@
 export const keelOwnedCsharpResponsibilities = Object.freeze({
   functions: [
+    { file: "src/policy/operations/control-flow/await-completions.ts", symbol: "selectCsharpAwaitCompletion",
+      bodySha256: "a4e0ae99adcf84abc2d724c270bd1a40ece18f21838145f22eeeb4ff4cd4e8b8", role: "selection",
+      replaces: [{ file: "src/target-model/types/await-completions.ts", symbol: "selectCsharpAwaitCompletion" }],
+      evidence: [{ kind: "parameter", name: "carrier" }] },
     { file: "src/policy/operations/js-values/selection.ts", symbol: "selectCsharpJsValueBinaryOperation",
       bodySha256: "db97ff5d766ac1179cfae77af36f799a333f717aad6d1da1d350ecbf63086f54", role: "selection",
       evidence: [{ "kind": "parameter", "name": "operator" }] },
