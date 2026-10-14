@@ -33,7 +33,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
 } = {}) {
   if (sourceFiles.size === 0) return Object.freeze(Object.fromEntries([
     "declarations", "functions", "calls", "accesses", "loops", "comparisons",
-    "assertions", "throws", "edges", "suppressions", "stringLiterals", "mutations", "objectFields", "typedDeclarations", "moduleFiles",
+    "assertions", "throws", "edges", "suppressions", "stringLiterals", "mutations", "objectFields", "typedDeclarations", "moduleFiles", "selectionExports",
   ].map(name => [name, Object.freeze([])])));
   const session = createCompilerSessionFromFiles({
     currentDirectory: "/keel",
@@ -65,6 +65,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
   const mutations = [];
   const objectFields = [];
   const typedDeclarations = [];
+  const selectionExports = [];
   const typeOrigins = new WeakMap();
   const libraryFiles = new Map(resolveReferences ? getBundledLibraryClosure(["lib.es2022.d.ts"])
     .map(library => [library.path, `libraries/${library.name}`]) : []);
@@ -112,6 +113,40 @@ export function analyzeKeelTypeScript(sourceFiles, {
 
   for (const [file, sourceFile] of files) {
     const checker = resolveReferences ? source.getSourceFileQueries(sourceFile).checker : undefined;
+    const moduleSymbol = checker?.getSymbolAtLocation(sourceFile);
+    if (moduleSymbol !== undefined) {
+      for (const exportedSymbol of checker.getExportsOfModule(moduleSymbol)) {
+        const name = checker.getSymbolName(exportedSymbol);
+        if (!name.startsWith("select") && !name.startsWith("choose")) continue;
+        const aliases = checker.getSymbolDeclarations(exportedSymbol).some(declaration =>
+          ["KindImportSpecifier", "KindImportClause", "KindExportSpecifier", "KindNamespaceImport", "KindNamespaceExport"]
+            .includes(ast.kindName(declaration)));
+        const symbol = aliases ? checker.getAliasedSymbol(exportedSymbol) : exportedSymbol;
+        if (symbol === undefined) {
+          selectionExports.push(Object.freeze({ file, symbol: name, target: undefined }));
+          continue;
+        }
+        const type = checker.getTypeOfSymbol(symbol);
+        const shapes = source.getSourceFileQueries(sourceFile).typeShape;
+        if (type === undefined || shapes.isAny(type) || shapes.isUnknown(type)) {
+          selectionExports.push(Object.freeze({ file, symbol: name, target: undefined }));
+          continue;
+        }
+        const declaration = checker.getSymbolValueDeclaration(symbol) ?? checker.getPrimarySymbolDeclaration(symbol);
+        const references = [declarationFor(declaration), ...(declaration === undefined ? [] : origins(checker, ast.name(declaration)))];
+        const implementation = references.find(reference => reference !== undefined && functions.some(entry =>
+          keelSymbolIdentity(entry) === keelSymbolIdentity(reference)));
+        if (implementation !== undefined) {
+          selectionExports.push(Object.freeze({ file, symbol: name, target: implementation }));
+          continue;
+        }
+        for (const signature of checker.getCallSignaturesOfType(type)) {
+          selectionExports.push(Object.freeze({
+            file, symbol: name, target: declarationFor(checker.getSignatureDeclaration(signature)),
+          }));
+        }
+      }
+    }
     walk(sourceFile, node => {
       const kind = ast.kindName(node);
       const owner = owningFunction(node);
@@ -210,6 +245,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
     objectFields: Object.freeze(objectFields),
     typedDeclarations: Object.freeze(typedDeclarations),
     moduleFiles: Object.freeze(moduleAnalysis.modules.map(entry => entry.file)),
+    selectionExports: Object.freeze(selectionExports),
   });
 
   function walk(node, visit) {
@@ -232,7 +268,7 @@ export function analyzeKeelTypeScript(sourceFiles, {
       if (name !== undefined) {
         const accessor = kind === "KindGetAccessor" ? ".<get>" : kind === "KindSetAccessor" ? ".<set>" : "";
         names.unshift(`${nameText(name)}${accessor}`);
-      } else if ((kind === "KindArrowFunction" || kind === "KindFunctionExpression") && !callableHasDirectBinding(current)) {
+      } else if (["KindArrowFunction", "KindFunctionExpression", "KindFunctionDeclaration"].includes(kind) && !callableHasDirectBinding(current)) {
         const range = ast.authoredRange(current);
         if (range.kind === "authored") names.unshift(`<${kind.slice(4)}@${range.start}>`);
       }
@@ -254,8 +290,8 @@ export function analyzeKeelTypeScript(sourceFiles, {
 
   function exported(node) {
     for (let current = node; current !== undefined; current = ast.parent(current)) {
-      if (ast.hasModifierKind(current, "export")) return true;
       if (current !== node && functionKinds.has(ast.kindName(current))) return false;
+      if (ast.hasModifierKind(current, "export")) return true;
     }
     return false;
   }

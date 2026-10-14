@@ -3,8 +3,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { availableParallelism, cpus } from "node:os";
 import { relative, resolve, sep } from "node:path";
-import { readTestResourceBudget } from "./test-resource-budget.mjs";
-import { runBoundedTestQueue } from "./parallel-scheduler.mjs";
+import { readTestResourceBudget, testTaskEnvironment } from "./test-resource-budget.mjs";
+import { runBoundedTestQueue, validateBoundedTestQueue } from "./parallel-scheduler.mjs";
 import { createProgressTracker } from "./parallel-progress.mjs";
 import { createParallelSuiteDefinition } from "./suite-definition.mjs";
 import { discoverTestFiles } from "./node-test-files.mjs";
@@ -64,11 +64,14 @@ if (options.list) {
   process.exit(0);
 }
 if (options.inventory) {
-  console.log(JSON.stringify(inventory, null, 2));
+  await new Promise((completed, failed) => {
+    process.stdout.write(`${JSON.stringify(inventory, null, 2)}\n`, error => error ? failed(error) : completed());
+  });
   process.exit(0);
 }
 
 const exclusiveShardCount = shards.filter((shard) => shard.exclusive === true).length;
+validateBoundedTestQueue(shards, { ...resourceBudget, groupWorkerLimits: suiteDefinition.groupWorkerLimits });
 console.log(`parallel-run: tasks=${shards.length} concurrency=${resourceBudget.workers} exclusive=${exclusiveShardCount} memoryMiB=${resourceBudget.memoryMiB} childJobs=${resourceBudget.childJobs}`);
 
 const startedAt = Date.now();
@@ -173,7 +176,8 @@ function buildShards() {
         : discoverTestFiles(testSuite.directory, testSuite.suffix))
         .filter((file) => !isIntentionallySkipped(testSuite, file))
         .map((file) => nodeTestShard(testSuite.scope, groupForSuiteFile(testSuite, file), file,
-          testSuite.compiledDirectory === undefined ? file : resolve(testSuite.compiledDirectory, relative(testSuite.directory, file).replace(/\.ts$/u, ".js"))))
+          testSuite.compiledDirectory === undefined ? file : resolve(testSuite.compiledDirectory, relative(testSuite.directory, file).replace(/\.ts$/u, ".js")),
+          testSuite.resourcesForFile?.(file)))
     ),
     ...suiteDefinition.architectureSuites.flatMap((testSuite) =>
       listExecutableArchitectureTests(testSuite.directory)
@@ -310,7 +314,7 @@ function nodeTestShards(scope, group, file) {
   return [nodeTestShard(scope, group, file)];
 }
 
-function nodeTestShard(scope, group, file, executableFile = file) {
+function nodeTestShard(scope, group, file, executableFile = file, resources) {
   return {
     id: `${scope}:${toPosix(relative(repos[scopeToRepoKey(scope)], file))}`,
     scope,
@@ -318,6 +322,8 @@ function nodeTestShard(scope, group, file, executableFile = file) {
     file,
     files: [file],
     preRunIds: preRunsForTask(scope, group),
+    memoryMiB: resources?.memoryMiB,
+    heapMiB: resources?.heapMiB,
     cwd: repos[scopeToRepoKey(scope)],
     command: process.execPath,
     args: ["--test", "--test-reporter=tap", toPosix(relative(repos[scopeToRepoKey(scope)], executableFile))],
@@ -365,6 +371,7 @@ function preRunsForTask(scope, group) {
         "csharp-nodejs.install",
         "csharp-nodejs.build",
         "csharp-nodejs.test-build",
+        ...(group === "host-keel-inventory" ? ["rust-nodejs.build"] : []),
       ];
     case "tsonic-csharp":
       return group === "csharp-provider"
@@ -507,6 +514,8 @@ function createInventory(shardsToInventory) {
         taskId: shard.id,
         preRunIds: shard.preRunIds ?? [],
         runner: shard.command === "dotnet" ? "dotnet" : "node",
+        memoryMiB: shard.memoryMiB,
+        heapMiB: shard.heapMiB,
       };
       if (existing !== undefined) {
         existing.tasks.push(entry);
@@ -522,6 +531,8 @@ function createInventory(shardsToInventory) {
       exclusive: entry.exclusive,
       path: entry.path,
       runner: entry.runner,
+      memoryMiB: entry.memoryMiB,
+      heapMiB: entry.heapMiB,
       taskIds: entry.tasks.map((task) => task.taskId).sort(),
       preRunIds: [...new Set(entry.tasks.flatMap((task) => task.preRunIds))].sort(),
     }))
@@ -635,6 +646,7 @@ async function runShards(allShards) {
 
 function runShard(shard) {
   return new Promise((resolveResult) => {
+    const taskEnvironment = testTaskEnvironment(env, resourceBudget, shard);
     const startedAt = Date.now();
     const shardSafeName = safeName(shard.id);
     const logPath = resolve(logRoot, `${shardSafeName}.log`);
@@ -654,7 +666,7 @@ function runShard(shard) {
     progress.startShard(shard, startedAt);
     const child = spawn(shard.command, shard.args, {
       cwd: shard.cwd,
-      env,
+      env: taskEnvironment,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks = [];

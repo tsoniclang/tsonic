@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { collectFiles, readSourceInventory } from "./file-inventory.mjs";
 import { evaluateNodeProviderContract } from "./node-provider-contract.mjs";
 import { analyzeKeelTypeScript, keelDigest } from "./keel-source-analysis.mjs";
-import { keelFinding, keelTargetNames, sortKeelFindings, validPath } from "./keel-contract.mjs";
+import { keelFinding, keelTargetNames, keelWorkspaceRepositories, sortKeelFindings, validPath } from "./keel-contract.mjs";
 import { evaluateKeelLayers } from "./keel-layer-checks.mjs";
 import {
   evaluateKeelCoreDomains, evaluateKeelNodeModules, evaluateKeelRuntimeFamilies,
@@ -15,12 +15,9 @@ import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certificatio
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
 import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
+import { readKeelRoleObligations } from "./keel-inventory.mjs";
 
-export const keelWorkspaceRepositories = Object.freeze([
-  "tsonic", "tsonic-csharp", "tsonic-rust", "tsts-legacy",
-  "csharp-runtime", "csharp-js", "csharp-nodejs", "rust-runtime", "rust-js", "rust-nodejs",
-  "express", "tsumo-rust", "csharp-pudding", "rust-pudding", "tsumo-csharp",
-]);
+export { keelWorkspaceRepositories } from "./keel-contract.mjs";
 const sourceExtensions = Object.freeze([".ts", ".tsx", ".mts", ".mjs"]);
 const excluded = Object.freeze([
   ".analysis", ".temp", ".test", ".tests", ".git", "bin", "dist", "node_modules", "obj", "target",
@@ -46,7 +43,9 @@ export function validateKeelManifest(manifest) {
   if ([...required].some(id => !actual.has(id))) throw new Error("Keel certification cannot omit a prescribed acceptance/catalogue scope.");
 }
 
-export function evaluateKeelWorkspace(workspace, manifest, { final = false, determinism = [] } = {}) {
+export function evaluateKeelWorkspace(workspace, manifest, {
+  final = false, determinism = [], roleObligations = readKeelRoleObligations(fileURLToPath(new URL("../../../", import.meta.url))),
+} = {}) {
   if (!isAbsolute(workspace)) throw new Error("Keel workspace root must be absolute.");
   validateKeelManifest(manifest);
   const findings = [];
@@ -80,7 +79,7 @@ export function evaluateKeelWorkspace(workspace, manifest, { final = false, dete
       targetTests.set(repo, collectFiles(resolve(root, "test"), {
         extensions: [".mjs", ".ts"], exclude: excluded,
       }).map(file => `test/${file}`));
-      findings.push(...evaluateKeelLayers(repo, model, manifest.targets[repo]));
+      findings.push(...evaluateKeelLayers(repo, model, manifest.targets[repo], roleObligations[repo] ?? []));
     }
     if (repo === "tsonic") findings.push(...evaluateKeelStorageStages(typed, model.edges));
     if (Object.hasOwn(keelRuntimeRoots, repo)) {
@@ -132,6 +131,7 @@ export function evaluateKeelWorkspace(workspace, manifest, { final = false, dete
     }
   }
   return Object.freeze({ findings: sortKeelFindings(findings), capabilityGaps: Object.freeze(capabilityGaps), pins, sourceDigests, totalFunctions,
+    declarationsSha256: declarations.inputDigest,
     determinismExecuted: final || determinism.length > 0 });
 }
 

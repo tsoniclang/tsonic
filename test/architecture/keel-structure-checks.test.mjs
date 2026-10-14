@@ -58,10 +58,90 @@ test("AC7 accepts only registered target-native differences on their actual side
 test("AC7 mirrors source ownership moves in target tests", () => {
   for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     const files = ["test/providers/native/acquisition/read.test.mjs", "test/backend/target-ast/syntax/nodes.test.mjs"];
-    assert.equal(evaluateKeelTestSkeleton(new Map([[repo, files]])).length, 0);
+    const peer = repo === "tsonic-csharp" ? "tsonic-rust" : "tsonic-csharp";
+    const targets = new Map([[repo, files], [peer, [...files]]]);
+    assert.equal(evaluateKeelTestSkeleton(targets).length, 0);
     files.push("test/providers/native/reflection/read.test.mjs");
-    assert.equal(keelFixtureHas(evaluateKeelTestSkeleton(new Map([[repo, files]])), "AC7", "matching test"), true);
+    assert.equal(keelFixtureHas(evaluateKeelTestSkeleton(targets), "AC7", "matching test"), true);
   }
+});
+
+for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
+  test(`${repo}: AC7 inspects recursive responsibility decomposition below a recognized family`, () => {
+    const peer = repo === "tsonic-csharp" ? "tsonic-rust" : "tsonic-csharp";
+    const targets = new Map([
+      [repo, new Map([["src/analysis/operations/iteration/nested/selection.ts", "export {};"]])],
+      [peer, new Map([["src/analysis/operations/iteration/selection.ts", "export {};"]])],
+    ]);
+    const findings = evaluateKeelSkeleton(targets);
+    assert.equal(findings.some(entry => entry.check === "AC7" && entry.subject === "analysis/operations/iteration/nested"), true);
+    targets.get(peer).set("src/analysis/operations/iteration/nested/evidence.ts", "export {};");
+    assert.equal(evaluateKeelSkeleton(targets).length, 0);
+  });
+
+  test(`${repo}: AC7 rejects the removed nested provider owner even when both targets mirror it`, () => {
+    const file = "src/analysis/operations/provider/calls/selection.ts";
+    const targets = new Map([
+      ["tsonic-csharp", new Map([[file, "export {};"]])],
+      ["tsonic-rust", new Map([[file, "export {};"]])],
+    ]);
+    assert.equal(evaluateKeelSkeleton(targets).some(entry => entry.repo === repo &&
+      entry.subject === "analysis/operations/provider" && entry.reason.includes("Removed source responsibility")), true);
+    const tests = new Map([...targets].map(([target, sources]) => [target,
+      [...sources.keys()].map(path => path.replace(/^src\//u, "test/").replace(/\.ts$/u, ".test.mjs")),
+    ]));
+    assert.equal(evaluateKeelTestSkeleton(tests).some(entry => entry.repo === repo &&
+      entry.subject === "analysis/operations/provider" && entry.reason.includes("Removed source responsibilities")), true);
+  });
+
+  test(`${repo}: AC7 compares recursive test responsibilities rather than only their first domain`, () => {
+    const peer = repo === "tsonic-csharp" ? "tsonic-rust" : "tsonic-csharp";
+    const tests = new Map([
+      [repo, ["test/policy/operations/iteration/deep/selection.test.mjs"]],
+      [peer, ["test/policy/operations/iteration/selection.test.mjs"]],
+    ]);
+    assert.equal(evaluateKeelTestSkeleton(tests).some(entry => entry.subject === "policy/operations/iteration/deep"), true);
+  });
+}
+
+test("AC7 recognizes K16 recursively for any shared responsibility, not three hardcoded examples", () => {
+  const targets = new Map([
+    ["tsonic-csharp", new Map([["src/policy/types/objects/shape.ts", "export {};"]])],
+    ["tsonic-rust", new Map([["src/policy/types/objects/shape/fields/selection.ts", "export {};"]])],
+  ]);
+  assert.equal(evaluateKeelSkeleton(targets).length, 0);
+  const tests = new Map([
+    ["tsonic-csharp", ["test/policy/types/objects/shape.test.mjs"]],
+    ["tsonic-rust", ["test/policy/types/objects/shape/fields/selection.test.mjs"]],
+  ]);
+  assert.equal(evaluateKeelTestSkeleton(tests).length, 0);
+});
+
+test("AC7 does not let mirrored tests manufacture a native-only responsibility on the wrong target", () => {
+  const tests = new Map([
+    ["tsonic-csharp", ["test/analysis/ownership/regions/selection.test.mjs"]],
+    ["tsonic-rust", ["test/analysis/ownership/regions/selection.test.mjs"]],
+  ]);
+  assert.equal(evaluateKeelTestSkeleton(tests).some(entry => entry.repo === "tsonic-csharp" &&
+    entry.subject === "analysis/ownership" && entry.reason.includes("same prescribed owner")), true);
+});
+
+test("AC7 registers only native acquisition and syntax contents, not arbitrary nested target differences", () => {
+  const targets = new Map([
+    ["tsonic-csharp", new Map([
+      ["src/providers/native/acquisition/reflection/assembly.ts", "export {};"],
+      ["src/backend/target-ast/syntax/csharp/nodes.ts", "export {};"],
+      ["src/analysis/attributes/arguments/check.ts", "export {};"],
+    ])],
+    ["tsonic-rust", new Map([
+      ["src/providers/native/acquisition/rustdoc/types.ts", "export {};"],
+      ["src/backend/target-ast/syntax/rust/nodes.ts", "export {};"],
+      ["src/analysis/ownership/regions/check.ts", "export {};"],
+    ])],
+  ]);
+  assert.equal(evaluateKeelSkeleton(targets).length, 0);
+  targets.get("tsonic-rust").set("src/providers/native/model/unregistered/types.ts", "export {};");
+  assert.equal(evaluateKeelSkeleton(targets).some(entry => entry.subject === "providers/native/model/unregistered"), true);
 });
 
 test("AC7 expected-type/contextual analysis is a shared responsibility, not an automatic C# exemption", () => {

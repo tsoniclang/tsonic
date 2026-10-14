@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { keelCheckIds } from "./keel-contract.mjs";
 import { keelDigest } from "./keel-source-analysis.mjs";
-import { createKeelViolationInventory, evaluateKeelViolationInventory } from "./keel-certification-checks.mjs";
+import { evaluateKeelViolationInventory } from "./keel-certification-checks.mjs";
 import { defaultKeelWorkspace, evaluateKeelWorkspace, readKeelDeterminism } from "./keel-workspace.mjs";
 import { keelDefaultManifest } from "./keel-owned-contracts.mjs";
+import { createKeelWorkspaceInventory } from "./keel-inventory.mjs";
 
 export function runKeelChecks(arguments_) {
   const options = parseArguments(arguments_);
@@ -20,9 +21,7 @@ export function runKeelChecks(arguments_) {
     determinism: options.determinism === undefined ? [] : readKeelDeterminism(options.determinism),
   });
   if (options.writeBaseline !== undefined) {
-    const inventory = createKeelViolationInventory(actual.findings, {
-      pins: actual.pins, manifestSha256: keelDigest(manifestText),
-    });
+    const inventory = createKeelWorkspaceInventory(actual, manifestText, new URL("../../..", import.meta.url).pathname);
     writeFileSync(options.writeBaseline, `${JSON.stringify(inventory, null, 2)}\n`, { flag: "wx" });
     report(actual, actual.findings, "baseline-created-not-certification");
     return 0;

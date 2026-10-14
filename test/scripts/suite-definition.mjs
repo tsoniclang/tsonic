@@ -1,6 +1,8 @@
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 export function createParallelSuiteDefinition(repos) {
+  const rustTarget = resolve(repos.tsonicCsharp, "../tsonic-rust");
+  const rustNodejs = resolve(repos.tsonicCsharp, "../rust-nodejs");
   return {
     preRuns: [
       {
@@ -58,9 +60,41 @@ export function createParallelSuiteDefinition(repos) {
         command: "node",
         args: ["scripts/test/build-dotnet-provider-fixtures.mjs"],
       },
+      {
+        id: "tsonic-rust.install",
+        cwd: rustTarget,
+        command: "npm",
+        args: ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+      },
+      {
+        id: "tsonic-rust.build",
+        dependsOn: ["tsonic.build", "tsonic-rust.install"],
+        cwd: rustTarget,
+        command: "npm",
+        args: ["run", "build"],
+      },
+      {
+        id: "rust-nodejs.install",
+        cwd: rustNodejs,
+        command: "npm",
+        args: ["ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+      },
+      {
+        id: "rust-nodejs.build",
+        dependsOn: ["tsonic-rust.build", "rust-nodejs.install"],
+        cwd: rustNodejs,
+        command: "npm",
+        args: ["run", "build"],
+      },
     ],
     nodeSuites: [
-      nodeSuite(repos.tsonic, "tsonic", "host-architecture", "test/architecture"),
+      {
+        ...nodeSuite(repos.tsonic, "tsonic", "host-architecture", "test/architecture"),
+        groupForFile: file => ["keel-violations.test.mjs", "keel-node-registry.test.mjs"].includes(basename(file))
+          ? "host-keel-inventory" : "host-architecture",
+        resourcesForFile: file => basename(file) === "keel-violations.test.mjs"
+          ? { memoryMiB: 4096, heapMiB: 3072 } : undefined,
+      },
       nodeSuite(repos.tsonic, "tsonic", "host-ledger-inventory", "test/host/capabilities"),
       nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/config"),
       nodeSuite(repos.tsonic, "tsonic", "host-cli-config", "test/host/dependencies"),

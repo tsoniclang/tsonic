@@ -89,6 +89,31 @@ export function readTestResourceBudget(environment = process.env, profile = "hos
   }, profile);
 }
 
+export function testTaskEnvironment(environment, budget, task) {
+  if (task.memoryMiB === undefined && task.heapMiB === undefined) return environment;
+  const memoryMiB = task.memoryMiB ?? budget.workerMemoryMiB;
+  const heapMiB = task.heapMiB ?? budget.heapMiB;
+  if (memoryMiB > budget.memoryMiB) throw new Error(`Test task ${task.id} cannot fit the memory budget.`);
+  const selected = testResourceBudget({
+    cpus: budget.availableCpus, totalMemoryMiB: memoryMiB, availableMemoryMiB: memoryMiB,
+  }, {
+    TSONIC_TEST_CPUS: String(budget.childJobs), TSONIC_TEST_MEMORY_MIB: String(memoryMiB),
+    TSONIC_TEST_WORKER_MEMORY_MIB: String(memoryMiB), TSONIC_TEST_CHILD_JOBS: String(budget.childJobs),
+    TSONIC_TEST_WORKERS: "1", TSONIC_TEST_HEAP_MIB: String(heapMiB),
+  });
+  const inherited = environment.NODE_OPTIONS ?? "";
+  const ownedHeap = `--max-old-space-size=${budget.heapMiB}`;
+  if (!inherited.endsWith(ownedHeap)) throw new Error("Task resources require the final guard-owned Node heap option.");
+  return {
+    ...environment,
+    TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(selected),
+    TSONIC_TEST_CPUS: String(selected.cpuBudget), TSONIC_TEST_MEMORY_MIB: String(selected.memoryMiB),
+    TSONIC_TEST_WORKER_MEMORY_MIB: String(selected.workerMemoryMiB), TSONIC_TEST_HEAP_MIB: String(selected.heapMiB),
+    TSONIC_TEST_WORKERS: "1",
+    NODE_OPTIONS: `${inherited.slice(0, -ownedHeap.length)}--max-old-space-size=${selected.heapMiB}`,
+  };
+}
+
 function configuredInteger(value, name) {
   if (value === undefined) return undefined;
   if (!/^[1-9]\d*$/u.test(String(value))) throw new Error(`${name} must be a positive integer.`);

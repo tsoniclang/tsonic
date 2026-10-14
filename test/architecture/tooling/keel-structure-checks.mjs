@@ -1,5 +1,6 @@
 import {
-  keelFinding, keelNativeDifferences, keelRootFamilies, keelSkeletonFamilies,
+  keelFinding, keelNativeContentDifferences, keelNativeDifferences, keelRemovedResponsibilities,
+  keelRootFamilies, keelSkeletonFamilies,
   keelStorageStages, sortKeelFindings, validateKeelDifferences, validPath,
 } from "./keel-contract.mjs";
 import { keelNativeNodeDomains } from "./keel-native-tokens.mjs";
@@ -10,7 +11,7 @@ export function evaluateKeelSkeleton(targetSources, differences = keelNativeDiff
   const findings = [];
   const responsibilities = new Map();
   for (const [repo, sources] of targetSources) {
-    const families = new Set();
+    const tree = responsibilityTree(sources.keys(), "src/");
     for (const file of sources.keys()) {
       if (!file.startsWith("src/")) continue;
       const path = file.slice(4);
@@ -23,6 +24,12 @@ export function evaluateKeelSkeleton(targetSources, differences = keelNativeDiff
         findings.push(keelFinding("AC7", repo, file, root, "Source responsibility is outside the prescribed skeleton."));
         continue;
       }
+      const removed = keelRemovedResponsibilities.find(responsibility =>
+        within(path.replace(/\.(?:tsx?|mts)$/u, ""), responsibility));
+      if (removed !== undefined) {
+        findings.push(keelFinding("AC7", repo, file, removed,
+          "Removed source responsibility must be re-homed; mirroring it does not restore an approved owner."));
+      }
       for (const [parent, children] of Object.entries(keelSkeletonFamilies)) {
         if (!path.startsWith(`${parent}/`)) continue;
         const suffix = path.slice(parent.length + 1);
@@ -33,31 +40,32 @@ export function evaluateKeelSkeleton(targetSources, differences = keelNativeDiff
         if (!children.includes(child) && native === undefined) {
           findings.push(keelFinding("AC7", repo, file, responsibility, "Responsibility needs its prescribed slot or an exact native-difference registration."));
         } else {
-          families.add(responsibility);
+          tree.directories.add(responsibility);
         }
       }
     }
-    for (const path of ["analysis/project-types/catalog", "providers/packages/validation", "print/source/expressions"]) {
-      if ([...sources.keys()].some(file => file === `src/${path}.ts` || file.startsWith(`src/${path}/`))) families.add(path);
-    }
-    responsibilities.set(repo, families);
+    responsibilities.set(repo, tree);
   }
-  const csharp = responsibilities.get("tsonic-csharp") ?? new Set();
-  const rust = responsibilities.get("tsonic-rust") ?? new Set();
-  for (const path of new Set([...csharp, ...rust])) {
-    if (csharp.has(path) === rust.has(path)) continue;
-    const present = csharp.has(path) ? "tsonic-csharp" : "tsonic-rust";
-    if (differences.some(entry => entry.target === present && entry.path === path)) continue;
-    findings.push(keelFinding("AC7", present, `src/${path}`, path,
-      "A compiler responsibility is one-sided without a native constraint."));
-  }
+  findings.push(...responsibilityParity(responsibilities, "src/", differences));
   return sortKeelFindings(findings);
 }
 
 export function evaluateKeelTestSkeleton(targetTests) {
   const findings = [];
+  const responsibilities = new Map();
   const domains = new Set(["analysis", "architecture", "backend", "fixtures", "helpers", "integration", "policy", "providers", "source", "target-model", "toolchain"]);
   for (const [repo, files] of targetTests) {
+    const tree = responsibilityTree(files, "test/");
+    responsibilities.set(repo, tree);
+    for (const path of tree.directories) {
+      const parent = path.slice(0, path.lastIndexOf("/"));
+      const children = keelSkeletonFamilies[parent];
+      if (children !== undefined && !children.includes(path.slice(parent.length + 1)) &&
+        !keelNativeDifferences.some(entry => entry.target === repo && entry.path === path)) {
+        findings.push(keelFinding("AC7", repo, `test/${path}`, path,
+          "Test responsibility needs the same prescribed owner or exact target-native registration as its source."));
+      }
+    }
     for (const file of files) {
       if (!file.startsWith("test/") || !file.slice(5).includes("/")) continue;
       const domain = file.slice(5).split("/")[0];
@@ -65,9 +73,46 @@ export function evaluateKeelTestSkeleton(targetTests) {
       if (/^test\/(?:source\/semantics|policy\/(?:evidence|safety|js-value-operations)|providers\/native\/(?:reflection|protocol|snapshot)|backend\/target-ast\/roslyn)\//u.test(file)) {
         findings.push(keelFinding("AC7", repo, file, domain, "Moved source responsibilities require matching test placement."));
       }
+      const removed = keelRemovedResponsibilities.find(responsibility =>
+        within(file.slice(5).replace(/\.(?:test\.)?(?:mjs|tsx?)$/u, ""), responsibility));
+      if (removed !== undefined) findings.push(keelFinding("AC7", repo, file, removed,
+        "Removed source responsibilities require matching test ownership, not a mirrored obsolete test tree."));
     }
   }
+  findings.push(...responsibilityParity(responsibilities, "test/", keelNativeDifferences));
   return sortKeelFindings(findings);
+}
+
+function responsibilityTree(files, prefix) {
+  const directories = new Set();
+  const modules = new Set();
+  for (const file of files) {
+    if (!file.startsWith(prefix)) continue;
+    const path = file.slice(prefix.length);
+    const segments = path.split("/");
+    for (let count = 1; count < segments.length; count += 1) directories.add(segments.slice(0, count).join("/"));
+    modules.add(path.replace(/(?:\.(?:test|spec))?\.(?:mjs|cjs|mts|cts|tsx?)$/u, ""));
+  }
+  return { directories, modules };
+}
+
+function responsibilityParity(responsibilities, prefix, differences) {
+  const findings = [];
+  const empty = () => ({ directories: new Set(), modules: new Set() });
+  const csharp = responsibilities.get("tsonic-csharp") ?? empty();
+  const rust = responsibilities.get("tsonic-rust") ?? empty();
+  for (const path of new Set([...csharp.directories, ...rust.directories])) {
+    if (csharp.directories.has(path) === rust.directories.has(path)) continue;
+    const present = csharp.directories.has(path) ? "tsonic-csharp" : "tsonic-rust";
+    if (differences.some(entry => entry.target === present && within(path, entry.path)) ||
+      keelNativeContentDifferences.some(entry => path.startsWith(`${entry.path}/`))) continue;
+    const peer = present === "tsonic-csharp" ? rust : csharp;
+    const segments = path.split("/");
+    if (segments.some((_segment, index) => peer.modules.has(segments.slice(0, index + 1).join("/")))) continue;
+    findings.push(keelFinding("AC7", present, `${prefix}${path}`, path,
+      "A compiler responsibility is one-sided without a native constraint."));
+  }
+  return findings;
 }
 
 export function evaluateKeelStorageStages(sourceFiles, edges) {
