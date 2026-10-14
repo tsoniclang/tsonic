@@ -39,13 +39,15 @@ export {
   targetUseSiteRef,
 } from "./use-sites.js";
 export { targetStronglyConnectedComponents } from "./graph-components.js";
+export * from "./ownership/index.js";
 export type { TargetGraphComponentsSelection } from "./graph-components.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
 export { createSourceGlobalCallStorageEffects } from "./source-storage/model/global-call-effects.js";
 export type { SourceGlobalCallStorageEffect } from "./source-storage/model/global-call-effects.js";
-export { defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
+export { createSourceStorageBudget, defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
+export type { SourceStorageBudget } from "./source-storage/model/resource-budget.js";
 export type { SourceStorageProjection, SourceStorageSubject } from "./source-storage/model/subjects.js";
 export type {
   SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageInstanceRegion,
