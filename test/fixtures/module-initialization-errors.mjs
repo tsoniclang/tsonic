@@ -6,6 +6,12 @@ function invoke(read: () => int32): int32 { return read(); }
 
 export const moduleInitializationErrorCases = Object.freeze([
   {
+    name: "empty_channels_only",
+    source: preamble + `export function main(): void {
+      invoke((): int32 => invoke((): int32 => 1) + invoke((): int32 => 2));
+    } main();`,
+  },
+  {
     name: "pure_callback",
     source: preamble + `export function main(): void {
       if (invoke((): int32 => 7) !== 7) throw new Error("pure callback");
