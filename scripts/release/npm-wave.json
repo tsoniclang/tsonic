@@ -214,7 +214,7 @@
       "repository": "tsonic",
       "profile": "host",
       "banks": ["host"],
-      "inputs": ["tsonic", "tsonic-csharp", "csharp-runtime", "csharp-js", "csharp-nodejs", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"],
+      "inputs": ["tsonic", "tsonic-csharp", "tsonic-rust", "tsts-legacy", "csharp-runtime", "csharp-js", "csharp-nodejs", "rust-runtime", "rust-js", "rust-nodejs", "express", "tsumo-rust", "csharp-pudding", "rust-pudding", "tsumo-csharp"],
       "tools": ["node", "npm", "dotnet"],
       "worker": ["node", "test/scripts/run-parallel.mjs", "--with-preruns"],
       "skipped": 0,

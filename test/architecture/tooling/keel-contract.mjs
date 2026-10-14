@@ -2,6 +2,11 @@ import { keelDigest } from "./keel-source-analysis.mjs";
 
 export const keelCheckIds = Object.freeze(Array.from({ length: 12 }, (_unused, index) => `AC${index + 1}`));
 export const keelTargetNames = Object.freeze(["tsonic-csharp", "tsonic-rust"]);
+export const keelWorkspaceRepositories = Object.freeze([
+  "tsonic", "tsonic-csharp", "tsonic-rust", "tsts-legacy",
+  "csharp-runtime", "csharp-js", "csharp-nodejs", "rust-runtime", "rust-js", "rust-nodejs",
+  "express", "tsumo-rust", "csharp-pudding", "rust-pudding", "tsumo-csharp",
+]);
 export const keelRoles = Object.freeze([
   "selection", "analysis", "syntax", "sealed-reader", "planner-invariant",
   "vocabulary", "orchestration",
@@ -36,6 +41,16 @@ export const keelNativeDifferences = Object.freeze([
   { path: "backend/planner/foundation", target: "tsonic-rust", reason: "Native foundation imports", evidence: "Keel §4.7" },
   { path: "analysis/errors", target: "tsonic-rust", reason: "Native Result transport", evidence: "Keel §4.7" },
   { path: "analysis/reachability", target: "tsonic-rust", reason: "Native generated-item reachability", evidence: "Keel §4.7" },
+]);
+
+export const keelNativeContentDifferences = Object.freeze([
+  { path: "providers/native/acquisition", reason: ".NET reflection versus rustc/rustdoc acquisition", evidence: "Keel §4.7" },
+  { path: "backend/target-ast/syntax", reason: "Roslyn-shaped versus Rust-native syntax", evidence: "Keel §4.7" },
+]);
+
+export const keelRemovedResponsibilities = Object.freeze([
+  "analysis/facts", "analysis/expressions", "analysis/operations/provider", "analysis/resources", "analysis/runtime",
+  "backend/planner/liveness", "backend/target-ast/inspection", "target-model/facts",
 ]);
 
 export const keelStorageStages = Object.freeze(["model", "graph", "scoped", "transport"]);

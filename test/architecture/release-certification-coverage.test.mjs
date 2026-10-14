@@ -6,14 +6,20 @@ import test from "node:test";
 import { focusedCertificationEntry, requiredCertificationChecks, validateCertificationChecks } from "../../scripts/certification/checks.mjs";
 import { sameCertificationInputs, snapshotCertificationInputs } from "../../scripts/certification/inputs.mjs";
 import { certifyWave } from "../../scripts/certification/select.mjs";
-import { hostRoot, validateWaveManifests } from "../../scripts/release/npm-wave.mjs";
+import { hostRoot, loadNpmWave, validateWaveManifests } from "../../scripts/release/npm-wave.mjs";
 import { createTestWorkspace } from "../scripts/test-workspaces.mjs";
+import { keelWorkspaceRepositories } from "./tooling/keel-contract.mjs";
 
 const check = {
   name: "check-documentation",
   paths: [{ repository: "tsonic", path: "docs/" }, { repository: "tsonic", path: "documentation.test.mjs" }],
   tests: [{ repository: "tsonic", path: "documentation.test.mjs" }],
 };
+
+test("the complete host bank fingerprints every repository consumed by its full architecture census", () => {
+  const host = loadNpmWave().certification.find(entry => entry.repository === "tsonic");
+  assert.deepEqual(host.inputs, keelWorkspaceRepositories);
+});
 
 test("focused scopes are explicit, nonoverlapping and own their complete test selection", () => {
   const repositories = new Set(["tsonic"]);

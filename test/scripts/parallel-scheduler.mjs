@@ -1,15 +1,9 @@
-export async function runBoundedTestQueue(tasks, options, execute) {
+export function validateBoundedTestQueue(tasks, options) {
   for (const value of [options.workers, options.memoryMiB, options.workerMemoryMiB,
     ...Object.values(options.groupWorkerLimits ?? {})]) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new Error("Test queue limits must be finite positive integers.");
   }
-  const pending = [...tasks];
-  const running = new Map();
-  const groupCounts = new Map();
-  const results = [];
-  const errors = [];
   const identifiers = new Set();
-  let memoryMiB = 0;
   for (const task of tasks) {
     if (identifiers.has(task.id)) throw new Error(`Duplicate test task: ${task.id}`);
     identifiers.add(task.id);
@@ -18,6 +12,16 @@ export async function runBoundedTestQueue(tasks, options, execute) {
       throw new Error(`Test task ${task.id} cannot fit the memory budget.`);
     }
   }
+}
+
+export async function runBoundedTestQueue(tasks, options, execute) {
+  validateBoundedTestQueue(tasks, options);
+  const pending = [...tasks];
+  const running = new Map();
+  const groupCounts = new Map();
+  const results = [];
+  const errors = [];
+  let memoryMiB = 0;
   while (pending.length > 0 || running.size > 0) {
     for (let index = 0; errors.length === 0 && index < pending.length;) {
       if (running.size >= options.workers) break;

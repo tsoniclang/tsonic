@@ -4,10 +4,18 @@ import { canonicalTargetLayerPolicies, createTargetLayerRules } from "./target-l
 import { keelFinding, keelLayer, keelRoles, sortKeelFindings, validPath } from "./keel-contract.mjs";
 import { keelSymbolIdentity } from "./keel-source-analysis.mjs";
 
-export function evaluateKeelLayers(repo, model, census = {}) {
+export function evaluateKeelLayers(repo, model, census = {}, roleObligations = []) {
   const findings = [];
   const declarations = groupBy(model.declarations, keelSymbolIdentity);
   const classifications = new Map();
+  const obligations = new Map(roleObligations.map(entry => {
+    requireReference(entry);
+    if (!keelRoles.includes(entry.role)) throw new Error("Unknown required Keel semantic role.");
+    return [keelSymbolIdentity(entry), entry];
+  }));
+  if (obligations.size !== roleObligations.length) throw new Error("Duplicate required Keel semantic-role obligation.");
+  const exportedSelections = new Set(model.functions.filter(entry => entry.exported &&
+    /^(?:select|choose)/u.test(entry.symbol.split(".").at(-1))).map(keelSymbolIdentity));
   const evidenceFor = entry => ({ bodySha256: entry.bodySha256 });
   const emit = (check, entry, reason, evidence = evidenceFor(entry)) => {
     findings.push(keelFinding(check, repo, entry.file, entry.symbol ?? entry.owner, reason, {
@@ -16,6 +24,19 @@ export function evaluateKeelLayers(repo, model, census = {}) {
       ...(typeof entry.kind === "string" ? { kind: entry.kind } : {}),
     }));
   };
+
+  for (const entry of model.selectionExports ?? []) {
+    if (entry.target === undefined) {
+      emit("AC1", entry, "An exported select/choose callable has no exact checked declaration.", {});
+    } else if (entry.target.file.startsWith("src/")) {
+      const id = keelSymbolIdentity(entry.target);
+      if (!model.functions.some(declaration => keelSymbolIdentity(declaration) === id)) {
+        emit("AC1", entry, "An exported select/choose callable has no current authored implementation.", { target: id });
+      } else {
+        exportedSelections.add(id);
+      }
+    }
+  }
 
   for (const entry of census.functions ?? []) {
     requireReference(entry);
@@ -36,6 +57,24 @@ export function evaluateKeelLayers(repo, model, census = {}) {
       continue;
     }
     classifications.set(id, entry.role);
+    const replaced = new Set();
+    for (const previous of entry.replaces ?? []) {
+      requireReference(previous);
+      const identity = keelSymbolIdentity(previous);
+      if (!obligations.has(identity) || replaced.has(identity)) {
+        emit("AC1", entry, "Source correspondence must identify a unique immutable semantic-role obligation.");
+      }
+      replaced.add(identity);
+    }
+  }
+
+  for (const [id, obligation] of obligations) {
+    const matched = (census.functions ?? []).filter(entry => keelSymbolIdentity(entry) === id ||
+      entry.replaces?.some(previous => keelSymbolIdentity(previous) === id));
+    if (matched.length !== 1 || classifications.get(keelSymbolIdentity(matched[0])) !== obligation.role) {
+      emit("AC1", obligation,
+        "A reviewed semantic-role obligation requires one exact current source correspondence with its unchanged role; renaming or deleting a census row cannot close it.");
+    }
   }
 
   for (const entry of model.functions) {
@@ -43,6 +82,9 @@ export function evaluateKeelLayers(repo, model, census = {}) {
     const role = classifications.get(keelSymbolIdentity(entry));
     if (role === "selection" && layer !== "policy") {
       emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry, "Per-construct native selection is owned by policy.");
+    } else if (exportedSelections.has(keelSymbolIdentity(entry)) && role === undefined) {
+      emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry,
+        "An exported select/choose callable requires an exact current reviewed semantic-role classification; its name discovers a candidate, not its owner.");
     }
     if (role === "analysis" && layer !== "analysis") {
       emit(layer?.startsWith("backend/") ? "AC2" : "AC1", entry, "Cross-construct computation is owned by analysis.");
