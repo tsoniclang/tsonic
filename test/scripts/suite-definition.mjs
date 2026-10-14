@@ -90,8 +90,9 @@ export function createParallelSuiteDefinition(repos) {
     nodeSuites: [
       {
         ...nodeSuite(repos.tsonic, "tsonic", "host-architecture", "test/architecture"),
-        groupForFile: file => ["keel-violations.test.mjs", "keel-node-registry.test.mjs"].includes(basename(file))
-          ? "host-keel-inventory" : "host-architecture",
+        groupForFile: file => basename(file) === "carrier-registry-parity.test.mjs" ? "host-carrier-registry"
+          : ["keel-violations.test.mjs", "keel-node-registry.test.mjs"].includes(basename(file))
+            ? "host-keel-inventory" : "host-architecture",
         resourcesForFile: file => basename(file) === "keel-violations.test.mjs"
           ? { memoryMiB: 4096, heapMiB: 3072 } : undefined,
       },
