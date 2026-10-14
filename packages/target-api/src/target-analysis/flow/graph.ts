@@ -1,0 +1,59 @@
+import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import { sourceFlowPattern } from "./bindings.js";
+import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
+import { sourceFlowExpression } from "./expressions.js";
+import type { SourceControlFlowSelection, SourceFlowLimits } from "./model.js";
+import { SourceFlowFailure, sourceFlowLimits } from "./resources.js";
+import { sourceFlowStatement } from "./statements.js";
+
+const callableKinds: ReadonlySet<string> = new Set(["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction",
+  "KindMethodDeclaration", "KindGetAccessor", "KindSetAccessor", "KindConstructor"]);
+
+export function createSourceControlFlow(source: TargetSourceProgram, declaration: Node,
+  limits: Partial<SourceFlowLimits> = {}): SourceControlFlowSelection {
+  try {
+    const { ast } = source;
+    const file = ast.getSourceFile(declaration);
+    if (file === undefined || !source.sourceFiles.includes(file) || !callableKinds.has(ast.kindName(declaration))) {
+      throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
+    }
+    const body = ast.body(declaration);
+    if (body === undefined) throw new SourceFlowFailure("Source flow requires an implemented checked callable body.", declaration);
+    const selectedLimits = sourceFlowLimits(limits);
+    const owner = createSourceFlowConstruction(declaration, selectedLimits);
+    const pending = [{ node: declaration, depth: 0 }];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      owner.step(current.node);
+      if (current.depth >= selectedLimits.maximumDepth) {
+        throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", current.node);
+      }
+      for (const child of ast.children(current.node)) {
+        if (child !== undefined) pending.push({ node: child, depth: current.depth + 1 });
+      }
+    }
+    const build: SourceFlowConstruction = { source, point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
+      expression: (node, next, context) => owner.nested(node, () => sourceFlowExpression(build, node, next, context)),
+      statement: (node, next, context) => owner.nested(node, () => sourceFlowStatement(build, node, next, context)),
+      pattern: (node, next, context, initialization) => owner.nested(node, () => sourceFlowPattern(build, node, next, context, initialization)),
+    };
+    const exit = build.point(declaration, { kind: "exit" });
+    const exceptionExit = build.point(declaration, { kind: "exception-exit" });
+    const context: SourceFlowContext = { returnTo: exit, throwTo: exceptionExit, breaks: new Map(), continues: new Map() };
+    let entry = ast.is.IsBlock(body) ? build.statement(body, exit, context)
+      : build.expression(body, build.emit(body, { kind: "return" }, exit, context, false, "return"), context);
+    const parameters = ast.parameters(declaration);
+    const receiver = source.semantics.forFile(file).types.declarationSignatureInfo(declaration)?.thisParameter?.declaration;
+    for (let index = parameters.length - 1; index >= 0; index -= 1) {
+      const parameter = parameters[index];
+      if (parameter !== undefined && parameter !== receiver) entry = build.pattern(parameter, entry, context, true);
+    }
+    const root = build.point(declaration, { kind: "entry" });
+    build.edge(root, entry);
+    return Object.freeze({ kind: "resolved", graph: owner.finish(root, exit, exceptionExit) });
+  } catch (error) {
+    if (!(error instanceof SourceFlowFailure)) throw error;
+    return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source });
+  }
+}
