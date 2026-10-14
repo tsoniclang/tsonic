@@ -1,5 +1,8 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/callables/signatures.ts", symbol: "selectedSourceCallableReturn",
+      bodySha256: "4e1dfbbbf78c76380d58146134e03fca8e96dff338d525bc937511939d0e75fc", role: "analysis",
+      evidence: [{ kind: "parameter", name: "declaration" }] },
     { file: "src/analysis/storage/binding-locations.ts", symbol: "selectRustBindingLocationStorage",
       bodySha256: "f0200b18eefd092ef8227361c1fc0d147696e5f52c33e747f2e5a264b3156eac", role: "analysis",
       evidence: [{ kind: "parameter", name: "declaration" }] },
