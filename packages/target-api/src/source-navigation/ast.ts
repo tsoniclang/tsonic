@@ -14,6 +14,12 @@ export function Node_Name(ast: AstReader, node: Node | undefined): Node | undefi
   return node === undefined ? undefined : ast.name(node);
 }
 
+export function sourceTransparentExpressionOperand(ast: AstReader, node: Node): Node | undefined {
+  return ast.is.IsParenthesizedExpression(node) || ast.is.IsAsExpression(node) ||
+    ast.is.IsSatisfiesExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsTypeAssertion(node)
+    ? Node_Expression(ast, node) : undefined;
+}
+
 export function Node_Expression(ast: AstReader, node: Node | undefined): Node | undefined {
   if (node === undefined) {
     return undefined;

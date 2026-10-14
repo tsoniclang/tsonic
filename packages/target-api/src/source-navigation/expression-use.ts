@@ -1,5 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import { sourceNodesEqual } from "./identity.js";
+import { sourceTransparentExpressionOperand } from "./ast.js";
 
 export function sourceExpressionSelectsOperandValue(ast: AstReader, expression: Node, operand: Node): boolean {
   if (ast.is.IsConditionalExpression(expression)) {
@@ -39,7 +40,7 @@ export function sourceExpressionResultDisposition(
     if (parent === undefined) {
       return Object.freeze({ kind: "consumed", use: current });
     }
-    if (transparentResultParent(ast, parent, current)) {
+    if (sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), current)) {
       current = parent;
       continue;
     }
@@ -56,7 +57,7 @@ export function sourceExpressionResultDisposition(
       let completion = parent;
       while (true) {
         const owner = ast.parent(completion);
-        if (owner === undefined || !transparentResultParent(ast, owner, completion)) break;
+        if (owner === undefined || !sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, owner), completion)) break;
         if (visited.has(owner) || visited.size >= 262_144) {
           throw new Error("Expression result use exceeded its finite acyclic source boundary.");
         }
@@ -122,14 +123,6 @@ export function sourceExpressionResultDisposition(
 
 export function sourceExpressionResultUse(ast: AstReader, expression: Node): "consumed" | "discarded" {
   return sourceExpressionResultDisposition(ast, expression).kind === "discarded" ? "discarded" : "consumed";
-}
-
-function transparentResultParent(ast: AstReader, parent: Node, child: Node): boolean {
-  if (ast.is.IsParenthesizedExpression(parent)) return sourceNodesEqual(ast, ast.as.AsParenthesizedExpression(parent)?.Expression, child);
-  if (ast.is.IsAsExpression(parent)) return sourceNodesEqual(ast, ast.as.AsAsExpression(parent)?.Expression, child);
-  if (ast.is.IsTypeAssertion(parent)) return sourceNodesEqual(ast, ast.as.AsTypeAssertion(parent)?.Expression, child);
-  if (ast.is.IsSatisfiesExpression(parent)) return sourceNodesEqual(ast, ast.as.AsSatisfiesExpression(parent)?.Expression, child);
-  return ast.is.IsNonNullExpression(parent) && sourceNodesEqual(ast, ast.as.AsNonNullExpression(parent)?.Expression, child);
 }
 
 export function sourceCallableDefinitionIsDiscarded(declaration: Node, ast: AstReader): boolean {

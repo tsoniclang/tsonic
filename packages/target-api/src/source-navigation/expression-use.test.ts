@@ -3,6 +3,7 @@ import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse } from "./expression-use.js";
+import { sourceTransparentExpressionOperand } from "./ast.js";
 
 test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -121,4 +122,28 @@ test("async result dispositions preserve selected values and distinguish storage
   assert.throws(() => sourceExpressionResultDisposition({ ...source.ast, parent: () => wrapper,
     as: { ...source.ast.as, AsParenthesizedExpression: () => ({ ...wrapperData, Expression: wrapper }) } }, wrapper),
   /finite acyclic source boundary/u);
+});
+
+test("transparent operand selection has one exact checked syntax owner", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "function read(value: number) { return (((<number>value) as number) satisfies number)!; }",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts")!;
+  const expected = new Set(["KindParenthesizedExpression", "KindAsExpression", "KindTypeAssertionExpression",
+    "KindSatisfiesExpression", "KindNonNullExpression"]);
+  const seen = new Set<string>();
+  const visit = (node: Node): void => {
+    const kind = source.ast.kindName(node);
+    const operand = sourceTransparentExpressionOperand(source.ast, node);
+    assert.equal(operand !== undefined, expected.has(kind), kind);
+    if (operand !== undefined) {
+      assert.equal(source.ast.parent(operand) === node, true, kind + ": exact child");
+      seen.add(kind);
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  assert.deepEqual([...seen].sort(), [...expected].sort());
 });
