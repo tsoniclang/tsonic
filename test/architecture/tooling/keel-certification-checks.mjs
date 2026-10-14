@@ -185,9 +185,10 @@ function relocationSite(finding) {
   if (typeof evidence.bodySha256 !== "string" || !/^[a-f0-9]{64}$/u.test(evidence.bodySha256) ||
     !Number.isSafeInteger(evidence.offset) || evidence.offset < 0) return undefined;
   const { offset, ...proof } = evidence;
+  const subject = finding.subject.replace(/<(ArrowFunction|FunctionExpression|FunctionDeclaration)@[0-9]+>/gu, "<$1>");
   return {
-    key: JSON.stringify([finding.check, finding.repo, finding.file, finding.subject, finding.reason, evidence.bodySha256]),
-    identity: { ...identity, evidence: proof },
+    key: JSON.stringify([finding.check, finding.repo, finding.file, subject, finding.reason, evidence.bodySha256]),
+    identity: { ...identity, subject, evidence: proof },
   };
 }
 

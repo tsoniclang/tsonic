@@ -208,6 +208,33 @@ for (const repo of ["tsonic-csharp", "tsonic-rust"]) {
     assert.equal(added.inventory.violations.length, 2);
   });
 
+  test(`${repo}: checked anonymous callable relocations preserve every exact obligation once`, () => {
+    const anonymous = 'import { diagnostic } from "../../../analysis/program/diagnostics.js";\n' +
+      'export function plan(): void { [1, 2].forEach(() => { diagnostic("known"); }); }';
+    const previous = diagnosticFindings(repo, anonymous);
+    assert.equal(previous.length, 1);
+    assert.match(previous[0].subject, /<ArrowFunction@[0-9]+>/u);
+    const inventory = createKeelViolationInventory(previous, origin);
+    const current = diagnosticFindings(repo, "// An unrelated import-sized prefix.\n" + anonymous);
+    assert.notEqual(current[0].subject, previous[0].subject);
+    assert.equal(current[0].evidence.bodySha256, previous[0].evidence.bodySha256);
+    const comparison = evaluateKeelViolationInventory(current, inventory);
+    assert.equal(comparison.newViolations.length, 0);
+    assert.equal(comparison.relocatedViolations.length, 1);
+    assert.equal(comparison.inventory.violations[0] === previous[0], true);
+    const duplicated = diagnosticFindings(repo, "// Same exact syntax, but two obligations.\n" +
+      anonymous.replace('[1, 2].forEach(() => { diagnostic("known"); });',
+        '[1, 2].forEach(() => { diagnostic("known"); }); [1, 2].forEach(() => { diagnostic("known"); });'));
+    const added = evaluateKeelViolationInventory(duplicated, inventory);
+    assert.equal(added.relocatedViolations.length, 1);
+    assert.equal(added.newViolations.length, 1);
+    for (const changed of [anonymous.replace("function plan", "function other"),
+      anonymous.replace('"known"', '"changed"'),
+      anonymous.replace("{ diagnostic }", "{ otherDiagnostic as diagnostic }")]) {
+      assert.equal(evaluateKeelViolationInventory(diagnosticFindings(repo, changed), inventory).newViolations.length, 1);
+    }
+  });
+
   test(`${repo}: changed checked syntax, target and lexical owner remain new obligations`, () => {
     const previous = diagnosticFindings(repo, source);
     const inventory = createKeelViolationInventory(previous, origin);
