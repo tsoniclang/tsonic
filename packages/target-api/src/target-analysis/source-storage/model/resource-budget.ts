@@ -33,6 +33,7 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
   let edges = 0;
   let subjects = 0;
   let rows = 0;
+  let peakRows = 0;
   let steps = 0;
   const reject = (reason: string): void => { failure ??= reason; };
   const admit = (value: number, maximum: number, label: string): boolean => {
@@ -51,6 +52,7 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
         }
         if (!admit(rows + cost, limits.maximumTransportRows, "transport-row")) return false;
         rows += cost;
+        peakRows = Math.max(peakRows, rows);
         retained += cost;
         return true;
       },
@@ -64,6 +66,7 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
   };
   return Object.freeze({
     failure: (): string | undefined => failure,
+    usage: () => Object.freeze({ nodes, edges, subjects, rows, peakRows, steps }),
     reject,
     node: (): boolean => admit(++nodes, limits.maximumNodes, "source-node"),
     edge: (): boolean => admit(++edges, limits.maximumEdges, "edge"),
@@ -72,7 +75,12 @@ export function createSourceStorageBudget(selection: SourceStorageLimits) {
       subjects += cost;
       return admit(subjects, limits.maximumSubjectRows, "subject");
     },
-    row: (): boolean => admit(++rows, limits.maximumTransportRows, "transport-row"),
+    row: (): boolean => {
+      if (!admit(rows + 1, limits.maximumTransportRows, "transport-row")) return false;
+      rows += 1;
+      peakRows = Math.max(peakRows, rows);
+      return true;
+    },
     createRows,
     withRows<T>(collect: (rows: SourceStorageRows) => T): T {
       const owned = createRows();

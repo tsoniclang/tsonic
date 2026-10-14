@@ -138,7 +138,8 @@ test("throwing owner projection releases temporary rows and never caches a parti
   const reference = current.reference(current.first);
   assert.throws(() => current.keys.encode(reference), error => error === current.failure);
   const reservation = current.budget.createRows();
-  assert.equal(reservation.add(59), true, "only the complete five-row location footprint survives the failure");
+  assert.equal(current.budget.usage().rows, 18, "only five subject indexes and thirteen completed location-footprint rows survive");
+  assert.equal(reservation.add(46), true, "failed owner selection retains no key, projection or temporary rows");
   reservation.release();
   current.unavailable(false);
   assert.equal(typeof current.keys.encode(reference) === "string", true, "retry resolves every exact owner");

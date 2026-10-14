@@ -74,7 +74,8 @@ test("only complete retained relations survive after the temporary traversal fro
   for (let index = 0; index < 50; index += 1) assert.equal(ports.select(root)?.ports === selected, true);
   assert.equal(reads() === before, true, "selected contexts do not traverse this source segment again");
   const remaining = budget.createRows();
-  assert.equal(remaining.add(14), true, "only the two completed relation rows are retained");
+  assert.equal(budget.usage().rows, 14, "twelve exact subject indexes share one two-row completed footprint");
+  assert.equal(remaining.add(2), true, "all remaining capacity survives the completed component cache");
   remaining.release();
   assert.equal(budget.failure() === undefined, true);
 });
@@ -134,7 +135,8 @@ test("one completed context footprint retains locations and ports from the ident
   assert.equal(reads === 2, true, "ports and locations do not repeat the same source walk");
   assert.equal(footprints.select(root) === selected && reads === 2, true, "only the complete relation is reused");
   const remaining = budget.createRows();
-  assert.equal(remaining.add(13), true, "only the footprint, one port and one location remain retained");
+  assert.equal(budget.usage().rows, 8, "three subject indexes retain the port footprint and the exact cyclic component footprint");
+  assert.equal(remaining.add(8), true, "the component indexes and payload sets are fully accounted");
   remaining.release();
   assert.equal(budget.failure() === undefined, true);
 });
@@ -159,7 +161,8 @@ test("mutable binding contexts stop at the exact physical cell without erasing i
   assert.equal(inputs.get(cell).has(writer), true, "the independent value relation remains unchanged");
   assert.equal(footprints.select(root) === selected && budget.failure() === undefined, true);
   const remaining = budget.createRows();
-  assert.equal(remaining.add(6), true, "only the completed footprint and one physical cell remain charged");
+  assert.equal(budget.usage().rows, 4, "two subject indexes share the one completed physical-cell footprint");
+  assert.equal(remaining.add(4), true, "no transient component or union rows survive");
   remaining.release();
 });
 

@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { encodeSourceStorageKey } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
+import { createSourceStorageKeyEncoder } from "../../packages/target-api/dist/target-analysis/source-storage/graph/key-encoding.js";
 import { createSourceStorageScopedKeys } from "../../packages/target-api/dist/target-analysis/source-storage/scoped/scoped-keys.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
 
 const set = (...values) => ({ kind: "set", values });
 const budget = limits => createSourceStorageBudget({ ...defaultSourceStorageLimits, ...limits });
-const key = value => encodeSourceStorageKey(value, budget());
 
 test("canonical key encoding preserves atom, sequence, empty and unordered identities", () => {
+  const key = createSourceStorageKeyEncoder(budget()).encode;
   const values = [null, 0, 1, "0", "null", "[]", [], [0], [1], [null], [""], set(), set(0), set([0])];
   const keys = values.map(key);
   assert.equal(keys.every(value => typeof value === "string"), true);
@@ -20,6 +20,7 @@ test("canonical key encoding preserves atom, sequence, empty and unordered ident
 });
 
 test("shared and independently allocated equal key structures have one canonical encoding", () => {
+  const key = createSourceStorageKeyEncoder(budget()).encode;
   const shared = ["value", [1, 2, null]];
   const copied = () => ["value", [1, 2, null]];
   assert.equal(key([shared, shared]) === key([copied(), copied()]), true);
@@ -33,7 +34,7 @@ test("deep shared key DAGs retain linear encoded size without recursive stack tr
   const current = budget({ maximumSteps: 4096, maximumTransportRows: 4096 });
   let value = ["leaf"];
   for (let depth = 0; depth < 512; depth += 1) value = ["pair", value, value];
-  const encoded = encodeSourceStorageKey(value, current);
+  const encoded = createSourceStorageKeyEncoder(current).encode(value);
   assert.equal(typeof encoded === "string" && encoded.length < 40_000, true);
   assert.equal(current.failure() === undefined, true);
 });
@@ -64,15 +65,16 @@ test("actual scoped binding keys never expand a compact substitution DAG into ex
 
 test("nested unordered conditions preserve structure without recursively escaped key strings", () => {
   const current = budget({ maximumSteps: 4096, maximumTransportRows: 4096 });
+  const encoder = createSourceStorageKeyEncoder(current);
   let first = ["leaf"];
   let second = ["leaf"];
   for (let depth = 0; depth < 64; depth += 1) {
     first = ["transition", set([depth, first], [depth + 1, first]), first];
     second = ["transition", set([depth + 1, second], [depth, second]), second];
   }
-  const encoded = encodeSourceStorageKey(first, current);
+  const encoded = encoder.encode(first);
   assert.equal(typeof encoded === "string" && encoded.length < 30_000, true);
-  assert.equal(encodeSourceStorageKey(second, current) === encoded, true);
+  assert.equal(encoder.encode(second) === encoded, true);
   assert.equal(current.failure() === undefined, true);
 });
 
@@ -80,7 +82,7 @@ for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFIN
   test(`nonfinite key numbers cannot collapse into null (${value})`, () => {
     for (const input of [value, [value], set(value)]) {
       const current = budget();
-      assert.equal(encodeSourceStorageKey(input, current) === undefined, true);
+      assert.equal(createSourceStorageKeyEncoder(current).encode(input) === undefined, true);
       assert.match(current.failure(), /numbers must be finite/u);
     }
   });
@@ -92,11 +94,13 @@ test("key cycles reject without mistaking a completed shared child for a cycle",
     const value = kind === "sequence" ? children : { kind: "set", values: children };
     children.push(value);
     const current = budget();
-    assert.equal(encodeSourceStorageKey(value, current) === undefined, true);
+    const encoder = createSourceStorageKeyEncoder(current);
+    assert.equal(encoder.encode(value) === undefined, true);
     assert.match(current.failure(), /acyclic/u);
-    assert.equal(encodeSourceStorageKey(["later"], current) === undefined, true);
+    assert.equal(encoder.encode(["later"]) === undefined, true);
   }
   const child = [1];
+  const key = createSourceStorageKeyEncoder(budget()).encode;
   assert.equal(typeof key([child, child]) === "string", true);
 });
 
@@ -109,24 +113,69 @@ test("key work, nodes, broad child lists and text retain independent finite guar
     [{ maximumTransportRows: 8 }, "x".repeat(8192), /reservation|transport-row/u],
   ]) {
     const current = budget(limits);
-    assert.equal(encodeSourceStorageKey(value, current) === undefined, true, JSON.stringify(limits));
+    const encoder = createSourceStorageKeyEncoder(current);
+    assert.equal(encoder.encode(value) === undefined, true, JSON.stringify(limits));
     assert.match(current.failure(), reason);
-    assert.equal(encodeSourceStorageKey([], current) === undefined, true, "no cached or atomic bypass");
+    assert.equal(encoder.encode([]) === undefined, true, "no cached or atomic bypass");
   }
 });
 
-test("completed and throwing key encodes release their temporary representation without retained history", () => {
+test("canonical keys retain only accounted identities and throwing encodes roll back unpublished rows", () => {
   const current = budget({ maximumTransportRows: 64 });
+  const encoder = createSourceStorageKeyEncoder(current);
   const value = ["stable", [1, 2, 3]];
-  const expected = encodeSourceStorageKey(value, current);
-  for (let repeat = 0; repeat < 64; repeat += 1) assert.equal(encodeSourceStorageKey(value, current) === expected, true);
+  const expected = encoder.encode(value);
+  const retained = current.usage().rows;
+  assert.equal(retained > 0, true, "the canonical index is not an unaccounted cache");
+  for (let repeat = 0; repeat < 64; repeat += 1) assert.equal(encoder.encode(value) === expected, true);
+  assert.equal(current.usage().rows === retained, true, "equivalent requests retain no duplicate identity or history rows");
   const failure = new Error("child unavailable");
   const throwing = ["before", "after"];
   Object.defineProperty(throwing, 1, { get() { throw failure; } });
-  assert.throws(() => encodeSourceStorageKey(throwing, current), error => error === failure);
-  assert.equal(encodeSourceStorageKey(value, current) === expected, true);
+  assert.throws(() => encoder.encode(throwing), error => error === failure);
+  assert.equal(current.usage().rows === retained, true, "failed encodes publish no child or temporary rows");
+  assert.equal(encoder.encode(value) === expected, true);
   const remaining = current.createRows();
-  assert.equal(remaining.add(64), true, "no completed or failed request retains an encoding/index row");
+  assert.equal(remaining.add(64 - retained), true, "every unused row remains available after the bounded canonical index");
   remaining.release();
   assert.equal(current.failure() === undefined, true);
+});
+
+test("canonical handles belong to exactly one encoder and foreign or forged handles reject", () => {
+  const first = createSourceStorageKeyEncoder(budget());
+  const owned = first.intern(["shared", 1]);
+  assert.equal(first.encode([owned]) === first.encode([["shared", 1]]), true, "owned handles preserve exact structural equality");
+  for (const foreign of [owned, Object.freeze({ kind: "key", identity: 0 })]) {
+    const current = budget();
+    const second = createSourceStorageKeyEncoder(current);
+    assert.equal(second.encode([foreign]) === undefined, true);
+    assert.match(current.failure(), /different exact query owner/u);
+    assert.equal(second.encode([]) === undefined, true, "foreign-key rejection is sticky");
+  }
+});
+
+test("mutable input containers never masquerade as completed immutable canonical keys", () => {
+  const encoder = createSourceStorageKeyEncoder(budget());
+  const child = [1];
+  const value = [child];
+  const original = encoder.encode(value);
+  child[0] = 2;
+  assert.equal(encoder.encode(value) === original, false, "object identity cannot substitute for structural dependency evidence");
+  child[0] = 1;
+  assert.equal(encoder.encode(value) === original, true, "restored structure recovers the same exact identity");
+});
+
+test("atomic handles and inline atoms have identical structural meaning without redundant atom indexes", () => {
+  const current = budget();
+  const encoder = createSourceStorageKeyEncoder(current);
+  const original = encoder.encode(["leaf", 1, null]);
+  assert.equal(current.usage().rows, 1, "one canonical compound row contains its inline atomic payload");
+  const atoms = ["leaf", 1, null].map(value => encoder.intern(value));
+  assert.equal(encoder.encode(atoms) === original, true, "requesting a root atom never changes its nested structural meaning");
+  const unordered = values => ({ kind: "set", values });
+  assert.equal(encoder.encode(unordered(atoms)) === encoder.encode(unordered([null, 1, "leaf"])), true);
+  assert.equal(encoder.encode([1]) === encoder.encode(["1"]), false, "numeric identities never alias serialized string payloads");
+  const copied = Object.freeze({ ...atoms[0] });
+  assert.equal(encoder.encode(copied) === undefined, true, "matching all fields cannot forge the owning canonical object");
+  assert.match(current.failure(), /different exact query owner/u);
 });

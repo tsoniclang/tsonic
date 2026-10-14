@@ -1,3 +1,5 @@
+import { createTargetGraphComponentQuery } from "./graph-component-query.js";
+
 export type TargetGraphComponentsSelection<TVertex> =
   | { readonly kind: "resolved"; readonly components: readonly (readonly TVertex[])[] }
   | { readonly kind: "unresolved"; readonly reason: string };
@@ -10,56 +12,34 @@ export function targetStronglyConnectedComponents<TVertex>(
   if (typeof maximumSteps !== "function" && (!Number.isSafeInteger(maximumSteps) || maximumSteps <= 0)) {
     return Object.freeze({ kind: "unresolved", reason: "Graph component analysis requires a positive finite work budget." });
   }
-  const indexes = new Map<TVertex, number>();
-  const lowLinks = new Map<TVertex, number>();
-  const members: TVertex[] = [];
-  const active = new Set<TVertex>();
-  const components: (readonly TVertex[])[] = [];
-  const pending: { readonly vertex: TVertex; readonly neighbours: Iterator<TVertex> }[] = [];
   let steps = 0;
   const account = typeof maximumSteps === "function" ? maximumSteps : (): boolean => ++steps <= maximumSteps;
-  const enter = (vertex: TVertex): void => {
-    indexes.set(vertex, indexes.size);
-    lowLinks.set(vertex, indexes.get(vertex)!);
-    members.push(vertex);
-    active.add(vertex);
-    pending.push({ vertex, neighbours: neighbours(vertex)[Symbol.iterator]() });
-  };
-  for (const root of vertices) {
-    if (!account()) return exhausted();
-    if (indexes.has(root)) continue;
-    enter(root);
-    while (pending.length > 0) {
-      if (!account()) return exhausted();
-      const frame = pending[pending.length - 1]!;
-      const next = frame.neighbours.next();
-      if (!next.done) {
-        const target = next.value;
-        if (!vertices.has(target)) continue;
-        const index = indexes.get(target);
-        if (index === undefined) enter(target);
-        else if (active.has(target)) lowLinks.set(frame.vertex, Math.min(lowLinks.get(frame.vertex)!, index));
-        continue;
-      }
-      pending.pop();
-      const parent = pending[pending.length - 1];
-      if (parent !== undefined) lowLinks.set(parent.vertex,
-        Math.min(lowLinks.get(parent.vertex)!, lowLinks.get(frame.vertex)!));
-      if (lowLinks.get(frame.vertex) !== indexes.get(frame.vertex)) continue;
-      const component: TVertex[] = [];
-      while (members.length > 0) {
-        if (!account()) return exhausted();
-        const member = members.pop()!;
-        active.delete(member);
-        component.push(member);
-        if (indexes.get(member) === indexes.get(frame.vertex)) break;
-      }
-      components.push(Object.freeze(component));
+  const components: (readonly TVertex[])[] = [];
+  const select = createTargetGraphComponentQuery<TVertex, undefined, readonly TVertex[]>(vertex => {
+    const selected = new Set<TVertex>();
+    for (const target of neighbours(vertex)) {
+      if (!account()) return undefined;
+      if (vertices.has(target)) selected.add(target);
+    }
+    return { data: undefined, neighbours: selected };
+  }, members => {
+    const component = Object.freeze(members.map(member => member.vertex));
+    components.push(component);
+    return component;
+  }, {
+    step: account,
+    createRows: () => ({
+      add(cost): boolean {
+        for (let index = 0; index < cost; index += 1) if (!account()) return false;
+        return true;
+      },
+      release(): void {},
+    }),
+  });
+  for (const vertex of vertices) {
+    if (select(vertex) === undefined) {
+      return Object.freeze({ kind: "unresolved", reason: "Graph component analysis exceeds its finite work budget." });
     }
   }
   return Object.freeze({ kind: "resolved", components: Object.freeze(components) });
-
-  function exhausted(): Extract<TargetGraphComponentsSelection<TVertex>, { readonly kind: "unresolved" }> {
-    return Object.freeze({ kind: "unresolved", reason: "Graph component analysis exceeds its finite work budget." });
-  }
 }
