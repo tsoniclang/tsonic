@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import { sourceNodesEqual } from "./identity.js";
-import { Node_Expression } from "./ast.js";
+import { Node_Expression, sourceTransparentExpressionOperand } from "./ast.js";
 import { isTypeSyntaxNode } from "./syntax.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 
@@ -83,7 +83,7 @@ function sourceDeclarationUseKind(
   }
   let target = sourceMemberAccessForReference(ast, reference) ?? reference;
   let parent = ast.parent(target);
-  while (parent !== undefined && transparentExpressionContains(ast, parent, target)) {
+  while (parent !== undefined && sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), target)) {
     target = parent;
     parent = ast.parent(target);
   }
@@ -125,7 +125,7 @@ function sourceDeclarationUseRole(
     if (parent === undefined) {
       return { role: receiverPath ? "receiver" : "value", throughMember: receiverPath };
     }
-    if (transparentExpressionContains(ast, parent, current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
+    if (sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
       current = parent;
       continue;
     }
@@ -385,26 +385,3 @@ const comparisonOperators = new Set([
   "KindEqualsEqualsEqualsToken",
   "KindExclamationEqualsEqualsToken",
 ]);
-
-function transparentExpressionContains(
-  ast: AstReader,
-  wrapper: Node,
-  expression: Node,
-): boolean {
-  if (ast.is.IsParenthesizedExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsParenthesizedExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsAsExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsAsExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsSatisfiesExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsSatisfiesExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsNonNullExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsNonNullExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsTypeAssertion(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsTypeAssertion(wrapper)?.Expression, expression);
-  }
-  return false;
-}

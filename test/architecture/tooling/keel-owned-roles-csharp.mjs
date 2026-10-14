@@ -10,7 +10,7 @@ export const keelOwnedCsharpResponsibilities = Object.freeze({
       bodySha256: "82506690799a6d69a7739cbba8cf2f18bdbdfe2aa58e951ec3923ed7b616472c", role: "analysis",
       evidence: [{"kind":"loop","offset":17907}] },
     { file: "src/analysis/objects/value-domain-carriers.ts", symbol: "analyzeCsharpValueDomainCarriers",
-      bodySha256: "3555c529cd51abd35f1360a3c88057da9d1e72d214e90ccc42dabf415f19e525", role: "analysis",
+      bodySha256: "951fd26cfdcb2b739824ed6b62305ffdd535f873f2e8c5ef299d881e89bba2d2", role: "analysis",
       replaces: [{ file: "src/policy/types/objects/value-domain-carrier.ts", symbol: "csharpValueDomainHasTargetType" }],
       evidence: [{ kind: "parameter", name: "expressions" }] },
     { file: "src/policy/types/objects/read-projections.ts", symbol: "selectCsharpFlowReadProjection",

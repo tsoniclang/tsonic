@@ -7,6 +7,7 @@ import type {
 } from "./types.js";
 import { sourceDeclarationUses } from "./declaration-uses.js";
 import { sourceNodesEqual } from "./identity.js";
+import { sourceTransparentExpressionOperand } from "./ast.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
 
 export function sourceExpressionValueFlow(
@@ -122,7 +123,7 @@ function exactBindingAliasDestination(
     if (parent === undefined) {
       return undefined;
     }
-    if (transparentExpressionContains(ast, parent, current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
+    if (sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), current) || sourceExpressionSelectsOperandValue(ast, parent, current)) {
       current = parent;
       continue;
     }
@@ -147,33 +148,10 @@ function transparentExpressionParent(ast: AstReader, expression: Node): Node | u
   let current = expression;
   for (;;) {
     const parent = ast.parent(current);
-    if (parent === undefined || !transparentExpressionContains(ast, parent, current) &&
+    if (parent === undefined || !sourceNodesEqual(ast, sourceTransparentExpressionOperand(ast, parent), current) &&
       !sourceExpressionSelectsOperandValue(ast, parent, current)) {
       return parent;
     }
     current = parent;
   }
-}
-
-function transparentExpressionContains(
-  ast: AstReader,
-  wrapper: Node,
-  expression: Node,
-): boolean {
-  if (ast.is.IsParenthesizedExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsParenthesizedExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsAsExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsAsExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsSatisfiesExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsSatisfiesExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsNonNullExpression(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsNonNullExpression(wrapper)?.Expression, expression);
-  }
-  if (ast.is.IsTypeAssertion(wrapper)) {
-    return sourceNodesEqual(ast, ast.as.AsTypeAssertion(wrapper)?.Expression, expression);
-  }
-  return false;
 }

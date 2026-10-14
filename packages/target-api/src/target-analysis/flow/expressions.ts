@@ -1,11 +1,12 @@
 import type { Node } from "@tsonic/tsts";
 import { forEachSourceImmediateEvaluationChild } from "../../source-navigation/immediate-evaluation.js";
+import { sourceTransparentExpressionOperand } from "../../source-navigation/ast.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceFlowBinding, sourceFlowReference } from "./bindings.js";
 import { sourceFlowBooleanEdges, sourceFlowNullishEdges } from "./conditions.js";
 import { sourceFlowSequence, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { SourceFlowFailure } from "./resources.js";
-import { sourceFlowUnwrap, sourceFlowWrappedOperand } from "./syntax.js";
+import { sourceFlowUnwrap } from "./syntax.js";
 
 const assignments: ReadonlySet<string> = new Set(["KindEqualsToken", "KindPlusEqualsToken", "KindMinusEqualsToken",
   "KindAsteriskEqualsToken", "KindAsteriskAsteriskEqualsToken", "KindSlashEqualsToken", "KindPercentEqualsToken",
@@ -227,7 +228,7 @@ export function sourceFlowClosure(build: SourceFlowConstruction, node: Node, nex
 
 function transparentOperand(build: SourceFlowConstruction, node: Node): Node | undefined {
   const { ast } = build.source;
-  const wrapped = sourceFlowWrappedOperand(ast, node);
+  const wrapped = sourceTransparentExpressionOperand(ast, node);
   if (wrapped !== undefined) return wrapped;
   if (ast.is.IsVoidExpression(node)) return ast.as.AsVoidExpression(node)?.Expression;
   if (ast.is.IsTypeOfExpression(node)) return ast.as.AsTypeOfExpression(node)?.Expression;

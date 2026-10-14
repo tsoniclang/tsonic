@@ -3,7 +3,7 @@ export interface TargetContractRevision<Contract> {
   readonly dependencies: readonly string[];
 }
 
-export type TargetContractEvaluation<Contract> =
+export type TargetContractEvaluation<Contract, Failure = never> =
   | {
       readonly kind: "resolved";
       readonly revision: TargetContractRevision<Contract>;
@@ -16,6 +16,7 @@ export type TargetContractEvaluation<Contract> =
   | {
       readonly kind: "rejected";
       readonly reason: string;
+      readonly cause?: Failure;
     };
 
 export interface TargetContractEvaluationContext<Contract> {
@@ -23,12 +24,12 @@ export interface TargetContractEvaluationContext<Contract> {
   revision(id: string): number | undefined;
 }
 
-export interface TargetContractFixedPointRequest<Contract> {
+export interface TargetContractFixedPointRequest<Contract, Failure = never> {
   readonly roots: readonly string[];
   readonly evaluate: (
     id: string,
     context: TargetContractEvaluationContext<Contract>,
-  ) => TargetContractEvaluation<Contract>;
+  ) => TargetContractEvaluation<Contract, Failure>;
   readonly equals?: (left: Contract, right: Contract) => boolean;
   readonly maximumContracts?: number;
   readonly maximumRevisionsPerContract?: number;
@@ -43,7 +44,7 @@ export interface TargetContractProgram<Contract> {
   dependents(id: string): readonly string[];
 }
 
-export type TargetContractFixedPointResult<Contract> =
+export type TargetContractFixedPointResult<Contract, Failure = never> =
   | {
       readonly kind: "resolved";
       readonly program: TargetContractProgram<Contract>;
@@ -52,6 +53,7 @@ export type TargetContractFixedPointResult<Contract> =
       readonly kind: "rejected";
       readonly contractId?: string;
       readonly reason: string;
+      readonly cause?: Failure;
     };
 
 interface ContractRevisionState<Contract> {
@@ -68,9 +70,9 @@ const defaultMaximumContracts = 131_072;
 const defaultMaximumRevisionsPerContract = 256;
 const defaultMaximumEvaluations = 4_194_304;
 
-export function resolveTargetContractFixedPoint<Contract>(
-  request: TargetContractFixedPointRequest<Contract>,
-): TargetContractFixedPointResult<Contract> {
+export function resolveTargetContractFixedPoint<Contract, Failure = never>(
+  request: TargetContractFixedPointRequest<Contract, Failure>,
+): TargetContractFixedPointResult<Contract, Failure> {
   const equals = request.equals ?? Object.is;
   const maximumContracts = checkedPositiveLimit(
     request.maximumContracts,
@@ -104,7 +106,7 @@ export function resolveTargetContractFixedPoint<Contract>(
 
   const enqueue = (
     id: string,
-  ): TargetContractFixedPointResult<Contract> | undefined => {
+  ): TargetContractFixedPointResult<Contract, Failure> | undefined => {
     if (
       discovered.size >= maximumContracts &&
       !discovered.has(id)
@@ -155,7 +157,12 @@ export function resolveTargetContractFixedPoint<Contract>(
 
     const evaluation = request.evaluate(id, context);
     if (evaluation.kind === "rejected") {
-      return { kind: "rejected", contractId: id, reason: evaluation.reason };
+      return {
+        kind: "rejected",
+        contractId: id,
+        reason: evaluation.reason,
+        ...(evaluation.cause === undefined ? {} : { cause: evaluation.cause }),
+      };
     }
     const normalizedDependencies = normalizeContractIds(
       evaluation.kind === "resolved"
