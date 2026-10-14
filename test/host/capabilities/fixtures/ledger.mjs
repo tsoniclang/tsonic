@@ -4174,14 +4174,14 @@ const reviewedCapabilityEvidence = Object.freeze({
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
       "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-cache-properties-and-events.test.mjs",
       "../tsonic-csharp/test/providers/native/target-bindings/dotnet-provider-closures-and-type-families.test.mjs",
-      "../tsonic-csharp/test/providers/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
     ]),
     oldEvidence: Object.freeze([
@@ -7032,12 +7032,12 @@ const reviewedCapabilityEvidence = Object.freeze({
     positiveTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../tsonic-csharp/test/providers/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
     ]),
     negativeTests: Object.freeze([
       "test/cli-build/providers/dotnet/constraints-conversions.test.mjs",
       "test/cli-build/providers/source-semantics/core.test.mjs",
-      "../tsonic-csharp/test/providers/relations/direct-provider-relations.test.mjs",
+      "../tsonic-csharp/test/providers/native/relations/direct-provider-relations.test.mjs",
     ]),
     oldEvidence: Object.freeze([
       "packages/targets/csharp/emitter/testcases/common/types/type-assertions/TypeAssertions.ts",
