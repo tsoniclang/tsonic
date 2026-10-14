@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { createKeelViolationInventory } from "./tooling/keel-certification-checks.mjs";
 import { keelFinding } from "./tooling/keel-contract.mjs";
@@ -105,5 +106,44 @@ test("the real Git origin blocks later allowance restoration even after it is co
     assert.equal(evaluateCommittedKeelInventory({ findings: [first] }, repository, { final: true }).newViolations.length, 1);
   } finally {
     rmSync(repository, { recursive: true, force: true });
+  }
+});
+
+test("a shallow P5 checkout fails closed until full history restores its immutable role origin", () => {
+  const scratch = new URL("../../.temp/keel-architecture", import.meta.url).pathname;
+  mkdirSync(scratch, { recursive: true });
+  const root = mkdtempSync(resolve(scratch, "shallow-history-"));
+  const source = resolve(root, "source");
+  const shallow = resolve(root, "shallow");
+  const git = (repository, arguments_) => execFileSync("git", arguments_, {
+    cwd: repository, encoding: "utf8", timeout: 30_000,
+  });
+  const commit = message => {
+    git(source, ["add", "."]);
+    git(source, ["-c", "user.name=Keel test", "-c", "user.email=keel-test@example.invalid", "commit", "--quiet", "-m", message]);
+  };
+  try {
+    mkdirSync(resolve(source, "test/architecture/tooling"), { recursive: true });
+    writeFileSync(resolve(source, "test/architecture/tooling/rule.mjs"), "export const active = true;\n");
+    git(source, ["init", "--quiet", "--initial-branch=keel-history"]);
+    const initial = sampleInventory([first]);
+    initial.origin.toolingSha256 = readKeelToolingDigest(source);
+    initial.origin.roleObligations["tsonic-rust"] = [{
+      file: first.file, symbol: first.subject, role: "selection", bodySha256: "f".repeat(64),
+    }];
+    writeFileSync(resolve(source, keelViolationInventoryPath), JSON.stringify(initial));
+    commit("Record immutable role origin");
+    rmSync(resolve(source, keelViolationInventoryPath));
+    commit("P5 removes the completed transitional inventory");
+    git(root, ["clone", "--quiet", "--depth=1", pathToFileURL(source).href, shallow]);
+    assert.equal(git(shallow, ["rev-parse", "--is-shallow-repository"]).trim(), "true");
+    assert.equal(git(shallow, ["ls-tree", "--name-only", "HEAD", "--", keelViolationInventoryPath]).trim(), "");
+    assert.throws(() => readKeelRoleObligations(shallow), /complete non-shallow Git history/u);
+    assert.throws(() => readCommittedKeelInventory(shallow), /complete non-shallow Git history/u);
+    git(shallow, ["fetch", "--quiet", "--unshallow"]);
+    assert.equal(readKeelRoleObligations(shallow)["tsonic-rust"][0].role, "selection");
+    assert.equal(readCommittedKeelInventory(shallow) === undefined, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
