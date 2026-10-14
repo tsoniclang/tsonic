@@ -1,5 +1,8 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/declarations/types-and-bindings.ts", symbol: "selectRustTypeAliasDeclaration",
+      bodySha256: "3e019c2d15ad58521ba84e319567c4d6f2db54507d6a6face3457952a8a59082", role: "analysis",
+      evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/declarations/type-only.ts", symbol: "selectRustTypeOnlyDeclaration",
       bodySha256: "a39b7672eeaece3a6efde5d8778c309e9e395b862bdc247af0482b29b77cc872", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
