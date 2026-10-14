@@ -63,13 +63,20 @@ export interface TargetCompilationObserver<Program, Plan> {
   readonly planned?: (plan: Plan) => void;
 }
 
-class TargetPlannerInvariantFailure extends Error {
+class TargetCompilationInvariantFailure extends Error {
   readonly diagnostic: TargetDiagnostic;
 
-  constructor(source: string, message: string, sourceNode?: Node) {
+  constructor(
+    readonly phase: "analysis" | "planning",
+    source: string,
+    message: string,
+    sourceNode?: Node,
+  ) {
     super(message);
     this.diagnostic = Object.freeze({
-      code: "TSONIC_INTERNAL_PLANNER_INVARIANT",
+      code: phase === "analysis"
+        ? "TSONIC_INTERNAL_ANALYSIS_INVARIANT"
+        : "TSONIC_INTERNAL_PLANNER_INVARIANT",
       category: "error",
       source,
       message,
@@ -78,12 +85,20 @@ class TargetPlannerInvariantFailure extends Error {
   }
 }
 
+export function failTargetAnalysisInvariant(
+  source: string,
+  message: string,
+  sourceNode?: Node,
+): never {
+  throw new TargetCompilationInvariantFailure("analysis", source, message, sourceNode);
+}
+
 export function failTargetPlannerInvariant(
   source: string,
   message: string,
   sourceNode?: Node,
 ): never {
-  throw new TargetPlannerInvariantFailure(source, message, sourceNode);
+  throw new TargetCompilationInvariantFailure("planning", source, message, sourceNode);
 }
 
 export function resolvedTargetStage<T>(
@@ -116,7 +131,15 @@ export function runTargetCompilationStages<Program, Plan>(
   stages: TargetCompilationStages<Program, Plan>,
   observer?: TargetCompilationObserver<Program, Plan>,
 ): TargetCompileResult {
-  const analysis = stages.analyze();
+  let analysis: TargetStageResult<Program>;
+  try {
+    analysis = stages.analyze();
+  } catch (failure) {
+    if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "analysis") {
+      throw failure;
+    }
+    return rejectedTargetStage([failure.diagnostic]);
+  }
   if (analysis.kind === "rejected") {
     return rejectedTargetStage(analysis.diagnostics);
   }
@@ -125,7 +148,7 @@ export function runTargetCompilationStages<Program, Plan>(
   try {
     planning = stages.plan(analysis.value);
   } catch (failure) {
-    if (!(failure instanceof TargetPlannerInvariantFailure)) {
+    if (!(failure instanceof TargetCompilationInvariantFailure) || failure.phase !== "planning") {
       throw failure;
     }
     return rejectedTargetStage([...analysis.diagnostics, failure.diagnostic]);

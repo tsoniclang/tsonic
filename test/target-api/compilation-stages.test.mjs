@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  failTargetAnalysisInvariant,
   failTargetPlannerInvariant,
   rejectedTargetStage,
   resolvedTargetStage,
@@ -95,6 +96,72 @@ test("target stage constructors reject contradictory diagnostic categories", () 
 });
 
 for (const source of ["tsonic-csharp", "tsonic-rust"]) {
+  test(`${source} analysis invariants reject before observation, planning or artifact publication`, async () => {
+    const checked = await checkedSource(`analysis-invariant-${source}`, {
+      "src/index.ts": "export const value = 1;",
+    });
+    const selectedNode = projectSourceFile(checked, "src/index.ts");
+    const message = "A required analyzed record is absent at the seal.";
+    for (const sourceNode of [undefined, selectedNode]) {
+      const events = [];
+      const result = runTargetCompilationStages({
+        analyze() {
+          events.push("analyze");
+          failTargetAnalysisInvariant(source, message, sourceNode);
+        },
+        plan() { assert.fail("Rejected analysis cannot be planned."); },
+        materialize() { assert.fail("Rejected analysis cannot publish artifacts."); },
+      }, {
+        analyzed() { assert.fail("Rejected analysis cannot be observed."); },
+        planned() { assert.fail("Rejected analysis cannot publish a plan."); },
+      });
+      assert.equal(result.kind, "rejected");
+      assert.deepEqual(Object.keys(result).sort(), ["diagnostics", "kind"]);
+      assert.equal(result.diagnostics.length, 1);
+      const diagnostic = result.diagnostics[0];
+      assert.equal(diagnostic.code, "TSONIC_INTERNAL_ANALYSIS_INVARIANT");
+      assert.equal(diagnostic.category, "error");
+      assert.equal(diagnostic.source, source);
+      assert.equal(diagnostic.message, message);
+      assert.equal(diagnostic.sourceNode === sourceNode, true, "exact optional analyzed source node");
+      assert.equal(Object.isFrozen(result), true);
+      assert.equal(Object.isFrozen(result.diagnostics), true);
+      assert.equal(Object.isFrozen(diagnostic), true);
+      assert.throws(() => { diagnostic.code = "SOURCE_REJECTION"; }, TypeError);
+      assert.deepEqual(events, ["analyze"]);
+    }
+  });
+
+  for (const phase of ["plan", "materialize"]) {
+    test(`${source} analysis invariant failures outside analysis propagate unchanged from ${phase}`, () => {
+      let failure;
+      try {
+        failTargetAnalysisInvariant(source, "An analysis invariant was raised in the wrong phase.");
+      } catch (caught) {
+        failure = caught;
+      }
+      assert.equal(failure instanceof Error, true);
+      const events = [];
+      assert.throws(() => runTargetCompilationStages({
+        analyze() {
+          events.push("analyze");
+          return resolvedTargetStage({}, [warning]);
+        },
+        plan() {
+          events.push("plan");
+          if (phase === "plan") throw failure;
+          return resolvedTargetStage({});
+        },
+        materialize() {
+          events.push("materialize");
+          throw failure;
+        },
+      }), caught => caught === failure);
+      assert.deepEqual(events, phase === "plan"
+        ? ["analyze", "plan"] : ["analyze", "plan", "materialize"]);
+    });
+  }
+
   test(`${source} planner invariants retain exact source identity and reject without materializing`, async () => {
     const checked = await checkedSource(`planner-invariant-${source}`, {
       "src/index.ts": "export const value = 1;",
@@ -173,6 +240,9 @@ for (const phase of ["analyze", "plan", "materialize"]) {
       source: "another-owner", message: "A structural lookalike is not the private failure type." });
     const failures = [new Error("ordinary failure"), "a non-error failure",
       Object.assign(new Error(diagnostic.message), { name: "TargetPlannerInvariantFailure", diagnostic }),
+      Object.assign(new Error(diagnostic.message), {
+        name: "TargetCompilationInvariantFailure", phase: "analysis", diagnostic,
+      }),
       Object.freeze({ diagnostic })];
     for (const failure of failures) {
       const events = [];
@@ -305,6 +375,27 @@ for (const callback of ["analyzed", "planned"]) {
     let failure;
     try {
       failTargetPlannerInvariant("observer-test", "observer failed outside the planner");
+    } catch (caught) {
+      failure = caught;
+    }
+    const events = [];
+    assert.throws(() => runTargetCompilationStages({
+      analyze: () => resolvedTargetStage({}),
+      plan() {
+        events.push("plan");
+        return resolvedTargetStage({});
+      },
+      materialize() { assert.fail("A failed observer cannot continue emission."); },
+    }, { [callback]() { throw failure; } }), caught => caught === failure);
+    assert.deepEqual(events, callback === "analyzed" ? [] : ["plan"]);
+  });
+}
+
+for (const callback of ["analyzed", "planned"]) {
+  test(`an analysis invariant from the ${callback} observer propagates unchanged`, () => {
+    let failure;
+    try {
+      failTargetAnalysisInvariant("observer-test", "observer failed outside analysis");
     } catch (caught) {
       failure = caught;
     }
