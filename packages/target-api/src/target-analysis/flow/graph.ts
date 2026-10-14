@@ -1,6 +1,7 @@
 import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { sourceFlowPattern } from "./bindings.js";
+import { createSourceFlowCaptureQuery } from "./captures.js";
 import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { sourceFlowExpression } from "./expressions.js";
 import type { SourceControlFlowSelection, SourceFlowLimits } from "./model.js";
@@ -33,7 +34,8 @@ export function createSourceControlFlow(source: TargetSourceProgram, declaration
         if (child !== undefined) pending.push({ node: child, depth: current.depth + 1 });
       }
     }
-    const build: SourceFlowConstruction = { source, point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
+    const build: SourceFlowConstruction = { source, captures: createSourceFlowCaptureQuery(source, owner.step),
+      point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
       expression: (node, next, context) => owner.nested(node, () => sourceFlowExpression(build, node, next, context)),
       statement: (node, next, context) => owner.nested(node, () => sourceFlowStatement(build, node, next, context)),
       pattern: (node, next, context, initialization) => owner.nested(node, () => sourceFlowPattern(build, node, next, context, initialization)),

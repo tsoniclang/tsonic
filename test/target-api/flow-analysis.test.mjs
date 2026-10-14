@@ -58,10 +58,11 @@ test("flow liveness reaches a fixed point through nested loops including labelle
 });
 
 test("flow backward solver visits nonterminating loops that cannot reach an exit", async () => {
-  const current = await fixture("function use(value: number) {} function run(value: number) { for (;;) { use(value); } }");
+  const current = await fixture("function run(value: number) { for (;;) { const observed = value; } }");
   const live = resolved(analyzeSourceLiveness(current.graph));
   const use = reads(current, "value")[0];
   assert.equal(live.reachable.has(current.graph.exit), false);
+  assert.equal(live.reachable.has(current.graph.exceptionExit), false);
   assert.equal(live.lastUses.has(use.source), false);
   assert.equal(live.before.get(use.id).has(use.operation.binding), true);
 });
