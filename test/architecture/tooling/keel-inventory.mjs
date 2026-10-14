@@ -46,6 +46,7 @@ export function validateKeelWorkspaceInventory(inventory) {
 }
 
 export function readKeelRoleObligations(repository) {
+  requireFullHistory(repository);
   const revisions = git(repository, [
     "log", "--first-parent", "--reverse", "--format=%H", "--", keelViolationInventoryPath,
   ]).trim().split("\n").filter(Boolean);
@@ -82,6 +83,7 @@ export function validateKeelInventoryHistory(history, current) {
 }
 
 export function readCommittedKeelInventory(repository) {
+  requireFullHistory(repository);
   const revisions = git(repository, [
     "log", "--first-parent", "--reverse", "--format=%H", "--", keelViolationInventoryPath,
   ]).trim().split("\n").filter(Boolean);
@@ -123,6 +125,12 @@ export function readKeelToolingDigest(repository, revision) {
 
 function isDigest(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function requireFullHistory(repository) {
+  if (git(repository, ["rev-parse", "--is-shallow-repository"]).trim() !== "false") {
+    throw new Error("Keel inventory and semantic-role proofs require complete non-shallow Git history; fetch --unshallow before checking.");
+  }
 }
 
 function git(repository, arguments_) {
