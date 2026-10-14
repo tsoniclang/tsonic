@@ -5,9 +5,17 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import * as publicAnalysis from "../../packages/target-api/dist/public/analysis.js";
 import { createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
   analyzeSourceWrites } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
+
+test("the public flow port exports the identical canonical graph and solver owners", () => {
+  for (const [name, owner] of Object.entries({ createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness,
+    analyzeSourceDefiniteAssignment, analyzeSourceWrites })) {
+    assert.equal(publicAnalysis[name] === owner, true, name);
+  }
+});
 
 let caseNumber = 0;
 async function fixture(text, name = "run") {
