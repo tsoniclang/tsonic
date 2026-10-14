@@ -62,4 +62,17 @@ export const moduleInitializationErrorCases = Object.freeze([
     files: Object.fromEntries(Object.entries(sourcePackageCallbackErrorFiles).filter(([path]) => path !== "index.ts")),
     sourcePackages: sourcePackageCallbackErrorGraph,
   },
+  {
+    name: "support_name_collisions",
+    source: 'import { left } from "./left.js";\n' + preamble + `
+    export class InitializationError { code(): int32 { return 1; } }
+    export class InitializationErrors { code(): int32 { return 2; } }
+    export const result: int32 = invoke((): int32 => left + 1);
+    export function initialize(): int32 { return result; }
+    if (initialize() !== 42 || new InitializationError().code() !== 1 ||
+        new InitializationErrors().code() !== 2) throw new Error("authored support names");`,
+    files: {
+      "left.ts": preamble + "export const left: int32 = invoke((): int32 => 41);",
+    },
+  },
 ]);
