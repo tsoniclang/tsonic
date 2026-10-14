@@ -11,7 +11,25 @@ import {
 
 type TestBuilderFact =
   | (TargetSafetyApplicationFact & { readonly contract: string })
-  | { readonly kind: "builder-state" };
+  | { readonly kind: "builder-state"; readonly label?: string };
+
+function guarded<T extends object>(value: T, sealed: () => boolean, path: string): T {
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(value)) {
+    const member: unknown = Reflect.get(value, key);
+    copy[key] = typeof member === "function"
+      ? (...parameters: unknown[]) => {
+          if (sealed()) throw new Error(`${path}.${key} was called after index construction`);
+          return Reflect.apply(member, value, parameters);
+        }
+      : member !== null && typeof member === "object" &&
+          Object.keys(member).length > 0 &&
+          Object.keys(member).every(name => typeof Reflect.get(member, name) === "function")
+        ? guarded(member, sealed, `${path}.${key}`)
+        : member;
+  }
+  return copy as T;
+}
 
 const sourceText = `
 class Value {
@@ -31,6 +49,10 @@ mark("declaration");
 mark("constructor");
 (mark("parenthesized"));
 mark("state");
+((mark("nested")));
+(mark("wrapped-exact"));
+mark("unregistered");
+(1 + 2);
 export {};
 `;
 
@@ -84,28 +106,40 @@ function fixture() {
     ["constructor", application("constructor", [], value)],
     ["parenthesized", application("getter", [getter, setter])],
     ["state", { kind: "builder-state" }],
+    ["nested", { kind: "builder-state", label: "nested" }],
+    ["wrapped-exact", { kind: "builder-state", label: "inner" }],
   ]);
+  const wrapperFact: TestBuilderFact = { kind: "builder-state", label: "wrapper" };
   const calls = new Map<string, Node>();
   for (const node of nodes) {
     const text = label(node);
     if (text !== undefined) calls.set(text, node);
   }
+  let sealed = false;
+  const isSealed = () => sealed;
+  const guardedAst = guarded(ast, isSealed, "ast");
   const index = createTargetSafetyApplicationIndex<{ readonly kind: "remaining-block" }, TestBuilderFact>({
-    ast,
+    ast: guardedAst,
     sourceFiles: [file!],
-    navigation: source.navigation,
-    readUnsafeContext: () => undefined,
+    navigation: guarded(source.navigation, isSealed, "navigation"),
+    readUnsafeContext: () => {
+      if (sealed) throw new Error("readUnsafeContext was called after index construction");
+      return undefined;
+    },
     readSafetyBuilder: node => {
+      if (sealed) throw new Error("readSafetyBuilder was called after index construction");
+      if (ast.is.IsParenthesizedExpression(node) && Node_Expression(ast, node) === calls.get("wrapped-exact")) return wrapperFact;
       const text = label(node);
       return text === undefined ? undefined : facts.get(text);
     },
   });
+  const seal = () => { sealed = true; };
   const call = (text: string): Node => {
     const found = calls.get(text);
     assert.equal(found !== undefined, true, text);
     return found!;
   };
-  return { ast, index, call, getter, setter, field, value, constructor: constructor!, indexSignature: indexSignature!, nodes };
+  return { ast, guardedAst, index, call, seal, wrapperFact, getter, setter, field, value, constructor: constructor!, indexSignature: indexSignature!, nodes };
 }
 
 test("getter and setter applications cover only the accessor their placement names, once", () => {
@@ -156,4 +190,54 @@ test("compile-time application references are the references inside an applicati
   const outside = nodes.find(node => ast.is.IsReturnStatement(node));
   assert.equal(outside !== undefined, true);
   assert.equal(index.isCompileTimeApplicationReference(getter, outside!), false);
+});
+
+test("parenthesis-transparent lookups are stored at construction, with exact-node precedence", () => {
+  const { ast, index, call, nodes, wrapperFact } = fixture();
+  const wrappersOf = (inner: Node): Node[] => {
+    const found: Node[] = [];
+    for (let parent = ast.parent(inner); parent !== undefined && ast.is.IsParenthesizedExpression(parent); parent = ast.parent(parent)) {
+      found.push(parent);
+    }
+    return found;
+  };
+  const nested = wrappersOf(call("nested"));
+  assert.equal(nested.length, 2);
+  for (const wrapper of nested) {
+    assert.equal(index.operationForSubject(wrapper), undefined);
+    assert.equal(index.operationForExpression(wrapper), index.operationForSubject(call("nested")));
+  }
+  const [wrapped] = wrappersOf(call("wrapped-exact"));
+  assert.equal(index.operationForSubject(wrapped!)?.fact, wrapperFact);
+  assert.equal(index.operationForExpression(wrapped!)?.fact, wrapperFact, "the wrapper's own fact takes precedence");
+  assert.equal(index.operationForExpression(call("wrapped-exact"))?.fact, index.operationForSubject(call("wrapped-exact"))?.fact);
+  assert.notEqual(index.operationForExpression(call("wrapped-exact"))?.fact, wrapperFact);
+  assert.equal(index.operationForExpression(call("unregistered")), undefined);
+  const arithmetic = nodes.find(node => ast.is.IsParenthesizedExpression(node) && ast.is.IsBinaryExpression(Node_Expression(ast, node)!));
+  assert.equal(arithmetic !== undefined, true);
+  assert.equal(index.operationForExpression(arithmetic!), undefined);
+});
+
+test("no index query reads the AST, navigation or fact readers after construction", () => {
+  const { ast, guardedAst, index, call, seal, getter, setter, nodes } = fixture();
+  const inside = ast.arguments(call("getter"))[0]!;
+  const nestedWrapper = nodes.find(node => ast.is.IsParenthesizedExpression(node) &&
+    ast.is.IsParenthesizedExpression(Node_Expression(ast, node)!) &&
+    Node_Expression(ast, Node_Expression(ast, node)!) === call("nested"));
+  assert.equal(nestedWrapper !== undefined, true);
+  const sourceFile = index.all[0]!.sourceFile;
+  seal();
+  assert.throws(() => guardedAst.is.IsParenthesizedExpression(inside), /after index construction/u);
+  assert.throws(() => guardedAst.parent(inside), /after index construction/u);
+  assert.equal(index.forDeclaration(getter).length, 3);
+  assert.equal(index.forDeclaration(setter).length, 2);
+  assert.equal(index.forSourceFile(sourceFile).length, 7);
+  assert.equal(index.isCompileTimeApplicationReference(getter, inside), true);
+  assert.equal(index.isCompileTimeApplicationReference(setter, inside), false);
+  assert.equal(index.operationForExpression(nestedWrapper!)?.kind, "safety-builder");
+  for (const node of nodes) {
+    index.operationForSubject(node);
+    index.operationForExpression(node);
+    index.isCompileTimeApplicationReference(getter, node);
+  }
 });

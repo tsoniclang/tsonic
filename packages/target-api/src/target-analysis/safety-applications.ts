@@ -64,9 +64,13 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
   const bySourceFile = new Map<SourceFile, readonly Application[]>();
   const byDeclaration = new Map<Node, Application[]>();
   const bySubject = new Map<Node, TargetSafetyOperation<UnsafeContext, Builder>>();
+  const wrappers: Node[] = [];
   for (const sourceFile of input.sourceFiles) {
     const applications: Application[] = [];
-    walkSourceFile(sourceFile, input.ast, (node) => {
+    walkSubtree(sourceFile, input.ast, (node) => {
+      if (input.ast.is.IsParenthesizedExpression(node)) {
+        wrappers.push(node);
+      }
       const unsafeContext = input.readUnsafeContext(node);
       if (unsafeContext !== undefined) {
         bySubject.set(node, { kind: "unsafe-context", fact: unsafeContext });
@@ -90,6 +94,28 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
     });
     bySourceFile.set(sourceFile, Object.freeze(applications));
   }
+  const byExpression = new Map<Node, TargetSafetyOperation<UnsafeContext, Builder>>();
+  for (const wrapper of wrappers) {
+    let current: Node | undefined = wrapper;
+    while (current !== undefined) {
+      const operation = bySubject.get(current);
+      if (operation !== undefined) {
+        byExpression.set(wrapper, operation);
+        break;
+      }
+      current = input.ast.is.IsParenthesizedExpression(current)
+        ? Node_Expression(input.ast, current)
+        : undefined;
+    }
+  }
+  const enclosingApplications = new Map<Node, Application[]>();
+  for (const application of all) {
+    walkSubtree(application.sourceSubject, input.ast, (node) => {
+      const existing = enclosingApplications.get(node) ?? [];
+      existing.push(application);
+      enclosingApplications.set(node, existing);
+    });
+  }
   const emptyApplications: readonly Application[] = Object.freeze([]);
   return Object.freeze({
     all: Object.freeze(all),
@@ -98,24 +124,13 @@ export function createTargetSafetyApplicationIndex<UnsafeContext, Builder extend
     forDeclaration: (declaration: Node) =>
       byDeclaration.get(declaration) ?? emptyApplications,
     isCompileTimeApplicationReference(declaration: Node, reference: Node) {
-      return (byDeclaration.get(declaration) ?? emptyApplications).some(
-        (application) => nodeIsWithin(reference, application.sourceSubject, input.ast),
+      return (enclosingApplications.get(reference) ?? emptyApplications).some(
+        (application) => application.targetDeclarations.includes(declaration),
       );
     },
     operationForSubject: (subject: Node) => bySubject.get(subject),
-    operationForExpression(expression: Node) {
-      let current: Node | undefined = expression;
-      while (current !== undefined) {
-        const operation = bySubject.get(current);
-        if (operation !== undefined) {
-          return operation;
-        }
-        current = input.ast.is.IsParenthesizedExpression(current)
-          ? Node_Expression(input.ast, current)
-          : undefined;
-      }
-      return undefined;
-    },
+    operationForExpression: (expression: Node) =>
+      bySubject.get(expression) ?? byExpression.get(expression),
   });
 }
 
@@ -202,29 +217,18 @@ function carriesBothAccessors(ast: AstReader, declaration: Node): boolean {
     ast.is.IsPropertySignatureDeclaration(declaration);
 }
 
-function nodeIsWithin(node: Node, ancestor: Node, ast: AstReader): boolean {
-  let current: Node | undefined = node;
-  while (current !== undefined) {
-    if (current === ancestor) {
-      return true;
-    }
-    current = ast.parent(current);
-  }
-  return false;
-}
-
 function uniqueNodes(nodes: readonly (Node | undefined)[]): readonly Node[] {
   return Object.freeze([...new Set(nodes.filter(
     (node): node is Node => node !== undefined,
   ))]);
 }
 
-function walkSourceFile(
-  sourceFile: SourceFile,
+function walkSubtree(
+  root: Node,
   ast: AstReader,
   visit: (node: Node) => void,
 ): void {
-  const pending: Node[] = [sourceFile];
+  const pending: Node[] = [root];
   while (pending.length > 0) {
     const node = pending.pop();
     if (node === undefined) {
