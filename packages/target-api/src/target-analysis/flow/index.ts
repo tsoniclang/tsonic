@@ -5,4 +5,5 @@ export { defaultSourceFlowLimits } from "./resources.js";
 export type { SourceControlFlowGraph, SourceControlFlowSelection, SourceFlowEdge, SourceFlowEdgeKind,
   SourceFlowLattice, SourceFlowLimits, SourceFlowOperation, SourceFlowPoint, SourceFlowProblem,
   SourceFlowSolution, SourceFlowUnresolved, SourceFlowWork } from "./model.js";
-export type { SourceFlowWriteCount } from "./instances.js";
+export type { SourceFlowWriteCount, SourceFlowLivenessSelection, SourceFlowDefiniteAssignmentSelection,
+  SourceFlowWritesSelection } from "./instances.js";

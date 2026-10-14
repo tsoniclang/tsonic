@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
   analyzeSourceWrites } from "../../packages/target-api/dist/target-analysis/flow/index.js";
@@ -241,4 +245,38 @@ test("flow transparent assignment and update references retain exact binding wri
   assert.equal(resolved(analyzeSourceDefiniteAssignment(current.graph)).unassignedReads.size, 0);
   const binding = namedVariable(current.ast, current.file, "value");
   assert.equal(resolved(analyzeSourceWrites(current.graph)).maximum.get(binding), 2);
+});
+
+test("flow published fact collections reject mutation through the checked TypeScript API", () => {
+  const directory = resolve(".temp/test-runs/flow-readonly-api", `${Date.now()}-${process.pid}`);
+  mkdirSync(directory, { recursive: true });
+  const path = resolve(directory, "consumer.ts");
+  const owner = fileURLToPath(new URL("../../packages/target-api/dist/target-analysis/flow/index.js", import.meta.url));
+  writeFileSync(path, `
+    import { analyzeSourceLiveness, analyzeSourceDefiniteAssignment, analyzeSourceWrites } from ${JSON.stringify(owner)};
+    import type { SourceControlFlowGraph } from ${JSON.stringify(owner)};
+    export function consumer(graph: SourceControlFlowGraph): void {
+      const live = analyzeSourceLiveness(graph);
+      const assigned = analyzeSourceDefiniteAssignment(graph);
+      const writes = analyzeSourceWrites(graph);
+      if (live.kind === "resolved") {
+        live.lastUses.add(graph.declaration);
+        live.before.set(graph.entry, new Set());
+      }
+      if (assigned.kind === "resolved") assigned.unassignedReads.add(graph.declaration);
+      if (writes.kind === "resolved") writes.maximum.set(graph.declaration, 2);
+      graph.bindings.add(graph.declaration);
+      graph.points[0]?.successors.push({ from: 0, to: 0, kind: "normal" });
+    }
+  `);
+  const configuration = resolve(directory, "tsconfig.json");
+  writeFileSync(configuration, JSON.stringify({ compilerOptions: { noEmit: true, strict: true, skipLibCheck: true,
+    target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", types: ["node"] }, files: ["consumer.ts"] }));
+  const result = spawnSync(resolve("node_modules/.bin/tsgo"), ["--project", configuration, "--pretty", "false"],
+  { encoding: "utf8", timeout: 60000, maxBuffer: 65536 });
+  assert.equal(result.error === undefined, true, "the real compiler finishes under the inherited process-group guard");
+  assert.equal(result.status, 1, result.stdout.slice(0, 8192) || result.stderr.slice(0, 8192));
+  const diagnostics = result.stdout.split("\n").filter(line => line.includes("error TS"));
+  assert.equal(diagnostics.length, 6, result.stdout.slice(0, 8192));
+  assert.equal(diagnostics.every(line => line.includes("error TS2339:")), true, diagnostics.join("\n"));
 });
