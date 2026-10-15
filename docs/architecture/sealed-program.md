@@ -226,8 +226,10 @@ responsibility; consolidation must preserve all compound query arguments.
 | `storage.ts` | `storage/` | `nativeModuleField`, `nativeLocation`, `nativeArray`, `nativeField`, `nativeBacking`, `storageType`, `requiredStorageType`, `lambdaParameterType`, `typedLocationIdentity` |
 | `type-projections.ts` | `declarations/` | `genericProjection`, `outerGenericProjection` |
 
-`operatorForm` is one classification per binary, prefix and postfix operator:
-its route and its expected-result eligibility are selected by the native policy
+`operatorForm` is one classification per binary, prefix and postfix operator
+that the operations walk reaches; operators inside compile-time metadata or
+native-unreachable code have none. Its route and its expected-result
+eligibility are selected by the native policy
 in `policy/operations/operators/operator-forms.ts` and `expected-result.ts`.
 The operations walk calls that policy once, after the operator's operand facts
 are complete, and publishes the result; the planner only reads it.
