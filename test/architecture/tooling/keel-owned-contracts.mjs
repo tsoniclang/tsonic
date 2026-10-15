@@ -31,6 +31,10 @@ export const keelOwnedTargets = Object.freeze({
     diagnosticCalls: ["selectedPolicyDiagnostic", "targetPolicyDiagnostic", "unsupportedNodeDiagnostic"].map(symbol => ({
       file: "src/backend/planner/diagnostics.ts", symbol,
     })),
+    recordReaders: [{
+      file: "src/target-model/records/operations.ts",
+      symbol: "CsharpTargetOperationClassifications.operatorForm.usesExpectedResultType",
+    }],
     ...keelOwnedCsharpResponsibilities,
   }),
   "tsonic-rust": Object.freeze({

@@ -200,7 +200,7 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 121 families, grouped by their declaration module under
+C# exposes 122 families, grouped by their declaration module under
 `target-model/records/` or the named shared source contract. The analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
 
@@ -219,12 +219,18 @@ responsibility; consolidation must preserve all compound query arguments.
 | `numeric.ts` | `numeric/` | `int32Remainder` |
 | shared `SourceLiteralIndex` | `target-api/source-semantics/literal-values.ts`, composed once before target type analysis | `literalValue` |
 | `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
-| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
+| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `operatorForm`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
 | `safety.ts` | `safety/` | `sourceSafetyApplication`, `safetyApplication`, `safetyOperation` |
 | `source-evidence.ts` | `source-evidence/`, with declaration/type/callable inputs | `bindingProjection`, `closedArrayStorage`, `compileTimeMetadata`, `nodeTargetType`, `classConstructorType`, `storageTargetType`, `readStorageTargetType`, `expressionType`, `contextualType`, `contextualTargetType`, `semanticTargetType`, `semanticType`, `signatureDeclaration`, `contextualTuple`, `constantValue`, `valueRefinement`, `generator`, `generatorTargetType`, `yield`, `yieldTargetType`, `wellKnownSymbol`, `inferredCallableReturnType`, `pointerReturn`, `sourceArgument`, `sourceDefaultValue`, `sourceField`, `sourceStruct`, `providerVirtualDeclaration`, `typeParameterConstraints`, `sourceOwnedProjectShape` |
 | `source-modules.ts` | `source-modules/` | `sourceModuleConstruction` |
 | `storage.ts` | `storage/` | `nativeModuleField`, `nativeLocation`, `nativeArray`, `nativeField`, `nativeBacking`, `storageType`, `requiredStorageType`, `lambdaParameterType`, `typedLocationIdentity` |
 | `type-projections.ts` | `declarations/` | `genericProjection`, `outerGenericProjection` |
+
+`operatorForm` is one classification per binary, prefix and postfix operator:
+its route and its expected-result eligibility are selected by the native policy
+in `policy/operations/operators/operator-forms.ts` and `expected-result.ts`.
+The operations walk calls that policy once, after the operator's operand facts
+are complete, and publishes the result; the planner only reads it.
 
 The corresponding materializers are listed below. These are the actual
 analysis entry points composed by `analysis/program/analyze.ts`, not new
