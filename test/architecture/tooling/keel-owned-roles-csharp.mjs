@@ -10,7 +10,7 @@ export const keelOwnedCsharpResponsibilities = Object.freeze({
       bodySha256: "9568f6b6f6c3eeb891ba14e4ebe08a79e1d3d591e7b71adfcafae91d7049f28f", role: "selection",
       evidence: [{ kind: "parameter", name: "target" }] },
     { file: "src/policy/conversions/literals.ts", symbol: "selectCsharpExactLiteralConversion",
-      bodySha256: "8c848f3a10e380ff39b0af27dc6a80cbbfbac14aec206fabe36a0491971cb75a", role: "selection",
+      bodySha256: "bb52aac532e01055943fe5bdc6ea90e183a95c01b75be7d90b0c5d7ff7af191a", role: "selection",
       evidence: [{ kind: "parameter", name: "target" }] },
     { file: "src/policy/operations/numeric/promotion.ts", symbol: "selectCsharpNumericBinaryPromotion",
       bodySha256: "d2fd6dff137f495f25c1240158293356bc0ca1d75faf325ac68db3b88bfadd02", role: "selection",
