@@ -106,6 +106,18 @@ Construction preserves:
 5. One-way sealing: a write after sealing fails, including through a previously
    obtained writer handle.
 
+An actual admission writes an exact subject at most once per local family.
+Equal and unequal second local admissions both fail before metadata comparison,
+native-foundation accounting or mutation. A first matching inherited admission
+retains the canonical inherited object, accounts once and marks that subject
+locally; a first inherited conflict is uncharged and leaves no local admission.
+Successful query and positive-event repetition remain distinct: their one owning
+analysis function validates the complete request before deciding whether an
+actual constructor is needed. The writer never suppresses duplicate decisions.
+Pure operation and property-fact correspondence lives in target-model data
+helpers, shared by selection queries and actual constructors, not in a selector
+imported by the record store.
+
 Each accepted source/native selection independently records its required family,
 exact checked `Node`, construct and producer before publication. The inventory
 belongs to analysis, not the record writer or the backend. A probe owns a fresh
