@@ -114,26 +114,29 @@ test("a prefix sign has a datum only when its operand is a numeric, bigint, sign
     prefix("KindExclamationToken", numericNode("0")),
     prefix("KindTildeToken", numericNode("1")),
   ];
+  const bigint = (text) => ({ kind: "BigIntLiteral", text });
   const literals = [
-    [prefix("KindMinusToken", numericNode("1.5")), -1.5, undefined],
-    [prefix("KindPlusToken", numericNode("1")), 1, 1n],
-    [prefix("KindMinusToken", { kind: "BigIntLiteral", text: "2n" }), undefined, -2n],
-    [prefix("KindMinusToken", group(numericNode("1"))), -1, -1n],
-    [prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1"))), 1, 1n],
-    [prefix("KindMinusToken", numericNode("0")), -0, 0n],
-    [prefix("KindMinusToken", numericNode("1e400")), undefined, undefined],
-    [prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1e400"))), undefined, undefined],
+    ["-1.5", prefix("KindMinusToken", numericNode("1.5")), -1.5, undefined],
+    ["+1", prefix("KindPlusToken", numericNode("1")), 1, 1n],
+    ["-2n", prefix("KindMinusToken", bigint("2n")), undefined, -2n],
+    ["-(2n)", prefix("KindMinusToken", group(bigint("2n"))), undefined, -2n],
+    ["-(1)", prefix("KindMinusToken", group(numericNode("1"))), -1, -1n],
+    ["- -1", prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1"))), 1, 1n],
+    ["-0", prefix("KindMinusToken", numericNode("0")), -0, 0n],
+    ["-1e400", prefix("KindMinusToken", numericNode("1e400")), undefined, undefined],
+    ["- -1e400", prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1e400"))), undefined, undefined],
+    [`-1${"0".repeat(40)}n`, prefix("KindMinusToken", bigint(`1${"0".repeat(40)}n`)), undefined, undefined],
   ];
   const index = analyzeSourceLiteralValues(syntheticAst(),
-    [{ kind: "SourceFile", children: [...nonLiterals, ...literals.map(([node]) => node)] }]);
+    [{ kind: "SourceFile", children: [...nonLiterals, ...literals.map(([, node]) => node)] }]);
   assert.equal(nonLiterals.every((node) => index.literalValue.get(node) === undefined), true,
     "a sign over a name, a grouped name, a signed name, a grouped constant, a grouped non-finite literal or a string, " +
     "and every non-sign prefix operator, has no datum");
   assert.equal(index.literalValue.get(nonLiterals[3].operand) === undefined && index.literalValue.get(sum)?.integerConstant === 3n, true,
     "the inner sign of a signed name has no datum and the grouped constant keeps its own datum");
-  assert.equal(literals.every(([node, number, integer]) => {
+  assert.deepEqual(literals.filter(([, node, number, integer]) => {
     const value = index.literalValue.get(node);
-    return value?.form === "prefix-unary" && Object.is(value.number, number) && value.integer === integer;
-  }), true, "a sign over a numeric, bigint, grouped or signed literal keeps its exact number and integer, " +
-    "and a sign over a non-finite literal keeps a datum with neither");
+    return !(value?.form === "prefix-unary" && Object.is(value.number, number) && value.integer === integer);
+  }).map(([label]) => label), [], "a sign over a numeric, bigint, grouped or signed literal keeps its exact number and integer, " +
+    "and a sign over a non-finite numeric or an out-of-range bigint literal keeps a datum with neither");
 });
