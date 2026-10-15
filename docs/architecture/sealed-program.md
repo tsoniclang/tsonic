@@ -200,7 +200,7 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 117 families, grouped by their declaration module under
+C# exposes 119 families, grouped by their declaration module under
 `target-model/records/`. The analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
 
@@ -211,11 +211,12 @@ responsibility; consolidation must preserve all compound query arguments.
 | `capture-storage.ts` | `callables/` | `captureFrame`, `capturedBinding`, `physicalStorageType`, `captureClosure`, `namedSelf`, `lambdaCreation`, `helperAccess`, `captureFrameShape`, `lexicalValueDeclarations`, `lexicalValueCreation`, `lexicalValueName` |
 | `class-factories.ts` | `project-types/` | `classFactory` |
 | `class-initialization.ts` | `project-types/` | `requiresClassConstructor`, `relocatedClassField`, `classInitializationRegion` |
-| `conversions.ts` | `conversions/` | `propertyProjection`, `delegateAdapters`, `delegateAdapter`, `directCallableReference`, `conversion`, `expressionConversion` |
+| `conversions.ts` | `conversions/` | `propertyProjection`, `delegateAdapters`, `delegateAdapter`, `directCallableReference`, `conversion`, `expressionConversion`, `valueRead` |
 | `declarations.ts` | `declarations/` | `returnContract`, `runtimeDefault`, `methodWrite` |
 | `expected-types.ts` | `expected-types/` | `expectedType`, `requiredExpectedType`, `exactIntegerConversion`, `storageExpectedType`, `callableTarget`, `arrayLiteralCarrier`, `expectedBinary` |
 | `module-initialization.ts` | `module-initialization/` | `moduleInitializationDependencies`, `requiresModuleInitializer`, `asyncModuleInitializer`, `callableVisibility` |
 | `numeric.ts` | `numeric/` | `int32Remainder` |
+| `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
 | `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
 | `safety.ts` | `safety/` | `sourceSafetyApplication`, `safetyApplication`, `safetyOperation` |
 | `source-evidence.ts` | `source-evidence/`, with declaration/type/callable inputs | `bindingProjection`, `closedArrayStorage`, `compileTimeMetadata`, `nodeTargetType`, `classConstructorType`, `storageTargetType`, `readStorageTargetType`, `expressionType`, `contextualType`, `contextualTargetType`, `semanticTargetType`, `semanticType`, `signatureDeclaration`, `contextualTuple`, `constantValue`, `valueRefinement`, `generator`, `generatorTargetType`, `yield`, `yieldTargetType`, `wellKnownSymbol`, `inferredCallableReturnType`, `pointerReturn`, `sourceArgument`, `sourceDefaultValue`, `sourceField`, `sourceStruct`, `providerVirtualDeclaration`, `typeParameterConstraints`, `sourceOwnedProjectShape` |
@@ -235,9 +236,10 @@ an entry point in analysis does not legalize a mutable policy dependency.
 | Captures | `callables/capture-storage.ts:analyzeCsharpCaptureStorage` |
 | Class factories | `project-types/class-factories.ts:analyzeCsharpClassFactories` |
 | Class initialization | `project-types/class-initialization.ts:analyzeCsharpClassInitialization` |
-| Conversions | `conversions/analyze.ts:analyzeCsharpConversions`, then its sealed classifications |
+| Conversions | `conversions/analyze.ts:analyzeCsharpConversions`, then its sealed classifications; `conversions/value-read-stages.ts` for `valueRead` |
 | Declarations | `declarations/analyze.ts:analyzeCsharpDeclarations` |
 | Expected types | `expected-types/analyze.ts:analyzeCsharpExpectedTypes` |
+| Callable body return contexts | `expected-types/analyze.ts:analyzeCsharpExpectedTypes`, using `callables/return-contexts.ts` to project selected contracts |
 | Module initialization | `module-initialization/analyze.ts:analyzeCsharpModuleInitialization` |
 | Numeric representations | `numeric/representations.ts:analyzeCsharpNumericRepresentations` |
 | Operations | `operations/analyze.ts:analyzeCsharpTargetOperations` |
