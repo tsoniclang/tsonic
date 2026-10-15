@@ -96,3 +96,44 @@ test("integer constants come from one shared reader that reads each extracted le
   assert.equal(roots.every((node) => operatorReads.get(node) === 1), true,
     "each operator and grouping node is evaluated once across all enclosing integer roots");
 });
+
+test("a prefix sign has a datum only when its operand is a numeric, bigint, signed or grouped literal", () => {
+  const prefix = (operator, operand) => ({ kind: "PrefixUnaryExpression", operator, operand });
+  const group = (expression) => ({ kind: "ParenthesizedExpression", expression });
+  const name = () => ({ kind: "Identifier" });
+  const sum = { kind: "BinaryExpression", operator: "KindPlusToken", left: numericNode("1"), right: numericNode("2") };
+  const nonLiterals = [
+    prefix("KindMinusToken", name()),
+    prefix("KindPlusToken", name()),
+    prefix("KindMinusToken", group(name())),
+    prefix("KindMinusToken", prefix("KindMinusToken", name())),
+    prefix("KindMinusToken", group(sum)),
+    prefix("KindMinusToken", group(numericNode("1e400"))),
+    prefix("KindMinusToken", { kind: "StringLiteral", text: "1" }),
+    prefix("KindExclamationToken", name()),
+    prefix("KindExclamationToken", numericNode("0")),
+    prefix("KindTildeToken", numericNode("1")),
+  ];
+  const literals = [
+    [prefix("KindMinusToken", numericNode("1.5")), -1.5, undefined],
+    [prefix("KindPlusToken", numericNode("1")), 1, 1n],
+    [prefix("KindMinusToken", { kind: "BigIntLiteral", text: "2n" }), undefined, -2n],
+    [prefix("KindMinusToken", group(numericNode("1"))), -1, -1n],
+    [prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1"))), 1, 1n],
+    [prefix("KindMinusToken", numericNode("0")), -0, 0n],
+    [prefix("KindMinusToken", numericNode("1e400")), undefined, undefined],
+    [prefix("KindMinusToken", prefix("KindMinusToken", numericNode("1e400"))), undefined, undefined],
+  ];
+  const index = analyzeSourceLiteralValues(syntheticAst(),
+    [{ kind: "SourceFile", children: [...nonLiterals, ...literals.map(([node]) => node)] }]);
+  assert.equal(nonLiterals.every((node) => index.literalValue.get(node) === undefined), true,
+    "a sign over a name, a grouped name, a signed name, a grouped constant, a grouped non-finite literal or a string, " +
+    "and every non-sign prefix operator, has no datum");
+  assert.equal(index.literalValue.get(nonLiterals[3].operand) === undefined && index.literalValue.get(sum)?.integerConstant === 3n, true,
+    "the inner sign of a signed name has no datum and the grouped constant keeps its own datum");
+  assert.equal(literals.every(([node, number, integer]) => {
+    const value = index.literalValue.get(node);
+    return value?.form === "prefix-unary" && Object.is(value.number, number) && value.integer === integer;
+  }), true, "a sign over a numeric, bigint, grouped or signed literal keeps its exact number and integer, " +
+    "and a sign over a non-finite literal keeps a datum with neither");
+});

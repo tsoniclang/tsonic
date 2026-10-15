@@ -51,8 +51,10 @@ export function analyzeSourceLiteralValues(
       const operand = ast.as.AsPrefixUnaryExpression(node)?.Operand;
       const signed = operand !== undefined && (operator === "KindPlusToken" || operator === "KindMinusToken")
         ? values.get(operand) : undefined;
+      const literal = signed?.form === "numeric" || signed?.form === "bigint" || signed?.form === "prefix-unary" ||
+        signed?.number !== undefined || signed?.integer !== undefined;
       const negative = operator === "KindMinusToken";
-      return scalar("prefix-unary", {
+      return !literal ? undefined : scalar("prefix-unary", {
         number: signed?.number === undefined ? undefined : negative ? -signed.number : signed.number,
         integer: signed?.integer === undefined ? undefined : negative ? -signed.integer : signed.integer,
       });
