@@ -201,7 +201,8 @@ not claims that their complete relocation is part of the initial API migration.
 ### C#
 
 C# exposes 123 families, grouped by their declaration module under
-`target-model/records/` or the named shared source contract. The analysis column identifies their existing producer
+`target-model/records/`, `target-model/conversions/exact-literals.ts`, or the named shared source contract. The
+analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
 
 | Record declaration | Analysis producer responsibility | Reader families |
@@ -237,7 +238,8 @@ are complete, and publishes the result; the planner only reads it.
 
 `exactLiteral` holds one selection per actually requested (literal, target)
 pair: the intrinsic request, the literal's read and expected types, a resolved
-unary result type, and each literal step of a prepared conversion. The native
+unary result type, and each literal step of a prepared conversion, including
+the argument adapter of a selected provider call. The native
 rule is `policy/conversions/literals.ts:selectCsharpExactLiteralConversion`;
 `conversions/literal-plans.ts` calls it once per canonical key before
 publication. The planner only renders the selected recipe, and a missing record
@@ -256,7 +258,7 @@ an entry point in analysis does not legalize a mutable policy dependency.
 | Class factories | `project-types/class-factories.ts:analyzeCsharpClassFactories` |
 | Class initialization | `project-types/class-initialization.ts:analyzeCsharpClassInitialization` |
 | Conversions | `conversions/analyze.ts:analyzeCsharpConversions`, then its sealed classifications; `conversions/value-read-stages.ts` for `valueRead` |
-| Exact literal selections | `conversions/literal-plans.ts:analyzeCsharpExactLiteralSelections`, over the final conversion analysis's `exactLiteralRequests` |
+| Exact literal selections | `conversions/literal-plans.ts:analyzeCsharpExactLiteralSelections`, over the `exactLiteralRequests` of the final conversion analysis's sealed classifications |
 | Declarations | `declarations/analyze.ts:analyzeCsharpDeclarations` |
 | Expected types | `expected-types/analyze.ts:analyzeCsharpExpectedTypes` |
 | Callable body return contexts | `expected-types/analyze.ts:analyzeCsharpExpectedTypes`, using `callables/return-contexts.ts` to project selected contracts |
