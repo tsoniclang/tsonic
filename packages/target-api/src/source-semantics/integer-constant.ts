@@ -35,7 +35,7 @@ export function createSourceIntegerConstantReader(
       const { node } = entry;
       if (entry.depth > 128) return refuse(expression);
       if (entry.kind === "visit") {
-        if (active.has(node)) return refuse(expression);
+        if (active.has(node) || failedRoots.has(node)) return refuse(expression);
         const prior = completed.get(node);
         if (prior !== undefined) {
           remaining -= prior.work;

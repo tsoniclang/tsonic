@@ -172,3 +172,14 @@ test("integer reader caches refused roots without poisoning completed descendant
   assert.equal(read(integerLiteral("3")), 3n);
   assert.equal(leaves, 2);
 });
+
+test("an already refused root is also refused as a child without repeating its bounded walk", () => {
+  let operators = 0;
+  const ast = integerAst(() => { operators++; });
+  const expressions = [integerLiteral()];
+  for (let depth = 0; depth < 1000; depth++) expressions.push(integerParentheses(expressions.at(-1)));
+  const read = createSourceIntegerConstantReader(ast);
+  for (const [depth, expression] of expressions.entries()) assert.equal(read(expression), depth <= 128 ? 1n : undefined, `depth ${depth}`);
+  assert.equal(operators, 1000, "a root refused under the full budget cannot fit a stricter containing context");
+  assert.equal(read(expressions[128]), 1n, "a failed containing root never poisons a complete descendant");
+});
