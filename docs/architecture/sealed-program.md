@@ -200,7 +200,7 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 122 families, grouped by their declaration module under
+C# exposes 123 families, grouped by their declaration module under
 `target-model/records/` or the named shared source contract. The analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
 
@@ -212,6 +212,7 @@ responsibility; consolidation must preserve all compound query arguments.
 | `class-factories.ts` | `project-types/` | `classFactory` |
 | `class-initialization.ts` | `project-types/` | `requiresClassConstructor`, `relocatedClassField`, `classInitializationRegion` |
 | `conversions.ts` | `conversions/` | `propertyProjection`, `delegateAdapters`, `delegateAdapter`, `directCallableReference`, `conversion`, `expressionConversion`, `valueRead` |
+| `target-model/conversions/exact-literals.ts` | `conversions/literal-plans.ts`, after the representation fixed point, from the final conversion analysis's literal requests | `exactLiteral` |
 | `declarations.ts` | `declarations/` | `returnContract`, `runtimeDefault`, `methodWrite` |
 | `expected-types.ts` | `expected-types/` | `expectedType`, `requiredExpectedType`, `exactIntegerConversion`, `storageExpectedType`, `callableTarget`, `arrayLiteralCarrier`, `expectedBinary` |
 | `module-initialization.ts` | `module-initialization/` | `moduleInitializationDependencies`, `requiresModuleInitializer`, `asyncModuleInitializer`, `callableVisibility` |
@@ -234,6 +235,14 @@ in `policy/operations/operators/operator-forms.ts` and `expected-result.ts`.
 The operations walk calls that policy once, after the operator's operand facts
 are complete, and publishes the result; the planner only reads it.
 
+`exactLiteral` holds one selection per actually requested (literal, target)
+pair: the intrinsic request, the literal's read and expected types, a resolved
+unary result type, and each literal step of a prepared conversion. The native
+rule is `policy/conversions/literals.ts:selectCsharpExactLiteralConversion`;
+`conversions/literal-plans.ts` calls it once per canonical key before
+publication. The planner only renders the selected recipe, and a missing record
+for a literal is a planner invariant failure, never a source-literal fallback.
+
 The corresponding materializers are listed below. These are the actual
 analysis entry points composed by `analysis/program/analyze.ts`, not new
 registry callbacks. Their complete dependency closure must obey the boundary;
@@ -247,6 +256,7 @@ an entry point in analysis does not legalize a mutable policy dependency.
 | Class factories | `project-types/class-factories.ts:analyzeCsharpClassFactories` |
 | Class initialization | `project-types/class-initialization.ts:analyzeCsharpClassInitialization` |
 | Conversions | `conversions/analyze.ts:analyzeCsharpConversions`, then its sealed classifications; `conversions/value-read-stages.ts` for `valueRead` |
+| Exact literal selections | `conversions/literal-plans.ts:analyzeCsharpExactLiteralSelections`, over the final conversion analysis's `exactLiteralRequests` |
 | Declarations | `declarations/analyze.ts:analyzeCsharpDeclarations` |
 | Expected types | `expected-types/analyze.ts:analyzeCsharpExpectedTypes` |
 | Callable body return contexts | `expected-types/analyze.ts:analyzeCsharpExpectedTypes`, using `callables/return-contexts.ts` to project selected contracts |
