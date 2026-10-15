@@ -141,8 +141,29 @@ query has stopped computing. The producers must close their mutable state and
 semantic work before the program is published.
 
 Required-record coverage is the same architectural obligation on both targets.
-A frozen C# container does not discharge it; the corresponding admission and
-seal work must demonstrate its own completed coverage before certification.
+C#'s `createCsharpProgramRecords(input, required)` takes the requirement
+inventory as a mandatory argument: it assembles the frozen readers, runs
+`assertCsharpRequiredRecords` from `src/analysis/program/records/required-records.ts`
+over the supplied rows, and returns only when every row is present. A missing
+row raises the same analysis invariant at its exact source subject. Each
+`analyzeIteration` attempt of the representation fixed point creates its own
+inventory. Only the final evaluated attempt's inventory, extended by the late
+producers that run after it, reaches the assembly, and the owning analysis
+issues reject before it.
+
+A C# requirement is a closed union discriminated by `family`. Its current
+variants are keyed by `Node`:
+
+| Family | Registered by | Subject |
+|---|---|---|
+| `classFactory` | `analyzeCsharpClassFactories` | each local class definition, before its factory or issue |
+| `requiredStorageType` | `analyzeCsharpStorage` | each lambda parameter whose native adaptation is selected |
+| `nativeParticipation` | `analyzeCsharpNativeParticipation` | each selected callable declaration |
+
+Contextual keys (conversions, expected binaries, literal targets and native-use
+sites) and the remaining families, including `sourceArgument`, are added with
+the producers that own their demand. Until then a frozen C# container does not
+discharge their coverage.
 
 The shared rule is immutable semantics after sealing, not a prescribed storage
 data structure. A private typed keyed map is permitted. Removing the map is
