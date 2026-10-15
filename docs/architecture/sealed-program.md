@@ -92,12 +92,11 @@ consumer APIs.
 ## Construction, specialization and sealing
 
 Rust's constructor is `createRustProgramRecordBuilder`, in
-`src/analysis/program/records/create.ts`. Its analysis-only writer publishes
-through `records.<family>.set(subject, value, evidence?)`. The optional third
-argument is `readonly unknown[]`, retained from the original formal writer
-signature during the mechanical migration. The store ignores those notes;
-they do not establish or validate a semantic proof. Producer consolidation may
-remove them after proving the affected caller/evaluation behavior. It preserves:
+`src/analysis/program/records/create.ts`. Analysis publishes through the exact
+typed producer for each family, such as `runtimeCarriers.source` or
+`sourceParameterAbis.parameter`. Reader families expose only `get`; there is
+no public generic writer, key-based writer or ignored evidence argument.
+Construction preserves:
 
 1. Exact checked subject identity and each family's original equality rule.
 2. Rejection of conflicting evidence rather than last-write-wins replacement.
@@ -107,11 +106,31 @@ remove them after proving the affected caller/evaluation behavior. It preserves:
 5. One-way sealing: a write after sealing fails, including through a previously
    obtained writer handle.
 
+Each accepted source/native selection independently records its required family,
+exact checked `Node`, construct and producer before publication. The inventory
+belongs to analysis, not the record writer or the backend. A probe owns a fresh
+inventory even when its readers inherit parent records. Intentional absence is
+not a missing record: for example, reachable code has no `nativeUnreachable`
+fact, and a direct operation has no optional-chain fact. Selected false, zero
+and empty payloads are present.
+
+Rust's mandatory `records.seal(context.requiredRecords)` performs a linear
+presence check over that supplied inventory before closing either the outer
+store or selected-operation store. A missing required record raises the existing
+analysis invariant at its exact source subject; it cannot reach planning or
+materialization. A failed check leaves both stores open. Sealing never walks
+source, reruns native selection, derives requirements from existing records or
+repairs missing evidence. The old zero-argument seal is not supported.
+
 C# composes the reader families through `createCsharpProgramRecords`, in
 `src/analysis/program/records/create.ts`, from its analysis-owned classifications.
 Freezing that outer container does not freeze captured maps or prove that every
 query has stopped computing. The producers must close their mutable state and
 semantic work before the program is published.
+
+Required-record coverage is the same architectural obligation on both targets.
+A frozen C# container does not discharge it; the corresponding admission and
+seal work must demonstrate its own completed coverage before certification.
 
 The shared rule is immutable semantics after sealing, not a prescribed storage
 data structure. A private typed keyed map is permitted. Removing the map is
