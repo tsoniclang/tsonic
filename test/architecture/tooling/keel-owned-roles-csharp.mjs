@@ -355,7 +355,7 @@ export const keelOwnedCsharpResponsibilities = Object.freeze({
       bodySha256: "7be7a45f1886d13707c451481e6469a9bf73acff7c5bcb11c67aa9420d6e870f", subjectParameter: "declaration",
       reason: "Input-closed traversal in createCsharpProjectTypePolicy.instantiateDeclarationType: pending.length > 0. It enumerates this construct's carrier/type/layout/signature/member inputs; no independent source-subject demand is propagated. Bound calls and member reads accompany the row." },
     { file: "src/policy/types/project/project-types.ts", symbol: "resolveDefinitionHeritage", offset: 16070,
-      bodySha256: "1cae3c9df4d46657d8f387d6678abbd63e10d0cce2256f02c6011f11e6f59261", subjectParameter: "host",
+      bodySha256: "7d37bf805f3b8614a33c0649ffd4d8b077cfbb87a71900042896759824561da9", subjectParameter: "host",
       reason: "Input-closed traversal in resolveDefinitionHeritage: source.edges. It enumerates this construct's carrier/type/layout/signature/member inputs; no independent source-subject demand is propagated. Bound calls and member reads accompany the row." },
     { file: "src/policy/types/objects/object-shape-policy/source-evidence.ts", symbol: "typeHasProjectOwnedShapeDeclaration", offset: 4902,
       bodySha256: "159171c91d3785ec0cb4907fdb5c3e2cdf23ef530d2fea42a4b9a19aaa6e02ea", subjectParameter: "type",
