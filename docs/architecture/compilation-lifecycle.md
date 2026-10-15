@@ -71,6 +71,16 @@ The host creates one explicit target compilation session. The target receives
 one immutable target-source program and owns all target-local caches, provider
 sessions, analysis state, and diagnostics for that compilation.
 
+Shared closed-source evidence follows that same lifetime. The integer-constant
+owner in `target-api/source-semantics/` provides one scoped reader and the scalar
+operation over the same engine. Its source graph and literal-reader results
+are final and stable: absence means no closed integer value, not pending
+inference. A postorder extractor supplies its completed literal facts before
+querying ancestors. Cached subtrees retain expanded logical work and relative
+height, including repeated DAG edges; reuse never raises the per-root work,
+depth or intermediate-magnitude bounds. Only completed successes and refused
+roots are retained. Interrupted descendants remain independently queryable.
+
 ## 4. Analysis and classification
 
 The selected target maps the source operations to target facts:
