@@ -171,7 +171,7 @@ not a semantic producer merely because it stores that value.
 
 ### Rust
 
-Rust exposes 66 native families. The row's analysis responsibility is the
+Rust exposes 67 native families. The row's analysis responsibility is the
 destination for producer consolidation. The skeletal migration retains existing
 algorithms and their call sites; the later ownership wave must prove one owner
 for every family rather than claiming this table already relocates them.
@@ -179,7 +179,7 @@ for every family rather than claiming this table already relocates them.
 | Analysis responsibility | Reader families |
 | --- | --- |
 | `declarations/`, `source-modules/` | `typeAliasDeclaration`, `typeOnlyDeclaration`, `compileTimeSource`, `sourceBinding` |
-| `callables/` | `sourceCallableReturn`, `sourceParameterAbi`, `asyncFunction`, `generator`, `sourceCallableValue`, `directCallableReference`, `moduleCallableStorage` |
+| `callables/` | `sourceCallableReturn`, `sourceParameterAbi`, `asyncFunction`, `generator`, `sourceCallableValue`, `directCallableReference`, `moduleCallableStorage`, `nativeParticipation` |
 | `operations/`, with per-construct policy selection | `runtimeCarrier`, `selectedCall`, `selectedOperation`, `targetOperation`, `argumentPassing`, `conversion` |
 | `errors/` and suspended-callable analysis | `yield`, `awaitValue`, `resourceManagement`, `futureValue`, `errorEffects`, `sourceErrorEffects`, `deferredProducerEffects`, `awaitSourceErrorEffects`, `fallible`, `sourceCallEffects`, `sourceAccessorEffects`, `genericCallableInvocation` |
 | `conversions/` and `expected-types/` | `optionProjection`, `flowReadProjection`, `contextualValueConversion`, `callScopedLifetimeReconciliation`, `projectUpcast`, `projectDowncast`, `propertyProjection` |
