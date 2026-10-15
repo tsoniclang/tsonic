@@ -267,6 +267,10 @@ rule is `policy/conversions/literals.ts:selectCsharpExactLiteralConversion`;
 `conversions/literal-plans.ts` calls it once per canonical key before
 publication. The planner only renders the selected recipe, and a missing record
 for a literal is a planner invariant failure, never a source-literal fallback.
+The same module's range rule, shared with `csharpLiteralIsRepresentableAs`,
+refuses a finite literal whose emitted C# text is outside the `float` or
+`decimal` range, or whose `Half` conversion overflows; a value that C# rounds,
+including an underflow to zero, keeps its literal.
 
 The corresponding materializers are listed below. These are the actual
 analysis entry points composed by `analysis/program/analyze.ts`, not new
