@@ -200,8 +200,8 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 119 families, grouped by their declaration module under
-`target-model/records/`. The analysis column identifies their existing producer
+C# exposes 120 families, grouped by their declaration module under
+`target-model/records/` or the named shared source contract. The analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
 
 | Record declaration | Analysis producer responsibility | Reader families |
@@ -216,6 +216,7 @@ responsibility; consolidation must preserve all compound query arguments.
 | `expected-types.ts` | `expected-types/` | `expectedType`, `requiredExpectedType`, `exactIntegerConversion`, `storageExpectedType`, `callableTarget`, `arrayLiteralCarrier`, `expectedBinary` |
 | `module-initialization.ts` | `module-initialization/` | `moduleInitializationDependencies`, `requiresModuleInitializer`, `asyncModuleInitializer`, `callableVisibility` |
 | `numeric.ts` | `numeric/` | `int32Remainder` |
+| shared `SourceLiteralIndex` | `target-api/source-semantics/literal-values.ts`, composed once before target type analysis | `literalValue` |
 | `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
 | `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
 | `safety.ts` | `safety/` | `sourceSafetyApplication`, `safetyApplication`, `safetyOperation` |
@@ -242,6 +243,7 @@ an entry point in analysis does not legalize a mutable policy dependency.
 | Callable body return contexts | `expected-types/analyze.ts:analyzeCsharpExpectedTypes`, using `callables/return-contexts.ts` to project selected contracts |
 | Module initialization | `module-initialization/analyze.ts:analyzeCsharpModuleInitialization` |
 | Numeric representations | `numeric/representations.ts:analyzeCsharpNumericRepresentations` |
+| Source literal evidence | shared `analyzeSourceLiteralValues`, called once on the immutable source-file snapshot before type resolution |
 | Operations | `operations/analyze.ts:analyzeCsharpTargetOperations` |
 | Safety applications | `safety/application-index.ts:createCsharpSafetyApplicationFactIndex` |
 | Source evidence | `source-evidence/analyze.ts:analyzeCsharpSourceEvidence` |
