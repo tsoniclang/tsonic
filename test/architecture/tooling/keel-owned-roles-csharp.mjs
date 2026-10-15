@@ -1,5 +1,11 @@
 export const keelOwnedCsharpResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/callables/return-contexts.ts", symbol: "selectCsharpCallableReturnContext",
+      bodySha256: "088f3d312cff0b7b4f774c68552362b65ab49657e668065f7d2a7c43d5bc5997", role: "analysis",
+      evidence: [{ kind: "parameter", name: "callable" }] },
+    { file: "src/analysis/callables/return-contexts.ts", symbol: "selectCsharpAccessorReturnContext",
+      bodySha256: "7489c77a1f7de30f1e339146e60053418f42a53471dd535be6ab445c71c775c1", role: "analysis",
+      evidence: [{ kind: "parameter", name: "returnContract" }] },
     { file: "src/policy/operations/control-flow/await-completions.ts", symbol: "selectCsharpAwaitCompletion",
       bodySha256: "a4e0ae99adcf84abc2d724c270bd1a40ece18f21838145f22eeeb4ff4cd4e8b8", role: "selection",
       evidence: [{ kind: "parameter", name: "carrier" }] },
