@@ -43,6 +43,7 @@ export const keelOwnedTargets = Object.freeze({
     })),
     cloneFields: [{ file: "src/backend/target-ast/syntax/nodes.ts", symbol: "RustExpr.method" }],
     recordReaders: [
+      { file: "src/analysis/callables/native-storage.ts", symbol: "RustNativeStoragePlan.parameterFor" },
       ...["contractFor", "parameterFor", "resolve", "allContracts"].map(name => ({
         file: "src/target-model/lifetimes/model.ts", symbol: `RustLifetimeIndex.${name}`,
       })),
