@@ -230,7 +230,7 @@ responsibility; consolidation must preserve all compound query arguments.
 
 | Record declaration | Analysis producer responsibility | Reader families |
 | --- | --- | --- |
-| `attributes.ts` | `attributes/` | `attributeApplication`, `erasedAttribute` |
+| `attributes.ts` | `attributes/` | `attributeApplication` |
 | `callable-adapters.ts` | `project-types/` | `callableDispatch` |
 | `capture-storage.ts` | `callables/` | `captureFrame`, `capturedBinding`, `physicalStorageType`, `captureClosure`, `namedSelf`, `lambdaCreation`, `helperAccess`, `captureFrameShape`, `lexicalValueDeclarations`, `lexicalValueCreation`, `lexicalValueName` |
 | `class-factories.ts` | `project-types/` | `classFactory` |
@@ -244,7 +244,7 @@ responsibility; consolidation must preserve all compound query arguments.
 | `numeric.ts` | `numeric/` | `int32Remainder` |
 | shared `SourceLiteralIndex` | `target-api/source-semantics/literal-values.ts`, composed once before target type analysis | `literalValue` |
 | `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
-| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `operatorForm`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
+| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `erasedStatement`, `operatorForm`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
 | `safety.ts` | `safety/` | `sourceSafetyApplication`, `safetyApplication`, `safetyOperation` |
 | `source-evidence.ts` | `source-evidence/`, with declaration/type/callable inputs | `bindingProjection`, `closedArrayStorage`, `compileTimeMetadata`, `nodeTargetType`, `classConstructorType`, `storageTargetType`, `readStorageTargetType`, `expressionType`, `contextualType`, `contextualTargetType`, `semanticTargetType`, `semanticType`, `signatureDeclaration`, `contextualTuple`, `constantValue`, `valueRefinement`, `generator`, `generatorTargetType`, `yield`, `yieldTargetType`, `wellKnownSymbol`, `inferredCallableReturnType`, `pointerReturn`, `sourceArgument`, `sourceDefaultValue`, `sourceField`, `sourceStruct`, `providerVirtualDeclaration`, `typeParameterConstraints`, `sourceOwnedProjectShape` |
 | `source-modules.ts` | `source-modules/` | `sourceModuleConstruction` |
@@ -258,6 +258,13 @@ eligibility are selected by the native policy
 in `policy/operations/operators/operator-forms.ts` and `expected-result.ts`.
 The operations walk calls that policy once, after the operator's operand facts
 are complete, and publishes the result; the planner only reads it.
+
+`erasedStatement` is one outcome per expression statement that the operations
+walk reaches: true for an attribute statement, a safety builder statement and a
+remaining-block unsafe-context marker, which emit no C#. The walk reports no
+operation issue inside an erased statement, except inside an attribute
+application's invocation, which stays demanded. The planner and module
+initialization read the outcome; neither decides erasure again.
 
 `exactLiteral` holds one selection per actually requested (literal, target)
 pair: the intrinsic request, the literal's read and expected types, a resolved
