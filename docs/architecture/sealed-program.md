@@ -149,7 +149,9 @@ row raises the same analysis invariant at its exact source subject. Each
 `analyzeIteration` attempt of the representation fixed point creates its own
 inventory. Only the final evaluated attempt's inventory, extended by the late
 producers that run after it, reaches the assembly, and the owning analysis
-issues reject before it.
+issues reject before it. In tsonic-csharp,
+`test/architecture/required-record-lifecycle.test.mjs` checks this wiring over
+the TypeScript AST of the analysis sources.
 
 A C# requirement is a closed union discriminated by `family`. Its current
 variants are keyed by `Node`:
@@ -158,7 +160,7 @@ variants are keyed by `Node`:
 |---|---|---|
 | `classFactory` | `analyzeCsharpClassFactories` | each local class definition, before its factory or issue |
 | `requiredStorageType` | `analyzeCsharpStorage` | each lambda parameter whose native adaptation is selected |
-| `nativeParticipation` | `analyzeCsharpNativeParticipation` | each selected callable declaration |
+| `nativeParticipation` | `analyzeCsharpNativeParticipation` | each node of the bounded source domain that the owner decides (`body`, `frame-body`, `signature` or `erased`) |
 
 Contextual keys (conversions, expected binaries, literal targets and native-use
 sites) and the remaining families, including `sourceArgument`, are added with
