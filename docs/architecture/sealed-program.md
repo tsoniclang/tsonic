@@ -200,7 +200,7 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 120 families, grouped by their declaration module under
+C# exposes 121 families, grouped by their declaration module under
 `target-model/records/` or the named shared source contract. The analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
 
@@ -215,6 +215,7 @@ responsibility; consolidation must preserve all compound query arguments.
 | `declarations.ts` | `declarations/` | `returnContract`, `runtimeDefault`, `methodWrite` |
 | `expected-types.ts` | `expected-types/` | `expectedType`, `requiredExpectedType`, `exactIntegerConversion`, `storageExpectedType`, `callableTarget`, `arrayLiteralCarrier`, `expectedBinary` |
 | `module-initialization.ts` | `module-initialization/` | `moduleInitializationDependencies`, `requiresModuleInitializer`, `asyncModuleInitializer`, `callableVisibility` |
+| `native-demand.ts` | `callables/participation.ts`, after final capture and shape selection | `nativeParticipation` |
 | `numeric.ts` | `numeric/` | `int32Remainder` |
 | shared `SourceLiteralIndex` | `target-api/source-semantics/literal-values.ts`, composed once before target type analysis | `literalValue` |
 | `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
