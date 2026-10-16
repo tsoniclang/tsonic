@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { sourceControlTransferTarget } from "../../source-navigation/control-targets.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceFlowBooleanEdges } from "./conditions.js";
-import { sourceFlowCleanupScope, sourceFlowResourceScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
+import { sourceFlowCleanupScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { sourceFlowClosure } from "./expressions.js";
 import { sourceFlowLoop } from "./loops.js";
 import { SourceFlowFailure } from "./resources.js";
@@ -27,7 +27,7 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
     const kind = ast.variableDeclarationKind(node);
     const declarations = ast.as.AsVariableDeclarationList(node)?.Declarations?.Nodes ?? [];
     if (kind === "using" || kind === "await using") {
-      return sourceFlowResourceScope(build, checkedDeclarations(declarations, node), next, context, completion => completion);
+      throw new SourceFlowFailure("Resource acquisition requires its checked lexical cleanup scope.", node);
     }
     let entry = next;
     for (let index = declarations.length - 1; index >= 0; index -= 1) {
@@ -88,13 +88,13 @@ export function sourceFlowStatements(build: SourceFlowConstruction, statements: 
   const { ast } = build.source;
   for (const statement of statements) {
     if (statement === undefined) throw new SourceFlowFailure("Source flow requires a dense checked statement sequence.", undefined);
-    build.step(statement);
     const list = ast.is.IsVariableStatement(statement) ? ast.as.AsVariableStatement(statement)?.DeclarationList : undefined;
     const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
     if (list === undefined || kind !== "using" && kind !== "await using") {
       sequence.push({ node: statement, context: active, acquisition: false });
       continue;
     }
+    build.step(statement);
     const declarations = checkedDeclarations(ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes, list);
     for (const declaration of declarations) {
       sequence.push({ node: declaration, context: active, acquisition: true });
