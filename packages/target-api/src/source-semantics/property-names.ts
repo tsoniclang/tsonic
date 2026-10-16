@@ -1,6 +1,9 @@
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import type { SourceFileSemantics } from "./types.js";
+import type { SourceNumericLiteralToken } from "./literal-values-model.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
+import { sourceIntegerConstantValue } from "./integer-constant.js";
 
 export type SourcePropertyNameSelection =
   | { readonly kind: "resolved"; readonly name: string }
@@ -21,17 +24,18 @@ const unavailable: SourcePropertyNameSelection = Object.freeze({
 export function analyzeSourcePropertyNames(
   ast: AstReader,
   sourceFile: SourceFile,
-  semantics: Pick<SourceFileSemantics, "operations" | "types">,
+  semantics: Pick<SourceFileSemantics, "operations" | "types" | "declarations">,
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
 ): SourcePropertyNameIndex {
   const values = new WeakMap<Node, SourcePropertyNameSelection>();
   const entries: { readonly node: Node; readonly selection: SourcePropertyNameSelection }[] = [];
   const issues: { readonly node: Node; readonly reason: string }[] = [];
+  const numericValues = new WeakMap<Node, SourceNumericLiteralToken | null>();
   const pending: Node[] = [sourceFile];
   while (pending.length > 0) {
     const node = pending.pop()!;
-    if (ast.is.IsComputedPropertyName(node)) {
-      const selection = select(node);
+    if (ast.is.IsComputedPropertyName(node) || ast.is.IsNumericLiteral(node) && ast.name(ast.parent(node)) === node) {
+      const selection = ast.is.IsComputedPropertyName(node) ? select(node) : selectedNumeric(node);
       values.set(node, selection);
       entries.push(Object.freeze({ node, selection }));
       if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason }));
@@ -91,16 +95,130 @@ export function analyzeSourcePropertyNames(
     if (type === undefined) return unavailable;
     const text = semantics.types.stringLiteralValue(type);
     if (text !== undefined) return Object.freeze({ kind: "resolved", name: text });
-    return selectedValue(semantics.types.numericLiteralValue(type));
+    if (typeof semantics.types.numericLiteralValue(type) !== "number") return unavailable;
+    return selectedNumeric(node);
+  }
+
+  function selectedNumeric(node: Node): SourcePropertyNameSelection {
+    const numeric = exactNumeric(node, new Set());
+    return numeric === undefined ? unavailable : Object.freeze({ kind: "resolved", name: numericName(numeric) });
   }
 
   function selectedEnum(node: Node): SourcePropertyNameSelection {
-    return selectedValue(semantics.types.constantValue(node));
+    const value = semantics.types.constantValue(node);
+    if (typeof value === "string") return Object.freeze({ kind: "resolved", name: value });
+    const numeric = exactNumeric(node, new Set());
+    return numeric === undefined ? unavailable : Object.freeze({ kind: "resolved", name: numericName(numeric) });
   }
 
-  function selectedValue(value: unknown): SourcePropertyNameSelection {
-    return typeof value === "string" || typeof value === "number" && Number.isFinite(value)
-      ? Object.freeze({ kind: "resolved", name: String(value) }) : unavailable;
+  function exactNumeric(node: Node, active: Set<Node>): SourceNumericLiteralToken | undefined {
+    const current = unwrap(node);
+    if (current === undefined || active.has(current)) return undefined;
+    const cached = numericValues.get(current);
+    if (cached !== undefined) return cached ?? undefined;
+    active.add(current);
+    let selected: SourceNumericLiteralToken | undefined;
+    try {
+      selected = selectExactNumeric(current, active);
+    } finally {
+      active.delete(current);
+    }
+    numericValues.set(current, selected ?? null);
+    return selected;
+  }
+
+  function selectExactNumeric(current: Node, active: Set<Node>): SourceNumericLiteralToken | undefined {
+      if (ast.is.IsNumericLiteral(current)) {
+        const source = sourceLiteralToken(ast, current);
+        if (source.kind === "authored") return parseSourceNumericLiteral(source.text)?.token;
+        const type = semantics.types.expressionType(current);
+        const value = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
+        return typeof value === "number" && Number.isFinite(value)
+          ? numericTokenFromText(String(value)) : undefined;
+      }
+      if (ast.is.IsPrefixUnaryExpression(current)) {
+        const operator = ast.operatorKindName(current);
+        const operand = ast.as.AsPrefixUnaryExpression(current)?.Operand;
+        if (operand === undefined || operator !== "KindPlusToken" && operator !== "KindMinusToken") return undefined;
+        const selected = exactNumeric(operand, active);
+        return selected === undefined || operator === "KindPlusToken" ? selected
+          : Object.freeze({ ...selected, negative: !selected.negative });
+      }
+      if (ast.is.IsAsExpression(current) || ast.is.IsSatisfiesExpression(current)) {
+        const expression = ast.is.IsAsExpression(current)
+          ? ast.as.AsAsExpression(current)?.Expression : ast.as.AsSatisfiesExpression(current)?.Expression;
+        return expression === undefined ? undefined : exactNumeric(expression, active);
+      }
+      if (ast.is.IsBinaryExpression(current)) {
+        const integer = sourceIntegerConstantValue(ast, current);
+        return integer === undefined ? undefined : numericTokenFromText(integer.toString());
+      }
+      const declaration = ast.is.IsIdentifier(current)
+        ? navigation.sourceReferenceFor(current)?.declaration
+        : ast.is.IsPropertyAccessExpression(current) ? semantics.operations.propertyAccess(current)?.selectedDeclaration
+          : ast.is.IsElementAccessExpression(current) ? semantics.operations.elementAccess(current)?.selectedDeclaration
+            : ast.is.IsEnumMember(current) ? current : undefined;
+      if (declaration === undefined) return undefined;
+      if (ast.is.IsVariableDeclaration(declaration) && ast.variableDeclarationKind(declaration) === "const") {
+        const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+        const authored = initializer === undefined ? undefined : exactNumeric(initializer, active);
+        if (authored !== undefined) return authored;
+        const annotation = numericType(ast.typeNode(declaration), active);
+        if (annotation !== undefined) return annotation;
+        const value = initializer === undefined ? undefined : unwrap(initializer);
+        const call = value === undefined || !ast.is.IsCallExpression(value) ? undefined : semantics.operations.call(value);
+        const result = call === undefined ? undefined : semantics.operations.callResult(call);
+        const returned = numericType(result?.authoredTypeNode, active);
+        if (returned !== undefined) return returned;
+        if (call === undefined || result?.authoredTypeNode === undefined) return undefined;
+        const typeNode = result.authoredTypeNode;
+        const typeName = ast.is.IsTypeReferenceNode(typeNode) ? ast.as.AsTypeReferenceNode(typeNode)?.TypeName : undefined;
+        const parameter = typeName === undefined ? undefined : navigation.sourceReferenceFor(typeName)?.declaration;
+        if (parameter === undefined || !ast.is.IsTypeParameterDeclaration(parameter)) return undefined;
+        const binding = call.sourceSelectedMethodTypeArguments?.find(candidate => {
+          const symbol = semantics.declarations.typeSymbol(candidate.typeParameter);
+          return symbol !== undefined && semantics.declarations.symbolDeclarations(symbol).includes(parameter);
+        });
+        const explicit = numericType(binding?.explicitTypeNode, active);
+        if (explicit !== undefined) return explicit;
+        const candidates = call.sourceSelectedSignatureParameters.filter(candidate => {
+          const name = candidate.authoredTypeNode === undefined || !ast.is.IsTypeReferenceNode(candidate.authoredTypeNode)
+            ? undefined : ast.as.AsTypeReferenceNode(candidate.authoredTypeNode)?.TypeName;
+          return name !== undefined && navigation.sourceReferenceFor(name)?.declaration === parameter;
+        });
+        const inputs = candidates.flatMap(candidate => call.sourceArgumentBindings.filter(argument =>
+          argument.sourceParameterIndex === candidate.parameterIndex).map(argument =>
+          call.sourceArguments[argument.sourceArgumentIndex]?.expression));
+        const values = inputs.map(input => input === undefined ? undefined : exactNumeric(input, active));
+        const first = values[0];
+        return first !== undefined && values.every(value => value !== undefined && numericName(value) === numericName(first))
+          ? first : undefined;
+      }
+      if (!ast.is.IsEnumMember(declaration) || active.has(declaration) && declaration !== current) return undefined;
+      const initializer = ast.as.AsEnumMember(declaration)?.Initializer;
+      if (initializer !== undefined) return exactNumeric(initializer, active);
+      const owner = ast.parent(declaration);
+      const members = owner === undefined ? [] : ast.as.AsEnumDeclaration(owner)?.Members?.Nodes ?? [];
+      const index = members.indexOf(declaration);
+      if (index === 0) return numericTokenFromText("0");
+      const previous = index > 0 ? members[index - 1] : undefined;
+      const selected = previous === undefined ? undefined : exactNumeric(previous, active);
+      const integer = selected === undefined ? undefined : exactInteger(selected);
+      return integer === undefined ? undefined : numericTokenFromText((integer + 1n).toString());
+  }
+
+  function numericType(node: Node | undefined, active: Set<Node>): SourceNumericLiteralToken | undefined {
+    if (node === undefined || active.has(node)) return undefined;
+    if (ast.is.IsParenthesizedTypeNode(node)) return numericType(ast.as.AsParenthesizedTypeNode(node)?.Type, active);
+    if (ast.is.IsLiteralTypeNode(node)) {
+      const literal = ast.as.AsLiteralTypeNode(node)?.Literal;
+      return literal === undefined ? undefined : exactNumeric(literal, active);
+    }
+    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
+    const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
+    if (declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration)) return undefined;
+    active.add(node);
+    try { return numericType(ast.typeNode(declaration), active); } finally { active.delete(node); }
   }
 
   function pureReference(node: Node): boolean {
@@ -119,4 +237,31 @@ export function analyzeSourcePropertyNames(
     }
     return false;
   }
+}
+
+function numericTokenFromText(text: string): SourceNumericLiteralToken | undefined {
+  const negative = text.startsWith("-");
+  const token = parseSourceNumericLiteral(negative ? text.slice(1) : text)?.token;
+  return token === undefined ? undefined : negative ? Object.freeze({ ...token, negative }) : token;
+}
+
+function exactInteger(token: SourceNumericLiteralToken): bigint | undefined {
+  if (token.exponent < 0n || BigInt(token.coefficient.toString().length) + token.exponent > 40n) return undefined;
+  const value = token.coefficient * 10n ** token.exponent;
+  return token.negative ? -value : value;
+}
+
+function numericName(token: SourceNumericLiteralToken): string {
+  if (token.coefficient === 0n) return "0";
+  const digits = token.coefficient.toString();
+  const point = BigInt(digits.length) + token.exponent;
+  const prefix = token.negative ? "-" : "";
+  if (point > 0n && point <= 21n) {
+    const position = Number(point);
+    return prefix + (position >= digits.length ? digits.padEnd(position, "0")
+      : `${digits.slice(0, position)}.${digits.slice(position)}`);
+  }
+  if (point <= 0n && point >= -5n) return `${prefix}0.${"0".repeat(Number(-point))}${digits}`;
+  const exponent = point - 1n;
+  return `${prefix}${digits[0]}${digits.length === 1 ? "" : `.${digits.slice(1)}`}e${exponent < 0n ? "" : "+"}${exponent}`;
 }

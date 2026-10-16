@@ -60,6 +60,38 @@ export const result = { [imported]: 1 };
   assert.equal(selected.kind === "resolved" ? selected.name : undefined, "imported", "selected imported literal value");
 });
 
+test("authored integer, const and enum field keys never round through a host Number", () => {
+  const source = checked(`
+const constant = 9007199254740995;
+enum Key { Exact = 9007199254740997, Following }
+export const direct = { [9007199254740993]: 1 };
+export const indirect = { [constant]: 2 };
+export const selected = { [Key.Exact]: 3 };
+export const following = { [Key.Following]: 4 };
+export const negative = { [-9007199254740993]: 5 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "large native field names need no 53-bit cap");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : "not-a-field"),
+    ["9007199254740993", "9007199254740995", "9007199254740997", "9007199254740998", "-9007199254740993"]);
+});
+
+test("numeric const return contracts and generic literal inputs retain their authored key evidence", () => {
+  const source = checked(`
+type Key = 9007199254740993;
+function authored(): Key { return 9007199254740993; }
+function identity<T>(value: T): T { return value; }
+const returned = authored();
+const inferred = identity(9007199254740995);
+export const first = { [returned]: 1 };
+export const second = { [inferred]: 2 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "checked literal return contracts have lossless source provenance");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : "not-a-field"),
+    ["9007199254740993", "9007199254740995"]);
+});
+
 test("dynamic and effectful keys reject even when a call or getter has a literal return type", () => {
   const source = checked(`
 let mutable: "value" = "value";
@@ -105,6 +137,7 @@ test("published property-name reads and source-syntax snapshots cannot rerun the
   let reads = 0;
   const index = analyzeSourcePropertyNames(source.ast, file, {
     operations: semantics.operations,
+    declarations: semantics.declarations,
     types: { ...semantics.types, expressionType(node: Node) {
       assert.equal(sealed, false, "a sealed lookup cannot read the checker");
       reads += 1;
