@@ -408,6 +408,33 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return Object.freeze(inputs);
   });
   return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, formals: scopes.formals,
+    invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
+      return withQuery(() => budget.withRows(temporary => {
+        const subject = transport.subject(invocation);
+        if (subject === undefined) return undefined;
+        const target = transport.invocationTargets.get(invocation);
+        const operation = transport.accessorTargets.has(invocation)
+          ? source.ast.is.IsPropertyAccessExpression(invocation) ? source.semantics.forNode(invocation).operations.propertyAccess(invocation)
+            : source.semantics.forNode(invocation).operations.elementAccess(invocation) : undefined;
+        const receiver = transport.subjectFor(operation?.receiver.expression);
+        const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
+        for (const scope of bindings) {
+          if (!budget.step() || !temporary.add(2)) return undefined;
+          let term: SourceStorageTerm;
+          if (target !== undefined) term = Object.freeze({ kind: "application", mode: "execution", demand: invocation,
+            invocation, callee: sourceStorageReference(target, scope), scope, projection: Object.freeze([]) });
+          else if (receiver !== undefined) term = Object.freeze({ kind: "member", mode: "execution", demand: invocation,
+            selection: Object.freeze({ kind: "access", node: invocation }), receiver: sourceStorageReference(receiver, scope),
+            scope, projection: Object.freeze([]) });
+          else {
+            budget.reject("An invocation context requires its exact checked callee or accessor receiver.");
+            return undefined;
+          }
+          states.push([{ subject, term }]);
+        }
+        return keys.context(states);
+      }));
+    },
     contextKeyFor(subjects: readonly SourceStorageSubject[], bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {
         const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];

@@ -192,11 +192,12 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         const context = selected.mode === "execution"
           ? subject === undefined ? undefined : encodeScope(subject, selected.scope)
           : footprint === undefined ? undefined : footprint.locations.has(subject!) ? activationKey(selected.scope) : null;
-        return receiver === undefined || context === undefined ? undefined : [selected.kind, selected.mode,
+        const execution = selected.mode === "execution" ? activationKey(selected.scope) : null;
+        return receiver === undefined || context === undefined || execution === undefined ? undefined : [selected.kind, selected.mode,
           selected.mode === "execution" ? scopes.identity(selected.demand) : null,
           selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
             : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration)], receiver,
-          context, encodeProjection(selected.projection)];
+          selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
       }
       if (selected.kind === "application") {
         const physicalInvocation = invocation && selected === term;

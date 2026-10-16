@@ -152,6 +152,10 @@ export function createSourceStorageQuery(
     if (!checkedNode(candidate) || !checkedInvocation(invocation)) return false;
     if (transport.invocationImplementations(invocation).has(candidate)) return true;
     if (transport.invocationDeclarations.get(invocation) === candidate) return true;
+    if (source.ast.is.IsNewExpression(invocation) &&
+      (source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) &&
+      [...transport.invocationImplementations(invocation)].some(implementation =>
+        source.ast.is.IsConstructorDeclaration(implementation) && source.ast.parent(implementation) === candidate)) return true;
     if (sourceStorageConstructedClass(invocation, source, budget.step) === candidate) return true;
     return source.ast.is.IsNewExpression(invocation) && transport.regions.instance(invocation).some(region => region.owner === candidate);
   };
@@ -377,6 +381,15 @@ export function createSourceStorageQuery(
         : Object.freeze({ kind: "resolved", bindings: view });
     },
     boundOriginsFor: boundOrigins,
+    invocationContextKeyFor(invocation, bindings) {
+      const states = bindingStates.get(bindings);
+      if (states === undefined) return unresolved("Invocation context keys belong to a different source storage query.");
+      if (!checkedInvocation(invocation)) return unresolved(budget.failure() ?? "An invocation context key requires its exact checked source call or accessor.");
+      const key = transport.substitutions.invocationContextKeyFor(invocation, states);
+      return key === undefined || budget.failure() !== undefined
+        ? unresolved(budget.failure() ?? "The exact source invocation context could not be encoded.")
+        : Object.freeze({ kind: "resolved", key });
+    },
     contextKeyFor(subjects, bindings) {
       const states = bindingStates.get(bindings);
       if (states === undefined) return unresolved("Context keys belong to a different source storage query.");

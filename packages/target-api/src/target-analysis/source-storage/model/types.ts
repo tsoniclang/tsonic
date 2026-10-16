@@ -185,6 +185,8 @@ export interface SourceStorageQueries {
   bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   bindingsForLexicalOwner(node: Node): SourceStorageBindingsSelection;
   bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
+  invocationContextKeyFor(invocation: Node, bindings: SourceStorageBindings):
+    { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
   contextKeyFor(subjects: readonly SourceStorageSubject[], bindings: SourceStorageBindings):
     { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
   boundOriginsFor(subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection;

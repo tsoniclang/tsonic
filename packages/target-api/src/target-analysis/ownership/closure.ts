@@ -53,20 +53,7 @@ export function createSourceContinuationClosureQuery(input: {
     const file = source.ast.getSourceFile(call);
     if (file === undefined || !source.semantics.includes(file))
       return refuse(call, "Continuation closure requires the exact checked invocation.");
-    const semantics = source.semantics.forNode(call);
-    const operation = semantics.operations.call(call);
-    const callee = source.ast.as.AsCallExpression(call)?.Expression ?? source.ast.as.AsNewExpression(call)?.Expression;
-    const receiver = operation?.sourceReceiver?.expression ?? operation?.sourceCalleeAccess?.receiver.expression ??
-      semantics.operations.propertyAccess(call)?.receiver.expression;
-    const subjects: SourceStorageSubject[] = [];
-    for (const node of [call, callee, receiver, ...operation?.sourceArguments.map(argument => argument.expression) ?? []]) {
-      if (node === undefined) continue;
-      const selected = storage.subjectFor(node);
-      if (selected.kind === "unresolved") return refuse(call, selected.reason);
-      if (!budget.step() || !rows.add(1)) return undefined;
-      subjects.push(selected.subject);
-    }
-    const selected = storage.contextKeyFor(subjects, bindings);
+    const selected = storage.invocationContextKeyFor(call, bindings);
     if (selected.kind === "unresolved") return refuse(call, selected.reason);
     if (!rows.add(2)) return undefined;
     const values = contexts.get(call) ?? new Map<SourceStorageBindings, string>();
