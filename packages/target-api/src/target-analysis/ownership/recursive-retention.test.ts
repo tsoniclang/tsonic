@@ -211,7 +211,8 @@ for (const order of ["owned-first", "borrowed-first", "owned-declared-first", "b
     assert.equal(producers.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")),
       order !== "owned-only", "depth one retains the actual borrowed closure input in every mixed order");
     assert.equal(producers.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
-      source.ast.text(producer.subject.node).includes("value: 3")), order !== "borrowed-only",
+      source.ast.is.IsVariableDeclaration(source.ast.parent(producer.subject.node)) &&
+      source.ast.text(source.ast.name(source.ast.parent(producer.subject.node))) === "owned"), order !== "borrowed-only",
     "depth one retains the actual owned closure input, not just the first capture");
     const selected = current.query.forCall(call!);
     assert.equal(selected.kind === "resolved" && selected.decision === (order === "owned-only" ? "admitted" : "rejected"), true,
@@ -348,7 +349,8 @@ for (const reverse of [false, true]) {
       assert.equal(selected.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
         "a class/constructor entry never drops the borrowed branch's capture");
       assert.equal(selected.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
-        source.ast.text(producer.subject.node).includes("value: 3")), true,
+        source.ast.is.IsVariableDeclaration(source.ast.parent(producer.subject.node)) &&
+        source.ast.text(source.ast.name(source.ast.parent(producer.subject.node))) === "owned"), true,
       "a class/constructor entry never drops the owned branch's capture");
     }
     assert.equal(storage.failureReason() === undefined, true, "the finite class relation stays within its unchanged budget");
