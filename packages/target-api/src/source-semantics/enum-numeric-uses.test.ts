@@ -28,6 +28,14 @@ const numericUses = [
   ["complement numeric local", "export function use(value: Value): number { const result: number = ~value; return result; }"],
   ["complement arithmetic", "export function use(value: Value): number { return ~value + 1; }"],
   ["bitwise numeric return", "export function use(left: Value, right: Value): number { return left | right; }"],
+  ["inferred complement return", "export function use(value: Value): number { const result = ~value; return result; }"],
+  ["inferred complement copy return", "export function use(value: Value): number { const result = ~value; const copy = result; return copy; }"],
+  ["inferred bitwise return", "export function use(left: Value, right: Value): number { const result = left | right; return result; }"],
+  ["inferred complement argument", "function consume(value: number): number { return value; } export function use(value: Value): number { const result = ~value; return consume(result); }"],
+  ["inferred complement assignment", "export function use(value: Value): number { const result = ~value; let copy = 0; copy = result; return copy; }"],
+  ["inferred complement comparison", "export function use(value: Value): boolean { const result = ~value; return result === 0; }"],
+  ["inferred complement arithmetic", "export function use(value: Value): number { const result = ~value; return result + 1; }"],
+  ["unwritten inferred binding", "export function use(value: Value): number { let result = ~value; return result; }"],
 ] as const;
 
 for (const [label, body] of numericUses) {
@@ -69,9 +77,50 @@ export function mask(left: Value, right: Value): Value { return left & right; }
 export function toggle(left: Value, right: Value): Value { return left ^ right; }
 export function complement(value: Value): Value { return ~value; }
 export function combinedComplement(left: Value, right: Value): Value { return ~left & right; }
+export function copiedComplement(value: Value): Value { const result = ~value; const copy = result; return copy; }
+export function copiedBitwise(left: Value, right: Value): Value { const result = left | right; const copy = result; return copy; }
+export function comparedComplement(value: Value): boolean { const result = ~value; return result === value; }
+export function combinedCopy(left: Value, right: Value): Value { const result = ~left; return result & right; }
 export const object = { [Value.First]: 1 };
 `);
   assert.equal(source.semantics.enumConstants.issues.length, 0, "no supported same-enum operation or compile-time key is reclassified as numeric");
   assert.equal(source.semantics.enumConstants.entries.every(entry => entry.kind === "resolved"), true,
     "constant initializer operators retain their existing exact evaluator");
+});
+
+test("enum domain follows actual checked const origins across project source files", () => {
+  const source = checked(`import { copied } from "./value.js"; export function use(): number { return copied; }`,
+    { "/src/value.ts": "export enum Value { First = 1 } const result = ~Value.First; export const copied = result;" });
+  assert.equal(source.semantics.enumConstants.issues.length, 1, "the imported immutable origin retains its actual enum identity");
+  assert.equal(source.semantics.enumConstants.issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED",
+    "a module name or checker number does not hide the numeric return");
+});
+
+test("numeric and shadowed bindings do not inherit another declaration's enum domain", () => {
+  const source = checked(`export enum Value { First = 1 }
+export function normal(): number { const result = ~1; const copy = result; return copy; }
+export function shadow(value: Value): number {
+  const result = ~value;
+  { const result = 1; return result + 1; }
+}
+export function overwritten(value: Value): number { let result = ~value; result = 3; return result; }
+`);
+  assert.equal(source.semantics.enumConstants.issues.length, 0,
+    "no spelling, arbitrary write, or ordinary numeric initializer becomes enum provenance");
+});
+
+test("explicit numeric source assertions retain their existing conversion boundary", () => {
+  const source = checked(`export enum Value { First = 1 }
+export function convert(value: Value): number { const result = value as number; return result; }
+`);
+  assert.equal(source.semantics.enumConstants.issues.length, 0, "this classifier does not implement or redefine explicit native conversions");
+});
+
+test("erroneous immutable origin cycles terminate without manufacturing a native enum domain", () => {
+  const source = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": "export enum Value { First = 1 } export const first = second; export const second = first;",
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(source.diagnostics.some(issue => issue?.category === "error"), true, "the checked cycle remains a source error");
+  const selected = createTargetSourceProgram(source);
+  assert.equal(selected.semantics.enumConstants.issues.length, 0, "cycle termination does not invent an enum value or a second diagnostic");
 });

@@ -20,7 +20,7 @@ const valueKinds = new Set(["KindIdentifier", "KindPropertyAccessExpression", "K
 
 export function analyzeSourceEnumNumericUses(
   source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "declarationSymbol" | "sourceFiles">,
+  navigation: Pick<SourceProgramNavigation, "declarationSymbol" | "sourceFiles" | "sourceReferenceFor" | "declarationUseSummary">,
   enumConstants: Pick<SourceEnumConstantIndex, "get" | "integerWidth">,
 ): readonly SourceEnumAdmissionIssue[] {
   const { ast } = source;
@@ -128,6 +128,7 @@ export function analyzeSourceEnumNumericUses(
 
     function enumValue(expression: Node): readonly Symbol[] {
       const pendingValues: { readonly node: Node; readonly children?: readonly Node[] }[] = [{ node: expression }];
+      const active = new Set<Node>();
       while (pendingValues.length !== 0) {
         const current = pendingValues.pop()!;
         if (enumValues.has(current.node)) continue;
@@ -135,25 +136,38 @@ export function analyzeSourceEnumNumericUses(
           const first = enumValues.get(current.children[0]!)!;
           const second = current.children.length === 1 ? first : enumValues.get(current.children[1]!)!;
           enumValues.set(current.node, first.length === 1 && second.length === 1 && first[0] === second[0] ? first : Object.freeze([]));
+          active.delete(current.node);
           continue;
         }
+        if (active.has(current.node)) {
+          enumValues.set(current.node, Object.freeze([]));
+          continue;
+        }
+        active.add(current.node);
         const selected = enumSymbols(checkedType(current.node));
         if (selected.length !== 0) {
           enumValues.set(current.node, selected);
+          active.delete(current.node);
           continue;
         }
         const operator = ast.operatorKindName(current.node);
+        const declaration = ast.is.IsIdentifier(current.node) ? navigation.sourceReferenceFor(current.node)?.declaration : undefined;
+        const initializer = declaration !== undefined && ast.is.IsVariableDeclaration(declaration) &&
+          ast.typeNode(declaration) === undefined && (ast.variableDeclarationKind(declaration) === "const" ||
+            !navigation.declarationUseSummary(declaration).bindingWritten)
+          ? ast.as.AsVariableDeclaration(declaration)?.Initializer : undefined;
         const inner = ast.is.IsParenthesizedExpression(current.node) ? ast.as.AsParenthesizedExpression(current.node)?.Expression
           : ast.is.IsNonNullExpression(current.node) ? ast.as.AsNonNullExpression(current.node)?.Expression
           : ast.is.IsSatisfiesExpression(current.node) ? ast.as.AsSatisfiesExpression(current.node)?.Expression
           : ast.is.IsPrefixUnaryExpression(current.node) && operator === "KindTildeToken"
-            ? ast.as.AsPrefixUnaryExpression(current.node)?.Operand : undefined;
+            ? ast.as.AsPrefixUnaryExpression(current.node)?.Operand : initializer;
         const binary = ast.is.IsBinaryExpression(current.node) && operator !== undefined && bitwiseOperators.has(operator)
           ? ast.as.AsBinaryExpression(current.node) : undefined;
         const children = inner !== undefined ? [inner]
           : binary?.Left !== undefined && binary.Right !== undefined ? [binary.Left, binary.Right] : undefined;
         if (children === undefined) {
           enumValues.set(current.node, Object.freeze([]));
+          active.delete(current.node);
           continue;
         }
         pendingValues.push({ node: current.node, children });

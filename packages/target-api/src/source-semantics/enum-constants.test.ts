@@ -56,6 +56,41 @@ function second() { enum Local { Second = 2 } return Local.Second; }
     "all three ordinary constant owners remain unchanged");
 });
 
+test("merged enum membership is shared across checked consumer contexts before evaluation", () => {
+  for (const [label, first, second] of [
+    ["ordinary scripts", "enum Value { First = 1 }", "enum Value { Second = 2 }"],
+    ["script collision", "enum Value { First = 9007199254740992 }", "enum Value { Second = 9007199254740993 }"],
+    ["global augmentation", "export {}; declare global { enum Value { First = 1 } }", "export {}; declare global { enum Value { Second = 2 } }"],
+    ["global collision", "export {}; declare global { enum Value { First = 9007199254740992 } }", "export {}; declare global { enum Value { Second = 9007199254740993 } }"],
+  ] as const) {
+    const program = createTargetSourceProgram(checked("export {};", { "/src/first.ts": first, "/src/second.ts": second }));
+    const index = program.semantics.enumConstants;
+    assert.equal(index.issues.length, 1, `${label} has one actual checked declaration group`);
+    assert.equal(index.issues[0]?.code, "TSONIC_ENUM_MERGED_DECLARATIONS_NOT_SUPPORTED", `${label} rejects before R2 and native width`);
+    assert.equal(index.issues[0]?.message, "Enum 'Value' has 2 declarations; tsonic supports one declaration per enum.",
+      `${label} counts real checked enum declarations, not context-local symbol objects`);
+    assert.equal(index.entries.length, 2, `${label} retains every exact member identity`);
+    assert.equal(index.entries.every(entry => entry.kind === "rejected" && entry.reason === index.issues[0]?.message), true,
+      `${label} shares the identical pre-evaluation refusal`);
+    for (const entry of index.entries) {
+      const declaration = program.ast.parent(entry.declaration)!;
+      const width = index.integerWidth(declaration);
+      assert.equal(width?.kind === "rejected" && width.admissionIssue === index.issues[0], true,
+        `${label} cannot publish a partial successful width or a second issue`);
+    }
+  }
+});
+
+test("same-spelled enum exports in distinct modules are not merged", () => {
+  const program = createTargetSourceProgram(checked("export {};", {
+    "/src/first.ts": "export enum Value { First = 1 }",
+    "/src/second.ts": "export enum Value { Second = 2 }",
+  }));
+  assert.equal(program.semantics.enumConstants.issues.length, 0, "actual checked declaration sets, not names, decide grouping");
+  assert.equal(program.semantics.enumConstants.entries.every(entry => entry.kind === "resolved"), true,
+    "both independent native enums retain their own exact values");
+});
+
 test("enum constants have one exact initialized, implicit and imported declaration authority", () => {
   const program = createTargetSourceProgram(checked(`
 import { Base } from "./base.js";

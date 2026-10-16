@@ -1,4 +1,4 @@
-import type { CheckedSourceProgram, Node, Symbol } from "@tsonic/tsts";
+import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
 import { analyzeSourceEnumNumericUses } from "./enum-numeric-uses.js";
@@ -56,7 +56,12 @@ export function analyzeSourceEnumConstants(
   const { ast } = source;
   const members: Node[] = [];
   const declarations: { readonly declaration: Node; readonly members: readonly Node[] }[] = [];
-  const groups = new Map<Symbol, { readonly declaration: Node; readonly members: readonly Node[] }[]>();
+  type DeclarationGroup = {
+    readonly checkedDeclarations: Set<Node>;
+    readonly declarations: { readonly declaration: Node; readonly members: readonly Node[] }[];
+  };
+  const groups = new Set<DeclarationGroup>();
+  const groupsByDeclaration = new WeakMap<Node, DeclarationGroup>();
   const previous = new WeakMap<Node, Node>();
   const membership = new WeakSet<Node>();
   for (const file of source.sourceFiles) {
@@ -76,12 +81,23 @@ export function analyzeSourceEnumConstants(
           prior = member;
         }
         const declaration = { declaration: node, members: declaredMembers };
-        const symbol = navigation.declarationSymbol(node, file);
-        if (symbol === undefined) throw new Error("A checked enum declaration requires its actual declaration symbol.");
         declarations.push(declaration);
-        const group = groups.get(symbol);
-        if (group === undefined) groups.set(symbol, [declaration]);
-        else group.push(declaration);
+        let group = groupsByDeclaration.get(node);
+        if (group === undefined) {
+          const symbol = navigation.declarationSymbol(node, file);
+          if (symbol === undefined) throw new Error("A checked enum declaration requires its actual declaration symbol.");
+          const checkedDeclarations = source.getSourceFileQueries(file).checker.getSymbolDeclarations(symbol)
+            .filter((selected): selected is Node => selected !== undefined && ast.is.IsEnumDeclaration(selected));
+          if (!checkedDeclarations.includes(node)) throw new Error("A checked enum symbol requires its actual declaration membership.");
+          group = { checkedDeclarations: new Set(checkedDeclarations), declarations: [] };
+          for (const selected of checkedDeclarations) {
+            if (groupsByDeclaration.has(selected))
+              throw new Error("Completed checked enum declaration membership requires one consistent group.");
+            groupsByDeclaration.set(selected, group);
+          }
+          groups.add(group);
+        }
+        group.declarations.push(declaration);
       }
       const children: Node[] = [];
       ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
@@ -97,14 +113,14 @@ export function analyzeSourceEnumConstants(
   const entries: SourceEnumConstantSelection[] = [];
   const issues: SourceEnumAdmissionIssue[] = [];
   const mergedDeclarations = new WeakSet<Node>();
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-    const canonical = group[0]!.declaration;
-    const reason = `Enum '${ast.text(ast.name(canonical))}' has ${group.length} declarations; tsonic supports one declaration per enum.`;
+  for (const group of groups) {
+    if (group.checkedDeclarations.size < 2) continue;
+    const canonical = group.declarations[0]!.declaration;
+    const reason = `Enum '${ast.text(ast.name(canonical))}' has ${group.checkedDeclarations.size} declarations; tsonic supports one declaration per enum.`;
     const issue: SourceEnumAdmissionIssue = Object.freeze({ code: "TSONIC_ENUM_MERGED_DECLARATIONS_NOT_SUPPORTED", category: "error",
       source: "tsonic", sourceNode: canonical, message: reason });
     issues.push(issue);
-    for (const declaration of group) {
+    for (const declaration of group.declarations) {
       mergedDeclarations.add(declaration.declaration);
       widths.set(declaration.declaration, Object.freeze({ kind: "rejected", declaration: declaration.declaration,
         member: canonical, reason, failure: "source", admissionIssue: issue }));
