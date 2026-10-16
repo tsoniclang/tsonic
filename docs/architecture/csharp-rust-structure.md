@@ -125,6 +125,9 @@ Paths below are relative to each target's `src/` directory.
 | Contextual/expected types | `analysis/expected-types/` | Both targets reconcile checked callable/expression contexts; local native carrier choice stays in policy |
 | Source evidence | `analysis/source-evidence/` | Exact checked identities and refinements; not native selection |
 | Operation policy | `policy/operations/` | Members, operators, pointers and selected source-profile operations |
+| Native handler policy | `policy/operations/pointers/native-handlers.ts` | Native adapters pass payloads to the shared `target-api/target-analysis/native-handlers.ts` root and pointer-priority owners |
+| Native handler publication | `analysis/operations/native-handlers.ts`, `target-model/records/native-handlers.ts` | Finalizers select once over the full checked storage-node domain and publish immutable chosen-payload descriptors before sealing |
+| Native handler rendering | `backend/planner/expressions/` | Root dispatch reads `records.nativeHandler` once; selected renderers receive its payload without re-probing native candidates |
 | JS operation data | `policy/operations/source-profiles/js/` | Native carrier and operation rows remain target-owned |
 | Native API metadata | `providers/native/` | .NET reflection versus Rust compiler/rustdoc metadata |
 | Metadata acquisition | `providers/native/acquisition/` | Native acquisition protocols belong here, not in projection or policy |
