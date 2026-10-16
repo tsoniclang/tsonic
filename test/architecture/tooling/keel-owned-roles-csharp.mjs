@@ -30,7 +30,7 @@ export const keelOwnedCsharpResponsibilities = Object.freeze({
     { file: "src/policy/operations/pointers/native-handlers.ts", symbol: "selectCsharpNativeHandler",
       bodySha256: "3bd9a3aa578e4772eef0a89c0883534ff2c7027286d181dbe38412ae98d867e0", role: "selection",
       evidence: [{ kind: "parameter", name: "memoryBinding" }],
-      reason: "JS string conversion is the one arm that is not a native memory access handler; the precedence stays in `pointers/` with the memory-binding, native-pointer, typed-location and explicit-safety arms." },
+      reason: "Memory binding, native pointer and typed location are native memory access, and explicit safety is their unsafe context. JS string conversion is the one arm outside native memory. The precedence stays in `pointers/` with the other four." },
     { file: "src/policy/operations/source-profiles/source-core-fixed-array.ts", symbol: "selectCsharpSourceCoreFixedArrayElement",
       bodySha256: "627e649e59e734f2ca31eb8553cfee1bbee2d1d21ea3d9d24baa23c887b38b8e", role: "selection",
       evidence: [{ kind: "parameter", name: "source" }] },

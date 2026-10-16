@@ -272,7 +272,7 @@ string conversion, native pointer or typed location, in that precedence.
 Expressions inside compile-time metadata or native-unreachable code have none,
 and so does an expression that no handler claims. The precedence is the native
 policy in `policy/operations/pointers/native-handlers.ts`. The operations walk
-calls it once per expression, after the memory-binding, JS string conversion,
+calls it once per visited source node, after the memory-binding, JS string conversion,
 native-pointer and typed-location selections are complete, with the explicit
 safety operation from the safety application index, and publishes the result.
 The planner calls only the handler the record names.
