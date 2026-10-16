@@ -312,8 +312,8 @@ for (const accessor of [false, true]) {
   }
 }
 
-for (const reverse of [false, true]) {
-  test(`recursive class and constructor entry contexts retain every selected class capture, reverse=${reverse}`, () => {
+for (const reverse of [false, true]) for (const inherited of [false, true]) {
+  test(`recursive class and constructor entry contexts retain every selected class capture, reverse=${reverse}${inherited ? ", inherited=true" : ""}`, () => {
     const current = fixture(false, "self", `
       function classFactory(lease: Lease) {
         return class CaptureHolder {
@@ -326,7 +326,8 @@ for (const reverse of [false, true]) {
       }
       function classRoot(flag: boolean) {
         const owner = { value: 3 }; const borrowed = borrow(owner); const owned: Lease = { value: 3 };
-        const Holder = flag ? classFactory(${reverse ? "borrowed" : "owned"}) : classFactory(${reverse ? "owned" : "borrowed"});
+        const ${inherited ? "Base" : "Holder"} = flag ? classFactory(${reverse ? "borrowed" : "owned"}) : classFactory(${reverse ? "owned" : "borrowed"});
+        ${inherited ? "class Holder extends Base {}" : ""}
         const local: Lease = { value: 1 }; return new Holder(local, 2);
       }
     `);
