@@ -212,6 +212,10 @@ An installed discarded-result observation belongs to the loop generation
 that installed it. A later loop on the same thread is a different owner;
 stale settlement must not report into it or revive the old owner.
 
+On retirement C# cancels the owned reaction Task, while Rust drops its job and
+leaves the derived Promise unsettled; neither target runs a user branch or
+settles the still-pending source Promise.
+
 For a discarded JS call that rejects, Rust `observe_discarded` and C#
 `ObserveDiscarded` preserve its original reason, report to stderr and terminate
 with exit code 1 after the current job. They observe existing settlement:
