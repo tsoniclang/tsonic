@@ -139,3 +139,13 @@ test("exact token comparisons and bounded integer facts share normalization with
   assert.equal(parseNativeIntegerLiteral("1_000.00e-2"), 10n);
   assert.equal(parseNativeIntegerLiteral("9007199254740993n"), 9007199254740993n);
 });
+
+test("exact magnitude comparison accepts scaled coefficient evidence without a fabricated source token", () => {
+  const maximum = (1n << 96n) - 1n;
+  const midpointTwice = maximum * 2n + 1n;
+  for (const [digit, expected] of [[4n, -1], [5n, 0], [6n, 1]] as const) {
+    const magnitude = Object.freeze({ coefficient: (maximum * 10n + digit) * 2n, exponent: -1n });
+    assert.equal(compareSourceNumericLiteralMagnitude(magnitude, midpointTwice), expected);
+  }
+  assert.equal(compareSourceNumericLiteralMagnitude({ coefficient: 2n, exponent: -9999999999999999999n }, 1n), -1);
+});

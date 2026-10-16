@@ -48,7 +48,10 @@ export function parseSourceNumericLiteral(text: string): ParsedSourceNumericLite
   return Object.freeze({ token: Object.freeze({ coefficient, exponent, negative: false, decimalText }), integer });
 }
 
-export function compareSourceNumericLiteralMagnitude(token: SourceNumericLiteralToken, limit: bigint): -1 | 0 | 1 {
+export function compareSourceNumericLiteralMagnitude(
+  token: Pick<SourceNumericLiteralToken, "coefficient" | "exponent">,
+  limit: bigint,
+): -1 | 0 | 1 {
   if (limit < 0n) throw new Error("Numeric literal magnitude comparison requires a nonnegative limit.");
   if (token.coefficient === 0n) return limit === 0n ? 0 : -1;
   if (limit === 0n) return 1;
