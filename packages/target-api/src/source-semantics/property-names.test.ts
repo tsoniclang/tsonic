@@ -14,6 +14,86 @@ function checked(sourceText: string, files: Readonly<Record<string, string>> = {
   return createTargetSourceProgram(source);
 }
 
+test("numeric index admission uses checked key types independently of the stored value type", () => {
+  const source = checked(`
+enum Key { Wide = 9007199254740993 }
+export const text: Record<number, string> = { 9007199254740993: "value" };
+export const numeric: Record<number, number> = { 9007199254740993: 7 };
+export const selected: Record<number, string> = { [Key.Wide]: "enum" };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 3, "all three real indexed contexts retain their exact keys");
+  assert.equal(index.issues.length, 0, "a string value cannot turn a proven numeric index into a named member");
+  for (const [position, entry] of index.entries.entries()) {
+    assert.equal(entry.selection.kind, "resolved", `indexed key ${position} is admitted`);
+    assert.equal(entry.selection.kind === "resolved" ? entry.selection.name : undefined, "9007199254740992",
+      `indexed key ${position} retains the single checked spelling separately from its native scalar`);
+    assert.equal(entry.selection.kind === "resolved" && (entry.selection.constant.kind === "numeric"
+      ? entry.selection.constant.token.coefficient === 9007199254740993n
+      : entry.selection.constant.kind === "enum-member" && entry.selection.constant.entry.value === 9007199254740993n), true,
+    `indexed key ${position} retains its exact native scalar without a Number round-trip`);
+  }
+});
+
+test("erased unique-symbol contracts retain checked symbolic evidence without inventing native fields", () => {
+  const source = checked(`
+declare const storage: unique symbol;
+interface Stored<Value> { readonly [storage]: Value; }
+type Storage<Value> = Value extends Stored<infer Inner> ? Inner : Value;
+export function read(value: Storage<number>): number { return value; }
+`);
+  const semantics = source.semantics.forFile(source.navigation.sourceFiles[0]!);
+  const entry = semantics.propertyNames.entries[0]!;
+  const checkedName = semantics.operations.propertyName(entry.node);
+  assert.equal(semantics.propertyNames.issues.length, 0, "a checked phantom type key has no native storage obligation");
+  assert.equal(entry.selection.kind === "unique-symbol" && entry.selection.type === checkedName?.type, true,
+    "the source-only contract retains its actual unique checked type, not a fake string or well-known symbol");
+  assert.equal(Object.isFrozen(entry.selection), true, "the identity selection is immutable");
+});
+
+test("runtime unique-symbol fields remain precisely refused without a native storage representation", () => {
+  const source = checked(`
+declare const storage: unique symbol;
+export class Holder { [storage]: number = 1; }
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 1, "a runtime field still needs supported native member identity");
+  assert.equal(index.entries[0]!.selection.kind, "rejected", "source-only symbolic evidence cannot admit emitted storage");
+  assert.equal(index.issues[0]!.reason.includes("exact string or numeric literal"), true, "the actual key owner refuses precisely");
+});
+
+test("signed bound member identities refuse while completed object and binding zero identities agree", () => {
+  const source = checked(`
+class Holder { [+1] = 1; [-0] = 2; }
+interface Contract { [+1]: number; [-0]: number; }
+type Shape = { [+1]: number; [-0]: number; };
+const object = { [-0]: 3 };
+const { [-0]: value } = object;
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 8, "all checked member, object and binding names participate");
+  assert.equal(index.issues.length, 6, "each actual signed bound-member disagreement is explicit");
+  for (const [position, entry] of index.entries.entries()) {
+    assert.equal(entry.selection.kind, position < 6 ? "rejected" : "resolved", `name ${position} follows actual checked identity`);
+    if (position < 6) assert.equal(entry.selection.kind === "rejected" &&
+      entry.selection.reason.includes(position % 2 === 0 ? 'checker key +1' : 'checker key -0'), true,
+    `bound name ${position} reports its actual symbol identity`);
+    else assert.equal(entry.selection.kind === "resolved" ? entry.selection.name : undefined, "0",
+      `object/binding name ${position} agrees on canonical zero`);
+  }
+});
+
+test("non-authored checked element arguments do not acquire generic static-key refusals", () => {
+  const source = checked(`
+enum Key { A = 1 }
+declare const pair: { 1: number };
+declare const record: Record<Key, number>;
+export function read(key: Key.A): number { let index: 1 = 1; return pair[index] + record[key]; }
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "literal-typed mutable variables and enum parameters need no authored key token");
+});
+
 test("computed literal, const-literal and enum names have one exact shared classification", () => {
   const source = checked(`
 const textKey = "value";

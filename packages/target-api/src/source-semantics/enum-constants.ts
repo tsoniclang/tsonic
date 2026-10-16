@@ -1,6 +1,7 @@
-import type { CheckedSourceProgram, Node } from "@tsonic/tsts";
+import type { CheckedSourceProgram, Node, Symbol } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
+import { analyzeSourceEnumNumericUses } from "./enum-numeric-uses.js";
 
 export type SourceEnumConstantSelection =
   | { readonly kind: "resolved"; readonly declaration: Node; readonly value: bigint | string }
@@ -9,12 +10,22 @@ export type SourceEnumConstantSelection =
 export type SourceEnumIntegerWidthSelection =
   | { readonly kind: "resolved"; readonly declaration: Node; readonly integerWidth: 32 | 64 }
   | { readonly kind: "rejected"; readonly declaration: Node; readonly member: Node;
-      readonly reason: string; readonly failure: "source" | "resource" };
+      readonly reason: string; readonly failure: "source" | "resource";
+      readonly admissionIssue?: SourceEnumAdmissionIssue };
 
 export interface SourceEnumConstantIndex {
   readonly entries: readonly SourceEnumConstantSelection[];
+  readonly issues: readonly SourceEnumAdmissionIssue[];
   get(member: Node): SourceEnumConstantSelection | undefined;
   integerWidth(declaration: Node): SourceEnumIntegerWidthSelection | undefined;
+}
+
+export interface SourceEnumAdmissionIssue {
+  readonly code: "TSONIC_ENUM_MERGED_DECLARATIONS_NOT_SUPPORTED" | "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED";
+  readonly category: "error";
+  readonly source: "tsonic";
+  readonly sourceNode: Node;
+  readonly message: string;
 }
 
 type Constant =
@@ -40,11 +51,12 @@ const resourceExhausted = (reason: string): Constant => Object.freeze({ kind: "r
 
 export function analyzeSourceEnumConstants(
   source: CheckedSourceProgram,
-  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
+  navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationSymbol" | "sourceFiles">,
 ): SourceEnumConstantIndex {
   const { ast } = source;
   const members: Node[] = [];
   const declarations: { readonly declaration: Node; readonly members: readonly Node[] }[] = [];
+  const groups = new Map<Symbol, { readonly declaration: Node; readonly members: readonly Node[] }[]>();
   const previous = new WeakMap<Node, Node>();
   const membership = new WeakSet<Node>();
   for (const file of source.sourceFiles) {
@@ -63,7 +75,13 @@ export function analyzeSourceEnumConstants(
           if (prior !== undefined) previous.set(member, prior);
           prior = member;
         }
-        declarations.push({ declaration: node, members: declaredMembers });
+        const declaration = { declaration: node, members: declaredMembers };
+        const symbol = navigation.declarationSymbol(node, file);
+        if (symbol === undefined) throw new Error("A checked enum declaration requires its actual declaration symbol.");
+        declarations.push(declaration);
+        const group = groups.get(symbol);
+        if (group === undefined) groups.set(symbol, [declaration]);
+        else group.push(declaration);
       }
       const children: Node[] = [];
       ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
@@ -77,8 +95,25 @@ export function analyzeSourceEnumConstants(
   const widths = new WeakMap<Node, SourceEnumIntegerWidthSelection>();
   const disagreements = new WeakMap<Node, Constant>();
   const entries: SourceEnumConstantSelection[] = [];
+  const issues: SourceEnumAdmissionIssue[] = [];
+  const mergedDeclarations = new WeakSet<Node>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const canonical = group[0]!.declaration;
+    const reason = `Enum '${ast.text(ast.name(canonical))}' has ${group.length} declarations; tsonic supports one declaration per enum.`;
+    const issue: SourceEnumAdmissionIssue = Object.freeze({ code: "TSONIC_ENUM_MERGED_DECLARATIONS_NOT_SUPPORTED", category: "error",
+      source: "tsonic", sourceNode: canonical, message: reason });
+    issues.push(issue);
+    for (const declaration of group) {
+      mergedDeclarations.add(declaration.declaration);
+      widths.set(declaration.declaration, Object.freeze({ kind: "rejected", declaration: declaration.declaration,
+        member: canonical, reason, failure: "source", admissionIssue: issue }));
+      for (const member of declaration.members) completed.set(member, rejected(reason));
+    }
+  }
   for (const member of members) evaluate(member);
   for (const declaration of declarations) {
+    if (mergedDeclarations.has(declaration.declaration)) continue;
     const checkedValues = new Map<number, { readonly member: Node; readonly exact: bigint }[]>();
     for (const member of declaration.members) {
       const value = completed.get(member)!;
@@ -95,8 +130,9 @@ export function analyzeSourceEnumConstants(
     }
     for (const [checked, values] of checkedValues) {
       if (values.every(value => value.exact === values[0]!.exact)) continue;
+      const members = values.map(value => `${ast.text(ast.name(value.member))} (exact value ${value.exact})`).join(", ");
       for (const value of values) disagreements.set(value.member, rejected(
-        `${enumDisagreement(value.member, value.exact, checked)} Different exact enum values share this checker value; write distinct explicit values with distinct checker identities.`));
+        `Enum members ${members} have distinct exact values but share checker value ${checked}. Write distinct explicit values with distinct checker identities.`));
     }
   }
   for (const member of members) {
@@ -108,6 +144,7 @@ export function analyzeSourceEnumConstants(
     entries.push(selection);
   }
   for (const declaration of declarations) {
+    if (mergedDeclarations.has(declaration.declaration)) continue;
     const constants = declaration.members.map(member => {
       const selected = selections.get(member);
       if (selected === undefined) throw new Error("Every checked enum member requires its exact completed constant entry.");
@@ -132,8 +169,10 @@ export function analyzeSourceEnumConstants(
         member, reason: decision.reason, failure: "source" }));
     }
   }
-  return Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member),
+  const constants = Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member),
     integerWidth: (declaration: Node) => widths.get(declaration) });
+  issues.push(...analyzeSourceEnumNumericUses(source, navigation, constants));
+  return Object.freeze({ ...constants, issues: Object.freeze(issues) });
 
   function checkedConstant(member: Node): unknown {
     const existing = checkedConstants.get(member);

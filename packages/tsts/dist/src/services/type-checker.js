@@ -1,11 +1,11 @@
 import { Background } from "../go/context.js";
-import { Node_Text } from "../internal/ast/ast.js";
+import { Node_Symbol, Node_Text } from "../internal/ast/ast.js";
 import { Node_Name } from "../internal/ast/spine.js";
 import { readTypeIndexInfo } from "./type-members.js";
 import { readInvocationReturnType } from "./signature-returns.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
-import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsPropertyAccessExpression, IsPropertyAssignment, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
-import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, IsPropertyName, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
+import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
+import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
 import { Program_GetTypeCheckerForFile } from "../internal/compiler/program.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
@@ -52,19 +52,29 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const selected = withCheckerForNode(program, node, defaultOptions, checker => {
                 if (!IsPropertyName(node))
                     return undefined;
-                const [name, present] = Checker_getEffectivePropertyNameForPropertyNameNode(checker, node);
+                const [literalName, present] = Checker_getEffectivePropertyNameForPropertyNameNode(checker, node);
                 if (!present)
                     return undefined;
                 const type = Checker_getLiteralTypeFromPropertyName(checker, node);
                 if (type === undefined)
                     return undefined;
+                const declaration = node.Parent;
+                const staticallyBound = declaration !== undefined && !IsDynamicName(node) &&
+                    (IsPropertyDeclaration(declaration) || IsPropertySignatureDeclaration(declaration) ||
+                        IsMethodDeclaration(declaration) || IsMethodSignatureDeclaration(declaration) ||
+                        IsGetAccessorDeclaration(declaration) || IsSetAccessorDeclaration(declaration)) &&
+                    !IsObjectLiteralExpression(declaration.Parent);
+                const symbol = staticallyBound ? Node_Symbol(declaration) : undefined;
+                if (staticallyBound && symbol === undefined)
+                    return undefined;
+                const name = staticallyBound ? symbol.Name : literalName;
                 if ((type.flags & TypeFlagsUniqueESSymbol) !== 0)
-                    return Object.freeze({ kind: "unique-symbol", name });
+                    return Object.freeze({ kind: "unique-symbol", name, type });
                 if ((type.flags & TypeFlagsNumberLiteral) !== 0)
                     return Object.freeze({ kind: "numeric",
-                        name: Number_String(getNumberLiteralValue(type)) });
+                        name: staticallyBound ? name : Number_String(getNumberLiteralValue(type)), type });
                 if ((type.flags & TypeFlagsStringLiteral) !== 0)
-                    return Object.freeze({ kind: "string", name });
+                    return Object.freeze({ kind: "string", name, type });
                 return undefined;
             });
             propertyNames.set(node, selected ?? null);

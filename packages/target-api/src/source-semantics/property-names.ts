@@ -1,5 +1,6 @@
 import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
+import { sourceClassFieldIsTypeOnly } from "../source-navigation/class-members.js";
 import type { SourceFileSemantics } from "./types.js";
 import type { SourceNumericLiteralToken } from "./literal-values-model.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
@@ -14,6 +15,7 @@ export type SourcePropertyNameConstant =
 export type SourcePropertyNameSelection =
   | { readonly kind: "resolved"; readonly name: string; readonly constant: SourcePropertyNameConstant }
   | { readonly kind: "well-known-symbol"; readonly symbol: ResolvedSourceWellKnownSymbolInfo["kind"] }
+  | { readonly kind: "unique-symbol"; readonly type: Type }
   | { readonly kind: "rejected"; readonly reason: string; readonly failure: "source" | "resource" };
 
 export interface SourcePropertyNameIndex {
@@ -60,8 +62,14 @@ export function analyzeSourcePropertyNames(
         const type = checkedType(argument);
         if (type !== undefined && typeof semantics.types.numericLiteralValue(type) === "number") {
           const selected = selectedLiteral(argument);
-          const admitted = selected.kind !== "resolved" ? selected : admitNumericName(selected, String(semantics.types.numericLiteralValue(type)));
-          if (admitted.kind === "rejected") record(argument, admitted);
+          if (selected.kind === "resolved") {
+            const admitted = admitNumericName(selected, String(semantics.types.numericLiteralValue(type)));
+            if (admitted.kind === "rejected") record(argument, admitted);
+          } else {
+            const member = enumOrigin(argument, new Set());
+            const entry = member === undefined ? undefined : enumConstants.get(member);
+            if (entry?.kind === "rejected") record(argument, rejected(entry.reason, entry.failure));
+          }
         }
       }
     }
@@ -88,9 +96,8 @@ export function analyzeSourcePropertyNames(
       "The property key has no completed checked string or numeric member identity.");
     const parent = ast.parent(node);
     const element = parent === undefined ? undefined : semantics.operations.objectLiteralElement(parent);
-    const indexType = checkedType(ast.as.AsComputedPropertyName(node)?.Expression ?? node);
     if (element?.contextualType !== undefined && element.sourceSelectedSymbol === undefined &&
-      element.sourceSelectedDeclarations.length === 0 && indexType !== undefined && onlyNumericIndexes(element.contextualType, indexType)) {
+      element.sourceSelectedDeclarations.length === 0 && onlyNumericIndexes(element.contextualType, checked.type)) {
       return Object.freeze({ ...selection, name: checked.name });
     }
     const admitted = admitNumericName(selection, checked.name);
@@ -157,13 +164,16 @@ export function analyzeSourcePropertyNames(
     const expression = unwrap(ast.as.AsComputedPropertyName(name)?.Expression);
     if (expression === undefined) return unavailable;
     const parent = ast.parent(name);
-    const typeOnly = parent !== undefined && (ast.is.IsPropertySignatureDeclaration(parent) || ast.is.IsMethodSignatureDeclaration(parent));
+    const typeOnly = parent !== undefined && (ast.is.IsPropertySignatureDeclaration(parent) ||
+      ast.is.IsMethodSignatureDeclaration(parent) || sourceClassFieldIsTypeOnly(ast, parent));
     const symbol = semantics.operations.wellKnownSymbol(name);
     if (symbol !== undefined) {
       return typeOnly || pureReference(expression) ? Object.freeze({ kind: "well-known-symbol", symbol: symbol.kind }) : rejected(
         "A well-known-symbol property key must be a non-effectful reference; calls and getter evaluation cannot be erased.");
     }
     if (typeOnly) {
+      const checked = semantics.operations.propertyName(name);
+      if (checked?.kind === "unique-symbol") return Object.freeze({ kind: "unique-symbol", type: checked.type });
       const declaration = ast.is.IsIdentifier(expression) ? navigation.sourceReferenceFor(expression)?.declaration
         : ast.is.IsPropertyAccessExpression(expression) ? semantics.operations.propertyAccess(expression)?.selectedDeclaration
           : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression)?.selectedDeclaration : undefined;
@@ -428,8 +438,8 @@ export function analyzeSourcePropertyNames(
     return value === undefined ? undefined : literalContract(value, active);
   }
 
-  function rejected(reason: string): SourcePropertyNameSelection {
-    return Object.freeze({ kind: "rejected", reason, failure: "source" });
+  function rejected(reason: string, failure: "source" | "resource" = "source"): SourcePropertyNameSelection {
+    return Object.freeze({ kind: "rejected", reason, failure });
   }
 
   function checkedType(node: Node): Type | undefined {

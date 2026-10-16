@@ -15,6 +15,47 @@ function checked(text: string, files: Readonly<Record<string, string>> = {}, val
   return source;
 }
 
+test("merged enum symbols have one immutable refusal before constant evaluation, R2 and width selection", () => {
+  for (const [label, text, count] of [
+    ["ordinary", "enum Value { First = 1 } enum Value { Second = 2 }", 2],
+    ["cross-declaration checker collision", "enum Value { First = 9007199254740992 } enum Value { Second = 9007199254740993 }", 2],
+    ["empty", "enum Value {} enum Value {}", 2],
+    ["unevaluated initializer", "enum Value { First = 2 ** 1000000000000 } enum Value { Second = 2 }", 2],
+    ["three declarations", "enum Value { First = 1 } enum Value { Second = 2 } enum Value { Third = 3 }", 3],
+  ] as const) {
+    const source = checked(text, {}, label !== "unevaluated initializer");
+    const program = createTargetSourceProgram(source);
+    const index = program.semantics.enumConstants;
+    assert.equal(index.issues.length, 1, `${label} has one issue for its one actual symbol`);
+    const issue = index.issues[0]!;
+    assert.equal(issue.code, "TSONIC_ENUM_MERGED_DECLARATIONS_NOT_SUPPORTED", `${label} has the shared scope code`);
+    assert.equal(issue.message, `Enum 'Value' has ${count} declarations; tsonic supports one declaration per enum.`, `${label} has the precise count`);
+    assert.equal(Object.isFrozen(issue) && Object.isFrozen(index.issues), true, `${label} publishes immutable diagnostics`);
+    assert.equal(index.entries.every(entry => entry.kind === "rejected" && entry.reason === issue.message), true,
+      `${label} never falls through to evaluation or checker collision precedence`);
+    const declarations = program.ast.statements(program.navigation.sourceFiles[0]!).filter(
+      (node): node is Node => node !== undefined && program.ast.is.IsEnumDeclaration(node));
+    assert.equal(declarations.length, count, `${label} keeps each exact checked declaration`);
+    for (const declaration of declarations) {
+      const width = index.integerWidth(declaration);
+      assert.equal(width?.kind === "rejected" && width.admissionIssue === issue, true,
+        `${label} cannot publish any successful width or a second group issue`);
+    }
+  }
+});
+
+test("enum merging is actual symbol identity, not spelling or a namespace declaration", () => {
+  const source = createTargetSourceProgram(checked(`
+enum Value { First = 1 }
+namespace Value { export const extra = 2; }
+function first() { enum Local { First = 1 } return Local.First; }
+function second() { enum Local { Second = 2 } return Local.Second; }
+`));
+  assert.equal(source.semantics.enumConstants.issues.length, 0, "separate lexical symbols and namespace augmentation are not merged enums");
+  assert.equal(source.semantics.enumConstants.entries.every(entry => entry.kind === "resolved"), true,
+    "all three ordinary constant owners remain unchanged");
+});
+
 test("enum constants have one exact initialized, implicit and imported declaration authority", () => {
   const program = createTargetSourceProgram(checked(`
 import { Base } from "./base.js";

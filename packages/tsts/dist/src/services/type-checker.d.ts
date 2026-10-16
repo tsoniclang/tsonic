@@ -19,6 +19,7 @@ export type ResolvedSourceCallInfo = ResolvedCallEvidence;
 export interface ResolvedSourcePropertyNameInfo {
     readonly kind: "string" | "numeric" | "unique-symbol";
     readonly name: string;
+    readonly type: Type;
 }
 export interface ResolvedSourceReceiverValueEvidence {
     readonly valueSymbol?: Symbol;
