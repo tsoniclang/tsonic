@@ -11,7 +11,7 @@ interface SourceStorageInvocationResultQueries {
   valuesFor(subject: SourceStorageSubject, bindings: SourceStorageSubstitutions): ReadonlySet<SourceStorageBoundSubject> | undefined;
   targetFor(invocation: Node): SourceStorageSubject | undefined;
   bindingsFor(candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions,
-    captured: SourceStorageSubstitutions): SourceStorageSubstitutions | undefined;
+    captured: SourceStorageSubstitutions, callee: SourceStorageSubject | undefined): SourceStorageSubstitutions | undefined;
   hasResultAlias(invocation: Node): boolean;
 }
 
@@ -28,7 +28,7 @@ export function createSourceStorageInvocationResults(
   const hasAllocation = (subject: SourceStorageSubject): boolean => source.ast.is.IsNewExpression(subject.node) &&
     !queries.hasResultAlias(subject.node);
   const instanceCaptures = (candidate: Node, values: ReadonlySet<SourceStorageBoundSubject> | undefined,
-    captures: Set<SourceStorageSubstitutions>): void => {
+    captures: Set<SourceStorageBoundSubject>): void => {
     budget.withRows(rows => {
       const pending: SourceStorageBoundSubject[] = [];
       const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
@@ -49,7 +49,7 @@ export function createSourceStorageInvocationResults(
         const node = value.subject.node;
         if (value.subject.kind !== "value" || value.subject.projection.length !== 0 ||
           !source.ast.is.IsClassDeclaration(node) && !source.ast.is.IsClassExpression(node)) continue;
-        if (node === candidate) { captures.add(value.bindings); continue; }
+        if (node === candidate) { captures.add(value); continue; }
         const heritage = source.navigation.declaredHeritage(node);
         if (heritage.kind !== "resolved") continue;
         for (const edge of heritage.edges) {
@@ -65,7 +65,7 @@ export function createSourceStorageInvocationResults(
   const forInvocation = (candidate: Node, invocation: Node, bindings: SourceStorageSubstitutions) => {
     const target = queries.targetFor(invocation);
     const values = target === undefined ? undefined : queries.valuesFor(target, bindings);
-    const captures = new Set<SourceStorageSubstitutions>();
+    const captures = new Set<SourceStorageBoundSubject>();
     if (source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate))
       instanceCaptures(candidate, values, captures);
     else if (source.ast.is.IsConstructorDeclaration(candidate)) {
@@ -75,13 +75,17 @@ export function createSourceStorageInvocationResults(
     } else for (const value of values ?? []) {
       if (!budget.step()) break;
       const selected = source.navigation.callableImplementation(value.subject.node);
-      if (selected.kind === "resolved" && selected.implementation.declaration === candidate) captures.add(value.bindings);
+      if (selected.kind === "resolved" && selected.implementation.declaration === candidate) captures.add(value);
     }
-    if (target === undefined) captures.add(bindings);
     const states = new Set<SourceStorageSubstitutions>();
+    if (target === undefined) {
+      const selected = queries.bindingsFor(candidate, invocation, bindings, bindings, undefined);
+      if (selected !== undefined) states.add(selected);
+      return states;
+    }
     for (const captured of captures) {
       if (!budget.step()) break;
-      const selected = queries.bindingsFor(candidate, invocation, bindings, captured);
+      const selected = queries.bindingsFor(candidate, invocation, bindings, captured.bindings, captured.subject);
       if (selected !== undefined) states.add(selected);
     }
     return states;

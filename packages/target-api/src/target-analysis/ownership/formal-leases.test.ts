@@ -7,6 +7,7 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source
 import { sourceStorageFormalOwner } from "../source-storage/model/subjects.js";
 import { createSourceOwnershipQuery } from "./query.js";
 import { createSourceRetentionQuery } from "./retention.js";
+import { sourceAsyncResultUseIsRejected } from "./result-decision.js";
 import type { SourceOwnershipPremises, SourceRetentionPremise } from "./model.js";
 
 function fixture(kind: "input-duration" | "type-argument",
@@ -136,3 +137,34 @@ test("formal lease admission keeps the actual origin and does not accept a copie
   const selected = bindings.kind === "resolved" ? retention.forReference(reference!, bindings.bindings) : bindings;
   assert.equal(selected.kind, "unresolved", "copied subjects are not canonical native evidence");
 });
+
+for (const kind of ["input-duration", "type-argument"] as const) {
+  test(`unresolved async admission requires a validated ${kind} lease, never an unknown or exhausted continuation alone`, () => {
+    const current = fixture(kind);
+    const call = current.calls[1]!;
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: 1 });
+    const unresolved = createSourceOwnershipQuery({ ...current, budget }).forCall(call);
+    assert.equal(unresolved.kind === "unresolved" && budget.failure() !== undefined, true, "the actual continuation budget is exhausted");
+    const unknown = { kind: "unresolved" as const, at: call, reason: "The native projection has no completed lease premise." };
+    assert.equal(sourceAsyncResultUseIsRejected(unresolved, unknown), false, "unresolved native evidence never means an owned/static value or a source rejection");
+    assert.equal(sourceAsyncResultUseIsRejected(unresolved, { kind: "resolved", premises: [] }), false,
+      "an empty possible-lease set is not a fabricated retention proof");
+    const reference = current.storage.nodes.find(node => current.source.ast.is.IsIdentifier(node) &&
+      current.source.ast.text(node) === "value" && current.source.ast.is.IsCallExpression(current.source.ast.parent(node)));
+    assert.equal(reference !== undefined, true, "the real formal read");
+    const bindings = current.storage.bindingsForLexicalOwner(current.declaration("keep"));
+    assert.equal(bindings.kind, "resolved", "the actual native formal execution");
+    if (bindings.kind !== "resolved") return;
+    const retention = createSourceRetentionQuery(current).forReference(reference!, bindings.bindings);
+    assert.equal(retention.kind === "resolved" && retention.premises.some(premise => premise.kind === "formal-borrowed"), true,
+      "the possible lease was admitted by the canonical retention validator");
+    assert.equal(sourceAsyncResultUseIsRejected(unresolved, retention), true,
+      "the unresolved continuation is refused only with the real validated formal lease");
+    const rejected = current.query.forCall(call);
+    assert.equal(sourceAsyncResultUseIsRejected(rejected, unknown), true,
+      "a resolved source rejection does not depend on inventing another premise");
+    const admitted = current.query.forCall(current.calls[0]!);
+    assert.equal(sourceAsyncResultUseIsRejected(admitted, retention), false,
+      "a real formal lease remains valid for its proven immediate await");
+  });
+}

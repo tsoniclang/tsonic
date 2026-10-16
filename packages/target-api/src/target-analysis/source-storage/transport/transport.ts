@@ -653,7 +653,7 @@ export function createSourceStorageTransport(
     subject, subjectFor,
     targetFor: invocation => invocationTargets.get(invocation),
     valuesFor: (origin, bindings) => substitutions.values(origin, bindings),
-    bindingsFor: (candidate, invocation, bindings, captured) => substitutions.forInvocation(candidate, invocation, bindings, captured),
+    bindingsFor: (candidate, invocation, bindings, captured, callee) => substitutions.forInvocation(candidate, invocation, bindings, captured, callee),
     hasResultAlias: invocation => invocationEffects.get(invocation)?.resultAlias !== undefined,
   });
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);

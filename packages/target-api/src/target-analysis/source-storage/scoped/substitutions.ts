@@ -432,15 +432,15 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         return bound !== undefined && (bound.kind !== "replace" || !bound.terms.some(term => term.kind === "leaf" && scopes.isSymbolic(term)));
       }),
     forDeclaration: scopes.declarationFor,
-    forInvocation(candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope) {
+    forInvocation(candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope,
+      callee: SourceStorageSubject | undefined) {
       if (transport.accessorTargets.has(invocation)) return scopes.frameFor(candidate, invocation, caller, captured);
-      const target = transport.invocationTargets.get(invocation);
-      if (target === undefined) {
+      if (callee === undefined || !transport.invocationTargets.has(invocation)) {
         budget.reject("An invocation context requires its exact checked callee transport.");
         return undefined;
       }
       return equations.scopeFor(candidate, invocation, caller, captured, Object.freeze({ kind: "application",
-        mode: "execution", demand: invocation, invocation, callee: sourceStorageReference(target, caller),
+        mode: "execution", demand: invocation, invocation, callee: Object.freeze({ kind: "leaf", subject: callee, scope: captured }),
         scope: caller, projection: Object.freeze([]) }));
     },
     identityFor: scopes.identity });

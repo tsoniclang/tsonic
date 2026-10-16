@@ -40,6 +40,9 @@ export function createSourceContinuationClosureQuery(input: {
   const contexts = new Map<Node, Map<SourceStorageBindings, string>>();
   const completed = new Map<Invocation, Closure>();
   const rows = budget.createRows();
+  const completedRows: ReturnType<SourceOwnershipBudget["createRows"]>[] = [];
+  let stagedRows: ReturnType<SourceOwnershipBudget["createRows"]>[] = [];
+  let inputRows: ReturnType<SourceOwnershipBudget["createRows"]>[] | undefined;
   const bottom: Closure = Object.freeze({ kind: "resolved", reads: Object.freeze([]),
     results: Object.freeze([]), dependencies: Object.freeze([]), maySuspend: false });
   let failure: SourceOwnershipUnresolved | undefined;
@@ -56,7 +59,7 @@ export function createSourceContinuationClosureQuery(input: {
     const receiver = operation?.sourceReceiver?.expression ?? operation?.sourceCalleeAccess?.receiver.expression ??
       semantics.operations.propertyAccess(call)?.receiver.expression;
     const subjects: SourceStorageSubject[] = [];
-    for (const node of [callee, receiver, ...operation?.sourceArguments.map(argument => argument.expression) ?? []]) {
+    for (const node of [call, callee, receiver, ...operation?.sourceArguments.map(argument => argument.expression) ?? []]) {
       if (node === undefined) continue;
       const selected = storage.subjectFor(node);
       if (selected.kind === "unresolved") return refuse(call, selected.reason);
@@ -90,6 +93,13 @@ export function createSourceContinuationClosureQuery(input: {
   };
   const load = (vertex: Invocation) => {
     const { call, bindings } = vertex;
+    const ownInputRows = () => {
+      const selected = budget.createRows();
+      inputRows!.push(selected);
+      return selected;
+    };
+    const transient = ownInputRows();
+    const inputBudget: SourceOwnershipBudget = { step: budget.step, failure: budget.failure, createRows: ownInputRows };
     const file = source.ast.getSourceFile(call);
     if (file === undefined || !source.semantics.includes(file))
       return refuse(call, "Continuation closure requires the exact checked invocation.");
@@ -112,19 +122,19 @@ export function createSourceContinuationClosureQuery(input: {
     const neighbours = new Set<Invocation>();
     if (!native) for (const candidate of candidates) {
       if (!budget.step()) return refuse(call, budget.failure()!);
-      const prepared = prepareSourceContinuationExecution({ source, storage, budget, candidate,
+      const prepared = prepareSourceContinuationExecution({ source, storage, budget: inputBudget, candidate,
         invocation: call, callerBindings: bindings, limits: input.flowLimits ?? {} });
       if (prepared.kind === "unresolved") { failure = prepared; return undefined; }
-      if (!rows.add(1)) return refuse(call, budget.failure()!);
+      if (!transient.add(1)) return refuse(call, budget.failure()!);
       executions.push(Object.freeze({ candidate, execution: prepared.execution }));
       for (const invoked of prepared.execution.invocations) {
         const target = vertexFor(invoked.call, invoked.bindings);
-        if (target === undefined) return refuse(invoked.call, budget.failure()!);
-        if (!neighbours.has(target) && !rows.add(1)) return refuse(invoked.call, budget.failure()!);
+        if (target === undefined) return undefined;
+        if (!neighbours.has(target) && !transient.add(1)) return refuse(invoked.call, budget.failure()!);
         neighbours.add(target);
       }
     }
-    if (!rows.add(2)) return refuse(call, budget.failure()!);
+    if (!transient.add(2)) return refuse(call, budget.failure()!);
     const data: InvocationInput = Object.freeze({ declaration: declaration ?? candidates[0]!,
       executions: Object.freeze(executions), neighbours });
     return { data, neighbours };
@@ -180,6 +190,7 @@ export function createSourceContinuationClosureQuery(input: {
         }
       }
       for (const [vertex, value] of current) staged.set(vertex, value);
+      stagedRows.push(currentRows);
       published = true;
       return current;
     } finally {
@@ -340,21 +351,33 @@ export function createSourceContinuationClosureQuery(input: {
 
   return Object.freeze({
     forInvocation(call: Node, bindings: SourceStorageBindings = storage.emptyBindings): SourceContinuationClosureSelection {
+      if (inputRows !== undefined) return sourceOwnershipUnresolved(call, "A continuation query cannot publish an unfinished reentrant component.");
+      failure = undefined;
       if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
       const vertex = vertexFor(call, bindings);
       if (vertex === undefined) return failure ?? sourceOwnershipUnresolved(call, budget.failure()!);
       const cached = completed.get(vertex);
       if (cached !== undefined) return cached;
-      failure = undefined;
       staged = new Map();
-      const value = select(vertex)?.get(vertex);
-      if (value === undefined || budget.failure() !== undefined) {
+      stagedRows = [];
+      inputRows = [];
+      let published = false;
+      try {
+        const value = select(vertex)?.get(vertex);
+        if (value === undefined || budget.failure() !== undefined) {
+          return failure ?? sourceOwnershipUnresolved(call, budget.failure() ?? "Continuation closure has no complete bounded component summary.");
+        }
+        for (const [selected, result] of staged) completed.set(selected, result);
+        completedRows.push(...stagedRows);
+        published = true;
+        return value;
+      } finally {
+        for (const selected of inputRows) selected.release();
+        inputRows = undefined;
+        if (!published) for (const selected of stagedRows) selected.release();
+        stagedRows = [];
         staged.clear();
-        return failure ?? sourceOwnershipUnresolved(call, budget.failure() ?? "Continuation closure has no complete bounded component summary.");
       }
-      for (const [selected, result] of staged) completed.set(selected, result);
-      staged.clear();
-      return value;
     },
   });
 }

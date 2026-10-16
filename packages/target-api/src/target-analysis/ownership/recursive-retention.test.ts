@@ -7,9 +7,10 @@ import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source
 import type { SourceStorageBindings } from "../source-storage/model/types.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { createSourceOwnershipQuery } from "./query.js";
+import { createSourceContinuationClosureQuery } from "./closure.js";
 import type { SourceOwnershipPremises } from "./model.js";
 
-function fixture(reverse: boolean, recursive: "self" | "mutual") {
+function fixture(reverse: boolean, recursive: "self" | "mutual", additional = "") {
   const bodies = [
     `async function left(value: Lease, count: number): Promise<number> {
       if (count > 0) return await ${recursive === "self" ? "left" : "right"}(value, count - 1);
@@ -33,6 +34,7 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
     declare function pending(): Promise<void>;
     declare function read(value: Lease): number;
     declare function borrow(owner: { value: number }): Lease;
+    ${additional}
     ${(reverse ? [...bodies].reverse() : bodies).join("\n")}
     async function ownedRoot() {
       const value: Lease = { value: 3 }; const stored = left(value, 2); return stored;
@@ -166,6 +168,243 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
   return { source, storage, budget, premises, query, callIn, declaration, selectedDeclaration };
 }
 
+for (const order of ["owned-first", "borrowed-first", "owned-declared-first", "borrowed-declared-first", "owned-only", "borrowed-only"] as const) {
+  test(`recursive closure entry equations preserve every selected capture, ${order}`, () => {
+    const choice = order === "owned-first" ? "flag ? make(owned) : make(borrowed)"
+      : order === "borrowed-first" ? "flag ? make(borrowed) : make(owned)"
+      : order === "owned-declared-first" || order === "borrowed-declared-first" ? "flag ? first : second"
+      : order === "owned-only" ? "make(owned)" : "make(borrowed)";
+    const declarations = order === "owned-declared-first" ? "const first = make(owned); const second = make(borrowed);"
+      : order === "borrowed-declared-first" ? "const first = make(borrowed); const second = make(owned);" : "";
+    const current = fixture(false, "self", `
+      function make(lease: Lease) {
+        async function rec(value: Lease, count: number): Promise<number> {
+          if (count > 0) return await rec(lease, count - 1);
+          await pending(); return read(value);
+        }
+        return rec;
+      }
+      async function mixedRoot(flag: boolean) {
+        const owner = { value: 3 }; const borrowed = borrow(owner); const owned: Lease = { value: 3 };
+        ${declarations}
+        const selected = ${choice};
+        const local: Lease = { value: 1 }; const stored = selected(local, 2); return stored;
+      }
+    `);
+    const { source, storage } = current;
+    const candidate = current.declaration("rec");
+    const root = current.declaration("mixedRoot");
+    const call = storage.nodes.find(node => source.ast.is.IsCallExpression(node) &&
+      storage.enclosingRegionFor(node) === source.ast.body(root) && current.selectedDeclaration(node) === candidate);
+    const recursive = storage.nodes.find(node => source.ast.is.IsCallExpression(node) &&
+      storage.enclosingRegionFor(node) === source.ast.body(candidate) && current.selectedDeclaration(node) === candidate);
+    assert.equal(call !== undefined && recursive !== undefined, true, "the exact entry and depth-one recursive calls");
+    const caller = storage.bindingsForLexicalOwner(call!);
+    const entry = caller.kind === "resolved" ? storage.bindingsForInvocation(candidate, call!, caller.bindings) : caller;
+    const nested = entry.kind === "resolved" ? storage.bindingsForInvocation(candidate, recursive!, entry.bindings) : entry;
+    const input = storage.subject(source.ast.parameters(candidate)[0]!, "input");
+    assert.equal(nested.kind === "resolved" && input.kind === "resolved", true, "the exact recursive input and its selected execution contexts");
+    const producers = nested.kind === "resolved" && input.kind === "resolved"
+      ? storage.storageProducersFor(input.subject, nested.bindings) : nested;
+    assert.equal(producers.kind === "resolved", true, "the finite recursive producer relation closes");
+    if (producers.kind !== "resolved" || !("producers" in producers)) return;
+    assert.equal(producers.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")),
+      order !== "owned-only", "depth one retains the actual borrowed closure input in every mixed order");
+    assert.equal(producers.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
+      source.ast.text(producer.subject.node).includes("value: 3")), order !== "borrowed-only",
+    "depth one retains the actual owned closure input, not just the first capture");
+    const selected = current.query.forCall(call!);
+    assert.equal(selected.kind === "resolved" && selected.decision === (order === "owned-only" ? "admitted" : "rejected"), true,
+      selected.kind === "unresolved" ? selected.reason : `the actual ${order} demand retains every possible closure loan`);
+    if (selected.kind === "resolved" && selected.decision === "rejected") {
+      assert.equal(selected.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES" && selected.diagnostic.at === call, true,
+        "the diagnostic belongs to the real escaping call, not a factory or declaration");
+    }
+    assert.equal(current.budget.failure() === undefined, true, "the unchanged canonical budget proves the complete relation");
+  });
+}
+
+for (const accessor of [false, true]) {
+  for (const reverse of [false, true]) {
+    test(`capture-free continuation summaries preserve each actual local allocation, accessor=${accessor}, reverse=${reverse}`, () => {
+      const current = fixture(false, "self", `
+        async function activationInner(): Promise<number> {
+          const localOwner = { value: 1 }; const view = borrow(localOwner);
+          await pending(); return read(view);
+        }
+        class ActivationHolder {
+          get local(): Promise<number> {
+            const localOwner = { value: 1 }; return produced(borrow(localOwner));
+          }
+        }
+        async function activationMiddle(): Promise<number> {
+          ${accessor ? "const holder = new ActivationHolder(); return await holder.local;" : "return await activationInner();"}
+        }
+        async function activationRoot(): Promise<void> { await activationMiddle(); await activationMiddle(); }
+      `);
+      const { source, storage } = current;
+      const middle = current.declaration("activationMiddle");
+      const root = current.declaration("activationRoot");
+      const candidate = accessor ? storage.nodes.find(node => source.ast.is.IsGetAccessorDeclaration(node) &&
+        source.ast.text(source.ast.name(node)) === "local") : current.declaration("activationInner");
+      const invocation = storage.nodes.find(node => storage.enclosingRegionFor(node) === source.ast.body(middle) &&
+        (accessor ? source.ast.is.IsPropertyAccessExpression(node) && source.ast.text(source.ast.name(node)) === "local"
+          : source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === candidate));
+      const entries = storage.nodes.filter(node => source.ast.is.IsCallExpression(node) &&
+        storage.enclosingRegionFor(node) === source.ast.body(root) && current.selectedDeclaration(node) === middle);
+      const allocation = storage.nodes.find(node => source.ast.is.IsObjectLiteralExpression(node) &&
+        storage.enclosingRegionFor(node) === source.ast.body(candidate));
+      assert.equal(candidate !== undefined && invocation !== undefined && allocation !== undefined && entries.length === 2, true,
+        "one inner AST and local allocation are reached through two actual outer calls");
+      const subject = storage.subjectFor(allocation!);
+      assert.equal(subject.kind, "resolved", "the real local native allocation");
+      if (subject.kind !== "resolved") return;
+      const closure = createSourceContinuationClosureQuery(current);
+      const keys: string[] = [];
+      for (const entry of reverse ? [...entries].reverse() : entries) {
+        const parent = storage.bindingsForLexicalOwner(entry);
+        const caller = parent.kind === "resolved" ? storage.bindingsForInvocation(middle, entry, parent.bindings) : parent;
+        const expected = caller.kind === "resolved" ? storage.bindingsForInvocation(candidate!, invocation!, caller.bindings) : caller;
+        assert.equal(caller.kind === "resolved" && expected.kind === "resolved", true, "the exact outer and inner execution scopes");
+        if (caller.kind !== "resolved" || expected.kind !== "resolved") return;
+        const key = storage.contextKeyFor([subject.subject], expected.bindings);
+        assert.equal(key.kind, "resolved", "the canonical local allocation birth");
+        if (key.kind !== "resolved") return;
+        keys.push(key.key);
+        const selected = closure.forInvocation(invocation!, caller.bindings);
+        assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "the actual continuation closes");
+        if (selected.kind !== "resolved") return;
+        const reads = selected.reads.filter(read => read.candidate === candidate);
+        const results = selected.results.filter(read => read.candidate === candidate);
+        assert.equal(reads.length > 0 && results.length > 0 && selected.dependencies.length > 0, true,
+          "the control observes real reads, returned values and pending loan evidence");
+        for (const binding of [...reads.map(read => read.bindings), ...results.map(result => result.bindings),
+          ...selected.dependencies.map(dependency => dependency.suspension.bindings)]) {
+          const observed = storage.boundActivationsFor(middle, binding);
+          assert.equal(observed.kind === "resolved" && observed.activations.length > 0 &&
+            observed.activations.every(activation => activation.kind === "invocation" && activation.invocation === entry), true,
+          "no read, result or pending witness retains the first outer invocation's activation");
+        }
+        for (const read of reads) {
+          const observed = storage.contextKeyFor([subject.subject], read.bindings);
+          assert.equal(observed.kind === "resolved" && observed.key === key.key, true,
+            "the published read names the actual local allocation in this invocation");
+        }
+      }
+      assert.equal(keys.length === 2 && keys[0] !== keys[1], true, "identical inputs do not merge distinct actual local allocations");
+      assert.equal(current.budget.failure() === undefined, true, "actual execution identity stays finite under unchanged limits");
+    });
+  }
+}
+
+for (const reverse of [false, true]) {
+  test(`recursive class and constructor entry contexts retain every selected class capture, reverse=${reverse}`, () => {
+    const current = fixture(false, "self", `
+      function classFactory(lease: Lease) {
+        return class CaptureHolder {
+          readonly captured = lease;
+          readonly value: Lease;
+          constructor(value: Lease, count: number) {
+            this.value = count > 0 ? new CaptureHolder(lease, count - 1).value : value;
+          }
+        };
+      }
+      function classRoot(flag: boolean) {
+        const owner = { value: 3 }; const borrowed = borrow(owner); const owned: Lease = { value: 3 };
+        const Holder = flag ? classFactory(${reverse ? "borrowed" : "owned"}) : classFactory(${reverse ? "owned" : "borrowed"});
+        const local: Lease = { value: 1 }; return new Holder(local, 2);
+      }
+    `);
+    const { source, storage } = current;
+    const owner = storage.nodes.find(node => source.ast.is.IsClassExpression(node) &&
+      source.ast.text(source.ast.name(node)) === "CaptureHolder");
+    const constructor = storage.nodes.find(node => source.ast.is.IsConstructorDeclaration(node) && source.ast.parent(node) === owner);
+    const root = current.declaration("classRoot");
+    const call = storage.nodes.find(node => source.ast.is.IsNewExpression(node) &&
+      storage.enclosingRegionFor(node) === source.ast.body(root));
+    const recursive = storage.nodes.find(node => source.ast.is.IsNewExpression(node) &&
+      storage.enclosingRegionFor(node) === source.ast.body(constructor));
+    const captured = storage.nodes.find(node => source.ast.is.IsIdentifier(node) && source.ast.text(node) === "lease" &&
+      source.ast.is.IsPropertyDeclaration(source.ast.parent(node)) &&
+      source.ast.text(source.ast.name(source.ast.parent(node))) === "captured");
+    assert.equal(owner !== undefined && constructor !== undefined && call !== undefined && recursive !== undefined && captured !== undefined, true,
+      "the actual class leaf, constructor, recursive edge and initializer capture");
+    const parent = storage.bindingsForLexicalOwner(call!);
+    assert.equal(parent.kind, "resolved", "the checked class invocation context");
+    if (parent.kind !== "resolved") return;
+    const classBindings = storage.bindingsForInvocation(owner!, call!, parent.bindings);
+    const constructorBindings = storage.bindingsForInvocation(constructor!, call!, parent.bindings);
+    const depth = constructorBindings.kind === "resolved"
+      ? storage.bindingsForInvocation(constructor!, recursive!, constructorBindings.bindings) : constructorBindings;
+    const classSubject = storage.subjectFor(captured!);
+    const input = storage.subject(source.ast.parameters(constructor!)[0]!, "input");
+    assert.equal(classBindings.kind === "resolved" && depth.kind === "resolved" && classSubject.kind === "resolved" && input.kind === "resolved", true,
+      "class and constructor evidence have separate canonical entry owners");
+    if (classBindings.kind !== "resolved" || depth.kind !== "resolved" || classSubject.kind !== "resolved" || input.kind !== "resolved") return;
+    for (const [subject, bindings] of [[classSubject.subject, classBindings.bindings], [input.subject, depth.bindings]] as const) {
+      const selected = storage.storageProducersFor(subject, bindings);
+      assert.equal(selected.kind, "resolved", "the exact class or constructor producer relation closes");
+      if (selected.kind !== "resolved") return;
+      assert.equal(selected.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
+        "a class/constructor entry never drops the borrowed branch's capture");
+      assert.equal(selected.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
+        source.ast.text(producer.subject.node).includes("value: 3")), true,
+      "a class/constructor entry never drops the owned branch's capture");
+    }
+    assert.equal(storage.failureReason() === undefined, true, "the finite class relation stays within its unchanged budget");
+  });
+}
+
+for (const thrown of [false, true]) {
+  test(`failed continuation graph waves release staged summaries and prepared inputs, thrown=${thrown}`, () => {
+    const current = fixture(false, "self", `
+      declare function unclassified(): number;
+      async function failedRoot(): Promise<number> {
+        await left({ value: 3 }, 0); unclassified(); return 1;
+      }
+      async function caller(): Promise<void> { await failedRoot(); }
+    `);
+    const candidate = current.declaration("failedRoot");
+    const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === candidate);
+    assert.equal(call !== undefined, true, "the wave contains a valid child before a late unknown native leaf");
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 65_536 });
+    const original = new Error("native premise control");
+    let fail = true;
+    const query = createSourceContinuationClosureQuery({ ...current, budget, premises: { ...current.premises,
+      suspensionFor(value, bindings) {
+        if (fail && current.selectedDeclaration(value.node) === current.declaration("unclassified")) {
+          if (thrown) throw original;
+          return undefined;
+        }
+        return current.premises.suspensionFor(value, bindings);
+      },
+    } });
+    const validCall = current.callIn("ownedRoot");
+    const valid = query.forInvocation(validCall);
+    assert.equal(valid.kind, "resolved", "an earlier durable completed component remains cached");
+    let retained: number | undefined;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      if (thrown) assert.throws(() => query.forInvocation(call!), error => error === original,
+        "a thrown native premise retains its original identity");
+      else {
+        const rejected = query.forInvocation(call!);
+        assert.equal(rejected.kind === "unresolved" && rejected.reason.includes("native continuation contract"), true,
+          "a late semantic failure is not a resource refusal");
+      }
+      const usage = budget.usage().rows;
+      if (retained === undefined) retained = usage;
+      assert.equal(usage, retained, "repeated failed waves retain no orphaned summary or CFG input reservations");
+      assert.equal(budget.failure() === undefined, true, "the unchanged small budget is not poisoned by discarded work");
+      assert.equal(query.forInvocation(validCall) === valid, true, "pre-existing completed results and their resources survive rollback");
+    }
+    fail = false;
+    const corrected = query.forInvocation(call!);
+    assert.equal(corrected.kind, "resolved", corrected.kind === "unresolved" ? corrected.reason : "the corrected native premise can be retried");
+    assert.equal(budget.failure() === undefined, true, "rollback did not consume the later valid query's finite row budget");
+  });
+}
+
 for (const reverse of [false, true]) {
   for (const [kind, owner, callee] of [
     ["returned-alias", "Adoption", "returned"],
@@ -255,6 +494,21 @@ test("a recursive component never publishes its private bottom after budget exha
     assert.equal(Object.prototype.hasOwnProperty.call(selected, "dependencies"), false, "no provisional owned/empty summary escapes");
     assert.equal(budget.failure() !== undefined, true, "one canonical budget owns the failure");
   }
+});
+
+test("a continuation context refusal retains its own reason and cannot poison a later independent query", () => {
+  const current = fixture(false, "self");
+  const call = current.callIn("ownedRoot");
+  const context = current.storage.bindingsForLexicalOwner(call);
+  assert.equal(context.kind, "resolved", "the actual invocation owns its canonical bindings");
+  if (context.kind !== "resolved") return;
+  const rejected = current.query.continuationFor(call, { ...context.bindings });
+  assert.equal(rejected.kind === "unresolved" && typeof rejected.reason === "string" && rejected.reason.length > 0, true,
+    "a refused copied context never becomes an undefined budget reason");
+  const selected = current.query.forCall(call);
+  assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+    selected.kind === "unresolved" ? selected.reason : "an earlier context failure is not an independent invocation's result");
+  assert.equal(current.budget.failure() === undefined, true, "a semantic context refusal does not manufacture budget exhaustion");
 });
 
 test("canonical context keys preserve actual activations, substitutions and foreign-query rejection", () => {

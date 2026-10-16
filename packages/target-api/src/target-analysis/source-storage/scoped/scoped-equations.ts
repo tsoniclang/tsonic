@@ -10,7 +10,8 @@ export function createSourceStorageEquations(budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes, recursion: SourceStorageScopedRecursion,
   keyFor: (term: Extract<SourceStorageTerm, { readonly kind: "application" }>) => string | undefined) {
   const rows = budget.createRows();
-  const equations = new Map<string, SourceStorageEquation>();
+  const equations = new Map<Node, Map<string, SourceStorageEquation>>();
+  let nextIdentity = 0;
   const scopeFor = (candidate: Node, invocation: Node, caller: SourceStorageScope,
     captured: SourceStorageScope, term: Extract<SourceStorageTerm, { readonly kind: "application" }>): SourceStorageScope | undefined => {
     if (!budget.step()) return undefined;
@@ -23,12 +24,15 @@ export function createSourceStorageEquations(budget: SourceStorageBudget,
       return scopes.variable(previous, candidate);
     const key = keyFor(term);
     if (key === undefined) return undefined;
-    let equation = equations.get(key);
+    const entries = equations.get(candidate);
+    let equation = entries?.get(key);
     if (equation === undefined) {
       const initial = scopes.frameFor(candidate, invocation, caller, captured);
-      if (initial === undefined || !rows.add(1)) return undefined;
-      equation = Object.freeze({ identity: equations.size, component, entry: candidate, initial });
-      equations.set(key, equation);
+      if (initial === undefined || !rows.add(entries === undefined ? 2 : 1)) return undefined;
+      equation = Object.freeze({ identity: nextIdentity++, component, entry: candidate, initial });
+      const selected = entries ?? new Map<string, SourceStorageEquation>();
+      selected.set(key, equation);
+      equations.set(candidate, selected);
     }
     return scopes.frameFor(candidate, invocation, caller, captured, equation);
   };

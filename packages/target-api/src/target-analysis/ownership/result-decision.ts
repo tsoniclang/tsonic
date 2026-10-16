@@ -2,8 +2,17 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceAsyncCompletionSelection, SourceAsyncOwnershipSelection, SourceAsyncResultDisposition,
-  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
+  SourceContinuationDependenciesSelection, SourceOwnershipBudget, SourceOwnershipUnresolved, SourceRetentionSelection } from "./model.js";
 import { sourceOwnershipContractProblem, sourceOwnershipUnresolved } from "./contracts.js";
+
+export function sourceAsyncResultUseIsRejected(
+  selection: SourceAsyncOwnershipSelection,
+  possibleRetention: SourceRetentionSelection,
+): boolean {
+  if (selection.kind === "resolved") return selection.decision === "rejected";
+  return selection.kind === "unresolved" && possibleRetention.kind === "resolved" &&
+    possibleRetention.premises.some(premise => premise.kind === "scoped-borrowed" || premise.kind === "formal-borrowed");
+}
 
 export function decideSourceAsyncResultUse(input: {
   readonly source: TargetSourceProgram;
