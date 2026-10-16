@@ -194,12 +194,13 @@ not a semantic producer merely because it stores that value.
 
 ### Rust
 
-Rust exposes 67 native families. The row's analysis responsibility is the
+Rust retains 68 analysis families and publishes 63 backend reader families.
+The row's analysis responsibility is the
 destination for producer consolidation. The skeletal migration retains existing
 algorithms and their call sites; the later ownership wave must prove one owner
 for every family rather than claiming this table already relocates them.
 
-| Analysis responsibility | Reader families |
+| Analysis responsibility | Published reader families |
 | --- | --- |
 | `declarations/`, `source-modules/` | `typeAliasDeclaration`, `typeOnlyDeclaration`, `compileTimeSource`, `sourceBinding` |
 | `callables/` | `sourceCallableReturn`, `sourceParameterAbi`, `asyncFunction`, `generator`, `sourceCallableValue`, `directCallableReference`, `moduleCallableStorage`, `nativeParticipation` |
@@ -209,11 +210,18 @@ for every family rather than claiming this table already relocates them.
 | `control-flow/` | `bindingProjection`, `nativeGuardResult`, `nativeUnreachable` |
 | `ownership/`, with checked mutation/use evidence | `mutatedBinding`, `mutatedReferent`, `selfMode`, `objectReferenceView` |
 | `operations/` | `compoundWrite`, `computedMember`, `preparedOperationResult`, `optionalChain`, `indexedFieldKeyArgument`, `genericNumericOperands` |
-| `operations/` native memory | `typedLocationPlan`, `nativeArrayStorage`, `nativeBacking`, `rawLocationPlan`, `memoryBindingPlan`, `rawAddressPlan`, `memoryLayoutObservation` |
+| `operations/` native memory | `nativeArrayStorage`, `nativeBacking` |
+| `operations/native-handlers.ts` | `nativeHandler` |
 | `storage/` with declaration/capture inputs | `bindingStorage`, `capturedFieldStorage` |
 | `callables/` | `closureCapture`, `retainedEnvironment`, `retainedCallLifetimes`, `moduleBinding` |
 | `project-types/` | `projectCallableAdapters` |
 | `objects/` | `objectLiteralMethodAdapter`, `receiverIndependentMethod`, `classValue` |
+
+The analysis-only `typedLocationPlan`, `rawLocationPlan`, `memoryBindingPlan`,
+`rawAddressPlan` and `memoryLayoutObservation` readers remain available to their
+analysis consumers. `createRustProgramRecords` excludes these five candidate
+families from the backend view; the selected `nativeHandler` descriptor carries
+the exact admitted native payload instead.
 
 The mixed rows identify coordinating responsibilities, not permission for two
 writers to arbitrate a value after publication. Operation selection belongs to
@@ -223,7 +231,7 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 124 families, grouped by their declaration module under
+C# exposes 120 backend reader families, grouped by their declaration module under
 `target-model/records/`, `target-model/conversions/exact-literals.ts`, or the named shared source contract. The
 analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
@@ -244,7 +252,8 @@ responsibility; consolidation must preserve all compound query arguments.
 | `numeric.ts` | `numeric/` | `int32Remainder` |
 | shared `SourceLiteralIndex` | `target-api/source-semantics/literal-values.ts`, composed once before target type analysis | `literalValue` |
 | `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
-| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `erasedStatement`, `nativeHandler`, `operatorForm`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
+| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `erasedStatement`, `operatorForm`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
+| `native-handlers.ts` | `operations/native-handlers.ts` | `nativeHandler` |
 | `safety.ts` | `safety/` | `sourceSafetyApplication`, `safetyApplication`, `safetyOperation` |
 | `source-evidence.ts` | `source-evidence/`, with declaration/type/callable inputs | `bindingProjection`, `closedArrayStorage`, `compileTimeMetadata`, `nodeTargetType`, `classConstructorType`, `storageTargetType`, `readStorageTargetType`, `expressionType`, `contextualType`, `contextualTargetType`, `semanticTargetType`, `semanticType`, `signatureDeclaration`, `contextualTuple`, `constantValue`, `valueRefinement`, `generator`, `generatorTargetType`, `yield`, `yieldTargetType`, `wellKnownSymbol`, `inferredCallableReturnType`, `pointerReturn`, `sourceArgument`, `sourceDefaultValue`, `sourceField`, `sourceStruct`, `providerVirtualDeclaration`, `typeParameterConstraints`, `sourceOwnedProjectShape` |
 | `source-modules.ts` | `source-modules/` | `sourceModuleConstruction` |
@@ -266,16 +275,27 @@ operation issue inside an erased statement, except inside an attribute
 application's invocation, which stays demanded. The planner and module
 initialization read the outcome; neither decides erasure again.
 
-`nativeHandler` names, for each expression that the operations walk reaches,
-the one native handler that claims it: memory binding, explicit safety, JS
-string conversion, native pointer or typed location, in that precedence.
-Expressions inside compile-time metadata or native-unreachable code have none,
-and so does an expression that no handler claims. The precedence is the native
-policy in `policy/operations/pointers/native-handlers.ts`. The operations walk
-calls it once per visited source node, after the memory-binding, JS string conversion,
-native-pointer and typed-location selections are complete, with the explicit
-safety operation from the safety application index, and publishes the result.
-The planner calls only the handler the record names.
+C# keeps `memoryBinding`, `nativePointer`, `typedLocation` and
+`jsStringConversion` as private operation-analysis candidates, not published
+backend readers.
+
+Both targets publish `nativeHandler` as a frozen `{ kind, selection }`
+descriptor retaining the exact chosen payload. The shared
+`target-api/target-analysis/native-handlers.ts` owner selects memory binding,
+explicit safety, JS string conversion, native pointer or typed location, in
+that precedence. Its pointer subowner selects raw location, layout, raw address,
+raw identity or native pointer. Target policy adapters supply native candidates
+without copying either priority.
+
+Each `analysis/operations/native-handlers.ts` finalizer visits the complete
+source-storage node domain once after native candidates are complete and before
+sealing. C# registers each selected requirement before publication; Rust does
+the same before the analysis record store seals. No descriptor is published
+when no handler claims the node. Compile-time metadata and native-unreachable
+subtrees can have an explicit-safety descriptor from the independent safety
+index, even though their walked native candidates are absent; those subtrees
+are not planned. Backend dispatch reads the descriptor once and passes its
+selection directly to the chosen renderer, never probing a losing candidate.
 
 `exactLiteral` holds one selection per actually requested (literal, target)
 pair: the intrinsic request, the literal's read and expected types, a resolved
