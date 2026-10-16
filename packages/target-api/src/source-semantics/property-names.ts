@@ -63,7 +63,12 @@ export function analyzeSourcePropertyNames(
     if (symbol !== undefined) {
       return typeOnly || pureReference(expression) ? Object.freeze({ kind: "well-known-symbol", symbol: symbol.kind }) : unavailable;
     }
-    if (typeOnly) return selectedLiteral(expression);
+    if (typeOnly) {
+      const declaration = ast.is.IsIdentifier(expression) ? navigation.sourceReferenceFor(expression)?.declaration
+        : ast.is.IsPropertyAccessExpression(expression) ? semantics.operations.propertyAccess(expression)?.selectedDeclaration
+          : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression)?.selectedDeclaration : undefined;
+      return declaration !== undefined && ast.is.IsEnumMember(declaration) ? selectedEnum(expression) : selectedLiteral(expression);
+    }
     if (ast.is.IsStringLiteral(expression) || ast.is.IsNoSubstitutionTemplateLiteral(expression)) {
       return Object.freeze({ kind: "resolved", name: ast.text(expression) });
     }

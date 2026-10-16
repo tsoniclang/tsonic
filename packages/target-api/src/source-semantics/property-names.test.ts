@@ -19,18 +19,18 @@ test("computed literal, const-literal and enum names have one exact shared class
 const textKey = "value";
 const numberKey = 16;
 enum Key { Text = "entry", Number = 17 }
-export const result = {
-  ["literal"]: 1,
-  [0x10]: 2,
-  [textKey]: 3,
-  [numberKey]: 4,
-  [Key.Text]: 5,
-  [Key.Number]: 6,
-  [((textKey))]: 7,
-  [-1]: 8,
-  [-0]: 9,
-  [9007199254740994]: 10,
-};
+export const result = [
+  { ["literal"]: 1 },
+  { [0x10]: 2 },
+  { [textKey]: 3 },
+  { [numberKey]: 4 },
+  { [Key.Text]: 5 },
+  { [Key.Number]: 6 },
+  { [((textKey))]: 7 },
+  { [-1]: 8 },
+  { [-0]: 9 },
+  { [9007199254740994]: 10 },
+];
 `);
   const file = source.navigation.sourceFiles[0]!;
   const index = source.semantics.forFile(file).propertyNames;
@@ -98,7 +98,7 @@ let mutable: "value" = "value";
 function key(): "value" { return "value"; }
 const holder = { get name(): "value" { return "value"; } };
 export function make(dynamic: string, choice: "left" | "right") {
-  return { [dynamic]: 1, [mutable]: 2, [key()]: 3, [holder.name]: 4, [choice]: 5 };
+  return [{ [dynamic]: 1 }, { [mutable]: 2 }, { [key()]: 3 }, { [holder.name]: 4 }, { [choice]: 5 }];
 }
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
@@ -213,12 +213,14 @@ test("type-only singleton names do not acquire runtime key evaluation requiremen
   const source = checked(`
 export type Factory = (key: "value") => { [key]: number };
 export type NumericFactory = (key: 9007199254740993) => { [key]: number };
+enum Key { Text = "entry" }
+export interface EnumField { [Key.Text]: number; }
 export function answer(): number { return 42; }
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
   assert.equal(index.issues.length, 0, "erased singleton type names have exact native field identities");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["value", "9007199254740993"]);
+    ["value", "9007199254740993", "entry"]);
 });
 
 test("erased assertions preserve literal key evidence without disguising a dynamic expression", () => {
