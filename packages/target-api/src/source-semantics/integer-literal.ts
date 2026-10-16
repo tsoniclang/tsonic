@@ -1,4 +1,6 @@
 import type { AstReader, Node } from "@tsonic/tsts";
+import type { SourceNumericLiteralToken } from "./literal-values-model.js";
+import { parseSourceNumericLiteralToken, sourceLiteralToken } from "./literal-token.js";
 
 export function sourceIntegerLiteralValue(ast: AstReader, node: Node): bigint | undefined {
   const kind = ast.kindName(node);
@@ -14,37 +16,26 @@ export function sourceIntegerLiteralValue(ast: AstReader, node: Node): bigint | 
     return value === undefined ? undefined : operator === "KindMinusToken" ? -value : value;
   }
   if (kind !== "KindNumericLiteral" && kind !== "KindBigIntLiteral") return undefined;
-  const range = ast.authoredRange(node);
-  if (range.kind === "authored") {
-    const file = ast.getSourceFile(node);
-    if (file === undefined) return undefined;
-    const source = ast.getSourceText(file);
-    if (range.start < 0 || range.end > source.length || range.start >= range.end) return undefined;
-    return parseNativeIntegerLiteral(source.slice(range.start, range.end));
-  }
+  const token = sourceLiteralToken(ast, node);
+  if (token.kind === "authored") return parseNativeIntegerLiteral(token.text);
   const text = ast.text(node);
   if (kind === "KindNumericLiteral" && !Number.isSafeInteger(Number(text))) return undefined;
   return parseNativeIntegerLiteral(text);
 }
 
 export function parseNativeIntegerLiteral(text: string): bigint | undefined {
-  const normalized = text.replace(/_/gu, "").replace(/n$/u, "");
-  const radix = /^0(?:[xX]([0-9a-fA-F]+)|[oO]([0-7]+)|[bB]([01]+))$/u.exec(normalized);
-  if (radix !== null) {
-    const digits = (radix[1] ?? radix[2] ?? radix[3]!).replace(/^0+/u, "");
-    const bitsPerDigit = radix[1] !== undefined ? 4 : radix[2] !== undefined ? 3 : 1;
-    if (digits.length * bitsPerDigit > 132) return undefined;
-    return digits.length === 0 ? 0n : BigInt(normalized.slice(0, 2) + digits);
-  }
-  const decimal = /^(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/u.exec(normalized);
-  if (decimal === null) return undefined;
-  const fraction = decimal[2] ?? decimal[3] ?? "";
-  const digits = ((decimal[1] ?? "0") + fraction).replace(/^0+/u, "");
-  if (digits.length === 0) return 0n;
-  const exponent = Number(decimal[4] ?? "0") - fraction.length;
-  if (!Number.isInteger(exponent)) return undefined;
-  const size = digits.length + exponent;
-  if (size < 1 || size > 40) return undefined;
-  if (exponent < 0 && /[1-9]/u.test(digits.slice(size))) return undefined;
-  return BigInt(exponent < 0 ? digits.slice(0, size) : digits + "0".repeat(exponent));
+  const normalized = text.replace(/n$/u, "");
+  const token = parseSourceNumericLiteralToken(normalized);
+  return token === undefined ? undefined : sourceIntegerLiteralTokenValue(token, normalized);
+}
+
+export function sourceIntegerLiteralTokenValue(token: SourceNumericLiteralToken, text: string): bigint | undefined {
+  const normalized = text.replace(/_/gu, "");
+  const radix = normalized.slice(0, 2).toLowerCase();
+  const bitsPerDigit = radix === "0x" ? 4 : radix === "0o" ? 3 : radix === "0b" ? 1 : undefined;
+  if (bitsPerDigit !== undefined && normalized.slice(2).replace(/^0+/u, "").length * bitsPerDigit > 132) return undefined;
+  if (token.coefficient === 0n) return 0n;
+  if (token.exponent < 0n || BigInt(token.coefficient.toString().length) + token.exponent > 40n) return undefined;
+  const value = token.coefficient * 10n ** token.exponent;
+  return token.negative ? -value : value;
 }
