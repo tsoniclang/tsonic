@@ -27,22 +27,22 @@ export function parseSourceNumericLiteral(text: string): ParsedSourceNumericLite
     const prefix = normalized.slice(0, 2).toLowerCase();
     const bitsPerDigit = prefix === "0x" ? 4 : prefix === "0o" ? 3 : 1;
     const integer = normalized.slice(2).replace(/^0+/u, "").length * bitsPerDigit <= 132 ? coefficient : undefined;
-    return Object.freeze({ token: Object.freeze({ coefficient, exponent: 0n, negative: false, decimalText: `${coefficient}.0` }), integer });
+    return Object.freeze({ token: Object.freeze({ coefficient, exponent: 0n, negative: false, decimalText: coefficient.toString() }), integer });
   }
   const decimal = /^(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/u.exec(normalized);
   if (decimal === null) return undefined;
   const fraction = decimal[2] ?? decimal[3] ?? "";
   const digits = ((decimal[1] ?? "0") + fraction).replace(/^0+/u, "");
+  const sourceExponent = BigInt(decimal[4] ?? "0");
+  const whole = (decimal[1] ?? "0").replace(/^0+(?=\d)/u, "");
+  const mantissa = fraction.length === 0 ? whole : `${whole}.${fraction}`;
+  const suffix = decimal[4] === undefined ? "" : `e${sourceExponent < 0n ? "" : "+"}${sourceExponent}`;
+  const decimalText = mantissa + suffix;
   if (digits.length === 0) {
-    return Object.freeze({ token: Object.freeze({ coefficient: 0n, exponent: 0n, negative: false, decimalText: "0.0" }), integer: 0n });
+    return Object.freeze({ token: Object.freeze({ coefficient: 0n, exponent: 0n, negative: false, decimalText }), integer: 0n });
   }
   const significant = digits.replace(/0+$/u, "");
-  const sourceExponent = BigInt(decimal[4] ?? "0");
   const exponent = sourceExponent - BigInt(fraction.length) + BigInt(digits.length - significant.length);
-  const whole = (decimal[1] ?? "0").replace(/^0+(?=\d)/u, "");
-  const mantissa = decimal[2] !== undefined || decimal[3] !== undefined ? `${whole}.${fraction || "0"}` : whole;
-  const suffix = decimal[4] === undefined ? "" : `e${sourceExponent < 0n ? "" : "+"}${sourceExponent}`;
-  const decimalText = suffix.length === 0 && !mantissa.includes(".") ? `${mantissa}.0` : mantissa + suffix;
   const coefficient = BigInt(significant);
   const integer = exponent >= 0n && BigInt(significant.length) + exponent <= 40n ? coefficient * 10n ** exponent : undefined;
   return Object.freeze({ token: Object.freeze({ coefficient, exponent, negative: false, decimalText }), integer });
