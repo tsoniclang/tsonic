@@ -1,7 +1,7 @@
 import { Node_Arguments, Node_Expression, Node_Elements, Node_ImportClause, Node_Initializer, Node_ModuleSpecifier, Node_PropertyName, Node_Properties, SourceFile_Path, Node_Statements, Node_Symbol, Node_Text, Node_TypeArguments, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { AsExportDeclaration, AsExportSpecifier, AsImportClause, AsNamespaceImport, AsPropertyAccessExpression, AsQualifiedName, AsTypeQueryNode, AsTypeReferenceNode } from "../internal/ast/generated/casts.js";
-import { KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindNamedImports, KindNamedExports, KindNamespaceImport, KindNumericLiteral, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTypeQuery, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
+import { KindCallExpression, KindExportDeclaration, KindExportSpecifier, KindIdentifier, KindImportDeclaration, KindImportSpecifier, KindNamedImports, KindNamedExports, KindNamespaceImport, KindObjectLiteralExpression, KindPropertyAccessExpression, KindPropertyAssignment, KindPropertyDeclaration, KindQualifiedName, KindStringLiteral, KindTypeKeyword, KindTypeReference, KindTypeQuery, KindTupleType, KindVariableDeclaration, } from "../internal/ast/generated/kinds.js";
 import { GetSourceFileOfNode, GetSymbolId, IsDeclarationName, IsLeftHandSideExpression, IsRightSideOfQualifiedNameOrPropertyAccess, } from "../internal/ast/utilities.js";
 import { argumentPassingFactKey, attributeFactKey, canonicalIdentityFactKey, defaultValueFactKey, fieldFactKey, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerVirtualDeclarationFactKey, sourceMarkerFactKey, sourcePrimitiveFactKey, structFactKey, } from "./facts.js";
 import { defineExtensionFactKey } from "./fact-key.js";
@@ -308,7 +308,7 @@ function recordSourceSemanticsCallMarker(facts, diagnostics, extensionId, checke
             if (!hasMarkerArgumentCount(callExpression, 0) || !hasMarkerTypeArgumentCount(callExpression, 1)) {
                 return;
             }
-            recordFieldMarker(facts, callExpression, evidence);
+            recordFieldMarker(facts, checker, callExpression, evidence);
             return;
         case "struct":
             if (!hasMarkerArgumentCount(callExpression, 1)) {
@@ -681,7 +681,7 @@ function getArgumentPassingMode(kind) {
             return "byref-readonly";
     }
 }
-function recordFieldMarker(facts, callExpression, evidence) {
+function recordFieldMarker(facts, checker, callExpression, evidence) {
     const fieldType = (Node_TypeArguments(callExpression) ?? [])[0];
     if (fieldType === undefined) {
         return;
@@ -694,12 +694,12 @@ function recordFieldMarker(facts, callExpression, evidence) {
         return;
     }
     const nameNode = Node_Name(fieldOwner) ?? Node_PropertyName(fieldOwner);
-    const name = getStaticSourceSemanticsNameText(nameNode);
-    if (name === undefined) {
+    const selected = checker.getEffectivePropertyName(nameNode);
+    if (selected === undefined || selected.kind === "unique-symbol") {
         return;
     }
     const fact = {
-        name,
+        name: selected.name,
         type: fieldType,
     };
     facts.set(callExpression, fieldFactKey, fact, evidence);
@@ -1103,16 +1103,6 @@ function createSourcePrimitiveSelection(moduleIdentity, exportName) {
         moduleSpecifier: moduleIdentity.moduleSpecifier,
         exportName,
     };
-}
-function getStaticSourceSemanticsNameText(node) {
-    switch (node?.Kind) {
-        case KindIdentifier:
-        case KindStringLiteral:
-        case KindNumericLiteral:
-            return Node_Text(node);
-        default:
-            return undefined;
-    }
 }
 function visitSourceSemanticsNode(node, visit) {
     if (node === undefined) {
