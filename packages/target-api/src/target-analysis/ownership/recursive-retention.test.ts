@@ -168,6 +168,28 @@ function fixture(reverse: boolean, recursive: "self" | "mutual", additional = ""
   return { source, storage, budget, premises, query, callIn, declaration, selectedDeclaration };
 }
 
+test("a complete structural source method remains a source continuation instead of an opaque native signature", () => {
+  const current = fixture(false, "self", `
+    class Counter { value(): number { return 1; } }
+    function makeCounter(): { value(): number } { return new Counter(); }
+    async function shapeRead(): Promise<number> { return makeCounter().value(); }
+    async function shapeRoot(): Promise<number> { return await shapeRead(); }
+  `);
+  const call = current.storage.invocations.find(node => current.source.ast.is.IsCallExpression(node) &&
+    current.selectedDeclaration(node) === current.declaration("shapeRead"));
+  assert.equal(call !== undefined, true, "The original source read is invoked in its actual await.");
+  const query = createSourceOwnershipQuery({ ...current, premises: { ...current.premises,
+    suspensionFor(value, bindings) {
+      const declaration = current.source.ast.is.IsCallExpression(value.node) ? current.selectedDeclaration(value.node) : undefined;
+      return declaration === current.declaration("pending") || declaration === current.declaration("read")
+        ? current.premises.suspensionFor(value, bindings) : undefined;
+    },
+  } });
+  const selected = query.continuationFor(call!);
+  assert.equal(selected.kind === "resolved" && selected.dependencies.length === 0, true,
+    selected.kind === "unresolved" ? selected.reason : "The complete source body needs no fabricated native completion or owned contract.");
+});
+
 test("an exact selected callee capture keeps its own environment and the actual invocation arguments", () => {
   const current = fixture(false, "self", `
     function selectFactory<Value>(capture: Value) {

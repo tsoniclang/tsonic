@@ -337,6 +337,23 @@ export function createSourceStorageQuery(
       const states = bindings === undefined ? undefined : bindingStates.get(bindings);
       if (bindings !== undefined && states === undefined)
         return unresolved("Invocation substitutions belong to a different source storage query.");
+      const expression = source.ast.is.IsCallExpression(invocation) ? source.ast.as.AsCallExpression(invocation)?.Expression : undefined;
+      if (bindings !== undefined && expression !== undefined && source.ast.kindName(expression) !== "KindSuperKeyword") {
+        const target = transport.invocationTargets.get(invocation);
+        if (target === undefined) return unresolved("A scoped invocation requires its exact checked callable operand.");
+        const selected = selectDomain(target, bindings, "storage-producers");
+        if (selected.kind === "unresolved") return selected;
+        const nodes = new Set<Node>();
+        let exact = selected.kind === "complete";
+        for (const origin of selected.origins) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          if (!sourceStorageHasOriginalCallableValue(origin.subject, source.ast)) { exact = false; continue; }
+          const implementation = source.navigation.callableImplementation(origin.subject.node);
+          if (implementation.kind !== "resolved") { exact = false; continue; }
+          nodes.add(implementation.implementation.declaration);
+        }
+        return Object.freeze({ kind: "resolved", nodes: Object.freeze([...nodes]), exact });
+      }
       const nodes = new Set<Node>();
       let exact = true;
       for (const state of states ?? [undefined]) {
