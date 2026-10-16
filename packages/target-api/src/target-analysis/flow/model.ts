@@ -1,5 +1,6 @@
 import type { Node } from "@tsonic/tsts";
-import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection,
+  SourceStorageQueries } from "../source-storage/model/types.js";
 
 export type SourceFlowEdgeKind = "normal" | "true" | "false" | "nullish" | "present" |
   "case" | "default" | "exception" | "return" | "break" | "continue" | "resume";
@@ -62,7 +63,8 @@ export interface SourceFlowLimits {
 export interface SourceControlFlowOptions {
   readonly limits?: Partial<SourceFlowLimits>;
   readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node;
-    readonly callerBindings?: SourceStorageBindings };
+    readonly callerBindings?: SourceStorageBindings;
+    readonly construction?: Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number] };
 }
 
 export interface SourceFlowWork {

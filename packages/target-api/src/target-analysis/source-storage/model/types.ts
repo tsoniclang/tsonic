@@ -146,15 +146,17 @@ export interface SourceStorageConstructionClass {
 
 export type SourceStorageConstructionSelection = SourceStorageUnresolved | {
   readonly kind: "resolved";
-  readonly root: Node;
-  readonly allocation: Node;
-  readonly classes: readonly SourceStorageConstructionClass[];
-  readonly implementation: {
-    readonly declaration: Node;
-    readonly body: Node;
-    readonly regions: readonly Node[];
-    readonly selection: Extract<SourceStorageBindingsSelection, { readonly kind: "resolved" }>;
-  } | undefined;
+  readonly alternatives: readonly {
+    readonly root: Node;
+    readonly allocation: Node;
+    readonly classes: readonly SourceStorageConstructionClass[];
+    readonly implementation: {
+      readonly declaration: Node;
+      readonly body: Node;
+      readonly regions: readonly Node[];
+      readonly selection: Extract<SourceStorageBindingsSelection, { readonly kind: "resolved" }>;
+    } | undefined;
+  }[];
 };
 
 export interface SourceStorageQueries {
@@ -184,7 +186,8 @@ export interface SourceStorageQueries {
   invocationOriginsFor(subject: SourceStorageSubject, candidate: Node, invocation: Node): SourceStorageSubjectsSelection;
   bindingsForDeclaration(declaration: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
   bindingsForLexicalOwner(node: Node): SourceStorageBindingsSelection;
-  bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings): SourceStorageBindingsSelection;
+  bindingsForInvocation(candidate: Node, invocation: Node, parent?: SourceStorageBindings,
+    capture?: Pick<SourceStorageProducer, "subject" | "bindings">): SourceStorageBindingsSelection;
   invocationContextKeyFor(invocation: Node, bindings: SourceStorageBindings):
     { readonly kind: "resolved"; readonly key: string } | SourceStorageUnresolved;
   contextKeyFor(subjects: readonly SourceStorageSubject[], bindings: SourceStorageBindings):

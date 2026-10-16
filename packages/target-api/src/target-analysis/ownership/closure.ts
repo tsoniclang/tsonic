@@ -3,8 +3,8 @@ import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import type { SourceFlowLimits } from "../flow/model.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
-import { sourceStorageInvokedClass } from "../source-storage/model/construction.js";
-import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
+import { sourceStorageConstructionExpression } from "../source-storage/model/construction.js";
+import type { SourceStorageBindings, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnershipPremises, SourceOwnershipUnresolved,
   SourcePendingOperation, SourceRetentionPremise, SourceSuspensionSelection } from "./model.js";
 import { createSourceContinuationTransfer } from "./continuation.js";
@@ -95,11 +95,15 @@ export function createSourceContinuationClosureQuery(input: {
     const declaration = selected?.sourceSelectedSignatureKind === "resolved"
       ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
     const implementations = storage.invocationImplementationsFor(call, bindings);
-    const root = sourceStorageInvokedClass(call, source, budget.step);
-    const construction = root === undefined ? undefined : storage.constructionFor(call, bindings);
+    const sourceConstruction = sourceStorageConstructionExpression(call, source, budget.step) !== undefined &&
+      implementations.kind === "resolved" && implementations.nodes.some(candidate =>
+        source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) || source.ast.is.IsConstructorDeclaration(candidate));
+    const construction = sourceConstruction ? storage.constructionFor(call, bindings) : undefined;
     if (construction?.kind === "unresolved") return refuse(call, construction.reason);
-    const candidates = construction === undefined ? implementations.kind === "resolved" ? implementations.nodes : []
-      : [construction.implementation?.declaration ?? construction.root];
+    const candidates: readonly { readonly candidate: Node;
+      readonly construction?: Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number] }[] =
+      construction === undefined ? implementations.kind === "resolved" ? implementations.nodes.map(candidate => ({ candidate })) : []
+      : construction.alternatives.map(alternative => ({ candidate: alternative.root, construction: alternative }));
     const native = candidates.length === 0 || construction === undefined &&
       (implementations.kind === "unresolved" || !implementations.exact);
     if (native && (declaration === undefined || source.ast.body(declaration) !== undefined))
@@ -107,9 +111,11 @@ export function createSourceContinuationClosureQuery(input: {
         : "An open callable domain requires its actual implementation or selected native declaration contract.");
     const executions: InvocationInput["executions"][number][] = [];
     const neighbours = new Set<Invocation>();
-    if (!native) for (const candidate of candidates) {
+    if (!native) for (const entry of candidates) {
       if (!budget.step()) return refuse(call, budget.failure()!);
+      const candidate = entry.candidate;
       const prepared = prepareSourceContinuationExecution({ source, storage, budget: inputBudget, candidate,
+        construction: entry.construction,
         invocation: call, callerBindings: bindings, limits: input.flowLimits ?? {} });
       if (prepared.kind === "unresolved") { failure = prepared; return undefined; }
       if (!transient.add(1)) return refuse(call, budget.failure()!);
@@ -122,7 +128,7 @@ export function createSourceContinuationClosureQuery(input: {
       }
     }
     if (!transient.add(2)) return refuse(call, budget.failure()!);
-    const data: InvocationInput = Object.freeze({ declaration: declaration ?? candidates[0]!,
+    const data: InvocationInput = Object.freeze({ declaration: declaration ?? call,
       executions: Object.freeze(executions), neighbours });
     return { data, neighbours };
   };
@@ -196,13 +202,15 @@ export function createSourceContinuationClosureQuery(input: {
       const call = semantics.operations.call(value.node);
       const selectedDeclaration = call?.sourceSelectedSignatureKind === "resolved"
         ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
-      const root = sourceStorageInvokedClass(value.node, source, evaluationBudget.step);
-      const construction = root === undefined ? undefined : storage.constructionFor(value.node, bindings);
+      const implementations = storage.invocationImplementationsFor(value.node, bindings);
+      const sourceConstruction = sourceStorageConstructionExpression(value.node, source, evaluationBudget.step) !== undefined &&
+        implementations.kind === "resolved" && implementations.nodes.some(candidate =>
+          source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) || source.ast.is.IsConstructorDeclaration(candidate));
+      const construction = sourceConstruction ? storage.constructionFor(value.node, bindings) : undefined;
       if (construction?.kind === "unresolved") return sourceOwnershipUnresolved(value.node, construction.reason);
-      const declaration = selectedDeclaration ?? (construction?.kind === "resolved" ? construction.root : undefined);
+      const declaration = selectedDeclaration ?? (construction?.kind === "resolved" ? value.node : undefined);
       if (declaration === undefined) return undefined;
       if (construction === undefined) {
-        const implementations = storage.invocationImplementationsFor(value.node, bindings);
         if (implementations.kind === "unresolved") return sourceOwnershipUnresolved(value.node, implementations.reason);
         if (!implementations.exact || implementations.nodes.length === 0 ||
           implementations.nodes.some(candidate => source.ast.body(candidate) === undefined)) return undefined;

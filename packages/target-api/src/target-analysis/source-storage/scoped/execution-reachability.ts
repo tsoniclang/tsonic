@@ -2,6 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
+import { sourceStorageConstructionExpression } from "../model/construction.js";
 
 export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {
@@ -51,8 +52,11 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
           for (const child of transport.regions.callable(candidate, transport.accessorTargets.has(invocation) ? undefined : invocation))
             if (!add(child)) return undefined;
         }
-        if (source.ast.is.IsNewExpression(invocation)) for (const child of transport.regions.instance(invocation))
-          if (!add(child.node)) return undefined;
+        if (sourceStorageConstructionExpression(invocation, source, budget.step) !== undefined) {
+          const instance = transport.regions.instance(invocation);
+          if (instance === undefined) return undefined;
+          for (const child of instance.regions) if (!add(child.node)) return undefined;
+        }
       }
       if (budget.failure() !== undefined) return undefined;
       index = Object.freeze({ callers, callees, entries }); complete = true;

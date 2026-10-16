@@ -87,13 +87,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (term.kind === "transition") {
         const condition = normalize(term.condition, witnesses, temporary, false);
         if (condition === undefined) return undefined;
-        term = Object.freeze({ ...term, condition });
-        if (condition.kind === "leaf") {
-          const selected = successors.reduce(term);
-          if (selected === undefined) return undefined;
-          if (selected.kind === "replace" && selected.terms.length === 0) return emptyTerm;
-          if (selected.kind === "replace" && selected.terms.length === 1) { term = selected.terms[0]!; continue; }
-        }
+        return Object.freeze({ ...term, condition });
       }
       break;
     }
@@ -116,10 +110,6 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const value = normalize(term.value, witnesses, temporary, false);
       return value === undefined ? undefined : value.kind === "guarded" && value.reference === term.reference
         ? value : Object.freeze({ ...term, value });
-    }
-    if (term.kind === "transition") {
-      const value = normalize(term.value, witnesses, temporary, contributes);
-      return value === undefined ? undefined : Object.freeze({ ...term, value });
     }
     if (term.kind === "member") {
       const receiver = normalize(term.receiver, witnesses, temporary, false, true);

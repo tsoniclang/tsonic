@@ -5,7 +5,7 @@ import { solveSourceFlow } from "../flow/solver.js";
 import type { SourceControlFlowGraph, SourceFlowLimits, SourceFlowPoint } from "../flow/model.js";
 import { sourceFlowOrder } from "../flow/ordering.js";
 import { SourceFlowFailure } from "../flow/resources.js";
-import type { SourceStorageBindings, SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageBindings, SourceStorageConstructionSelection, SourceStorageQueries } from "../source-storage/model/types.js";
 import type { SourceContinuationDependencyQueries } from "./dependencies.js";
 import { createSourceContinuationTransfer, type SourceContinuationState, type SourceContinuationTransfer } from "./continuation.js";
 import type { SourceSuspensionQueries } from "./suspension.js";
@@ -43,6 +43,7 @@ interface SourceContinuationFlowInput {
   readonly candidate: Node;
   readonly invocation: Node;
   readonly callerBindings: SourceStorageBindings;
+  readonly construction?: Extract<SourceStorageConstructionSelection, { readonly kind: "resolved" }>["alternatives"][number];
   readonly suspensions: SourceSuspensionQueries;
   readonly dependencies: SourceContinuationDependencyQueries;
   readonly limits: Partial<SourceFlowLimits>;
@@ -51,11 +52,11 @@ interface SourceContinuationFlowInput {
 }
 
 export function prepareSourceContinuationExecution(input: Pick<SourceContinuationFlowInput,
-  "source" | "storage" | "budget" | "candidate" | "invocation" | "callerBindings" | "limits"
+  "source" | "storage" | "budget" | "candidate" | "invocation" | "callerBindings" | "construction" | "limits"
 >): SourceOwnershipUnresolved | { readonly kind: "resolved"; readonly execution: SourceContinuationExecution } {
   const { source, storage, budget, candidate, invocation } = input;
   const selected = createSourceControlFlow(source, candidate, { limits: input.limits,
-    invocation: { storage, call: invocation, callerBindings: input.callerBindings } });
+    invocation: { storage, call: invocation, callerBindings: input.callerBindings, construction: input.construction } });
   if (selected.kind === "unresolved") return sourceOwnershipUnresolved(selected.source ?? candidate, selected.reason);
   const rows = budget.createRows();
   let published = false;

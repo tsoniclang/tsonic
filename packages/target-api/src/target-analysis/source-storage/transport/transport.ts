@@ -1,6 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
 import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject } from "../model/subjects.js";
-import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value, sourceConstructorParametersMatch,
+import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value,
   sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
 import { createSourceStorageContextLocations } from "../graph/context-locations.js";
@@ -13,11 +13,11 @@ import { createSourceStorageEdges } from "../graph/edges.js";
 import type { SourceStorageEdgeTypes } from "../graph/edges.js";
 import { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceStorageConstructedClass, sourceStorageSuperConstructor } from "../model/construction.js";
+import { sourceStorageConstructionExpression, sourceStorageSuperConstructor } from "../model/construction.js";
 import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
-import { createSourceStorageInvocationResults } from "./invocation-results.js";
+import { createSourceStorageInvocationResults, sourceStorageClassLineages } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects } from "../model/types.js";
@@ -40,7 +40,7 @@ export function createSourceStorageTransport(
   effects: SourceStorageEffects = {},
 ) {
   const { ast, navigation, semantics } = source;
-  const guardedValues = createSourceStorageGuardedValues(source, budget);
+  const guardedValues = createSourceStorageGuardedValues(source, budget, expression => classLineagesFor(expression));
   const subjects = new Map<Node, SourceStorageSubject>();
   const identities = new Set<SourceStorageSubject>();
   const mutationOwners = new Map<Node, SourceStorageSubject>();
@@ -49,7 +49,6 @@ export function createSourceStorageTransport(
   const invocationTargets = new Map<Node, SourceStorageSubject>();
   const invocationArguments = new Map<Node, readonly Node[]>();
   const invocationDeclarations = new Map<Node, Node>();
-  const implicitConstructions = new Set<Node>();
   const argumentTransports = new Map<Node, readonly SourceStorageArgumentTransport[]>();
   const checkedSourceFiles = new Map<Node, SourceFile>();
   const unresolvedInvocations = new Map<Node, string>();
@@ -193,7 +192,7 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext);
   const projections = createSourceStorageProjectionFlow(source, step, subject, subjectFor, locationFor, connect,
     (subject, reason) => unresolvedSubjects.set(subject, reason), sourceFileFor);
-  const regions = createSourceStorageExecutionRegions(source, budget);
+  const regions = createSourceStorageExecutionRegions(source, budget, invocation => constructionLineagesFor(invocation));
   const memberAccessors = createSourceStorageMemberAccessors(source, budget, {
     subject, subjectFor, incomingFor, connect, recordInvocation: regions.recordInvocation,
     implementationsFor: (declaration, invocation) => implementationsFor(declaration, invocation).nodes,
@@ -314,22 +313,10 @@ export function createSourceStorageTransport(
           if (effect.resultAlias !== undefined) connect(subjectFor(effect.resultAlias), subjectFor(node));
         }
       }
-      let signature = selected === undefined ? undefined
+      const signature = selected === undefined ? undefined
         : semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
-      if (selected !== undefined && ast.is.IsNewExpression(node)) {
-        const declaration = sourceStorageConstructedClass(node, source, step);
-        const constructors = declaration === undefined ? undefined : navigation.classConstructors(declaration);
-        if (constructors?.kind === "resolved" && constructors.implicit) {
-          const matches = constructors.signatures.filter(candidate =>
-            sourceConstructorParametersMatch(candidate.parameters, selected.sourceSelectedSignatureParameters));
-          if (matches.length === 1) {
-            signature ??= matches[0]!.declaration ?? declaration;
-            implicitConstructions.add(node);
-          }
-        }
-      }
-      if (selected !== undefined && signature !== undefined) {
-        invocationDeclarations.set(node, signature);
+      if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
+        if (signature !== undefined) invocationDeclarations.set(node, signature);
         const target = subjectFor(Node_Expression(ast, node));
         if (target !== undefined) invocationTargets.set(node, target);
         const base = sourceStorageSuperConstructor(node, source, step);
@@ -394,9 +381,30 @@ export function createSourceStorageTransport(
         ast.is.IsNewExpression(origin.node) || sourceStorageHasOriginalValue(origin, ast, incoming.size !== 0))));
     return budget.failure() === undefined ? originals : undefined;
   });
+  const classLineagesFor = (expression: Node | undefined,
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects) => {
+    const valuesFor = (subject: SourceStorageSubject) => {
+      const origins = originsFor === originSubjects ? classValueSubjects(subject) : originsFor(subject);
+      return origins === undefined ? undefined : new Set([...origins].map(origin => ({ subject: origin, bindings: undefined })));
+    };
+    const target = subjectFor(expression);
+    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor });
+  };
+  const constructionLineagesFor = (invocation: Node,
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects) =>
+    classLineagesFor(sourceStorageConstructionExpression(invocation, source, step), originsFor);
   const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     const subjects = new Set(walkAncestors(selected));
     return budget.failure() === undefined ? subjects : undefined;
+  });
+  const classValueSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
+    const values = new Set<SourceStorageSubject>();
+    for (const origin of walkAncestors(selected)) {
+      if (!step()) return undefined;
+      if (ast.is.IsParameterDeclaration(origin.node) || sourceStorageHasOriginalValue(origin, ast, incomingFor(origin).size !== 0))
+        values.add(origin);
+    }
+    return budget.failure() === undefined ? values : undefined;
   });
   const memberFlow = createSourceStorageMemberFlow(source, budget, sourceFileFor, retainCheckedContext);
   const implementationsFor = (declaration: Node, invocation: Node,
@@ -444,15 +452,19 @@ export function createSourceStorageTransport(
       if (!step()) return { nodes: selected, exact: false };
       if (ast.is.IsParameterDeclaration(origin.node)) unknown = true;
       if (incomingFor(origin).size !== 0) continue;
-      const concrete = sourceStorageConstructedClass(origin.node, source, step);
-      const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
-      if (target?.kind === "resolved") {
-        const original = target.implementation.declaration;
-        exact.add(original);
-        const slot = sourceStorageMemberSubject(original, ast, subject);
-        if (slot !== undefined && storedValues.storesFor(slot) !== undefined) selectMember(original);
-      }
-      else if (ast.is.IsObjectLiteralExpression(origin.node)) {
+      if (ast.is.IsNewExpression(origin.node)) {
+        const lineages = constructionLineagesFor(origin.node, originsFor);
+        unknown ||= lineages === undefined || lineages.length === 0 || lineages.some(lineage => !lineage.complete);
+        for (const lineage of lineages ?? []) {
+          const concrete = lineage.classes[0]?.subject.node;
+          const target = concrete === undefined ? undefined : navigation.memberImplementation(concrete, declaration);
+          if (target?.kind !== "resolved") { unknown = true; continue; }
+          const original = target.implementation.declaration;
+          exact.add(original);
+          const slot = sourceStorageMemberSubject(original, ast, subject);
+          if (slot !== undefined && storedValues.storesFor(slot) !== undefined) selectMember(original);
+        }
+      } else if (ast.is.IsObjectLiteralExpression(origin.node)) {
         const members = receiverType === undefined ? undefined : memberFlow.declarationsFor(origin, declaration, receiverType);
         unknown ||= members === undefined;
         for (const member of members ?? []) {
@@ -477,14 +489,25 @@ export function createSourceStorageTransport(
     const declaration = invocationDeclarations.get(invocation);
     const target = invocationTargets.get(invocation);
     const construction = ast.is.IsNewExpression(invocation) || ast.kindName(Node_Expression(ast, invocation)) === "KindSuperKeyword";
-    if (construction && declaration !== undefined) {
-      const selected = navigation.callableImplementation(declaration);
-      if (selected.kind === "resolved" && ast.is.IsConstructorDeclaration(selected.implementation.declaration))
-        implementations.add(selected.implementation.declaration);
+    if (construction) {
+      const lineages = constructionLineagesFor(invocation, originsFor);
+      let exact = lineages !== undefined && lineages.length !== 0;
+      for (const lineage of lineages ?? []) {
+        if (!step()) return { nodes: implementations, exact: false };
+        exact &&= lineage.complete;
+        if (lineage.complete) {
+          const owner = lineage.implementation ?? lineage.classes[lineage.classes.length - 1]?.subject.node;
+          if (owner !== undefined) implementations.add(owner);
+        } else {
+          const root = lineage.classes[0]?.subject.node;
+          if (root !== undefined) implementations.add(root);
+        }
+      }
+      return Object.freeze({ nodes: implementations, exact });
     }
     const member = declaration !== undefined && (ast.is.IsMethodDeclaration(declaration) || ast.is.IsMethodSignatureDeclaration(declaration) ||
       ast.is.IsGetAccessorDeclaration(declaration) || ast.is.IsSetAccessorDeclaration(declaration));
-    let exact = !member && (target !== undefined || construction && implicitConstructions.has(invocation));
+    let exact = !member && target !== undefined;
     if (member) {
       const selected = implementationsFor(declaration, invocation, originsFor);
       if (selected.exact) return selected;
@@ -498,10 +521,7 @@ export function createSourceStorageTransport(
       const owner = member ? sourceMemberOwner(ast, candidate.node) : undefined;
       if (owner !== undefined && (ast.is.IsClassDeclaration(owner) || ast.is.IsClassExpression(owner) || ast.is.IsInterfaceDeclaration(owner))) continue;
       const selected = implementationsFor(candidate.node, invocation, originsFor);
-      const selectedClass = construction && (ast.is.IsClassDeclaration(candidate.node) || ast.is.IsClassExpression(candidate.node)) &&
-        (implicitConstructions.has(invocation) || declaration !== undefined && ast.is.IsConstructorDeclaration(declaration) &&
-          ast.parent(declaration) === candidate.node);
-      if (!selected.exact && !selectedClass) exact = false;
+      if (!selected.exact) exact = false;
       for (const implementation of selected.nodes) implementations.add(implementation);
     }
     for (const accessor of accessorTargets.get(invocation) ?? []) {
@@ -613,8 +633,10 @@ export function createSourceStorageTransport(
       }
       const targets = [...invocationImplementations(invocation)].map(candidate => ({ candidate,
         regions: regions.callable(candidate, accessorTargets.has(invocation) ? undefined : invocation) }));
-      if (ast.is.IsNewExpression(invocation)) {
-        for (const region of regions.instance(invocation)) targets.push({ candidate: region.owner, regions: [region.node] });
+      if (sourceStorageConstructionExpression(invocation, source, step) !== undefined) {
+        const instance = regions.instance(invocation);
+        if (instance === undefined) return;
+        for (const region of instance.regions) targets.push({ candidate: region.owner, regions: [region.node] });
       }
       for (const target of targets) {
         for (const region of target.regions) {
@@ -671,8 +693,9 @@ export function createSourceStorageTransport(
     if (!step()) break;
     const reason = unresolvedInvocations.get(invocation);
     const implementations = invocationImplementationSelection(invocation);
-    if (reason === undefined && implementations?.exact === true && (implicitConstructions.has(invocation) ||
-      [...implementations.nodes].some(candidate => ast.body(candidate) !== undefined))) continue;
+    if (reason === undefined && implementations?.exact === true &&
+      [...implementations.nodes].some(candidate => ast.body(candidate) !== undefined ||
+        ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate))) continue;
     const selected = new Set<SourceStorageSubject>();
     const result = subject(invocation);
     if (result !== undefined) {
@@ -707,6 +730,6 @@ export function createSourceStorageTransport(
     sourceFileFor, retainCheckedContext, invocationTargets,
     invocations, invocationEffects, invocationArguments, invocationDeclarations, argumentTransports, unresolvedInvocations, boundaries,
     accessorTargets, visitedNodes, regions, memberFlow, guardedValues, ancestorSubjects, invocationImplementations, physicalMemberInputs,
-    invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation,
+    invocationOrigins, invocationResults, substitutions, contextualInputs, contextLocation, classLineagesFor, constructionLineagesFor,
     unresolvedFor: unresolved.ancestryFor, directlyUnresolvedFor: unresolved.directFor };
 }

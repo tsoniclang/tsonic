@@ -1,44 +1,15 @@
 import type { Node } from "@tsonic/tsts";
 import { AsExpressionWithTypeArguments, Node_Expression, Node_Initializer, sourceClassFieldIsTypeOnly } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
+import type { SourceStorageBudget } from "./resource-budget.js";
+import type { SourceStorageUnresolved } from "./types.js";
 
-export function sourceStorageConstructedClass(
-  invocation: Node,
-  source: TargetSourceProgram,
-  step: () => boolean,
-): Node | undefined {
-  const { ast } = source;
-  if (!ast.is.IsNewExpression(invocation)) return undefined;
-  return sourceStorageClassValue(Node_Expression(ast, invocation), source, step);
+export function sourceStorageConstructionExpression(invocation: Node, source: TargetSourceProgram,
+  step: () => boolean): Node | undefined {
+  return source.ast.is.IsNewExpression(invocation) ? Node_Expression(source.ast, invocation)
+    : sourceStorageSuperConstructor(invocation, source, step)?.callee;
 }
 
-export function sourceStorageClassValue(
-  expression: Node | undefined,
-  source: TargetSourceProgram,
-  step: () => boolean,
-): Node | undefined {
-  const { ast, navigation } = source;
-  const visited = new Set<Node>();
-  let current = expression;
-  while (current !== undefined && !visited.has(current) && step()) {
-    visited.add(current);
-    if (ast.is.IsClassExpression(current)) return navigation.isProjectDeclaration(current) ? current : undefined;
-    if (ast.is.IsParenthesizedExpression(current) || ast.is.IsAsExpression(current) ||
-      ast.is.IsSatisfiesExpression(current) || ast.is.IsNonNullExpression(current) || ast.is.IsTypeAssertion(current)) {
-      current = Node_Expression(ast, current);
-      continue;
-    }
-    const declaration = navigation.sourceReferenceFor(current)?.declaration;
-    if (declaration === undefined) return undefined;
-    if (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration))
-      return navigation.isProjectDeclaration(declaration) ? declaration : undefined;
-    if (!ast.is.IsVariableDeclaration(declaration)) return undefined;
-    const uses = navigation.declarationUseSummary(declaration);
-    if (uses.bindingWritten || uses.exported && ast.variableDeclarationKind(declaration) !== "const") return undefined;
-    current = Node_Initializer(ast, declaration);
-  }
-  return undefined;
-}
 
 export function sourceStorageSuperConstructor(
   invocation: Node,
@@ -60,10 +31,6 @@ export function sourceStorageSuperConstructor(
   return undefined;
 }
 
-export function sourceStorageInvokedClass(invocation: Node, source: TargetSourceProgram, step: () => boolean): Node | undefined {
-  return source.ast.is.IsNewExpression(invocation) ? sourceStorageConstructedClass(invocation, source, step)
-    : sourceStorageClassValue(sourceStorageSuperConstructor(invocation, source, step)?.callee, source, step);
-}
 
 export function sourceStorageInstanceInitializers(declaration: Node, source: TargetSourceProgram,
   step: () => boolean): readonly Node[] {
@@ -76,4 +43,29 @@ export function sourceStorageInstanceInitializers(declaration: Node, source: Tar
     if (initializer !== undefined) initializers.push(initializer);
   }
   return initializers;
+}
+
+export function sourceStorageAllocation<Bindings>(source: TargetSourceProgram, budget: SourceStorageBudget,
+  invocation: Node, bindings: Bindings,
+  activationFor: (owner: Node, bindings: Bindings) => SourceStorageUnresolved |
+    { readonly invocation: Node; readonly callerBindings: Bindings }): SourceStorageUnresolved |
+  { readonly kind: "resolved"; readonly call: Node; readonly callerBindings: Bindings } {
+  return budget.withRows(temporary => {
+    const seen = new Set<Bindings>();
+    let call = invocation;
+    let callerBindings = bindings;
+    while (!source.ast.is.IsNewExpression(call)) {
+      if (!budget.step()) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
+      const base = sourceStorageSuperConstructor(call, source, budget.step);
+      if (base === undefined || seen.has(callerBindings)) return Object.freeze({ kind: "unresolved",
+        reason: "Constructor execution requires the actual checked allocation activation, not guessed heritage order." });
+      if (!temporary.add(1)) return Object.freeze({ kind: "unresolved", reason: budget.failure()! });
+      seen.add(callerBindings);
+      const selected = activationFor(base.owner, callerBindings);
+      if ("kind" in selected) return selected;
+      call = selected.invocation;
+      callerBindings = selected.callerBindings;
+    }
+    return Object.freeze({ kind: "resolved", call, callerBindings });
+  });
 }

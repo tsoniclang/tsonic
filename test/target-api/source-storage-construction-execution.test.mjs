@@ -55,10 +55,18 @@ function resolved(selected, label) {
   return selected;
 }
 
+
+function oneConstruction(selected, label) {
+  const result = resolved(selected, label);
+  assert.equal(result.alternatives.length, 1, label);
+  assert.equal(Object.isFrozen(result) && Object.isFrozen(result.alternatives), true, "The finite construction result is sealed.");
+  return result.alternatives[0];
+}
+
 test("implicit source heritage supplies one checked constructor correspondence and exact original regions", () => {
   const current = fixture();
   for (const name of ["supplied", "omitted"]) {
-    const selected = resolved(current.construction(name), name);
+    const selected = oneConstruction(current.construction(name), name);
     assert.equal(selected.root === current.named("Derived") && selected.allocation === current.initializer(name), true);
     assert.equal(selected.implementation.declaration === current.constructor("Base"), true);
     assert.equal(selected.implementation.body === current.ast.body(current.constructor("Base")), true);
@@ -77,7 +85,7 @@ test("implicit source heritage supplies one checked constructor correspondence a
     assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.classes) &&
       selected.classes.every(entry => Object.isFrozen(entry) && Object.isFrozen(entry.regions)) &&
       Object.isFrozen(selected.implementation) && Object.isFrozen(selected.implementation.regions), true);
-    for (let repeat = 0; repeat < 12; repeat += 1) assert.equal(current.construction(name) === selected, true, "one memoized checked correspondence");
+    for (let repeat = 0; repeat < 12; repeat += 1) assert.equal(oneConstruction(current.construction(name), name) === selected, true, "one memoized checked correspondence");
   }
   assert.equal(current.storage.failureReason() === undefined, true);
 });
@@ -86,8 +94,8 @@ test("generic inherited aliases preserve supplied values and cannot leak a sibli
   const current = fixture();
   const constructor = current.constructor("GenericBase");
   const formal = resolved(current.storage.subject(current.ast.parameters(constructor)[0], "input"), "generic formal").subject;
-  const supplied = resolved(current.construction("generic"), "supplied generic");
-  const omitted = resolved(current.construction("empty"), "omitted generic");
+  const supplied = oneConstruction(current.construction("generic"), "supplied generic");
+  const omitted = oneConstruction(current.construction("empty"), "omitted generic");
   const suppliedBinding = resolved(supplied.implementation.selection, "supplied generic binding").bindings;
   const omittedBinding = resolved(omitted.implementation.selection, "omitted generic binding").bindings;
   const actual = resolved(current.storage.boundOriginsFor(formal, suppliedBinding), "supplied generic origins");
@@ -112,18 +120,18 @@ test("forwarded actual caller substitutions select inherited defaults without re
   const initializer = current.ast.as.AsParameterDeclaration(current.ast.parameters(current.constructor("Base"))[0]).Initializer;
   for (const [name, included] of [["forwardedSupplied", false], ["forwardedOmitted", true]]) {
     const caller = resolved(current.storage.bindingsForInvocation(current.named("forward"), current.initializer(name)), name);
-    const selected = resolved(current.storage.constructionFor(inner, caller.bindings), name);
+    const selected = oneConstruction(current.storage.constructionFor(inner, caller.bindings), name);
     assert.equal(selected.implementation.regions.includes(initializer), included, name);
-    assert.equal(current.storage.constructionFor(inner, caller.bindings) === selected, true);
+    assert.equal(oneConstruction(current.storage.constructionFor(inner, caller.bindings), name) === selected, true);
   }
-  const generic = resolved(current.storage.constructionFor(inner), "unspecialized caller");
+  const generic = oneConstruction(current.storage.constructionFor(inner), "unspecialized caller");
   assert.equal(generic.implementation.regions.includes(initializer), true);
   assert.equal(current.storage.failureReason() === undefined, true);
 });
 
 test("a wholly implicit source lineage supplies original class roots without fabricating a constructor body", () => {
   const current = fixture();
-  const selected = resolved(current.construction("zero"), "zero-body source lineage");
+  const selected = oneConstruction(current.construction("zero"), "zero-body source lineage");
   assert.equal(selected.implementation === undefined, true);
   assert.equal(selected.root === current.named("ImplicitDerived"), true);
   assert.equal(selected.classes.length === 3 && selected.classes.every((entry, index) =>
@@ -159,4 +167,47 @@ test("source construction cannot publish partial correspondence after its finite
     assert.equal(current.storage.failureReason() !== undefined, true);
     assert.equal(current.storage.constructionFor(call).kind, "unresolved", "a failed owner stays failed");
   }
+});
+
+test("finite factory and copied conditional class values preserve each Base and Derived captured environment", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+    export {}; declare const flag: boolean;
+    interface Shape { base: number; }
+    type Constructor = new (input?: number) => Shape;
+    function makeBase(value: number) {
+      return class Base { base = value; constructor(input?: number) {} };
+    }
+    function makeDerived(Parent: Constructor, value: number) {
+      return class Derived extends Parent { derived = value; };
+    }
+    const first = makeDerived(makeBase(1), 2); const second = makeDerived(makeBase(3), 4);
+    const copied = first; const Chosen = flag ? copied : second; const instance = new Chosen();
+  ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  assert.equal(checked.diagnostics.length, 0);
+  const source = createTargetSourceProgram(checked);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
+  const instance = storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === "instance");
+  const invocation = source.ast.as.AsVariableDeclaration(instance).Initializer;
+  const selected = resolved(storage.constructionFor(invocation), "the finite selected source class domain");
+  assert.equal(selected.alternatives.length, 2, "Two actual factory activations of one Derived AST stay distinct.");
+  const pairs = new Set();
+  for (const alternative of selected.alternatives) {
+    assert.equal(alternative.classes.length, 2, "The inherited implemented Base and Derived initializer owners are both retained.");
+    const values = new Map();
+    for (const owner of alternative.classes) {
+      assert.equal(owner.regions.length, 1, "One original initializer belongs to each class.");
+      const region = owner.regions[0];
+      const subject = resolved(storage.subjectFor(region.node), "the actual original initializer");
+      const origins = storage.storageProducersFor(subject.subject, region.selection.bindings);
+      assert.equal(origins.kind === "complete" && origins.producers.length === 1, true,
+        "An initializer uses exactly its selected factory activation, never the sibling or subclass scope.");
+      if (origins.kind !== "complete") return;
+      values.set(source.ast.text(source.ast.name(owner.owner)), source.ast.text(origins.producers[0].subject.node));
+    }
+    pairs.add(`${values.get("Base")}/${values.get("Derived")}`);
+  }
+  assert.equal(pairs.size === 2 && pairs.has("1/2") && pairs.has("3/4"), true,
+    "Only the two actual Base/Derived factory pairs are admitted; no cross-product or origin-only merge.");
+  assert.equal(storage.constructionFor(invocation) === selected, true, "Alternative identity is owned by the existing sealed construction cache.");
+  assert.equal(storage.failureReason() === undefined, true, "The existing graph budget closes the finite class domain.");
 });
