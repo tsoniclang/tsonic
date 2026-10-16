@@ -211,10 +211,11 @@ test("direct resource lists require their lexical cleanup route instead of immed
 
 test("switch resource cleanup follows only acquired clause suffixes and preserves fall-through", () => {
   const current = fixture(`switch (flag) {
-    case true: using earlier = new Resource(); observe(earlier);
-    default: using later = new Resource(); observe(later); break;
+    case true: { using earlier = new Resource(); observe(earlier); }
+    default: { using later = new Resource(); observe(later); break; }
   } after();`);
-  const laterReads = current.calls("observe").filter(point => current.source.ast.text(point.source).includes("later"));
+  const laterReads = current.calls("observe").filter(point =>
+    current.source.ast.text(current.source.ast.arguments(point.source!)[0]) === "later");
   const earlierCleanup = new Set(current.disposal("earlier").map(point => point.id));
   const cases = current.points(point => point.operation.kind === "branch" &&
     current.source.ast.is.IsCaseClause(point.source));
@@ -229,12 +230,13 @@ test("switch resource cleanup follows only acquired clause suffixes and preserve
   const laterCleanup = current.disposal("later");
   assert.equal(laterCleanup.some(point => laterReads.some(read => reachable(current.graph, read.id, point.id))), true,
     "break cleans the resource acquired in the later clause");
-  const earlierRead = current.calls("observe").find(point => current.source.ast.text(point.source).includes("earlier"))!;
+  const earlierRead = current.calls("observe").find(point =>
+    current.source.ast.text(current.source.ast.arguments(point.source!)[0]) === "earlier")!;
   assert.equal(laterReads.some(point => reachable(current.graph, earlierRead.id, point.id)), true,
     "fall-through executes the later source clause");
-  assert.equal(laterCleanup.some(point => current.disposal("earlier").some(previous =>
-    reachable(current.graph, earlierRead.id, point.id) && reachable(current.graph, point.id, previous.id))), true,
-  "fall-through cleans the later resource before the earlier one");
+  assert.equal(current.disposal("earlier").some(cleanup => reachable(current.graph, earlierRead.id, cleanup.id) &&
+    laterReads.some(read => reachable(current.graph, cleanup.id, read.id))), true,
+  "the earlier lexical block cleans its resource before falling through to the later block");
   for (const cleanup of laterCleanup) assert.equal(cleanup.successors.some(edge =>
     edge.kind !== "exception" && reachable(current.graph, edge.to, cleanup.id)), false,
   "a cleanup point cannot recur on the acyclic exit route");
