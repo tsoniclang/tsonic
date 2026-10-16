@@ -100,6 +100,7 @@ export function createTargetSourceProgram(
     const flowConditions = new WeakMap<Node, import("@tsonic/tsts").ResolvedSourceFlowConditionInfo | null>();
     const operations = Object.freeze({
       call: queries.checker.getResolvedCallInfo,
+      propertyName: queries.checker.getEffectivePropertyName,
       propertyAccess(node: Node) {
         const selected = queries.checker.getResolvedPropertyAccessInfo(node);
         return selected === undefined || selected.selectedDeclaration !== undefined || selected.accessMode !== "read"
@@ -314,6 +315,8 @@ export function createTargetSourceProgram(
       sourceFile,
       propertyNames: analyzeSourcePropertyNames(source.ast, sourceFile, {
         operations: {
+          propertyName: queries.checker.getEffectivePropertyName,
+          objectLiteralElement: queries.checker.getResolvedObjectLiteralElementInfo,
           propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
           elementAccess: queries.checker.getResolvedElementAccessInfo,
           wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,

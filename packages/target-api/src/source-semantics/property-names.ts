@@ -32,8 +32,8 @@ export function analyzeSourcePropertyNames(
   ast: AstReader,
   sourceFile: SourceFile,
   semantics: {
-    readonly operations: Pick<SourceFileSemantics["operations"], "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
-    readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue" | "isTuple" | "tupleElementInfos">;
+    readonly operations: Pick<SourceFileSemantics["operations"], "propertyName" | "objectLiteralElement" | "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
+    readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue" | "isTuple" | "tupleElementInfos" | "selectIndexedAccess" | "isNumberLike" | "isIntersection" | "unionOrIntersectionTypes">;
     readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations">;
   },
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
@@ -49,11 +49,21 @@ export function analyzeSourcePropertyNames(
     const node = pending.pop()!;
     const parent = ast.parent(node);
     if (ast.is.IsComputedPropertyName(node) || isOrdinaryPropertyName(node, parent)) {
-      const selection = ast.is.IsComputedPropertyName(node) ? select(node)
-        : ast.is.IsNumericLiteral(node) ? selectedNumeric(node) : selectedString(ast.text(node));
-      values.set(node, selection);
-      entries.push(Object.freeze({ node, selection }));
-      if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason, failure: selection.failure }));
+      record(node, admitName(node, ast.is.IsComputedPropertyName(node) ? select(node)
+        : ast.is.IsNumericLiteral(node) ? selectedNumeric(node) : selectedString(ast.text(node))));
+    } else if (ast.is.IsElementAccessExpression(node)) {
+      const access = semantics.operations.elementAccess(node);
+      if (access !== undefined && access.selectedElementIndex === undefined &&
+        (access.selectedSymbol !== undefined || access.selectedDeclaration !== undefined) &&
+        !onlyNumericIndexes(access.receiver.type, access.argument.type)) {
+        const argument = access.argument.expression;
+        const type = checkedType(argument);
+        if (type !== undefined && typeof semantics.types.numericLiteralValue(type) === "number") {
+          const selected = selectedLiteral(argument);
+          const admitted = selected.kind !== "resolved" ? selected : admitNumericName(selected, String(semantics.types.numericLiteralValue(type)));
+          if (admitted.kind === "rejected") record(argument, admitted);
+        }
+      }
     }
     const children: Node[] = [];
     ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
@@ -64,6 +74,46 @@ export function analyzeSourcePropertyNames(
     issues: Object.freeze(issues),
     get: (name: Node) => values.get(name),
   });
+
+  function record(node: Node, selection: SourcePropertyNameSelection): void {
+    values.set(node, selection);
+    entries.push(Object.freeze({ node, selection }));
+    if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason, failure: selection.failure }));
+  }
+
+  function admitName(node: Node, selection: SourcePropertyNameSelection): SourcePropertyNameSelection {
+    if (selection.kind !== "resolved") return selection;
+    const checked = semantics.operations.propertyName(node);
+    if (checked === undefined || checked.kind === "unique-symbol") return rejected(
+      "The property key has no completed checked string or numeric member identity.");
+    const parent = ast.parent(node);
+    const element = parent === undefined ? undefined : semantics.operations.objectLiteralElement(parent);
+    const indexType = checkedType(ast.as.AsComputedPropertyName(node)?.Expression ?? node);
+    if (element?.contextualType !== undefined && element.sourceSelectedSymbol === undefined &&
+      element.sourceSelectedDeclarations.length === 0 && indexType !== undefined && onlyNumericIndexes(element.contextualType, indexType)) {
+      return Object.freeze({ ...selection, name: checked.name });
+    }
+    const admitted = admitNumericName(selection, checked.name);
+    if (admitted.kind !== "resolved") return admitted;
+    return Object.freeze({ ...admitted, name: checked.name });
+  }
+
+  function admitNumericName(selection: Extract<SourcePropertyNameSelection, { kind: "resolved" }>, checked: string): SourcePropertyNameSelection {
+    const numeric = selection.constant.kind === "numeric" || selection.constant.kind === "enum-member" && typeof selection.constant.entry.value === "bigint";
+    return numeric && (selection.name !== String(Number(selection.name)) || selection.name !== checked) ? rejected(
+      `Numeric property key ${selection.name} has checker key ${checked}; use the exact string key ${JSON.stringify(selection.name)} instead of a conflicting numeric named member.`) : selection;
+  }
+
+  function onlyNumericIndexes(owner: Type, key: Type): boolean {
+    const selection = semantics.types.selectIndexedAccess(owner, key);
+    return selection?.kind === "resolved" && selection.members.length > 0 && selection.members.every(member =>
+      member.kind === "index" && member.index.keyType !== undefined && numberBacked(member.index.keyType));
+  }
+
+  function numberBacked(type: Type): boolean {
+    return semantics.types.isNumberLike(type) || semantics.types.isIntersection(type) &&
+      semantics.types.unionOrIntersectionTypes(type).some(part => semantics.types.isNumberLike(part));
+  }
 
   function isOrdinaryPropertyName(node: Node, parent: Node | undefined): boolean {
     if (parent === undefined || !ast.is.IsIdentifier(node) && !ast.is.IsStringLiteral(node) && !ast.is.IsNumericLiteral(node)) return false;
@@ -90,7 +140,7 @@ export function analyzeSourcePropertyNames(
       "The numeric property key exceeds finite native literal bounds.");
     if (expression !== undefined && hasAssertion(expression)) {
       const text = type === undefined ? undefined : semantics.types.stringLiteralValue(type);
-      if (text !== undefined && text !== selection.name || typeof numeric === "number" && Number(selection.name) !== numeric) return rejected(
+      if (text !== undefined && text !== selection.name) return rejected(
         "The computed key's authored value disagrees with its asserted literal type.");
     }
     const contract = expression === undefined ? undefined : literalContract(expression, new Set());
@@ -181,10 +231,7 @@ export function analyzeSourcePropertyNames(
     const value = semantics.types.numericLiteralValue(type);
     if (typeof value !== "number") return rejected("The computed key's checked type is not one exact string or numeric literal.");
     if (!Number.isFinite(value)) return rejected("The numeric property key exceeds finite native literal bounds.");
-    const selected = selectedNumeric(node);
-    if (selected.kind === "resolved" && Number(selected.name) !== value) return rejected(
-      "The const key's exact source value disagrees with its checked literal type.");
-    return selected;
+    return selectedNumeric(node);
   }
 
   function selectedNumeric(node: Node): SourcePropertyNameSelection {
@@ -547,8 +594,9 @@ function numericTokenFromText(text: string): SourceNumericLiteralToken | undefin
 
 function numericName(token: SourceNumericLiteralToken): string {
   if (token.coefficient === 0n) return "0";
-  const digits = token.coefficient.toString();
-  const point = BigInt(digits.length) + token.exponent;
+  const coefficient = token.coefficient.toString();
+  const digits = coefficient.replace(/0+$/u, "");
+  const point = BigInt(coefficient.length) + token.exponent;
   const prefix = token.negative ? "-" : "";
   if (point > 0n && point <= 21n) {
     const position = Number(point);

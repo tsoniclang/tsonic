@@ -60,7 +60,7 @@ export const result = { [imported]: 1 };
   assert.equal(selected.kind === "resolved" ? selected.name : undefined, "imported", "selected imported literal value");
 });
 
-test("authored integer, const and enum field keys never round through a host Number", () => {
+test("authored integer, const and enum field keys refuse disagreeing checker identities", () => {
   const source = checked(`
 const constant = 9007199254740995;
 enum Key { Exact = 9007199254740997, Following }
@@ -71,9 +71,10 @@ export const following = { [Key.Following]: 4 };
 export const negative = { [-9007199254740993]: 5 };
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 0, "large native field names need no 53-bit cap");
+  assert.equal(index.issues.length, 5, "every conflicting numeric named identity is refused, not rounded");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : "not-a-field"),
-    ["9007199254740993", "9007199254740995", "9007199254740997", "9007199254740998", "-9007199254740993"]);
+    ["not-a-field", "not-a-field", "not-a-field", "not-a-field", "not-a-field"]);
+  assert.equal(index.issues.every(issue => issue.reason.includes("checker")), true, "R1 and R2 name the conflicting source authority");
 });
 
 test("numeric const return contracts and generic literal inputs retain their authored key evidence", () => {
@@ -87,9 +88,9 @@ export const first = { [returned]: 1 };
 export const second = { [inferred]: 2 };
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 0, "checked literal return contracts have lossless source provenance");
+  assert.equal(index.issues.length, 2, "lossless source provenance does not erase a conflicting named identity");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : "not-a-field"),
-    ["9007199254740993", "9007199254740995"]);
+    ["not-a-field", "not-a-field"]);
 });
 
 test("dynamic and effectful keys reject even when a call or getter has a literal return type", () => {
@@ -208,9 +209,9 @@ export const rejected = { [mutable]: 6 };
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
   const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
   assert.equal(computed.length, 6, "every const and mutable destructured binding has a classification");
-  assert.equal(index.issues.length, 1, "mutable destructured binding is not a const singleton");
+  assert.equal(index.issues.length, 3, "mutable bindings and the two disagreeing numeric named identities are refused");
   assert.deepEqual(computed.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["object", "nested", "array", "9007199254740993", "9007199254740995", "rejected"]);
+    ["object", "nested", "array", "rejected", "rejected", "rejected"]);
 });
 
 test("type-only singleton names do not acquire runtime key evaluation requirements", () => {
@@ -222,9 +223,9 @@ export interface EnumField { [Key.Text]: number; }
 export function answer(): number { return 42; }
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 0, "erased singleton type names have exact native field identities");
+  assert.equal(index.issues.length, 1, "an erased numeric field still requires the same checked member identity");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["value", "9007199254740993", "entry"]);
+    ["value", "rejected", "entry"]);
 });
 
 test("erased assertions preserve literal key evidence without disguising a dynamic expression", () => {
@@ -236,9 +237,9 @@ export const reference = { [key!]: 3 };
 export function dynamic(key: string) { return { [key as "value"]: 4 }; }
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 1, "an assertion cannot make a dynamic reference a static key");
+  assert.equal(index.issues.length, 2, "neither an assertion nor a conflicting numeric identity can define a static key");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["literal", "9007199254740993", "value", "rejected"]);
+    ["literal", "rejected", "value", "rejected"]);
 });
 
 test("source syntax snapshots retain checked declaration-file keys without target-side recomputation", () => {
@@ -262,9 +263,9 @@ const [, , fourth, fifth] = repeated;
 export const values = [{ [first]: 1 }, { [second]: 2 }, { [third]: 3 }, { [fourth]: 4 }, { [fifth]: 5 }];
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 0, "fixed tuple spreads retain exact source origins");
+  assert.equal(index.issues.length, 2, "fixed tuple spreads retain the exact conflicting numeric origins for refusal");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["1", "9007199254740993", "3", "1", "9007199254740993"]);
+    ["1", "rejected", "3", "1", "rejected"]);
 });
 
 test("declared fixed tuples retain their exact literal type origins", () => {
@@ -274,9 +275,9 @@ const [first, second, after] = [...declared, 3] as const;
 export const values = [{ [first]: 1 }, { [second]: 2 }, { [after]: 3 }];
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 0, "declared tuple contracts provide exact native literal evidence");
+  assert.equal(index.issues.length, 2, "declared tuple contracts do not substitute a rounded named identity");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["9007199254740993", "9007199254740995", "3"]);
+    ["rejected", "rejected", "3"]);
 });
 
 test("assertions cannot change the actual exact native property key", () => {
@@ -292,11 +293,12 @@ export const directNumeric = { [5 as unknown as 7]: 5 };
 export const exact = { [9007199254740993 as 9007199254740993]: 6 };
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 5, "each conflicting asserted contract is refused without a 53-bit cap");
+  assert.equal(index.issues.length, 6, "conflicting contracts and exact/checker named identities are separately refused");
   assert.equal(index.entries.slice(0, 5).every(entry => entry.selection.kind === "rejected"), true,
     "neither checked rounding nor erased syntax can alter the actual key");
   const exact = index.entries[5]!.selection;
-  assert.equal(exact.kind === "resolved" ? exact.name : undefined, "9007199254740993", "an agreeing exact assertion remains native-valid");
+  assert.equal(exact.kind === "rejected" && exact.reason.includes("checker key 9007199254740992"), true,
+    "an exact assertion cannot change the checker's rounded member identity");
 });
 
 test("nonfinite numeric keys and ambient unknown enum constants get precise distinct refusals", () => {
@@ -321,14 +323,14 @@ const { [key]: first, 0x10: second } = source;
 export const total = first + second;
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.issues.length, 0, "ordinary and computed binding keys have exact source evidence");
+  assert.equal(index.issues.length, 2, "object and binding names both refuse the same conflicting numeric identity");
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
-    ["9007199254740993", "16", "9007199254740993", "16"]);
+    ["rejected", "16", "rejected", "16"]);
 });
 
 test("native key consumers receive immutable lossless scalar data without fabricated literal provenance", () => {
   const source = checked(`
-enum Key { Entry = 9007199254740993 }
+enum Key { Entry = 9007199254740994 }
 export const value = { ["text"]: 1, [1.250]: 2, [Key.Entry]: 3 };
 `);
   const entries = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames.entries;
@@ -386,4 +388,77 @@ export function make(input: string) {
     "an erased assertion is not native key-value evidence");
   const retained = computed[3]!.selection;
   assert.equal(retained.kind === "resolved" ? retained.name : undefined, "value", "an actual checked singleton return contract is retained");
+});
+
+test("numeric named identities use one exact spelling predicate, not an integer representability cap", () => {
+  for (const [key, name] of [
+    ["9007199254740992", "9007199254740992"],
+    ["9007199254740994", "9007199254740994"],
+    ["1152921504606847000", "1152921504606847000"],
+    ["0.1", "0.1"], ["1e21", "1e+21"], ["-0", "0"],
+    ["0x3635c9adc5dea00000", "1e+21"],
+  ]) {
+    const source = checked(`export const value = { [${key}]: 1 };`);
+    const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+    assert.equal(index.issues.length, 0, `${key} has the same exact and checked name`);
+    const entry = index.entries[0]!.selection;
+    assert.equal(entry.kind === "resolved" ? entry.name : undefined, name, `${key} uses the canonical checked spelling`);
+  }
+  for (const key of ["9007199254740993", "-9007199254740993", "1152921504606846976", "18446744073709551616", "1.0000000000000001", "1e-400"]) {
+    const source = checked(`export const value = { [${key}]: 1 };`);
+    const entry = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames.entries[0]!.selection;
+    assert.equal(entry.kind === "rejected" && entry.reason.includes("checker key") && entry.reason.includes("exact string key"), true,
+      `${key} is refused precisely even when its binary integer is representable`);
+  }
+});
+
+test("numeric member-selecting element accesses refuse rounded keys without changing tuple or dictionary access", () => {
+  const source = checked(`
+declare const pair: { 9007199254740992: number };
+declare const dictionary: { [key: number]: number };
+declare const tuple: readonly [number];
+export const refused = pair[9007199254740993];
+export const exact = pair[9007199254740992];
+export const dynamic = dictionary[9007199254740993];
+export const ordinal = tuple[0];
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 1, "only the rounded named-member access adds a refusal entry");
+  const issue = index.issues[0]!;
+  assert.equal(source.ast.is.IsNumericLiteral(issue.node), true, "the issue points to the actual key argument");
+  assert.equal(issue.reason.includes("9007199254740993") && issue.reason.includes("9007199254740992"), true,
+    "the diagnostic preserves both disagreeing identities");
+});
+
+test("only proven numeric index signatures preserve exact native key tokens without named-identity admission", () => {
+  const source = checked(`
+const key = 9007199254740993;
+export const ordinary: { [key: number]: number } = { 9007199254740993: 1 };
+export const computed: Record<number, number> = { [key]: 2 };
+export const named: { 9007199254740992: number; [key: number]: number } = { [key]: 3 };
+export const inferred = { [key]: 4 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  const properties = index.entries.filter(entry => source.ast.is.IsPropertyAssignment(source.ast.parent(entry.node)));
+  assert.equal(properties.length, 4, "all four object key contexts are checked");
+  assert.deepEqual(properties.map(entry => entry.selection.kind), ["resolved", "resolved", "rejected", "rejected"]);
+  for (const entry of properties.slice(0, 2)) {
+    const selected = entry.selection;
+    assert.equal(selected.kind === "resolved" && selected.constant.kind === "numeric" &&
+      selected.constant.token.coefficient === 9007199254740993n, true, "the dictionary's physical numeric key retains the exact authored integer");
+  }
+});
+
+test("enum numeric field keys reject conflicting checker spellings even when the enum value itself is coherent", () => {
+  const source = checked(`
+enum Key { Value = 1152921504606846976 }
+export const value = { [Key.Value]: 1, "1152921504606846976": 2 };
+`);
+  const enumValue = source.semantics.enumConstants.entries[0]!;
+  assert.equal(enumValue.kind === "resolved" ? enumValue.value : undefined, 1152921504606846976n, "the native enum value is still exact");
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 1, "only the numeric named identity is refused");
+  assert.equal(index.issues[0]!.reason.includes("1152921504606847000"), true, "the checker-owned key is named precisely");
+  const text = index.entries[1]!.selection;
+  assert.equal(text.kind === "resolved" ? text.name : undefined, "1152921504606846976", "an exact string key stays available");
 });

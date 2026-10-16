@@ -10,6 +10,7 @@ import type {
   ResolvedSourceIterationInfo,
   ResolvedSourceObjectLiteralElementInfo,
   ResolvedSourcePropertyAccessInfo,
+  ResolvedSourcePropertyNameInfo,
   ResolvedSourceResourceManagementInfo,
   ResolvedSourceStorageInfo,
   ResolvedSourceWellKnownSymbolInfo,
@@ -47,6 +48,7 @@ import type {
 
 export interface SourceOperationEvidenceQueries {
   call(node: Node): ResolvedSourceCallInfo | undefined;
+  propertyName(node: Node): ResolvedSourcePropertyNameInfo | undefined;
   propertyAccess(node: Node): ResolvedSourcePropertyAccessInfo | undefined;
   flowConditions(node: Node): ResolvedSourceFlowConditionInfo | undefined;
   elementAccess(node: Node): ResolvedSourceElementAccessInfo | undefined;

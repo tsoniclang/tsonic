@@ -312,11 +312,11 @@ function validateSourceCoreStructShape(
       continue;
     }
     const nameNode = ast.name(property);
-    const name = staticSourcePropertyName(nameNode, ast);
     const initializer = ast.as.AsPropertyAssignment(property)?.Initializer;
     const field = facts.get<FieldFact>(property, fieldFactKey) ??
       facts.get<FieldFact>(initializer, fieldFactKey) ??
       facts.get<FieldFact>(nameNode, fieldFactKey);
+    const name = field?.name;
     if (name === undefined || field === undefined) {
       appendStructFieldDiagnostic(diagnostics, structFieldDiagnostics.structMember, property, ast, [
         { message: "Struct shape property lacks finalized field name/type evidence.", details: { hasStaticName: name !== undefined, hasFieldFact: field !== undefined } },
@@ -352,33 +352,6 @@ function appendStructFieldDiagnostic(
     evidence,
     identity: `source-core-struct-field:${diagnostic.extensionCode}:${ast.getPath(ast.getSourceFile(node))}:${ast.pos(node)}:${ast.end(node)}`,
   });
-}
-
-function staticSourcePropertyName(node: Node | undefined, ast: AstReader): string | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  switch (ast.kindName(node)) {
-    case "KindIdentifier":
-    case "KindStringLiteral":
-    case "KindNumericLiteral":
-      return ast.text(node);
-    case "KindComputedPropertyName": {
-      const expression = ast.as.AsComputedPropertyName(node)?.Expression;
-      if (expression === undefined) {
-        return undefined;
-      }
-      switch (ast.kindName(expression)) {
-        case "KindStringLiteral":
-        case "KindNumericLiteral":
-          return ast.text(expression);
-        default:
-          return undefined;
-      }
-    }
-    default:
-      return undefined;
-  }
 }
 
 function visitSourceFile(
