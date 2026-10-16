@@ -36,6 +36,7 @@ import {
   createSourceReferenceNavigation,
 } from "./references.js";
 import { projectDeclarationForType } from "./reference-selection.js";
+import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
 import { semanticTypeForNode } from "./syntax.js";
 import {
   sourceBindingWritesWithin,
@@ -69,6 +70,7 @@ export function createSourceProgramNavigation(
     sourceFiles.map((sourceFile) => sourceFileIdentity(source.ast, sourceFile)!),
   );
   const references = createSourceReferenceNavigation(source, sourceFiles);
+  const declarationSymbol = createSourceDeclarationSymbolQuery(source, references);
   const dispatch = createSourceMemberDispatchNavigation(
     source,
     sourceFiles,
@@ -93,7 +95,7 @@ export function createSourceProgramNavigation(
   );
   const callableImplementations = createSourceCallableImplementationNavigation(
     source,
-    references.sourceReferenceFor,
+    declarationSymbol,
     references.isProjectDeclaration,
   );
   const classConstructors = createSourceClassConstructorNavigation(
@@ -280,6 +282,7 @@ export function createSourceProgramNavigation(
     memberDispatch: dispatch.memberDispatch,
     memberImplementation: memberImplementations.memberImplementation,
     memberContracts: memberContracts.memberContracts,
+    declarationSymbol,
     callableImplementation: callableImplementations.callableImplementation,
     classConstructors,
     declaredHeritage: heritage.declaredHeritage,

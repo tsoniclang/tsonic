@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, type Node } from "@tsonic/tsts";
-import { createTargetSourceProgram } from "./target-source-program.js";
+import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
 
 function fixture() {
@@ -26,15 +26,17 @@ function fixture() {
   const checker = checked.getSourceFileQueries(file).checker;
   const expected = checker.getSymbolAtLocation(source.ast.name(external));
   assert.ok(expected);
-  return { source, checker, external, other, expected };
+  return { source, checked, checker, external, other, expected };
 }
 
 test("materialized declaration symbols come from the existing exact checked reverse index", () => {
   const current = fixture();
   let reads = 0;
-  const select = createSourceDeclarationSymbolQuery(current.source.ast, { ...current.checker,
-    getSymbolAtLocation(node) { return node === current.source.ast.name(current.external) ? undefined : current.checker.getSymbolAtLocation(node); },
-  }, { ...current.source.navigation, referencesToDeclaration(node) {
+  const select = createSourceDeclarationSymbolQuery({ ...current.checked, getSourceFileQueries(file) {
+    return { ...current.checked.getSourceFileQueries(file), checker: { ...current.checker,
+      getSymbolAtLocation(node) { return node === current.source.ast.name(current.external) ? undefined : current.checker.getSymbolAtLocation(node); },
+    } };
+  } }, { ...current.source.navigation, referencesToDeclaration(node) {
     reads += 1;
     return current.source.navigation.referencesToDeclaration(node);
   } });
@@ -52,9 +54,9 @@ test("missing or foreign indexed references never invent a declaration symbol", 
   assert.equal(references.length > 0, true);
   for (const nodes of [[], references]) {
     let reads = 0;
-    const select = createSourceDeclarationSymbolQuery(current.source.ast, { ...current.checker,
-      getSymbolAtLocation: () => undefined,
-    }, { ...current.source.navigation, referencesToDeclaration: () => { reads += 1; return nodes; } });
+    const select = createSourceDeclarationSymbolQuery({ ...current.checked, getSourceFileQueries(file) {
+      return { ...current.checked.getSourceFileQueries(file), checker: { ...current.checker, getSymbolAtLocation: () => undefined } };
+    } }, { ...current.source.navigation, referencesToDeclaration: () => { reads += 1; return nodes; } });
     assert.equal(select(current.external) === undefined, true, "exact declaration identity required");
     assert.equal(select(current.external) === undefined, true, "completed absence remains stable");
     assert.equal(reads, 1);
