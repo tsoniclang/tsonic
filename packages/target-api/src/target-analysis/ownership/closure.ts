@@ -193,16 +193,22 @@ export function createSourceContinuationClosureQuery(input: {
     const forSubject = (value: SourceStorageSubject, bindings: SourceStorageBindings): SourceSuspensionSelection | undefined => {
       const native = premises.suspensionFor(value, bindings);
       if (native !== undefined) return native;
-      if (!source.ast.is.IsCallExpression(value.node)) return undefined;
+      if (!source.ast.is.IsCallExpression(value.node) && !source.ast.is.IsNewExpression(value.node)) return undefined;
       const semantics = source.semantics.forNode(value.node);
       const call = semantics.operations.call(value.node);
-      const declaration = call?.sourceSelectedSignatureKind === "resolved"
+      const selectedDeclaration = call?.sourceSelectedSignatureKind === "resolved"
         ? semantics.declarations.signatureDeclaration(call.selectedSignature) : undefined;
+      const root = sourceStorageInvokedClass(value.node, source, evaluationBudget.step);
+      const construction = root === undefined ? undefined : storage.constructionFor(value.node, bindings);
+      if (construction?.kind === "unresolved") return sourceOwnershipUnresolved(value.node, construction.reason);
+      const declaration = selectedDeclaration ?? (construction?.kind === "resolved" ? construction.root : undefined);
       if (declaration === undefined) return undefined;
-      const implementations = storage.invocationImplementationsFor(value.node, bindings);
-      if (implementations.kind === "unresolved") return sourceOwnershipUnresolved(value.node, implementations.reason);
-      if (!implementations.exact || implementations.nodes.length === 0 ||
-        implementations.nodes.some(candidate => source.ast.body(candidate) === undefined)) return undefined;
+      if (construction === undefined) {
+        const implementations = storage.invocationImplementationsFor(value.node, bindings);
+        if (implementations.kind === "unresolved") return sourceOwnershipUnresolved(value.node, implementations.reason);
+        if (!implementations.exact || implementations.nodes.length === 0 ||
+          implementations.nodes.some(candidate => source.ast.body(candidate) === undefined)) return undefined;
+      }
       const body = lookup(value.node, bindings);
       if (body.kind === "unresolved") return body;
       const type = storage.typeFor(value);
@@ -317,7 +323,7 @@ export function createSourceContinuationClosureQuery(input: {
     forInvocation(call: Node, bindings: SourceStorageBindings = storage.emptyBindings): SourceContinuationClosureSelection {
       if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
       const vertex = vertexFor(call, bindings);
-      if (vertex === undefined) return sourceOwnershipUnresolved(call, budget.failure()!);
+      if (vertex === undefined) return failure ?? sourceOwnershipUnresolved(call, budget.failure()!);
       const cached = completed.get(vertex);
       if (cached !== undefined) return cached;
       failure = undefined;

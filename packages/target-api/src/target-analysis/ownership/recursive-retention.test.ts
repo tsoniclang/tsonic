@@ -34,6 +34,8 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
     }
     function allocate() { return { value: 3 }; }
     function allocations() { const first = allocate(); const second = allocate(); return [first, second]; }
+    function capture<Value>(value: Value) { return () => value; }
+    function captures() { const first = capture(1); const second = capture("second"); return [first, second]; }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
@@ -176,4 +178,28 @@ test("canonical context keys preserve actual activations, substitutions and fore
     assert.equal(selected[0]?.kind === "resolved" && selected[1]?.kind === "resolved" && selected[0].key !== selected[1].key, true,
       "different actual owned/borrowed substitutions remain different continuation contexts");
   }
+});
+
+test("canonical contexts keep actual closure captures and generic input substitutions distinct", () => {
+  const current = fixture(false, "mutual");
+  const { source, storage, declaration, selectedDeclaration } = current;
+  const calls = storage.nodes.filter(node => source.ast.is.IsCallExpression(node) &&
+    selectedDeclaration(node) === declaration("capture"));
+  assert.equal(calls.length, 2, "two checked generic calls construct different captured values");
+  const keys = calls.map(call => {
+    const subject = storage.subjectFor(call);
+    const bindings = storage.bindingsForLexicalOwner(call);
+    assert.equal(subject.kind === "resolved" && bindings.kind === "resolved", true, "the exact generic caller inputs");
+    if (subject.kind === "unresolved" || bindings.kind === "unresolved") return undefined;
+    const origins = storage.storageProducersFor(subject.subject, bindings.bindings);
+    assert.equal(origins.kind === "complete" && origins.producers.length === 1, true,
+      "one actual closure body and its original captured context");
+    if (origins.kind !== "complete" || origins.producers.length !== 1) return undefined;
+    const origin = origins.producers[0]!;
+    const selected = storage.contextKeyFor([origin.subject], origin.bindings);
+    assert.equal(selected.kind === "resolved", true, "the existing canonical footprint encodes every real capture");
+    return selected.kind === "resolved" ? selected.key : undefined;
+  });
+  assert.equal(keys[0] !== undefined && keys[1] !== undefined && keys[0] !== keys[1], true,
+    "same source closure does not merge distinct actual captured generic values");
 });

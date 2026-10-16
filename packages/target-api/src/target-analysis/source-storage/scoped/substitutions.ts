@@ -431,5 +431,17 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         const bound = scopes.lookup(origin, scope);
         return bound !== undefined && (bound.kind !== "replace" || !bound.terms.some(term => term.kind === "leaf" && scopes.isSymbolic(term)));
       }),
-    forDeclaration: scopes.declarationFor, forInvocation: scopes.frameFor, identityFor: scopes.identity });
+    forDeclaration: scopes.declarationFor,
+    forInvocation(candidate: Node, invocation: Node, caller: SourceStorageScope, captured: SourceStorageScope) {
+      if (transport.accessorTargets.has(invocation)) return scopes.frameFor(candidate, invocation, caller, captured);
+      const target = transport.invocationTargets.get(invocation);
+      if (target === undefined) {
+        budget.reject("An invocation context requires its exact checked callee transport.");
+        return undefined;
+      }
+      return equations.scopeFor(candidate, invocation, caller, captured, Object.freeze({ kind: "application",
+        mode: "execution", demand: invocation, invocation, callee: sourceStorageReference(target, caller),
+        scope: caller, projection: Object.freeze([]) }));
+    },
+    identityFor: scopes.identity });
 }
