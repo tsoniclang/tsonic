@@ -173,7 +173,8 @@ export enum Wide { First = 9007199254740993, Same = 9007199254740993 }
 export enum Outside { First = 9223372036854775808 }
 export enum Text { Entry = "entry" }
 `));
-  const declarations = program.ast.statements(program.navigation.sourceFiles[0]!).filter(program.ast.is.IsEnumDeclaration);
+  const declarations = program.ast.statements(program.navigation.sourceFiles[0]!).filter((node): node is Node =>
+    node !== undefined && program.ast.is.IsEnumDeclaration(node));
   const selections = declarations.map(declaration => program.semantics.enumConstants.integerWidth(declaration));
   assert.deepEqual(selections.map(selection => selection?.kind === "resolved" ? selection.integerWidth : selection?.kind),
     [32, 32, 64, "rejected", "rejected"]);
