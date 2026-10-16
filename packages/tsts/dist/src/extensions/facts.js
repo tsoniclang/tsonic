@@ -1,4 +1,5 @@
 import { defineExtensionFactKey, markHostSourceReadableFactKey, } from "./fact-key.js";
+import { isProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 import { isArgumentPassingMode, } from "./argument-passing.js";
 export const canonicalIdentityFactKey = markHostSourceReadableFactKey(defineExtensionFactKey({
     extensionId: "tsts.source-semantics",
@@ -552,8 +553,8 @@ function snapshotProviderMemberKey(value) {
     if (kind === "property-key") {
         return Object.freeze({ kind, name });
     }
-    if (kind === "well-known-symbol" && providerWellKnownSymbolNames.has(name)) {
-        return Object.freeze({ kind, name: name });
+    if (kind === "well-known-symbol" && isProviderWellKnownSymbolName(name)) {
+        return Object.freeze({ kind, name });
     }
     throw new Error(`ProviderMemberKey kind/name '${kind}:${name}' is invalid.`);
 }
@@ -1026,19 +1027,4 @@ const sourceTypeMarkerKinds = new Set([
 ]);
 const pointerMutabilities = new Set(["readonly", "readwrite", "unspecified"]);
 const flowStates = new Set(["moved", "borrowed-shared", "borrowed-mut"]);
-const providerWellKnownSymbolNames = new Set([
-    "asyncIterator",
-    "hasInstance",
-    "isConcatSpreadable",
-    "iterator",
-    "match",
-    "matchAll",
-    "replace",
-    "search",
-    "species",
-    "split",
-    "toPrimitive",
-    "toStringTag",
-    "unscopables",
-]);
 //# sourceMappingURL=facts.js.map

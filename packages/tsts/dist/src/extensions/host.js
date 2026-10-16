@@ -1,6 +1,7 @@
 import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { createSourceProgramQueries, } from "./source-program.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
+import { isProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 import { defineExtensionFactKey, formatExtensionFactKeyForDisplay, getExtensionFactKeyIdentity, isHostSourceReadableFactKey, } from "./fact-key.js";
 export { defineExtensionFactKey, } from "./fact-key.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
@@ -6056,26 +6057,6 @@ function isValidProviderNamespaceMemberName(name) {
         return isIdentifierText(name);
     }
     return name.kind === "identifier" && isIdentifierText(name.text);
-}
-function isProviderWellKnownSymbolName(name) {
-    switch (name) {
-        case "asyncIterator":
-        case "hasInstance":
-        case "isConcatSpreadable":
-        case "iterator":
-        case "match":
-        case "matchAll":
-        case "replace":
-        case "search":
-        case "species":
-        case "split":
-        case "toPrimitive":
-        case "toStringTag":
-        case "unscopables":
-            return true;
-        default:
-            return false;
-    }
 }
 function isKnownSourcePrimitive(name) {
     switch (name) {

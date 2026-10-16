@@ -3,6 +3,8 @@ export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
+import { type ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
+export type { ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 import type { ProviderVirtualDeclarationFact, SourcePrimitiveKind } from "./facts.js";
 import { type ExtensionFactKey } from "./fact-key.js";
 export { defineExtensionFactKey, type ExtensionFactKey, type ExtensionFactKeyOptions, } from "./fact-key.js";
@@ -301,7 +303,6 @@ export type ProviderPropertyName = string | {
     readonly kind: "well-known-symbol";
     readonly name: ProviderWellKnownSymbolName;
 };
-export type ProviderWellKnownSymbolName = "asyncIterator" | "hasInstance" | "isConcatSpreadable" | "iterator" | "match" | "matchAll" | "replace" | "search" | "species" | "split" | "toPrimitive" | "toStringTag" | "unscopables";
 export interface ProviderTypeParameterDeclaration {
     readonly name: string;
     readonly constraints?: readonly ProviderTypeExpression[];
