@@ -16,6 +16,7 @@ export type SourceFlowOperation =
   | { readonly kind: "read"; readonly binding: Node }
   | { readonly kind: "declare"; readonly binding: Node }
   | { readonly kind: "capture"; readonly binding: Node }
+  | { readonly kind: "dispose"; readonly declaration: Node; readonly asynchronous: boolean }
   | { readonly kind: "write"; readonly binding: Node; readonly initialization: boolean };
 
 export interface SourceFlowPoint {

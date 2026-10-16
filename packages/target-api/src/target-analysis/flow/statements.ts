@@ -2,7 +2,7 @@ import type { Node } from "@tsonic/tsts";
 import { sourceControlTransferTarget } from "../../source-navigation/control-targets.js";
 import { isTypeSyntaxNode } from "../../source-navigation/syntax.js";
 import { sourceFlowBooleanEdges } from "./conditions.js";
-import type { SourceFlowConstruction, SourceFlowContext } from "./construction.js";
+import { sourceFlowCleanupScope, sourceFlowResourceScope, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
 import { sourceFlowClosure } from "./expressions.js";
 import { sourceFlowLoop } from "./loops.js";
 import { SourceFlowFailure } from "./resources.js";
@@ -25,11 +25,11 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
   }
   if (ast.is.IsVariableDeclarationList(node)) {
     const kind = ast.variableDeclarationKind(node);
+    const declarations = ast.as.AsVariableDeclarationList(node)?.Declarations?.Nodes ?? [];
     if (kind === "using" || kind === "await using") {
-      throw new SourceFlowFailure("Source flow requires the checked cleanup contract for a resource declaration.", node);
+      return sourceFlowResourceScope(build, checkedDeclarations(declarations, node), next, context, completion => completion);
     }
     let entry = next;
-    const declarations = ast.as.AsVariableDeclarationList(node)?.Declarations?.Nodes ?? [];
     for (let index = declarations.length - 1; index >= 0; index -= 1) {
       const declaration = declarations[index];
       if (declaration !== undefined) entry = build.pattern(declaration, entry, context, true);
@@ -82,12 +82,41 @@ export function sourceFlowStatement(build: SourceFlowConstruction, node: Node, n
 
 export function sourceFlowStatements(build: SourceFlowConstruction, statements: readonly (Node | undefined)[],
   next: number, context: SourceFlowContext): number {
-  let entry = next;
-  for (let index = statements.length - 1; index >= 0; index -= 1) {
-    const statement = statements[index];
-    if (statement !== undefined) entry = build.statement(statement, entry, context);
+  const sequence: { readonly node: Node; readonly context: SourceFlowContext; readonly acquisition: boolean }[] = [];
+  let completion = next;
+  let active = context;
+  const { ast } = build.source;
+  for (const statement of statements) {
+    if (statement === undefined) throw new SourceFlowFailure("Source flow requires a dense checked statement sequence.", undefined);
+    build.step(statement);
+    const list = ast.is.IsVariableStatement(statement) ? ast.as.AsVariableStatement(statement)?.DeclarationList : undefined;
+    const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
+    if (list === undefined || kind !== "using" && kind !== "await using") {
+      sequence.push({ node: statement, context: active, acquisition: false });
+      continue;
+    }
+    const declarations = checkedDeclarations(ast.as.AsVariableDeclarationList(list)?.Declarations?.Nodes, list);
+    for (const declaration of declarations) {
+      sequence.push({ node: declaration, context: active, acquisition: true });
+      const scope = sourceFlowCleanupScope(build, declaration, completion, active);
+      completion = scope.next;
+      active = scope.context;
+    }
+  }
+  let entry = completion;
+  for (let index = sequence.length - 1; index >= 0; index -= 1) {
+    const selected = sequence[index]!;
+    entry = selected.acquisition ? build.pattern(selected.node, entry, selected.context, true)
+      : build.statement(selected.node, entry, selected.context);
   }
   return entry;
+}
+
+function checkedDeclarations(declarations: readonly (Node | undefined)[] | undefined, owner: Node): readonly Node[] {
+  if (declarations === undefined || declarations.length === 0 || declarations.some(declaration => declaration === undefined)) {
+    throw new SourceFlowFailure("Source flow requires exact checked resource declaration slots.", owner);
+  }
+  return declarations as readonly Node[];
 }
 
 function switchStatement(build: SourceFlowConstruction, node: Node, next: number, context: SourceFlowContext): number {
@@ -97,12 +126,20 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
   if (selected?.Expression === undefined || clauses === undefined) throw new SourceFlowFailure("Source flow requires a checked switch body.", node);
   const bodyContext = { ...context, breaks: new Map([...context.breaks, [node, next]]) };
   const bodies = new Map<Node, number>();
+  const hasResources = clauses.some(clause => clause !== undefined && ast.statements(clause).some(statement => {
+    const list = statement !== undefined && ast.is.IsVariableStatement(statement)
+      ? ast.as.AsVariableStatement(statement)?.DeclarationList : undefined;
+    const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
+    return kind === "using" || kind === "await using";
+  }));
   let entry = next;
   let defaultEntry = next;
   for (let index = clauses.length - 1; index >= 0; index -= 1) {
     const clause = clauses[index];
     if (clause === undefined) continue;
-    entry = sourceFlowStatements(build, ast.statements(clause), entry, bodyContext);
+    entry = hasResources
+      ? sourceFlowStatements(build, clauses.slice(index).flatMap(following => following === undefined ? [] : ast.statements(following)), next, bodyContext)
+      : sourceFlowStatements(build, ast.statements(clause), entry, bodyContext);
     bodies.set(clause, entry);
     if (ast.is.IsDefaultClause(clause)) defaultEntry = entry;
   }
