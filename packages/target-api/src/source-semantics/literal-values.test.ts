@@ -33,7 +33,7 @@ test("numeric facts preserve authored midpoint neighbors, normalize native gramm
   let sealed = false;
   const ast: AstReader = { ...source.ast, authoredRange(node) {
     assert.equal(sealed, false, "published literal reads cannot query source provenance");
-    reads.set(node, (reads.get(node) ?? 0) + 1);
+    if (node !== undefined) reads.set(node, (reads.get(node) ?? 0) + 1);
     return source.ast.authoredRange(node);
   } };
   const values = analyzeSourceLiteralValues(ast, [file]);
