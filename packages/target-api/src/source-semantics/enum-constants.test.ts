@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
-import { analyzeSourceEnumConstants, createTargetSourceProgram } from "../public/source.js";
+import { analyzeSourceEnumConstants, createTargetSourceProgram, selectSourceEnumIntegerWidth } from "../public/source.js";
 import { createSourceProgramNavigation } from "../source-navigation/index.js";
 
 function checked(text: string, files: Readonly<Record<string, string>> = {}, valid = true) {
@@ -132,9 +132,15 @@ test("numeric enum keys are identical to the indexed discriminant and sealed rea
   const entry = index.entries[0]!;
   const before = queries;
   for (let repeat = 0; repeat < 20; repeat += 1) assert.equal(index.get(entry.declaration) === entry, true, "stable frozen entry");
+  const declaration = source.ast.parent(entry.declaration)!;
+  const width = index.integerWidth(declaration);
+  assert.equal(width?.kind === "resolved" ? width.integerWidth : undefined, 64, "common width is complete before file semantics or native type analysis");
+  for (let repeat = 0; repeat < 20; repeat += 1) assert.equal(index.integerWidth(declaration) === width, true, "width is one stable frozen decision");
+  assert.equal(width !== undefined && Object.isFrozen(width), true, "published width is immutable");
   assert.equal(queries, before, "the source index never recomputes after publication");
   assert.equal(Object.isFrozen(index) && Object.isFrozen(index.entries) && Object.isFrozen(entry), true, "index and entries are immutable");
   assert.equal(index.get({} as Node) === undefined, true, "a foreign identity is not an unknown actual member");
+  assert.equal(index.integerWidth({} as Node) === undefined, true, "a foreign identity is not an unknown actual enum");
   const program = createTargetSourceProgram(source);
   const selected = program.semantics.forFile(program.navigation.sourceFiles[0]!).propertyNames.entries[0]!.selection;
   const constant = program.semantics.enumConstants.entries[0]!;
@@ -142,4 +148,38 @@ test("numeric enum keys are identical to the indexed discriminant and sealed rea
     "both paths consume the identical source decision");
   assert.equal(selected.kind === "resolved" ? selected.name : undefined,
     constant.kind === "resolved" ? String(constant.value) : undefined, "the discriminant and field name have the same exact value");
+});
+
+test("one common finite-value owner selects i32 then i64 with no Number conversion or 53-bit cap", () => {
+  assert.deepEqual(selectSourceEnumIntegerWidth([]), { kind: "resolved", integerWidth: 32 });
+  assert.deepEqual(selectSourceEnumIntegerWidth([-2147483648n, 2147483647n]), { kind: "resolved", integerWidth: 32 });
+  assert.deepEqual(selectSourceEnumIntegerWidth([-2147483649n]), { kind: "resolved", integerWidth: 64 });
+  assert.deepEqual(selectSourceEnumIntegerWidth([9007199254740993n, -9223372036854775808n, 9223372036854775807n]),
+    { kind: "resolved", integerWidth: 64 });
+  for (const value of [-9223372036854775809n, 9223372036854775808n]) {
+    const selected = selectSourceEnumIntegerWidth([1n, value]);
+    assert.equal(selected.kind, "rejected", "only the actual common native i64 bound refuses");
+    assert.equal(selected.kind === "rejected" ? selected.index : undefined, 1, "the precise offending member index is retained");
+  }
+  const text = selectSourceEnumIntegerWidth([1n, "entry"]);
+  assert.equal(text.kind === "rejected" && text.reason.includes("string enums"), true, "known source strings do not invent a native enum representation");
+});
+
+test("common enum widths are eagerly cached for every declaration, including empty and refused declarations", () => {
+  const program = createTargetSourceProgram(checked(`
+export enum Empty {}
+export enum Small { First = -2147483648, Last = 2147483647 }
+export enum Wide { First = 9007199254740993, Same = 9007199254740993 }
+export enum Outside { First = 9223372036854775808 }
+export enum Text { Entry = "entry" }
+`));
+  const declarations = program.ast.statements(program.navigation.sourceFiles[0]!).filter(program.ast.is.IsEnumDeclaration);
+  const selections = declarations.map(declaration => program.semantics.enumConstants.integerWidth(declaration));
+  assert.deepEqual(selections.map(selection => selection?.kind === "resolved" ? selection.integerWidth : selection?.kind),
+    [32, 32, 64, "rejected", "rejected"]);
+  assert.equal(selections.every((selection, index) => selection !== undefined && selection.declaration === declarations[index] && Object.isFrozen(selection)), true,
+    "each actual enum declaration has its own immutable decision before a file-semantic read");
+  const text = program.semantics.enumConstants.entries.find(entry =>
+    program.ast.parent(entry.declaration) === declarations[4]);
+  assert.equal(text?.kind === "resolved" ? text.value : undefined, "entry", "native admission never changes the source value index");
 });

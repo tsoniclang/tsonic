@@ -4,16 +4,22 @@ import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.j
 
 export type SourceEnumConstantSelection =
   | { readonly kind: "resolved"; readonly declaration: Node; readonly value: bigint | string }
-  | { readonly kind: "rejected"; readonly declaration: Node; readonly reason: string };
+  | { readonly kind: "rejected"; readonly declaration: Node; readonly reason: string; readonly failure: "source" | "resource" };
+
+export type SourceEnumIntegerWidthSelection =
+  | { readonly kind: "resolved"; readonly declaration: Node; readonly integerWidth: 32 | 64 }
+  | { readonly kind: "rejected"; readonly declaration: Node; readonly member: Node;
+      readonly reason: string; readonly failure: "source" | "resource" };
 
 export interface SourceEnumConstantIndex {
   readonly entries: readonly SourceEnumConstantSelection[];
   get(member: Node): SourceEnumConstantSelection | undefined;
+  integerWidth(declaration: Node): SourceEnumIntegerWidthSelection | undefined;
 }
 
 type Constant =
   | { readonly kind: "resolved"; readonly value: bigint | string }
-  | { readonly kind: "rejected"; readonly reason: string };
+  | { readonly kind: "rejected"; readonly reason: string; readonly failure: "source" | "resource" };
 
 type Step =
   | { readonly kind: "visit"; readonly node: Node }
@@ -21,7 +27,7 @@ type Step =
       readonly select: (values: readonly Constant[]) => Constant };
 
 const resolved = (value: bigint | string): Constant => Object.freeze({ kind: "resolved", value });
-const rejected = (reason: string): Constant => Object.freeze({ kind: "rejected", reason });
+const rejected = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "source" });
 
 export function analyzeSourceEnumConstants(
   source: CheckedSourceProgram,
@@ -29,6 +35,7 @@ export function analyzeSourceEnumConstants(
 ): SourceEnumConstantIndex {
   const { ast } = source;
   const members: Node[] = [];
+  const declarations: { readonly declaration: Node; readonly members: readonly Node[] }[] = [];
   const previous = new WeakMap<Node, Node>();
   const membership = new WeakSet<Node>();
   for (const file of source.sourceFiles) {
@@ -38,13 +45,16 @@ export function analyzeSourceEnumConstants(
       const node = pending.pop()!;
       if (ast.is.IsEnumDeclaration(node)) {
         let prior: Node | undefined;
+        const declaredMembers: Node[] = [];
         for (const member of ast.as.AsEnumDeclaration(node)?.Members?.Nodes ?? []) {
           if (member === undefined || !ast.is.IsEnumMember(member)) throw new Error("Checked enum declarations require exact member identities.");
           members.push(member);
+          declaredMembers.push(member);
           membership.add(member);
           if (prior !== undefined) previous.set(member, prior);
           prior = member;
         }
+        declarations.push({ declaration: node, members: declaredMembers });
       }
       const children: Node[] = [];
       ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
@@ -55,6 +65,7 @@ export function analyzeSourceEnumConstants(
   const completed = new WeakMap<Node, Constant>();
   const active = new Set<Node>();
   const selections = new WeakMap<Node, SourceEnumConstantSelection>();
+  const widths = new WeakMap<Node, SourceEnumIntegerWidthSelection>();
   const entries: SourceEnumConstantSelection[] = [];
   for (const member of members) {
     const value = evaluate(member);
@@ -62,7 +73,33 @@ export function analyzeSourceEnumConstants(
     selections.set(member, selection);
     entries.push(selection);
   }
-  return Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member) });
+  for (const declaration of declarations) {
+    const constants = declaration.members.map(member => {
+      const selected = selections.get(member);
+      if (selected === undefined) throw new Error("Every checked enum member requires its exact completed constant entry.");
+      return selected;
+    });
+    const failure = constants.find((constant): constant is Extract<SourceEnumConstantSelection, { kind: "rejected" }> => constant.kind === "rejected");
+    if (failure !== undefined) {
+      widths.set(declaration.declaration, Object.freeze({ kind: "rejected", declaration: declaration.declaration,
+        member: failure.declaration, reason: failure.reason, failure: failure.failure }));
+      continue;
+    }
+    const decision = selectSourceEnumIntegerWidth(constants.map(constant => {
+      if (constant.kind !== "resolved") throw new Error("A completed enum width decision cannot consume an unresolved value.");
+      return constant.value;
+    }));
+    if (decision.kind === "resolved") {
+      widths.set(declaration.declaration, Object.freeze({ ...decision, declaration: declaration.declaration }));
+    } else {
+      const member = declaration.members[decision.index];
+      if (member === undefined) throw new Error("A refused enum width requires its exact offending member.");
+      widths.set(declaration.declaration, Object.freeze({ kind: "rejected", declaration: declaration.declaration,
+        member, reason: decision.reason, failure: "source" }));
+    }
+  }
+  return Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member),
+    integerWidth: (declaration: Node) => widths.get(declaration) });
 
   function evaluate(root: Node): Constant {
     const tasks: Step[] = [{ kind: "visit", node: root }];
@@ -171,6 +208,21 @@ export function analyzeSourceEnumConstants(
     }
     return rejected("The enum initializer is not an exact checked literal, enum reference or supported constant expression.");
   }
+}
+
+export function selectSourceEnumIntegerWidth(values: readonly (bigint | string)[]):
+  | { readonly kind: "resolved"; readonly integerWidth: 32 | 64 }
+  | { readonly kind: "rejected"; readonly index: number; readonly reason: string } {
+  let integerWidth: 32 | 64 = 32;
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index]!;
+    if (typeof value === "string") return Object.freeze({ kind: "rejected", index,
+      reason: "A source-authored native enum requires exact integer constants; regular string enums have no admitted native runtime representation." });
+    if (value < -(1n << 63n) || value > (1n << 63n) - 1n) return Object.freeze({ kind: "rejected", index,
+      reason: "The exact source enum constant is outside the signed i64 native enum domain." });
+    if (value < -(1n << 31n) || value > (1n << 31n) - 1n) integerWidth = 64;
+  }
+  return Object.freeze({ kind: "resolved", integerWidth });
 }
 
 function binaryConstant(operator: string | undefined, left: Constant, right: Constant): Constant {
