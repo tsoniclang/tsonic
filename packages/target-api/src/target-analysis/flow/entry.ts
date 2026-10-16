@@ -35,10 +35,11 @@ export function sourceFlowEntry(source: TargetSourceProgram, declaration: Node,
     if (classRoot || ast.is.IsConstructorDeclaration(declaration)) {
       const selected = storage.constructionFor(call, invocation.callerBindings);
       if (selected.kind === "unresolved") throw new SourceFlowFailure(selected.reason, call);
-      const matches = selected.alternatives.filter(entry => declaration === entry.root || declaration === entry.implementation?.declaration);
+      const matches = selected.alternatives.filter(entry => declaration === entry.implementation?.declaration ||
+        declaration === entry.root && (entry.implementation === undefined || invocation.construction !== undefined));
       const construction = invocation.construction ?? (matches.length === 1 ? matches[0] : undefined);
       if (construction === undefined || !matches.includes(construction))
-        throw new SourceFlowFailure("Constructor flow requires one actual cached construction alternative, not a merged or forged class execution.", call);
+        throw new SourceFlowFailure("Constructor flow requires its actual checked construction implementation and one cached alternative, not a merged or forged class execution.", call);
       const implementation = construction.implementation;
       for (const selected of construction.classes) for (const region of selected.regions) {
         step(region.node);

@@ -155,7 +155,8 @@ export function createSourceStorageQuery(
       (source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) &&
       [...transport.invocationImplementations(invocation)].some(implementation =>
         source.ast.is.IsConstructorDeclaration(implementation) && source.ast.parent(implementation) === candidate)) return true;
-    return transport.constructionLineagesFor(invocation)?.some(lineage =>
+    const captureOwner = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? candidate : undefined;
+    return transport.constructionLineagesFor(invocation, undefined, captureOwner)?.some(lineage =>
       lineage.classes.some(value => value.subject.node === candidate)) === true;
   };
   const boundOrigins = (subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection => {
@@ -365,7 +366,8 @@ export function createSourceStorageQuery(
     bindingsForInvocation(candidate, invocation, parent = emptyBindings, capture) {
       const states = bindingStates.get(parent);
       if (states === undefined) return unresolved("Invocation substitutions belong to a different source storage query.");
-      if (!checkedCandidate(candidate, invocation))
+      if (!checkedDeclaration(candidate) || !checkedInvocation(invocation) ||
+        transport.accessorTargets.has(invocation) && !checkedCandidate(candidate, invocation))
         return unresolved(budget.failure() ?? "Invocation substitution requires its exact selected implementation.");
       const transportReason = transport.unresolvedInvocations.get(invocation);
       if (transportReason !== undefined) return unresolved(transportReason);
@@ -501,8 +503,12 @@ export function createSourceStorageQuery(
     executionRegionsFor(candidate, invocation, callerBindings = emptyBindings) {
       if (!bindingStates.has(callerBindings))
         return unresolved("Invocation substitutions belong to a different source storage query.");
-      if (!checkedDeclaration(candidate) || invocation !== undefined && !checkedCandidate(candidate, invocation))
+      if (!checkedDeclaration(candidate))
         return unresolved(budget.failure() ?? "An execution region requires exact checked callable ownership.");
+      if (invocation !== undefined) {
+        const selected = query.bindingsForInvocation(candidate, invocation, callerBindings);
+        if (selected.kind === "unresolved") return selected;
+      }
       let failure: string | undefined;
       const nodes = transport.regions.callable(candidate, invocation, expression => {
         const subject = checkedNode(expression) ? transport.subjectFor(expression) : undefined;

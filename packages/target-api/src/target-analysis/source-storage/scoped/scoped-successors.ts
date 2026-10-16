@@ -1,5 +1,5 @@
 import { Node_Expression } from "../../../source-navigation/index.js";
-import type { Node } from "@tsonic/tsts";
+import type { Node, Type } from "@tsonic/tsts";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject, SourceStorageProjection } from "../model/subjects.js";
@@ -14,6 +14,7 @@ import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import type { createSourceStorageEquations } from "./scoped-equations.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
+import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
 import { sourceStorageClassLineages } from "../transport/invocation-results.js";
@@ -76,7 +77,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
   };
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
-  const classLineages = (value: SourceStorageReference, captureOwner?: Node) => {
+  const classLineages = (value: SourceStorageReference, captureOwner?: Node | "heritage") => {
     const selected = sourceStorageClassLineages(source, budget, new Set([{ subject: value.subject, bindings: value.scope }]), {
       subjectFor: transport.subjectFor,
       valuesFor(subject, bindings) {
@@ -91,14 +92,14 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         return values;
       },
     }, captureOwner);
-    return selected === undefined || selected.some(lineage => !lineage.complete) ? undefined : selected;
+    return selected;
   };
   const instanceCaptures = (candidate: Node, value: SourceStorageReference): ReadonlySet<SourceStorageBoundSubject> | undefined => {
     const constructor = ast.is.IsConstructorDeclaration(candidate);
     const owner = constructor ? ast.parent(candidate) : candidate;
     if (owner === undefined) return undefined;
     const lineages = classLineages(value, constructor ? undefined : owner);
-    if (lineages === undefined) return undefined;
+    if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
     const captures = new Set<SourceStorageBoundSubject>();
     for (const lineage of lineages) for (const selected of lineage.classes) {
       if (!budget.step()) return undefined;
@@ -226,6 +227,45 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     return { kind: "replace", terms };
   };
+  const physicalMembers = (receiver: SourceStorageReference, target: Node, receiverType: Type): readonly Node[] | undefined => {
+    const allocation = receiver.subject.node;
+    const sourceConstruction = ast.is.IsNewExpression(allocation) && [...transport.invocationImplementations(allocation)].some(candidate =>
+      navigation.isProjectDeclaration(candidate) && (ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ||
+        ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
+    if (!sourceConstruction) return transport.memberFlow.declarationsFor(receiver.subject, target, receiverType);
+    const owner = sourceMemberOwner(ast, target);
+    const contract = owner === undefined ? undefined : semantics.forNode(target).declarations.declaredType(owner);
+    const operand = transport.invocationTargets.get(allocation);
+    if (contract === undefined || operand === undefined) return undefined;
+    const values = readRelation(sourceStorageReference(operand, receiver.scope));
+    if (values === undefined) return undefined;
+    const members = new Set<Node>();
+    for (const value of values) {
+      if (!budget.step()) return undefined;
+      if (value.kind === "unresolved") { budget.reject(value.reason); return undefined; }
+      if (value.kind !== "leaf") continue;
+      const lineages = classLineages(value, "heritage");
+      if (lineages === undefined) return undefined;
+      for (const lineage of lineages) {
+        let found = false;
+        for (const captured of lineage.classes) {
+          if (!budget.step()) return undefined;
+          const declaration = captured.subject.node;
+          const instance = transport.subject(declaration, "receiver");
+          if (instance === undefined) return undefined;
+          const selected = transport.memberFlow.declarationsFor(instance, target, contract);
+          for (const member of selected ?? []) {
+            if (!budget.step()) return undefined;
+            if (sourceMemberOwner(ast, member) !== declaration || ast.hasModifierKind(member, "static")) continue;
+            members.add(member); found = true;
+          }
+          if (found) break;
+        }
+        if (!found) return undefined;
+      }
+    }
+    return Object.freeze([...members]);
+  };
   const member = (term: Extract<SourceStorageTerm, { readonly kind: "member" }>, correlated: boolean): SourceStorageReduction | undefined => {
     const access = term.selection.kind === "access" ? term.selection.node : undefined;
     const property = access !== undefined && ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
@@ -250,7 +290,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       if (target === undefined) continue;
       const unbound = scopes.isSymbolic(term.receiver) || (term.receiver.subject.kind === "input" || term.receiver.subject.kind === "receiver") &&
         scopes.lookup(term.receiver.subject, term.receiver.scope) === undefined;
-      const members = unbound ? [target] : transport.memberFlow.declarationsFor(term.receiver.subject, target, receiverType);
+      const members = unbound ? [target] : physicalMembers(term.receiver, target, receiverType);
       if (members === undefined) {
         if (budget.failure() !== undefined) return undefined;
         const subject = term.selection.kind === "projection" ? term.selection.subject : transport.subject(term.selection.node, "value", term.projection);
@@ -315,7 +355,10 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           terms.push(sourceStorageReference(value, initialized));
           continue;
         }
-        const construction = store.kind === "initialization" && ast.is.IsNewExpression(term.receiver.subject.node)
+        const writtenReceiver = transport.bindingInputFor(receiver) ?? receiver;
+        const constructorWrite = store.kind === "mutation" && writtenReceiver.kind === "receiver" &&
+          ast.is.IsConstructorDeclaration(writtenReceiver.node);
+        const construction = (store.kind === "initialization" || constructorWrite) && ast.is.IsNewExpression(term.receiver.subject.node)
           ? term.receiver.subject.node : undefined;
         const target = construction === undefined ? undefined : transport.invocationTargets.get(construction);
         const execution = construction === undefined || target === undefined ? undefined
@@ -474,7 +517,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       const construction = ast.is.IsNewExpression(term.invocation) || ast.kindName(Node_Expression(ast, term.invocation)) === "KindSuperKeyword";
       if (construction && (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node))) {
         const lineages = classLineages(term.callee);
-        if (lineages === undefined) return undefined;
+        if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
         const terms: SourceStorageTerm[] = [];
         for (const lineage of lineages) {
           const captured = lineage.classes[lineage.classes.length - 1];

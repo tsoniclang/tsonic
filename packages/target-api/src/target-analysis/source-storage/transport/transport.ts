@@ -382,17 +382,19 @@ export function createSourceStorageTransport(
     return budget.failure() === undefined ? originals : undefined;
   });
   const classLineagesFor = (expression: Node | undefined,
-    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects) => {
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
+    captureOwner?: Node) => {
     const valuesFor = (subject: SourceStorageSubject) => {
       const origins = originsFor === originSubjects ? classValueSubjects(subject) : originsFor(subject);
       return origins === undefined ? undefined : new Set([...origins].map(origin => ({ subject: origin, bindings: undefined })));
     };
     const target = subjectFor(expression);
-    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor });
+    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor }, captureOwner);
   };
   const constructionLineagesFor = (invocation: Node,
-    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects) =>
-    classLineagesFor(sourceStorageConstructionExpression(invocation, source, step), originsFor);
+    originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
+    captureOwner?: Node) =>
+    classLineagesFor(sourceStorageConstructionExpression(invocation, source, step), originsFor, captureOwner);
   const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     const subjects = new Set(walkAncestors(selected));
     return budget.failure() === undefined ? subjects : undefined;
@@ -601,17 +603,17 @@ export function createSourceStorageTransport(
     for (const invocation of invocationTargets.keys()) yield once => {
       for (const candidate of invocationImplementations(invocation)) {
         if (!once(candidate)) continue;
+        const parameters = ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ? [] : ast.parameters(candidate);
         const selected = semantics.forNode(invocation).operations.call(invocation);
         const result = selected === undefined ? undefined : semantics.forNode(invocation).operations.callResult(selected);
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async")) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
-        connect(ast.is.IsNewExpression(invocation) ? subject(invocation)
-          : subjectFor(selected?.sourceReceiver?.expression ?? selected?.sourceCalleeAccess?.receiver.expression),
-        subject(candidate, "receiver"));
+        const receiver = subject(candidate, "receiver");
+        if (receiver !== undefined) for (const origin of invocationInputs(receiver, candidate, invocation).subjects) connect(origin, receiver);
         for (const binding of selected?.sourceArgumentBindings ?? []) {
           if (!step()) break;
           if (binding.sourceForm !== "value" || binding.sourceParameterForm !== "parameter") continue;
-          const parameter = ast.parameters(candidate)[binding.sourceParameterIndex];
+          const parameter = parameters[binding.sourceParameterIndex];
           const contract = selected?.sourceSelectedSignatureParameters.find(parameter => parameter.parameterIndex === binding.sourceParameterIndex);
           connect(subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression), subject(parameter, "input"),
             { from: binding.selectedArgumentType, to: binding.selectedParameterType });

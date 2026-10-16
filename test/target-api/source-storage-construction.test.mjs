@@ -95,3 +95,42 @@ test("the canonical class lineage refuses cyclic, foreign and missing actual her
   assert.equal(rejected !== undefined && rejected.length === 1 && rejected[0].complete === false, true,
     "A foreign class value never supplies a native or source-construction guarantee.");
 });
+
+for (const reverse of [false, true]) {
+  test(`contextual constructor closure preserves native, unknown, open and mixed alternatives, reverse=${reverse}`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      interface Holder { readonly value: number; }
+      type Factory = new (value: number) => Holder;
+      class Ready { constructor(readonly value: number) {} }
+      declare class Native { readonly value: number; constructor(value: number); }
+      declare const Missing: Factory;
+      export let Changing: Factory = Ready;
+      function derived(Parent: Factory) { return class Derived extends Parent { extra = 1; }; }
+      function root(Unknown: Factory, flag: boolean) {
+        const Source = derived(Ready); const NativeOnly = derived(Native);
+        const Mixed = derived(flag ? Ready : Native); const Open = derived(Changing);
+        const Absent = derived(Missing); const Formal = derived(Unknown);
+        const source = new Source(1); const native = new NativeOnly(1);
+        const mixed = new Mixed(1); const open = new Open(1);
+        const absent = new Absent(1); const formal = new Formal(1);
+        return [source, native, mixed, open, absent, formal];
+      }
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, "The negative controls are real checked construction programs.");
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const invocations = ["Source", "NativeOnly", "Mixed", "Open", "Absent", "Formal"];
+    for (const name of reverse ? [...invocations].reverse() : invocations) {
+      const invocation = storage.invocations.find(node => source.ast.is.IsNewExpression(node) &&
+        source.ast.text(source.ast.as.AsNewExpression(node).Expression) === name);
+      assert.equal(invocation !== undefined, true, `${name}: the original checked construction exists.`);
+      const caller = storage.bindingsForLexicalOwner(invocation);
+      assert.equal(caller.kind, "resolved", `${name}: its actual caller declaration context is explicit.`);
+      if (caller.kind !== "resolved") return;
+      const selected = storage.constructionFor(invocation, caller.bindings);
+      assert.equal(selected.kind, name === "Source" ? "resolved" : "unresolved",
+        `${name}: only the wholly source-owned, closed actual alternative permits contextual closure.`);
+    }
+    assert.equal(storage.failureReason() === undefined, true, "Unknown alternatives do not poison a later actual source query.");
+  });
+}

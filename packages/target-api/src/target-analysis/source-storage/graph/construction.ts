@@ -107,4 +107,3 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
     });
   };
 }
-

@@ -233,6 +233,52 @@ test("an exact selected callee capture keeps its own environment and the actual 
     "An owned but unselected sibling environment cannot be injected into this call.");
 });
 
+test("capture-free generic invocation producers retain ordinary and Promise-valued actual arguments", () => {
+  const current = fixture(false, "self", `
+    function directIdentity<Value>(value: Value): Value { return value; }
+    function directRoot() {
+      const value: Lease = { value: 3 };
+      const pending = produced(value);
+      const ordinary = directIdentity(value);
+      const asynchronous = directIdentity(pending);
+      return [ordinary, asynchronous];
+    }
+  `);
+  const { source, storage } = current;
+  const owner = current.declaration("directIdentity");
+  const calls = storage.nodes.filter(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === owner);
+  assert.equal(calls.length, 2, "The identical generic source body is called with both retained actual forms.");
+  const formal = storage.subject(source.ast.parameters(owner)[0]!, "input");
+  assert.equal(formal.kind, "resolved", "The exact generic formal has one source owner.");
+  if (formal.kind !== "resolved") return;
+  for (const call of calls) {
+    const expression = source.ast.as.AsCallExpression(call)!.Expression;
+    const callee = storage.subjectFor(expression!);
+    const caller = storage.bindingsForLexicalOwner(call);
+    assert.equal(callee.kind === "resolved" && caller.kind === "resolved", true, "The actual stateless callee and caller are checked.");
+    if (callee.kind !== "resolved" || caller.kind !== "resolved") return;
+    const values = storage.storageProducersFor(callee.subject, caller.bindings);
+    assert.equal(values.kind === "complete" && values.producers.length === 1, true,
+      "A top-level generic function still owns one exact capture-free producer scope.");
+    if (values.kind !== "complete" || values.producers.length !== 1) return;
+    const selected = storage.bindingsForInvocation(owner, call, caller.bindings, values.producers[0]);
+    assert.equal(selected.kind, "resolved", "The fourth argument admits the genuine selected empty capture without a fallback.");
+    if (selected.kind !== "resolved") return;
+    const input = storage.storageProducersFor(formal.subject, selected.bindings);
+    const argument = source.ast.arguments(call)[0]!;
+    const actual = storage.subjectFor(argument);
+    assert.equal(actual.kind, "resolved", "The real generic argument has checked source storage.");
+    if (actual.kind !== "resolved") return;
+    const expected = storage.storageProducersFor(actual.subject, caller.bindings);
+    assert.equal(input.kind === "complete" && expected.kind === "complete" && input.producers.length > 0 &&
+      input.producers.every(producer => expected.producers.some(candidate =>
+        candidate.subject === producer.subject && candidate.bindings === producer.bindings)) &&
+      expected.producers.every(producer => input.producers.some(candidate =>
+        candidate.subject === producer.subject && candidate.bindings === producer.bindings)), true,
+    "The ordinary or Promise-valued argument remains its identical actual producer, not a fabricated generic owned value.");
+  }
+});
+
 for (const order of ["owned-first", "borrowed-first", "owned-declared-first", "borrowed-declared-first", "owned-only", "borrowed-only"] as const) {
   test(`recursive closure entry equations preserve every selected capture, ${order}`, () => {
     const choice = order === "owned-first" ? "flag ? make(owned) : make(borrowed)"

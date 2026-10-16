@@ -34,7 +34,7 @@ export function sourceStorageClassLineages<Bindings>(
     subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
     valuesFor(subject: SourceStorageSubject, bindings: Bindings): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined;
   },
-  captureOwner?: Node,
+  captureOwner?: Node | "heritage",
 ): readonly { readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
   readonly implementation: Node | undefined }[] | undefined {
   if (values === undefined) return undefined;
@@ -122,6 +122,7 @@ export function sourceStorageInstanceCaptures(
   const captures = new Set<SourceStorageBoundSubject>();
   for (const lineage of lineages) for (const selected of lineage.classes) {
     if (!budget.step()) return undefined;
+    if (constructor && lineage.implementation !== candidate) continue;
     if (selected.subject.node === owner) captures.add(selected);
   }
   return captures;
