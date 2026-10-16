@@ -132,14 +132,13 @@ function switchStatement(build: SourceFlowConstruction, node: Node, next: number
     const kind = list === undefined ? undefined : ast.variableDeclarationKind(list);
     return kind === "using" || kind === "await using";
   }));
+  if (hasResources) throw new SourceFlowFailure("Checked switch resources require their explicit lexical blocks.", node);
   let entry = next;
   let defaultEntry = next;
   for (let index = clauses.length - 1; index >= 0; index -= 1) {
     const clause = clauses[index];
     if (clause === undefined) continue;
-    entry = hasResources
-      ? sourceFlowStatements(build, clauses.slice(index).flatMap(following => following === undefined ? [] : ast.statements(following)), next, bodyContext)
-      : sourceFlowStatements(build, ast.statements(clause), entry, bodyContext);
+    entry = sourceFlowStatements(build, ast.statements(clause), entry, bodyContext);
     bodies.set(clause, entry);
     if (ast.is.IsDefaultClause(clause)) defaultEntry = entry;
   }
