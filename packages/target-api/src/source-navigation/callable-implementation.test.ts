@@ -59,9 +59,10 @@ export function invoke(holder: Holder): number { return holder.ordinary(1) + hol
   const signatures = declarations.filter(node => source.ast.body(node) === undefined);
   assert.equal(signatures.length, 2, "both ordinary and computed overload contracts are present");
   for (const [index, declaration] of signatures.entries()) {
-    const symbol = source.navigation.declarationSymbol(declaration);
+    const sourceFile = source.ast.getSourceFile(declaration)!;
+    const symbol = source.navigation.declarationSymbol(declaration, sourceFile);
     assert.equal(symbol !== undefined, true, `overload ${index}: exact checked declaration symbol`);
-    assert.equal(source.navigation.declarationSymbol(declaration) === symbol, true, `overload ${index}: one cached symbol`);
+    assert.equal(source.navigation.declarationSymbol(declaration, sourceFile) === symbol, true, `overload ${index}: one cached symbol`);
     const selected = source.navigation.callableImplementation(declaration);
     assert.equal(selected.kind === "resolved" && source.ast.body(selected.implementation.declaration) !== undefined &&
       source.ast.parent(selected.implementation.declaration) === source.ast.parent(declaration) &&
@@ -91,7 +92,7 @@ class Holder { first(): number { return 1; } second(): number { return 2; } }
   const methods = declarations.filter(node => source.ast.is.IsMethodDeclaration(node));
   const declaration = methods[0]!;
   const checker = checked.getSourceFileQueries(source.ast.getSourceFile(declaration)!).checker;
-  const symbol = source.navigation.declarationSymbol(declaration);
+  const symbol = source.navigation.declarationSymbol(declaration, source.ast.getSourceFile(declaration)!);
   assert.equal(symbol !== undefined, true, "the ambiguous control retains the same checked symbol input");
   const selected = selectCallableImplementationDeclaration(source.ast, { ...checker,
     getSymbolDeclarations: () => methods,
