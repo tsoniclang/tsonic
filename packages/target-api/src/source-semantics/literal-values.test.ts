@@ -53,15 +53,15 @@ test("numeric facts preserve authored midpoint neighbors, normalize native gramm
     if (numeric?.kind !== "authored") throw new Error("Missing authored token.");
     return numeric.token;
   });
-  assert.equal(tokens[6]?.decimalText, "255.0");
-  assert.equal(tokens[7]?.decimalText, "9.0");
-  assert.equal(tokens[8]?.decimalText, "57.0");
+  assert.equal(tokens[6]?.decimalText, "255");
+  assert.equal(tokens[7]?.decimalText, "9");
+  assert.equal(tokens[8]?.decimalText, "57");
   assert.equal(tokens[9]?.decimalText, "0.5");
-  assert.equal(tokens[10]?.decimalText, "1.0");
+  assert.equal(tokens[10]?.decimalText, "1");
   assert.equal(tokens[11]?.decimalText, "12.34e+2");
   assert.equal(compareSourceNumericLiteralMagnitude(tokens[12]!, 1n), -1);
   assert.equal(tokens[12]!.decimalText.length < 40, true, "huge negative exponent remains compact");
-  assert.equal(tokens[13]?.decimalText, "0.0");
+  assert.equal(tokens[13]?.decimalText, "0e+9999999999999999999999999");
 });
 
 test("unary signs and parentheses preserve exact provenance while casts and binary expressions do not invent it", () => {
@@ -148,4 +148,17 @@ test("exact magnitude comparison accepts scaled coefficient evidence without a f
     assert.equal(compareSourceNumericLiteralMagnitude(magnitude, midpointTwice), expected);
   }
   assert.equal(compareSourceNumericLiteralMagnitude({ coefficient: 2n, exponent: -9999999999999999999n }, 1n), -1);
+});
+
+test("neutral numeric spelling preserves authored decimal scale without forcing floating target grammar", () => {
+  for (const [text, expected] of [["1", "1"], ["1.", "1"], ["1.0", "1.0"], ["1.00e1", "1.00e+1"],
+    ["0", "0"], ["0.0", "0.0"], ["0.000", "0.000"], ["0e0", "0e+0"], ["0.000e2", "0.000e+2"],
+    ["0e999999999999999999999", "0e+999999999999999999999"], ["0xff", "255"], ["1_0.0_0", "10.00"]] as const) {
+    const parsed = parseSourceNumericLiteral(text);
+    assert.equal(parsed?.token.decimalText, expected, text);
+    if (text.startsWith("0") && !text.startsWith("0x")) {
+      assert.equal(parsed?.token.coefficient, 0n, `zero magnitude ${text}`);
+      assert.equal(parsed?.token.exponent, 0n, `zero comparison exponent ${text}`);
+    }
+  }
 });
