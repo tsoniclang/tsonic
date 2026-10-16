@@ -120,7 +120,7 @@ test("erroneous immutable origin cycles terminate without manufacturing a native
   const source = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": "export enum Value { First = 1 } export const first = second; export const second = first;",
   }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
-  assert.equal(source.diagnostics.some(issue => issue?.category === "error"), true, "the checked cycle remains a source error");
+  assert.equal(source.diagnostics.some(issue => issue?.category === 1), true, "the checked cycle remains a source error");
   const selected = createTargetSourceProgram(source);
   assert.equal(selected.semantics.enumConstants.issues.length, 0, "cycle termination does not invent an enum value or a second diagnostic");
 });
