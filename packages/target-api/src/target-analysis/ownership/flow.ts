@@ -134,18 +134,20 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
     const results: SourceContinuationRead[] = [];
     const localReads = new Map<Node, Map<SourceStorageBindings, Map<Node, SourceContinuationRead>>>();
     const dependencies: SourceContinuationDependency[] = [];
-    const seen = new Map<Node, Map<SourceStorageSubject, Map<SourcePendingOperation, Set<SourceRetentionPremise>>>>();
+    const seen = new Map<Node, Map<Node, Map<SourceStorageSubject, Map<SourcePendingOperation, Set<SourceRetentionPremise>>>>>();
     let maySuspend = false;
     const append = (dependency: SourceContinuationDependency): boolean => {
-      const actuals = seen.get(dependency.reference) ?? new Map<SourceStorageSubject, Map<SourcePendingOperation, Set<SourceRetentionPremise>>>();
+      const candidates = seen.get(dependency.reference) ?? new Map<Node, Map<SourceStorageSubject, Map<SourcePendingOperation, Set<SourceRetentionPremise>>>>();
+      const actuals = candidates.get(dependency.candidate) ?? new Map<SourceStorageSubject, Map<SourcePendingOperation, Set<SourceRetentionPremise>>>();
       const witnesses = actuals.get(dependency.actual) ?? new Map<SourcePendingOperation, Set<SourceRetentionPremise>>();
       const retained = witnesses.get(dependency.suspension) ?? new Set<SourceRetentionPremise>();
       if (retained.has(dependency.retention)) return true;
-      if (!budget.step() || !rows.add(4)) return false;
+      if (!budget.step() || !rows.add(5)) return false;
       retained.add(dependency.retention);
       witnesses.set(dependency.suspension, retained);
       actuals.set(dependency.actual, witnesses);
-      seen.set(dependency.reference, actuals);
+      candidates.set(dependency.candidate, actuals);
+      seen.set(dependency.reference, candidates);
       dependencies.push(dependency);
       return true;
     };
