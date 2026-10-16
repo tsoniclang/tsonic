@@ -187,8 +187,9 @@ for (const reverse of [false, true]) {
           const produced = call("produced");
           assert.equal(adopted !== undefined && produced !== undefined, true, "the actual adopter and separate caller factory");
           if (producerFirst) {
-            const first = current.query.forCall(produced!);
-            assert.equal(first.kind, "resolved", "prewarming is a control, not a required execution order");
+            const first = current.query.continuationFor(produced!);
+            assert.equal(first.kind, "resolved", first.kind === "unresolved" ? first.reason
+              : "prewarming the producer's closure is a control, not a required execution order");
           }
           const selected = current.query.forCall(adopted!);
           assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
