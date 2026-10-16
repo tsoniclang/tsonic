@@ -204,10 +204,10 @@ for (const order of ["owned-first", "borrowed-first", "owned-declared-first", "b
     const nested = entry.kind === "resolved" ? storage.bindingsForInvocation(candidate, recursive!, entry.bindings) : entry;
     const input = storage.subject(source.ast.parameters(candidate)[0]!, "input");
     assert.equal(nested.kind === "resolved" && input.kind === "resolved", true, "the exact recursive input and its selected execution contexts");
-    const producers = nested.kind === "resolved" && input.kind === "resolved"
-      ? storage.storageProducersFor(input.subject, nested.bindings) : nested;
-    assert.equal(producers.kind === "resolved", true, "the finite recursive producer relation closes");
-    if (producers.kind !== "resolved" || !("producers" in producers)) return;
+    if (nested.kind !== "resolved" || input.kind !== "resolved") return;
+    const producers = storage.storageProducersFor(input.subject, nested.bindings);
+    assert.equal(producers.kind, "complete", "the finite recursive producer relation closes");
+    if (producers.kind !== "complete") return;
     assert.equal(producers.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")),
       order !== "owned-only", "depth one retains the actual borrowed closure input in every mixed order");
     assert.equal(producers.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
@@ -343,8 +343,8 @@ for (const reverse of [false, true]) {
     if (classBindings.kind !== "resolved" || depth.kind !== "resolved" || classSubject.kind !== "resolved" || input.kind !== "resolved") return;
     for (const [subject, bindings] of [[classSubject.subject, classBindings.bindings], [input.subject, depth.bindings]] as const) {
       const selected = storage.storageProducersFor(subject, bindings);
-      assert.equal(selected.kind, "resolved", "the exact class or constructor producer relation closes");
-      if (selected.kind !== "resolved") return;
+      assert.equal(selected.kind, "complete", "the exact class or constructor producer relation closes");
+      if (selected.kind !== "complete") return;
       assert.equal(selected.producers.some(producer => current.selectedDeclaration(producer.subject.node) === current.declaration("borrow")), true,
         "a class/constructor entry never drops the borrowed branch's capture");
       assert.equal(selected.producers.some(producer => source.ast.is.IsObjectLiteralExpression(producer.subject.node) &&
