@@ -47,10 +47,9 @@ export function analyzeSourcePropertyNames(
   while (pending.length > 0) {
     const node = pending.pop()!;
     const parent = ast.parent(node);
-    if (ast.is.IsComputedPropertyName(node) || ast.is.IsNumericLiteral(node) &&
-      (ast.name(parent) === node || parent !== undefined && ast.is.IsBindingElement(parent) &&
-        ast.as.AsBindingElement(parent)?.PropertyName === node)) {
-      const selection = ast.is.IsComputedPropertyName(node) ? select(node) : selectedNumeric(node);
+    if (ast.is.IsComputedPropertyName(node) || isOrdinaryPropertyName(node, parent)) {
+      const selection = ast.is.IsComputedPropertyName(node) ? select(node)
+        : ast.is.IsNumericLiteral(node) ? selectedNumeric(node) : selectedString(ast.text(node));
       values.set(node, selection);
       entries.push(Object.freeze({ node, selection }));
       if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason }));
@@ -64,6 +63,19 @@ export function analyzeSourcePropertyNames(
     issues: Object.freeze(issues),
     get: (name: Node) => values.get(name),
   });
+
+  function isOrdinaryPropertyName(node: Node, parent: Node | undefined): boolean {
+    if (parent === undefined || !ast.is.IsIdentifier(node) && !ast.is.IsStringLiteral(node) && !ast.is.IsNumericLiteral(node)) return false;
+    if (ast.is.IsBindingElement(parent)) {
+      const pattern = ast.parent(parent);
+      const binding = ast.as.AsBindingElement(parent)!;
+      return pattern !== undefined && ast.is.IsObjectBindingPattern(pattern) &&
+        (binding.PropertyName ?? ast.name(parent)) === node;
+    }
+    return ast.name(parent) === node && (ast.is.IsPropertyAssignment(parent) || ast.is.IsShorthandPropertyAssignment(parent) ||
+      ast.is.IsPropertyDeclaration(parent) || ast.is.IsPropertySignatureDeclaration(parent) || ast.is.IsMethodDeclaration(parent) ||
+      ast.is.IsMethodSignatureDeclaration(parent) || ast.is.IsGetAccessorDeclaration(parent) || ast.is.IsSetAccessorDeclaration(parent));
+  }
 
   function select(name: Node): SourcePropertyNameSelection {
     const selection = classify(name);

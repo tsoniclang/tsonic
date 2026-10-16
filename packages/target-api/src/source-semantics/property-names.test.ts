@@ -102,9 +102,10 @@ export function make(dynamic: string, choice: "left" | "right") {
 }
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.entries.length, 5, "all dynamic occurrences are classified");
+  const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
+  assert.equal(computed.length, 5, "all dynamic occurrences are classified");
   assert.equal(index.issues.length, 5, "each unrepresentable field has one issue");
-  for (const entry of index.entries) assert.equal(entry.selection.kind, "rejected", "no hidden dynamic emulation");
+  for (const entry of computed) assert.equal(entry.selection.kind, "rejected", "no hidden dynamic emulation");
 });
 
 test("a const literal-valued initializer is never executed during property-name analysis", () => {
@@ -167,9 +168,10 @@ export function make(value: number | Values) {
 }
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.entries.length, 1, "the raw ambiguous property is visited once");
+  const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
+  assert.equal(computed.length, 1, "the raw ambiguous property is visited once");
   assert.equal(index.issues.length, 1, "a non-static property key is refused before target analysis");
-  assert.equal(index.entries[0]!.selection.kind, "rejected", "refinement is not a property-key construction dependency");
+  assert.equal(computed[0]!.selection.kind, "rejected", "refinement is not a property-key construction dependency");
 });
 
 test("unique-symbol types never erase call or getter key effects", () => {
@@ -183,9 +185,10 @@ export const call = { [key()]() { return [1][Symbol.iterator](); } };
 export const getter = { [holder.name]() { return [1][Symbol.iterator](); } };
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.entries.length, 4, "all unique-symbol key expressions are classified");
+  const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
+  assert.equal(computed.length, 4, "all unique-symbol key expressions are classified");
   assert.equal(index.issues.length, 2, "only effectful symbol key expressions are rejected");
-  assert.deepEqual(index.entries.map(entry => entry.selection.kind),
+  assert.deepEqual(computed.map(entry => entry.selection.kind),
     ["well-known-symbol", "well-known-symbol", "rejected", "rejected"]);
 });
 
@@ -203,9 +206,10 @@ export const other = { [objectInteger]: 5 };
 export const rejected = { [mutable]: 6 };
 `);
   const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
-  assert.equal(index.entries.length, 6, "every const and mutable destructured binding has a classification");
+  const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
+  assert.equal(computed.length, 6, "every const and mutable destructured binding has a classification");
   assert.equal(index.issues.length, 1, "mutable destructured binding is not a const singleton");
-  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+  assert.deepEqual(computed.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
     ["object", "nested", "array", "9007199254740993", "9007199254740995", "rejected"]);
 });
 
@@ -339,4 +343,25 @@ export const value = { ["text"]: 1, [1.250]: 2, [Key.Entry]: 3 };
     member.constant.entry === source.semantics.enumConstants.entries[0], true, "an enum key carries the identical shared entry");
   assert.equal(entries.every(item => item.selection.kind !== "resolved" || Object.isFrozen(item.selection.constant)), true,
     "the scalar transport is immutable");
+});
+
+test("ordinary and computed property names share one complete immutable scalar index", () => {
+  const source = checked(`
+const local = 1;
+export const value = { ordinary: 1, "decoded-name": 2, 16: 3, ["computed"]: 4, local };
+const { ordinary: binding, "decoded-name": other } = value;
+export function unrelated(parameter: number): number { return parameter + binding + other; }
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 7, "five authored properties and two object-binding keys are indexed");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["ordinary", "decoded-name", "16", "computed", "local", "ordinary", "decoded-name"]);
+  assert.equal(index.issues.length, 0, "ordinary keys introduce no source rejection");
+  const syntax = targetSourceSyntaxProgram(source);
+  for (const entry of index.entries) {
+    assert.equal(index.get(entry.node) === entry.selection, true, "each occurrence has exactly one canonical scalar selection");
+    assert.equal(syntax.propertyNames.get(entry.node) === entry.selection, true, "ordinary names use the same sealed transport");
+    assert.equal(entry.selection.kind === "resolved" && Object.isFrozen(entry.selection.constant), true,
+      "all native key consumers receive immutable source-owned scalar data");
+  }
 });
