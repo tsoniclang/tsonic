@@ -32,11 +32,14 @@ export enum Value { First, Second, Exact = 9007199254740993, Next, Imported = Ba
 });
 
 test("enum source shifts and bitwise operations use 32-bit source semantics independent of native width", () => {
-  const program = createTargetSourceProgram(checked(`
+  const source = checked(`
 export enum Bits { Shift = 1 << 33, Signed = 0x80000000 >> 1, Unsigned = -1 >>> 0,
   Not = ~0x100000000, Or = 0x100000000 | 3, And = 0x100000003 & 7,
   Xor = 0xffffffff ^ 2, Masked = 1 << -1 }
-`));
+`, {}, false);
+  assert.deepEqual(source.diagnostics.map(diagnostic => diagnostic?.code), [6807],
+    "the source checker reports its existing literal-shift simplification diagnostic");
+  const program = createTargetSourceProgram(source);
   const values = program.semantics.enumConstants.entries.map(entry => entry.kind === "resolved" ? entry.value : entry.reason);
   assert.deepEqual(values, [2n, -1073741824n, 4294967295n, -1n, 3n, 3n, -3n, -2147483648n]);
 });
