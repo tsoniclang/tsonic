@@ -57,7 +57,7 @@ export function createSourceStorageConstructionQuery(source: TargetSourceProgram
         const selected = queries.boundActivationsFor(owner, context);
         if (selected.kind === "unresolved") return selected;
         const activation = selected.activations.length === 1 ? selected.activations[0] : undefined;
-        return activation?.kind === "invocation" ? activation : unresolved(
+        return activation?.kind === "invocation" ? { invocation: activation.invocation, callerBindings: activation.callerBindings } : unresolved(
           "Constructor execution requires one exact owning allocation activation.");
       });
       if (allocation.kind === "unresolved") return allocation;
