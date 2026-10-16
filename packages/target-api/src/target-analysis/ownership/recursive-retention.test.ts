@@ -279,12 +279,26 @@ for (const accessor of [false, true]) {
         const results = selected.results.filter(read => read.candidate === candidate);
         assert.equal(reads.length > 0 && results.length > 0 && selected.dependencies.length > 0, true,
           "the control observes real reads, returned values and pending loan evidence");
-        for (const binding of [...reads.map(read => read.bindings), ...results.map(result => result.bindings),
-          ...selected.dependencies.map(dependency => dependency.suspension.bindings)]) {
-          const observed = storage.boundActivationsFor(middle, binding);
-          assert.equal(observed.kind === "resolved" && observed.activations.length > 0 &&
+        for (const [binding, executionOwner] of [...reads.map(read => [read.bindings, read.candidate] as const),
+          ...results.map(result => [result.bindings, result.candidate] as const),
+          ...selected.dependencies.map(dependency => [dependency.suspension.bindings,
+            source.ast.parent(storage.enclosingRegionFor(dependency.suspension.expression))] as const)]) {
+          let currentBinding = binding;
+          let currentOwner = executionOwner;
+          const visited = new Set<SourceStorageBindings>();
+          while (currentOwner !== undefined && currentOwner !== middle && !visited.has(currentBinding)) {
+            visited.add(currentBinding);
+            const observed = storage.boundActivationsFor(currentOwner, currentBinding);
+            const activation = observed.kind === "resolved" && observed.activations.length === 1 ? observed.activations[0] : undefined;
+            assert.equal(activation?.kind === "invocation", true, "each actual call keeps its dynamic caller distinct from lexical captures");
+            if (activation?.kind !== "invocation") break;
+            currentBinding = activation.callerBindings;
+            currentOwner = source.ast.parent(storage.enclosingRegionFor(activation.invocation));
+          }
+          const observed = currentOwner === middle ? storage.boundActivationsFor(middle, currentBinding) : undefined;
+          assert.equal(observed?.kind === "resolved" && observed.activations.length > 0 &&
             observed.activations.every(activation => activation.kind === "invocation" && activation.invocation === entry), true,
-          "no read, result or pending witness retains the first outer invocation's activation");
+          "no read, result or pending witness retains another outer invocation's activation");
         }
         for (const read of reads) {
           const observed = storage.contextKeyFor([subject.subject], read.bindings);
