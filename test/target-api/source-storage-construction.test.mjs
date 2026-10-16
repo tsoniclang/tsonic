@@ -166,9 +166,12 @@ for (const [name, declarations, result] of [
     `${name}: the actual class method, not a structural signature or invented fallback.`);
     const activation = storage.bindingsForInvocation(implementation, call, caller.bindings, selected.producers[0]);
     assert.equal(activation.kind === "resolved", true, `${name}: the selected source method owns its exact execution activation.`);
-    const implementations = storage.invocationImplementationsFor(call, caller.bindings);
-    assert.equal(implementations.kind === "resolved" && implementations.exact && implementations.nodes.length === 1 &&
-      implementations.nodes[0] === implementation, true, `${name}: scoped implementation discovery consumes that same actual producer.`);
+    for (const bindings of [undefined, caller.bindings]) {
+      const implementations = storage.invocationImplementationsFor(call, bindings);
+      assert.equal(implementations.kind === "resolved" && implementations.exact && implementations.nodes.length === 1 &&
+        implementations.nodes[0] === implementation, true,
+      `${name}: ${bindings === undefined ? "whole-program" : "activation"} discovery consumes that same actual producer.`);
+    }
     assert.equal(storage.failureReason() === undefined, true, `${name}: source storage remains complete.`);
   });
 }
@@ -187,6 +190,10 @@ test("scoped callable implementations retain actual caller alternatives instead 
   const variable = name => storage.nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
   const callback = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
     source.ast.text(source.ast.as.AsCallExpression(node).Expression) === "callback");
+  const all = storage.invocationImplementationsFor(callback);
+  assert.equal(all.kind === "resolved" && all.exact && all.nodes.length === 2 &&
+    all.nodes.includes(named("left")) && all.nodes.includes(named("right")), true,
+  "Whole-program discovery keeps every actual caller without an arbitrary first candidate.");
   for (const [variableName, implementationName] of [["first", "left"], ["second", "right"]]) {
     const outer = source.ast.as.AsVariableDeclaration(variable(variableName)).Initializer;
     const activation = storage.bindingsForInvocation(named("invoke"), outer);
@@ -217,8 +224,11 @@ test("scoped callable implementations keep native, abstract, mutable and foreign
     const bindings = storage.bindingsForLexicalOwner(call);
     assert.equal(bindings.kind === "resolved", true, "Every actual call has its checked lexical activation.");
     if (bindings.kind !== "resolved") return;
-    const selected = storage.invocationImplementationsFor(call, bindings.bindings);
-    assert.equal(selected.kind === "unresolved" || !selected.exact, true, "No open or abstract native callable becomes an exact source body.");
+    for (const caller of [undefined, bindings.bindings]) {
+      const selected = storage.invocationImplementationsFor(call, caller);
+      assert.equal(selected.kind === "unresolved" || !selected.exact, true,
+        `${source.ast.text(source.ast.as.AsCallExpression(call).Expression)}: ${caller === undefined ? "whole-program" : "activation"} open/native domain is not an exact source body.`);
+    }
   }
   const foreign = current();
   assert.equal(storage.invocationImplementationsFor(foreign.storage.invocations[0], storage.emptyBindings).kind,

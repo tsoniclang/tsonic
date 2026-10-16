@@ -338,10 +338,10 @@ export function createSourceStorageQuery(
       if (bindings !== undefined && states === undefined)
         return unresolved("Invocation substitutions belong to a different source storage query.");
       const expression = source.ast.is.IsCallExpression(invocation) ? source.ast.as.AsCallExpression(invocation)?.Expression : undefined;
-      if (bindings !== undefined && expression !== undefined && source.ast.kindName(expression) !== "KindSuperKeyword") {
+      if (expression !== undefined && source.ast.kindName(expression) !== "KindSuperKeyword") {
         const target = transport.invocationTargets.get(invocation);
         if (target === undefined) return unresolved("A scoped invocation requires its exact checked callable operand.");
-        const selected = selectDomain(target, bindings, "storage-producers");
+        const selected = selectDomain(target, bindings ?? emptyBindings, "storage-producers");
         if (selected.kind === "unresolved") return selected;
         const nodes = new Set<Node>();
         let exact = selected.kind === "complete";
