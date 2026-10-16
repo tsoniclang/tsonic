@@ -134,3 +134,38 @@ for (const reverse of [false, true]) {
     assert.equal(storage.failureReason() === undefined, true, "Unknown alternatives do not poison a later actual source query.");
   });
 }
+
+for (const [name, declarations, result] of [
+  ["anonymous", "", "{ value(): number }"],
+  ["alias", "type Shape = { value(): number };", "Shape"],
+  ["interface", "interface Shape { value(): number }", "Shape"],
+  ["object-value", "const shape = { value(): number { return 0; } };", "typeof shape"],
+]) {
+  test(`constructed native methods retain exact ${name} structural correspondence`, () => {
+    const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+      ${declarations}
+      class Counter { value(): number { return 1; } }
+      export function make(): ${result} { return new Counter(); }
+      export function read(): number { return make().value(); }
+    ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+    assert.equal(checked.diagnostics.length, 0, `${name}: the actual source contract is valid.`);
+    const source = createTargetSourceProgram(checked);
+    const storage = createSourceStorageQuery(source, source.sourceFiles);
+    const implementation = storage.nodes.find(node => source.ast.is.IsMethodDeclaration(node) &&
+      source.ast.is.IsClassDeclaration(source.ast.parent(node)));
+    const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) &&
+      source.ast.is.IsPropertyAccessExpression(source.ast.as.AsCallExpression(node).Expression));
+    assert.equal(implementation !== undefined && call !== undefined, true, `${name}: original checked method and call.`);
+    const callee = storage.subjectFor(source.ast.as.AsCallExpression(call).Expression);
+    const caller = storage.bindingsForLexicalOwner(call);
+    assert.equal(callee.kind === "resolved" && caller.kind === "resolved", true, `${name}: the exact operand and source activation.`);
+    if (callee.kind !== "resolved" || caller.kind !== "resolved") return;
+    const selected = storage.storageProducersFor(callee.subject, caller.bindings);
+    assert.equal(selected.kind === "complete" && selected.producers.length === 1 &&
+      selected.producers[0].subject.node === implementation, true,
+    `${name}: the actual class method, not a structural signature or invented fallback.`);
+    const activation = storage.bindingsForInvocation(implementation, call, caller.bindings, selected.producers[0]);
+    assert.equal(activation.kind === "resolved", true, `${name}: the selected source method owns its exact execution activation.`);
+    assert.equal(storage.failureReason() === undefined, true, `${name}: source storage remains complete.`);
+  });
+}

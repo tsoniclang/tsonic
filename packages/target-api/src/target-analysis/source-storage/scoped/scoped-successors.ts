@@ -222,7 +222,9 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         ast.is.IsConstructorDeclaration(candidate) && ast.body(candidate) !== undefined));
     if (!sourceConstruction) return transport.memberFlow.declarationsFor(receiver.subject, target, receiverType);
     const owner = sourceMemberOwner(ast, target);
-    const contract = owner === undefined ? undefined : semantics.forNode(target).declarations.declaredType(owner);
+    const selected = semantics.forNode(target);
+    const contract = owner === undefined ? undefined : ast.is.IsTypeLiteralNode(owner) ? selected.types.authoredType(owner)
+      : ast.is.IsObjectLiteralExpression(owner) ? selected.types.expressionType(owner) : selected.declarations.declaredType(owner);
     const operand = transport.invocationTargets.get(allocation);
     if (contract === undefined || operand === undefined) return undefined;
     const values = readRelation(sourceStorageReference(operand, receiver.scope));
