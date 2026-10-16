@@ -57,6 +57,7 @@ export { targetStronglyConnectedComponents } from "./graph-components.js";
 export * from "./ownership/index.js";
 export * from "./flow/index.js";
 export type { TargetGraphComponentsSelection } from "./graph-components.js";
+export { createTargetGraphComponentQuery } from "./graph-component-query.js";
 export { createSourceErrorStorageDemandQuery } from "./error-storage/error-storage-demands.js";
 export type { SourceErrorStorageDemand, SourceErrorStorageDemandQueries } from "./error-storage/error-storage-demands.js";
 export { createSourceStorageQuery } from "./source-storage/queries.js";
