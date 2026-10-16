@@ -19,7 +19,7 @@ export const keelOwnedCsharpResponsibilities = Object.freeze({
       bodySha256: "d2fd6dff137f495f25c1240158293356bc0ca1d75faf325ac68db3b88bfadd02", role: "selection",
       evidence: [{ kind: "parameter", name: "leftType" }] },
     { file: "src/policy/operations/operators/operator-selection.ts", symbol: "selectCsharpBinaryOperands",
-      bodySha256: "f20452f737fdc381562a6ee17ad3e5e9c8bea4640aaea1536a8199abf60ae49d", role: "selection",
+      bodySha256: "50651d1f176daa66544896e546d8666eca88284cd586381064c1d6a71397b3e5", role: "selection",
       evidence: [{ kind: "parameter", name: "selectedResultType" }] },
     { file: "src/policy/operations/operators/operator-forms.ts", symbol: "selectCsharpOperatorForm",
       bodySha256: "d9a7fc81570c9e822f0c494c15297ea86ac22877fc5d7290e16c554e6ef07453", role: "selection",
