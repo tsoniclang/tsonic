@@ -91,3 +91,18 @@ test("declaration symbols preserve the included consumer query context for exclu
     "native instance types retain exact checked identity");
   assert.equal(reads, before + 1, "one canonical declaration-symbol query is shared by both semantic consumers");
 });
+
+test("declaration symbols refuse another program's same-spelled AST and an unchecked consumer context", () => {
+  const current = fixture();
+  const foreign = fixture();
+  assert.equal(current.checked.containsSourceFile(foreign.file), false, "the checked source owner distinguishes the two actual programs");
+  assert.equal(current.source.ast.getFileName(current.file), current.source.ast.getFileName(foreign.file), "file spelling is deliberately identical");
+  assert.equal(current.source.navigation.declarationSymbol(current.external, current.file) === current.expected, true,
+    "the positive local symbol is retained before the negative requests");
+  assert.equal(current.source.navigation.declarationSymbol(foreign.external, current.file) === undefined, true,
+    "a declaration from another checked program cannot supply a symbol");
+  assert.equal(current.source.semantics.forFile(current.file).declarations.declaredValueType(foreign.external) === undefined, true,
+    "foreign declaration types cannot leak through the semantic consumer");
+  assert.throws(() => current.source.navigation.declarationSymbol(current.external, foreign.file), /actual included checked consumer context/u,
+    "a populated cache never bypasses the checked consumer boundary");
+});
