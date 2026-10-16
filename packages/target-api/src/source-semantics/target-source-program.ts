@@ -25,6 +25,7 @@ import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
 import { analyzeSourcePropertyNames } from "./property-names.js";
+import { analyzeSourceEnumConstants } from "./enum-constants.js";
 export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
 import type {
   ResolvedSourceCallInfo,
@@ -75,6 +76,7 @@ export function createTargetSourceProgram(
   const sourceFileSet = new Set(sourceFiles);
   const documents = createSourceProgramDocuments(source.ast, sourceFiles);
   const navigation = createSourceProgramNavigation(source);
+  const enumConstants = analyzeSourceEnumConstants(source, navigation);
   const cache = new WeakMap<SourceFile, SourceFileSemantics>();
   const providerSignatures = new WeakMap<Node, SourceProviderSignatureSelection | null>();
   const providerSignature = (declaration: Node | undefined): SourceProviderSignatureSelection | undefined => {
@@ -320,7 +322,7 @@ export function createTargetSourceProgram(
         },
         types,
         declarations,
-      }, navigation),
+      }, navigation, enumConstants),
       operations,
       types,
       declarations,
@@ -372,6 +374,7 @@ export function createTargetSourceProgram(
   };
 
   const semantics: SourceProgramSemantics = Object.freeze({
+    enumConstants,
     includes(sourceFile: SourceFile) {
       return sourceFileSet.has(sourceFile);
     },

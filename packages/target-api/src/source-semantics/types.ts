@@ -230,6 +230,7 @@ export type SourceValueTypeRefinementSelection =
     };
 
 export interface SourceProgramSemantics {
+  readonly enumConstants: import("./enum-constants.js").SourceEnumConstantIndex;
   includes(sourceFile: SourceFile): boolean;
   forFile(sourceFile: SourceFile): SourceFileSemantics;
   forNode(node: Node): SourceFileSemantics;

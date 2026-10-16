@@ -143,7 +143,7 @@ test("published property-name reads and source-syntax snapshots cannot rerun the
       reads += 1;
       return semantics.types.expressionType(node);
     } },
-  }, source.navigation);
+  }, source.navigation, source.semantics.enumConstants);
   sealed = true;
   const entry = index.entries[0]!;
   assert.equal(reads, 1, "one source literal type selection");

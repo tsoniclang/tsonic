@@ -4,9 +4,10 @@ import type { SourceFileSemantics } from "./types.js";
 import type { SourceNumericLiteralToken } from "./literal-values-model.js";
 import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
 import { sourceIntegerConstantValue } from "./integer-constant.js";
+import type { SourceEnumConstantIndex, SourceEnumConstantSelection } from "./enum-constants.js";
 
 export type SourcePropertyNameSelection =
-  | { readonly kind: "resolved"; readonly name: string }
+  | { readonly kind: "resolved"; readonly name: string; readonly enumConstant?: Extract<SourceEnumConstantSelection, { kind: "resolved" }> }
   | { readonly kind: "well-known-symbol"; readonly symbol: ResolvedSourceWellKnownSymbolInfo["kind"] }
   | { readonly kind: "rejected"; readonly reason: string };
 
@@ -30,6 +31,7 @@ export function analyzeSourcePropertyNames(
     readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations">;
   },
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
+  enumConstants: SourceEnumConstantIndex,
 ): SourcePropertyNameIndex {
   const values = new WeakMap<Node, SourcePropertyNameSelection>();
   const entries: { readonly node: Node; readonly selection: SourcePropertyNameSelection }[] = [];
@@ -144,6 +146,8 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedLiteral(node: Node): SourcePropertyNameSelection {
+    const member = enumOrigin(node, new Set());
+    if (member !== undefined) return selectedEnum(member);
     const type = checkedType(node);
     if (type === undefined) return rejected("The computed key has no completed checked literal type.");
     const text = semantics.types.stringLiteralValue(type);
@@ -173,11 +177,25 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedEnum(node: Node): SourcePropertyNameSelection {
-    const value = semantics.types.constantValue(node);
-    if (typeof value === "string") return Object.freeze({ kind: "resolved", name: value });
-    if (value === undefined) return rejected("The selected enum member has no exact compile-time constant value; ambient or computed members cannot define a static field name.");
-    const numeric = exactNumeric(node, new Set());
-    return numeric === undefined ? unavailable : Object.freeze({ kind: "resolved", name: numericName(numeric) });
+    const constant = enumConstants.get(node);
+    if (constant === undefined) throw new Error("A selected checked enum member requires its completed source constant entry.");
+    if (constant.kind === "rejected") return rejected(constant.reason);
+    const numeric = typeof constant.value === "bigint" ? numericTokenFromText(constant.value.toString()) : undefined;
+    return Object.freeze({ kind: "resolved", name: typeof constant.value === "string" ? constant.value : numericName(numeric!), enumConstant: constant });
+  }
+
+  function enumOrigin(node: Node, active: Set<Node>): Node | undefined {
+    const current = unwrap(node);
+    if (current === undefined || active.has(current)) return undefined;
+    active.add(current);
+    const declaration = ast.is.IsIdentifier(current) ? navigation.sourceReferenceFor(current)?.declaration
+      : ast.is.IsPropertyAccessExpression(current) ? semantics.operations.propertyAccess(current)?.selectedDeclaration
+        : ast.is.IsElementAccessExpression(current) ? semantics.operations.elementAccess(current)?.selectedDeclaration : undefined;
+    if (declaration === undefined) return undefined;
+    if (ast.is.IsEnumMember(declaration)) return declaration;
+    if (!constBinding(declaration)) return undefined;
+    const value = bindingValue(declaration, new Set());
+    return value === undefined ? undefined : enumOrigin(value, active);
   }
 
   function exactNumeric(node: Node, active: Set<Node>): SourceNumericLiteralToken | undefined {
@@ -268,17 +286,9 @@ export function analyzeSourcePropertyNames(
         return first !== undefined && values.every(value => value !== undefined && numericName(value) === numericName(first))
           ? first : undefined;
       }
-      if (!ast.is.IsEnumMember(declaration) || active.has(declaration) && declaration !== current) return undefined;
-      const initializer = ast.as.AsEnumMember(declaration)?.Initializer;
-      if (initializer !== undefined) return exactNumeric(initializer, active);
-      const owner = ast.parent(declaration);
-      const members = owner === undefined ? [] : ast.as.AsEnumDeclaration(owner)?.Members?.Nodes ?? [];
-      const index = members.indexOf(declaration);
-      if (index === 0) return numericTokenFromText("0");
-      const previous = index > 0 ? members[index - 1] : undefined;
-      const selected = previous === undefined ? undefined : exactNumeric(previous, active);
-      const integer = selected === undefined ? undefined : exactInteger(selected);
-      return integer === undefined ? undefined : numericTokenFromText((integer + 1n).toString());
+      if (!ast.is.IsEnumMember(declaration)) return undefined;
+      const constant = enumConstants.get(declaration);
+      return constant?.kind === "resolved" && typeof constant.value === "bigint" ? numericTokenFromText(constant.value.toString()) : undefined;
   }
 
   function numericType(node: Node | undefined, active: Set<Node>): SourceNumericLiteralToken | undefined {
@@ -484,12 +494,6 @@ function numericTokenFromText(text: string): SourceNumericLiteralToken | undefin
   const negative = text.startsWith("-");
   const token = parseSourceNumericLiteral(negative ? text.slice(1) : text)?.token;
   return token === undefined ? undefined : negative ? Object.freeze({ ...token, negative }) : token;
-}
-
-function exactInteger(token: SourceNumericLiteralToken): bigint | undefined {
-  if (token.exponent < 0n || BigInt(token.coefficient.toString().length) + token.exponent > 40n) return undefined;
-  const value = token.coefficient * 10n ** token.exponent;
-  return token.negative ? -value : value;
 }
 
 function numericName(token: SourceNumericLiteralToken): string {
