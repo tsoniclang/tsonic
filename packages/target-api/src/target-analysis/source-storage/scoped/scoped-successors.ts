@@ -17,7 +17,7 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
-import { sourceStorageClassLineages } from "../transport/invocation-results.js";
+import { sourceStorageClassLineages, sourceStorageInstanceCaptures } from "../transport/invocation-results.js";
 import { sourceStorageAllocation, sourceStorageInstanceInitializers } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
 
@@ -77,36 +77,24 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     return owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
   };
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
-  const classLineages = (value: SourceStorageReference, captureOwner?: Node | "heritage") => {
-    const selected = sourceStorageClassLineages(source, budget, new Set([{ subject: value.subject, bindings: value.scope }]), {
-      subjectFor: transport.subjectFor,
-      valuesFor(subject, bindings) {
-        const terms = readRelation(sourceStorageReference(subject, bindings));
-        if (terms === undefined) return undefined;
-        const values = new Set<SourceStorageBoundSubject>();
-        for (const term of terms) {
-          if (!budget.step()) return undefined;
-          if (term.kind === "unresolved") { budget.reject(term.reason); return undefined; }
-          if (term.kind === "leaf") values.add(Object.freeze({ subject: term.subject, bindings: term.scope }));
-        }
-        return values;
-      },
-    }, captureOwner);
-    return selected;
+  const classQueries = {
+    subjectFor: transport.subjectFor,
+    valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined {
+      const terms = readRelation(sourceStorageReference(subject, bindings));
+      if (terms === undefined) return undefined;
+      const values = new Set<SourceStorageBoundSubject>();
+      for (const term of terms) {
+        if (!budget.step()) return undefined;
+        if (term.kind === "unresolved") { budget.reject(term.reason); return undefined; }
+        if (term.kind === "leaf") values.add(Object.freeze({ subject: term.subject, bindings: term.scope }));
+      }
+      return values;
+    },
   };
-  const instanceCaptures = (candidate: Node, value: SourceStorageReference): ReadonlySet<SourceStorageBoundSubject> | undefined => {
-    const constructor = ast.is.IsConstructorDeclaration(candidate);
-    const owner = constructor ? ast.parent(candidate) : candidate;
-    if (owner === undefined) return undefined;
-    const lineages = classLineages(value, constructor ? undefined : owner);
-    if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
-    const captures = new Set<SourceStorageBoundSubject>();
-    for (const lineage of lineages) for (const selected of lineage.classes) {
-      if (!budget.step()) return undefined;
-      if (selected.subject.node === owner) captures.add(selected);
-    }
-    return captures;
-  };
+  const classLineages = (value: SourceStorageReference, captureOwner?: Node | "heritage") =>
+    sourceStorageClassLineages(source, budget, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries, captureOwner);
+  const instanceCaptures = (candidate: Node, value: SourceStorageReference) => sourceStorageInstanceCaptures(
+    source, budget, candidate, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries);
   const application = (invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,
     projection: readonly SourceStorageProjection[], operation: SourceStorageOperation): SourceStorageTerm =>
     Object.freeze({ kind: "application", invocation, callee: sourceStorageReference(target, scope), scope, projection, ...operation });
