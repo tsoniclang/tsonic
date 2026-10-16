@@ -111,6 +111,9 @@ export function snapshotTargetPlanningSourceNavigation(
       memberContracts.set(node, source.navigation.memberContracts(node));
       rememberDeclaration(node);
     }
+    if (isTypeLiteralMember(source.ast, node)) {
+      rememberDeclaration(node);
+    }
     const kind = source.ast.kindName(node);
     if (kind === "KindClassDeclaration" || kind === "KindClassExpression" || kind === "KindInterfaceDeclaration") {
       declaredHeritage.set(node, source.navigation.declaredHeritage(node));
@@ -226,4 +229,9 @@ function isMemberDeclaration(ast: AstReader, node: Node): boolean {
   if (parent === undefined) return false;
   const kind = ast.kindName(parent);
   return kind === "KindClassDeclaration" || kind === "KindClassExpression" || kind === "KindInterfaceDeclaration";
+}
+
+function isTypeLiteralMember(ast: AstReader, node: Node): boolean {
+  const parent = ast.parent(node);
+  return parent !== undefined && ast.kindName(parent) === "KindTypeLiteral";
 }

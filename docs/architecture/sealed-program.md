@@ -223,7 +223,7 @@ not claims that their complete relocation is part of the initial API migration.
 
 ### C#
 
-C# exposes 123 families, grouped by their declaration module under
+C# exposes 124 families, grouped by their declaration module under
 `target-model/records/`, `target-model/conversions/exact-literals.ts`, or the named shared source contract. The
 analysis column identifies their existing producer
 responsibility; consolidation must preserve all compound query arguments.
@@ -244,7 +244,7 @@ responsibility; consolidation must preserve all compound query arguments.
 | `numeric.ts` | `numeric/` | `int32Remainder` |
 | shared `SourceLiteralIndex` | `target-api/source-semantics/literal-values.ts`, composed once before target type analysis | `literalValue` |
 | `return-contexts.ts` | `expected-types/`, with checked callable/return-contract inputs | `returnContext` |
-| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `erasedStatement`, `operatorForm`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
+| `operations.ts` | `operations/` | `awaitCompletion`, `classPropertyStorage`, `borrowedSequence`, `nativeGuardResult`, `nativeUnreachable`, `erasedStatement`, `nativeHandler`, `operatorForm`, `memoryBinding`, `operationResultType`, `selectedCall`, `selectedConstruction`, `selectedProperty`, `sourceMember`, `selectedElement`, `binaryOperation`, `switchStatement`, `unaryOperation`, `iteration`, `resource`, `nativePointer`, `typedLocation`, `nativeRefReturn`, `jsCondition`, `jsTypeof`, `typeofRuntimeKind`, `jsVoid`, `jsObjectLiteral`, `jsArrayMutation`, `elementDeletion`, `jsStringConversion`, `providerValue`, `regularExpression`, `throwable`, `throwValue`, `exactCatchRethrow` |
 | `safety.ts` | `safety/` | `sourceSafetyApplication`, `safetyApplication`, `safetyOperation` |
 | `source-evidence.ts` | `source-evidence/`, with declaration/type/callable inputs | `bindingProjection`, `closedArrayStorage`, `compileTimeMetadata`, `nodeTargetType`, `classConstructorType`, `storageTargetType`, `readStorageTargetType`, `expressionType`, `contextualType`, `contextualTargetType`, `semanticTargetType`, `semanticType`, `signatureDeclaration`, `contextualTuple`, `constantValue`, `valueRefinement`, `generator`, `generatorTargetType`, `yield`, `yieldTargetType`, `wellKnownSymbol`, `inferredCallableReturnType`, `pointerReturn`, `sourceArgument`, `sourceDefaultValue`, `sourceField`, `sourceStruct`, `providerVirtualDeclaration`, `typeParameterConstraints`, `sourceOwnedProjectShape` |
 | `source-modules.ts` | `source-modules/` | `sourceModuleConstruction` |
@@ -265,6 +265,17 @@ remaining-block unsafe-context marker, which emit no C#. The walk reports no
 operation issue inside an erased statement, except inside an attribute
 application's invocation, which stays demanded. The planner and module
 initialization read the outcome; neither decides erasure again.
+
+`nativeHandler` names, for each expression that the operations walk reaches,
+the one native handler that claims it: memory binding, explicit safety, JS
+string conversion, native pointer or typed location, in that precedence.
+Expressions inside compile-time metadata or native-unreachable code have none,
+and so does an expression that no handler claims. The precedence is the native
+policy in `policy/operations/pointers/native-handlers.ts`. The operations walk
+calls it once per visited source node, after the memory-binding, JS string conversion,
+native-pointer and typed-location selections are complete, with the explicit
+safety operation from the safety application index, and publishes the result.
+The planner calls only the handler the record names.
 
 `exactLiteral` holds one selection per actually requested (literal, target)
 pair: the intrinsic request, the literal's read and expected types, a resolved
