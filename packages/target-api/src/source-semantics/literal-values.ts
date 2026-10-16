@@ -1,12 +1,14 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { createSourceIntegerConstantReader } from "./integer-constant.js";
-import { sourceIntegerLiteralValue } from "./integer-literal.js";
+import { sourceIntegerLiteralTokenValue, sourceIntegerLiteralValue } from "./integer-literal.js";
 import type {
   SourceLiteralIndex,
   SourceLiteralValue,
+  SourceNumericLiteralEvidence,
   SourceScalarLiteralValue,
 } from "./literal-values-model.js";
 import { parseFiniteNumberLiteral } from "./literal-text.js";
+import { parseSourceNumericLiteralToken, sourceLiteralToken } from "./literal-token.js";
 
 export function analyzeSourceLiteralValues(
   ast: AstReader,
@@ -43,7 +45,20 @@ export function analyzeSourceLiteralValues(
     if (kind === "KindTrueKeyword") return scalar("true", {});
     if (kind === "KindFalseKeyword") return scalar("false", {});
     if (ast.is.IsNumericLiteral(node)) {
-      return scalar("numeric", { number: parseFiniteNumberLiteral(ast.text(node)), integer: sourceIntegerLiteralValue(ast, node) });
+      const input = sourceLiteralToken(ast, node);
+      const checkedText = ast.text(node);
+      const number = parseFiniteNumberLiteral(checkedText);
+      if (input.kind === "synthetic") {
+        const value = Number(checkedText.replace(/_/gu, ""));
+        return Object.freeze({ form: "numeric", numeric: Object.freeze({ kind: "checked-float64", value }),
+          ...(number === undefined ? {} : { number }),
+          ...(Number.isSafeInteger(value) ? { integer: BigInt(value) } : {}) });
+      }
+      const token = parseSourceNumericLiteralToken(input.text);
+      if (token === undefined) throw new Error("Checked numeric literal requires a valid authored numeric token.");
+      const integer = sourceIntegerLiteralTokenValue(token, input.text);
+      return Object.freeze({ form: "numeric", numeric: Object.freeze({ kind: "authored", token }),
+        ...(number === undefined ? {} : { number }), ...(integer === undefined ? {} : { integer }) });
     }
     if (ast.is.IsBigIntLiteral(node)) return scalar("bigint", { integer: sourceIntegerLiteralValue(ast, node) });
     if (ast.is.IsPrefixUnaryExpression(node)) {
@@ -57,14 +72,15 @@ export function analyzeSourceLiteralValues(
       return !literal ? undefined : scalar("prefix-unary", {
         number: signed?.number === undefined ? undefined : negative ? -signed.number : signed.number,
         integer: signed?.integer === undefined ? undefined : negative ? -signed.integer : signed.integer,
+        numeric: signed?.numeric === undefined ? undefined : !negative ? signed.numeric : negate(signed.numeric),
       });
     }
     if (ast.is.IsParenthesizedExpression(node)) {
       const inner = ast.as.AsParenthesizedExpression(node)?.Expression;
       const enclosed = inner === undefined ? undefined : values.get(inner);
       const integerConstant = integerConstantOf(node);
-      return enclosed?.number === undefined && enclosed?.integer === undefined && integerConstant === undefined ? undefined
-        : scalar("parenthesized", { number: enclosed?.number, integer: enclosed?.integer, integerConstant });
+      return enclosed?.numeric === undefined && enclosed?.number === undefined && enclosed?.integer === undefined && integerConstant === undefined ? undefined
+        : scalar("parenthesized", { number: enclosed?.number, integer: enclosed?.integer, integerConstant, numeric: enclosed?.numeric });
     }
     if (ast.is.IsBinaryExpression(node)) {
       const integerConstant = integerConstantOf(node);
@@ -84,6 +100,7 @@ function scalar(
     readonly number?: number | undefined;
     readonly integer?: bigint | undefined;
     readonly integerConstant?: bigint | undefined;
+    readonly numeric?: SourceNumericLiteralEvidence | undefined;
   },
 ): SourceScalarLiteralValue {
   return Object.freeze({
@@ -91,5 +108,12 @@ function scalar(
     ...(fields.number === undefined ? {} : { number: fields.number }),
     ...(fields.integer === undefined ? {} : { integer: fields.integer }),
     ...(fields.integerConstant === undefined ? {} : { integerConstant: fields.integerConstant }),
+    ...(fields.numeric === undefined ? {} : { numeric: fields.numeric }),
   });
+}
+
+function negate(evidence: SourceNumericLiteralEvidence): SourceNumericLiteralEvidence {
+  return evidence.kind === "checked-float64"
+    ? Object.freeze({ kind: "checked-float64", value: -evidence.value })
+    : Object.freeze({ kind: "authored", token: Object.freeze({ ...evidence.token, negative: !evidence.token.negative }) });
 }
