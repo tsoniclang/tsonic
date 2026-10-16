@@ -184,3 +184,38 @@ export enum Text { Entry = "entry" }
     program.ast.parent(entry.declaration) === declarations[4]);
   assert.equal(text?.kind === "resolved" ? text.value : undefined, "entry", "native admission never changes the source value index");
 });
+
+test("exact enum intermediates are not constrained by float finiteness or the eventual native width", () => {
+  const program = createTargetSourceProgram(checked(`
+export enum Intermediate { Power = (2 ** 1000) / (2 ** 1000), Decimal = 1e400 / 1e400,
+  One = 1 ** -9007199254740993, Odd = (-1) ** -9007199254740993, Even = (-1) ** -9007199254740994 }
+`, {}, false));
+  const values = program.semantics.enumConstants.entries;
+  assert.deepEqual(values.map(entry => entry.kind === "resolved" ? entry.value : `${entry.failure}:${entry.reason}`),
+    [1n, 1n, 1n, -1n, 1n]);
+  const declaration = program.ast.statements(program.navigation.sourceFiles[0]!)[0]!;
+  assert.equal(program.semantics.enumConstants.integerWidth(declaration)?.kind, "resolved", "only the final exact values determine native width");
+});
+
+test("enum resource refusals preflight huge allocations and preserve a distinct immutable failure", () => {
+  const program = createTargetSourceProgram(checked(`
+export enum Storage { Value = 2 ** 1000000000 }
+export enum Work { Value = 2 ** 10000 }
+export enum Exponent { Value = 1e1000000000 }
+export enum Ordinary { Value = 7 }
+export const values = { [Storage.Value]: 1 };
+`, {}, false));
+  const entries = program.semantics.enumConstants.entries;
+  assert.equal(entries.length, 4, "refused and ordinary members all remain indexed");
+  for (const [position, entry] of entries.slice(0, 3).entries()) {
+    assert.equal(entry.kind === "rejected" && entry.failure === "resource", true, `resource case ${position}`);
+    assert.equal(entry.kind === "rejected" && entry.reason.includes(position === 1 ? "work budget" : "storage budget"), true,
+      `resource case ${position} names its actual budget`);
+    const width = program.semantics.enumConstants.integerWidth(program.ast.parent(entry.declaration)!);
+    assert.equal(width?.kind === "rejected" && width.failure === "resource", true, `width ${position} preserves the original resource refusal`);
+    assert.equal(Object.isFrozen(entry) && width !== undefined && Object.isFrozen(width), true, `resource case ${position} is sealed data`);
+  }
+  assert.equal(entries[3]!.kind === "resolved" ? entries[3]!.value : undefined, 7n, "one refusal does not poison an independent evaluation");
+  const key = program.semantics.forFile(program.navigation.sourceFiles[0]!).propertyNames.entries[0]!.selection;
+  assert.equal(key.kind === "rejected" && key.failure === "resource", true, "key admission retains the same resource category");
+});
