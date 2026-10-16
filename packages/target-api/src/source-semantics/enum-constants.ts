@@ -72,11 +72,35 @@ export function analyzeSourceEnumConstants(
   }
 
   const completed = new WeakMap<Node, Constant>();
+  const checkedConstants = new WeakMap<Node, { readonly value: unknown }>();
   const selections = new WeakMap<Node, SourceEnumConstantSelection>();
   const widths = new WeakMap<Node, SourceEnumIntegerWidthSelection>();
+  const disagreements = new WeakMap<Node, Constant>();
   const entries: SourceEnumConstantSelection[] = [];
+  for (const member of members) evaluate(member);
+  for (const declaration of declarations) {
+    const checkedValues = new Map<number, { readonly member: Node; readonly exact: bigint }[]>();
+    for (const member of declaration.members) {
+      const value = completed.get(member)!;
+      if (value.kind !== "resolved" || typeof value.value !== "bigint") continue;
+      const checked = checkedConstant(member);
+      if (typeof checked !== "number" || checked !== Number(value.value)) {
+        disagreements.set(member, rejected(enumDisagreement(member, value.value, checked)));
+      }
+      if (typeof checked !== "number") continue;
+      const prior = checkedValues.get(checked);
+      const entry = { member, exact: value.value };
+      if (prior === undefined) checkedValues.set(checked, [entry]);
+      else prior.push(entry);
+    }
+    for (const [checked, values] of checkedValues) {
+      if (values.every(value => value.exact === values[0]!.exact)) continue;
+      for (const value of values) disagreements.set(value.member, rejected(
+        `${enumDisagreement(value.member, value.exact, checked)} Different exact enum values share this checker value; write distinct explicit values with distinct checker identities.`));
+    }
+  }
   for (const member of members) {
-    const value = evaluate(member);
+    const value = disagreements.get(member) ?? completed.get(member)!;
     const selection: SourceEnumConstantSelection = value.kind === "resolved"
       ? Object.freeze({ kind: "resolved", declaration: member, value: value.value })
       : Object.freeze({ kind: "rejected", declaration: member, reason: value.reason, failure: value.failure });
@@ -110,6 +134,21 @@ export function analyzeSourceEnumConstants(
   }
   return Object.freeze({ entries: Object.freeze(entries), get: (member: Node) => selections.get(member),
     integerWidth: (declaration: Node) => widths.get(declaration) });
+
+  function checkedConstant(member: Node): unknown {
+    const existing = checkedConstants.get(member);
+    if (existing !== undefined) return existing.value;
+    const file = ast.getSourceFile(member);
+    if (file === undefined) throw new Error("A checked enum member must belong to its source file.");
+    const value = source.getSourceFileQueries(file).typeShape.getConstantValue(member);
+    checkedConstants.set(member, { value });
+    return value;
+  }
+
+  function enumDisagreement(member: Node, exact: bigint, checked: unknown): string {
+    const name = ast.name(member);
+    return `Enum member ${name === undefined ? "<unnamed>" : ast.text(name)} has exact value ${exact}, but its checker value is ${String(checked)}. Write the value explicitly with a coherent checker identity.`;
+  }
 
   function evaluate(root: Node): Constant {
     const active = new Set<Node>();
@@ -175,9 +214,7 @@ export function analyzeSourceEnumConstants(
     if (membership.has(node)) {
       const member = ast.as.AsEnumMember(node)!;
       if (member.Initializer !== undefined) {
-        const file = ast.getSourceFile(node);
-        if (file === undefined) throw new Error("A checked enum member must belong to its source file.");
-        const constant = source.getSourceFileQueries(file).typeShape.getConstantValue(node);
+        const constant = checkedConstant(node);
         return depends(node, [member.Initializer], values => typeof constant === "number" || typeof constant === "string"
           ? values[0]! : rejected("The enum member is computed rather than a checked source constant."));
       }

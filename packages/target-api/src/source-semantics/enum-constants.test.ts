@@ -24,9 +24,11 @@ export enum Value { First, Second, Exact = 9007199254740993, Next, Imported = Ba
   assert.equal(selected.length, 6, "every actual checked member is indexed once");
   const values = selected.map(entry => entry.kind === "resolved" ? entry.value : entry.reason);
   assert.equal(values.includes(9007199254740995n), true, "imported member never passes through Number");
-  assert.equal(values.includes(9007199254740993n), true, "initialized authored integer is exact");
-  assert.equal(values.includes(9007199254740994n), true, "implicit ordinal increments the exact predecessor");
-  assert.equal(values.includes(9007199254740998n), true, "imported arithmetic is exact");
+  for (const name of ["Exact", "Next", "Imported"]) {
+    const member = selected.find(entry => program.ast.text(program.ast.name(entry.declaration)) === name);
+    assert.equal(member?.kind === "rejected" && member.reason.includes("checker value"), true,
+      `${name} is refused where the exact value and the checker identity disagree`);
+  }
   assert.equal(values.includes(0n), true, "a nonambient first implicit member starts at zero");
   assert.equal(values.includes(1n), true, "ordinary implicit successors remain unchanged");
 });
@@ -50,12 +52,17 @@ export enum Arithmetic { Sum = 9007199254740993 + 2, Difference = Sum - 4,
   Product = Difference * 3, Quotient = Product / 3, Remainder = Sum % 4,
   Power = 2 ** 54, Negative = -(9007199254740993), Scientific = 1.25e3 }
 `));
-  assert.deepEqual(program.semantics.enumConstants.entries.map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
-    [9007199254740995n, 9007199254740991n, 27021597764222973n, 9007199254740991n, 3n,
-      18014398509481984n, -9007199254740993n, 1250n]);
+  const entries = program.semantics.enumConstants.entries;
+  for (const [position, exact] of [9007199254740995n, 9007199254740991n, 27021597764222973n, 9007199254740991n, 3n].entries()) {
+    const entry = entries[position]!;
+    assert.equal(entry.kind === "rejected" && entry.reason.includes(`exact value ${exact}`) && entry.reason.includes("checker value"), true,
+      `arithmetic member ${position} preserves the exact value in its coherence refusal`);
+  }
+  assert.deepEqual(entries.slice(5).map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
+    [18014398509481984n, -9007199254740993n, 1250n]);
 });
 
-test("checked const references retain exact authored values and alias keys retain the same enum entry", () => {
+test("checked const references refuse incoherent implicit enum ordinals without changing their values", () => {
   const program = createTargetSourceProgram(checked(`
 import { exact } from "./constants.js";
 export enum Value { First = exact, Second, Third }
@@ -63,13 +70,15 @@ const key = Value.Third;
 export const result = { [key]: 1 };
 `, { "/src/constants.ts": "export const exact = 9007199254740993;" }));
   const entries = program.semantics.enumConstants.entries;
-  assert.deepEqual(entries.map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
-    [9007199254740993n, 9007199254740994n, 9007199254740995n]);
+  for (const [position, exact] of [9007199254740993n, 9007199254740994n, 9007199254740995n].entries()) {
+    const entry = entries[position]!;
+    assert.equal(entry.kind === "rejected" && entry.reason.includes(`exact value ${exact}`), true,
+      `implicit ordinal ${position} has a precise exact/checker disagreement`);
+  }
   const file = program.navigation.sourceFiles.find(candidate => program.ast.getFileName(candidate) === "/src/index.ts")!;
   const key = program.semantics.forFile(file).propertyNames.entries[0]!.selection;
-  assert.equal(key.kind === "resolved" ? key.name : undefined, "9007199254740995", "checker ordinal rounding cannot change a const enum-derived key");
-  assert.equal(key.kind === "resolved" && key.constant.kind === "enum-member" && key.constant.entry === entries[2], true,
-    "the const alias carries the same enum decision, not a second evaluator result");
+  assert.equal(key.kind === "rejected" && entries[2]!.kind === "rejected" && key.reason === entries[2]!.reason, true,
+    "the const alias carries the same refusal, not a second evaluator or a rounded value");
 });
 
 test("fractional enum constants and zero divisors are explicit refused selections, never truncations", () => {
@@ -119,7 +128,7 @@ export const value = { [Key.Entry]: 1 };
 });
 
 test("numeric enum keys are identical to the indexed discriminant and sealed reads perform no queries", () => {
-  const source = checked('export enum Key { Entry = 9007199254740993 } export const value = { [Key.Entry]: 1 };');
+  const source = checked('export enum Key { Entry = 9007199254740994 } export const value = { [Key.Entry]: 1 };');
   const navigation = createSourceProgramNavigation(source);
   let sealed = false;
   let queries = 0;
@@ -185,16 +194,42 @@ export enum Text { Entry = "entry" }
   assert.equal(text?.kind === "resolved" ? text.value : undefined, "entry", "native admission never changes the source value index");
 });
 
-test("exact enum intermediates are not constrained by float finiteness or the eventual native width", () => {
+test("exact enum intermediates preserve native values and separately refuse checker disagreement", () => {
   const program = createTargetSourceProgram(checked(`
 export enum Intermediate { Power = (2 ** 1000) / (2 ** 1000), Decimal = 1e400 / 1e400,
   One = 1 ** -9007199254740993, Odd = (-1) ** -9007199254740993, Even = (-1) ** -9007199254740994 }
 `, {}, false));
   const values = program.semantics.enumConstants.entries;
-  assert.deepEqual(values.map(entry => entry.kind === "resolved" ? entry.value : `${entry.failure}:${entry.reason}`),
-    [1n, 1n, 1n, -1n, 1n]);
+  assert.deepEqual([values[0], values[2], values[4]].map(entry => entry?.kind === "resolved" ? entry.value : undefined),
+    [1n, 1n, 1n]);
+  for (const [position, exact] of [[1, 1n], [3, -1n]] as const) {
+    const entry = values[position]!;
+    assert.equal(entry.kind === "rejected" && entry.failure === "source" && entry.reason.includes(`exact value ${exact}`) &&
+      entry.reason.includes("checker value"), true, `intermediate ${position} reaches coherence admission, not a resource or native-width cap`);
+  }
   const declaration = program.ast.statements(program.navigation.sourceFiles[0]!)[0]!;
-  assert.equal(program.semantics.enumConstants.integerWidth(declaration)?.kind, "resolved", "only the final exact values determine native width");
+  assert.equal(program.semantics.enumConstants.integerWidth(declaration)?.kind, "rejected", "one source-incoherent member refuses its enum before the seal");
+});
+
+test("explicit wide enum values retain exact native data while distinct checker collisions refuse", () => {
+  const program = createTargetSourceProgram(checked(`
+export enum Exact { First = 9007199254740993, Next = 9007199254740994, Same = First }
+export enum Colliding { Low = 9007199254740992, High = 9007199254740993 }
+export enum Remainder { Sum = 9007199254740993 + 2, Value = Sum % 4 }
+`));
+  const entries = program.semantics.enumConstants.entries;
+  assert.deepEqual(entries.slice(0, 3).map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
+    [9007199254740993n, 9007199254740994n, 9007199254740993n]);
+  for (const entry of entries.slice(3, 5)) {
+    assert.equal(entry.kind === "rejected" && entry.reason.includes("Different exact enum values share this checker value"), true,
+      "both different exact values lose the colliding checker identity");
+  }
+  for (const entry of entries.slice(5)) assert.equal(entry.kind === "rejected" && entry.reason.includes("checker value"), true,
+    "arithmetic disagreement is refused even when only enum values are used");
+  const declarations = program.ast.statements(program.navigation.sourceFiles[0]!).filter((node): node is Node =>
+    node !== undefined && program.ast.is.IsEnumDeclaration(node));
+  assert.deepEqual(declarations.map(declaration => program.semantics.enumConstants.integerWidth(declaration)?.kind),
+    ["resolved", "rejected", "rejected"]);
 });
 
 test("enum resource refusals preflight huge allocations and preserve a distinct immutable failure", () => {
