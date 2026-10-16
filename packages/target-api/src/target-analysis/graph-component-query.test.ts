@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetGraphComponentQuery } from "./graph-component-query.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "./source-storage/model/resource-budget.js";
+import { createTargetGraphComponentQuery as publicGraphComponentQuery } from "../public/analysis.js";
+
+test("the public analysis port exposes the one canonical component-query owner", () => {
+  assert.equal(publicGraphComponentQuery === createTargetGraphComponentQuery, true);
+});
 
 test("one component query shares complete cyclic results and never reloads a cached suffix", () => {
   const budget = createSourceStorageBudget(defaultSourceStorageLimits);
