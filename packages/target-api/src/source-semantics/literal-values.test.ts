@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createCompilerSessionFromFiles, formatDiagnostics, type AstReader, type Node } from "@tsonic/tsts";
 import { analyzeSourceLiteralValues, compareSourceNumericLiteralMagnitude, createTargetSourceProgram } from "../public/source.js";
-import { parseSourceNumericLiteralToken, sourceLiteralToken } from "./literal-token.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
 import { parseNativeIntegerLiteral } from "./integer-literal.js";
 
 const float32Midpoint = (1n << 128n) - (1n << 103n);
@@ -126,8 +126,9 @@ test("exact token comparisons and bounded integer facts share normalization with
   const rows = [ [".5", -1], ["1.", 0], ["10e-1", 0], ["1.01", 1], ["0xff", 1],
     ["1e9999999999999999999999", 1], ["1e-9999999999999999999999", -1] ] as const;
   for (const [text, expected] of rows) {
-    const token = parseSourceNumericLiteralToken(text);
-    assert.ok(token);
+    const parsed = parseSourceNumericLiteral(text);
+    assert.ok(parsed);
+    const token = parsed.token;
     assert.equal(compareSourceNumericLiteralMagnitude(token, 1n), expected, text);
     assert.equal(token.decimalText.length <= text.length + 3, true, `bounded native spelling: ${text}`);
   }

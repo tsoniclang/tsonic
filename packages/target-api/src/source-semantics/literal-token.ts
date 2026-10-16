@@ -14,19 +14,27 @@ export function sourceLiteralToken(ast: AstReader, node: Node):
   return Object.freeze({ kind: "authored", text: source.slice(range.start, range.end) });
 }
 
-export function parseSourceNumericLiteralToken(text: string): SourceNumericLiteralToken | undefined {
+interface ParsedSourceNumericLiteral {
+  readonly token: SourceNumericLiteralToken;
+  readonly integer: bigint | undefined;
+}
+
+export function parseSourceNumericLiteral(text: string): ParsedSourceNumericLiteral | undefined {
   const normalized = text.replace(/_/gu, "");
   const radix = /^0(?:[xX][0-9a-fA-F]+|[oO][0-7]+|[bB][01]+)$/u.test(normalized);
   if (radix) {
     const coefficient = BigInt(normalized);
-    return Object.freeze({ coefficient, exponent: 0n, negative: false, decimalText: `${coefficient}.0` });
+    const prefix = normalized.slice(0, 2).toLowerCase();
+    const bitsPerDigit = prefix === "0x" ? 4 : prefix === "0o" ? 3 : 1;
+    const integer = normalized.slice(2).replace(/^0+/u, "").length * bitsPerDigit <= 132 ? coefficient : undefined;
+    return Object.freeze({ token: Object.freeze({ coefficient, exponent: 0n, negative: false, decimalText: `${coefficient}.0` }), integer });
   }
   const decimal = /^(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/u.exec(normalized);
   if (decimal === null) return undefined;
   const fraction = decimal[2] ?? decimal[3] ?? "";
   const digits = ((decimal[1] ?? "0") + fraction).replace(/^0+/u, "");
   if (digits.length === 0) {
-    return Object.freeze({ coefficient: 0n, exponent: 0n, negative: false, decimalText: "0.0" });
+    return Object.freeze({ token: Object.freeze({ coefficient: 0n, exponent: 0n, negative: false, decimalText: "0.0" }), integer: 0n });
   }
   const significant = digits.replace(/0+$/u, "");
   const sourceExponent = BigInt(decimal[4] ?? "0");
@@ -35,7 +43,9 @@ export function parseSourceNumericLiteralToken(text: string): SourceNumericLiter
   const mantissa = decimal[2] !== undefined || decimal[3] !== undefined ? `${whole}.${fraction || "0"}` : whole;
   const suffix = decimal[4] === undefined ? "" : `e${sourceExponent < 0n ? "" : "+"}${sourceExponent}`;
   const decimalText = suffix.length === 0 && !mantissa.includes(".") ? `${mantissa}.0` : mantissa + suffix;
-  return Object.freeze({ coefficient: BigInt(significant), exponent, negative: false, decimalText });
+  const coefficient = BigInt(significant);
+  const integer = exponent >= 0n && BigInt(significant.length) + exponent <= 40n ? coefficient * 10n ** exponent : undefined;
+  return Object.freeze({ token: Object.freeze({ coefficient, exponent, negative: false, decimalText }), integer });
 }
 
 export function compareSourceNumericLiteralMagnitude(token: SourceNumericLiteralToken, limit: bigint): -1 | 0 | 1 {

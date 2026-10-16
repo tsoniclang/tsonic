@@ -1,6 +1,6 @@
 import type { AstReader, Node, SourceFile } from "@tsonic/tsts";
 import { createSourceIntegerConstantReader } from "./integer-constant.js";
-import { sourceIntegerLiteralTokenValue, sourceIntegerLiteralValue } from "./integer-literal.js";
+import { sourceIntegerLiteralValue } from "./integer-literal.js";
 import type {
   SourceLiteralIndex,
   SourceLiteralValue,
@@ -8,7 +8,7 @@ import type {
   SourceScalarLiteralValue,
 } from "./literal-values-model.js";
 import { parseFiniteNumberLiteral } from "./literal-text.js";
-import { parseSourceNumericLiteralToken, sourceLiteralToken } from "./literal-token.js";
+import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.js";
 
 export function analyzeSourceLiteralValues(
   ast: AstReader,
@@ -54,9 +54,9 @@ export function analyzeSourceLiteralValues(
           ...(number === undefined ? {} : { number }),
           ...(Number.isSafeInteger(value) ? { integer: BigInt(value) } : {}) });
       }
-      const token = parseSourceNumericLiteralToken(input.text);
-      if (token === undefined) throw new Error("Checked numeric literal requires a valid authored numeric token.");
-      const integer = sourceIntegerLiteralTokenValue(token, input.text);
+      const parsed = parseSourceNumericLiteral(input.text);
+      if (parsed === undefined) throw new Error("Checked numeric literal requires a valid authored numeric token.");
+      const { token, integer } = parsed;
       return Object.freeze({ form: "numeric", numeric: Object.freeze({ kind: "authored", token }),
         ...(number === undefined ? {} : { number }), ...(integer === undefined ? {} : { integer }) });
     }
