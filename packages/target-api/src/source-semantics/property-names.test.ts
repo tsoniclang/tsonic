@@ -221,6 +221,20 @@ export function answer(): number { return 42; }
     ["value", "9007199254740993"]);
 });
 
+test("erased assertions preserve literal key evidence without disguising a dynamic expression", () => {
+  const source = checked(`
+const key = "value";
+export const literal = { ["literal" as const]: 1 };
+export const numeric = { [9007199254740993 as const]: 2 };
+export const reference = { [key!]: 3 };
+export function dynamic(key: string) { return { [key as "value"]: 4 }; }
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 1, "an assertion cannot make a dynamic reference a static key");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["literal", "9007199254740993", "value", "rejected"]);
+});
+
 test("source syntax snapshots retain checked declaration-file keys without target-side recomputation", () => {
   const source = checked('import type { External } from "./external.js"; export function read(value: External): number { return value.value; }', {
     "/src/external.d.ts": 'export interface External { ["value"]: number; }',

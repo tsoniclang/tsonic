@@ -84,8 +84,12 @@ export function analyzeSourcePropertyNames(
 
   function unwrap(node: Node | undefined): Node | undefined {
     let current = node;
-    while (current !== undefined && ast.is.IsParenthesizedExpression(current)) {
-      current = ast.as.AsParenthesizedExpression(current)?.Expression;
+    while (current !== undefined) {
+      if (ast.is.IsParenthesizedExpression(current)) current = ast.as.AsParenthesizedExpression(current)?.Expression;
+      else if (ast.is.IsAsExpression(current)) current = ast.as.AsAsExpression(current)?.Expression;
+      else if (ast.is.IsSatisfiesExpression(current)) current = ast.as.AsSatisfiesExpression(current)?.Expression;
+      else if (ast.is.IsNonNullExpression(current)) current = ast.as.AsNonNullExpression(current)?.Expression;
+      else break;
     }
     return current;
   }
