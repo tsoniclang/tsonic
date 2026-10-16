@@ -1,44 +1,55 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { guardCgroupPath, readGuardCounters } from "./guard-cgroup.mjs";
 
-export function guardCgroupPath(membership) {
-  const selected = membership.match(/^0::(\/.*)$/mu);
-  if (selected === null) throw new Error("The bounded command requires its cgroup v2 membership.");
-  const root = "/sys/fs/cgroup";
-  const path = resolve(root, `.${selected[1]}`);
-  if (path !== root && !path.startsWith(`${root}/`)) throw new Error("Invalid bounded command cgroup.");
-  return path;
-}
-
-export function readGuardCounters(group) {
-  const integer = (file) => {
-    const text = readFileSync(resolve(group, file), "utf8").trim();
-    if (!/^\d+$/u.test(text)) throw new Error(`Invalid cgroup counter ${file}.`);
-    const value = Number(text);
-    if (!Number.isSafeInteger(value)) throw new Error(`Unsafe cgroup counter ${file}.`);
-    return value;
-  };
-  const fields = (file) => Object.fromEntries(readFileSync(resolve(group, file), "utf8").trim().split("\n").map(line => {
-    const [key, text] = line.trim().split(/\s+/u);
-    const value = Number(text);
-    if (key === undefined || !/^\d+$/u.test(text ?? "") || !Number.isSafeInteger(value)) {
-      throw new Error(`Invalid cgroup fields ${file}.`);
+export function memoryBoundNodeTestArguments(command, arguments_, workers) {
+  if (!/(?:^|\/)node(?:js)?$/u.test(command) || !arguments_.includes("--test")) return arguments_;
+  const help = spawnSync(process.execPath, ["--help"], { encoding: "utf8", maxBuffer: 1_048_576 });
+  if (help.status !== 0) throw new Error("Cannot read the installed Node command-line option contract.");
+  const valued = new Set();
+  for (const match of help.stdout.matchAll(/^\s+(?:(-[a-zA-Z]),\s+)?(--[a-zA-Z0-9-]+)=/gmu)) {
+    if (match[1] !== undefined) valued.add(match[1]);
+    valued.add(match[2]);
+  }
+  let boundary = arguments_.length;
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === "--" || !argument.startsWith("-") || ["-e", "--eval", "-p", "--print"].includes(argument)) {
+      boundary = index;
+      break;
     }
-    return [key, value];
-  }));
-  return {
-    memoryPeakBytes: integer("memory.peak"),
-    swapBytes: integer("memory.swap.current"),
-    cpu: fields("cpu.stat"),
-    memoryEvents: fields("memory.events"),
-  };
+    if (valued.has(argument)) index += 1;
+  }
+  const options = arguments_.slice(0, boundary);
+  if (!options.includes("--test")) return arguments_;
+  const expected = String(workers);
+  let configured = false;
+  for (let index = 0; index < options.length; index += 1) {
+    const argument = options[index];
+    if (argument.startsWith("--test-concurrency=")) {
+      configured = true;
+      if (argument.slice("--test-concurrency=".length) !== expected) throw new Error("Node test concurrency must equal the memory-derived worker count.");
+    } else if (argument === "--test-concurrency") {
+      configured = true;
+      if (options[index + 1] !== expected) throw new Error("Node test concurrency must equal the memory-derived worker count.");
+    }
+  }
+  if (configured) return arguments_;
+  const marker = arguments_.indexOf("--test");
+  return [...arguments_.slice(0, marker + 1), `--test-concurrency=${expected}`, ...arguments_.slice(marker + 1)];
 }
 
 export async function runGuardCommand(measurementPath, command, arguments_) {
   if (typeof command !== "string" || command.length === 0) throw new Error("A bounded command is required.");
   const group = guardCgroupPath(readFileSync("/proc/self/cgroup", "utf8"));
+  const admission = JSON.parse(process.env.TSONIC_TEST_ADMISSION);
+  const activate = spawnSync("flock", [process.env.TSONIC_TEST_ADMISSION_LOCK, process.execPath,
+    fileURLToPath(new URL("./memory-admission.mjs", import.meta.url)), "activate",
+    process.env.TSONIC_TEST_ADMISSION_STATE, admission.unit, process.env.TSONIC_TEST_ADMISSION_OWNER,
+  ], { stdio: "inherit" });
+  if (activate.status !== 0) throw new Error("The bounded command could not activate its memory reservation.");
   const before = readGuardCounters(group);
   const startedAt = new Date().toISOString();
   const started = process.hrtime.bigint();
@@ -65,6 +76,12 @@ export async function runGuardCommand(measurementPath, command, arguments_) {
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [measurementPath, command, ...arguments_] = process.argv.slice(2);
-  process.exitCode = await runGuardCommand(measurementPath, command, arguments_);
+  const [measurementPath, timeoutSeconds, command, ...arguments_] = process.argv.slice(2);
+  if (!/^[1-9]\d*$/u.test(timeoutSeconds ?? "")) throw new Error("A positive bounded command timeout is required.");
+  const budget = JSON.parse(process.env.TSONIC_TEST_RESOURCE_BUDGET);
+  const workers = Math.floor(budget.memoryMiB / budget.workerMemoryMiB);
+  const bounded = memoryBoundNodeTestArguments(command, arguments_, workers);
+  process.exitCode = await runGuardCommand(measurementPath, "timeout", [
+    "--signal=TERM", "--kill-after=30s", `${timeoutSeconds}s`, command, ...bounded,
+  ]);
 }

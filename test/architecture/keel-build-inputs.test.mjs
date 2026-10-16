@@ -83,7 +83,7 @@ test("the existing queue weights the heavy inventory task without lowering ordin
 
 test("one admitted task gets its own finite heap and worker budget while other Node options remain exact", () => {
   const budget = testResourceBudget({ cpus: 8, totalMemoryMiB: 16384, availableMemoryMiB: 16384 }, {
-    TSONIC_TEST_CPUS: "4", TSONIC_TEST_MEMORY_MIB: "8192", TSONIC_TEST_WORKERS: "2", TSONIC_TEST_CHILD_JOBS: "2",
+    TSONIC_TEST_CPUS: "8", TSONIC_TEST_MEMORY_MIB: "8192", TSONIC_TEST_WORKERS: "2", TSONIC_TEST_CHILD_JOBS: "2",
   });
   const environment = { NODE_OPTIONS: '--trace-warnings --require "/path with spaces/hook.mjs" --max-old-space-size=1536' };
   const selected = testTaskEnvironment(environment, budget, { id: "inventory", memoryMiB: 4096, heapMiB: 3072 });
@@ -114,7 +114,7 @@ test("an outer budget below 4 GiB rejects the inventory before any build prerequ
       "test/scripts/run-parallel.mjs", "--with-preruns", "--scope", "tsonic", "--match", "test/architecture/keel-violations.test.mjs",
     ], {
       cwd: repository, encoding: "utf8", timeout: 60_000,
-      env: { ...process.env, PATH: root, TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(budget), NODE_OPTIONS: "--max-old-space-size=1536" },
+      env: { ...process.env, PATH: root, TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(budget), TSONIC_TEST_WORKERS: "1", NODE_OPTIONS: "--max-old-space-size=1536" },
     });
     assert.equal(result.status, 1);
     assert.equal(result.stderr.includes("cannot fit the memory budget"), true);

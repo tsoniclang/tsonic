@@ -4,12 +4,14 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { availableParallelism } from "node:os";
 
 test("the bounded process launcher preserves literal child arguments", () => {
-  const script = readFileSync(new URL("../scripts/bounded-run.sh", import.meta.url), "utf8");
+  const script = readFileSync(new URL("../scripts/bounded-test-scope.sh", import.meta.url), "utf8");
   const invocation = script.slice(script.indexOf("  systemd-run \\\n"), script.indexOf("test_runner_pid=$!"));
   assert.match(invocation, /^\s*--expand-environment=no \\/mu);
-  assert.match(invocation, /^\s*env -u TSONIC_TEST_GUARD_REPORT "\$@" \\/mu);
+  assert.match(invocation, /^\s*env -u TSONIC_TEST_GUARD_REPORT node "\$script_root\/guard-command.mjs" "\$measurement_file" "\$timeout_seconds" \\/mu);
+  assert.match(invocation, /^\s*"\$@" \\/mu);
   assert.doesNotMatch(invocation, /\beval\b/u);
 });
 
@@ -37,7 +39,7 @@ test("the bounded process launcher drains detached native children after success
         maxBuffer: 65_536,
         env: { ...process.env, NODE_OPTIONS: "", TSONIC_TEST_GUARD_REPORT: "",
           TSONIC_TEST_RESOURCE_BUDGET: "", TSONIC_TEST_CALIBRATION_SECONDS: "",
-          TSONIC_TEST_CPUS: "1", TSONIC_TEST_WORKERS: "1", TSONIC_TEST_CHILD_JOBS: "1",
+          TSONIC_TEST_CPUS: String(availableParallelism()), TSONIC_TEST_WORKERS: "1", TSONIC_TEST_CHILD_JOBS: "1",
           TSONIC_TEST_MEMORY_MIB: "1024", TSONIC_TEST_WORKER_MEMORY_MIB: "1024",
           TSONIC_TEST_HEAP_MIB: "128", TSONIC_TEST_TIMEOUT_SECONDS: status === 124 ? "1" : "15",
           TSONIC_TEST_LOG_SIZE_MAX_BYTES: status === 153 ? "64" : "67108864" },

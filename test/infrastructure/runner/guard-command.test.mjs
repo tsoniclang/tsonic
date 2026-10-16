@@ -2,9 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { guardCgroupPath, readGuardCounters, runGuardCommand } from "../../scripts/guard-command.mjs";
+import { memoryBoundNodeTestArguments, runGuardCommand } from "../../scripts/guard-command.mjs";
+import { guardCgroupPath, readGuardCounters } from "../../scripts/guard-cgroup.mjs";
 
 mkdirSync(".temp/guard-command-tests", { recursive: true });
+
+test("Node test launches explicitly use the memory-derived worker count", () => {
+  assert.deepEqual(memoryBoundNodeTestArguments("node", ["--test", "case.mjs"], 4), ["--test", "--test-concurrency=4", "case.mjs"]);
+  assert.deepEqual(memoryBoundNodeTestArguments("/usr/bin/node", ["--test", "--test-concurrency=4", "case.mjs"], 4), ["--test", "--test-concurrency=4", "case.mjs"]);
+  assert.throws(() => memoryBoundNodeTestArguments("node", ["--test", "--test-concurrency=1", "case.mjs"], 4), /memory-derived/u);
+  assert.throws(() => memoryBoundNodeTestArguments("node", ["--test", "--test-concurrency", "23", "case.mjs"], 4), /memory-derived/u);
+  assert.deepEqual(memoryBoundNodeTestArguments("node", ["script.mjs"], 4), ["script.mjs"]);
+  assert.deepEqual(memoryBoundNodeTestArguments("node", ["script.mjs", "--test"], 4), ["script.mjs", "--test"]);
+  assert.deepEqual(memoryBoundNodeTestArguments("node", ["--", "script.mjs", "--test"], 4), ["--", "script.mjs", "--test"]);
+  assert.deepEqual(memoryBoundNodeTestArguments("node", ["--test", "--", "--test-concurrency=1"], 4), ["--test", "--test-concurrency=4", "--", "--test-concurrency=1"]);
+  assert.deepEqual(memoryBoundNodeTestArguments("node", ["--import", "hook.mjs", "--test", "case.mjs"], 4), ["--import", "hook.mjs", "--test", "--test-concurrency=4", "case.mjs"]);
+});
 
 test("guard membership is a closed cgroup v2 path", () => {
   assert.equal(guardCgroupPath("0::/user.slice/test.scope\n"), "/sys/fs/cgroup/user.slice/test.scope");

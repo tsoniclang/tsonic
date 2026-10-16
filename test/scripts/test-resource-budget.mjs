@@ -34,13 +34,19 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
   return Object.freeze({ availableCpus, cpuBudget, memoryMiB, workerMemoryMiB, childJobs, workers, heapMiB });
 }
 
-export function readTestMachineResources() {
+export function readTestHostResources() {
   const cpus = availableParallelism();
   let availableMemoryBytes = freemem();
   if (existsSync("/proc/meminfo")) {
     const available = readFileSync("/proc/meminfo", "utf8").match(/^MemAvailable:\s+(\d+) kB$/mu);
     if (available !== null) availableMemoryBytes = Number(available[1]) * 1024;
   }
+  return { cpus, availableMemoryMiB: Math.floor(availableMemoryBytes / mebibyte), totalMemoryMiB: Math.floor(totalmem() / mebibyte) };
+}
+
+export function readTestMachineResources() {
+  const host = readTestHostResources();
+  let availableMemoryBytes = host.availableMemoryMiB * mebibyte;
   if (existsSync("/proc/self/cgroup")) {
     const membership = readFileSync("/proc/self/cgroup", "utf8").match(/^0::(.+)$/mu);
     if (membership !== null) {
@@ -61,7 +67,7 @@ export function readTestMachineResources() {
       }
     }
   }
-  return { cpus, availableMemoryMiB: Math.floor(availableMemoryBytes / mebibyte), totalMemoryMiB: Math.floor(totalmem() / mebibyte) };
+  return { ...host, availableMemoryMiB: Math.floor(availableMemoryBytes / mebibyte) };
 }
 
 export function readTestResourceBudget(environment = process.env, profile = "host") {
@@ -121,6 +127,6 @@ function positiveInteger(value, name) {
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const budget = testResourceBudget(readTestMachineResources(), process.env, process.argv[2] ?? "host");
+  const budget = testResourceBudget(readTestHostResources(), process.env, process.argv[2] ?? "host");
   console.log(JSON.stringify(budget));
 }
