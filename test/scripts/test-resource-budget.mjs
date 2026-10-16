@@ -9,8 +9,8 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
   if (!["host", "rust", "native"].includes(profile)) throw new Error("Unknown test resource profile.");
   const availableCpus = positiveInteger(machine.cpus, "available CPUs");
   const cpuBudget = configuredInteger(environment.TSONIC_TEST_CPUS, "TSONIC_TEST_CPUS")
-    ?? Math.max(1, Math.floor(availableCpus * 0.85));
-  if (cpuBudget > availableCpus) throw new Error("TSONIC_TEST_CPUS exceeds available CPUs.");
+    ?? availableCpus;
+  if (cpuBudget !== availableCpus) throw new Error("TSONIC_TEST_CPUS must equal available CPUs; CPU caps are not supported.");
   const totalMemoryMiB = positiveInteger(machine.totalMemoryMiB, "total memory");
   const availableMemoryMiB = positiveInteger(machine.availableMemoryMiB, "available memory");
   if (availableMemoryMiB > totalMemoryMiB) throw new Error("Available memory exceeds total memory.");
@@ -23,11 +23,11 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
   const workerMemoryMiB = configuredInteger(environment.TSONIC_TEST_WORKER_MEMORY_MIB, "TSONIC_TEST_WORKER_MEMORY_MIB")
     ?? (profile === "host" ? 2048 : 4096);
   const childJobs = configuredInteger(environment.TSONIC_TEST_CHILD_JOBS, "TSONIC_TEST_CHILD_JOBS")
-    ?? (profile === "native" ? cpuBudget : profile === "rust" ? Math.min(2, cpuBudget) : 1);
-  const capacity = Math.min(Math.floor(cpuBudget / childJobs), Math.floor(memoryMiB / workerMemoryMiB));
-  if (capacity < 1) throw new Error("The CPU/memory budget cannot admit one test worker.");
+    ?? (profile === "rust" ? 2 : 1);
+  const capacity = Math.floor(memoryMiB / workerMemoryMiB);
+  if (capacity < 1) throw new Error("The memory budget cannot admit one test worker.");
   const workers = configuredInteger(environment.TSONIC_TEST_WORKERS, "TSONIC_TEST_WORKERS") ?? capacity;
-  if (workers > capacity) throw new Error(`Requested ${workers} test workers exceed the CPU/memory capacity ${capacity}.`);
+  if (workers > capacity) throw new Error(`Requested ${workers} test workers exceed the memory capacity ${capacity}.`);
   const heapMiB = configuredInteger(environment.TSONIC_TEST_HEAP_MIB, "TSONIC_TEST_HEAP_MIB")
     ?? Math.min(4096, Math.floor(workerMemoryMiB * 0.75));
   if (heapMiB >= workerMemoryMiB) throw new Error("The worker heap must leave room for native memory.");
@@ -35,7 +35,7 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
 }
 
 export function readTestMachineResources() {
-  let cpus = availableParallelism();
+  const cpus = availableParallelism();
   let availableMemoryBytes = freemem();
   if (existsSync("/proc/meminfo")) {
     const available = readFileSync("/proc/meminfo", "utf8").match(/^MemAvailable:\s+(\d+) kB$/mu);
@@ -47,11 +47,6 @@ export function readTestMachineResources() {
       const root = "/sys/fs/cgroup";
       let directory = resolve(root, `.${membership[1]}`);
       while (directory === root || directory.startsWith(`${root}/`)) {
-        const quotaFile = resolve(directory, "cpu.max");
-        if (existsSync(quotaFile)) {
-          const [quota, period] = readFileSync(quotaFile, "utf8").trim().split(/\s+/u);
-          if (quota !== "max") cpus = Math.min(cpus, Math.max(1, Math.floor(Number(quota) / Number(period))));
-        }
         const limitFile = resolve(directory, "memory.max");
         if (existsSync(limitFile)) {
           const limit = readFileSync(limitFile, "utf8").trim();
@@ -97,7 +92,7 @@ export function testTaskEnvironment(environment, budget, task) {
   const selected = testResourceBudget({
     cpus: budget.availableCpus, totalMemoryMiB: memoryMiB, availableMemoryMiB: memoryMiB,
   }, {
-    TSONIC_TEST_CPUS: String(budget.childJobs), TSONIC_TEST_MEMORY_MIB: String(memoryMiB),
+    TSONIC_TEST_CPUS: String(budget.availableCpus), TSONIC_TEST_MEMORY_MIB: String(memoryMiB),
     TSONIC_TEST_WORKER_MEMORY_MIB: String(memoryMiB), TSONIC_TEST_CHILD_JOBS: String(budget.childJobs),
     TSONIC_TEST_WORKERS: "1", TSONIC_TEST_HEAP_MIB: String(heapMiB),
   });

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { testResourceBudget, readTestResourceBudget } from "../../scripts/test-resource-budget.mjs";
+import { testResourceBudget, readTestResourceBudget, testTaskEnvironment } from "../../scripts/test-resource-budget.mjs";
 import { runBoundedTestQueue } from "../../scripts/parallel-scheduler.mjs";
 
 const machine = { cpus: 24, availableMemoryMiB: 49_152, totalMemoryMiB: 61_440 };
 
-test("test budgets use effective CPUs, memory reserves and native child costs", () => {
+test("test budgets expose every CPU and admit workers by memory", () => {
   const host = testResourceBudget(machine);
-  assert.equal(host.cpuBudget, 20);
+  assert.equal(host.cpuBudget, 24);
   assert.equal(host.memoryMiB, 36_864);
   assert.equal(host.workers, 18);
   const rust = testResourceBudget(machine, {}, "rust");
@@ -16,25 +16,47 @@ test("test budgets use effective CPUs, memory reserves and native child costs", 
   assert(rust.workers * rust.childJobs <= rust.cpuBudget);
   assert(rust.workers * rust.workerMemoryMiB <= rust.memoryMiB);
   const native = testResourceBudget(machine, {}, "native");
-  assert.equal(native.workers, 1);
-  assert.equal(native.childJobs, native.cpuBudget);
-  assert.equal(testResourceBudget({ cpus: 2, availableMemoryMiB: 6144, totalMemoryMiB: 8192 }).workers, 1);
+  assert.equal(native.workers, 9);
+  assert.equal(native.childJobs, 1);
+  assert.equal(testResourceBudget({ cpus: 2, availableMemoryMiB: 6144, totalMemoryMiB: 8192 }).workers, 2);
 });
 
 test("explicit test budgets remain finite and bounded", () => {
-  const budget = testResourceBudget(machine, { TSONIC_TEST_CPUS: "12", TSONIC_TEST_WORKERS: "6", TSONIC_TEST_MEMORY_MIB: "16384", TSONIC_TEST_CHILD_JOBS: "2" });
+  const budget = testResourceBudget(machine, { TSONIC_TEST_CPUS: "24", TSONIC_TEST_WORKERS: "6", TSONIC_TEST_MEMORY_MIB: "16384", TSONIC_TEST_CHILD_JOBS: "2" });
   assert.equal(budget.workers, 6);
   assert.equal(budget.memoryMiB, 16_384);
   for (const value of ["0", "-1", "NaN", "Infinity", "2.5", "2junk", "9007199254740992"]) {
     assert.throws(() => testResourceBudget(machine, { TSONIC_TEST_WORKERS: value }), /positive/u);
   }
   assert.throws(() => testResourceBudget(machine, { TSONIC_TEST_CPUS: "25" }), /available CPUs/u);
+  assert.throws(() => testResourceBudget(machine, { TSONIC_TEST_CPUS: "12" }), /CPU caps/u);
   assert.throws(() => testResourceBudget(machine, { TSONIC_TEST_WORKERS: "24" }), /capacity/u);
   assert.throws(() => testResourceBudget(machine, { TSONIC_TEST_MEMORY_MIB: "65536" }), /memory/u);
   assert.throws(() => testResourceBudget(machine, { TSONIC_TEST_HEAP_MIB: "2048" }), /native memory/u);
   assert.throws(() => testResourceBudget({ ...machine, totalMemoryMiB: NaN }), /total memory/u);
   assert.throws(() => testResourceBudget({ ...machine, availableMemoryMiB: 100_000 }), /total memory/u);
   assert.throws(() => testResourceBudget(machine, {}, "unknown"), /profile/u);
+});
+
+test("memory admission does not impose an implicit aggregate CPU quota", () => {
+  const budget = testResourceBudget({ ...machine, cpus: 2 }, {
+    TSONIC_TEST_MEMORY_MIB: "8192", TSONIC_TEST_WORKER_MEMORY_MIB: "2048", TSONIC_TEST_CHILD_JOBS: "3",
+  });
+  assert.equal(budget.workers, 4);
+  assert.equal(budget.childJobs, 3);
+  assert.equal(budget.cpuBudget, 2);
+});
+
+test("a memory-scoped task inherits every CPU without multiplying its memory budget", () => {
+  const budget = testResourceBudget(machine, { TSONIC_TEST_CHILD_JOBS: "2" });
+  const environment = { NODE_OPTIONS: `--max-old-space-size=${budget.heapMiB}` };
+  const selected = testTaskEnvironment(environment, budget, { id: "native", memoryMiB: 4096, heapMiB: 2048 });
+  const inherited = readTestResourceBudget(selected);
+  assert.equal(inherited.cpuBudget, 24);
+  assert.equal(inherited.childJobs, 2);
+  assert.equal(inherited.workers, 1);
+  assert.equal(inherited.memoryMiB, 4096);
+  assert.equal(inherited.heapMiB, 2048);
 });
 
 test("a guard passes one validated budget without reserving memory twice", () => {

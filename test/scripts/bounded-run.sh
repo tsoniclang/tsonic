@@ -53,6 +53,7 @@ mkdir -p .temp/test-runs
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 unit="tsonic-${profile}-tests-${run_id}.scope"
 log_file=".temp/test-runs/${run_id}.log"
+measurement_file="$PWD/.temp/test-runs/${run_id}.measurements.json"
 memory_events="/sys/fs/cgroup/user.slice/user-$(id -u).slice/memory.events"
 
 read_oom_kill_count() {
@@ -91,11 +92,11 @@ set +e
     --property="MemoryMax=${memory_max}" \
     --property="MemorySwapMax=0" \
     --property="TasksMax=${tasks_max}" \
-    timeout \
+    env -u TSONIC_TEST_GUARD_REPORT node "$script_root/guard-command.mjs" "$measurement_file" timeout \
       --signal=TERM \
       --kill-after=30s \
       "${timeout_seconds}s" \
-      env -u TSONIC_TEST_GUARD_REPORT "$@" \
+      "$@" \
     >"${log_file}" 2>&1
 ) &
 test_runner_pid=$!
@@ -246,6 +247,16 @@ if [[ "${oom_kill_before}" != "unavailable" && "${oom_kill_after}" != "unavailab
   test_status=137
 fi
 
+if [[ -f "$measurement_file" ]]; then
+  if ! node --input-type=module -e 'import {readFileSync} from "node:fs"; const measured=JSON.parse(readFileSync(process.argv[1], "utf8")); process.exit(measured.swapBytes === 0 && measured.oomAfter === measured.oomBefore ? 0 : 1)' "$measurement_file"; then
+    printf 'Bounded command exhausted its memory ceiling or used swap; inspect %s.\n' "$measurement_file" >&2
+    test_status=137
+  fi
+elif (( test_status == 0 )); then
+  printf 'Bounded command did not publish its resource measurements.\n' >&2
+  test_status=1
+fi
+
 if [[ -n "${TSONIC_TEST_CALIBRATION_SECONDS:-}" && "$test_status" != 137 && "$test_status" != 153 ]]; then
   if [[ -f "$log_file.calibration.json" ]]; then
     cat "$log_file.calibration.json"
@@ -262,6 +273,7 @@ fi
 if [[ -n "${TSONIC_TEST_GUARD_REPORT:-}" ]]; then
   node "$script_root/guard-report.mjs" "$TSONIC_TEST_GUARD_REPORT" "$PWD/$log_file" \
     "$test_status" "$memory_mebibytes" "$tasks_max" "$timeout_seconds" "$log_size_max_bytes" \
-    "$oom_kill_before" "$oom_kill_after" "$scope_result" "${TSONIC_TEST_CALIBRATION_SECONDS:-}"
+    "$oom_kill_before" "$oom_kill_after" "$scope_result" "${TSONIC_TEST_CALIBRATION_SECONDS:-}" \
+    "$measurement_file" "$scope_drained"
 fi
 exit "${test_status}"
