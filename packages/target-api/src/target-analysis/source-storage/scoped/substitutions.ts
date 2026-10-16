@@ -408,6 +408,23 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return Object.freeze(inputs);
   });
   return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, formals: scopes.formals,
+    contextKeyFor(subjects: readonly SourceStorageSubject[], bindings: readonly SourceStorageScope[]): string | undefined {
+      return withQuery(() => budget.withRows(temporary => {
+        const states: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[][] = [];
+        for (const scope of bindings) {
+          const inputs: { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[] = [];
+          for (const subject of subjects) {
+            if (!budget.step() || !temporary.add(1)) return undefined;
+            const selected = intern(sourceStorageReference(subject, scope));
+            if (selected === undefined) return undefined;
+            inputs.push({ subject, term: selected.term });
+          }
+          if (!temporary.add(1)) return undefined;
+          states.push(inputs);
+        }
+        return keys.context(states);
+      }));
+    },
     boundActivation: scopes.boundActivation,
     isBound: (origin: SourceStorageSubject, scope: SourceStorageScope): boolean =>
       scopes.withTraversal(() => {

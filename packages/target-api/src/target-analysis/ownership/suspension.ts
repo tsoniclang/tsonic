@@ -53,6 +53,16 @@ export function createSourceSuspensionQuery(input: {
     const missingContract = () => sourceOwnershipUnresolved(expression,
       "A no-body invocation requires its checked native continuation contract; a non-async result is not an empty-work proof.");
     if (existing !== undefined) return requireContract && !existing.declared ? missingContract() : existing.selection;
+    const types = source.semantics.forNode(expression).types;
+    const expressionType = types.expressionType(expression);
+    if (!requireContract && expressionType !== undefined && immediateType(expressionType, types, budget)) {
+      if (!rows.add(2)) return sourceOwnershipUnresolved(operation, budget.failure()!);
+      const selection: SourcePendingSelection = Object.freeze({ kind: "never" });
+      const values = cache.get(operation) ?? new Map<SourceStorageBindings, PendingEntry>();
+      values.set(bindings, Object.freeze({ selection, declared: false }));
+      cache.set(operation, values);
+      return selection;
+    }
     const subject = storage.subjectFor(expression);
     if (subject.kind === "unresolved") return sourceOwnershipUnresolved(operation, subject.reason);
     const bound = storage.boundOriginsFor(subject.subject, bindings);

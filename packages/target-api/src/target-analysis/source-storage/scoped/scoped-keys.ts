@@ -315,6 +315,24 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
     return selected === undefined ? undefined : String(selected.encoded.identity);
   };
   return Object.freeze({ encode: key,
+    context(inputs: readonly (readonly { readonly subject: SourceStorageSubject; readonly term: SourceStorageTerm }[])[]): string | undefined {
+      return budget.withRows(temporary => {
+        const states: Encoded[] = [];
+        for (const inputs_ of inputs) {
+          const values: Encoded[] = [];
+          for (const input of inputs_) {
+            if (!budget.step() || !temporary.add(1)) return undefined;
+            const selected = encode(input.term);
+            if (selected === undefined) return undefined;
+            values.push([scopes.identity(input.subject), selected.encoded]);
+          }
+          if (!temporary.add(1)) return undefined;
+          states.push({ kind: "set", values });
+        }
+        const selected = encoder.intern(["source-query-context", { kind: "set", values: states }]);
+        return selected === undefined ? undefined : String(selected.identity);
+      });
+    },
     closed: (term: SourceStorageTerm): boolean | undefined => encode(term)?.closed,
     birthKey: (subject: SourceStorageSubject, scope: SourceStorageScope): string | undefined => {
       const selected = birth(subject, scope);

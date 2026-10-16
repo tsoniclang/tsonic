@@ -377,6 +377,22 @@ export function createSourceStorageQuery(
         : Object.freeze({ kind: "resolved", bindings: view });
     },
     boundOriginsFor: boundOrigins,
+    contextKeyFor(subjects, bindings) {
+      const states = bindingStates.get(bindings);
+      if (states === undefined) return unresolved("Context keys belong to a different source storage query.");
+      if (!Array.isArray(subjects)) return unresolved("Context keys require exact checked source subjects.");
+      for (let index = 0; index < subjects.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(subjects, String(index));
+        const subject = descriptor === undefined || !("value" in descriptor) ? undefined
+          : descriptor.value as SourceStorageSubject | undefined;
+        const reason = subject === undefined ? "Context keys require a dense data-only subject selection." : subjectReason(subject);
+        if (reason !== undefined) return unresolved(reason);
+      }
+      const key = transport.substitutions.contextKeyFor(subjects, states);
+      return key === undefined || budget.failure() !== undefined
+        ? unresolved(budget.failure() ?? "The exact source context could not be encoded.")
+        : Object.freeze({ kind: "resolved", key });
+    },
     boundActivationsFor(declaration, bindings) {
       return budget.withRows(rows => {
         const states = bindingStates.get(bindings);

@@ -37,11 +37,13 @@ export function decideSourceAsyncResultUse(input: {
   if (continuation.kind === "unresolved") return continuation;
   for (const dependency of continuation.dependencies) {
     if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
-    if (dependency.retention.kind !== "scoped-borrowed") continue;
+    if (dependency.retention.kind !== "scoped-borrowed" && dependency.retention.kind !== "formal-borrowed") continue;
     if (disposition.kind === "awaited-in-scope") {
+      const region = dependency.retention.kind === "scoped-borrowed"
+        ? dependency.retention.region : dependency.retention.executionOwner;
       let current: Node | undefined = disposition.use;
       const visited = new Set<Node>();
-      while (current !== undefined && current !== dependency.retention.region) {
+      while (current !== undefined && current !== region) {
         if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
         if (visited.has(current)) return sourceOwnershipUnresolved(call, "The await's source scope has cyclic ancestry.");
         visited.add(current);

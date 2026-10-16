@@ -20,14 +20,20 @@ export function createSourceOwnershipQuery(input: {
   const closure = createSourceContinuationClosureQuery(input);
   const decisions = new Map<Node, Map<SourceStorageBindings, SourceAsyncOwnershipSelection>>();
   const rows = budget.createRows();
-  const continuationFor = (call: Node, bindings: SourceStorageBindings = storage.emptyBindings): SourceContinuationDependenciesSelection => {
-    const selected = closure.forInvocation(call, bindings);
-    return selected;
+  const invocationBindings = (call: Node, bindings: SourceStorageBindings | undefined) => bindings === undefined
+    ? storage.bindingsForLexicalOwner(call) : { kind: "resolved" as const, bindings };
+  const continuationFor = (call: Node, bindings?: SourceStorageBindings): SourceContinuationDependenciesSelection => {
+    const selected = invocationBindings(call, bindings);
+    return selected.kind === "unresolved" ? sourceOwnershipUnresolved(call, selected.reason)
+      : closure.forInvocation(call, selected.bindings);
   };
   return Object.freeze({
     continuationFor,
-    forCall(call: Node, bindings: SourceStorageBindings = storage.emptyBindings): SourceAsyncOwnershipSelection {
+    forCall(call: Node, bindings?: SourceStorageBindings): SourceAsyncOwnershipSelection {
       if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
+      const context = invocationBindings(call, bindings);
+      if (context.kind === "unresolved") return sourceOwnershipUnresolved(call, context.reason);
+      bindings = context.bindings;
       const existing = decisions.get(call)?.get(bindings);
       if (existing !== undefined) return existing;
       const file = source.ast.getSourceFile(call);
@@ -38,8 +44,6 @@ export function createSourceOwnershipQuery(input: {
       if (selected?.sourceSelectedSignatureKind !== "resolved") {
         return sourceOwnershipUnresolved(call, "Async ownership requires its checked selected source signature.");
       }
-      const implementations = storage.invocationImplementationsFor(call, bindings);
-      if (implementations.kind === "unresolved") return sourceOwnershipUnresolved(call, implementations.reason);
       const completion = premises.completionFor(call, selected, bindings);
       const decision = completion.kind !== "async" ? completion : decideSourceAsyncResultUse({ source, storage, budget, call, completion,
         disposition: resolveSourceAsyncResultDisposition(source, storage, call, budget, bindings),
