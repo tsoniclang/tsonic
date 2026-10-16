@@ -65,13 +65,13 @@ export function createSourceSuspensionQuery(input: {
     }
     const subject = storage.subjectFor(expression);
     if (subject.kind === "unresolved") return sourceOwnershipUnresolved(operation, subject.reason);
-    const bound = storage.boundOriginsFor(subject.subject, bindings);
+    const bound = storage.storageProducersFor(subject.subject, bindings);
     if (bound.kind === "unresolved") return sourceOwnershipUnresolved(operation, bound.reason);
-    if (bound.subjects.length === 0) return sourceOwnershipUnresolved(expression, "An operation requires a complete nonempty bound-origin selection.");
+    if (bound.producers.length === 0) return sourceOwnershipUnresolved(expression, "An operation requires a complete nonempty bound-origin selection.");
     const contracts: SourcePendingOperation["contracts"][number][] = [];
     let declared = true;
-    for (const actual of bound.subjects) {
-      const selection = forOrigin(actual, bindings);
+    for (const actual of bound.producers) {
+      const selection = forOrigin(actual.subject, actual.bindings);
       if (selection.kind === "unresolved") return selection;
       declared &&= selection.declared;
       if (requireContract && !selection.declared) return missingContract();
