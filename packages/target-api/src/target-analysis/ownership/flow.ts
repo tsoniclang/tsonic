@@ -13,6 +13,7 @@ import type { SourceContinuationDependency, SourceOwnershipBudget, SourceOwnersh
   SourcePendingOperation, SourceRetentionPremise } from "./model.js";
 import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import { sourceOwnershipUnresolved } from "./contracts.js";
+import { sourceOwnershipImmediateType } from "./suspension.js";
 
 export interface SourceContinuationRead {
   readonly reference: Node;
@@ -63,6 +64,17 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
     });
     const contexts = new Map<Node, { readonly owner: Node; readonly bindings: SourceStorageBindings }>();
     const invocations: { readonly call: Node; readonly bindings: SourceStorageBindings }[] = [];
+    const invokedContexts = new Map<Node, Set<SourceStorageBindings>>();
+    const appendInvocation = (call: Node, bindings: SourceStorageBindings): boolean => {
+      if (!budget.step()) return false;
+      const selected = invokedContexts.get(call) ?? new Set<SourceStorageBindings>();
+      if (selected.has(bindings)) return true;
+      if (!rows.add(4)) return false;
+      selected.add(bindings);
+      invokedContexts.set(call, selected);
+      invocations.push(Object.freeze({ call, bindings }));
+      return true;
+    };
     for (const point of selected.graph.points) {
       if (!budget.step()) return sourceOwnershipUnresolved(point.source ?? candidate, budget.failure()!);
       if (!reachable.has(point.id) || point.source === undefined) continue;
@@ -81,8 +93,24 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
         contexts.set(point.source, Object.freeze({ owner: context.owner, bindings: context.selection.bindings }));
       }
       if (invoked) {
-        if (!rows.add(1)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
-        invocations.push(Object.freeze({ call: point.source, bindings: context.selection.bindings }));
+        if (!appendInvocation(point.source, context.selection.bindings)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
+      }
+      const completion = point.operation.kind === "await" ? source.ast.as.AsAwaitExpression(point.source)?.Expression
+        : returned ? source.ast.is.IsReturnStatement(point.source)
+          ? source.ast.as.AsReturnStatement(point.source)?.Expression : point.source : undefined;
+      if (completion === undefined) continue;
+      const types = source.semantics.forNode(completion).types;
+      const type = types.expressionType(completion);
+      if (type !== undefined && sourceOwnershipImmediateType(type, types, budget)) continue;
+      const subject = storage.subjectFor(completion);
+      if (subject.kind === "unresolved") return sourceOwnershipUnresolved(completion, subject.reason);
+      const producers = storage.storageProducersFor(subject.subject, context.selection.bindings);
+      if (producers.kind === "unresolved") return sourceOwnershipUnresolved(completion, producers.reason);
+      for (const producer of producers.producers) {
+        if (!budget.step()) return sourceOwnershipUnresolved(completion, budget.failure()!);
+        if (!source.ast.is.IsCallExpression(producer.subject.node) && !source.ast.is.IsNewExpression(producer.subject.node) &&
+          !storage.isAccessorInvocation(producer.subject.node)) continue;
+        if (!appendInvocation(producer.subject.node, producer.bindings)) return sourceOwnershipUnresolved(completion, budget.failure()!);
       }
     }
     if (!rows.add(3)) return sourceOwnershipUnresolved(candidate, budget.failure()!);

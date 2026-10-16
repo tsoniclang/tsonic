@@ -19,6 +19,13 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
       if (count > 0) return await left(value, count - 1);
       await pending(); return read(value);
     }`,
+    `async function produced(value: Lease): Promise<number> { await pending(); return read(value); }`,
+    `async function returned(pending: Promise<number>): Promise<number> { const alias = pending; return alias; }`,
+    `async function awaited(pending: Promise<number>): Promise<number> { const alias = pending; return await alias; }`,
+    `async function recursiveAdopt(pending: Promise<number>, count: number): Promise<number> {
+      if (count > 0) return await recursiveAdopt(pending, count - 1);
+      return pending;
+    }`,
   ];
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
     interface Lease { readonly value: number; }
@@ -36,6 +43,31 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
     function allocations() { const first = allocate(); const second = allocate(); return [first, second]; }
     function capture<Value>(value: Value) { return () => value; }
     function captures() { const first = capture(1); const second = capture("second"); return [first, second]; }
+    async function ownedAdoption() {
+      const value: Lease = { value: 3 }; const promise = produced(value);
+      const stored = returned(promise); return stored;
+    }
+    async function borrowedAdoption() {
+      const owner = { value: 3 }; const value = borrow(owner); const promise = produced(value);
+      const alias = promise; const stored = returned(alias); return stored;
+    }
+    async function ownedAwaitedAdoption() {
+      const value: Lease = { value: 3 }; const holder = { promise: produced(value) };
+      const stored = awaited(holder.promise); return stored;
+    }
+    async function borrowedAwaitedAdoption() {
+      const owner = { value: 3 }; const value = borrow(owner); const holder = { promise: produced(value) };
+      const stored = awaited(holder.promise); return stored;
+    }
+    async function ownedRecursiveAdoption() {
+      const value: Lease = { value: 3 }; const promise = produced(value);
+      const stored = recursiveAdopt(promise, 2); return stored;
+    }
+    async function borrowedRecursiveAdoption() {
+      const owner = { value: 3 }; const value = borrow(owner); const promise = produced(value);
+      const stored = recursiveAdopt(promise, 2); return stored;
+    }
+    async function formalAdoption(pending: Promise<number>) { return await returned(pending); }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
@@ -67,6 +99,11 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
         : { kind: "not-async" };
     },
     suspensionFor(value) {
+      if (value.kind === "input" && value.node === source.ast.parameters(declaration("formalAdoption"))[0]) {
+        const type = storage.typeFor(value);
+        return type.kind === "resolved" ? { kind: "may-suspend", value,
+          contractDeclaration: value.node, checkedType: type.type } : undefined;
+      }
       if (!source.ast.is.IsCallExpression(value.node)) return undefined;
       const selected = selectedDeclaration(value.node);
       if (selected === undefined || source.ast.body(selected) !== undefined) return undefined;
@@ -105,6 +142,54 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
     return selected!;
   };
   return { source, storage, budget, premises, query, callIn, declaration, selectedDeclaration };
+}
+
+for (const reverse of [false, true]) {
+  for (const [kind, owner, callee] of [
+    ["returned-alias", "Adoption", "returned"],
+    ["awaited-member", "AwaitedAdoption", "awaited"],
+    ["recursive-return", "RecursiveAdoption", "recursiveAdopt"],
+  ]) {
+    test(`${kind} prepares its caller-owned Promise producer before the SCC, reverse=${reverse}`, () => {
+      for (const borrowed of [false, true]) {
+        for (const producerFirst of [false, true]) {
+          const current = fixture(reverse, "self");
+          const root = current.declaration(`${borrowed ? "borrowed" : "owned"}${owner}`);
+          const call = (name: string) => current.storage.nodes.find(node =>
+            current.source.ast.is.IsCallExpression(node) &&
+            current.selectedDeclaration(node) === current.declaration(name) &&
+            current.storage.enclosingRegionFor(node) === current.source.ast.body(root));
+          const adopted = call(callee!);
+          const produced = call("produced");
+          assert.equal(adopted !== undefined && produced !== undefined, true, "the actual adopter and separate caller factory");
+          if (producerFirst) {
+            const first = current.query.forCall(produced!);
+            assert.equal(first.kind, "resolved", "prewarming is a control, not a required execution order");
+          }
+          const selected = current.query.forCall(adopted!);
+          assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
+            selected.kind === "unresolved" ? selected.reason : "an isolated demand owns every return/await producer edge");
+          if (selected.kind === "resolved" && borrowed) {
+            assert.equal(selected.decision === "rejected" && selected.diagnostic.at === adopted &&
+              selected.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES", true,
+            "the caller factory's actual loan survives aliases, member projections and recursive adoption");
+          }
+          assert.equal(current.budget.failure() === undefined, true, "the actual finite graph closes within its unchanged budget");
+        }
+      }
+    });
+  }
+  test(`a formal Promise adopter remains independent of unrelated caller factories, reverse=${reverse}`, () => {
+    const current = fixture(reverse, "self");
+    const root = current.declaration("formalAdoption");
+    const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === current.declaration("returned") &&
+      current.storage.enclosingRegionFor(node) === current.source.ast.body(root));
+    assert.equal(call !== undefined, true, "the exact formal-to-formal result demand");
+    const selected = current.query.forCall(call!);
+    assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+      selected.kind === "unresolved" ? selected.reason : "the native formal contract retains its real bound input");
+  });
 }
 
 for (const recursive of ["self", "mutual"] as const) {
