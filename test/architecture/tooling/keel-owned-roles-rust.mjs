@@ -1,5 +1,13 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/policy/operations/pointers/native-handlers.ts", symbol: "selectRustNativeHandler",
+      bodySha256: "31d7285ca805cfc4d7850d684aad85272ad927abd4b4061246a18ab8e04aa81c", role: "selection",
+      evidence: [{ kind: "parameter", name: "operation" }],
+      reason: "Adapt exact native records and the checked JS call marker to the shared five-root priority owner." },
+    { file: "src/policy/operations/pointers/native-pointers.ts", symbol: "selectRustNativePointerOperation",
+      bodySha256: "c9f76daed4542ef41967ba5a2d342291c325a6f724d7a918a50cbf6d0ba9f1c1", role: "selection",
+      evidence: [{ kind: "parameter", name: "operation" }],
+      reason: "Project admitted native pointer data into the same shared pointer priority, preserving every selected underlying payload." },
     { file: "src/analysis/callables/async-results.ts", symbol: "selectRustAsyncBodyFacts",
       bodySha256: "25269829ba7ac4ac00f4bf0683b9af7f2ec44195d01e499517a22dd5ed3d932d", role: "analysis",
       evidence: [{ kind: "parameter", name: "declaration" }] },
