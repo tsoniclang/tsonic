@@ -365,3 +365,25 @@ export function unrelated(parameter: number): number { return parameter + bindin
       "all native key consumers receive immutable source-owned scalar data");
   }
 });
+
+test("const bindings cannot hide a broad runtime key behind literal assertions", () => {
+  const source = checked(`
+declare function broad(): string;
+declare function exact(): "value";
+export function make(input: string) {
+  const asserted = input as "value";
+  const indirect = broad() as "value";
+  const hidden = input as unknown as "value";
+  const retained = exact() as "value";
+  return [{ [asserted]: 1 }, { [indirect]: 2 }, { [hidden]: 3 }, { [retained]: 4 }];
+}
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  const computed = index.entries.filter(entry => source.ast.is.IsComputedPropertyName(entry.node));
+  assert.equal(index.issues.length, 3, "each disguised broad runtime key receives a precise source refusal");
+  assert.deepEqual(computed.map(entry => entry.selection.kind), ["rejected", "rejected", "rejected", "resolved"]);
+  assert.equal(index.issues.every(issue => issue.reason.includes("unproven runtime value")), true,
+    "an erased assertion is not native key-value evidence");
+  const retained = computed[3]!.selection;
+  assert.equal(retained.kind === "resolved" ? retained.name : undefined, "value", "an actual checked singleton return contract is retained");
+});

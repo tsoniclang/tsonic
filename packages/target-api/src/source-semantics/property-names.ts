@@ -81,6 +81,8 @@ export function analyzeSourcePropertyNames(
     const selection = classify(name);
     if (selection.kind !== "resolved") return selection;
     const expression = ast.as.AsComputedPropertyName(name)?.Expression;
+    if (expression !== undefined && unprovenAssertion(expression, new Set())) return rejected(
+      "A literal type assertion cannot turn an unproven runtime value into an exact static property key.");
     const type = expression === undefined ? undefined : checkedType(expression);
     const numeric = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
     if (typeof numeric === "number" && !Number.isFinite(numeric)) return rejected(
@@ -400,6 +402,30 @@ export function analyzeSourcePropertyNames(
       else break;
     }
     return false;
+  }
+
+  function unprovenAssertion(node: Node, active: Set<Node>): boolean {
+    if (active.has(node)) return false;
+    active.add(node);
+    if (ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)) {
+      const operand = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node)?.Expression
+        : ast.as.AsTypeAssertion(node)?.Expression;
+      if (operand === undefined) return true;
+      const actual = checkedType(operand);
+      const literal = actual === undefined ? undefined : semantics.types.stringLiteralValue(actual);
+      if (literal === undefined && literalOrigin(operand, new Set()) === undefined && exactNumeric(operand, new Set()) === undefined &&
+        enumOrigin(operand, new Set()) === undefined) return true;
+      return unprovenAssertion(operand, active);
+    }
+    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsSatisfiesExpression(node)) {
+      const operand = ast.is.IsParenthesizedExpression(node) ? ast.as.AsParenthesizedExpression(node)?.Expression
+        : ast.is.IsNonNullExpression(node) ? ast.as.AsNonNullExpression(node)?.Expression : ast.as.AsSatisfiesExpression(node)?.Expression;
+      return operand !== undefined && unprovenAssertion(operand, active);
+    }
+    const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
+    if (declaration === undefined || !constBinding(declaration)) return false;
+    const value = bindingValue(declaration, new Set());
+    return value !== undefined && unprovenAssertion(value, active);
   }
 
   function constBinding(declaration: Node): boolean {
