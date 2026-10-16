@@ -122,11 +122,12 @@ with the exact message:
 No JavaScript event loop is running on this thread.
 ```
 
-C# reports `InvalidOperationException`; Rust's admission boundary returns
-`Err(JsError)`. A Promise-returning API transports a boundary error through its
-selected rejection contract. It does not panic, initialize an invisible loop
-or execute the deferred callback synchronously. Merely constructing a settled
-value or taking a native direct-await path must not initialize the job queue.
+C# reports `InvalidOperationException`; Rust's public posting boundary panics
+with that message. Internal fallible admission may return its native error to
+that boundary; a missing owner is not converted into an ordinary Promise
+rejection. Neither target initializes an invisible loop or executes the
+deferred callback synchronously. Merely constructing a settled value or taking
+a native direct-await path must not initialize the job queue.
 
 ## Driver liveness and shutdown
 
@@ -134,6 +135,23 @@ An explicitly awaited root keeps the driver active until that root completes.
 After completion, the driver retains its output while draining already-ready
 jobs and jobs made ready by them. It cannot return early and abandon a queued
 `then` callback. An entry without an awaited root still drains ready jobs.
+
+Rust selects the binary owner before publishing the target program. A
+synchronous JS entry uses `run_entry_with_contexts(entry, contexts)` and returns
+`Result<(Output, LoopExitStatus), ContextError>`. An asynchronous JS entry uses
+`block_on_with_contexts(root, contexts)` and returns
+`Result<(Option<Output>, LoopExitStatus), ContextError>`. The entry, initializers
+and workers execute inside that one owner; an initializer already inside an
+async root is awaited without starting a second driver. Requested exit passes
+through shutdown and is inspected before unwrapping the root output or running
+after-entry hooks.
+
+Provider lifecycle phases distinguish the synchronous `entry-execution` input
+from the `async-entry-execution` future input. Each takes exactly one ordinary
+input, followed by its selected dispatch contexts. The native `async-execution`
+executor contract remains separate; selecting JS does not reinterpret a native
+executor's return value as the JS status tuple. C# keeps its existing native
+`JsEventLoop.Run` root rather than adopting the Rust tuple representation.
 
 Only referenced native resources keep an otherwise idle process alive: for
 example, a referenced timer, active I/O or registered worker. A pending Promise
@@ -177,21 +195,25 @@ side effect of this observer.
 
 ## Promise-object ABI
 
-The replacement Rust JS ABI is `JsPromise<'a, T>`, with rejection `JsValue`.
-There is no per-producer `Error` type parameter at this boundary. `JsValue`
+The replacement Rust JS ABI is `JsPromise<T>`, with rejection `JsValue`.
+There is no task-lifetime or per-producer `Error` type parameter at this
+completion-state boundary. `JsValue`
 retains its existing layout, including native `String`, exact numeric variants
 and closed Error payloads. C# uses `Task<T>`/`Task` and `object?` rejection
 reasons through its existing native thrown-value exception transport.
 
 The following native entry names are retained or completed, not renamed public
-source APIs. Exact bounds still follow the selected lifetime, payload and
-callback contracts; this table is not permission to make every construction
-`'static` or to add unconditional payload clones.
+source APIs. A settled completion may carry a borrowed `T`; a genuinely owned,
+potentially pending factory must prove the retained body's own native lifetime
+and payload requirements. Direct native bodies keep their independent lifetime
+and exact error contracts. This table is not permission to make every
+construction `'static` or to add unconditional payload clones.
 
 | Rust entry | Required result or input contract |
 | --- | --- |
-| `resolved(value)` | `JsPromise<'a, T>` already fulfilled with `T` |
-| `rejected(reason)` | `JsPromise<'a, T>` rejected with `JsValue` |
+| `resolved(value)` | `JsPromise<T>` already fulfilled with `T` |
+| `rejected(reason)` | `JsPromise<T>` rejected with `JsValue` |
+| `from_result(result)` | An already settled `Result<T, JsValue>`, without retaining a task body |
 | `from_infallible_factory(factory)` | One native body with `Future<Output = T>` |
 | `from_fallible_factory(factory)` | One native body with `Future<Output = Result<T, JsValue>>` |
 | `create(executor)` | Checked synchronous executor, resolve/reject handles and owning settlement |
