@@ -25,6 +25,7 @@ import { selectRefinedSourcePropertyAccess } from "./property-refinement.js";
 import { sourceTypeRelationship } from "./type-relationship.js";
 import { createSourceStructuralMemberQuery } from "./structural-members.js";
 import { createSourceDeclarationSymbolQuery } from "./declaration-symbol.js";
+import { analyzeSourcePropertyNames } from "./property-names.js";
 export type { SourceStructuralMember, SourceStructuralMemberPair, SourceStructuralTypeMembers, SourceStructuralMemberCorrespondence } from "./structural-members.js";
 import type {
   ResolvedSourceCallInfo,
@@ -311,6 +312,7 @@ export function createTargetSourceProgram(
     });
     const semantics: SourceFileSemantics = Object.freeze({
       sourceFile,
+      propertyNames: analyzeSourcePropertyNames(source.ast, sourceFile, { operations, types }, navigation),
       operations,
       types,
       declarations,

@@ -163,6 +163,7 @@ export interface SourceFactSubjectQueries {
 
 export interface SourceFileSemantics {
   readonly sourceFile: SourceFile;
+  readonly propertyNames: import("./property-names.js").SourcePropertyNameIndex;
   readonly operations: SourceOperationEvidenceQueries;
   readonly types: SourceFinalTypeQueries;
   readonly declarations: SourceSelectedDeclarationQueries;

@@ -1,0 +1,124 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
+import { analyzeSourcePropertyNames, createTargetSourceProgram } from "../public/source.js";
+import { targetSourceSyntaxProgram } from "../target-analysis/source-syntax.js";
+
+function checked(sourceText: string, files: Readonly<Record<string, string>> = {}) {
+  const source = createCompilerSessionFromFiles({
+    currentDirectory: "/src",
+    files: { "/src/index.ts": sourceText, ...files },
+    compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" },
+  }).checkSource();
+  assert.equal(source.diagnostics.length, 0, formatDiagnostics(source.diagnostics.filter(diagnostic => diagnostic !== undefined)));
+  return createTargetSourceProgram(source);
+}
+
+test("computed literal, const-literal and enum names have one exact shared classification", () => {
+  const source = checked(`
+const textKey = "value";
+const numberKey = 16;
+enum Key { Text = "entry", Number = 17 }
+export const result = {
+  ["literal"]: 1,
+  [0x10]: 2,
+  [textKey]: 3,
+  [numberKey]: 4,
+  [Key.Text]: 5,
+  [Key.Number]: 6,
+  [((textKey))]: 7,
+  [-1]: 8,
+  [-0]: 9,
+  [9007199254740994]: 10,
+};
+`);
+  const file = source.navigation.sourceFiles[0]!;
+  const index = source.semantics.forFile(file).propertyNames;
+  assert.equal(index.entries.length, 10, "all exact computed occurrences have evidence");
+  assert.equal(index.issues.length, 0, "admitted keys produce no issue");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : "not-a-field"),
+    ["literal", "16", "value", "16", "entry", "17", "value", "-1", "0", "9007199254740994"]);
+  for (const entry of index.entries) {
+    assert.equal(index.get(entry.node) === entry.selection, true, "one immutable selection per occurrence");
+    assert.equal(Object.isFrozen(entry.selection), true, "selection is immutable");
+  }
+  assert.equal(Object.isFrozen(index), true, "index is immutable");
+  assert.equal(Object.isFrozen(index.entries), true, "entry sequence is immutable");
+  assert.equal(Object.isFrozen(index.issues), true, "issue sequence is immutable");
+});
+
+test("imported const literal keys use checked declaration identity", () => {
+  const source = checked(`
+import { key as imported } from "./key.js";
+export const result = { [imported]: 1 };
+`, { "/src/key.ts": 'export const key = "imported";' });
+  const file = source.navigation.sourceFiles.find(candidate => source.ast.getFileName(candidate) === "/src/index.ts")!;
+  const index = source.semantics.forFile(file).propertyNames;
+  assert.equal(index.entries.length, 1, "one imported computed key");
+  const selected = index.entries[0]!.selection;
+  assert.equal(selected.kind, "resolved", "import resolves to its exact const declaration");
+  assert.equal(selected.kind === "resolved" ? selected.name : undefined, "imported", "selected imported literal value");
+});
+
+test("dynamic and effectful keys reject even when a call or getter has a literal return type", () => {
+  const source = checked(`
+let mutable: "value" = "value";
+function key(): "value" { return "value"; }
+const holder = { get name(): "value" { return "value"; } };
+export function make(dynamic: string, choice: "left" | "right") {
+  return { [dynamic]: 1, [mutable]: 2, [key()]: 3, [holder.name]: 4, [choice]: 5 };
+}
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 5, "all dynamic occurrences are classified");
+  assert.equal(index.issues.length, 5, "each unrepresentable field has one issue");
+  for (const entry of index.entries) assert.equal(entry.selection.kind, "rejected", "no hidden dynamic emulation");
+});
+
+test("a const literal-valued initializer is never executed during property-name analysis", () => {
+  const source = checked(`
+function key(): "value" { throw new Error("must not be executed by the compiler"); }
+const constant = key();
+export const result = { [constant]: 1 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "checked const literal type is sufficient without execution");
+  const selected = index.entries[0]!.selection;
+  assert.equal(selected.kind === "resolved" ? selected.name : undefined, "value", "const value has one exact field name");
+});
+
+test("selected well-known symbol names keep their existing native protocol", () => {
+  const source = checked("export const result = { [Symbol.iterator]() { return [1][Symbol.iterator](); } };");
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 1, "one well-known-symbol name");
+  assert.equal(index.issues.length, 0, "existing well-known symbol remains admitted");
+  const selected = index.entries[0]!.selection;
+  assert.equal(selected.kind, "well-known-symbol", "symbol is not converted into a string key");
+  assert.equal(selected.kind === "well-known-symbol" ? selected.symbol : undefined, "iterator", "exact checked symbol identity");
+});
+
+test("published property-name reads and source-syntax snapshots cannot rerun the selector", () => {
+  const source = checked('const key = "value"; export const result = { [key]: 1 };');
+  const file = source.navigation.sourceFiles[0]!;
+  const semantics = source.semantics.forFile(file);
+  let sealed = false;
+  let reads = 0;
+  const index = analyzeSourcePropertyNames(source.ast, file, {
+    operations: semantics.operations,
+    types: { ...semantics.types, expressionType(node: Node) {
+      assert.equal(sealed, false, "a sealed lookup cannot read the checker");
+      reads += 1;
+      return semantics.types.expressionType(node);
+    } },
+  }, source.navigation);
+  sealed = true;
+  const entry = index.entries[0]!;
+  assert.equal(reads, 1, "one source literal type selection");
+  for (let indexOfRead = 0; indexOfRead < 10; indexOfRead += 1) {
+    assert.equal(index.get(entry.node) === entry.selection, true, "published reader is a stable pure lookup");
+  }
+  assert.equal(reads, 1, "published reads performed no extra selection");
+  const syntax = targetSourceSyntaxProgram(source);
+  const original = semantics.propertyNames.entries[0]!;
+  assert.equal(syntax.propertyNames.get(original.node) === original.selection, true, "backend consumes the identical admitted evidence");
+});

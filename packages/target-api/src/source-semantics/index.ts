@@ -1,4 +1,6 @@
 export * from "./target-source-program.js";
+export { analyzeSourcePropertyNames } from "./property-names.js";
+export type { SourcePropertyNameIndex, SourcePropertyNameSelection } from "./property-names.js";
 export { sourceExpressionSequence } from "./expression-sequence.js";
 export { sourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
 export type { SourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
