@@ -321,3 +321,22 @@ export const total = first + second;
   assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
     ["9007199254740993", "16", "9007199254740993", "16"]);
 });
+
+test("native key consumers receive immutable lossless scalar data without fabricated literal provenance", () => {
+  const source = checked(`
+enum Key { Entry = 9007199254740993 }
+export const value = { ["text"]: 1, [1.250]: 2, [Key.Entry]: 3 };
+`);
+  const entries = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames.entries;
+  const text = entries[0]!.selection;
+  const numeric = entries[1]!.selection;
+  const member = entries[2]!.selection;
+  assert.equal(text.kind === "resolved" && text.constant.kind === "string" && text.constant.value === "text", true,
+    "a decoded string key carries its existing scalar value");
+  assert.equal(numeric.kind === "resolved" && numeric.constant.kind === "numeric" && numeric.constant.token.decimalText === "1.250", true,
+    "an authored numeric key retains its exact token, including scale");
+  assert.equal(member.kind === "resolved" && member.constant.kind === "enum-member" &&
+    member.constant.entry === source.semantics.enumConstants.entries[0], true, "an enum key carries the identical shared entry");
+  assert.equal(entries.every(item => item.selection.kind !== "resolved" || Object.isFrozen(item.selection.constant)), true,
+    "the scalar transport is immutable");
+});

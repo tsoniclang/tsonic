@@ -68,7 +68,8 @@ export const result = { [key]: 1 };
   const file = program.navigation.sourceFiles.find(candidate => program.ast.getFileName(candidate) === "/src/index.ts")!;
   const key = program.semantics.forFile(file).propertyNames.entries[0]!.selection;
   assert.equal(key.kind === "resolved" ? key.name : undefined, "9007199254740995", "checker ordinal rounding cannot change a const enum-derived key");
-  assert.equal(key.kind === "resolved" && key.enumConstant === entries[2], true, "the const alias carries the same enum decision, not a second evaluator result");
+  assert.equal(key.kind === "resolved" && key.constant.kind === "enum-member" && key.constant.entry === entries[2], true,
+    "the const alias carries the same enum decision, not a second evaluator result");
 });
 
 test("fractional enum constants and zero divisors are explicit refused selections, never truncations", () => {
@@ -113,7 +114,8 @@ export const value = { [Key.Entry]: 1 };
   assert.equal(entry.kind === "resolved" ? entry.value : undefined, "entry", "source string constant is known");
   const key = program.semantics.forFile(program.navigation.sourceFiles[0]!).propertyNames.entries[0]!.selection;
   assert.equal(key.kind === "resolved" ? key.name : undefined, "entry", "key spelling consumes the shared source constant");
-  assert.equal(key.kind === "resolved" && key.enumConstant === entry, true, "the classifier carries the same checked member identity and immutable entry");
+  assert.equal(key.kind === "resolved" && key.constant.kind === "enum-member" && key.constant.entry === entry, true,
+    "the classifier carries the same checked member identity and immutable entry");
 });
 
 test("numeric enum keys are identical to the indexed discriminant and sealed reads perform no queries", () => {
@@ -136,7 +138,8 @@ test("numeric enum keys are identical to the indexed discriminant and sealed rea
   const program = createTargetSourceProgram(source);
   const selected = program.semantics.forFile(program.navigation.sourceFiles[0]!).propertyNames.entries[0]!.selection;
   const constant = program.semantics.enumConstants.entries[0]!;
-  assert.equal(selected.kind === "resolved" && selected.enumConstant === constant, true, "both paths consume the identical source decision");
+  assert.equal(selected.kind === "resolved" && selected.constant.kind === "enum-member" && selected.constant.entry === constant, true,
+    "both paths consume the identical source decision");
   assert.equal(selected.kind === "resolved" ? selected.name : undefined,
     constant.kind === "resolved" ? String(constant.value) : undefined, "the discriminant and field name have the same exact value");
 });

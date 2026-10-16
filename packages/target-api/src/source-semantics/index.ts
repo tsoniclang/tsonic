@@ -2,7 +2,7 @@ export * from "./target-source-program.js";
 export { analyzeSourceEnumConstants } from "./enum-constants.js";
 export type { SourceEnumConstantIndex, SourceEnumConstantSelection } from "./enum-constants.js";
 export { analyzeSourcePropertyNames } from "./property-names.js";
-export type { SourcePropertyNameIndex, SourcePropertyNameSelection } from "./property-names.js";
+export type { SourcePropertyNameIndex, SourcePropertyNameSelection, SourcePropertyNameConstant } from "./property-names.js";
 export { sourceExpressionSequence } from "./expression-sequence.js";
 export { sourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";
 export type { SourceBooleanShortCircuitBranch } from "./boolean-short-circuit.js";

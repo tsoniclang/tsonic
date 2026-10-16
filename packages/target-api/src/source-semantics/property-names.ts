@@ -6,8 +6,13 @@ import { parseSourceNumericLiteral, sourceLiteralToken } from "./literal-token.j
 import { sourceIntegerConstantValue } from "./integer-constant.js";
 import type { SourceEnumConstantIndex, SourceEnumConstantSelection } from "./enum-constants.js";
 
+export type SourcePropertyNameConstant =
+  | { readonly kind: "string"; readonly value: string }
+  | { readonly kind: "numeric"; readonly token: SourceNumericLiteralToken }
+  | { readonly kind: "enum-member"; readonly entry: Extract<SourceEnumConstantSelection, { kind: "resolved" }> };
+
 export type SourcePropertyNameSelection =
-  | { readonly kind: "resolved"; readonly name: string; readonly enumConstant?: Extract<SourceEnumConstantSelection, { kind: "resolved" }> }
+  | { readonly kind: "resolved"; readonly name: string; readonly constant: SourcePropertyNameConstant }
   | { readonly kind: "well-known-symbol"; readonly symbol: ResolvedSourceWellKnownSymbolInfo["kind"] }
   | { readonly kind: "rejected"; readonly reason: string };
 
@@ -100,7 +105,7 @@ export function analyzeSourcePropertyNames(
       return declaration !== undefined && ast.is.IsEnumMember(declaration) ? selectedEnum(declaration) : selectedLiteral(expression);
     }
     if (ast.is.IsStringLiteral(expression) || ast.is.IsNoSubstitutionTemplateLiteral(expression)) {
-      return Object.freeze({ kind: "resolved", name: ast.text(expression) });
+      return selectedString(ast.text(expression));
     }
     if (ast.is.IsNumericLiteral(expression) || signedNumericLiteral(expression)) return selectedLiteral(expression);
     if (ast.is.IsIdentifier(expression)) {
@@ -156,7 +161,7 @@ export function analyzeSourcePropertyNames(
       if (origin !== undefined && (!ast.is.IsStringLiteral(origin) && !ast.is.IsNoSubstitutionTemplateLiteral(origin) || ast.text(origin) !== text)) {
         return rejected("The const key's exact source value disagrees with its checked literal type.");
       }
-      return Object.freeze({ kind: "resolved", name: text });
+      return selectedString(text);
     }
     const value = semantics.types.numericLiteralValue(type);
     if (typeof value !== "number") return rejected("The computed key's checked type is not one exact string or numeric literal.");
@@ -173,7 +178,11 @@ export function analyzeSourcePropertyNames(
     if (typeof checked === "number" && !Number.isFinite(checked)) return rejected("The numeric property key exceeds finite native literal bounds.");
     const numeric = exactNumeric(node, new Set());
     return numeric === undefined ? rejected("The numeric key has no exact authored literal origin corresponding to its checked constant value.")
-      : Object.freeze({ kind: "resolved", name: numericName(numeric) });
+      : Object.freeze({ kind: "resolved", name: numericName(numeric), constant: Object.freeze({ kind: "numeric", token: numeric }) });
+  }
+
+  function selectedString(value: string): SourcePropertyNameSelection {
+    return Object.freeze({ kind: "resolved", name: value, constant: Object.freeze({ kind: "string", value }) });
   }
 
   function selectedEnum(node: Node): SourcePropertyNameSelection {
@@ -181,7 +190,8 @@ export function analyzeSourcePropertyNames(
     if (constant === undefined) throw new Error("A selected checked enum member requires its completed source constant entry.");
     if (constant.kind === "rejected") return rejected(constant.reason);
     const numeric = typeof constant.value === "bigint" ? numericTokenFromText(constant.value.toString()) : undefined;
-    return Object.freeze({ kind: "resolved", name: typeof constant.value === "string" ? constant.value : numericName(numeric!), enumConstant: constant });
+    return Object.freeze({ kind: "resolved", name: typeof constant.value === "string" ? constant.value : numericName(numeric!),
+      constant: Object.freeze({ kind: "enum-member", entry: constant }) });
   }
 
   function enumOrigin(node: Node, active: Set<Node>): Node | undefined {
