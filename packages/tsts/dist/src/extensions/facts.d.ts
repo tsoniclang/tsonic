@@ -1,4 +1,5 @@
-import type { ExtensionFactSubject, ProviderWellKnownSymbolName } from "./host.js";
+import type { ExtensionFactSubject } from "./host.js";
+import { type ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 import type { Node } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Type } from "../internal/checker/types.js";

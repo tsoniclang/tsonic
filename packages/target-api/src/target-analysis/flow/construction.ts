@@ -101,3 +101,66 @@ export function sourceFlowSequence(nodes: readonly (Node | undefined)[], next: n
   }
   return entry;
 }
+
+export interface SourceFlowCleanupScope {
+  readonly next: number;
+  readonly context: SourceFlowContext;
+}
+
+export function sourceFlowCleanupScope(build: SourceFlowConstruction, declaration: Node,
+  next: number, context: SourceFlowContext): SourceFlowCleanupScope {
+  build.step(declaration);
+  const checked = build.source.semantics.forNode(declaration).operations.resourceManagement(declaration);
+  const declarationKind = build.source.ast.variableDeclarationKind(declaration);
+  if (checked === undefined || checked.declaration !== declaration || checked.declarationKind !== declarationKind) {
+    throw new SourceFlowFailure("Source flow requires exact checked resource acquisition and cleanup evidence.", declaration);
+  }
+  const asynchronous = checked.declarationKind === "await using";
+  const routes = new Map<number, number>();
+  const route = (destination: number): number => {
+    const existing = routes.get(destination);
+    if (existing !== undefined) return existing;
+    const completion = asynchronous
+      ? build.emit(declaration, { kind: "await" }, destination, context, true, "resume")
+      : destination;
+    const disposal = build.emit(declaration, { kind: "dispose", declaration, asynchronous }, completion, context, true);
+    const branch = build.point(declaration, { kind: "branch" });
+    build.edge(branch, completion, "nullish");
+    build.edge(branch, disposal, "present");
+    const read = build.emit(declaration, { kind: "read", binding: declaration }, branch, context);
+    routes.set(destination, read);
+    return read;
+  };
+  return {
+    next: route(next),
+    context: {
+      returnTo: route(context.returnTo),
+      throwTo: route(context.throwTo),
+      breaks: new Map([...context.breaks].map(([target, destination]) => [target, route(destination)])),
+      continues: new Map([...context.continues].map(([target, destination]) => [target, route(destination)])),
+    },
+  };
+}
+
+export function sourceFlowResourceScope(build: SourceFlowConstruction, declarations: readonly Node[],
+  next: number, context: SourceFlowContext,
+  body: (next: number, context: SourceFlowContext) => number,
+  acquire: (declaration: Node, next: number, context: SourceFlowContext) => number =
+    (declaration, continuation, acquisitionContext) => build.pattern(declaration, continuation, acquisitionContext, true),
+): number {
+  const acquisitions: { readonly declaration: Node; readonly context: SourceFlowContext }[] = [];
+  let completion = next;
+  let active = context;
+  for (const declaration of declarations) {
+    acquisitions.push({ declaration, context: active });
+    const scope = sourceFlowCleanupScope(build, declaration, completion, active);
+    completion = scope.next;
+    active = scope.context;
+  }
+  let entry = body(completion, active);
+  for (let index = acquisitions.length - 1; index >= 0; index -= 1) {
+    const acquisition = acquisitions[index]!;
+    entry = acquire(acquisition.declaration, entry, acquisition.context);
+  }
+  return entry;
+}
