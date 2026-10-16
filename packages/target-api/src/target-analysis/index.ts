@@ -1,3 +1,5 @@
+export { selectTargetNativeHandler, selectTargetNativePointerOperation } from "./native-handlers.js";
+export type { TargetNativeHandler } from "./native-handlers.js";
 export {
   createSourceDeclarationMembership,
 } from "./declaration-membership.js";
