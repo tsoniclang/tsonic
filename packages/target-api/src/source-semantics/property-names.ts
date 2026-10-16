@@ -67,7 +67,7 @@ export function analyzeSourcePropertyNames(
       const declaration = ast.is.IsIdentifier(expression) ? navigation.sourceReferenceFor(expression)?.declaration
         : ast.is.IsPropertyAccessExpression(expression) ? semantics.operations.propertyAccess(expression)?.selectedDeclaration
           : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression)?.selectedDeclaration : undefined;
-      return declaration !== undefined && ast.is.IsEnumMember(declaration) ? selectedEnum(expression) : selectedLiteral(expression);
+      return declaration !== undefined && ast.is.IsEnumMember(declaration) ? selectedEnum(declaration) : selectedLiteral(expression);
     }
     if (ast.is.IsStringLiteral(expression) || ast.is.IsNoSubstitutionTemplateLiteral(expression)) {
       return Object.freeze({ kind: "resolved", name: ast.text(expression) });
@@ -76,7 +76,7 @@ export function analyzeSourcePropertyNames(
     if (ast.is.IsIdentifier(expression)) {
       const declaration = navigation.sourceReferenceFor(expression)?.declaration;
       if (declaration !== undefined && constBinding(declaration)) return selectedLiteral(expression);
-      if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return selectedEnum(expression);
+      if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return selectedEnum(declaration);
       return unavailable;
     }
     const access = ast.is.IsPropertyAccessExpression(expression)
@@ -84,7 +84,7 @@ export function analyzeSourcePropertyNames(
       : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression) : undefined;
     if (access?.selectedDeclaration === undefined || !ast.is.IsEnumMember(access.selectedDeclaration) ||
       !pureReference(expression)) return unavailable;
-    return selectedEnum(expression);
+    return selectedEnum(access.selectedDeclaration);
   }
 
   function unwrap(node: Node | undefined): Node | undefined {
