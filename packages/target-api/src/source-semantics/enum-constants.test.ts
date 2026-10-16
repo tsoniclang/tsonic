@@ -271,7 +271,8 @@ export enum Remainder { Sum = 9007199254740993 + 2, Value = Sum % 4 }
   assert.deepEqual(entries.slice(0, 3).map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
     [9007199254740993n, 9007199254740994n, 9007199254740993n]);
   for (const entry of entries.slice(3, 5)) {
-    assert.equal(entry.kind === "rejected" && entry.reason.includes("Different exact enum values share this checker value"), true,
+    assert.equal(entry.kind === "rejected" && entry.reason.includes("Low (exact value 9007199254740992)") &&
+      entry.reason.includes("High (exact value 9007199254740993)") && entry.reason.includes("share checker value 9007199254740992"), true,
       "both different exact values lose the colliding checker identity");
   }
   for (const entry of entries.slice(5)) assert.equal(entry.kind === "rejected" && entry.reason.includes("checker value"), true,
