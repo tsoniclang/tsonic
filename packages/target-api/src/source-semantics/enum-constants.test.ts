@@ -200,15 +200,24 @@ export enum Intermediate { Power = (2 ** 1000) / (2 ** 1000), Decimal = 1e400 / 
   One = 1 ** -9007199254740993, Odd = (-1) ** -9007199254740993, Even = (-1) ** -9007199254740994 }
 `, {}, false));
   const values = program.semantics.enumConstants.entries;
-  assert.deepEqual([values[0], values[2], values[4]].map(entry => entry?.kind === "resolved" ? entry.value : undefined),
-    [1n, 1n, 1n]);
-  for (const [position, exact] of [[1, 1n], [3, -1n]] as const) {
+  for (const [position, exact] of [1n, 1n, 1n, -1n, 1n].entries()) {
     const entry = values[position]!;
     assert.equal(entry.kind === "rejected" && entry.failure === "source" && entry.reason.includes(`exact value ${exact}`) &&
       entry.reason.includes("checker value"), true, `intermediate ${position} reaches coherence admission, not a resource or native-width cap`);
   }
   const declaration = program.ast.statements(program.navigation.sourceFiles[0]!)[0]!;
   assert.equal(program.semantics.enumConstants.integerWidth(declaration)?.kind, "rejected", "one source-incoherent member refuses its enum before the seal");
+});
+
+test("coherent exact enum intermediates remain independent of native-width and float-finiteness preflights", () => {
+  const program = createTargetSourceProgram(checked(`
+export enum Intermediate { Power = (2 ** 1000) / (2 ** 1000), One = 1 ** -9007199254740993, Even = (-1) ** -9007199254740994 }
+`));
+  assert.deepEqual(program.semantics.enumConstants.entries.map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
+    [1n, 1n, 1n]);
+  const declaration = program.ast.statements(program.navigation.sourceFiles[0]!)[0]!;
+  assert.equal(program.semantics.enumConstants.integerWidth(declaration)?.kind, "resolved",
+    "large exact intermediates with coherent final values keep their actual native width");
 });
 
 test("explicit wide enum values retain exact native data while distinct checker collisions refuse", () => {
