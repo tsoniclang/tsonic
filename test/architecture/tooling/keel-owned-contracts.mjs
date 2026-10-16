@@ -31,6 +31,7 @@ export const keelOwnedTargets = Object.freeze({
     diagnosticCalls: ["selectedPolicyDiagnostic", "targetPolicyDiagnostic", "unsupportedNodeDiagnostic"].map(symbol => ({
       file: "src/backend/planner/diagnostics.ts", symbol,
     })),
+    invariantHelpers: [{ file: "src/backend/planner/diagnostics.ts", symbol: "failCsharpPlannerInvariant" }],
     recordReaders: [{
       file: "src/target-model/records/operations.ts",
       symbol: "CsharpTargetOperationClassifications.operatorForm.usesExpectedResultType",
@@ -45,6 +46,7 @@ export const keelOwnedTargets = Object.freeze({
     diagnosticCalls: ["unsupportedStatementDiagnostic", "missingFactDiagnostic", "unsupportedConstructDiagnostic"].map(symbol => ({
       file: "src/backend/planner/diagnostics.ts", symbol,
     })),
+    invariantHelpers: [{ file: "src/backend/planner/diagnostics.ts", symbol: "failRustPlannerInvariant" }],
     cloneFields: [{ file: "src/backend/target-ast/syntax/nodes.ts", symbol: "RustExpr.method" }],
     recordReaders: [
       { file: "src/analysis/callables/native-storage.ts", symbol: "RustNativeStoragePlan.parameterFor" },
