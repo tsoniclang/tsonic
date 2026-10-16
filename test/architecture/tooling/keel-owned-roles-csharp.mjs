@@ -1,7 +1,7 @@
 export const keelOwnedCsharpResponsibilities = Object.freeze({
   functions: [
     { file: "src/policy/operations/members/selection/call-forms.ts", symbol: "selectCsharpCallForm",
-      bodySha256: "344dafac454d7ee3e379680d09efa338ccf169ffe99acd5915dbdb843b07efc8", role: "selection",
+      bodySha256: "07ad4ff289fd1db57cdab122d857baf8dfecdc256a2f0008f252a66603ec7de5", role: "selection",
       evidence: [{ kind: "parameter", name: "sourceFlow" }],
       reason: "Select one call form from checked type-test, source-flow and JS operation inputs; preserve rejection precedence and original value identity." },
     { file: "src/policy/conversions/expression.ts", symbol: "selectCsharpExpressionConversion",
