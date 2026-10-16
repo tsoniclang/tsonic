@@ -55,6 +55,22 @@ export enum Arithmetic { Sum = 9007199254740993 + 2, Difference = Sum - 4,
       18014398509481984n, -9007199254740993n, 1250n]);
 });
 
+test("checked const references retain exact authored values and alias keys retain the same enum entry", () => {
+  const program = createTargetSourceProgram(checked(`
+import { exact } from "./constants.js";
+export enum Value { First = exact, Second, Third }
+const key = Value.Third;
+export const result = { [key]: 1 };
+`, { "/src/constants.ts": "export const exact = 9007199254740993;" }));
+  const entries = program.semantics.enumConstants.entries;
+  assert.deepEqual(entries.map(entry => entry.kind === "resolved" ? entry.value : entry.reason),
+    [9007199254740993n, 9007199254740994n, 9007199254740995n]);
+  const file = program.navigation.sourceFiles.find(candidate => program.ast.getFileName(candidate) === "/src/index.ts")!;
+  const key = program.semantics.forFile(file).propertyNames.entries[0]!.selection;
+  assert.equal(key.kind === "resolved" ? key.name : undefined, "9007199254740995", "checker ordinal rounding cannot change a const enum-derived key");
+  assert.equal(key.kind === "resolved" && key.enumConstant === entries[2], true, "the const alias carries the same enum decision, not a second evaluator result");
+});
+
 test("fractional enum constants and zero divisors are explicit refused selections, never truncations", () => {
   const program = createTargetSourceProgram(checked(`
 export enum Refused { Fraction = 1.5, Division = 7 / 2, Zero = 1 / 0, Remainder = 1 % 0 }

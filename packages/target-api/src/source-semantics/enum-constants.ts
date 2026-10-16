@@ -165,6 +165,10 @@ export function analyzeSourceEnumConstants(
       : ast.is.IsPropertyAccessExpression(node) ? checker.getResolvedPropertyAccessInfo(node)?.selectedDeclaration
         : ast.is.IsElementAccessExpression(node) ? checker.getResolvedElementAccessInfo(node)?.selectedDeclaration : undefined;
     if (declaration !== undefined && membership.has(declaration)) return depends(node, [declaration], values => values[0]!);
+    if (declaration !== undefined && ast.is.IsVariableDeclaration(declaration) && ast.variableDeclarationKind(declaration) === "const") {
+      const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+      if (initializer !== undefined) return depends(node, [initializer], values => values[0]!);
+    }
     return rejected("The enum initializer is not an exact checked literal, enum reference or supported constant expression.");
   }
 }
