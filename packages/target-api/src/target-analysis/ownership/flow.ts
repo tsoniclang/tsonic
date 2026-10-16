@@ -33,6 +33,7 @@ export interface SourceContinuationExecution {
   readonly graph: SourceControlFlowGraph;
   readonly contexts: ReadonlyMap<Node, { readonly owner: Node; readonly bindings: SourceStorageBindings }>;
   readonly invocations: readonly { readonly call: Node; readonly bindings: SourceStorageBindings }[];
+  readonly completionInvocations: readonly { readonly call: Node; readonly bindings: SourceStorageBindings }[];
 }
 
 interface SourceContinuationFlowInput {
@@ -64,6 +65,7 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
     });
     const contexts = new Map<Node, { readonly owner: Node; readonly bindings: SourceStorageBindings }>();
     const invocations: { readonly call: Node; readonly bindings: SourceStorageBindings }[] = [];
+    const completionInvocations: { readonly call: Node; readonly bindings: SourceStorageBindings }[] = [];
     const invokedContexts = new Map<Node, Set<SourceStorageBindings>>();
     const appendInvocation = (call: Node, bindings: SourceStorageBindings): boolean => {
       if (!budget.step()) return false;
@@ -111,12 +113,14 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
         if (!source.ast.is.IsCallExpression(producer.subject.node) && !source.ast.is.IsNewExpression(producer.subject.node) &&
           !storage.isAccessorInvocation(producer.subject.node)) continue;
         if (!appendInvocation(producer.subject.node, producer.bindings)) return sourceOwnershipUnresolved(completion, budget.failure()!);
+        if (!rows.add(1)) return sourceOwnershipUnresolved(completion, budget.failure()!);
+        completionInvocations.push(Object.freeze({ call: producer.subject.node, bindings: producer.bindings }));
       }
     }
     if (!rows.add(3)) return sourceOwnershipUnresolved(candidate, budget.failure()!);
     published = true;
     return Object.freeze({ kind: "resolved", execution: Object.freeze({ graph: selected.graph,
-      contexts, invocations: Object.freeze(invocations) }) });
+      contexts, invocations: Object.freeze(invocations), completionInvocations: Object.freeze(completionInvocations) }) });
   } catch (error) {
     if (!(error instanceof SourceFlowFailure)) throw error;
     return sourceOwnershipUnresolved(error.source ?? candidate, error.message);

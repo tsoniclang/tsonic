@@ -20,6 +20,7 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
       await pending(); return read(value);
     }`,
     `async function produced(value: Lease): Promise<number> { await pending(); return read(value); }`,
+    `async function plainProducer(): Promise<number> { await pending(); return 1; }`,
     `async function returned(pending: Promise<number>): Promise<number> { const alias = pending; return alias; }`,
     `async function awaited(pending: Promise<number>): Promise<number> { const alias = pending; return await alias; }`,
     `async function recursiveAdopt(pending: Promise<number>, count: number): Promise<number> {
@@ -68,6 +69,27 @@ function fixture(reverse: boolean, recursive: "self" | "mutual") {
       const stored = recursiveAdopt(promise, 2); return stored;
     }
     async function formalAdoption(pending: Promise<number>) { return await returned(pending); }
+    async function plainRoot() { const promise = plainProducer(); return await returned(promise); }
+    class PromiseHolder {
+      constructor(private readonly promise: Promise<number>) {}
+      get value(): Promise<number> { return this.promise; }
+    }
+    async function ownedGetterAdoption() {
+      const value: Lease = { value: 3 }; const holder = new PromiseHolder(produced(value));
+      const stored = returned(holder.value); return stored;
+    }
+    async function borrowedGetterAdoption() {
+      const owner = { value: 3 }; const value = borrow(owner); const holder = new PromiseHolder(produced(value));
+      const stored = returned(holder.value); return stored;
+    }
+    async function ownedConditionalAdoption(flag: boolean) {
+      const value: Lease = { value: 3 }; const promise = flag ? produced(value) : plainProducer();
+      const stored = returned(promise); return stored;
+    }
+    async function borrowedConditionalAdoption(flag: boolean) {
+      const owner = { value: 3 }; const value = borrow(owner); const promise = flag ? produced(value) : plainProducer();
+      const stored = returned(promise); return stored;
+    }
   ` }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
   assert.equal(checked.diagnostics.length === 0, true,
     formatDiagnostics(checked.diagnostics.filter(diagnostic => diagnostic !== undefined).slice(0, 4)).slice(0, 1024));
@@ -149,6 +171,8 @@ for (const reverse of [false, true]) {
     ["returned-alias", "Adoption", "returned"],
     ["awaited-member", "AwaitedAdoption", "awaited"],
     ["recursive-return", "RecursiveAdoption", "recursiveAdopt"],
+    ["getter-return", "GetterAdoption", "returned"],
+    ["conditional-return", "ConditionalAdoption", "returned"],
   ]) {
     test(`${kind} prepares its caller-owned Promise producer before the SCC, reverse=${reverse}`, () => {
       for (const borrowed of [false, true]) {
@@ -168,7 +192,8 @@ for (const reverse of [false, true]) {
           }
           const selected = current.query.forCall(adopted!);
           assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
-            selected.kind === "unresolved" ? selected.reason : "an isolated demand owns every return/await producer edge");
+            selected.kind === "unresolved" ? selected.reason
+              : `${kind}: borrowed=${borrowed}, producerFirst=${producerFirst}, decision=${selected.kind === "resolved" ? selected.decision : selected.kind}`);
           if (selected.kind === "resolved" && borrowed) {
             assert.equal(selected.decision === "rejected" && selected.diagnostic.at === adopted &&
               selected.diagnostic.code === "TSONIC_BORROWED_ASYNC_RESULT_ESCAPES", true,
@@ -189,6 +214,17 @@ for (const reverse of [false, true]) {
     const selected = current.query.forCall(call!);
     assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
       selected.kind === "unresolved" ? selected.reason : "the native formal contract retains its real bound input");
+  });
+  test(`a fresh isolated adopter prepares the caller's zero-argument Promise factory, reverse=${reverse}`, () => {
+    const current = fixture(reverse, "self");
+    const root = current.declaration("plainRoot");
+    const call = current.storage.nodes.find(node => current.source.ast.is.IsCallExpression(node) &&
+      current.selectedDeclaration(node) === current.declaration("returned") &&
+      current.storage.enclosingRegionFor(node) === current.source.ast.body(root));
+    assert.equal(call !== undefined, true, "the exact independently queried adopter call");
+    const selected = current.query.forCall(call!);
+    assert.equal(selected.kind === "resolved" && selected.decision === "admitted", true,
+      selected.kind === "unresolved" ? selected.reason : "a caller-owned nonlocal factory is prepared before evaluation");
   });
 }
 

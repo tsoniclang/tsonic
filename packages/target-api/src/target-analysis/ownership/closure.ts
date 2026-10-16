@@ -240,12 +240,31 @@ export function createSourceContinuationClosureQuery(input: {
           execution: execution.execution });
         if (flow.kind === "unresolved") return flow;
         let maySuspend = flow.maySuspend;
+        let retained = bottom;
+        for (const producer of execution.execution.completionInvocations) {
+          const completed = lookup(producer.call, producer.bindings);
+          if (completed.kind === "unresolved") return completed;
+          const joined = join(retained, { ...bottom, dependencies: completed.dependencies }, evaluationBudget);
+          if (joined === undefined) return sourceOwnershipUnresolved(producer.call, evaluationBudget.failure()!);
+          retained = joined;
+        }
         for (const returned of flow.results) {
           const completion = suspensions.forResult(returned.reference, returned.bindings);
           if (completion.kind === "unresolved") return completion;
           maySuspend ||= completion.kind === "resolved";
+          if (completion.kind === "resolved") {
+            const state = transfer.suspend(transfer.lattice.empty(), completion.pending);
+            if (state === undefined) return sourceOwnershipUnresolved(returned.reference, evaluationBudget.failure()!);
+            const selected = dependencies.forRead(state, returned.reference, returned.candidate, returned.bindings);
+            if (selected.kind === "unresolved") return selected;
+            const joined = join(retained, { ...bottom, dependencies: selected.dependencies }, evaluationBudget);
+            if (joined === undefined) return sourceOwnershipUnresolved(returned.reference, evaluationBudget.failure()!);
+            retained = joined;
+          }
         }
-        const joined = join(result, { ...flow, maySuspend }, evaluationBudget);
+        const completed = join(flow, retained, evaluationBudget);
+        if (completed === undefined) return sourceOwnershipUnresolved(vertex.call, evaluationBudget.failure()!);
+        const joined = join(result, { ...completed, maySuspend }, evaluationBudget);
         if (joined === undefined) return sourceOwnershipUnresolved(vertex.call, evaluationBudget.failure()!);
         result = joined;
       }
