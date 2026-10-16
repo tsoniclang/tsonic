@@ -147,6 +147,10 @@ Recording them does not implement them or authorize widening another lease.
 ## Driver liveness and shutdown
 
 An explicitly awaited root keeps the driver active until that root completes.
+On every Rust turn, a woken root is polled before referenced native work and
+ready jobs. A root woken by that turn's native work or jobs resumes on the next
+turn, after the current turn's jobs have run. This ordering applies to later
+resumptions too, not only the initial eager prefix.
 After completion, the driver retains its output while draining already-ready
 jobs and jobs made ready by them. It cannot return early and abandon a queued
 `then` callback. An entry without an awaited root still drains ready jobs.
