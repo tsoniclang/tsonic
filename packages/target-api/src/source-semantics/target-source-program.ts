@@ -133,12 +133,12 @@ export function createTargetSourceProgram(
     const declarations = Object.freeze({
       declaredValueType(declaration: Node) {
         if (source.ast.is.IsClassExpression(declaration)) return queries.checker.getTypeAtLocation(declaration);
-        return queries.checker.getTypeOfSymbol(navigation.declarationSymbol(declaration));
+        return queries.checker.getTypeOfSymbol(navigation.declarationSymbol(declaration, sourceFile));
       },
       declaredType(declaration: Node) {
         const symbol = source.ast.is.IsClassExpression(declaration)
           ? queries.checker.getTypeSymbol(queries.checker.getTypeAtLocation(declaration))
-          : navigation.declarationSymbol(declaration);
+          : navigation.declarationSymbol(declaration, sourceFile);
         return queries.checker.getDeclaredTypeOfSymbol(symbol);
       },
       typeSymbol: queries.checker.getTypeSymbol,

@@ -2,6 +2,7 @@ import type {
   AstReader,
   CheckedSourceProgram,
   Node,
+  SourceFile,
   Symbol,
   TypeCheckerQueries,
 } from "@tsonic/tsts";
@@ -19,7 +20,7 @@ export interface SourceCallableImplementationNavigation {
 
 export function createSourceCallableImplementationNavigation(
   source: CheckedSourceProgram,
-  declarationSymbol: (declaration: Node) => Symbol | undefined,
+  declarationSymbol: (declaration: Node, sourceFile: SourceFile) => Symbol | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceCallableImplementationNavigation {
   const cache = new WeakMap<Node, SourceCallableImplementationResult>();
@@ -47,7 +48,7 @@ export function createSourceCallableImplementationNavigation(
 function resolveCallableImplementation(
   source: CheckedSourceProgram,
   contractDeclaration: Node,
-  declarationSymbol: (declaration: Node) => Symbol | undefined,
+  declarationSymbol: (declaration: Node, sourceFile: SourceFile) => Symbol | undefined,
   isProjectDeclaration: (node: Node | undefined) => boolean,
 ): SourceCallableImplementationResult {
   const { ast } = source;
@@ -76,7 +77,7 @@ function resolveCallableImplementation(
   }
   const checker = source.getSourceFileQueries(sourceFile).checker;
   const symbolOwner = category === "constructor" ? ast.parent(contractDeclaration) : contractDeclaration;
-  const symbol = symbolOwner === undefined ? undefined : declarationSymbol(symbolOwner);
+  const symbol = symbolOwner === undefined ? undefined : declarationSymbol(symbolOwner, sourceFile);
   const implementationDeclaration = ast.body(contractDeclaration) !== undefined ? contractDeclaration : selectCallableImplementationDeclaration(
     ast,
     checker,
