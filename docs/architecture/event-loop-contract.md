@@ -115,7 +115,7 @@ A million-entry inline scratch registry or eager full-capacity allocation is
 not justified by a finite limit. Cold-owner, capacity-growth and overflow
 behavior must be measured separately from warmed per-operation costs.
 
-An operation that posts loop-owned work without an active owner fails fast
+The required posting boundary rejects loop-owned work without an active owner
 with the exact message:
 
 ```text
@@ -128,6 +128,21 @@ that boundary; a missing owner is not converted into an ordinary Promise
 rejection. Neither target initializes an invisible loop or executes the
 deferred callback synchronously. Merely constructing a settled value or taking
 a native direct-await path must not initialize the job queue.
+
+Rust's public `require_dispatch_owner` enforces admission before a factory,
+reaction, adoption, JS/Node timer or the covered task/background boundary
+retains work or performs its side effects. An owning potentially pending
+Rust Promise factory therefore requires a loop. C# uses its native eager Task
+construction without that prerequisite; its reaction-posting boundary still
+requires an owner. A settled Rust Promise value does not itself post work.
+
+The current audit does not certify every posting root. D-TK046 retains these
+open obligations: Rust Node signals, worker ports, resource registration and
+worker spawn (which can start its child before checking an owner); C#'s
+TaskCompletion executor catch (GAP-01) and generic
+BackgroundDispatch.RunReferenced (GAP-02). They are implementation gaps, not
+approved native divergences or exceptions to the required boundary above.
+Recording them does not implement them or authorize widening another lease.
 
 ## Driver liveness and shutdown
 
@@ -166,6 +181,13 @@ runnables and releases frames/captures on the owner thread. Late foreign wakes
 must not revive a closed owner or access released captures. Repeated loop use
 must not inherit stale jobs, references, failures or task slots.
 
+A Rust root passed by value is destroyed inside its closing owner, before
+that owner is removed. Closing does not permit new posting: Rust panics at
+that boundary and C# throws. Rust can still report an observation belonging
+to this closing generation; C# rejects observation as well as posting while
+closing. These native failure paths are not converted into another JS
+rejection or used to reopen an owner.
+
 ## Result-use and rejection reporting
 
 Shared analysis owns the checked source result-use decision; target analysis
@@ -185,6 +207,10 @@ A temporary Rust `&self` chosen by lowering is not, by itself, proof of an
 escaping source lease. Scoped borrowed calls awaited in place remain valid.
 The owning shared evidence must establish the suspended dependency, potential
 pending completion and escape before enabling the diagnostic on either target.
+
+An installed discarded-result observation belongs to the loop generation
+that installed it. A later loop on the same thread is a different owner;
+stale settlement must not report into it or revive the old owner.
 
 For a discarded JS call that rejects, Rust `observe_discarded` and C#
 `ObserveDiscarded` preserve its original reason, report to stderr and terminate
