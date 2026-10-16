@@ -398,9 +398,15 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.kind === "transition") {
       if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition => Object.freeze({ ...term, condition }));
-      const selected = navigation.callableImplementation(term.condition.subject.node);
-      if (selected.kind !== "resolved" || selected.implementation.declaration !== term.capture.owner)
-        return { kind: "replace", terms: [] };
+      const node = term.condition.subject.node;
+      if (ast.is.IsClassDeclaration(node) || ast.is.IsClassExpression(node)) {
+        const owner = ast.is.IsConstructorDeclaration(term.capture.owner) ? ast.parent(term.capture.owner) : term.capture.owner;
+        if (owner !== node) return { kind: "replace", terms: [] };
+      } else {
+        const selected = navigation.callableImplementation(node);
+        if (selected.kind !== "resolved" || selected.implementation.declaration !== term.capture.owner)
+          return { kind: "replace", terms: [] };
+      }
       const value = scopes.applyTerm(term.value, new Map([[term.capture, term.condition.scope]]));
       return value === undefined ? undefined : { kind: "replace", terms: [value] };
     }
@@ -419,7 +425,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         const selected = transport.invocationImplementations(term.invocation);
         const terms: SourceStorageTerm[] = [];
         for (const candidate of selected.size === 0 ? [node] : selected) {
-          const scope = scopes.frameFor(candidate, term.invocation, term.scope, term.callee.scope);
+          const scope = equations.scopeFor(candidate, term.invocation, term.scope, term.callee.scope, term);
           if (scope === undefined) return undefined;
           if (term.mode === "execution") {
             const regions = regionsFor(candidate, term.invocation, scope, term.demand);

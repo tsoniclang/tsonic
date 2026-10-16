@@ -637,7 +637,7 @@ export function createSourceStorageTransport(
   };
   graphQueries.reconcile(operations());
   const contextLocation = createSourceStorageContextLocations(source, budget, storedValues.storesFor,
-    subject => invocationEffects.get(subject.node)?.resultAlias !== undefined);
+    subject => invocationEffects.get(subject.node));
   const contextualInputs = createSourceStorageContextInputs(source, budget, {
     subject, subjectFor, incomingFor, sourceFileFor,
     isInvocation: node => invocations.has(node) || accessorTargets.has(node),
