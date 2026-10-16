@@ -248,3 +248,76 @@ test("source syntax snapshots retain checked declaration-file keys without targe
   const syntax = targetSourceSyntaxProgram(source);
   assert.equal(syntax.propertyNames.get(entry.node) === entry.selection, true, "declaration-file selections survive the data-only handoff");
 });
+
+test("const array origins follow checked tuple spread positions without rounding", () => {
+  const source = checked(`
+const prefix = [1, 9007199254740993] as const;
+const [first, second, third] = [...prefix, 3] as const;
+const repeated = [...prefix, ...prefix] as const;
+const [, , fourth, fifth] = repeated;
+export const values = [{ [first]: 1 }, { [second]: 2 }, { [third]: 3 }, { [fourth]: 4 }, { [fifth]: 5 }];
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "fixed tuple spreads retain exact source origins");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["1", "9007199254740993", "3", "1", "9007199254740993"]);
+});
+
+test("declared fixed tuples retain their exact literal type origins", () => {
+  const source = checked(`
+declare const declared: readonly [first: 9007199254740993, second: 9007199254740995];
+const [first, second, after] = [...declared, 3] as const;
+export const values = [{ [first]: 1 }, { [second]: 2 }, { [after]: 3 }];
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "declared tuple contracts provide exact native literal evidence");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["9007199254740993", "9007199254740995", "3"]);
+});
+
+test("assertions cannot change the actual exact native property key", () => {
+  const source = checked(`
+const numeric = 5 as unknown as 7;
+const text = "a" as unknown as "b";
+const large = 9007199254740993 as unknown as 9007199254740992;
+export const numericValue = { [numeric]: 1 };
+export const textValue = { [text]: 2 };
+export const largeValue = { [large]: 3 };
+export const directText = { ["a" as unknown as "b"]: 4 };
+export const directNumeric = { [5 as unknown as 7]: 5 };
+export const exact = { [9007199254740993 as 9007199254740993]: 6 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 5, "each conflicting asserted contract is refused without a 53-bit cap");
+  assert.equal(index.entries.slice(0, 5).every(entry => entry.selection.kind === "rejected"), true,
+    "neither checked rounding nor erased syntax can alter the actual key");
+  const exact = index.entries[5]!.selection;
+  assert.equal(exact.kind === "resolved" ? exact.name : undefined, "9007199254740993", "an agreeing exact assertion remains native-valid");
+});
+
+test("nonfinite numeric keys and ambient unknown enum constants get precise distinct refusals", () => {
+  const source = checked(`
+declare enum Unknown { First, Second }
+export const first = { [1e999]: 1 };
+export const second = { [Unknown.First]: 2 };
+export const third = { [Unknown.Second]: 3 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 3, "every unproven native constant is refused");
+  assert.equal(index.issues[0]!.reason.includes("finite native literal bounds"), true, "overflow reason names the native finite bound");
+  assert.equal(index.issues.slice(1).every(issue => issue.reason.includes("enum member has no exact compile-time constant")), true,
+    "ambient members are not assigned invented ordinals");
+});
+
+test("computed and numeric binding names consume the same shared key selections", () => {
+  const source = checked(`
+const key = 9007199254740993;
+const source = { [key]: 1, 16: 2 };
+const { [key]: first, 0x10: second } = source;
+export const total = first + second;
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "ordinary and computed binding keys have exact source evidence");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["9007199254740993", "16", "9007199254740993", "16"]);
+});

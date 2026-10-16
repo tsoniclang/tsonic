@@ -1,4 +1,4 @@
-import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile } from "@tsonic/tsts";
+import type { AstReader, Node, ResolvedSourceWellKnownSymbolInfo, SourceFile, Type } from "@tsonic/tsts";
 import type { SourceProgramNavigation } from "../source-navigation/types.js";
 import type { SourceFileSemantics } from "./types.js";
 import type { SourceNumericLiteralToken } from "./literal-values-model.js";
@@ -26,7 +26,7 @@ export function analyzeSourcePropertyNames(
   sourceFile: SourceFile,
   semantics: {
     readonly operations: Pick<SourceFileSemantics["operations"], "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
-    readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue">;
+    readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue" | "isTuple" | "tupleElementInfos">;
     readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations">;
   },
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
@@ -35,10 +35,14 @@ export function analyzeSourcePropertyNames(
   const entries: { readonly node: Node; readonly selection: SourcePropertyNameSelection }[] = [];
   const issues: { readonly node: Node; readonly reason: string }[] = [];
   const numericValues = new WeakMap<Node, SourceNumericLiteralToken | null>();
+  const checkedTypes = new WeakMap<Node, Type | null>();
   const pending: Node[] = [sourceFile];
   while (pending.length > 0) {
     const node = pending.pop()!;
-    if (ast.is.IsComputedPropertyName(node) || ast.is.IsNumericLiteral(node) && ast.name(ast.parent(node)) === node) {
+    const parent = ast.parent(node);
+    if (ast.is.IsComputedPropertyName(node) || ast.is.IsNumericLiteral(node) &&
+      (ast.name(parent) === node || parent !== undefined && ast.is.IsBindingElement(parent) &&
+        ast.as.AsBindingElement(parent)?.PropertyName === node)) {
       const selection = ast.is.IsComputedPropertyName(node) ? select(node) : selectedNumeric(node);
       values.set(node, selection);
       entries.push(Object.freeze({ node, selection }));
@@ -55,13 +59,37 @@ export function analyzeSourcePropertyNames(
   });
 
   function select(name: Node): SourcePropertyNameSelection {
+    const selection = classify(name);
+    if (selection.kind !== "resolved") return selection;
+    const expression = ast.as.AsComputedPropertyName(name)?.Expression;
+    const type = expression === undefined ? undefined : checkedType(expression);
+    const numeric = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
+    if (typeof numeric === "number" && !Number.isFinite(numeric)) return rejected(
+      "The numeric property key exceeds finite native literal bounds.");
+    if (expression !== undefined && hasAssertion(expression)) {
+      const text = type === undefined ? undefined : semantics.types.stringLiteralValue(type);
+      if (text !== undefined && text !== selection.name || typeof numeric === "number" && Number(selection.name) !== numeric) return rejected(
+        "The computed key's authored value disagrees with its asserted literal type.");
+    }
+    const contract = expression === undefined ? undefined : literalContract(expression, new Set());
+    if (contract !== undefined) {
+      const actual = ast.is.IsStringLiteral(contract) || ast.is.IsNoSubstitutionTemplateLiteral(contract) ? ast.text(contract)
+        : exactNumeric(contract, new Set());
+      if (actual !== undefined && (typeof actual === "string" ? actual : numericName(actual)) !== selection.name) return rejected(
+        "The computed key's exact source value disagrees with its authored literal contract.");
+    }
+    return selection;
+  }
+
+  function classify(name: Node): SourcePropertyNameSelection {
     const expression = unwrap(ast.as.AsComputedPropertyName(name)?.Expression);
     if (expression === undefined) return unavailable;
     const parent = ast.parent(name);
     const typeOnly = parent !== undefined && (ast.is.IsPropertySignatureDeclaration(parent) || ast.is.IsMethodSignatureDeclaration(parent));
     const symbol = semantics.operations.wellKnownSymbol(name);
     if (symbol !== undefined) {
-      return typeOnly || pureReference(expression) ? Object.freeze({ kind: "well-known-symbol", symbol: symbol.kind }) : unavailable;
+      return typeOnly || pureReference(expression) ? Object.freeze({ kind: "well-known-symbol", symbol: symbol.kind }) : rejected(
+        "A well-known-symbol property key must be a non-effectful reference; calls and getter evaluation cannot be erased.");
     }
     if (typeOnly) {
       const declaration = ast.is.IsIdentifier(expression) ? navigation.sourceReferenceFor(expression)?.declaration
@@ -77,13 +105,20 @@ export function analyzeSourcePropertyNames(
       const declaration = navigation.sourceReferenceFor(expression)?.declaration;
       if (declaration !== undefined && constBinding(declaration)) return selectedLiteral(expression);
       if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return selectedEnum(declaration);
-      return unavailable;
+      return rejected(declaration !== undefined && (ast.is.IsVariableDeclaration(declaration) || ast.is.IsBindingElement(declaration))
+        ? "A mutable binding cannot define a static native field name; the key requires one exact const literal value."
+        : "The computed key is not a const singleton binding or an exact enum constant.");
     }
+    if (ast.is.IsCallExpression(expression)) return rejected(
+      "A computed property key call must retain its effects and cannot be replaced with a static native field name.");
     const access = ast.is.IsPropertyAccessExpression(expression)
       ? semantics.operations.propertyAccess(expression)
       : ast.is.IsElementAccessExpression(expression) ? semantics.operations.elementAccess(expression) : undefined;
-    if (access?.selectedDeclaration === undefined || !ast.is.IsEnumMember(access.selectedDeclaration) ||
-      !pureReference(expression)) return unavailable;
+    if (access?.selectedDeclaration === undefined || !ast.is.IsEnumMember(access.selectedDeclaration)) return rejected(
+      access?.selectedDeclaration !== undefined && ast.is.IsGetAccessorDeclaration(access.selectedDeclaration)
+        ? "A computed property key getter must retain its effects and cannot be replaced with a static native field name."
+        : "The computed key has no exact literal, const binding, enum member or selected native symbol identity.");
+    if (!pureReference(expression)) return rejected("An enum property key receiver cannot contain calls or getter evaluation.");
     return selectedEnum(access.selectedDeclaration);
   }
 
@@ -92,6 +127,7 @@ export function analyzeSourcePropertyNames(
     while (current !== undefined) {
       if (ast.is.IsParenthesizedExpression(current)) current = ast.as.AsParenthesizedExpression(current)?.Expression;
       else if (ast.is.IsAsExpression(current)) current = ast.as.AsAsExpression(current)?.Expression;
+      else if (ast.is.IsTypeAssertion(current)) current = ast.as.AsTypeAssertion(current)?.Expression;
       else if (ast.is.IsSatisfiesExpression(current)) current = ast.as.AsSatisfiesExpression(current)?.Expression;
       else if (ast.is.IsNonNullExpression(current)) current = ast.as.AsNonNullExpression(current)?.Expression;
       else break;
@@ -108,22 +144,38 @@ export function analyzeSourcePropertyNames(
   }
 
   function selectedLiteral(node: Node): SourcePropertyNameSelection {
-    const type = semantics.types.expressionType(node);
-    if (type === undefined) return unavailable;
+    const type = checkedType(node);
+    if (type === undefined) return rejected("The computed key has no completed checked literal type.");
     const text = semantics.types.stringLiteralValue(type);
-    if (text !== undefined) return Object.freeze({ kind: "resolved", name: text });
-    if (typeof semantics.types.numericLiteralValue(type) !== "number") return unavailable;
-    return selectedNumeric(node);
+    if (text !== undefined) {
+      const origin = literalOrigin(node, new Set());
+      if (origin !== undefined && (!ast.is.IsStringLiteral(origin) && !ast.is.IsNoSubstitutionTemplateLiteral(origin) || ast.text(origin) !== text)) {
+        return rejected("The const key's exact source value disagrees with its checked literal type.");
+      }
+      return Object.freeze({ kind: "resolved", name: text });
+    }
+    const value = semantics.types.numericLiteralValue(type);
+    if (typeof value !== "number") return rejected("The computed key's checked type is not one exact string or numeric literal.");
+    if (!Number.isFinite(value)) return rejected("The numeric property key exceeds finite native literal bounds.");
+    const selected = selectedNumeric(node);
+    if (selected.kind === "resolved" && Number(selected.name) !== value) return rejected(
+      "The const key's exact source value disagrees with its checked literal type.");
+    return selected;
   }
 
   function selectedNumeric(node: Node): SourcePropertyNameSelection {
+    const type = checkedType(node);
+    const checked = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
+    if (typeof checked === "number" && !Number.isFinite(checked)) return rejected("The numeric property key exceeds finite native literal bounds.");
     const numeric = exactNumeric(node, new Set());
-    return numeric === undefined ? unavailable : Object.freeze({ kind: "resolved", name: numericName(numeric) });
+    return numeric === undefined ? rejected("The numeric key has no exact authored literal origin corresponding to its checked constant value.")
+      : Object.freeze({ kind: "resolved", name: numericName(numeric) });
   }
 
   function selectedEnum(node: Node): SourcePropertyNameSelection {
     const value = semantics.types.constantValue(node);
     if (typeof value === "string") return Object.freeze({ kind: "resolved", name: value });
+    if (value === undefined) return rejected("The selected enum member has no exact compile-time constant value; ambient or computed members cannot define a static field name.");
     const numeric = exactNumeric(node, new Set());
     return numeric === undefined ? unavailable : Object.freeze({ kind: "resolved", name: numericName(numeric) });
   }
@@ -148,7 +200,7 @@ export function analyzeSourcePropertyNames(
       if (ast.is.IsNumericLiteral(current)) {
         const source = sourceLiteralToken(ast, current);
         if (source.kind === "authored") return parseSourceNumericLiteral(source.text)?.token;
-        const type = semantics.types.expressionType(current);
+        const type = checkedType(current);
         const value = type === undefined ? undefined : semantics.types.numericLiteralValue(type);
         return typeof value === "number" && Number.isFinite(value)
           ? numericTokenFromText(String(value)) : undefined;
@@ -243,6 +295,81 @@ export function analyzeSourcePropertyNames(
     try { return numericType(ast.typeNode(declaration), active); } finally { active.delete(node); }
   }
 
+  function literalTypeOrigin(node: Node | undefined, active: Set<Node>): Node | undefined {
+    if (node === undefined || active.has(node)) return undefined;
+    if (ast.is.IsLiteralTypeNode(node)) return ast.as.AsLiteralTypeNode(node)?.Literal;
+    if (ast.is.IsParenthesizedTypeNode(node)) return literalTypeOrigin(ast.as.AsParenthesizedTypeNode(node)?.Type, active);
+    const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
+    const declaration = name === undefined ? undefined : navigation.sourceReferenceFor(name)?.declaration;
+    if (declaration === undefined || !ast.is.IsTypeAliasDeclaration(declaration)) return undefined;
+    active.add(node);
+    return literalTypeOrigin(ast.typeNode(declaration), active);
+  }
+
+  function literalOrigin(node: Node, active: Set<Node>): Node | undefined {
+    const current = unwrap(node);
+    if (current === undefined || active.has(current)) return undefined;
+    active.add(current);
+    if (ast.is.IsStringLiteral(current) || ast.is.IsNoSubstitutionTemplateLiteral(current) ||
+      ast.is.IsNumericLiteral(current) || signedNumericLiteral(current)) return current;
+    if (ast.is.IsCallExpression(current)) {
+      const call = semantics.operations.call(current);
+      return literalTypeOrigin(call === undefined ? undefined : semantics.operations.callResult(call)?.authoredTypeNode, active);
+    }
+    const declaration = ast.is.IsIdentifier(current) ? navigation.sourceReferenceFor(current)?.declaration : undefined;
+    if (declaration === undefined) return undefined;
+    if (constBinding(declaration)) {
+      const value = bindingValue(declaration, new Set());
+      if (value !== undefined) return literalOrigin(value, active);
+    }
+    return literalTypeOrigin(ast.typeNode(declaration), active);
+  }
+
+  function literalContract(node: Node, active: Set<Node>): Node | undefined {
+    if (active.has(node)) return undefined;
+    active.add(node);
+    if (ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)) {
+      const expression = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node) : ast.as.AsTypeAssertion(node);
+      return literalTypeOrigin(expression?.Type, active) ??
+        (expression?.Expression === undefined ? undefined : literalContract(expression.Expression, active));
+    }
+    if (ast.is.IsParenthesizedExpression(node) || ast.is.IsNonNullExpression(node) || ast.is.IsSatisfiesExpression(node)) {
+      const expression = ast.is.IsParenthesizedExpression(node) ? ast.as.AsParenthesizedExpression(node)?.Expression
+        : ast.is.IsNonNullExpression(node) ? ast.as.AsNonNullExpression(node)?.Expression : ast.as.AsSatisfiesExpression(node)?.Expression;
+      return expression === undefined || expression === node ? undefined : literalContract(expression, active);
+    }
+    const declaration = ast.is.IsIdentifier(node) ? navigation.sourceReferenceFor(node)?.declaration : undefined;
+    if (declaration === undefined || !constBinding(declaration)) return undefined;
+    const annotation = literalTypeOrigin(ast.typeNode(declaration), active);
+    if (annotation !== undefined) return annotation;
+    const value = bindingValue(declaration, new Set());
+    return value === undefined ? undefined : literalContract(value, active);
+  }
+
+  function rejected(reason: string): SourcePropertyNameSelection {
+    return Object.freeze({ kind: "rejected", reason });
+  }
+
+  function checkedType(node: Node): Type | undefined {
+    const cached = checkedTypes.get(node);
+    if (cached !== undefined) return cached ?? undefined;
+    const type = semantics.types.expressionType(node);
+    checkedTypes.set(node, type ?? null);
+    return type;
+  }
+
+  function hasAssertion(node: Node): boolean {
+    let current: Node | undefined = node;
+    while (current !== undefined) {
+      if (ast.is.IsAsExpression(current) || ast.is.IsTypeAssertion(current)) return true;
+      if (ast.is.IsParenthesizedExpression(current)) current = ast.as.AsParenthesizedExpression(current)?.Expression;
+      else if (ast.is.IsNonNullExpression(current)) current = ast.as.AsNonNullExpression(current)?.Expression;
+      else if (ast.is.IsSatisfiesExpression(current)) current = ast.as.AsSatisfiesExpression(current)?.Expression;
+      else break;
+    }
+    return false;
+  }
+
   function constBinding(declaration: Node): boolean {
     let current: Node | undefined = declaration;
     while (current !== undefined && ast.is.IsBindingElement(current)) {
@@ -269,13 +396,15 @@ export function analyzeSourcePropertyNames(
       } else if (ast.is.IsIdentifier(value)) {
         const reference = navigation.sourceReferenceFor(value)?.declaration;
         if (reference === undefined || !constBinding(reference)) return undefined;
-        value = unwrap(bindingValue(reference, active));
+        const selected = bindingValue(reference, active);
+        if (selected === undefined) break;
+        value = unwrap(selected);
       } else break;
     }
     if (value === undefined) return undefined;
-    if (ast.is.IsArrayBindingPattern(pattern) && ast.is.IsArrayLiteralExpression(value)) {
+    if (ast.is.IsArrayBindingPattern(pattern)) {
       const position = ast.elements(pattern).indexOf(declaration);
-      return ast.elements(value)[position];
+      return arrayElementOrigin(value, position, active);
     }
     if (!ast.is.IsObjectBindingPattern(pattern) || !ast.is.IsObjectLiteralExpression(value)) return undefined;
     const key = binding.PropertyName ?? ast.name(declaration);
@@ -291,6 +420,42 @@ export function analyzeSourcePropertyNames(
       return undefined;
     }
     return binding.Initializer;
+  }
+
+  function arrayElementOrigin(expression: Node, position: number, active: Set<Node>): Node | undefined {
+    const current = unwrap(expression);
+    if (current === undefined || active.has(current)) return undefined;
+    active.add(current);
+    if (ast.is.IsIdentifier(current)) {
+      const declaration = navigation.sourceReferenceFor(current)?.declaration;
+      if (declaration === undefined || !constBinding(declaration)) return undefined;
+      const value = bindingValue(declaration, active);
+      if (value !== undefined) return arrayElementOrigin(value, position, active);
+    }
+    if (!ast.is.IsArrayLiteralExpression(current)) {
+      const type = checkedType(current);
+      if (type === undefined || !semantics.types.isTuple(type)) return undefined;
+      const elements = semantics.types.tupleElementInfos(type);
+      if (elements.some(item => item.elementKind !== "required")) return undefined;
+      const declaration = elements[position]?.declaration;
+      return literalTypeOrigin(declaration === undefined ? undefined : ast.typeNode(declaration) ?? declaration, active);
+    }
+    let cursor = 0;
+    for (const element of ast.elements(current)) {
+      if (element !== undefined && ast.is.IsSpreadElement(element)) {
+        const spread = ast.as.AsSpreadElement(element)?.Expression;
+        const type = spread === undefined ? undefined : checkedType(spread);
+        if (spread === undefined || type === undefined || !semantics.types.isTuple(type)) return undefined;
+        const elements = semantics.types.tupleElementInfos(type);
+        if (elements.some(item => item.elementKind !== "required")) return undefined;
+        if (position < cursor + elements.length) return arrayElementOrigin(spread, position - cursor, active);
+        cursor += elements.length;
+      } else {
+        if (position === cursor) return element;
+        cursor += 1;
+      }
+    }
+    return undefined;
   }
 
   function pureReference(node: Node): boolean {
