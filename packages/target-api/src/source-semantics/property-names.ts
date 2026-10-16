@@ -14,16 +14,17 @@ export type SourcePropertyNameConstant =
 export type SourcePropertyNameSelection =
   | { readonly kind: "resolved"; readonly name: string; readonly constant: SourcePropertyNameConstant }
   | { readonly kind: "well-known-symbol"; readonly symbol: ResolvedSourceWellKnownSymbolInfo["kind"] }
-  | { readonly kind: "rejected"; readonly reason: string };
+  | { readonly kind: "rejected"; readonly reason: string; readonly failure: "source" | "resource" };
 
 export interface SourcePropertyNameIndex {
   readonly entries: readonly { readonly node: Node; readonly selection: SourcePropertyNameSelection }[];
-  readonly issues: readonly { readonly node: Node; readonly reason: string }[];
+  readonly issues: readonly { readonly node: Node; readonly reason: string; readonly failure: "source" | "resource" }[];
   get(name: Node): SourcePropertyNameSelection | undefined;
 }
 
 const unavailable: SourcePropertyNameSelection = Object.freeze({
   kind: "rejected",
+  failure: "source",
   reason: "Computed property names require an exact string or finite numeric literal, a const binding of one literal type, an enum member, or a selected well-known symbol. Dynamic or effectful keys have no static native field representation.",
 });
 
@@ -40,7 +41,7 @@ export function analyzeSourcePropertyNames(
 ): SourcePropertyNameIndex {
   const values = new WeakMap<Node, SourcePropertyNameSelection>();
   const entries: { readonly node: Node; readonly selection: SourcePropertyNameSelection }[] = [];
-  const issues: { readonly node: Node; readonly reason: string }[] = [];
+  const issues: { readonly node: Node; readonly reason: string; readonly failure: "source" | "resource" }[] = [];
   const numericValues = new WeakMap<Node, SourceNumericLiteralToken | null>();
   const checkedTypes = new WeakMap<Node, Type | null>();
   const pending: Node[] = [sourceFile];
@@ -52,7 +53,7 @@ export function analyzeSourcePropertyNames(
         : ast.is.IsNumericLiteral(node) ? selectedNumeric(node) : selectedString(ast.text(node));
       values.set(node, selection);
       entries.push(Object.freeze({ node, selection }));
-      if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason }));
+      if (selection.kind === "rejected") issues.push(Object.freeze({ node, reason: selection.reason, failure: selection.failure }));
     }
     const children: Node[] = [];
     ast.forEachChild(node, child => { if (child !== undefined) children.push(child); });
@@ -202,7 +203,7 @@ export function analyzeSourcePropertyNames(
   function selectedEnum(node: Node): SourcePropertyNameSelection {
     const constant = enumConstants.get(node);
     if (constant === undefined) throw new Error("A selected checked enum member requires its completed source constant entry.");
-    if (constant.kind === "rejected") return rejected(constant.reason);
+    if (constant.kind === "rejected") return Object.freeze({ kind: "rejected", reason: constant.reason, failure: constant.failure });
     const numeric = typeof constant.value === "bigint" ? numericTokenFromText(constant.value.toString()) : undefined;
     return Object.freeze({ kind: "resolved", name: typeof constant.value === "string" ? constant.value : numericName(numeric!),
       constant: Object.freeze({ kind: "enum-member", entry: constant }) });
@@ -381,7 +382,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function rejected(reason: string): SourcePropertyNameSelection {
-    return Object.freeze({ kind: "rejected", reason });
+    return Object.freeze({ kind: "rejected", reason, failure: "source" });
   }
 
   function checkedType(node: Node): Type | undefined {
@@ -405,7 +406,7 @@ export function analyzeSourcePropertyNames(
   }
 
   function unprovenAssertion(node: Node, active: Set<Node>): boolean {
-    if (active.has(node)) return false;
+    if (active.has(node)) return true;
     active.add(node);
     if (ast.is.IsAsExpression(node) || ast.is.IsTypeAssertion(node)) {
       const operand = ast.is.IsAsExpression(node) ? ast.as.AsAsExpression(node)?.Expression

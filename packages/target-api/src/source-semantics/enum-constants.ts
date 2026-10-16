@@ -18,16 +18,25 @@ export interface SourceEnumConstantIndex {
 }
 
 type Constant =
-  | { readonly kind: "resolved"; readonly value: bigint | string }
+  | { readonly kind: "resolved"; readonly value: bigint | string; readonly bits: bigint }
   | { readonly kind: "rejected"; readonly reason: string; readonly failure: "source" | "resource" };
 
 type Step =
   | { readonly kind: "visit"; readonly node: Node }
   | { readonly kind: "finish"; readonly node: Node; readonly dependencies: readonly Node[];
-      readonly select: (values: readonly Constant[]) => Constant };
+      readonly select: (values: readonly Constant[]) => Constant;
+      readonly allocation?: (values: readonly Constant[]) => { readonly bits: bigint; readonly work: bigint } };
 
-const resolved = (value: bigint | string): Constant => Object.freeze({ kind: "resolved", value });
+interface EvaluationBudget {
+  charge(work: bigint, bits?: bigint): Constant | undefined;
+}
+
+const maximumConstantBits = 1_048_576n;
+const maximumEvaluationWork = 67_108_864n;
+const resolved = (value: bigint | string): Constant => Object.freeze({ kind: "resolved", value,
+  bits: typeof value === "string" ? BigInt(value.length) * 16n : BigInt((value < 0n ? -value : value).toString(2).length) });
 const rejected = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "source" });
+const resourceExhausted = (reason: string): Constant => Object.freeze({ kind: "rejected", reason, failure: "resource" });
 
 export function analyzeSourceEnumConstants(
   source: CheckedSourceProgram,
@@ -63,13 +72,14 @@ export function analyzeSourceEnumConstants(
   }
 
   const completed = new WeakMap<Node, Constant>();
-  const active = new Set<Node>();
   const selections = new WeakMap<Node, SourceEnumConstantSelection>();
   const widths = new WeakMap<Node, SourceEnumIntegerWidthSelection>();
   const entries: SourceEnumConstantSelection[] = [];
   for (const member of members) {
     const value = evaluate(member);
-    const selection: SourceEnumConstantSelection = Object.freeze({ declaration: member, ...value });
+    const selection: SourceEnumConstantSelection = value.kind === "resolved"
+      ? Object.freeze({ kind: "resolved", declaration: member, value: value.value })
+      : Object.freeze({ kind: "rejected", declaration: member, reason: value.reason, failure: value.failure });
     selections.set(member, selection);
     entries.push(selection);
   }
@@ -102,9 +112,26 @@ export function analyzeSourceEnumConstants(
     integerWidth: (declaration: Node) => widths.get(declaration) });
 
   function evaluate(root: Node): Constant {
+    const active = new Set<Node>();
+    let consumedWork = 0n;
+    const budget: EvaluationBudget = {
+      charge(work, bits = 0n) {
+        if (bits > maximumConstantBits) return resourceExhausted(
+          `Exact enum evaluation exceeded its intermediate storage budget (${maximumConstantBits} bits).`);
+        if (work > maximumEvaluationWork - consumedWork) return resourceExhausted(
+          `Exact enum evaluation exceeded its arithmetic work budget (${maximumEvaluationWork} bit-work units).`);
+        consumedWork += work;
+        return undefined;
+      },
+    };
     const tasks: Step[] = [{ kind: "visit", node: root }];
     while (tasks.length !== 0) {
       const task = tasks.pop()!;
+      const visitFailure = budget.charge(1n);
+      if (visitFailure !== undefined) {
+        completed.set(root, visitFailure);
+        break;
+      }
       if (completed.has(task.node)) continue;
       if (task.kind === "finish") {
         active.delete(task.node);
@@ -114,14 +141,16 @@ export function analyzeSourceEnumConstants(
           return value;
         });
         const failure = values.find(value => value.kind === "rejected");
-        completed.set(task.node, failure ?? task.select(values));
+        const allocation = failure === undefined ? task.allocation?.(values) : undefined;
+        const resourceFailure = allocation === undefined ? undefined : budget.charge(allocation.work, allocation.bits);
+        completed.set(task.node, failure ?? resourceFailure ?? task.select(values));
         continue;
       }
       if (active.has(task.node)) {
         completed.set(task.node, rejected("Enum constant dependencies contain a cycle."));
         continue;
       }
-      const step = describe(task.node);
+      const step = describe(task.node, budget);
       if (step.kind !== "finish") {
         completed.set(task.node, step);
         continue;
@@ -137,11 +166,12 @@ export function analyzeSourceEnumConstants(
     return selected;
   }
 
-  function depends(node: Node, dependencies: readonly Node[], select: (values: readonly Constant[]) => Constant): Extract<Step, { kind: "finish" }> {
-    return { kind: "finish", node, dependencies, select };
+  function depends(node: Node, dependencies: readonly Node[], select: (values: readonly Constant[]) => Constant,
+    allocation?: Extract<Step, { kind: "finish" }>["allocation"]): Extract<Step, { kind: "finish" }> {
+    return { kind: "finish", node, dependencies, select, ...(allocation === undefined ? {} : { allocation }) };
   }
 
-  function describe(node: Node): Constant | Extract<Step, { kind: "finish" }> {
+  function describe(node: Node, budget: EvaluationBudget): Constant | Extract<Step, { kind: "finish" }> {
     if (membership.has(node)) {
       const member = ast.as.AsEnumMember(node)!;
       if (member.Initializer !== undefined) {
@@ -161,18 +191,33 @@ export function analyzeSourceEnumConstants(
         const value = values[0]!;
         return value.kind === "resolved" && typeof value.value === "bigint" ? resolved(value.value + 1n)
           : rejected("An implicit enum member requires a preceding exact integer constant.");
-      });
+      }, values => ({ bits: constantBits(values[0]!) + 1n, work: constantBits(values[0]!) + 1n }));
     }
     if (ast.is.IsNumericLiteral(node)) {
       const literal = sourceLiteralToken(ast, node);
       if (literal.kind !== "authored") return rejected("Enum numeric constants require their exact authored source token.");
+      const normalized = literal.text.replace(/_/gu, "");
+      const radix = /^0[xob]/iu.test(normalized);
+      const parts = radix ? [normalized.slice(2)] : normalized.split(/[eE]/u);
+      const significant = parts[0]!.replace(/\./gu, "").replace(/^0+/u, "");
+      const coefficientDigits = radix ? significant : significant.replace(/0+$/u, "");
+      const parseFailure = budget.charge(BigInt(normalized.length),
+        BigInt(Math.max(coefficientDigits.length, parts[1]?.length ?? 0)) * 4n);
+      if (parseFailure !== undefined) return parseFailure;
       const token = parseSourceNumericLiteral(literal.text)?.token;
       if (token === undefined) return rejected("The enum numeric literal has no exact authored numeric value.");
       if (token.exponent < 0n) return rejected("An enum constant must be integral; fractional numeric literals are not representable.");
+      const bits = BigInt(coefficientDigits.length) * 4n + token.exponent * 4n;
+      const allocationFailure = budget.charge(bits > maximumConstantBits ? 0n : token.exponent === 0n ? 1n : bits * bits, bits);
+      if (allocationFailure !== undefined) return allocationFailure;
       const value = token.coefficient * 10n ** token.exponent;
       return resolved(token.negative ? -value : value);
     }
-    if (ast.is.IsStringLiteral(node) || ast.is.IsNoSubstitutionTemplateLiteral(node)) return resolved(ast.text(node));
+    if (ast.is.IsStringLiteral(node) || ast.is.IsNoSubstitutionTemplateLiteral(node)) {
+      const text = ast.text(node);
+      const allocationFailure = budget.charge(BigInt(text.length), BigInt(text.length) * 16n);
+      return allocationFailure ?? resolved(text);
+    }
     if (ast.is.IsParenthesizedExpression(node)) {
       const expression = ast.as.AsParenthesizedExpression(node)?.Expression;
       return expression === undefined ? rejected("An enum constant has an incomplete parenthesized expression.")
@@ -187,13 +232,15 @@ export function analyzeSourceEnumConstants(
         const value = values[0]!;
         if (value.kind !== "resolved" || typeof value.value !== "bigint") return rejected("An enum numeric unary operator requires an exact integer operand.");
         return resolved(operator === "KindPlusToken" ? value.value : operator === "KindMinusToken" ? -value.value : ~BigInt.asIntN(32, value.value));
-      });
+      }, values => ({ bits: operator === "KindTildeToken" ? 32n : constantBits(values[0]!),
+        work: constantBits(values[0]!) + 32n }));
     }
     if (ast.is.IsBinaryExpression(node)) {
       const binary = ast.as.AsBinaryExpression(node)!;
       const operator = ast.operatorKindName(node);
       if (binary.Left === undefined || binary.Right === undefined) return rejected("An enum binary expression has an incomplete operand.");
-      return depends(node, [binary.Left, binary.Right], values => binaryConstant(operator, values[0]!, values[1]!));
+      return depends(node, [binary.Left, binary.Right], values => binaryConstant(operator, values[0]!, values[1]!),
+        values => binaryAllocation(operator, values[0]!, values[1]!));
     }
     const file = ast.getSourceFile(node);
     if (file === undefined) return rejected("The enum constant reference is outside the checked source program.");
@@ -207,6 +254,39 @@ export function analyzeSourceEnumConstants(
       if (initializer !== undefined) return depends(node, [initializer], values => values[0]!);
     }
     return rejected("The enum initializer is not an exact checked literal, enum reference or supported constant expression.");
+  }
+}
+
+function constantBits(constant: Constant): bigint {
+  return constant.kind === "rejected" ? 0n : constant.bits;
+}
+
+function binaryAllocation(operator: string | undefined, left: Constant, right: Constant): { readonly bits: bigint; readonly work: bigint } {
+  if (left.kind === "rejected" || right.kind === "rejected") return { bits: 0n, work: 1n };
+  const first = constantBits(left);
+  const second = constantBits(right);
+  if (typeof left.value === "string" || typeof right.value === "string") {
+    const bits = (typeof left.value === "string" ? first : first * 16n) + (typeof right.value === "string" ? second : second * 16n);
+    return { bits: operator === "KindPlusToken" ? bits : 0n, work: bits + 1n };
+  }
+  switch (operator) {
+    case "KindPlusToken":
+    case "KindMinusToken": return { bits: (first > second ? first : second) + 1n, work: first + second };
+    case "KindAsteriskToken": return { bits: left.value === 0n || right.value === 0n ? 1n : first + second, work: first * second };
+    case "KindSlashToken":
+    case "KindPercentToken": return { bits: first, work: right.value === 0n ? 1n : first * second };
+    case "KindAsteriskAsteriskToken": {
+      if (right.value <= 0n || left.value >= -1n && left.value <= 1n) return { bits: 1n, work: 1n };
+      const bits = first * right.value;
+      return { bits, work: bits > maximumConstantBits ? 0n : bits * bits };
+    }
+    case "KindBarToken":
+    case "KindAmpersandToken":
+    case "KindCaretToken":
+    case "KindLessThanLessThanToken":
+    case "KindGreaterThanGreaterThanToken":
+    case "KindGreaterThanGreaterThanGreaterThanToken": return { bits: 32n, work: first + second + 32n };
+    default: return { bits: 0n, work: 1n };
   }
 }
 
@@ -241,7 +321,10 @@ function binaryConstant(operator: string | undefined, left: Constant, right: Con
         : first % second !== 0n ? rejected("An enum constant division result must be integral; truncation is not permitted.") : resolved(first / second);
     case "KindPercentToken": return second === 0n ? rejected("Enum constant remainder by zero has no integral value.") : resolved(first % second);
     case "KindAsteriskAsteriskToken":
-      return second < 0n ? rejected("An enum constant exponent must produce an exact integral result.") : resolved(first ** second);
+      return second === 0n ? resolved(1n) : first === 1n ? resolved(1n)
+        : first === -1n ? resolved(second % 2n === 0n ? 1n : -1n)
+          : first === 0n && second > 0n ? resolved(0n)
+            : second < 0n ? rejected("An enum constant exponent must produce an exact integral result.") : resolved(first ** second);
     case "KindBarToken": return resolved(BigInt.asIntN(32, first) | BigInt.asIntN(32, second));
     case "KindAmpersandToken": return resolved(BigInt.asIntN(32, first) & BigInt.asIntN(32, second));
     case "KindCaretToken": return resolved(BigInt.asIntN(32, first) ^ BigInt.asIntN(32, second));
