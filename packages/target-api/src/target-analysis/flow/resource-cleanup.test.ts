@@ -5,6 +5,8 @@ import { createTargetSourceProgram } from "../../source-semantics/target-source-
 import { createSourceControlFlow } from "./graph.js";
 import { analyzeSourceDefiniteAssignment, analyzeSourceLiveness } from "./instances.js";
 import type { SourceControlFlowGraph, SourceFlowPoint } from "./model.js";
+import { sourceFlowStatement } from "./statements.js";
+import { SourceFlowFailure } from "./resources.js";
 
 function fixture(body: string, declaration = "function run(flag: boolean): void") {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -195,4 +197,45 @@ test("nullable cleanup reads its binding once and branches before invoking the s
     assert.equal(current.graph.points[present.to]!.operation.kind, "dispose", "present cleanup invokes the selected disposal operation");
     assert.equal(current.graph.points[absent.to]!.operation.kind === "dispose", false, "absent cleanup skips disposal");
   }
+});
+
+test("direct resource lists require their lexical cleanup route instead of immediate disposal", () => {
+  const current = fixture("using resource = new Resource(); after();");
+  const list = current.nodes.find(node => current.source.ast.is.IsVariableDeclarationList(node) &&
+    current.source.ast.variableDeclarationKind(node) === "using");
+  assert.equal(list !== undefined, true, "the real checked declaration list is retained");
+  assert.throws(() => sourceFlowStatement({ source: current.source } as Parameters<typeof sourceFlowStatement>[0],
+    list!, current.graph.exit, {} as Parameters<typeof sourceFlowStatement>[3]),
+  error => error instanceof SourceFlowFailure && error.message === "Resource acquisition requires its checked lexical cleanup scope.");
+});
+
+test("switch resource cleanup follows only acquired clause suffixes and preserves fall-through", () => {
+  const current = fixture(`switch (flag) {
+    case true: using earlier = new Resource(); observe(earlier);
+    default: using later = new Resource(); observe(later); break;
+  } after();`);
+  const laterReads = current.calls("observe").filter(point => current.source.ast.text(point.source).includes("later"));
+  const earlierCleanup = new Set(current.disposal("earlier").map(point => point.id));
+  const cases = current.points(point => point.operation.kind === "branch" &&
+    current.source.ast.is.IsCaseClause(point.source));
+  assert.equal(cases.length, 1, "the checked explicit case has one dispatch branch");
+  const switchNode = current.nodes.find(node => current.source.ast.is.IsSwitchStatement(node))!;
+  const defaultDispatch = current.points(point => point.source === switchNode && point.operation.kind === "merge")[0]!;
+  const defaultDestination = defaultDispatch.successors.find(edge => edge.kind === "default")!.to;
+  assert.equal(current.disposal("earlier").some(point => reachable(current.graph, defaultDestination, point.id)), false,
+    "entering the later clause never cleans the unacquired earlier binding");
+  assert.equal(laterReads.some(point => reachable(current.graph, defaultDestination, point.id, earlierCleanup)), true,
+    "direct default entry evaluates its own acquired suffix");
+  const laterCleanup = current.disposal("later");
+  assert.equal(laterCleanup.some(point => laterReads.some(read => reachable(current.graph, read.id, point.id))), true,
+    "break cleans the resource acquired in the later clause");
+  const earlierRead = current.calls("observe").find(point => current.source.ast.text(point.source).includes("earlier"))!;
+  assert.equal(laterReads.some(point => reachable(current.graph, earlierRead.id, point.id)), true,
+    "fall-through executes the later source clause");
+  assert.equal(laterCleanup.some(point => current.disposal("earlier").some(previous =>
+    reachable(current.graph, earlierRead.id, point.id) && reachable(current.graph, point.id, previous.id))), true,
+  "fall-through cleans the later resource before the earlier one");
+  for (const cleanup of laterCleanup) assert.equal(cleanup.successors.some(edge =>
+    edge.kind !== "exception" && reachable(current.graph, edge.to, cleanup.id)), false,
+  "a cleanup point cannot recur on the acyclic exit route");
 });
