@@ -155,3 +155,80 @@ test("published property-name reads and source-syntax snapshots cannot rerun the
   const original = semantics.propertyNames.entries[0]!;
   assert.equal(syntax.propertyNames.get(original.node) === original.selection, true, "backend consumes the identical admitted evidence");
 });
+
+test("missing raw property declarations refuse keys without reentering file construction", () => {
+  const source = checked(`
+interface Values { count: number; }
+declare function hasExtra(value: unknown): value is { count: number; extra: boolean; };
+export function make(value: number | Values) {
+  if (typeof value === "number") return {};
+  if (hasExtra(value)) return { [value.count]: 1 };
+  return {};
+}
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 1, "the raw ambiguous property is visited once");
+  assert.equal(index.issues.length, 1, "a non-static property key is refused before target analysis");
+  assert.equal(index.entries[0]!.selection.kind, "rejected", "refinement is not a property-key construction dependency");
+});
+
+test("unique-symbol types never erase call or getter key effects", () => {
+  const source = checked(`
+function key(): typeof Symbol.iterator { return Symbol.iterator; }
+const holder = { get name(): typeof Symbol.iterator { return Symbol.iterator; } };
+const alias: typeof Symbol.iterator = Symbol.iterator;
+export const direct = { [Symbol.iterator]() { return [1][Symbol.iterator](); } };
+export const indirect = { [alias]() { return [1][Symbol.iterator](); } };
+export const call = { [key()]() { return [1][Symbol.iterator](); } };
+export const getter = { [holder.name]() { return [1][Symbol.iterator](); } };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 4, "all unique-symbol key expressions are classified");
+  assert.equal(index.issues.length, 2, "only effectful symbol key expressions are rejected");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind),
+    ["well-known-symbol", "well-known-symbol", "rejected", "rejected"]);
+});
+
+test("const destructured singleton bindings preserve their exact checked origin", () => {
+  const source = checked(`
+const { key: objectKey, nested: { key: nestedKey } } = { key: "object", nested: { key: "nested" } } as const;
+const [arrayKey, integerKey] = ["array", 9007199254740993] as const;
+const { number: objectInteger } = { number: 9007199254740995 } as const;
+let { key: mutable } = { key: "mutable" } as const;
+export const object = { [objectKey]: 1 };
+export const nested = { [nestedKey]: 2 };
+export const array = { [arrayKey]: 3 };
+export const integer = { [integerKey]: 4 };
+export const other = { [objectInteger]: 5 };
+export const rejected = { [mutable]: 6 };
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.entries.length, 6, "every const and mutable destructured binding has a classification");
+  assert.equal(index.issues.length, 1, "mutable destructured binding is not a const singleton");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["object", "nested", "array", "9007199254740993", "9007199254740995", "rejected"]);
+});
+
+test("type-only singleton names do not acquire runtime key evaluation requirements", () => {
+  const source = checked(`
+export type Factory = (key: "value") => { [key]: number };
+export type NumericFactory = (key: 9007199254740993) => { [key]: number };
+export function answer(): number { return 42; }
+`);
+  const index = source.semantics.forFile(source.navigation.sourceFiles[0]!).propertyNames;
+  assert.equal(index.issues.length, 0, "erased singleton type names have exact native field identities");
+  assert.deepEqual(index.entries.map(entry => entry.selection.kind === "resolved" ? entry.selection.name : entry.selection.kind),
+    ["value", "9007199254740993"]);
+});
+
+test("source syntax snapshots retain checked declaration-file keys without target-side recomputation", () => {
+  const source = checked('import type { External } from "./external.js"; export function read(value: External): number { return value.value; }', {
+    "/src/external.d.ts": 'export interface External { ["value"]: number; }',
+  });
+  const file = source.sourceFiles.find(candidate => source.ast.getFileName(candidate) === "/src/external.d.ts");
+  assert.equal(file !== undefined, true, "the checked declaration file belongs to the snapshot domain");
+  const entry = source.semantics.forFile(file!).propertyNames.entries[0]!;
+  assert.equal(source.navigation.sourceFiles.includes(file!), false, "project navigation excludes declaration files");
+  const syntax = targetSourceSyntaxProgram(source);
+  assert.equal(syntax.propertyNames.get(entry.node) === entry.selection, true, "declaration-file selections survive the data-only handoff");
+});

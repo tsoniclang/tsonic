@@ -312,7 +312,17 @@ export function createTargetSourceProgram(
     });
     const semantics: SourceFileSemantics = Object.freeze({
       sourceFile,
-      propertyNames: analyzeSourcePropertyNames(source.ast, sourceFile, { operations, types, declarations }, navigation),
+      propertyNames: analyzeSourcePropertyNames(source.ast, sourceFile, {
+        operations: {
+          propertyAccess: queries.checker.getResolvedPropertyAccessInfo,
+          elementAccess: queries.checker.getResolvedElementAccessInfo,
+          wellKnownSymbol: queries.checker.getResolvedWellKnownSymbolInfo,
+          call: queries.checker.getResolvedCallInfo,
+          callResult: operations.callResult,
+        },
+        types,
+        declarations,
+      }, navigation),
       operations,
       types,
       declarations,

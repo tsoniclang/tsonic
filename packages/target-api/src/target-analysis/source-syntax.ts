@@ -19,7 +19,7 @@ export interface TargetSourceSyntaxProgram {
 export function targetSourceSyntaxProgram(
   source: TargetSourceProgram,
 ): TargetSourceSyntaxProgram {
-  const propertyNames = new WeakMap(source.navigation.sourceFiles.flatMap(sourceFile =>
+  const propertyNames = new WeakMap(source.sourceFiles.flatMap(sourceFile =>
     source.semantics.forFile(sourceFile).propertyNames.entries.map(entry => [entry.node, entry.selection] as const)));
   return Object.freeze({
     ast: source.ast,

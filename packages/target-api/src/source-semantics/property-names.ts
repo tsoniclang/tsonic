@@ -24,7 +24,11 @@ const unavailable: SourcePropertyNameSelection = Object.freeze({
 export function analyzeSourcePropertyNames(
   ast: AstReader,
   sourceFile: SourceFile,
-  semantics: Pick<SourceFileSemantics, "operations" | "types" | "declarations">,
+  semantics: {
+    readonly operations: Pick<SourceFileSemantics["operations"], "propertyAccess" | "elementAccess" | "wellKnownSymbol" | "call" | "callResult">;
+    readonly types: Pick<SourceFileSemantics["types"], "expressionType" | "stringLiteralValue" | "numericLiteralValue" | "constantValue">;
+    readonly declarations: Pick<SourceFileSemantics["declarations"], "typeSymbol" | "symbolDeclarations">;
+  },
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor">,
 ): SourcePropertyNameIndex {
   const values = new WeakMap<Node, SourcePropertyNameSelection>();
@@ -51,18 +55,22 @@ export function analyzeSourcePropertyNames(
   });
 
   function select(name: Node): SourcePropertyNameSelection {
-    const symbol = semantics.operations.wellKnownSymbol(name);
-    if (symbol !== undefined) return Object.freeze({ kind: "well-known-symbol", symbol: symbol.kind });
     const expression = unwrap(ast.as.AsComputedPropertyName(name)?.Expression);
     if (expression === undefined) return unavailable;
+    const parent = ast.parent(name);
+    const typeOnly = parent !== undefined && (ast.is.IsPropertySignatureDeclaration(parent) || ast.is.IsMethodSignatureDeclaration(parent));
+    const symbol = semantics.operations.wellKnownSymbol(name);
+    if (symbol !== undefined) {
+      return typeOnly || pureReference(expression) ? Object.freeze({ kind: "well-known-symbol", symbol: symbol.kind }) : unavailable;
+    }
+    if (typeOnly) return selectedLiteral(expression);
     if (ast.is.IsStringLiteral(expression) || ast.is.IsNoSubstitutionTemplateLiteral(expression)) {
       return Object.freeze({ kind: "resolved", name: ast.text(expression) });
     }
     if (ast.is.IsNumericLiteral(expression) || signedNumericLiteral(expression)) return selectedLiteral(expression);
     if (ast.is.IsIdentifier(expression)) {
       const declaration = navigation.sourceReferenceFor(expression)?.declaration;
-      if (declaration !== undefined && ast.is.IsVariableDeclaration(declaration) &&
-        ast.variableDeclarationKind(declaration) === "const") return selectedLiteral(expression);
+      if (declaration !== undefined && constBinding(declaration)) return selectedLiteral(expression);
       if (declaration !== undefined && ast.is.IsEnumMember(declaration)) return selectedEnum(expression);
       return unavailable;
     }
@@ -153,14 +161,19 @@ export function analyzeSourcePropertyNames(
         const integer = sourceIntegerConstantValue(ast, current);
         return integer === undefined ? undefined : numericTokenFromText(integer.toString());
       }
+      if (ast.is.IsCallExpression(current)) {
+        const call = semantics.operations.call(current);
+        return call === undefined ? undefined : numericType(semantics.operations.callResult(call)?.authoredTypeNode, active);
+      }
       const declaration = ast.is.IsIdentifier(current)
         ? navigation.sourceReferenceFor(current)?.declaration
         : ast.is.IsPropertyAccessExpression(current) ? semantics.operations.propertyAccess(current)?.selectedDeclaration
           : ast.is.IsElementAccessExpression(current) ? semantics.operations.elementAccess(current)?.selectedDeclaration
             : ast.is.IsEnumMember(current) ? current : undefined;
       if (declaration === undefined) return undefined;
-      if (ast.is.IsVariableDeclaration(declaration) && ast.variableDeclarationKind(declaration) === "const") {
-        const initializer = ast.as.AsVariableDeclaration(declaration)?.Initializer;
+      if (ast.is.IsParameterDeclaration(declaration)) return numericType(ast.typeNode(declaration), active);
+      if (constBinding(declaration)) {
+        const initializer = bindingValue(declaration, new Set());
         const authored = initializer === undefined ? undefined : exactNumeric(initializer, active);
         if (authored !== undefined) return authored;
         const annotation = numericType(ast.typeNode(declaration), active);
@@ -221,18 +234,72 @@ export function analyzeSourcePropertyNames(
     try { return numericType(ast.typeNode(declaration), active); } finally { active.delete(node); }
   }
 
+  function constBinding(declaration: Node): boolean {
+    let current: Node | undefined = declaration;
+    while (current !== undefined && ast.is.IsBindingElement(current)) {
+      const pattern = ast.parent(current);
+      current = pattern === undefined ? undefined : ast.parent(pattern);
+    }
+    return current !== undefined && ast.is.IsVariableDeclaration(current) && ast.variableDeclarationKind(current) === "const";
+  }
+
+  function bindingValue(declaration: Node, active: Set<Node>): Node | undefined {
+    if (active.has(declaration)) return undefined;
+    active.add(declaration);
+    if (ast.is.IsVariableDeclaration(declaration)) return ast.as.AsVariableDeclaration(declaration)?.Initializer;
+    const binding = ast.as.AsBindingElement(declaration);
+    const pattern = ast.parent(declaration);
+    const owner = pattern === undefined ? undefined : ast.parent(pattern);
+    if (binding === undefined || binding.DotDotDotToken !== undefined || pattern === undefined || owner === undefined) return undefined;
+    const input = bindingValue(owner, active);
+    let value = unwrap(input);
+    while (value !== undefined) {
+      if (ast.is.IsAsExpression(value) || ast.is.IsSatisfiesExpression(value)) {
+        value = unwrap(ast.is.IsAsExpression(value) ? ast.as.AsAsExpression(value)?.Expression
+          : ast.as.AsSatisfiesExpression(value)?.Expression);
+      } else if (ast.is.IsIdentifier(value)) {
+        const reference = navigation.sourceReferenceFor(value)?.declaration;
+        if (reference === undefined || !constBinding(reference)) return undefined;
+        value = unwrap(bindingValue(reference, active));
+      } else break;
+    }
+    if (value === undefined) return undefined;
+    if (ast.is.IsArrayBindingPattern(pattern) && ast.is.IsArrayLiteralExpression(value)) {
+      const position = ast.elements(pattern).indexOf(declaration);
+      return ast.elements(value)[position];
+    }
+    if (!ast.is.IsObjectBindingPattern(pattern) || !ast.is.IsObjectLiteralExpression(value)) return undefined;
+    const key = binding.PropertyName ?? ast.name(declaration);
+    if (key === undefined || !ast.is.IsIdentifier(key) && !ast.is.IsStringLiteral(key)) return undefined;
+    const name = ast.text(key);
+    for (const property of [...ast.properties(value)].reverse()) {
+      if (property === undefined) continue;
+      const propertyName = ast.name(property);
+      if (propertyName === undefined || !ast.is.IsIdentifier(propertyName) && !ast.is.IsStringLiteral(propertyName)) return undefined;
+      if (ast.text(propertyName) !== name) continue;
+      if (ast.is.IsPropertyAssignment(property)) return ast.as.AsPropertyAssignment(property)?.Initializer;
+      if (ast.is.IsShorthandPropertyAssignment(property)) return ast.name(property);
+      return undefined;
+    }
+    return binding.Initializer;
+  }
+
   function pureReference(node: Node): boolean {
     const current = unwrap(node);
     if (current === undefined) return false;
     if (ast.is.IsIdentifier(current)) return true;
     if (ast.is.IsPropertyAccessExpression(current)) {
       const access = ast.as.AsPropertyAccessExpression(current);
-      return access?.QuestionDotToken === undefined && access?.Expression !== undefined && pureReference(access.Expression);
+      const declaration = semantics.operations.propertyAccess(current)?.selectedDeclaration;
+      return declaration !== undefined && !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration) &&
+        access?.QuestionDotToken === undefined && access?.Expression !== undefined && pureReference(access.Expression);
     }
     if (ast.is.IsElementAccessExpression(current)) {
       const access = ast.as.AsElementAccessExpression(current);
       const key = unwrap(access?.ArgumentExpression);
-      return access?.QuestionDotToken === undefined && access?.Expression !== undefined && pureReference(access.Expression) &&
+      const declaration = semantics.operations.elementAccess(current)?.selectedDeclaration;
+      return declaration !== undefined && !ast.is.IsGetAccessorDeclaration(declaration) && !ast.is.IsSetAccessorDeclaration(declaration) &&
+        access?.QuestionDotToken === undefined && access?.Expression !== undefined && pureReference(access.Expression) &&
         key !== undefined && (ast.is.IsStringLiteral(key) || ast.is.IsNumericLiteral(key));
     }
     return false;
