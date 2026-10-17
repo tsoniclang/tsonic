@@ -60,6 +60,7 @@ export const keelOwnedTargets = Object.freeze({
       { file: "src/analysis/program/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forExpression" },
       { file: "src/analysis/program/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forIteration" },
       { file: "src/analysis/program/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.forStatement" },
+      { file: "src/analysis/program/borrowed-element-reads.ts", symbol: "RustBorrowedElementReads.endingAt" },
       { file: "src/analysis/program/error-transport.ts", symbol: "RustErrorTransportQueries.forComponent" },
       { file: "src/analysis/project-types/construction-plan.ts", symbol: "RustProjectConstructionQueries.externalInitializationForCall" },
       { file: "src/analysis/project-types/construction-plan.ts", symbol: "RustProjectConstructionQueries.forDefinition" },
