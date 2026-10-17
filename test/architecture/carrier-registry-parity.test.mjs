@@ -54,6 +54,37 @@ test("built C# and Rust carrier registries share checked counterparts or signed 
   assert.deepEqual(validateCarrierRegistrySymmetry(registries[0], registries[1], signedDifferences), []);
 });
 
+test("the structural native difference is pinned to fixed arrays and never replaces concrete counterpart proof", async () => {
+  const { rustFixedArrayTargetType, rustFixedArrayCarrierValue } =
+    await import("../../../tsonic-rust/dist/target-model/types/carriers/native.js");
+  const { rustTypeFromCarrier } = await import("../../../tsonic-rust/dist/backend/planner/types/render.js");
+  const element = { kind: "source-primitive", name: "int64" };
+  const extent = { kind: "integer", value: "9007199254740993" };
+  const carrier = rustFixedArrayTargetType(element, extent);
+  assert.equal(carrier.kind, "target-specific", "the structural arm contains the actual native fixed-array alternative");
+  const fixed = rustFixedArrayCarrierValue(carrier);
+  assert.equal(fixed !== undefined, true, "the actual fixed-array owner recognizes its carrier");
+  assert.equal(fixed.element === element, true, "the original native element is retained");
+  assert.equal(fixed.length === extent, true, "the exact type-level extent is retained");
+  const rendered = rustTypeFromCarrier(carrier);
+  assert.equal(rendered?.kind, "fixed-array", "native array syntax, not a manufactured CLR carrier");
+  assert.equal(rendered.length.value, 9007199254740993n, "native extent never rounds through a number");
+  const [csharp, rust] = registries;
+  const structural = rust.rows.find(row => row.id === "kind:target-specific");
+  assert.equal(structural?.divergence?.register, "S11-11", "only the signed native fixed-array constraint");
+  for (const actual of [structural, rust.rows.find(row => row.declaration.symbol === "rustFixedArrayTargetType")]) {
+    assert.equal(actual !== undefined, true, "both structural and concrete rows are required");
+    const rows = rust.rows.map(row => {
+      if (row !== actual) return row;
+      const { divergence, ...unsigned } = row;
+      return unsigned;
+    });
+    assert.equal(validateCarrierRegistrySymmetry(csharp, { ...rust, rows }, signedDifferences)
+      .includes(`Unexplained one-sided carrier: ${actual.id}`), true,
+    "neither the umbrella nor the concrete carrier can borrow the other's native-constraint proof");
+  }
+});
+
 test("an existing built native primitive constructor cannot masquerade as the structural array counterpart", () => {
   const [current, counterpart] = registries;
   const incorrect = counterpart.rows.find(row => !row.id.startsWith("kind:") &&
