@@ -64,3 +64,33 @@ export function compareSourceNumericLiteralMagnitude(
   const right = token.exponent < 0n ? limitDigits.padEnd(digits.length, "0") : limitDigits;
   return left < right ? -1 : left > right ? 1 : 0;
 }
+
+export function sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat(
+  token: SourceNumericLiteralToken,
+  target: "float32" | "float64",
+): boolean {
+  if (token.coefficient < 0n) return false;
+  if (token.coefficient === 0n) return true;
+  const precision = target === "float32" ? 24n : 53n;
+  const highestExponent = target === "float32" ? 127n : 1023n;
+  const lowestExponent = target === "float32" ? -149n : -1074n;
+  const maximum = ((1n << precision) - 1n) << (highestExponent - precision + 1n);
+  if (compareSourceNumericLiteralMagnitude(token, maximum) > 0) return false;
+  let coefficient = token.coefficient;
+  let exponent = token.exponent;
+  if (exponent < 0n) {
+    const denominatorExponent = -exponent;
+    if (denominatorExponent > BigInt(coefficient.toString(2).length)) return false;
+    const denominator = 5n ** denominatorExponent;
+    if (coefficient % denominator !== 0n) return false;
+    coefficient /= denominator;
+  } else {
+    coefficient *= 5n ** exponent;
+  }
+  while ((coefficient & 1n) === 0n) {
+    coefficient >>= 1n;
+    exponent++;
+  }
+  const bits = BigInt(coefficient.toString(2).length);
+  return bits <= precision && exponent >= lowestExponent && exponent + bits - 1n <= highestExponent;
+}
