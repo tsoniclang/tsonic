@@ -249,6 +249,10 @@ test("NS-T05: unchanged direct, cross-repo, package and computed first-party tes
   assert.equal(result.findings.length, 0);
   assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.length, 1);
   assert.match(result.nativeAllocationBoundary.staticEntryCut, /arbitrary external dynamic IO is not proven/u);
+  const declaration = nativeBoundaryInputs();
+  declaration.get("tsts-legacy").set("packages/tsts/tools/accepted.d.ts", safetyFile(
+    'Generated declaration baseline\nexport declare const value: number;\nfile.ts(1,1): error TS0000: expected diagnostic transcript.'));
+  assert.equal(boundarySafety(declaration).findings.length, 0, "formal declaration inputs do not execute source includes or IO");
 });
 
 test("NS-T06: complete inputs and the fixed source, owner and copy-writer identities are mandatory", () => {
