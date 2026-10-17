@@ -1,4 +1,5 @@
-import { assert, cliPath, csharpProjectPath, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, csharpProjectPath, resolve, run, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 async function readGeneratedModuleSource(projectDirectory) {
   return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");

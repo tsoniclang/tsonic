@@ -1,4 +1,5 @@
-import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoRuntimeReference, assertNoInstalledAssemblyReference, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 function assertExternalCallNotMapped(stderr, memberName) {
   assert.match(stderr, /tsts:TSTS_DIAGNOSTIC/);

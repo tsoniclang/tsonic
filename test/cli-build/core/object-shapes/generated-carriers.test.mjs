@@ -1,4 +1,5 @@
-import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits non-nullish unions through finalized runtime-carrier facts", async () => {
   const projectDirectory = resolve(tempRoot, "runtime-carrier-unions");

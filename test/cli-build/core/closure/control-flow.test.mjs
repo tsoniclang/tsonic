@@ -1,4 +1,5 @@
-import { assert, cliPath, existsSync, readFile, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI runs switch and loop statements through structured C# AST", async () => {
   const assemblyName = "SmokeGeneratedSlice6ControlFlow";

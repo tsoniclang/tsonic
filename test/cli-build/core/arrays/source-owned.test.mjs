@@ -1,4 +1,5 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI runs inferred source-owned array returns through finalized carrier facts", async () => {
   const assemblyName = "SmokeGeneratedInferredArrayReturns";

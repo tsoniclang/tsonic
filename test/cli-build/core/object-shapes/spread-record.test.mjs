@@ -1,4 +1,5 @@
-import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, assertNoInstalledAssemblyReference, cliPath, existsSync, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI executes Record dictionary object spread as an independent native dictionary copy", async () => {
   const projectDirectory = resolve(tempRoot, "record-dictionary-object-spread-reject");

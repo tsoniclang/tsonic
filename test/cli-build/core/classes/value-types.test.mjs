@@ -2,7 +2,6 @@ import {
   assert,
   cliPath,
   existsSync,
-  readFile,
   resolve,
   run,
   runNode,
@@ -10,6 +9,7 @@ import {
   test,
   writeProject,
 } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits finalized class properties, static members, and generic inheritance", async () => {
   const projectDirectory = resolve(tempRoot, "classes-finalized-facts");

@@ -1,4 +1,5 @@
-import { assert, assertRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, targetCsharpNodejsPackageJson, targetCsharpOnlyPackageJson, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI builds and runs existing Node-style code when Node provider package is selected", async () => {
   const projectDirectory = resolve(tempRoot, "existing-node-provider-package-code");

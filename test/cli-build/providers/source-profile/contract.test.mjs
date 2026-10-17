@@ -1,4 +1,5 @@
-import { assert, cliPath, readFile, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, resolve, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI pure C# source profile accepts CLR names and emits those names", async () => {
   const projectDirectory = resolve(tempRoot, "csharp-source-profile-clr-names");

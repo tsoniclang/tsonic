@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { assert, assertRuntimeProjectReference, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../helpers/harness.mjs";
+import { assert, assertRuntimeProjectReference, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 const bannedGeneratedRuntimeSemantics = [
   /\bdynamic\b/u,

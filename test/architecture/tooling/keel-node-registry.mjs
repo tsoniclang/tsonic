@@ -9,8 +9,8 @@ const owners = Object.freeze({
 });
 
 export function readKeelNodeModuleRegistry(workspace, repo) {
+  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");
   const owner = owners[repo];
-  if (owner === undefined) throw new Error("Unknown Node registry owner.");
   const root = resolve(workspace, repo);
   const file = resolve(root, owner.file);
   const require = createRequire(resolve(root, "package.json"));

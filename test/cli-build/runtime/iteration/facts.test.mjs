@@ -1,4 +1,5 @@
-import { assert, cliPath, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits array for-of from finalized provider foreach iteration facts", async () => {
   const projectDirectory = resolve(tempRoot, "iteration-array-for-of");

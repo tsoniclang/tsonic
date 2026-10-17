@@ -1,4 +1,5 @@
-import { assert, cliPath, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits typed, empty, nested, and spread array literals from finalized array facts", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-typed-literals");

@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { collectFiles, readSourceInventory } from "./file-inventory.mjs";
 import { evaluateNodeProviderContract } from "./node-provider-contract.mjs";
 import { analyzeKeelTypeScript, keelDigest } from "./keel-source-analysis.mjs";
@@ -12,6 +13,7 @@ import {
   evaluateKeelSkeleton, evaluateKeelStorageStages, evaluateKeelTestSkeleton, keelRuntimeRoots,
 } from "./keel-structure-checks.mjs";
 import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certification-checks.mjs";
+import { keelSafetyBuiltModuleEntries } from "./keel-native-allocation-boundary.mjs";
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
 import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
@@ -56,12 +58,14 @@ export function evaluateKeelWorkspace(workspace, manifest, {
   const nodeModels = new Map();
   const pins = {};
   const sourceDigests = {};
+  let nativeAllocationBoundary;
   let totalFunctions = 0;
   for (const repo of keelWorkspaceRepositories) {
     const root = resolve(workspace, repo);
     pins[repo] = git(root, ["rev-parse", "HEAD"]).trim();
     git(root, ["cat-file", "-e", `${manifest.basePins[repo]}^{commit}`]);
   }
+  const safetyInputs = readKeelSafetyWorkspaceInputs(workspace);
   const declarations = readKeelDeclarations(workspace);
   for (const repo of keelWorkspaceRepositories) {
     const root = resolve(workspace, repo);
@@ -94,7 +98,9 @@ export function evaluateKeelWorkspace(workspace, manifest, {
         factoryName: `create${target}ProviderPackage`,
       }).map(reason => keelFinding("AC10", repo, "nodejs/src/provider", "provider ownership", reason)));
     }
-    findings.push(...safety(root, repo, tracked, manifest.basePins[repo]));
+    const safetyResult = safety(root, repo, tracked, manifest.basePins[repo], safetyInputs);
+    findings.push(...safetyResult.findings);
+    if (safetyResult.nativeAllocationBoundary !== undefined) nativeAllocationBoundary = safetyResult.nativeAllocationBoundary;
   }
   findings.push(...evaluateKeelSkeleton(targetSources, manifest.nativeDifferences));
   findings.push(...evaluateKeelTestSkeleton(targetTests));
@@ -118,6 +124,9 @@ export function evaluateKeelWorkspace(workspace, manifest, {
   if (readKeelDeclarations(workspace).inputDigest !== declarations.inputDigest) {
     throw new Error("Public declaration inputs changed during Keel checks; no result is certified.");
   }
+  if (!isDeepStrictEqual(safetyInputs, readKeelSafetyWorkspaceInputs(workspace))) {
+    throw new Error("Complete AC12 workspace inputs changed during Keel checks; no result is certified.");
+  }
   for (const repo of keelWorkspaceRepositories) {
     const root = resolve(workspace, repo);
     if (git(root, ["rev-parse", "HEAD"]).trim() !== pins[repo] ||
@@ -131,7 +140,7 @@ export function evaluateKeelWorkspace(workspace, manifest, {
     }
   }
   return Object.freeze({ findings: sortKeelFindings(findings), capabilityGaps: Object.freeze(capabilityGaps), pins, sourceDigests, totalFunctions,
-    declarationsSha256: declarations.inputDigest,
+    declarationsSha256: declarations.inputDigest, nativeAllocationBoundary,
     determinismExecuted: final || determinism.length > 0 });
 }
 
@@ -206,7 +215,73 @@ function productSources(root, repo) {
   return result;
 }
 
-function safety(root, repo, tracked, base) {
+function readKeelSafetyWorkspaceInputs(workspace) {
+  const inputs = new Map();
+  for (const repo of keelWorkspaceRepositories) {
+    const root = resolve(workspace, repo);
+    const entries = new Map();
+    for (const row of git(root, ["ls-files", "--stage", "-z"]).split("\0").filter(Boolean)) {
+      const match = /^([0-7]{6}) ([a-f0-9]{40}) ([0-3])\t(.+)$/su.exec(row);
+      if (match === null || match[3] !== "0" || !validPath(match[4])) throw new Error(`Unresolved AC12 index entry: ${repo}.`);
+      const [, mode, object, , file] = match;
+      if (mode === "160000") entries.set(file, Object.freeze({ kind: "gitlink", tracked: true, mode, object }));
+      else read(file, true);
+    }
+    for (const file of git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) {
+      if (validPath(file) && /\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file)) read(file, false);
+    }
+    inputs.set(repo, Object.freeze(entries));
+
+    function read(file, tracked) {
+      const path = resolve(root, file);
+      let status;
+      try { status = lstatSync(path); }
+      catch (error) {
+        if (error?.code === "ENOENT") return;
+        throw error;
+      }
+      if (status.isSymbolicLink()) {
+        entries.set(file, Object.freeze({ kind: "symlink", tracked, mode: "120000", target: readlinkSync(path) }));
+      } else if (status.isFile()) {
+        const bytes = readFileSync(path);
+        entries.set(file, Object.freeze({ kind: "file", tracked, mode: status.mode & 0o111 ? "100755" : "100644",
+          sha256: keelDigest(bytes),
+          ...(/\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file) ? { text: bytes.toString("utf8") } : {}),
+        }));
+      } else throw new Error(`Unsupported AC12 tracked file mode: ${repo}/${file}.`);
+    }
+  }
+  for (;;) {
+    const pending = keelSafetyBuiltModuleEntries(inputs).filter(path => {
+      const separator = path.indexOf("/");
+      return !inputs.get(path.slice(0, separator))?.get(path.slice(separator + 1))?.builtModule;
+    });
+    if (pending.length === 0) break;
+    for (const path of pending) {
+      if (!validPath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
+      const separator = path.indexOf("/");
+      const repo = path.slice(0, separator);
+      const file = path.slice(separator + 1);
+      if (!inputs.has(repo)) throw new Error(`Unknown AC12 built module repository: ${path}.`);
+      const absolute = resolve(workspace, path);
+      const root = realpathSync(resolve(workspace, repo));
+      const actual = realpathSync(absolute);
+      if (actual !== absolute || relative(root, actual).startsWith("..") || !lstatSync(absolute).isFile()) {
+        throw new Error(`Unresolved AC12 built module source identity: ${path}.`);
+      }
+      const bytes = readFileSync(absolute);
+      const previous = inputs.get(repo).get(file);
+      if (previous !== undefined && (previous.kind !== "file" || previous.sha256 !== keelDigest(bytes))) {
+        throw new Error(`Changed AC12 built module input: ${path}.`);
+      }
+      inputs.get(repo).set(file, Object.freeze({ kind: "file", tracked: previous?.tracked ?? false,
+        mode: lstatSync(absolute).mode & 0o111 ? "100755" : "100644", sha256: keelDigest(bytes), text: bytes.toString("utf8"), builtModule: true }));
+    }
+  }
+  return Object.freeze(inputs);
+}
+
+function safety(root, repo, tracked, base, workspaceInputs) {
   const changed = new Set(git(root, ["diff", "--name-only", "-z", base, "--"]).split("\0").filter(Boolean));
   for (const file of git(root, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean)) changed.add(file);
   const currentSources = new Map();
@@ -219,7 +294,7 @@ function safety(root, repo, tracked, base) {
   }
   const typed = entries => new Map([...entries].filter(([file]) => sourceExtensions.some(extension => file.endsWith(extension))));
   return evaluateKeelSafety({
-    repo, trackedFiles: tracked, currentSources, baseSources,
+    repo, trackedFiles: tracked, currentSources, baseSources, workspaceInputs,
     currentModel: analyzeKeelTypeScript(typed(currentSources), { resolveReferences: false }),
     baseModel: analyzeKeelTypeScript(typed(baseSources), { resolveReferences: false }),
   });

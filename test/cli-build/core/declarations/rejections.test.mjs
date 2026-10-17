@@ -1,4 +1,5 @@
-import { assert, assertGeneratedOutputHasNoReflectionSemantics, cliPath, existsSync, readFile, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, assertGeneratedOutputHasNoReflectionSemantics, cliPath, existsSync, repoRoot, resolve, run, runGeneratedCsharpRunner, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI executes checked visibility and readonly annotations through native class members", async () => {
   const projectDirectory = resolve(tempRoot, "typescript-only-modifiers");

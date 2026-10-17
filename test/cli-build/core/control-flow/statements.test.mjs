@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
-import { assert, cliPath, readFile, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, repoRoot, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits C# switch defaults and literal fallthrough labels", async () => {
   const projectDirectory = resolve(tempRoot, "literal-switch-fallthrough");

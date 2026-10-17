@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
@@ -31,7 +31,7 @@ import {
   providerVirtualDeclarationFactKey,
   TstsSourceProviderContractVersion,
 } from "@tsonic/tsts";
-export { assert, access, mkdir, readFile, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileProject, createProgramOptionsForProject, parseTsonicProjectConfig, createTargetRegistry, rejectedTargetStage, resolvedTargetStage, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, TstsSourceProviderContractVersion };
+export { assert, access, mkdir, writeFile, dirname, resolve, test, collectTstsDiagnostics, collectTargetSourceProfileContributions, compileProject, createProgramOptionsForProject, parseTsonicProjectConfig, createTargetRegistry, rejectedTargetStage, resolvedTargetStage, targetSourceProfileDeclaration, providerVirtualDeclarationFactKey, TstsSourceProviderContractVersion };
 
 export const repoRoot = process.cwd();
 export const tempRoot = resolve(repoRoot, ".temp/test-runs/host-surface-composition", `${Date.now()}-${process.pid}`);

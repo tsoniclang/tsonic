@@ -1,4 +1,5 @@
-import { assert, cliPath, existsSync, readFile, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { assert, cliPath, existsSync, resolve, run, runGeneratedProject, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+import { readFile } from "node:fs/promises";
 
 test("CLI emits native .NET array element access and JS-selected length facts", async () => {
   const projectDirectory = resolve(tempRoot, "arrays-native-provider");

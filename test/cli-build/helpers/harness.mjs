@@ -245,7 +245,6 @@ export {
   dotnetOutputAssemblyPath,
   cliPath,
   existsSync,
-  readFile,
   repoRoot,
   testRepositoryRoots,
   resolve,
