@@ -1376,6 +1376,45 @@ test("QRC-02: native synchronous Node stdin uses nonliteral code evidence before
     "an explicit executable override is not certified as native Node");
 });
 
+test("QRC-02: optional print operands retain unresolved option, preload and stdin roles without reclassifying proven code data", () => {
+  for (const method of ["spawn", "spawnSync", "execFileSync"]) {
+    for (const flag of ["--print", "-p"]) {
+      for (const operand of ["flag", "...flags"]) {
+        const inputs = nativeBoundaryInputs();
+        const source = `import { ${method} } from "node:child_process"; function run(flag, flags) { ${method}(process.execPath,
+          [${JSON.stringify(flag)}, ${operand}, new URL("../test/bridge.test.mjs", import.meta.url).href]); }`;
+        inputs.get("tsonic-rust").set("src/optional.mjs", safetyFile(source));
+        const result = boundarySafety(inputs);
+        assert.equal(result.nativeAllocationBoundary === undefined, true, `${method}/${flag}/${operand}: possible option leaves the known first-party tail executable`);
+        assert.equal(result.findings.some(finding => finding.file === "src/optional.mjs"), true, "the unresolved role is refused at its source");
+      }
+      if (method !== "spawn") {
+        const stdin = nativeBoundaryInputs();
+        stdin.get("tsonic-rust").set("src/optional.mjs", safetyFile(`import { ${method} } from "node:child_process";
+          function run(flag) { ${method}(process.execPath, [${JSON.stringify(flag)}, flag], { input: 'import("../test/helpers/native-ownership-cost.mjs")' }); }`));
+        assert.equal(boundarySafety(stdin).nativeAllocationBoundary === undefined, true, `${method}/${flag}: an unknown optional operand may select interactive stdin`);
+      }
+    }
+  }
+  for (const args of [
+    '["--eval", expression, new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url).href]',
+    '["--print", "0", new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url).href]',
+    '["--print=0", new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url).href]',
+    '["-p0", new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url).href]',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/data.mjs", safetyFile(`import { spawnSync } from "node:child_process"; function run(expression) {
+      spawnSync(process.execPath, ${args}, { input: 'import("../test/helpers/native-ownership-cost.mjs")' }); }`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${args}: required or proven expression selects code, so subsequent argv and stdin stay data`);
+  }
+  const unknown = nativeBoundaryInputs();
+  unknown.get("tsonic-rust").set("src/unknown.mjs", safetyFile('import { spawnSync } from "node:child_process"; function run(flag, code) { spawnSync(process.execPath, ["--print", flag], { input: code }); }'));
+  const result = boundarySafety(unknown);
+  assert.equal(result.findings.length, 0, "genuinely unknown code and option data remain explicitly unproved, not a guessed source edge");
+  assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "node-arguments"), true,
+    "unknown optional operand role is recorded, not silently certified");
+});
+
 test("QRC-03/04: type erasure and raw import-equals filenames preserve native require identity", () => {
   for (const source of [
     'import type { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs"; export type Support = typeof nativeAllocationSupport;',

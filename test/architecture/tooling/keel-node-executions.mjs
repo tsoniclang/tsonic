@@ -125,6 +125,11 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
             (elements[index + 1] === undefined || literal(elements[index + 1]) && ast.text(elements[index + 1]).startsWith("-"))) {
             codeEntry(undefined, node); continue;
           }
+          if (option === "--print" && joined === undefined && !literal(elements[index + 1])) {
+            codeEntry(elements[index + 1], node);
+            unresolvedArguments(elements.slice(index + 1), node);
+            return true;
+          }
           const value = joined === undefined ? elements[++index] : undefined;
           if (joined === undefined && (value === undefined || ast.kindName(value) === "KindSpreadElement")) {
             computedModuleEntry(node); return true;
@@ -154,11 +159,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
         continue;
       }
       if (optionsOnly) {
-        if (elements.slice(index).some(argument => {
-          const address = sourceAddress(argument);
-          return address.firstParty || address.observerEvidence;
-        })) computedModuleEntry(node);
-        references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
+        unresolvedArguments(elements.slice(index), node);
         break;
       }
       if (!script && !code) {
@@ -170,10 +171,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
         executionAddress(address, node);
         if (address.path === undefined && address.specifier === undefined && !address.firstParty && address.suffix === undefined) {
           unresolvedScript = true;
-          if (elements.slice(index + 1).some(argument => {
-            const address = sourceAddress(argument);
-            return address.firstParty || address.observerEvidence;
-          })) computedModuleEntry(node);
+          unresolvedArguments(elements.slice(index + 1), node);
           break;
         }
         script = true;
@@ -184,6 +182,14 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
     }
     return nonStdinModes.size === 0 && !script && (interactive || !code);
+  }
+
+  function unresolvedArguments(arguments_, node) {
+    if (arguments_.some(argument => {
+      const address = sourceAddress(argument);
+      return address.firstParty || address.observerEvidence;
+    })) computedModuleEntry(node);
+    references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
   }
 
   function invocationControls(arguments_, node, kind) {
