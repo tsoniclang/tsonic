@@ -1148,6 +1148,20 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
     `);
     const { source, storage } = current;
     const use = current.declaration("factoryUse");
+    const factoryBodies = new Set(["makeBase", "makeDerived"].map(name => source.ast.body(current.declaration(name))));
+    const constructors = new Set(storage.nodes.filter(node => source.ast.is.IsClassExpression(node) &&
+      factoryBodies.has(storage.enclosingRegionFor(node))));
+    assert.equal(constructors.size, 2, "The fixture supplies native non-Future contracts only for its two actual constructor values.");
+    const query = createSourceOwnershipQuery({ ...current, premises: { ...current.premises,
+      suspensionFor(value, bindings) {
+        if (!constructors.has(value.node)) return current.premises.suspensionFor(value, bindings);
+        const type = storage.typeFor(value);
+        assert.equal(type.kind === "resolved" && source.semantics.forNode(value.node).types.constructSignatures(type.type).length === 1,
+          true, "A native constructor value has its exact checked constructor signature, not a guessed unknown result.");
+        return type.kind === "unresolved" ? { kind: "unresolved", at: value.node, reason: type.reason }
+          : { kind: "never", value, contractDeclaration: value.node, checkedType: type.type };
+      },
+    } });
     const call = storage.invocations.find(node => source.ast.is.IsCallExpression(node) && current.selectedDeclaration(node) === use &&
       storage.enclosingRegionFor(node) === source.ast.body(current.declaration("factoryRoot")));
     const access = storage.nodes.find(node => source.ast.is.IsPropertyAccessExpression(node) &&
@@ -1170,7 +1184,7 @@ for (const borrowed of [false, true]) for (const producersFirst of [false, true]
         "An owned result is not contaminated by constructing an unrelated borrowed sibling before suspension.");
     };
     if (producersFirst) inspect();
-    const selected = current.query.forCall(call!);
+    const selected = query.forCall(call!);
     assert.equal(selected.kind === "resolved" && selected.decision === (borrowed ? "rejected" : "admitted"), true,
       selected.kind === "unresolved" ? selected.reason : "D12 follows the actual factory body capture and exact post-await field read.");
     assert.equal(selected.kind === "resolved" && selected.dependencies.some(dependency => dependency.retention.kind === "scoped-borrowed" &&
