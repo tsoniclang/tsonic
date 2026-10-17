@@ -294,10 +294,11 @@ function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   for (const [path, script] of scripts) {
     const usesWriter = script.references.some(reference => reference.module && destinations(path, reference).includes(writerPath));
     const readsObserver = script.references.some(reference => reference.fileRead && destinations(path, reference).includes(canonicalPath));
-    if (path === writerPath || !usesWriter && !readsObserver) continue;
+    const computedEntry = script.references.some(reference => reference.module && ambiguousEntry(path, reference));
+    if (path === writerPath || !usesWriter && !readsObserver && !computedEntry) continue;
     restricted.add(path);
     if (!script.testEntry) reject(path, "observer reader is not a direct Node test entry");
-    consumers.push(Object.freeze({ path, kind: usesWriter ? "Node test writer consumer" : "Node test source witness" }));
+    consumers.push(Object.freeze({ path, kind: usesWriter ? "Node test writer consumer" : readsObserver ? "Node test source witness" : "Node test computed source entry" }));
   }
   for (const [path, destination] of aliases) {
     if ([...restricted].some(entry => entry === destination || entry.startsWith(`${destination}/`))) {
@@ -322,8 +323,7 @@ function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       if (reference.unresolved) { reject(path, "unresolved executable source syntax"); continue; }
       const targets = destinations(path, reference);
       const hits = targets.some(touchesRestricted);
-      const ambiguous = reference.firstParty && targets.length === 0 &&
-        (reference.suffix === undefined || [...restricted, ...aliases.keys()].some(entry => entry.endsWith(reference.suffix)));
+      const ambiguous = ambiguousEntry(path, reference);
       if (!hits && !ambiguous) continue;
       const allowed = !transcriptData.has(targets[0]) && (script.testEntry || path === writerPath &&
         reference.fileRead && targets.length === 1 && targets[0] === canonicalPath);
@@ -372,6 +372,11 @@ function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     if (path.includes("*")) return [...restricted, ...aliases.keys()].some(entry => new RegExp(
       `^${path.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(entry));
     return restricted.has(resolveAlias(path));
+  }
+
+  function ambiguousEntry(path, reference) {
+    return reference.firstParty && (!reference.fileRead || reference.observerEvidence) && destinations(path, reference).length === 0 &&
+      (reference.suffix === undefined || [...restricted, ...aliases.keys()].some(entry => entry.endsWith(reference.suffix)));
   }
 
   function destinations(sourcePath, reference) {
@@ -537,7 +542,7 @@ function scriptSourceReferences(path, text) {
       initializers.set(name, initializers.has(name) ? undefined : initializer);
     }
   }
-  const testEntry = ["tsonic/test/", "tsonic-rust/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
+  const testEntry = ["tsonic/test/", "tsonic-csharp/test/", "tsonic-rust/test/", "csharp-nodejs/nodejs/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
     path.endsWith(".test.mjs") && references.some(reference => reference.specifier === "node:test");
   for (const node of nodes) {
     if (["KindCallExpression", "KindNewExpression"].includes(ast.kindName(node))) {
@@ -571,7 +576,7 @@ function scriptSourceReferences(path, text) {
     if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kindName)) {
       const specifier = ast.text(node);
       return { specifier, suffix: specifier.replace(/^(?:\.\.?\/)+/u, ""),
-        firstParty: specifier.startsWith(".") || /(?:allocation_counts\.rs|native-ownership-cost\.mjs)/u.test(specifier) };
+        firstParty: specifier.startsWith(".") || referencesCanonicalSource(specifier), observerEvidence: referencesCanonicalSource(specifier) };
     }
     if (kindName === "KindIdentifier") {
       const name = ast.text(node);
@@ -599,7 +604,7 @@ function scriptSourceReferences(path, text) {
           if (isAbsolute(value.specifier)) return { specifier: value.specifier, firstParty: true };
           return { path: posix.normalize(posix.join(posix.dirname(path), value.specifier)), firstParty: true };
         }
-        return { firstParty: true, suffix: value.suffix };
+        return { firstParty: true, suffix: value.suffix, observerEvidence: value.observerEvidence };
       }
       if (["node:path#join", "node:path#resolve"].includes(name)) {
         const values = arguments_.map(argument => sourceAddress(argument, seen));
@@ -611,7 +616,8 @@ function scriptSourceReferences(path, text) {
           if (value.specifier === undefined) break;
           suffix.unshift(value.specifier);
         }
-        return { firstParty: true, suffix: suffix.length > 0 ? posix.join(...suffix) : undefined };
+        return { firstParty: true, suffix: suffix.length > 0 ? posix.join(...suffix) : undefined,
+          observerEvidence: values.some(value => value.observerEvidence) };
       }
       if (name === "node:path#dirname") {
         const value = sourceAddress(arguments_[0], seen);
@@ -627,8 +633,16 @@ function scriptSourceReferences(path, text) {
     const tail = kindName === "KindTemplateExpression" ? ast.children(ast.children(node).at(-1)).at(-1)
       : kindName === "KindBinaryExpression" && ast.operatorKindName(node) === "KindPlusToken" ? ast.children(node).at(-1) : undefined;
     const suffix = ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral", "KindTemplateTail"].includes(ast.kindName(tail)) ? ast.text(tail) : undefined;
-    return { firstParty: fragments.some(fragment => fragment.startsWith(".") || /(?:test|allocation_counts|native-ownership-cost)/u.test(fragment)), suffix };
+    return { firstParty: fragments.some(fragment => fragment.startsWith(".") || /(?:test|allocation_counts|native-ownership-cost)/u.test(fragment)),
+      suffix, observerEvidence: fragments.some(referencesCanonicalSource) };
   }
+}
+
+function referencesCanonicalSource(text) {
+  const boundary = canonicalNativeAllocationBoundary;
+  return [posix.basename(boundary.path), posix.basename(boundary.writerPath),
+    `${boundary.repo}/${posix.dirname(boundary.path)}`, `${boundary.writerRepo}/${posix.dirname(boundary.writerPath)}`]
+    .some(fragment => text.includes(fragment));
 }
 
 export function createKeelViolationInventory(findings, origin) {

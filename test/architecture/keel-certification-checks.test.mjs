@@ -289,6 +289,11 @@ test("canonical consumers require actual test entries and forbid incoming produc
     changed.get("tsonic-rust").set(path, safetyFile(source));
     assert.equal(boundarySafety(changed).nativeAllocationBoundary === undefined, true, path);
   }
+  const computed = nativeBoundaryInputs();
+  computed.get("tsonic-csharp").set("test/computed.test.mjs", safetyFile('import test from "node:test"; const name = process.env.ENTRY; test("entry", () => import(new URL(name, import.meta.url)));'));
+  assert.equal(boundarySafety(computed).findings.length, 0, "the symmetric C# Node test entry is genuinely test-only");
+  computed.get("tsonic-csharp").set("src/promote.mjs", safetyFile('import "../test/computed.test.mjs";'));
+  assert.equal(boundarySafety(computed).nativeAllocationBoundary === undefined, true, "a computed-source test entry also has an incoming product cut");
   const nested = nativeBoundaryInputs();
   nested.get("rust-runtime").set("tests/control.rs", safetyFile('#[path = "nested.rs"] mod nested;'));
   nested.get("rust-runtime").set("tests/nested.rs", safetyFile('#[path = "helpers/allocation_counts.rs"] mod counts;'));
@@ -313,7 +318,7 @@ test("only actual source and observer-read effects cross the cut, with known API
     ["relative cwd is not the module", 'import { readFileSync } from "node:fs"; readFileSync("../../rust-runtime/tests/helpers/allocation_counts.rs");'],
     ["aliased root", 'import { readFileSync as read } from "node:fs"; import { fileURLToPath } from "node:url"; const target = fileURLToPath(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url)); const alias = target; read(alias);'],
     ["obfuscated first-party import", 'const encoded = process.env.ENTRY; const target = new URL(encoded, import.meta.url); const alias = target; await import(alias.href);'],
-    ["obfuscated first-party reader", 'import { readFileSync } from "node:fs"; const encoded = process.env.ENTRY; readFileSync(new URL(encoded, import.meta.url));'],
+    ["obfuscated actual observer reader", 'import { readFileSync } from "node:fs"; const encoded = process.env.ENTRY; readFileSync(new URL("../../rust-runtime/tests/helpers/" + encoded, import.meta.url));'],
   ]) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
@@ -325,6 +330,7 @@ test("only actual source and observer-read effects cross the cut, with known API
   data.get("tsonic-rust").set("test/scripts/proof-scenarios.mjs", safetyFile("export const unrelated = true;"));
   data.get("tsonic-rust").set("package.json", safetyFile('{"exports":{".":"./test/scripts/proof-scenarios.mjs"}}'));
   data.get("tsonic-rust").set("src/fluent.mjs", safetyFile('export const values = [1, 2].map(value => value + 1).filter(value => value > 1);'));
+  data.get("tsonic-rust").set("src/byte-reader.mjs", safetyFile('import { readFileSync } from "node:fs"; export function readData(path) { return readFileSync(new URL(path, import.meta.url)); }'));
   assert.equal(boundarySafety(data).findings.length, 0, "unrelated data and tool modules are not canonical-source promotions");
 });
 
