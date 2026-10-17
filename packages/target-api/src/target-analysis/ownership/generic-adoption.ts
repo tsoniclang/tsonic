@@ -59,7 +59,7 @@ export function analyzeSourceGenericAdoption(input: {
   const { ast } = source;
   const domain = sourceNodesOutsideErasedSubtrees(ast, input.nodes, node =>
     ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node)
-      ? sourceCallableDefinitionIsDiscarded(node, ast) : sourceLexicalFunctionIsUnused(node, ast, source.navigation));
+      ? sourceCallableDefinitionIsDiscarded(node, ast, source.navigation) : sourceLexicalFunctionIsUnused(node, ast, source.navigation));
   if (domain.kind === "unresolved") {
     const at = input.nodes[0] ?? source.sourceFiles[0];
     if (at === undefined) return Object.freeze({ kind: "resolved", issues: Object.freeze([]) });
