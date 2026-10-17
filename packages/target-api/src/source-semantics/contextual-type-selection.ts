@@ -5,7 +5,7 @@ import type {
   TypeCheckerQueries,
   TypeShapeQueries,
 } from "@tsonic/tsts";
-import { Node_Initializer } from "../source-navigation/ast.js";
+import { Node_Expression, Node_Initializer } from "../source-navigation/ast.js";
 
 export type SourceContextualValueTypeSelection =
   | { readonly kind: "selected"; readonly type: Type }
@@ -20,7 +20,9 @@ export function selectSourceContextualValueType(
 ): SourceContextualValueTypeSelection {
   let expression = node;
   let owner = ast.parent(expression);
-  while (owner !== undefined && ast.is.IsParenthesizedExpression(owner)) {
+  while (owner !== undefined &&
+    (ast.is.IsParenthesizedExpression(owner) || ast.isConstAssertion(owner)) &&
+    Node_Expression(ast, owner) === expression) {
     expression = owner;
     owner = ast.parent(expression);
   }
