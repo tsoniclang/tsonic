@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { finalizeTargetDiagnostics } from "../../../packages/host/dist/diagnostics.js";
+import { collectTstsDiagnostics, finalizeTargetDiagnostics } from "../../../packages/host/dist/diagnostics.js";
 
 function sourceSnapshot(text) {
   const file = {};
@@ -110,4 +110,38 @@ test("large-file diagnostic lookups have bounded character visits", () => {
   assert.equal(snapshot.reads(), 1);
   assert.ok(outputs.every(output => output.sourceSpan?.line === 1));
   assert.ok(visits <= budget);
+});
+
+test("extracted diagnostic coordinates preserve complete host extension and finalization payloads", () => {
+  const snapshot = sourceSnapshot("界😀\r\n\t value");
+  const source = { ...snapshot.source, diagnostics: [], extensionDiagnostics: [{
+    numericCode: 9001, category: "error", message: "unchanged extension", extensionId: "fixture.owner",
+    nodeOrSpan: { sourceFile: snapshot.file, pos: 7, end: 16 },
+    evidence: [{ message: "actual", details: { value: 7 } }],
+  }] };
+  assert.deepEqual(collectTstsDiagnostics(source, "/project"), [{
+    code: "TS9001", category: "error", message: "unchanged extension", source: "fixture.owner",
+    sourceSpan: { fileName: "source.ts", line: 2, column: 3, endLine: 2, endColumn: 8 },
+    evidence: ['actual: {"value":7}'],
+  }], "the extraction changes neither the diagnostic envelope nor its evidence bytes");
+  assert.deepEqual(finalizeTargetDiagnostics(snapshot.source, [diagnostic(snapshot.file, 7, 16)], "/project"), [{
+    code: "TEST", category: "error", message: "unchanged",
+    sourceSpan: { fileName: "source.ts", line: 2, column: 3, endLine: 2, endColumn: 8 },
+  }], "target diagnostics use the same canonical coordinate owner");
+});
+
+test("host diagnostic filename policy remains relative inside and absolute outside the project", () => {
+  for (const [fileName, expected] of [
+    ["/project/nested/source.ts", "nested/source.ts"],
+    ["/external/source.ts", "/external/source.ts"],
+    ["nested\\source.ts", "nested/source.ts"],
+    ["/project-neighbor/source.ts", "/project-neighbor/source.ts"],
+  ]) {
+    const snapshot = sourceSnapshot("value");
+    snapshot.source.ast.getFileName = () => fileName;
+    assert.deepEqual(finalizeTargetDiagnostics(snapshot.source, [diagnostic(snapshot.file, 0, 5)], "/project")[0], {
+      code: "TEST", category: "error", message: "unchanged",
+      sourceSpan: { fileName: expected, line: 1, column: 1, endLine: 1, endColumn: 6 },
+    }, `${fileName}: preserve the original host payload and display rule`);
+  }
 });

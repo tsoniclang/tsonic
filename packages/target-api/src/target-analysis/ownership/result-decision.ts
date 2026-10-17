@@ -47,6 +47,10 @@ export function decideSourceAsyncResultUse(input: {
   for (const lease of leases) {
     if (!budget.step()) return sourceOwnershipUnresolved(call, budget.failure()!);
     if (lease.kind !== "scoped-borrowed" && lease.kind !== "formal-borrowed") continue;
+    if (disposition.kind === "passed" || disposition.kind === "consumed") {
+      return sourceOwnershipUnresolved(disposition.use,
+        "A borrowed async result requires a proven source-scoped consumer; its selected use alone does not prove the lease lifetime.");
+    }
     if (disposition.kind === "awaited-in-scope") {
       const region = lease.kind === "scoped-borrowed" ? lease.region : lease.executionOwner;
       let current: Node | undefined = disposition.use;

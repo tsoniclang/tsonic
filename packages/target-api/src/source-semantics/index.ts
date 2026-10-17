@@ -1,4 +1,5 @@
 export * from "./target-source-program.js";
+export { createSourceDiagnosticSpanReader } from "./diagnostic-spans.js";
 export { analyzeSourceEnumConstants, selectSourceEnumIntegerWidth } from "./enum-constants.js";
 export type { SourceEnumConstantIndex, SourceEnumConstantSelection, SourceEnumIntegerWidthSelection, SourceEnumAdmissionIssue } from "./enum-constants.js";
 export { analyzeSourcePropertyNames } from "./property-names.js";
