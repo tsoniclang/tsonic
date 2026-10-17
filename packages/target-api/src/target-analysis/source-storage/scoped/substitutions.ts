@@ -53,7 +53,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     return owner === undefined ? scopes.empty : scopes.owningScope(scope, owner) ?? scope;
   };
   let currentRead: ((term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) | undefined;
-  const successors = createSourceStorageScopedSuccessors(source, budget, transport, scopes, equations, keys.birthKey, keys.closed,
+  const successors = createSourceStorageScopedSuccessors(source, budget, transport, scopes, equations, keys.birth, keys.closed,
     term => currentRead === undefined ? undefined : currentRead(term));
   const addWitness = (relation: SourceStorageRelation, reference: SourceStorageScopedSubject, contributes = true): boolean => {
     if (budget.failure() !== undefined) return false;

@@ -305,6 +305,24 @@ export function createSourceStorageDomains(
       reason: budget.failure() ?? "Source storage requires one completed scoped relation.",
     });
     const boundaries = new Set<SourceStorageDomainBoundary>();
+    let completedContributions: boolean | undefined;
+    const constructionRelationIsComplete = (): boolean => {
+      if (completedContributions !== undefined) return completedContributions;
+      for (const current of selected.subjects) {
+        if (!budget.step()) return false;
+        if (!current.contributes) continue;
+        const completed = transport.substitutions.provenance(current.subject, current.bindings);
+        if (completed === undefined || completed.reason !== undefined) return false;
+        if (completed.origins.size !== 0) continue;
+        const type = sourceStorageSubjectType(source, current.subject, transport.sourceFileFor(current.subject));
+        if (type === undefined || !semantics.forNode(current.subject.node).types.isNever(type)) {
+          completedContributions = false;
+          return false;
+        }
+      }
+      completedContributions = budget.failure() === undefined;
+      return completedContributions;
+    };
     const pending = [...selected.subjects];
     const visited = new Map<SourceStorageSubstitutions, Set<SourceStorageSubject>>();
     let reason: string | undefined;
@@ -323,7 +341,7 @@ export function createSourceStorageDomains(
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write") &&
-          closedSourceConstruction(boundary.exposure, current.bindings)) continue;
+          closedSourceConstruction(boundary.exposure, current.bindings) && constructionRelationIsComplete()) continue;
         if (boundary.kind === "external-input") {
           if (purpose === "storage-producers" && !current.contributes) continue;
           if (bound || stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;

@@ -8,7 +8,7 @@ import { sourceStorageFormalOwner, sourceStorageHasOriginalValue, sourceStorageI
 import type { SourceStorageStore } from "../graph/stored-values.js";
 import { createSourceStorageExecutionReachability } from "./execution-reachability.js";
 import { sourceStorageReference } from "../graph/scoped-model.js";
-import type { SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
+import type { SourceStorageActivation, SourceStorageReduction, SourceStorageScope, SourceStorageTerm, SourceStorageReference, SourceStorageRelationWitness,
   SourceStorageOperation } from "../graph/scoped-model.js";
 import type { SourceStorageScopes } from "./scoped-scopes.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
@@ -30,7 +30,7 @@ interface SourceStorageChildContext {
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   equations: ReturnType<typeof createSourceStorageEquations>,
-  birthKey: (subject: SourceStorageSubject, scope: SourceStorageScope) => string | undefined,
+  birth: (subject: SourceStorageSubject, scope: SourceStorageScope) => SourceStorageActivation | undefined,
   closed: (term: SourceStorageTerm) => boolean | undefined,
   readRelation: (term: SourceStorageTerm) => ReadonlySet<SourceStorageTerm> | undefined) {
   const { ast, navigation, semantics } = source;
@@ -159,8 +159,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     const bound = scopes.lookup(receiver, scope);
     const input = bound?.kind === "replace" && bound.terms.length === 1 ? bound.terms[0] : undefined;
     if (input === undefined || input.kind !== "reference" && input.kind !== "leaf" || input.subject !== allocation.subject) return undefined;
-    const original = birthKey(input.subject, input.scope);
-    return original !== undefined && original === birthKey(allocation.subject, allocation.scope) ? scope : undefined;
+    const original = birth(input.subject, input.scope);
+    return original !== undefined && original.key === birth(allocation.subject, allocation.scope)?.key ? scope : undefined;
   };
   const symbolicProjection = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReduction | undefined => {
     const terms: SourceStorageTerm[] = [leaf(subject, scope)];
@@ -466,10 +466,12 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     if (term.kind === "store") {
       if (term.destination.kind !== "leaf") return replaceChild(term.destination, destination => Object.freeze({ ...term, destination }), { contributes: false });
       if (term.receiver.kind !== "leaf") return replaceChild(term.receiver, receiver => Object.freeze({ ...term, receiver }));
-      const receiver = birthKey(term.receiver.subject, term.receiver.scope);
-      const destination = birthKey(term.destination.subject, term.destination.scope);
-      return receiver === undefined || destination === undefined ? undefined
-        : { kind: "replace", terms: receiver === destination ? [term.value] : [] };
+      const receiver = birth(term.receiver.subject, term.receiver.scope);
+      const destination = birth(term.destination.subject, term.destination.scope);
+      if (receiver === undefined || destination === undefined) return undefined;
+      if (receiver.key === destination.key) return { kind: "replace", terms: [term.value] };
+      const variable = receiver.variable ?? destination.variable;
+      return variable === undefined ? { kind: "replace", terms: [] } : { kind: "expand", variable };
     }
     if (term.kind === "transition") {
       if (term.condition.kind !== "leaf") return replaceChild(term.condition, condition => Object.freeze({ ...term, condition }));
@@ -645,7 +647,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
             continue;
           }
           const creator = owner === undefined ? scopes.empty : scopes.owningScope(effect.scope, owner);
-          if (creator !== undefined && birthKey(term.subject, creator) === birthKey(term.subject, term.scope))
+          const original = creator === undefined ? undefined : birth(term.subject, creator);
+          if (original !== undefined && original.key === birth(term.subject, term.scope)?.key)
             terms.push(sourceStorageReference(value, effect.scope));
         }
       }
