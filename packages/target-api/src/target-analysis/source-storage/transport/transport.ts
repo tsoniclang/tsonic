@@ -1,5 +1,6 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
+  sourceStorageFormalOwner, sourceStorageMemberSubject } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value,
   sourceReceiverOwner } from "../../../source-navigation/index.js";
 import { createSourceStorageContextInputs } from "../scoped/context-inputs.js";
@@ -18,10 +19,11 @@ import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
 import { createSourceStorageInvocationResults, sourceStorageClassLineages } from "./invocation-results.js";
-import { createSourceStorageInvocationInputs } from "../graph/invocation-inputs.js";
+import { createSourceStorageInvocationInputs, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
+  sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
-  SourceStorageCallbackEntry } from "../model/types.js";
+  SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
 import { snapshotSourceStorageCallEffect, snapshotSourceStorageCallbackEffects } from "../graph/call-effects.js";
 import { sourceMemberOwner, sourceParameterIsProperty } from "../../../source-navigation/class-members.js";
 import { createSourceStorageMemberFlow } from "../graph/member-flow.js";
@@ -333,11 +335,16 @@ export function createSourceStorageTransport(
           const formal = selected.sourceSelectedSignatureParameters.find(parameter =>
             parameter.parameterIndex === binding.sourceParameterIndex)?.parameterDeclaration;
           const actual = subjectFor(selected.sourceArguments[binding.sourceArgumentIndex]?.expression);
-          if (formal === undefined || actual === undefined || binding.sourceForm !== "value" || binding.sourceParameterForm !== "parameter") {
+          const rest = binding.sourceParameterForm !== "rest-element" || signature === undefined ? undefined
+            : sourceStorageCallableInputSlots(source, signature, step)?.filter(slot =>
+              slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
+              (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
+          const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
+          if (formal === undefined || actual === undefined || binding.sourceForm !== "value" || projection === undefined) {
             unresolvedInvocations.set(node, "Source storage argument transport requires exact selected scalar formal and actual subjects.");
             continue;
           }
-          const destination = subject(formal, "input");
+          const destination = subject(formal, "input", projection);
           if (destination === undefined || !budget.row()) break;
           const formalFile = ast.getSourceFile(formal);
           if (formalFile === undefined || !semantics.includes(formalFile)) {
@@ -635,10 +642,28 @@ export function createSourceStorageTransport(
         }
       }
     };
+    for (const invocation of invocationTargets.keys()) yield () => {
+      for (const callback of callbackEntriesFor(invocation)) {
+        if (!step()) return;
+        for (const candidate of callbackImplementationsFor(callback)) {
+          if (!step()) return;
+          const slots = sourceStorageCallableInputSlots(source, candidate, step);
+          for (const slot of slots ?? []) {
+            if (!step()) return;
+            if (slot.projection === undefined) continue;
+            const formal = subject(slot.parameter, "input", slot.projection);
+            if (formal === undefined) return;
+            const selected = invocationInputs(formal, candidate, invocation, callback);
+            for (const origin of selected.subjects) connect(origin, formal);
+            for (const origin of selected.calleeSubjects ?? []) connect(origin, formal);
+          }
+        }
+      }
+    };
     for (const invocation of invocationTargets.keys()) yield once => {
       for (const candidate of invocationImplementations(invocation)) {
         if (!once(candidate)) continue;
-        const parameters = ast.is.IsClassDeclaration(candidate) || ast.is.IsClassExpression(candidate) ? [] : ast.parameters(candidate);
+        const slots = sourceStorageCallableInputSlots(source, candidate, step);
         const selected = semantics.forNode(invocation).operations.call(invocation);
         const result = selected === undefined ? undefined : semantics.forNode(invocation).operations.callResult(selected);
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async")) connect(subject(candidate, "return"), subject(invocation),
@@ -647,12 +672,17 @@ export function createSourceStorageTransport(
         if (receiver !== undefined) for (const origin of invocationInputs(receiver, candidate, invocation).subjects) connect(origin, receiver);
         for (const binding of selected?.sourceArgumentBindings ?? []) {
           if (!step()) break;
-          if (binding.sourceForm !== "value" || binding.sourceParameterForm !== "parameter") continue;
-          const parameter = parameters[binding.sourceParameterIndex];
+          if (binding.sourceForm !== "value" || binding.sourceParameterForm === "rest-sequence") continue;
           const contract = selected?.sourceSelectedSignatureParameters.find(parameter => parameter.parameterIndex === binding.sourceParameterIndex);
-          connect(subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression), subject(parameter, "input"),
-            { from: binding.selectedArgumentType, to: binding.selectedParameterType });
-          connect(subject(contract?.parameterDeclaration, "input"), subject(parameter, "input"));
+          for (const slot of slots ?? []) {
+            if (!step()) return;
+            if (slot.projection === undefined || slot.effectiveIndex !== binding.effectiveArgumentIndex &&
+              !(slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex)) continue;
+            const destination = subject(slot.parameter, "input", slot.projection);
+            connect(subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression), destination,
+              { from: binding.selectedArgumentType, to: binding.selectedParameterType });
+            if (slot.projection.length === 0) connect(subject(contract?.parameterDeclaration, "input"), destination);
+          }
         }
       }
     };
@@ -708,6 +738,83 @@ export function createSourceStorageTransport(
     },
     argumentsFor: node => invocationArguments.get(node) ?? [],
   }, graphQueries);
+  const nativePayloadCandidates = graphQueries.query((invocation: Node): ReadonlySet<SourceStorageSubject> | undefined => {
+    const selected = sourceStorageNativeCallablePayloads(source, budget, invocation, undefined, {
+      subjectFor, callbackEntriesFor,
+      hasSourceImplementation: invocation => [...invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
+      valuesFor: selected => {
+        const values = originSubjects(selected);
+        return values === undefined ? undefined : { values: [...values].map(subject => ({ subject, bindings: undefined })), complete: true };
+      },
+      componentFor: (value, component) => component.kind === "member" || component.kind === "method-value"
+        ? sourceStorageMemberSubject(component.declaration, ast, subject)
+        : subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
+    });
+    return selected === undefined ? undefined : new Set(selected.values.map(value => value.subject));
+  });
+  let nativeInputs: ReadonlyMap<Node, readonly { readonly invocation: Node; readonly candidate: Node;
+    readonly callback: SourceStorageCallbackEntry }[]> | undefined;
+  const nativeInputsFor = (parameter: Node) => {
+    if (nativeInputs === undefined) {
+      const rows = budget.createRows();
+      const selected = new Map<Node, { readonly invocation: Node; readonly candidate: Node; readonly callback: SourceStorageCallbackEntry }[]>();
+      let complete = false;
+      try {
+        for (const invocation of invocations) for (const callback of callbackEntriesFor(invocation))
+          for (const candidate of callbackImplementationsFor(callback)) {
+            if (!step()) return undefined;
+            for (const parameter of ast.parameters(candidate)) {
+              if (!step()) return undefined;
+              const retained = selected.get(parameter);
+              if (retained?.some(entry => entry.invocation === invocation && entry.callback === callback && entry.candidate === candidate)) continue;
+              if (!rows.add(retained === undefined ? 2 : 1)) return undefined;
+              const entries = retained ?? [];
+              entries.push(Object.freeze({ invocation, candidate, callback }));
+              selected.set(parameter, entries);
+            }
+          }
+        for (const entries of selected.values()) Object.freeze(entries);
+        nativeInputs = selected; complete = true;
+      } finally { if (!complete) rows.release(); }
+    }
+    return nativeInputs.get(parameter) ?? [];
+  };
+  const callbackInputFrontiersFor = graphQueries.query((invocation: Node): ReadonlySet<Omit<SourceStorageDomainBoundary, "bindings"> & {
+    readonly callback?: SourceStorageCallbackEntry;
+  }> | undefined => {
+    const selected = new Set<Omit<SourceStorageDomainBoundary, "bindings"> & { readonly callback?: SourceStorageCallbackEntry }>();
+    const operands: { readonly subject: SourceStorageSubject; readonly callback?: SourceStorageCallbackEntry }[] = [];
+    const target = invocationTargets.get(invocation);
+    if (target !== undefined) operands.push({ subject: target });
+    for (const callback of callbackEntriesFor(invocation)) operands.push({ subject: callback.argument.actual, callback });
+    for (const operand of operands) {
+      const origins = originSubjects(operand.subject);
+      if (origins === undefined) return undefined;
+      for (const origin of origins) {
+        if (!step()) return undefined;
+        const owner = sourceStorageFormalOwner(origin, ast);
+        if (owner === undefined || origin.kind !== "input") continue;
+        const entries = nativeInputsFor(origin.node);
+        if (entries === undefined) return undefined;
+        for (const entry of entries) {
+          if (!step()) return undefined;
+          if (entry.candidate !== owner) continue;
+          const bounds = sourceStorageNativeInputSlots(source, owner, origin, entry.callback.argument.binding.selectedParameterType, step);
+          if (bounds !== undefined && bounds.every(bound => bound.absent)) continue;
+          const inputs = invocationInputs(origin, owner, entry.invocation, entry.callback);
+          if (!inputs.calleeSubjects?.includes(origin)) continue;
+          const candidates = nativePayloadCandidates(entry.invocation);
+          if (candidates === undefined) return undefined;
+          for (const candidate of candidates) {
+            if (!step()) return undefined;
+            selected.add(Object.freeze({ kind: "unclassified-exposure", subject: candidate, owner: origin, exposure: entry.invocation,
+              ...(operand.callback === undefined ? {} : { callback: operand.callback }) }));
+          }
+        }
+      }
+    }
+    return selected;
+  });
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
     subject, subjectFor,
     targetFor: invocation => invocationTargets.get(invocation),
@@ -719,7 +826,7 @@ export function createSourceStorageTransport(
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
     subject, subjectFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
-    invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles, callbackEntriesFor, callbackImplementationsFor,
+    invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
   }, invocationInputs, graphQueries);

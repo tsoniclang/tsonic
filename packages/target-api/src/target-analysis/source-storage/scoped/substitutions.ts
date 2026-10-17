@@ -9,7 +9,7 @@ import { createSourceStorageScopes } from "./scoped-scopes.js";
 import { createSourceStorageScopedKeys } from "./scoped-keys.js";
 import { createSourceStorageEquations } from "./scoped-equations.js";
 import { createSourceStorageScopedRecursion } from "./scoped-recursion.js";
-import { createSourceStorageScopedSuccessors } from "./scoped-successors.js";
+import { createSourceStorageScopedSuccessors, walkSourceStorageExecution } from "./scoped-successors.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageTransparentInput } from "./scoped-transport.js";
 import type { SourceStorageScope, SourceStorageTerm, SourceStorageScopedSubject, SourceStorageRelationWitness } from "../graph/scoped-model.js";
@@ -284,9 +284,11 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const body = source.ast.body(declaration);
       const scope = scopes.declarationFor(declaration, creation);
       if (body === undefined || scope === undefined) return undefined;
-      const root = intern(Object.freeze({ kind: "region", region: body, scope, demand: origin.node, deferred: true }));
-      const selected = root === undefined ? undefined : results(root);
-      if (selected === undefined) return undefined;
+      const root: SourceStorageTerm = Object.freeze({ kind: "region", region: body, scope, demand: origin.node, deferred: true });
+      const selected = walkSourceStorageExecution(budget, [root], term => {
+        const relation = intern(term);
+        return relation === undefined ? undefined : results(relation);
+      });
       const subjects: SourceStorageBoundSubject[] = [];
       const boundaries: Extract<SourceStorageTerm, { readonly kind: "unresolved" }>[] = [];
       let reason: string | undefined;

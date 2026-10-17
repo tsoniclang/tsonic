@@ -3,6 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageScopedTransport } from "./scoped-transport.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
+import type { SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
 
 export function createSourceStorageExecutionReachability(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport) {
@@ -59,6 +60,12 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
             for (const child of transport.regions.callable(candidate, invocation, undefined, entry)) if (!add(child)) return undefined;
           }
         }
+        const frontiers = transport.callbackInputFrontiersFor(invocation);
+        if (frontiers === undefined) return undefined;
+        for (const frontier of frontiers) {
+          if (!budget.step()) return undefined;
+          for (const child of transport.regions.callable(frontier.subject.node, undefined)) if (!add(child)) return undefined;
+        }
         if (sourceStorageConstructionExpression(invocation, source, budget.step) !== undefined) {
           const instance = transport.regions.instance(invocation);
           if (instance === undefined) return undefined;
@@ -106,6 +113,20 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
     }); } finally { if (!complete) owned.release(); }
   };
   return Object.freeze({
+    frontiers(invocation: Node, target: Node): readonly (Omit<SourceStorageDomainBoundary, "bindings"> & {
+      readonly callback?: SourceStorageCallbackEntry;
+    })[] | undefined {
+      const selected = reaching(target, "callers");
+      if (selected === undefined) return undefined;
+      const frontiers = transport.callbackInputFrontiersFor(invocation);
+      if (frontiers === undefined) return undefined;
+      const relevant: (Omit<SourceStorageDomainBoundary, "bindings"> & { readonly callback?: SourceStorageCallbackEntry })[] = [];
+      for (const frontier of frontiers) {
+        if (!budget.step()) return undefined;
+        if (transport.regions.callable(frontier.subject.node, undefined).some(region => selected.has(region))) relevant.push(frontier);
+      }
+      return Object.freeze(relevant);
+    },
     reachableFrom: (region: Node): ReadonlySet<Node> | undefined => reaching(region, "callees"),
     region: (region: Node, target: Node): boolean | undefined => reaching(target, "callers")?.has(region),
     invocation: (invocation: Node, target: Node): boolean | undefined => {
