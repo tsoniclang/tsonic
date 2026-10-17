@@ -208,15 +208,12 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
           ...(reference.environment === undefined ? {} : { environment: reference.environment }) })); continue;
       }
       if (reference.unresolved) { reject(path, reference.unresolvedReason ?? "unresolved executable source syntax"); continue; }
-      if (reference.module && reference.specifier?.startsWith("#")) {
-        const targets = packageImportTargets(packages, path, reference.specifier);
-        if (targets.length > 0 && targets.every(target => !target.startsWith(".") && !target.startsWith("#") &&
-          !packages.some(entry => typeof entry.metadata.name === "string" && (target === entry.metadata.name || target.startsWith(`${entry.metadata.name}/`))))) {
-          externalDynamicEntries.push(Object.freeze({ path, packageImport: reference.specifier, externalTargets: Object.freeze(targets) })); continue;
-        }
+      const externalTargets = externalPackageImportTargets(path, reference);
+      if (externalTargets !== undefined) {
+        externalDynamicEntries.push(Object.freeze({ path, packageImport: reference.specifier, externalTargets })); continue;
       }
       const targets = destinations(path, reference);
-      const hits = targets.some(touchesRestricted);
+      const hits = targets.some(target => touchesRestricted(target, path));
       const ambiguous = ambiguousEntry(path, reference);
       if (!hits && !ambiguous) continue;
       const allowed = !transcriptData.has(targets[0]) && (script.testEntry || path === writerPath &&
@@ -251,7 +248,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     fail(path.slice(0, separator), path.slice(separator + 1), `The canonical test-only cut rejects ${reason}.`);
   }
 
-  function resolveAlias(path, ownerPath = path) {
+  function resolveAlias(path, ownerPath = path, pattern = false) {
     if (typeof path !== "string" || isAbsolute(path)) return undefined;
     const pending = path.split("/");
     const segments = [];
@@ -260,7 +257,8 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       const segment = pending.shift();
       if (segment === "" || segment === ".") continue;
       if (segment === "..") {
-        if (segments.length === 0) { reject(ownerPath, "source path leaves the snapshot"); return undefined; }
+        if (segments.some(part => part.includes("*"))) { reject(ownerPath, "unresolved source pattern parent traversal"); return undefined; }
+        if (segments.length === 0) { reject(ownerPath, `${links.size > 0 ? "source symlink" : "source path"} leaves the snapshot`); return undefined; }
         segments.pop(); continue;
       }
       segments.push(segment);
@@ -274,7 +272,9 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       pending.unshift(...target.split("/"));
     }
     const resolved = segments.join("/");
-    if (!validPath(resolved) || !keelWorkspaceRepositories.includes(segments[0])) { reject(ownerPath, "source path leaves the snapshot"); return undefined; }
+    if (!validPath(pattern ? resolved.replaceAll("*", "entry") : resolved) || !keelWorkspaceRepositories.includes(segments[0])) {
+      reject(ownerPath, `${links.size > 0 ? "source symlink" : "source path"} leaves the snapshot`); return undefined;
+    }
     if (links.size > 0 && !files.has(resolved) && ![...files.keys()].some(file => file.startsWith(`${resolved}/`))) {
       reject(ownerPath, "unresolved source symlink target in the snapshot"); return undefined;
     }
@@ -283,17 +283,31 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
 
   function touchesRestricted(path, ownerPath = path) {
     if (path === undefined) return false;
-    if (path.includes("*")) return [...restricted, ...aliases.keys()].some(entry => new RegExp(
-      `^${path.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(entry));
+    if (path.includes("*")) {
+      const resolved = resolveAlias(path, ownerPath, true);
+      return resolved === undefined || [...restricted, ...aliases.keys()].some(entry => new RegExp(
+        `^${resolved.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join(".*")}$`, "u").test(entry));
+    }
     return restricted.has(resolveAlias(path, ownerPath));
+  }
+
+  function externalPackageImportTargets(path, reference) {
+    if (!reference.module || !reference.specifier?.startsWith("#")) return undefined;
+    const targets = packageImportTargets(packages, path, reference.specifier);
+    return targets.length > 0 && targets.every(target => !target.startsWith(".") && !target.startsWith("#") &&
+      !packages.some(entry => typeof entry.metadata.name === "string" && (target === entry.metadata.name || target.startsWith(`${entry.metadata.name}/`))))
+      ? Object.freeze(targets) : undefined;
   }
 
   function ambiguousEntry(path, reference) {
     if (reference.computedEntry) return true;
+    if (externalPackageImportTargets(path, reference) !== undefined) return false;
     if (reference.fileRead && reference.observerEvidence && destinations(path, reference).filter(value => value !== undefined).length === 0) return true;
     if (reference.module && reference.specifier?.startsWith("file:") && destinations(path, reference).length === 0) return true;
     if (reference.module && reference.specifier?.startsWith("#") && destinations(path, reference).length === 0) return true;
     if (reference.executionEntry && reference.firstParty && destinations(path, reference).length === 0) return true;
+    if (reference.module && reference.suffix !== undefined && destinations(path, reference).length === 0 &&
+      [...restricted].some(entry => entry.endsWith(reference.suffix))) return true;
     return reference.firstParty && (!reference.fileRead || reference.observerEvidence) && destinations(path, reference).length === 0;
   }
 
@@ -311,10 +325,12 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       specifier = address.specifier;
       if (specifier === undefined) return [];
     }
-    if (isAbsolute(specifier)) return [...files.keys()].filter(path => specifier.endsWith(`/${path}`)).map(resolveAlias);
+    if (isAbsolute(specifier)) return [...files.keys()].filter(path => specifier.endsWith(`/${path}`))
+      .map(path => resolveAlias(path, sourcePath)).filter(value => value !== undefined);
     if (reference.fileRead) return [];
     if (reference.executionEntry) return [];
-    return moduleEntryTargets(packages, sourcePath, specifier, reference.nativeRequire).map(resolveAlias).filter(value => value !== undefined);
+    return moduleEntryTargets(packages, sourcePath, specifier, reference.nativeRequire)
+      .map(path => resolveAlias(path, sourcePath)).filter(value => value !== undefined);
   }
 }
 
@@ -429,7 +445,9 @@ function nativeSourceReferences(text, path) {
   const inlineModules = new Map();
   const publish = () => {
     if (conditionalPath) references.push({ specifier: "conditional native source selection", unresolved: true, testOnly: pendingTest || testScopes.size > 0 });
-    references.push(...pendingPaths.map(specifier => ({ specifier, testOnly: pendingTest || testScopes.size > 0,
+    references.push(...pendingPaths.map(specifier => ({ specifier: inlineModules.size > 0 && !isAbsolute(specifier)
+      ? `${[...(!["lib", "main", "mod"].includes(posix.basename(path, ".rs")) ? [posix.basename(path, ".rs")] : []), ...inlineModules.values()].join("/")}/${specifier}`
+      : specifier, testOnly: pendingTest || testScopes.size > 0,
       unresolved: inlineModules.size > 0 && !pendingTest && testScopes.size === 0 })));
     pendingPaths = [];
     conditionalPath = false;

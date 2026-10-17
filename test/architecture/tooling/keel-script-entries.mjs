@@ -436,7 +436,7 @@ export function scriptSourceReferences(path, text, boundary) {
     const branch = ast.children(guard)[1];
     const ownCall = ast.children(condition)[0];
     const ownCallee = ast.children(ownCall)[0];
-    const ownArguments = ast.arguments(ownCall);
+    const ownArguments = ast.kindName(ownCall) === "KindCallExpression" ? ast.arguments(ownCall) : [];
     if (ast.kindName(guard) !== "KindIfStatement" || ast.children(guard).length !== 2 ||
       ast.kindName(condition) !== "KindPrefixUnaryExpression" || ast.operatorKindName(condition) !== "KindExclamationToken" ||
       ast.kindName(ownCall) !== "KindCallExpression" || Node_QuestionDotToken(ownCall) !== undefined ||
@@ -569,7 +569,7 @@ export function scriptSourceReferences(path, text, boundary) {
           if (value.specifier === undefined) break;
           suffix.unshift(value.specifier);
         }
-        return { firstParty: true, suffix: suffix.length > 0 ? posix.join(...suffix) : undefined,
+        return { firstParty: Boolean(values[0]?.firstParty || values.some(value => value.observerEvidence)), suffix: suffix.length > 0 ? posix.join(...suffix) : undefined,
           observerEvidence: values.some(value => value.observerEvidence) };
       }
       if (name === "node:path#dirname") {

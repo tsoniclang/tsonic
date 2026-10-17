@@ -334,7 +334,13 @@ test("only actual source and observer-read effects cross the cut, with known API
   data.get("tsonic-rust").set("package.json", safetyFile('{"exports":{".":"./test/scripts/proof-scenarios.mjs"}}'));
   data.get("tsonic-rust").set("src/fluent.mjs", safetyFile('export const values = [1, 2].map(value => value + 1).filter(value => value > 1);'));
   data.get("tsonic-rust").set("src/byte-reader.mjs", safetyFile('import { readFileSync } from "node:fs"; export function readData(path) { return readFileSync(new URL(path, import.meta.url)); }'));
-  assert.equal(boundarySafety(data).findings.length, 0, "unrelated data and tool modules are not canonical-source promotions");
+  const ordinary = boundarySafety(data);
+  assert.equal(ordinary.findings.length, 0, "unrelated data and tool modules are not canonical-source promotions");
+  assert.equal(ordinary.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.path === "tsonic-rust/scripts/tooling.mjs"), true,
+    "an unknown external filesystem root is recorded outside the static guarantee, not proved harmless");
+  data.get("tsonic-rust").set("test/cost.test.mjs", safetyFile('import test from "node:test"; import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs";'));
+  data.get("tsonic-rust").set("src/promote.mjs", safetyFile('import { pathToFileURL } from "node:url"; import { resolve } from "node:path"; import(pathToFileURL(resolve(process.env.HOST, "test/cost.test.mjs")).href);'));
+  assert.equal(boundarySafety(data).nativeAllocationBoundary === undefined, true, "actual protected source evidence still denies an unproved external root");
 });
 
 test("literal URL loaders publish ordinary targets only after a complete private binding proof", () => {
@@ -465,6 +471,11 @@ test("C114-F2: nested inline module path attributes need genuine lexical test ev
     inputs.get("rust-runtime").set("src/lib.rs", safetyFile(body));
     assert.equal(boundarySafety(inputs).findings.length, 0, body);
   }
+  const nestedFile = nativeBoundaryInputs();
+  nestedFile.get("rust-runtime").set("src/units.rs", safetyFile('#[cfg(test)] mod inner { #[path = "../../../tests/helpers/allocation_counts.rs"] mod observed; }'));
+  const nestedResult = boundarySafety(nestedFile);
+  assert.equal(nestedResult.findings.length, 0, "test-only path attributes retain non-mod.rs and inline module directories");
+  assert.equal(nestedResult.nativeAllocationBoundary.consumers.some(consumer => consumer.path === "rust-runtime/src/units.rs" && consumer.kind === "cfg(test)"), true);
 });
 
 test("QW01-QW04: native lexical and explicit target owners retain every real product entry", () => {
@@ -770,6 +781,9 @@ test("C116-F5: one finite literal input owns the actual registry targets and the
   bridge.get("csharp-nodejs").set("dist/provider/bridge.js", Object.freeze({ ...safetyFile('import "../../../tsonic-rust/test/helpers/native-ownership-cost.mjs";', false), builtModule: true }));
   assert.equal(keelSafetyBuiltModuleEntries(bridge).includes("csharp-nodejs/dist/provider/bridge.js"), true, "ordinary static imports are capture inputs");
   assert.equal(boundarySafety(bridge).nativeAllocationBoundary === undefined, true, "a registry target's import cannot reach the writer");
+  bridge.get("csharp-nodejs").set("dist/provider/assembly/modules.js", Object.freeze({ ...safetyFile('import "../%62ridge.js?cost=1#entry";', false), builtModule: true }));
+  assert.equal(keelSafetyBuiltModuleEntries(bridge).includes("csharp-nodejs/dist/provider/bridge.js"), true, "capture and validation share physical URL identity");
+  assert.equal(boundarySafety(bridge).nativeAllocationBoundary === undefined, true, "encoded artifact imports still traverse the actual writer bridge");
   const missing = registryInputs();
   missing.get("rust-nodejs").delete("dist/provider/assembly/modules.js");
   assert.equal(boundarySafety(missing).nativeAllocationBoundary === undefined, true, "a finite artifact is never opaque or missing");
