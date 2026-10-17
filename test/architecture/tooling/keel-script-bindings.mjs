@@ -9,7 +9,7 @@ export const nodeProcessMembers = new Set(["spawn", "spawnSync", "execFile", "ex
 
 export function createKeelScriptBindings({ ast, imports, valueDeclarations, moduleBindings, patternIdentities, patternNames, initializer }) {
   const declarationScopes = new Map();
-  return { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, mutated };
+  return { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject, nonLoadingUse, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, mutated };
 
   function literal(node) {
     return ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(node));
@@ -101,11 +101,17 @@ export function createKeelScriptBindings({ ast, imports, valueDeclarations, modu
     return member !== undefined && ["globalThis", "global", "self", "window"].includes(member.name) && globalObject(member.receiver);
   }
 
+  function nonLoadingUse(node) {
+    let expression = node;
+    while (["KindAwaitExpression", "KindParenthesizedExpression", "KindNonNullExpression"].includes(ast.kindName(ast.parent(expression)))) expression = ast.parent(expression);
+    return ["KindTypeOfExpression", "KindVoidExpression"].includes(ast.kindName(ast.parent(expression)));
+  }
+
   function namespaceUse(node, namespace, trackedMember = true) {
     let expression = node;
     while (["KindAwaitExpression", "KindParenthesizedExpression", "KindNonNullExpression"].includes(ast.kindName(ast.parent(expression)))) expression = ast.parent(expression);
     const parent = ast.parent(expression);
-    if (["KindTypeOfExpression", "KindVoidExpression"].includes(ast.kindName(parent))) return true;
+    if (nonLoadingUse(node)) return true;
     const member = memberAccess(parent);
     if (member?.receiver === expression) return member.name !== undefined &&
       !["valueOf", "constructor", "__proto__", "prototype"].includes(member.name) &&

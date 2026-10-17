@@ -166,22 +166,34 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       if (!reference.testOnly && !reference.unresolved) recordIncoming(path, reference.destination);
     }
   }
-  for (const [path, script] of scripts) {
+  const nativeScripts = new Set([...scripts].filter(([path, script]) => script.nativeJavaScript || files.get(path)?.builtModule).map(([path]) => path));
+  const pendingScripts = [...scripts.keys()];
+  const processedScripts = new Map();
+  for (let index = 0; index < pendingScripts.length; index += 1) {
+    const path = pendingScripts[index];
+    const nativeScript = nativeScripts.has(path);
+    if (processedScripts.has(path) && (processedScripts.get(path) || !nativeScript)) continue;
+    processedScripts.set(path, nativeScript);
+    const script = scripts.get(path);
     for (const reference of script.references) {
       if (!reference.module || reference.external || reference.unresolved) continue;
       for (const target of destinations(path, reference)) {
         recordIncoming(path, target);
-        if (scripts.has(target)) continue;
+        if (transcriptData.has(target)) continue;
         const input = files.get(target);
         if (input?.kind !== "file") {
-          if (reference.nativeRequire && !/\.[cm]?[jt]sx?$/u.test(target)) reject(path, "uncaptured first-party native module entry");
+          if (reference.nativeRequire || nativeScript) reject(path, "uncaptured first-party native module entry");
           continue;
         }
         const format = nativeNodeModuleFormat(target);
         if (format === "data") continue;
         if (format === "binary") { reject(path, "unproved first-party native binary module entry"); continue; }
         if (typeof input.text !== "string") { reject(path, "uncaptured first-party executable module bytes"); continue; }
-        scripts.set(target, scriptSourceReferences(target, input.text, boundary));
+        if (reference.nativeRequire || nativeScript) nativeScripts.add(target);
+        if (!scripts.has(target)) {
+          scripts.set(target, scriptSourceReferences(target, input.text, boundary));
+          pendingScripts.push(target);
+        } else if (nativeScripts.has(target) && processedScripts.get(target) === false) pendingScripts.push(target);
       }
     }
   }
@@ -421,11 +433,13 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
   const packages = [...workspaceInputs].flatMap(([repo, files]) => [...files].filter(([file, input]) =>
     input.kind === "file" && posix.basename(file) === "package.json").map(([file, input]) =>
     ({ root: posix.dirname(`${repo}/${file}`), metadata: JSON.parse(input.text) })));
+  const transcriptData = declaredTranscriptData(new Map([...workspaceInputs].flatMap(([repo, entries]) =>
+    [...entries].map(([file, input]) => [`${repo}/${file}`, input]))));
   const targets = new Set();
   for (const [repo, files] of workspaceInputs) {
     for (const [file, input] of files) {
-      if (input.kind !== "file" || !/\.[cm]?[jt]sx?$/u.test(file) && !input.builtModule) continue;
       const path = `${repo}/${file}`;
+      if (input.kind !== "file" || !/\.[cm]?[jt]sx?$/u.test(file) && !input.builtModule || transcriptData.has(path)) continue;
       const script = scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary);
       for (const target of script.finiteModuleTargets) targets.add(target);
       for (const reference of script.references.filter(reference => reference.module && !reference.external && !reference.unresolved)) {
@@ -434,7 +448,7 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
         for (const target of address.path !== undefined ? [address.path]
           : reference.specifier !== undefined ? moduleEntryTargets(packages, path, reference.specifier, reference.nativeRequire) : []) {
           if (nativeNodeModuleFormat(target) !== "script") continue;
-          if (input.builtModule || reference.nativeRequire && !/\.[cm]?[jt]sx?$/u.test(target)) targets.add(target);
+          if (input.builtModule || script.nativeJavaScript || reference.nativeRequire) targets.add(target);
         }
       }
     }

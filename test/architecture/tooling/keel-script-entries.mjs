@@ -31,9 +31,9 @@ export function scriptSourceReferences(path, text, boundary) {
   const sourcePath = `/keel/${path}`;
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
-  if (source.IsDeclarationFile) return { references: [], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+  if (source.IsDeclarationFile) return { references: [], testEntry: false, nativeJavaScript: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0 || (SourceFile_JSDiagnostics(source)?.length ?? 0) > 0) {
-    return { references: [{ unresolved: true }], testEntry: false, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
+    return { references: [{ unresolved: true }], testEntry: false, nativeJavaScript: kind === ScriptKindJS, literalUrlLoaders: Object.freeze([]), finiteModuleTargets: Object.freeze([]) };
   }
   const references = [];
   const nodes = [];
@@ -44,7 +44,7 @@ export function scriptSourceReferences(path, text, boundary) {
   const patternIdentities = new Map();
   const patternNames = new Set();
   const moduleBindings = new Map();
-  const { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, mutated } =
+  const { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject, nonLoadingUse, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, mutated } =
     createKeelScriptBindings({ ast, imports, valueDeclarations, moduleBindings, patternIdentities, patternNames, initializer });
   const { codeEntry, nodeExecution, nodeModuleExecution, executionEnvironment } = createKeelNodeExecutions({ ast, importedApi, memberAccess,
     literal, transparent, sourceAddress, fragmentAddress, literalAddress, firstPartyFragment, referencesCanonicalSource, computedModuleEntry, references });
@@ -131,7 +131,7 @@ export function scriptSourceReferences(path, text, boundary) {
     const valid = declarations.length === 1 && ast.variableDeclarationKind(declaration) === "const" &&
       ast.arguments(construction).length === 1 && Node_QuestionDotToken(construction) === undefined &&
       uses.some(use => use !== ast.name(declaration) && !nonValueName(use)) && uses.every(use => {
-        if (use === ast.name(declaration) || nonValueName(use)) return true;
+        if (use === ast.name(declaration) || nonValueName(use) || nonLoadingUse(use)) return true;
         const parent = ast.parent(use);
         return ast.kindName(parent) === "KindCallExpression" && ast.children(parent)[0] === use && Node_QuestionDotToken(parent) === undefined || resolutionOnlyUse(use);
       });
@@ -152,7 +152,7 @@ export function scriptSourceReferences(path, text, boundary) {
     const reader = byteReader(selected);
     const globalRoot = globalObject(node);
     const globalRequire = selected === "require" && !(ast.kindName(node) === "KindIdentifier" && moduleBindings.has(ast.text(node)));
-    const nonLoading = ["KindTypeOfExpression", "KindVoidExpression"].includes(parentKind);
+    const nonLoading = nonLoadingUse(node);
     if ((namespace || reader || globalRoot || globalRequire) && !nonValueName(node) && !importedName) {
       if (namespace && !namespaceUse(node, selected) || reader && !nonLoading && (!directCall || mutated(node))) computedModuleEntry(node);
       if (globalRoot) {
@@ -319,7 +319,7 @@ export function scriptSourceReferences(path, text, boundary) {
       } else if (module) references.push({ external: true, offset: ast.pos(node) });
     }
   }
-  return { references, testEntry, literalUrlLoaders: Object.freeze(literalUrlLoaders),
+  return { references, testEntry, nativeJavaScript: kind === ScriptKindJS, literalUrlLoaders: Object.freeze(literalUrlLoaders),
     finiteModuleTargets: Object.freeze([...new Set([...moduleBindings.values()].flatMap(binding => binding.finiteTargets ?? []))]) };
 
   function initializer(declaration) {

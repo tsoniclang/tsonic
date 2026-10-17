@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
-import { posix } from "node:path";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join, posix } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createKeelViolationInventory, evaluateKeelDeterminism, evaluateKeelSafety,
   evaluateKeelViolationInventory, guardSucceeded, validateKeelViolationInventory,
@@ -759,6 +761,78 @@ test("C119-R1-R4: loader values never cross parameters, loops or unproven member
     const result = boundarySafety(inputs);
     assert.equal(result.nativeAllocationBoundary === undefined, true, body);
     assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, body);
+  }
+});
+
+test("QRC-12: bound loader non-loading reads share the native root predicate without admitting escape or mutation", () => {
+  const prefix = 'import { createRequire } from "node:module"; const bound = createRequire(import.meta.url); ';
+  for (const body of ["void bound;", "typeof bound;", "void (bound);", "typeof (bound);", "void await (bound);"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/non-loading.mjs", safetyFile(`${prefix}${body}`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+  for (const body of ["", "void (bound = replacement);", "typeof (bound = replacement);", "void consume(bound);",
+    "void (bound.resolve = replacement);", "void ({ loader: bound });", "void (() => bound)();", "void [bound];"]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/non-loading.mjs", safetyFile(`${prefix}${body}`));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${body}: the unused-binding, all-use and immutable-binding contracts remain required`);
+  }
+});
+
+test("QRC-12: both Tsumo helper producers transport only the actual non-executing native options", () => {
+  for (const repo of ["tsumo-rust", "tsumo-csharp"]) {
+    const inputs = nativeBoundaryInputs();
+    const source = readFileSync(new URL(`../../../${repo}/test/helpers.mjs`, import.meta.url), "utf8");
+    inputs.get(repo).set("test/helpers.mjs", safetyFile(source));
+    if (repo === "tsumo-csharp") inputs.get(repo).set("scripts/project-framework.mjs", safetyFile(
+      readFileSync(new URL("../../../tsumo-csharp/scripts/project-framework.mjs", import.meta.url), "utf8")));
+    const result = boundarySafety(inputs);
+    assert.equal(result.findings.length, 0, `${repo}: actual helper source, including its native module dependency`);
+    assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry =>
+      entry.path === `${repo}/test/helpers.mjs` && entry.environment === "external-process"), true,
+      `${repo}: opaque native execution remains explicitly unproved, not declared safe`);
+  }
+  for (const body of [
+    'import { spawnSync } from "node:child_process"; spawnSync(binary(), args, { ...options });',
+    'import { spawn } from "node:child_process"; spawn(binary(), args, { shell: true });',
+    'import { spawnSync } from "node:child_process"; spawnSync(process.execPath, args, { ...options });',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsumo-rust").set("test/helpers.mjs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+      `${body}: no foreign unknown-shell or native-Node option waiver`);
+  }
+});
+
+test("QRC-12: native Node profiling operands and literal producer entry paths preserve actual argument behavior", () => {
+  const bench = new URL("../../../tsts-legacy/packages/tsts/tools/profiling/bench.mjs", import.meta.url);
+  const directory = fileURLToPath(new URL(".", bench));
+  assert.equal(fileURLToPath(new URL("../../dist/src/cli/index.js", bench)),
+    join(directory, "../../../..", "packages/tsts/dist/src/cli/index.js"), "CLI producer path remains identical");
+  assert.equal(fileURLToPath(new URL("./attribute.mjs", bench)), join(directory, "attribute.mjs"),
+    "profile attribution producer path remains identical");
+  const temporary = new URL("../../.temp/", import.meta.url);
+  mkdirSync(temporary, { recursive: true });
+  const root = mkdtempSync(fileURLToPath(new URL("q109-native-profile-", temporary)));
+  const entry = join(root, "entry.mjs");
+  writeFileSync(entry, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));\n');
+  const data = ["ordinary data #?%", "--import=not-a-node-option-after-the-entry"];
+  for (const kind of ["cpu", "heap"]) {
+    const name = `literal #?% ${kind}.${kind}profile`;
+    for (const spelling of ["joined", "separate"]) {
+      const output = join(root, `${kind}-${spelling} #?%`);
+      mkdirSync(output);
+      const options = spelling === "joined" ? [`--${kind}-prof-dir=${output}`, `--${kind}-prof-name=${name}`]
+        : [`--${kind}-prof-dir`, output, `--${kind}-prof-name`, name];
+      const child = spawnSync(process.execPath, [`--${kind}-prof`, ...options, entry, ...data], { encoding: "utf8" });
+      assert.equal(child.status, 0, `${kind}/${spelling}: ${child.stderr}`);
+      assert.deepEqual(JSON.parse(child.stdout), data, `${kind}/${spelling}: post-entry arguments are data`);
+      assert.deepEqual(readdirSync(output), [name], `${kind}/${spelling}: native output path and filename are literal operands`);
+      const profile = JSON.parse(readFileSync(join(output, name), "utf8"));
+      assert.equal(kind === "cpu" ? Array.isArray(profile.nodes) : typeof profile.head === "object", true,
+        `${kind}/${spelling}: the actual native profiler wrote its expected format`);
+    }
   }
 });
 
@@ -1649,8 +1723,8 @@ test("QRC-11: actual raw module entries preserve harmless filenames and trace tr
       harmless.get("tsonic-rust").set("src/runtime.cts", safetyFile(source));
       harmless.get("tsonic-rust").set(target, safetyFile(ordinary));
       assert.equal(boundarySafety(harmless).findings.length, 0, `${source}: raw physical filename is not a URL`);
-      assert.equal(keelSafetyBuiltModuleEntries(harmless).includes(`tsonic-rust/${target}`), !name.endsWith(".mjs"),
-        `${source}: unknown-suffix executable bytes are requested through the existing input closure`);
+      assert.equal(keelSafetyBuiltModuleEntries(harmless).includes(`tsonic-rust/${target}`), true,
+        `${source}: all actual native module bytes are requested through the existing input closure`);
       const harmful = nativeBoundaryInputs();
       harmful.get("tsonic-rust").set("src/runtime.cts", safetyFile(source));
       harmful.get("tsonic-rust").set(target, safetyFile(forwarding));
@@ -1707,6 +1781,48 @@ test("QRC-11: literal native path components do not acquire metadata pattern sem
     assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
       `${directory}: the same actual source path still promotes an observer consumer`);
   }
+});
+
+test("QRC-13: every native script entry requires actual bytes independent of its recognized suffix", () => {
+  const target = "tsonic-rust/dist/bridge.js";
+  for (const [file, source] of [
+    ["src/entry.cjs", 'require("../dist/bridge.js");'],
+    ["src/entry.cts", 'import bridge = require("../dist/bridge.js");'],
+    ["src/entry.mjs", 'import "../dist/bridge.js";'],
+    ["src/entry.mjs", 'export * from "../dist/bridge.js";'],
+    ["src/entry.mjs", 'import { createRequire } from "node:module"; const load = createRequire(import.meta.url); load("../dist/bridge.js");'],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile('{"type":"commonjs"}'));
+    inputs.get("tsonic-rust").set(file, safetyFile(source));
+    assert.equal(keelSafetyBuiltModuleEntries(inputs).includes(target), true, `${file}: all actual native target bytes must be captured`);
+    const absent = boundarySafety(inputs);
+    assert.equal(absent.nativeAllocationBoundary === undefined, true, `${file}: no approval from missing script bytes`);
+    assert.equal(absent.findings.some(finding => finding.reason.includes("uncaptured first-party native module entry")), true,
+      `${file}: missing bytes have an explicit source-entry refusal`);
+    inputs.get("tsonic-rust").set("dist/bridge.js", Object.freeze({ ...safetyFile("module.exports = {};", false), builtModule: true }));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `${file}: exact harmless script bytes remain admitted`);
+    inputs.get("tsonic-rust").set("dist/bridge.js", Object.freeze({
+      ...safetyFile('module.exports = require("../test/helpers/native-ownership-cost.mjs");', false), builtModule: true,
+    }));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, `${file}: actual bridge-to-writer execution is restricted`);
+  }
+});
+
+test("QRC-13: authored TypeScript projections gain native authority only through an actual resolved native entry", () => {
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("src/typed.ts", safetyFile('import "./projected.js"; export const value: number = 1;'));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "an authored TS projection is not guessed from untyped filesystem bytes");
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes("tsonic-rust/src/projected.js"), false,
+    "authored TS alone does not queue a native filesystem projection");
+  inputs.get("tsonic-rust").set("src/native.mjs", safetyFile('import "./typed.ts";'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+    "native entry strengthens an already visited TS node and refuses its missing native import");
+  inputs.get("tsonic-rust").set("src/projected.js", safetyFile("export const value = 1;"));
+  assert.equal(boundarySafety(inputs).findings.length, 0, "actual native-reached TypeScript retains its formal TS grammar and complete JS target bytes");
+  inputs.get("tsonic-rust").set("src/projected.js", safetyFile('import "../test/helpers/native-ownership-cost.mjs";'));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true,
+    "the same physical module edges propagate writer restriction through native-reached TS");
 });
 
 test("QRC-05: unrelated scoped URL names do not invalidate native constructor or literal-member evidence", () => {
@@ -1773,6 +1889,7 @@ test("C116-F5: one finite literal input owns the actual registry targets and the
   function registryInputs(changed = source) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic").set(path, safetyFile(changed));
+    inputs.get("tsonic").set("test/architecture/tooling/keel-source-analysis.mjs", safetyFile("export const keelDigest = value => value;"));
     for (const target of targets) {
       const separator = target.indexOf("/");
       inputs.get(target.slice(0, separator)).set(target.slice(separator + 1), safetyFile("export const nodejsProviderModules = [];", false));
@@ -1782,7 +1899,7 @@ test("C116-F5: one finite literal input owns the actual registry targets and the
   const current = registryInputs();
   const positive = boundarySafety(current);
   assert.equal(positive.findings.length, 0, "the unchanged registry is a finite input, not an external IO waiver");
-  assert.deepEqual(keelSafetyBuiltModuleEntries(current), targets);
+  assert.deepEqual(keelSafetyBuiltModuleEntries(current), [...targets, "tsonic/test/architecture/tooling/keel-source-analysis.mjs"].sort());
   assert.deepEqual(positive.nativeAllocationBoundary.builtModuleInputs.map(input => input.path), targets);
   assert.equal(positive.nativeAllocationBoundary.builtModuleInputs.every(input => {
     const separator = input.path.indexOf("/");
@@ -1897,6 +2014,7 @@ test("C114-F7: every constructor write, mutation and escape fails the one positi
   for (const write of writes) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(`${source} ${write}`));
+    inputs.get("tsonic-rust").set("test/helpers/ordinary.mjs", safetyFile("export const value = 1;"));
     const result = boundarySafety(inputs);
     assert.equal(result.nativeAllocationBoundary === undefined, true, write);
     assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, write);
@@ -1907,6 +2025,7 @@ test("C114-F7: every constructor write, mutation and escape fails the one positi
     `import { URL as NativeURL } from "node:url"; ${source.replaceAll("new URL(", "new NativeURL(")}`]) {
     const inputs = nativeBoundaryInputs();
     inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(clean));
+    inputs.get("tsonic-rust").set("test/helpers/ordinary.mjs", safetyFile("export const value = 1;"));
     assert.equal(boundarySafety(inputs).findings.length, 0, clean);
   }
 });
@@ -1952,7 +2071,11 @@ test("the actual transcript manifest declares data, not an executable-suffix wai
   const accepted = boundarySafety(inputs);
   assert.equal(accepted.findings.length, 0, "the existing reader and manifest give the captured bytes their data role");
   assert.deepEqual(accepted.nativeAllocationBoundary.transcriptData, [`tsts-legacy/${path}`]);
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes(`tsts-legacy/${path}`), false,
+    "the same declared data role governs capture, not an executable-suffix parser scan");
   inputs.get("tsts-legacy").set("src/promote.mjs", safetyFile(`import "../${path}";`));
+  assert.equal(keelSafetyBuiltModuleEntries(inputs).includes(`tsts-legacy/${path}`), true,
+    "an actual native entry still demands the declared bytes before source promotion is refused");
   assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "declared data cannot be imported as executable source");
   inputs.get("tsts-legacy").delete("src/promote.mjs");
   inputs.get("tsts-legacy").set("package.json", safetyFile(JSON.stringify({ main: `./${path}` })));
