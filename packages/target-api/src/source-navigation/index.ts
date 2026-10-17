@@ -1,5 +1,5 @@
 export * from "./navigation.js";
-export { sourceDeclarationHasOnlyTypeUses } from "./declaration-use-summary.js";
+export { sourceDeclarationHasOnlyTypeUses, sourceDeclarationUseSummary } from "./declaration-use-summary.js";
 export { validateSourceBinaryEntry } from "./entry-validation.js";
 export type { SourceBinaryEntryIssue } from "./entry-validation.js";
 export { sourceConstructorParametersMatch } from "./constructors.js";
@@ -21,7 +21,7 @@ export { createSourceSingleInvocationQuery, sourceEnclosingCallable, sourceLexic
 export type { SourceSubtreeParticipation } from "./callable-invocations.js";
 export { isSourceCallableBodyBoundary } from "./callable-boundaries.js";
 export { sourceBindingHasMutableExposure } from "./binding-mutation-exposure.js";
-export type { SourceLexicalCapture, SourceLexicalCaptureSelection } from "./lexical-captures.js";
+export type { SourceLexicalCapture, SourceLexicalCaptureSelection, SourceNodeDomain } from "./lexical-captures.js";
 export { sourceMayReadBeforeInitialization } from "./initialization-uses.js";
 export { createSourceCallOnlyAliasQuery } from "./callable-aliases.js";
 export type { SourceCallOnlyAlias } from "./callable-aliases.js";

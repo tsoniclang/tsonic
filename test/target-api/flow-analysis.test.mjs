@@ -6,12 +6,13 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import * as publicAnalysis from "../../packages/target-api/dist/public/analysis.js";
-import { createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
+import { createSourceControlFlow, createSourceControlFlowDomain, solveSourceFlow, analyzeSourceLiveness, analyzeSourceDefiniteAssignment,
   analyzeSourceWrites } from "../../packages/target-api/dist/target-analysis/flow/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile } from "../fixtures/source-navigation.mjs";
+import { createSourceFlowCaptureQuery } from "../../packages/target-api/dist/target-analysis/flow/captures.js";
 
 test("the public flow port exports the identical canonical graph and solver owners", () => {
-  for (const [name, owner] of Object.entries({ createSourceControlFlow, solveSourceFlow, analyzeSourceLiveness,
+  for (const [name, owner] of Object.entries({ createSourceControlFlow, createSourceControlFlowDomain, solveSourceFlow, analyzeSourceLiveness,
     analyzeSourceDefiniteAssignment, analyzeSourceWrites })) {
     assert.equal(publicAnalysis[name] === owner, true, name);
   }
@@ -21,7 +22,7 @@ let caseNumber = 0;
 async function fixture(text, name = "run") {
   const source = createTargetSourceProgram(await checkedSource(`flow-analysis-${caseNumber++}`, { "src/index.ts": text }));
   const file = projectSourceFile(source, "src/index.ts");
-  const selection = createSourceControlFlow(source, namedDeclaration(source.ast, file, name));
+  const selection = createSourceControlFlow(source, namedDeclaration(source.ast, file, name), { domain: { kind: "source" } });
   assert.equal(selection.kind, "resolved", selection.kind === "unresolved" ? selection.reason : "resolved");
   return { source, ast: source.ast, graph: selection.graph, file };
 }
@@ -54,6 +55,51 @@ test("flow liveness includes captures and kills prior values at binding writes",
   assert.equal(live.lastUses.has(first.source), true, "the later closure observes the replacement value, not this read's value");
   const capture = current.graph.points.find(point => point.operation.kind === "capture");
   assert.equal(live.before.get(capture.id).has(capture.operation.binding), true);
+});
+
+for (const [name, expression] of [["direct helper", "() => later()"], ["nested environment", "() => () => pending"]]) {
+  test(`flow captures retain the canonical ${name} source environment`, async () => {
+    const current = await fixture(`function run(pending: string) {
+      const before = pending;
+      function later(): string { return pending; }
+      const relay = ${expression};
+      return relay;
+    }`);
+    const pending = current.ast.parameters(current.graph.declaration)[0];
+    const relay = namedVariable(current.ast, current.file, "relay");
+    const initializer = current.ast.as.AsVariableDeclaration(relay)?.Initializer;
+    assert.equal(initializer !== undefined, true, "the original closure creation is checked");
+    const captures = current.graph.points.filter(point => point.source === initializer && point.operation.kind === "capture");
+    assert.equal(captures.length, 1, "the graph consumes one canonical expanded capture");
+    assert.equal(captures[0].operation.binding === pending, true, "the source binding, not the direct callee handle, is retained");
+    const live = resolved(analyzeSourceLiveness(current.graph));
+    const first = reads(current, "pending")[0];
+    assert.equal(live.lastUses.has(first.source), false, "a transitive environment is a real later use of the original binding");
+    const domain = resolved(createSourceControlFlowDomain(current.source,
+      [...function* walk(node) { yield node; for (const child of current.ast.children(node)) if (child !== undefined) yield* walk(child); }(current.file)]));
+    const selected = resolved(createSourceControlFlow(current.source, current.graph.declaration, { domain: domain.domain }));
+    const selectedCaptures = selected.graph.points.filter(point => point.source === initializer && point.operation.kind === "capture");
+    assert.equal(selectedCaptures.length, 1, "the selected domain cannot silently omit the transitive capture");
+    assert.equal(selectedCaptures[0].operation.binding === pending, true,
+      "the identical selected domain keeps the same original capture identity");
+  });
+}
+
+test("canonical flow capture expansion consumes the original caller's finite work budget", async () => {
+  const current = await fixture(`function run(pending: string) {
+    function later(): string { return pending; }
+    const relay = () => later();
+    return relay;
+  }`);
+  const relay = namedVariable(current.ast, current.file, "relay");
+  const initializer = current.ast.as.AsVariableDeclaration(relay)?.Initializer;
+  let visits = 0;
+  const captures = createSourceFlowCaptureQuery(current.source, () => {
+    visits += 1;
+    if (visits > 3) throw new Error("original capture work budget exhausted");
+  }, "source");
+  assert.throws(() => captures(initializer), /original capture work budget exhausted/u,
+    "transitive environment expansion cannot run outside the shared CFG accounting owner");
 });
 
 test("flow liveness reaches a fixed point through nested loops including labelled continue", async () => {

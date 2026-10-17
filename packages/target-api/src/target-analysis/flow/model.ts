@@ -1,4 +1,6 @@
 import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../../source-semantics/types.js";
+import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
 import type { SourceStorageBindings, SourceStorageBindingsSelection, SourceStorageConstructionSelection,
   SourceStorageQueries } from "../source-storage/model/types.js";
 
@@ -61,7 +63,21 @@ export interface SourceFlowLimits {
   readonly maximumDepth: number;
 }
 
+export const sourceControlFlowDomainIdentity: unique symbol = Symbol("source.control-flow.domain");
+
+export interface SourceControlFlowSelectedDomain {
+  readonly kind: "selected";
+  readonly source: TargetSourceProgram;
+  readonly nodes: readonly Node[];
+  readonly [sourceControlFlowDomainIdentity]: {
+    readonly original: Pick<SourceControlFlowSelectedDomain, "kind" | "source" | "nodes">;
+    readonly source: TargetSourceProgram;
+    readonly members: Exclude<SourceNodeDomain, "source">;
+  };
+}
+
 export interface SourceControlFlowOptions {
+  readonly domain: { readonly kind: "source" } | SourceControlFlowSelectedDomain;
   readonly limits?: Partial<SourceFlowLimits>;
   readonly invocation?: { readonly storage: SourceStorageQueries; readonly call: Node;
     readonly callerBindings?: SourceStorageBindings;

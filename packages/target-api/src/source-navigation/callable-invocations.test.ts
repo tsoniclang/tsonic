@@ -72,7 +72,88 @@ test("unused lexical omission rejects unclassified, exported and written summari
   for (const mutation of [{ exported: true }, { bindingWritten: true }, { hasUnclassifiedValueUse: true },
     { uses: [{ reference: declaration, kind: "source-linkage" as const, role: "source-linkage" as const, captured: false, throughMember: false }] },
   ]) assert.equal(sourceLexicalFunctionIsUnused(declaration, current.source.ast,
-    { declarationUseSummary: () => ({ ...summary, ...mutation }) }), false);
+    { ...current.source.navigation, declarationUseSummary: () => ({ ...summary, ...mutation }) }), false);
+});
+
+test("lexical overload uses keep their one checked implementation and original call identity", () => {
+  for (const body of [
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+return pass<number>(3);`,
+    `function pass(value: number): number;
+function pass(value: string): string;
+function pass(value: number | string): number | string { return value; }
+return pass("used").length;`,
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+function generic<Value>(value: Value): Value { return pass(value); }
+return generic(3);`,
+  ]) {
+    const current = fixture(body);
+    assert.equal(current.unused("pass"), false, "an actual checked overload call retains its native implementation");
+    assert.equal(current.select("pass"), true, "the one original checked call is retained in the canonical invocation proof");
+    const declaration = current.declaration("pass");
+    const file = current.source.ast.getSourceFile(declaration)!;
+    const symbol = current.source.navigation.declarationSymbol(declaration, file);
+    assert.equal(symbol !== undefined, true, "the implementation has its exact checked binding symbol");
+    const references = current.source.navigation.referencesWithin(symbol!, file);
+    assert.equal(references.some(reference => {
+      const selected = current.source.navigation.sourceReferenceFor(reference);
+      if (selected === undefined) return false;
+      const implementation = current.source.navigation.callableImplementation(selected.declaration);
+      return implementation.kind === "resolved" && implementation.implementation.declaration === declaration &&
+        implementation.implementation.symbol === symbol;
+    }), true, "the original signature-bound reference selects that same implementation by checked identity");
+  }
+});
+
+test("unused overload families remain erased without merging same-spelling foreign bindings", () => {
+  for (const body of [
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+return 0;`,
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+type Signature = typeof pass;
+const missing: Signature | undefined = undefined;
+return missing === undefined ? 0 : 1;`,
+    `function left(): number {
+function pass(value: number): number;
+function pass(value: number): number { return value; }
+return pass(3);
+}
+function right(): number {
+function pass(value: number): number;
+function pass(value: number): number { return value; }
+return 0;
+}
+return left() + right();`,
+  ]) {
+    const current = fixture(body);
+    assert.equal(current.unused("pass"), true, "only the original unused checked binding is erased");
+    assert.equal(current.select("pass"), false, "no empty source-use set invents a native invocation");
+  }
+});
+
+test("overloaded lexical usage retains repeated, escaped and deferred call negatives", () => {
+  for (const suffix of [
+    "return pass(1) + pass(2);",
+    "const alias = pass; return alias(3);",
+    "const deferred = () => pass(3); return deferred();",
+  ]) {
+    const current = fixture(`function pass(value: number): number;
+function pass(value: number): number { return value; }
+${suffix}`);
+    assert.equal(current.unused("pass"), false, "an original runtime use is never erased");
+    assert.equal(current.select("pass"), false, "overload identity cannot turn repeated, escaped or deferred use into one direct invocation");
+  }
+  const current = fixture("function pass(): number { return 3; } return pass();");
+  const declaration = current.declaration("pass");
+  const foreign = { ...current.source.navigation, sourceReferenceFor: () => undefined };
+  assert.equal(sourceLexicalFunctionIsUnused(declaration, current.source.ast, foreign), false,
+    "a missing original checked reference never becomes an empty safe source summary");
+  assert.equal(createSourceSingleInvocationQuery(current.source.ast, foreign)(declaration), false,
+    "a missing checked use cannot prove one native invocation");
 });
 
 test("single lexical invocation rejects repeated, recursive, escaping and deferred activation", () => {
