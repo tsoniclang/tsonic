@@ -30,7 +30,8 @@ export function createSourceStorageDomains(
       transport.subject(current.subject.node, current.subject.kind,
         current.subject.projection.slice(0, ancestor.subject.projection.length)) !== ancestor.subject) return false;
     return witnesses.forSubject(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
-      (boundary.kind === "external-input" && boundary.owner === current.inputOwner ||
+      (boundary.kind === "external-input" && (boundary.owner === current.inputOwner ||
+        boundary.owner === undefined && ancestor.subject === current.inputOwner) ||
         boundary.kind === "external-write" || boundary.kind === "opaque-write"));
   });
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
@@ -155,21 +156,23 @@ export function createSourceStorageDomains(
           const declaration = ownerContext.declarations.signatureDeclaration(signature);
           if (declaration !== undefined) callable(declaration, publication.exposure);
         }
-        const contextual = ast.is.IsObjectLiteralExpression(owner.node) ? ownerContext.types.contextualType(owner.node) : undefined;
-        const relation = ownerContext.types.structuralMembers(contextual ?? type, present);
-        if (relation.kind === "available") for (const member of relation.members) {
+        const members = transport.memberFlow.membersFor(owner, present);
+        if (members === undefined) {
+          const components = transport.memberFlow.componentsFor(owner);
+          if (components === undefined) add(owner, "unclassified-exposure", publication.exposure, publication.inputOwner);
+          else for (const component of components) {
+            if (!budget.step()) return;
+            const child = component.kind === "member" || component.kind === "method-value"
+              ? sourceStorageMemberSubject(component.declaration, ast, transport.subject)
+              : transport.subject(owner.node, owner.kind, [...owner.projection, component]);
+            add(child, "unclassified-exposure", publication.exposure, owner);
+          }
+        }
+        for (const member of members === undefined ? [] : members) {
           if (!budget.step()) return;
           if (member.kind !== "present") continue;
           const declarations = new Set<Node>();
-          for (const selected of member.source.declarations) {
-            if (!budget.step()) return;
-            const originals = transport.memberFlow.declarationsFor(owner, selected, contextual ?? type);
-            if (originals === undefined) {
-              budget.reject("Source storage publication requires exact checked physical member correspondence.");
-              return;
-            }
-            for (const declaration of originals) { if (!budget.step()) return; declarations.add(declaration); }
-          }
+          for (const declaration of member.source.declarations) { if (!budget.step()) return; declarations.add(declaration); }
           for (const declaration of declarations) {
             if (!budget.step()) return;
             if (!accessible(declaration) || !transport.retainCheckedContext(declaration, file)) continue;
@@ -312,10 +315,15 @@ export function createSourceStorageDomains(
   const select = (subject: SourceStorageSubject, bindings: SourceStorageSubstitutions,
     purpose: "values" | "storage-producers" = "values") => budget.withRows(rows => {
     initialize();
-    const selected = transport.substitutions.walk(subject, bindings);
+    const selected = transport.substitutions.walk(subject, bindings, current => {
+      if (current.subject.kind !== "input" && current.subject.kind !== "receiver" ||
+        transport.substitutions.isBound(current.subject, current.bindings)) return false;
+      return boundariesFor(current.subject).some(boundary => boundary.kind === "external-input");
+    });
     if (selected === undefined || selected.reason !== undefined || budget.failure() !== undefined) return Object.freeze({
       subjects: Object.freeze([] as SourceStorageSubject[]), boundaries: Object.freeze([] as SourceStorageDomainBoundary<SourceStorageSubstitutions>[]),
       boundSubjects: Object.freeze([] as import("../scoped/substitutions.js").SourceStorageBoundSubject[]),
+      absence: false,
       reason: budget.failure() ?? selected?.reason ?? "Source storage requires one completed scoped relation.",
     });
     const boundaries: SourceStorageDomainBoundary<SourceStorageSubstitutions>[] = [];
@@ -367,7 +375,7 @@ export function createSourceStorageDomains(
     }
     if (budget.failure() !== undefined) reason = budget.failure();
     return Object.freeze({ subjects: Object.freeze([...selected.origins]), boundSubjects: Object.freeze(boundSubjects),
-      boundaries: Object.freeze(boundaries), reason });
+      boundaries: Object.freeze(boundaries), reason, absence: selected.absence });
   });
   return Object.freeze({ select });
 }

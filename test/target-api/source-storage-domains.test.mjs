@@ -628,7 +628,7 @@ test("complete-domain ownership rejects forged and foreign binding or subject se
   const selected = first.storage.bindingsForInvocation(identity, first.initializer("value"));
   assert.equal(selected.kind === "resolved", true);
   const formal = first.subject(first.source.ast.parameters(identity)[0]);
-  assert.equal(first.storage.closedOriginsFor(formal, Object.freeze({ substitutions: selected.bindings.substitutions })).kind === "unresolved", true);
+  assert.equal(first.storage.closedOriginsFor(formal, Object.freeze({ ...selected.bindings })).kind === "unresolved", true);
   assert.equal(second.storage.closedOriginsFor(second.subject(second.variable("value")), selected.bindings).kind === "unresolved", true);
   assert.equal(first.storage.closedOriginsFor(second.subject(second.variable("value"))).kind === "unresolved", true);
   assert.equal(first.storage.closedOriginsFor(Object.freeze({ ...formal })).kind === "unresolved", true);

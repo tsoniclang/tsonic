@@ -105,13 +105,12 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   term: SourceStorageReference, initializer: Node | undefined): SourceStorageReduction | undefined {
   const owner = sourceStorageFormalOwner(term.subject, source.ast);
-  const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
   const bound = scopes.lookup(term.subject, term.scope);
-  if (owner === undefined || activation === undefined || activation.invocation === undefined && activation.nativeEntry === undefined)
-    return bound;
+  if (bound === undefined || bound.kind === "expand") return bound;
   const unresolved = (reason: string): Extract<SourceStorageReduction, { readonly kind: "replace" }> => ({ kind: "replace", terms: [Object.freeze({
     kind: "unresolved", subject: term.subject, scope: term.scope, reason,
   })] });
+  if (bound.initialization === "initialized") return bound;
   if (initializer !== undefined && term.subject.projection.length !== 0) {
     const root = transport.subject(term.subject.node, "input");
     return root === undefined ? undefined : { kind: "project", inputs: [sourceStorageReference(root, term.scope)], select: value => {
@@ -120,31 +119,35 @@ export function sourceStorageInputBinding(source: TargetSourceProgram, budget: S
       return projected === undefined ? undefined : [sourceStorageReference(projected, value.scope)];
     } };
   }
-  const invocation = activation.invocation ?? activation.nativeEntry?.invocation;
-  if (invocation === undefined) return unresolved("An initialized input requires its actual invocation activation.");
-  const selected = transport.invocationInputs(term.subject, owner, invocation, activation.nativeEntry?.callback);
-  if (selected.omitted) return term.subject.projection.length !== 0
+  if (bound.initialization === "absent") return term.subject.projection.length !== 0
     ? unresolved("A source input component requires its actual present value before projection.")
-    : { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject, activation.scope) })] };
+    : { kind: "replace", terms: [Object.freeze({ kind: "empty", absence: sourceStorageReference(term.subject,
+      owner === undefined ? term.scope : scopes.owningScope(term.scope, owner) ?? term.scope) })] };
   if (initializer === undefined) return bound;
-  if (selected.context === "callee") return selected.subjects.has(term.subject)
-    ? unresolved("An initialized input requires completed actual input transport, not an unresolved formal.") : bound;
-  if (bound === undefined) return unresolved("An initialized input requires its exact completed actual value binding.");
-  if (bound.kind === "expand") return bound;
+  const activation = owner === undefined ? undefined : scopes.boundActivation(term.scope, owner);
+  if (activation === undefined || activation.invocation === undefined && activation.nativeEntry === undefined)
+    return bound;
   const fallback = transport.subjectFor(initializer);
   if (fallback === undefined) return unresolved("An initialized input requires its exact checked default value.");
   const defaultValue = sourceStorageReference(fallback, activation.scope);
-  return { kind: "project", inputs: bound.terms, select: value => {
-    if (!budget.step()) return undefined;
-    if (value.kind === "empty") return [value.absence === undefined ? value : defaultValue];
-    const file = source.ast.getSourceFile(value.subject.node);
-    const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageSubjectType(source, value.subject, file);
-    if (type === undefined || file === undefined || value.subject === term.subject) return unresolved(
-      "An initialized input requires exact checked presence or absence of its actual value.").terms;
-    const types = source.semantics.forFile(file).types;
-    if (types.isNullish(type) || types.isVoidLike(type)) return [defaultValue];
-    const present = types.nonNullableType(type);
-    return !types.isAny(type) && !types.isUnknown(type) && present !== undefined && types.isIdentical(type, present)
-      ? [value] : unresolved("An initialized input has unresolved actual absence correspondence.").terms;
-  } };
+  return { kind: "project", inputs: bound.terms,
+    select: value => sourceStorageInitializedValue(source, budget, term, defaultValue, value) };
+}
+
+export function sourceStorageInitializedValue(source: TargetSourceProgram, budget: SourceStorageBudget,
+  input: SourceStorageReference, fallback: SourceStorageReference,
+  value: SourceStorageReference | Extract<import("../graph/scoped-model.js").SourceStorageTerm, { readonly kind: "empty" }>):
+    readonly import("../graph/scoped-model.js").SourceStorageTerm[] | undefined {
+  if (!budget.step()) return undefined;
+  if (value.kind === "empty") return [value.absence === undefined ? value : fallback];
+  const unresolved = (reason: string) => [Object.freeze({ kind: "unresolved" as const, subject: input.subject, scope: input.scope, reason })];
+  const file = source.ast.getSourceFile(value.subject.node);
+  const type = file === undefined || !source.semantics.includes(file) ? undefined : sourceStorageSubjectType(source, value.subject, file);
+  if (type === undefined || file === undefined || value.subject === input.subject) return unresolved(
+    "An initialized input requires exact checked presence or absence of its actual value.");
+  const types = source.semantics.forFile(file).types;
+  if (types.isNullish(type) || types.isVoidLike(type)) return [fallback];
+  const present = types.nonNullableType(type);
+  return !types.isAny(type) && !types.isUnknown(type) && present !== undefined && types.isIdentical(type, present)
+    ? [value] : unresolved("An initialized input has unresolved actual absence correspondence.");
 }

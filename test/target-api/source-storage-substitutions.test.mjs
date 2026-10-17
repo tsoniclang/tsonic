@@ -161,7 +161,7 @@ test("key-local reference reuse retains independently selected scopes and cannot
   const current = fixture();
   const other = current.subject({});
   const frame = value => Object.freeze({ kind: "frame", entries: new Map([[current.formal,
-    [sourceStorageReference(value, current.scopes.empty)]]]), parents: [] });
+    { initialization: "actual", values: [sourceStorageReference(value, current.scopes.empty)] }]]), parents: [] });
   const left = sourceStorageReference(current.formal, frame(current.input));
   const right = sourceStorageReference(current.formal, frame(other));
   const combined = value => ({ kind: "store", destination: left, receiver: value, value });
@@ -171,7 +171,7 @@ test("key-local reference reuse retains independently selected scopes and cannot
   const entries = new Map();
   const cyclic = Object.freeze({ kind: "frame", entries, parents: [] });
   const reference = sourceStorageReference(current.formal, cyclic);
-  entries.set(current.formal, [reference]);
+  entries.set(current.formal, { initialization: "actual", values: [reference] });
   assert.equal(current.keys.encode(reference) === undefined, true, "a cycle is not a complete cached binding");
   assert.match(current.budget.failure(), /unfinished encoding/u);
 });

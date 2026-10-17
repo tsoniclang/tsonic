@@ -3,7 +3,7 @@ import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { IsTypeSyntaxNode, Node_Expression } from "../../../source-navigation/index.js";
 import { sourceIndexedStorageProjection, sourceStorageComponents, sourceStorageSubjectType } from "./components.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "./subjects.js";
-import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageProjectionPath } from "./subjects.js";
+import { sourceStorageIsDataMember, sourceStorageIsMethodMember, sourceStorageObjectRestOwner, sourceStorageProjectionPath } from "./subjects.js";
 
 export function createSourceStorageProjectionFlow(
   source: TargetSourceProgram,
@@ -37,11 +37,37 @@ export function createSourceStorageProjectionFlow(
   const binding = (reference: Node): SourceStorageSubject | undefined => {
     const pattern = ast.parent(reference);
     const owner = pattern === undefined ? undefined : ast.parent(pattern);
-    if (pattern === undefined || owner === undefined || !ast.is.IsArrayBindingPattern(pattern) ||
-      !ast.is.IsBindingElement(reference)) return undefined;
+    if (pattern === undefined || owner === undefined || !ast.is.IsBindingElement(reference)) return undefined;
+    if (sourceStorageObjectRestOwner(reference, ast) !== undefined) return subject(reference);
     const originalOwner = subjectFor(owner);
     const ownerType = originalOwner === undefined ? undefined : sourceStorageSubjectType(source, originalOwner, sourceFileFor(originalOwner));
     const queries = semantics.forNode(owner);
+    if (ast.is.IsObjectBindingPattern(pattern)) {
+      const binding = ast.as.AsBindingElement(reference);
+      const name = binding?.PropertyName ?? ast.name(reference);
+      const selected = name === undefined ? undefined : queries.operations.propertyName(name);
+      const properties = ownerType === undefined || selected === undefined ? undefined : queries.types.propertyInfos(ownerType)
+        .filter(property => property.name === selected.name);
+      const declarations = properties?.flatMap(property => [...new Set([property.symbol, ...property.rootSymbols]
+        .flatMap(symbol => queries.declarations.symbolDeclarations(symbol)))]).filter(declaration =>
+        sourceStorageIsDataMember(declaration, ast) || sourceStorageIsMethodMember(declaration, ast) || ast.is.IsGetAccessorDeclaration(declaration));
+      if (declarations === undefined || declarations.length === 0) {
+        const value = subject(reference);
+        if (value !== undefined) unresolved(value, "An object binding requires one exact checked readable storage component.");
+        return value;
+      }
+      const values = new Set<SourceStorageSubject>();
+      for (const declaration of declarations) {
+        if (!step()) return undefined;
+        const value = project(originalOwner, { kind: sourceStorageIsMethodMember(declaration, ast) ? "method-value" : "member", declaration });
+        if (value === undefined) return undefined;
+        values.add(value);
+      }
+      const value = subject(reference);
+      for (const selected of values) connect(selected, value);
+      return value;
+    }
+    if (!ast.is.IsArrayBindingPattern(pattern)) return undefined;
     const index = ast.elements(pattern).indexOf(reference);
     const component: SourceStorageProjection | undefined = ownerType === undefined || index < 0 ? undefined
       : queries.types.isTuple(ownerType) ? { kind: "tuple-element", index }

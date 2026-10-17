@@ -12,8 +12,13 @@ export interface SourceStorageFrame {
   readonly caller?: SourceStorageScope;
   readonly equation?: SourceStorageEquation;
   readonly callback?: SourceStorageCallbackEntry;
-  readonly entries: ReadonlyMap<SourceStorageSubject, readonly SourceStorageReference[]>;
+  readonly entries: ReadonlyMap<SourceStorageSubject, SourceStorageFrameInput>;
   readonly parents: readonly SourceStorageScope[];
+}
+
+export interface SourceStorageFrameInput {
+  readonly values: readonly SourceStorageReference[];
+  readonly initialization: "actual" | "initialized" | "absent";
 }
 
 export interface SourceStorageEquation {
@@ -70,7 +75,7 @@ export interface SourceStorageAccessorInvocation {
 export type SourceStorageMemberSelection =
   | { readonly kind: "access"; readonly node: Node }
   | { readonly kind: "projection"; readonly subject: SourceStorageSubject; readonly declaration: Node;
-      readonly evaluation: Node | undefined };
+      readonly evaluation: Node | undefined; readonly before: Node | undefined };
 
 export type SourceStorageTerm =
   | SourceStorageReference
@@ -94,6 +99,12 @@ export type SourceStorageTerm =
 export type SourceStorageBinding =
   | { readonly kind: "replace"; readonly terms: readonly SourceStorageTerm[] }
   | { readonly kind: "expand"; readonly variable: SourceStorageVariable };
+
+export type SourceStorageScopeBinding =
+  | Extract<SourceStorageBinding, { readonly kind: "replace" }> & {
+      readonly initialization: SourceStorageFrameInput["initialization"];
+    }
+  | Extract<SourceStorageBinding, { readonly kind: "expand" }>;
 
 export type SourceStorageReduction =
   | SourceStorageBinding & { readonly witnesses?: readonly SourceStorageRelationWitness[];

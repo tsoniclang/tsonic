@@ -13,7 +13,7 @@ import { sourceStorageReference } from "../graph/scoped-model.js";
 import { Node_Initializer } from "../../../source-navigation/index.js";
 import { createSourceStorageScopedTraversal } from "../graph/scoped-traversal.js";
 import type { SourceStorageSubstitutionPath } from "../graph/scoped-traversal.js";
-import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageBinding, SourceStorageReference,
+import type { SourceStorageActivation, SourceStorageEquation, SourceStorageFrame, SourceStorageFrameInput, SourceStorageScopeBinding, SourceStorageReference,
   SourceStorageScope, SourceStorageTerm, SourceStorageVariable } from "../graph/scoped-model.js";
 
 function scopedMemo<Memo>(budget: SourceStorageBudget, create: (add: (cost: number) => boolean) => Memo) {
@@ -62,7 +62,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (scope.kind === "variable") return emit(scope);
     const inputs = scope.kind === "substitution" ? [scope.scope]
       : [...scope.parents, ...scope.caller === undefined ? [] : [scope.caller],
-        ...[...scope.entries.values()].flatMap(entries => entries.map(entry => entry.scope))];
+        ...[...scope.entries.values()].flatMap(entry => entry.values.map(value => value.scope))];
     for (const input of inputs) {
       if (!budget.step()) return false;
       if (scope.kind !== "substitution") {
@@ -89,11 +89,11 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     readonly add: (cost: number) => boolean;
     readonly owners: Map<SourceStorageScope, Map<Node, SourceStorageScope | null>>;
     readonly families: Map<SourceStorageScope, SourceStorageEquation | null>;
-    readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageBinding | null>>;
+    readonly lookups: Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageScopeBinding | null>>;
   }
   const withTraversal = scopedMemo<TraversalMemo>(budget, add => ({ add, owners: new Map(), families: new Map(), lookups: new Map() }));
   const withQueryMemo = scopedMemo(budget, add => ({ add, applications: new Map<SourceStorageScope, Map<string, SourceStorageScope>>(),
-    lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageBinding | null>>() }));
+    lookups: new Map<SourceStorageScope, Map<SourceStorageSubject, SourceStorageScopeBinding | null>>() }));
   const substitutionKey = (substitutions: ReadonlyMap<SourceStorageVariable, SourceStorageScope>): string =>
     [...substitutions].map(([input, replacement]) => [identity(input), identity(replacement)] as const)
       .sort((left, right) => left[0] - right[0]).map(entry => entry.join(":")).join(";");
@@ -223,13 +223,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return selected;
   };
-  const selectEntries = (origin: SourceStorageSubject, entries: readonly SourceStorageReference[],
+  const selectEntries = (origin: SourceStorageSubject, entry: SourceStorageFrameInput,
     path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean,
-    selectedRoot?: SourceStorageSubject): SourceStorageBinding | undefined => {
+    selectedRoot?: SourceStorageSubject): SourceStorageScopeBinding | undefined => {
     const terms: SourceStorageTerm[] = [];
-    for (const entry of entries) {
+    for (const value of entry.values) {
       if (!budget.step()) return undefined;
-      const projected = project(entry, origin, retain, selectedRoot);
+      const projected = project(value, origin, retain, selectedRoot);
       if (projected === undefined) return undefined;
       for (const value of projected) {
         const applied = applyPath(value, path);
@@ -237,10 +237,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         terms.push(applied);
       }
     }
-    return Object.freeze({ kind: "replace", terms: Object.freeze(terms) });
+    return Object.freeze({ kind: "replace", terms: Object.freeze(terms), initialization: entry.initialization });
   };
   const selectVariable = (origin: SourceStorageSubject, variable: SourceStorageVariable,
-    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageBinding | undefined => {
+    path: SourceStorageSubstitutionPath | undefined, retain: (cost: number) => boolean): SourceStorageScopeBinding | undefined => {
     const owner = sourceStorageFormalOwner(origin, source.ast);
     if (owner === undefined) return undefined;
     let lexical = variable.capture === undefined ? variable.owner : source.ast.parent(variable.owner);
@@ -253,13 +253,13 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (initial === undefined) return Object.freeze({ kind: "expand", variable });
     if (!retain(1)) return undefined;
     const selected = applyPath(sourceStorageReference(initial, variable.equation.initial), path);
-    return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]) });
+    return selected === undefined ? undefined : Object.freeze({ kind: "replace", terms: Object.freeze([selected]), initialization: "actual" });
   };
   const selectInput = (origin: SourceStorageSubject, root: SourceStorageSubject, scope: SourceStorageScope,
-    retain: (cost: number) => boolean): SourceStorageBinding | undefined => {
+    retain: (cost: number) => boolean): SourceStorageScopeBinding | undefined => {
     if (scope.kind === "variable") return selectVariable(origin, scope, undefined, retain);
     const select = (entries: SourceStorageFrame["entries"]): { readonly subject: SourceStorageSubject; readonly root: SourceStorageSubject;
-      readonly entries: readonly SourceStorageReference[] } | undefined => {
+      readonly entries: SourceStorageFrameInput } | undefined => {
       for (let length = origin.projection.length; length >= 0; length -= 1) {
         if (!budget.step()) return undefined;
         const prefix = length === 0 ? root : subject(origin.node, origin.kind, origin.projection.slice(0, length));
@@ -287,7 +287,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     }
     return undefined;
   };
-  const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageBinding | undefined => {
+  const lookup = (origin: SourceStorageSubject, scope: SourceStorageScope): SourceStorageScopeBinding | undefined => {
     if (!budget.step() || origin.kind !== "input" && origin.kind !== "receiver") return undefined;
     if (origin.projection.length !== 0 && scope.kind === "frame" && scope.boundary === "declaration" &&
       sourceStorageFormalOwner(origin, source.ast) === scope.owner) return undefined;
@@ -300,7 +300,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (retained !== undefined) return retained ?? undefined;
       const selected = selectInput(origin, root, scope, memo.add);
       if (budget.failure() !== undefined || !memo.add(selections === undefined ? 2 : 1)) return undefined;
-      const inputs = selections ?? new Map<SourceStorageSubject, SourceStorageBinding | null>();
+      const inputs = selections ?? new Map<SourceStorageSubject, SourceStorageScopeBinding | null>();
       inputs.set(origin, selected ?? null); memo.lookups.set(scope, inputs);
       return selected;
     });
@@ -314,14 +314,16 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     if (cached !== undefined) return cached;
     const parameters = source.ast.is.IsClassDeclaration(owner) || source.ast.is.IsClassExpression(owner) ? [] : source.ast.parameters(owner);
     if (!rows.add(3 + (parameters.length + 1) * 2 + (retained === undefined ? 1 : 0))) return undefined;
-    const entries = new Map<SourceStorageSubject, readonly SourceStorageReference[]>();
+    const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner, boundary: "declaration", entries,
       parents: Object.freeze([parent]) });
     for (const parameter of [...parameters, owner]) {
       if (parameter === undefined || !budget.step()) continue;
       const input = subject(parameter, parameter === owner ? "receiver" : "input");
       if (input === undefined) return undefined;
-      entries.set(input, Object.freeze([Object.freeze({ kind: "leaf", subject: input, scope: frame })]));
+      entries.set(input, Object.freeze({ initialization: "actual", values: Object.freeze([
+        Object.freeze({ kind: "leaf", subject: input, scope: frame }),
+      ]) }));
     }
     if (budget.failure() !== undefined) return undefined;
     const selections = retained ?? new Map<SourceStorageScope, SourceStorageFrame>();
@@ -336,7 +338,7 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
     const key = `${[candidate, invocation, parent, captured].map(identity).join(":")}:${equation?.identity ?? ""}:${callbackKey(callback)}`;
     const cached = frames.get(key);
     if (cached !== undefined) return cached;
-    const entries = new Map<SourceStorageSubject, readonly SourceStorageReference[]>();
+    const entries = new Map<SourceStorageSubject, SourceStorageFrameInput>();
     const frame: SourceStorageFrame = Object.freeze({ kind: "frame", owner: candidate, invocation, caller: parent, equation, callback, entries,
       parents: Object.freeze([captured]) });
     const parameters = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? [] : source.ast.parameters(candidate);
@@ -348,15 +350,19 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
       if (formal === undefined) return undefined;
       formals.add(formal);
     }
-    const consumer = source.semantics.forNode(invocation);
-    const selection = consumer.operations.call(invocation);
-    for (const slot of sourceStorageCallableInputSlots(source, candidate, consumer,
-      { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step) ?? []) {
-      if (!budget.step()) return undefined;
-      if (slot.projection === undefined || slot.projection.length === 0) continue;
-      const formal = subject(slot.parameter, "input", slot.projection);
-      if (formal === undefined) return undefined;
-      formals.add(formal);
+    if (parameters.some(parameter => source.ast.as.AsParameterDeclaration(parameter)?.DotDotDotToken !== undefined)) {
+      const consumer = source.semantics.forNode(invocation);
+      const selection = consumer.operations.call(invocation);
+      const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
+        { kind: "source-implementation", signature: callback === undefined ? selection?.selectedSignature : undefined }, budget.step);
+      if (slots === undefined) return undefined;
+      for (const slot of slots) {
+        if (!budget.step()) return undefined;
+        if (slot.projection === undefined || slot.projection.length === 0) continue;
+        const formal = subject(slot.parameter, "input", slot.projection);
+        if (formal === undefined) return undefined;
+        formals.add(formal);
+      }
     }
     for (const formal of formals) {
       const selected = invocationInputs(formal, candidate, invocation, callback);
@@ -372,9 +378,10 @@ export function createSourceStorageScopes(source: TargetSourceProgram, budget: S
         values.push(input === formal ? Object.freeze({ kind: "leaf", subject: input, scope: frame }) : sourceStorageReference(input, frame));
       }
       if (values.length === 0) continue;
-      entries.set(formal, Object.freeze(values));
+      entries.set(formal, Object.freeze({ values: Object.freeze(values), initialization: selected.omitted ? "absent"
+        : selected.context === "callee" ? "initialized" : "actual" }));
     }
-    if (budget.failure() !== undefined || !rows.add(1 + entries.size + [...entries.values()].reduce((cost, values) => cost + values.length, 0))) return undefined;
+    if (budget.failure() !== undefined || !rows.add(1 + entries.size + [...entries.values()].reduce((cost, entry) => cost + entry.values.length, 0))) return undefined;
     frames.set(key, frame);
     identity(frame);
     return frame;

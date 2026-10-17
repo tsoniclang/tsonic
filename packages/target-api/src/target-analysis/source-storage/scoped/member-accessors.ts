@@ -4,10 +4,10 @@ import { createSourceStorageAncestorQuery } from "../graph/ancestors.js";
 import type { SourceStorageIncomingQuery } from "../graph/edges.js";
 import type { createSourceStorageGraphQueries, SourceStorageReconciliation } from "../graph/graph-queries.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
-import { sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageMemberSubject, sourceStorageObjectRestOwner } from "../model/subjects.js";
 import type { SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import type { createSourceStorageMemberFlow, createSourceStorageMemberImplementations } from "../graph/member-flow.js";
-import { SpreadAssignment_Expression } from "../../../source-navigation/index.js";
+import { Node_Initializer, SpreadAssignment_Expression } from "../../../source-navigation/index.js";
 import type { SourceStorageAccessorInvocation } from "../graph/scoped-model.js";
 
 interface SourceStorageAccessorQueries {
@@ -50,11 +50,16 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
     for (const access of sites) yield once => {
       const property = ast.is.IsPropertyAccessExpression(access) ? semantics.forNode(access).operations.propertyAccess(access) : undefined;
       const operation = property ?? (ast.is.IsElementAccessExpression(access) ? semantics.forNode(access).operations.elementAccess(access) : undefined);
-      const receiver = ast.is.IsSpreadAssignment(access) ? SpreadAssignment_Expression(ast, access) : operation?.receiver.expression;
+      const restOwner = sourceStorageObjectRestOwner(access, ast);
+      const bindingPattern = ast.is.IsBindingElement(access) ? ast.parent(access) : undefined;
+      const bindingOwner = bindingPattern === undefined || !ast.is.IsObjectBindingPattern(bindingPattern) ? undefined : ast.parent(bindingPattern);
+      const copying = ast.is.IsSpreadAssignment(access) || restOwner !== undefined;
+      const receiver = ast.is.IsSpreadAssignment(access) ? SpreadAssignment_Expression(ast, access)
+        : bindingOwner === undefined ? operation?.receiver.expression : Node_Initializer(ast, bindingOwner) ?? bindingOwner;
       if (receiver === undefined) return;
       const selected: { readonly declaration: Node; readonly read: boolean }[] = [];
-      if (ast.is.IsSpreadAssignment(access)) {
-        const members = queries.spreadMembersFor(receiver);
+      if (copying || bindingOwner !== undefined) {
+        const members = queries.spreadMembersFor(receiver, access);
         if (members === undefined) return;
         for (const member of members) for (const declaration of member.declarations) selected.push({ declaration, read: true });
       } else if (operation !== undefined) {
@@ -68,7 +73,7 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
           if (!budget.step()) return;
           if (readAccess ? !ast.is.IsGetAccessorDeclaration(accessor) : !ast.is.IsSetAccessorDeclaration(accessor)) continue;
           const implementations = queries.implementationsFor(accessor, access, receiver);
-          if (readAccess && implementations.exact && !ast.is.IsSpreadAssignment(access))
+          if (readAccess && implementations.exact && !copying)
             for (const slot of implementations.slots ?? []) queries.connect(slot, queries.subjectFor(access));
           for (const candidate of implementations.nodes) {
             const known = targets.get(access);
@@ -80,9 +85,9 @@ export function createSourceStorageMemberAccessors(source: TargetSourceProgram, 
             }
             if (!once(candidate)) continue;
             queries.connect(queries.subjectFor(receiver), queries.subject(candidate, "receiver"));
-            if (readAccess && ast.is.IsSpreadAssignment(access)) {
-              const object = ast.parent(access);
-              if (object === undefined || !ast.is.IsObjectLiteralExpression(object)) {
+            if (readAccess && copying) {
+              const object = restOwner === undefined ? ast.parent(access) : access;
+              if (object === undefined || restOwner === undefined && !ast.is.IsObjectLiteralExpression(object)) {
                 budget.reject("A spread accessor requires its original checked object literal evaluation."); return;
               }
               queries.connect(queries.subject(candidate, "return"), queries.subject(object, "value", [{ kind: "member", declaration: accessor }]));

@@ -369,6 +369,7 @@ export function analyzeSourceGenericAdoption(input: {
     knownResolverResult: Type | undefined, unresolved?: SourceOwnershipUnresolved): void => {
     const selected = input.storage.subjectFor(argument);
     const origins = selected.kind === "unresolved" ? selected : input.storage.storageProducersFor(selected.subject, bindings);
+    if (origins.kind === "complete" && origins.producers.length === 0) return;
     if (origins.kind === "unresolved" || origins.producers.length === 0) {
       if (input.storage.failureReason() !== undefined) { refuse(operation, input.storage.failureReason()!); return; }
       const semantics = source.semantics.forNode(argument);

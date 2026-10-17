@@ -74,7 +74,10 @@ test("terminal receiver birth retains its exact active invocation instead of the
   assert.equal(typeof key, "string");
   assert.notEqual(current.keys.encode(second), key);
   assert.equal(current.keys.encode(first), key);
-  assert.notEqual(current.keys.birthKey(receiver, first.scope), current.keys.birthKey(receiver, second.scope));
+  const firstBirth = current.keys.birth(receiver, first.scope);
+  const secondBirth = current.keys.birth(receiver, second.scope);
+  assert.equal(firstBirth !== undefined && secondBirth !== undefined, true, "both actual receiver activations have exact birth evidence");
+  assert.notEqual(firstBirth.key, secondBirth.key);
   assert.equal(current.budget.failure() === undefined, true);
 });
 

@@ -18,11 +18,12 @@ function fixture(limits = {}) {
   let calls = 0; let inspect = () => {}; let context = "caller";
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([firstCall, secondCall]), accessorTargets: new Map(),
+    callbackEntriesFor: () => [], callbackImplementationsFor: () => new Set(),
     regions: { enclosing: node => node.region }, invocationImplementations: node => {
       calls += 1; inspect(node);
       return new Set([node === firstCall ? second : first]);
     },
-  }, (_formal, _candidate, invocation) => ({ context,
+  }, (_formal, _candidate, invocation) => ({ context, omitted: false,
     subjects: new Set([subject(invocation === firstCall ? firstInput : secondInput, "input")]) }));
   return { budget, subject, recursion, first, second, firstInput, secondInput, firstCall, secondCall,
     calls: () => calls, inspect: callback => { inspect = callback; }, context: value => { context = value; } };
@@ -57,6 +58,7 @@ test("selected incoming sites preserve complete recursive rings, self calls and 
   let selections = 0;
   const recursion = createSourceStorageScopedRecursion(source, budget, {
     subject, invocations: new Set([...calls, self, entry]), accessorTargets: new Map(),
+    callbackEntriesFor: () => [], callbackImplementationsFor: () => new Set(),
     regions: { enclosing: node => node.region }, invocationImplementations: node => {
       selections += 1;
       return new Set([node.candidate]);

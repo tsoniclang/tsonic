@@ -62,8 +62,8 @@ test("declaration bindings preserve two equal-signature formal identities withou
   sameSubjects(current.origins(left, current.storage.emptyBindings), before, "symbolic queries do not poison ordinary queries");
   assert.equal(before.length === 1 && before[0].node === current.initializer("first"), true, "ordinary queries remain concrete");
   assert.equal(current.bindings("pair") === context, true, "declaration binding is canonical");
-  assert.equal(Object.isFrozen(context) && Object.isFrozen(context.substitutions) &&
-    context.substitutions.every(entry => Object.isFrozen(entry) && Object.isFrozen(entry.actuals)), true, "owned data is immutable");
+  assert.equal(Object.isFrozen(context) && context.kind === "source-storage-bindings" &&
+    !Object.hasOwn(context, "substitutions"), true, "owned binding authority is immutable and does not expose resolved values or private scopes");
 });
 
 test("identity and forwarding calls substitute onto local inputs rather than sibling callers", () => {
@@ -208,7 +208,7 @@ test("declaration bindings reject forged and foreign tokens, owners and projecte
   const text = `interface Holder { readonly value: object; } function read(owner: Holder) { return owner.value; }`;
   const current = fixture(text); const foreign = fixture(text);
   const context = current.bindings("read");
-  for (const bindings of [{ substitutions: context.substitutions }, foreign.bindings("read"), Object.create(context)]) {
+  for (const bindings of [{ ...context }, { substitutions: [] }, foreign.bindings("read"), Object.create(context)]) {
     assert.equal(current.storage.bindingsForDeclaration(current.declaration("read"), bindings).kind === "unresolved", true, "only this query can mint bindings");
     assert.equal(current.storage.boundOriginsFor(current.input("read", 0), bindings).kind === "unresolved", true, "foreign bindings cannot be consumed");
   }
@@ -218,8 +218,8 @@ test("declaration bindings reject forged and foreign tokens, owners and projecte
   for (const declaration of [foreign.declaration("value"), current.declaration("read"), {}])
     assert.equal(current.storage.subject(parameter, "input", [{ kind: "member", declaration }]).kind === "unresolved", true,
       "member declaration must belong to this exact checked receiver type");
-  assert.throws(() => { context.substitutions.push({}); }, TypeError);
-  assert.throws(() => { context.substitutions[0].actuals.push(current.input("read", 0)); }, TypeError);
+  assert.throws(() => { context.kind = "forged"; }, TypeError);
+  assert.throws(() => { Object.defineProperty(context, "substitutions", { value: [] }); }, TypeError);
   const path = [{ kind: "member", declaration: current.declaration("value") }];
   const input = current.input("read", 0, path);
   path[0].declaration = foreign.declaration("value"); path.push({ kind: "array-element" });

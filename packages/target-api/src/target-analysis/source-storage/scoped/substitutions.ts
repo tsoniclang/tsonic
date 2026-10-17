@@ -155,7 +155,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       selected = { term: normalized, children: new Map(), complete: false };
       relations.set(key, selected);
     }
-    if (selected.term.kind !== "empty") for (const witness of retained)
+    if (selected.term.kind !== "empty" || selected.term.absence !== undefined) for (const witness of retained)
       if (!addWitness(selected, witness, witness.contributes)) return undefined;
     if (reference !== undefined) {
       if (retainedMemo === undefined && !referenceRows.add(contexts === undefined ? 3 : 2)) return undefined;
@@ -330,6 +330,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     const subjects = new Map<SourceStorageScope, Map<SourceStorageSubject, number>>();
     const origins = new Set<SourceStorageSubject>();
     let reason: string | undefined;
+    let absence = false;
     const project = (input: SourceStorageRelation,
       select: (value: SourceStorageTerm) => readonly SourceStorageRelation[] | undefined): boolean => {
       const values = results(input);
@@ -381,7 +382,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       const completed = collectWitnesses(relation, entry.collect, entry.guards);
       if (completed === undefined) return undefined;
       if (completed) continue;
-      if (stopAt === undefined && entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
+      if (entry.collect && current.kind !== "execution-root" && current.kind !== "region" && current.kind !== "effect") {
         const completed = results(relation);
         if (completed === undefined) return undefined;
         if (completed.size === 0) {
@@ -395,6 +396,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
         }
       }
       if (entry.collect && current.kind === "leaf" && admitted(current.subject, entry.guards)) origins.add(current.subject);
+      if (entry.collect && current.kind === "empty" && current.absence !== undefined &&
+        admitted(current.absence.subject, entry.guards)) absence = true;
       if (current.kind === "unresolved") reason ??= current.reason;
       const filter = preserveValuePath ? relation.filter : undefined;
       if (filter !== undefined) {
@@ -413,7 +416,7 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
       if (!budget.step()) return undefined;
       selected.push(Object.freeze({ subject, bindings: scope, contributes: (mode & 2) !== 0 }));
     }
-    return Object.freeze({ subjects: Object.freeze(selected), origins, reason });
+    return Object.freeze({ subjects: Object.freeze(selected), origins, reason, absence });
   }));
   const trace = (origin: SourceStorageSubject, scope: SourceStorageScope): readonly SourceStorageRelationWitness[] | undefined =>
     walk(origin, scope)?.subjects;

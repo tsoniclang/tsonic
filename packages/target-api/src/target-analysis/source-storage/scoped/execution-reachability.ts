@@ -163,7 +163,8 @@ export function createSourceStorageExecutionReachability(source: TargetSourcePro
       const relevant: (Omit<SourceStorageDomainBoundary, "bindings"> & { readonly callback?: SourceStorageCallbackEntry })[] = [];
       for (const frontier of frontiers) {
         if (!budget.step()) return undefined;
-        if (transport.regions.callable(frontier.subject.node, undefined).some(region => selected.has(region))) relevant.push(frontier);
+        if (frontier.subject === frontier.owner ||
+          transport.regions.callable(frontier.subject.node, undefined).some(region => selected.has(region))) relevant.push(frontier);
       }
       return Object.freeze(relevant);
     },
@@ -256,6 +257,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
         if (native.callback.timing === "deferred" && !deferred) continue;
         const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
           subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
+          componentsFor: transport.memberFlow.componentsFor,
           hasSourceImplementation: invocation => [...transport.invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
           componentFor: (value, component) => transport.subject(value.subject.node, value.subject.kind, [...value.subject.projection, component]),
           valuesFor: (subject, bindings) => {
@@ -276,7 +278,7 @@ export function createSourceStorageInputExecutions(source: TargetSourceProgram, 
           "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
         for (const value of payloads.values) {
           if (!budget.step()) return undefined;
-          if (value.subject !== frontier.subject) continue;
+          if (frontier.subject !== frontier.owner && value.subject !== frontier.subject) continue;
           if (frontier.callback?.timing === "deferred" && !deferred) continue;
           const possible: SourceStorageTerm = Object.freeze({ kind: "application", invocation,
             callee: leaf(value.subject, value.bindings), scope, projection: [],
