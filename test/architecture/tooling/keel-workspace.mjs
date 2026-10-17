@@ -13,6 +13,7 @@ import {
   evaluateKeelSkeleton, evaluateKeelStorageStages, evaluateKeelTestSkeleton, keelRuntimeRoots,
 } from "./keel-structure-checks.mjs";
 import { evaluateKeelDeterminism, evaluateKeelSafety } from "./keel-certification-checks.mjs";
+import { keelSafetyBuiltModuleEntries } from "./keel-native-allocation-boundary.mjs";
 import { readKeelDeclarations } from "./keel-declarations.mjs";
 import { keelOwnedDeterminismPrograms, readKeelProgramInputs } from "./keel-determinism-contracts.mjs";
 import { readKeelNodeModuleRegistry } from "./keel-node-registry.mjs";
@@ -248,6 +249,33 @@ function readKeelSafetyWorkspaceInputs(workspace) {
           ...(/\.(?:[cm]?[jt]sx?|rs|cs|json|toml|csproj|props|targets)$/u.test(file) ? { text: bytes.toString("utf8") } : {}),
         }));
       } else throw new Error(`Unsupported AC12 tracked file mode: ${repo}/${file}.`);
+    }
+  }
+  for (;;) {
+    const pending = keelSafetyBuiltModuleEntries(inputs).filter(path => {
+      const separator = path.indexOf("/");
+      return !inputs.get(path.slice(0, separator))?.get(path.slice(separator + 1))?.builtModule;
+    });
+    if (pending.length === 0) break;
+    for (const path of pending) {
+      if (!validPath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
+      const separator = path.indexOf("/");
+      const repo = path.slice(0, separator);
+      const file = path.slice(separator + 1);
+      if (!inputs.has(repo)) throw new Error(`Unknown AC12 built module repository: ${path}.`);
+      const absolute = resolve(workspace, path);
+      const root = realpathSync(resolve(workspace, repo));
+      const actual = realpathSync(absolute);
+      if (actual !== absolute || relative(root, actual).startsWith("..") || !lstatSync(absolute).isFile()) {
+        throw new Error(`Unresolved AC12 built module source identity: ${path}.`);
+      }
+      const bytes = readFileSync(absolute);
+      const previous = inputs.get(repo).get(file);
+      if (previous !== undefined && (previous.kind !== "file" || previous.sha256 !== keelDigest(bytes))) {
+        throw new Error(`Changed AC12 built module input: ${path}.`);
+      }
+      inputs.get(repo).set(file, Object.freeze({ kind: "file", tracked: previous?.tracked ?? false,
+        mode: lstatSync(absolute).mode & 0o111 ? "100755" : "100644", sha256: keelDigest(bytes), text: bytes.toString("utf8"), builtModule: true }));
     }
   }
   return Object.freeze(inputs);

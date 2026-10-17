@@ -24,7 +24,7 @@ export async function discoverInstalledTsonicPlugins(projectFilePath: string): P
     throw new Error(`Tsonic package discovery requires a project package.json beside or above tsonic.json. ${error instanceof Error ? error.message : String(error)}`);
   });
   const dependencyNames = readDirectDependencyNames(projectPackageJson);
-  const requireFromProject = createRequire(`${packageJsonPath}`);
+  const resolveFromProject = createRequire(packageJsonPath).resolve;
   const targets: TsonicTargetPlugin[] = [];
   const capabilities: TargetCapabilityImplementation[] = [];
   const diagnostics: TargetDiagnostic[] = [];
@@ -37,7 +37,7 @@ export async function discoverInstalledTsonicPlugins(projectFilePath: string): P
     if (manifest === undefined) {
       continue;
     }
-    const plugin = await loadPlugin(manifest.packageName, manifest.entry, requireFromProject);
+    const plugin = await loadPlugin(manifest.packageName, manifest.entry, resolveFromProject);
     const validation = validatePlugin(dependencyName, plugin);
     if (validation !== undefined) {
       diagnostics.push(validation);
@@ -69,10 +69,10 @@ async function readDependencyPackageJson(
   return readJsonFile(join(packageRoot, "package.json"));
 }
 
-async function loadPlugin(packageName: string, entry: string, requireFromProject: NodeRequire): Promise<TsonicPlugin> {
+async function loadPlugin(packageName: string, entry: string, resolveFromProject: NodeJS.RequireResolve): Promise<TsonicPlugin> {
   let entryPath: string;
   try {
-    entryPath = requireFromProject.resolve(entry === "." ? packageName : `${packageName}/${entry}`);
+    entryPath = resolveFromProject(entry === "." ? packageName : `${packageName}/${entry}`);
   } catch (error) {
     throw new Error(`Tsonic plugin '${packageName}' entry '${entry}' could not be resolved through the package export map. ${error instanceof Error ? error.message : String(error)}`);
   }

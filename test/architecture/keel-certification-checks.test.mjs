@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { posix } from "node:path";
 import {
   createKeelViolationInventory, evaluateKeelDeterminism, evaluateKeelSafety,
   evaluateKeelViolationInventory, guardSucceeded, validateKeelViolationInventory,
 } from "./tooling/keel-certification-checks.mjs";
+import { keelSafetyBuiltModuleEntries } from "./tooling/keel-native-allocation-boundary.mjs";
 import { keelCheckIds, keelFinding, keelWorkspaceRepositories } from "./tooling/keel-contract.mjs";
 import { keelDigest } from "./tooling/keel-source-analysis.mjs";
 import { keelNativeTokens, keelNativeUnsafeSites } from "./tooling/keel-native-tokens.mjs";
 import { keelFixtureGeneration, keelFixtureGuard, keelFixtureHas, keelFixtureModel } from "./tooling/keel-test-fixtures.mjs";
 import { evaluateKeelLayers } from "./tooling/keel-layer-checks.mjs";
+import { readKeelNodeModuleRegistry } from "./tooling/keel-node-registry.mjs";
 
 test("AC11 covers both targets and complete independent artifact sets with guarded provenance", () => {
   const { programs, samples } = keelFixtureGeneration();
@@ -416,6 +419,450 @@ test("literal URL targets traverse canonical writer and bridge entries with nati
   assert.equal(boundarySafety(entry).findings.length, 0, "the exact same proof may serve a genuine test entry");
   entry.get("tsonic-rust").set("src/promote.mjs", safetyFile('import "../test/cost.test.mjs";'));
   assert.equal(boundarySafety(entry).nativeAllocationBoundary === undefined, true, "test-only incoming promotion remains forbidden");
+});
+
+test("C114-F1: explicit Cargo tests never bless implicit or declared product/build targets", () => {
+  for (const path of ["src/lib.rs", "src/main.rs", "src/bin/tool.rs", "src/bin/tool/main.rs", "build.rs",
+    "examples/tool.rs", "examples/tool/main.rs", "benches/tool.rs", "benches/tool/main.rs"]) {
+    const inputs = nativeBoundaryInputs();
+    const ordinary = '[package]\nname = "control"\n[[test]]\nname = "control"\npath = "tests/control.rs"\n';
+    inputs.get("rust-runtime").set("Cargo.toml", safetyFile(ordinary));
+    inputs.get("rust-runtime").set(path, safetyFile("fn main() {}"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `ordinary target ${path}`);
+    inputs.get("rust-runtime").set("Cargo.toml", safetyFile(`${ordinary}[[test]]\nname = "promoted"\npath = "${path}"\n`));
+    inputs.get("rust-runtime").set(path, safetyFile(`#[path = "${posix.relative(posix.dirname(path), "tests/helpers/allocation_counts.rs")}"] mod observed;`));
+    const rejected = boundarySafety(inputs);
+    assert.equal(rejected.nativeAllocationBoundary === undefined, true, path);
+    assert.equal(keelFixtureHas(rejected.findings, "AC12", "implicit Cargo product/build target"), true, path);
+    assert.equal(rejected.findings.filter(finding => finding.subject === "native safety").length, 8, path);
+  }
+  for (const [path, flags] of [["src/main.rs", "autobins = false"], ["build.rs", "build = false"],
+    ["src/lib.rs", "autolib = false"], ["examples/tool.rs", "autoexamples = false"], ["benches/tool.rs", "autobenches = false"],
+    ["src/test_control.rs", ""]]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("rust-runtime").set("Cargo.toml", safetyFile(`[package]\nname = "control"\n${flags}\n[[test]]\nname = "control"\npath = "${path}"\n`));
+    inputs.get("rust-runtime").delete("tests/control.rs");
+    inputs.get("rust-runtime").set(path, safetyFile(`#[path = "${posix.relative(posix.dirname(path), "tests/helpers/allocation_counts.rs")}"] mod observed;`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `genuine test, product disabled: ${path}`);
+  }
+});
+
+test("C114-F2: nested inline module path attributes need genuine lexical test evidence", () => {
+  for (const body of [
+    'mod inner { #[path = "../../tests/helpers/allocation_counts.rs"] mod observed; }',
+    'mod outer { mod inner { #[path = "../../../tests/helpers/allocation_counts.rs"] mod observed; } }',
+    '#[cfg(test)] mod tests {} mod product { #[path = "../../tests/helpers/allocation_counts.rs"] mod observed; }',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("rust-runtime").set("src/lib.rs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, body);
+  }
+  for (const body of [
+    '#[cfg(test)] mod inner { #[path = "../../tests/helpers/allocation_counts.rs"] mod observed; }',
+    'mod inner { #[cfg(test)] #[path = "../../tests/helpers/allocation_counts.rs"] mod observed; }',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("rust-runtime").set("src/lib.rs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+});
+
+test("QW01-QW04: native lexical and explicit target owners retain every real product entry", () => {
+  for (const [kind, flag, path] of [["bin", "autobins", "src/bin/control.rs"],
+    ["example", "autoexamples", "examples/control.rs"], ["bench", "autobenches", "benches/control.rs"], ["lib", "autolib", "src/lib.rs"]]) {
+    const inputs = nativeBoundaryInputs();
+    const target = kind === "lib" ? "[lib]" : `[[${kind}]]`;
+    const cargo = `[package]\nname = "control"\n${flag} = false\n${target}\nname = "control"\n[[test]]\nname = "original"\npath = "tests/control.rs"\n[[test]]\nname = "shared"\npath = "${path}"\n`;
+    inputs.get("rust-runtime").set("Cargo.toml", safetyFile(cargo));
+    inputs.get("rust-runtime").set(path, safetyFile("fn main() {}"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `ordinary explicit ${kind}`);
+    inputs.get("rust-runtime").set(path, safetyFile(`#[path = "${posix.relative(posix.dirname(path), "tests/helpers/allocation_counts.rs")}"] mod counts; fn main() {}`));
+    const rejected = boundarySafety(inputs);
+    assert.equal(rejected.nativeAllocationBoundary === undefined, true, kind);
+    assert.equal(keelFixtureHas(rejected.findings, "AC12", "default path"), true, kind);
+  }
+  for (const body of ['mod tests { mod helpers { mod allocation_counts; } }',
+    '#[cfg_attr(feature = "observer", path = "tests/helpers/allocation_counts.rs")] mod counts;']) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("rust-runtime").set("Cargo.toml", safetyFile('[package]\nname = "control"\n[lib]\npath = "lib.rs"\n[[test]]\nname = "original"\npath = "tests/control.rs"\n'));
+    inputs.get("rust-runtime").set("lib.rs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, body);
+    inputs.get("rust-runtime").set("lib.rs", safetyFile(`#[cfg(test)] ${body}`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `genuine lexical test: ${body}`);
+  }
+  const link = nativeBoundaryInputs();
+  link.get("rust-runtime").set("tests/bridge", Object.freeze({ kind: "symlink", tracked: true, mode: "120000", target: "helpers/inner" }));
+  link.get("rust-runtime").set("tests/helpers/inner/ordinary.rs", safetyFile("pub fn ordinary() {}"));
+  link.get("rust-runtime").set("src/lib.rs", safetyFile('#[path = "../tests/bridge/../allocation_counts.rs"] mod observed;'));
+  assert.equal(boundarySafety(link).nativeAllocationBoundary === undefined, true, "raw native filesystem follows a symlink before its parent component");
+});
+
+test("QW02: module URLs share one physical identity without rewriting raw file or require paths", () => {
+  for (const body of [
+    'await import(new URL("../test/helpers/%6eative-ownership-cost.mjs", import.meta.url));',
+    'await import(new URL("../test/helpers/native-ownership-cost.mjs?unit=cost#entry", import.meta.url).href);',
+    'import "../test/helpers/native-ownership-cost.mjs?unit=cost#entry";',
+    'export { value } from "../test/helpers/%6eative-ownership-cost.mjs#entry";',
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("../test/helpers/%6eative-ownership-cost.mjs?x", import.meta.url));',
+    'import { register } from "node:module"; register("./helpers/%6eative-ownership-cost.mjs?x", new URL("../test/", import.meta.url));',
+    'import { createRequire } from "node:module"; const load = createRequire(new URL("../test/", import.meta.url)); load("./helpers/native-ownership-cost.mjs");',
+    'function Loader() { return import(new URL("./native-ownership-cost.mjs", new.target.url)); } Loader.url = new URL("../test/helpers/", import.meta.url).href; new Loader();',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/entry.mjs", safetyFile(body));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, body);
+    assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, body);
+  }
+  for (const body of [
+    'await import(new URL("./%6frdinary.mjs?unit=cost#entry", import.meta.url));',
+    'import { register } from "node:module"; register("../src/ordinary.mjs", new URL("../test/", import.meta.url));',
+    'import { createRequire } from "node:module"; const load = createRequire(new URL("../test/", import.meta.url)); load("../src/ordinary.mjs");',
+    'import { createRequire } from "node:module"; const load = createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs#literal");',
+    'import { readFileSync } from "node:fs"; import { fileURLToPath } from "node:url"; readFileSync(fileURLToPath(new URL("../test/helpers/native-ownership-cost.mjs%23literal", import.meta.url)));',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/entry.mjs", safetyFile(body));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    inputs.get("tsonic-rust").set("test/helpers/native-ownership-cost.mjs#literal", safetyFile("ordinary bytes"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+});
+
+test("C114-F3: every nonliteral native inclusion fails closed without filename heuristics", () => {
+  for (const macro of ["include", "include_str", "include_bytes"]) {
+    for (const expression of ['concat!(env!("OUT_DIR"), "/observer.rs")', 'concat!("ordinary", ".rs")', "computed"]) {
+      const inputs = nativeBoundaryInputs();
+      inputs.get("rust-runtime").set("src/lib.rs", safetyFile(`${macro}!(${expression});`));
+      const rejected = boundarySafety(inputs);
+      assert.equal(rejected.nativeAllocationBoundary === undefined, true, `${macro}: ${expression}`);
+      assert.equal(keelFixtureHas(rejected.findings, "AC12", "computed native source inclusion"), true, macro);
+      inputs.get("rust-runtime").set("src/lib.rs", safetyFile(`#[cfg(test)] mod tests { ${macro}!(${expression}); }`));
+      assert.equal(boundarySafety(inputs).findings.length, 0, `lexical test ${macro}: ${expression}`);
+    }
+    for (const [opening, closing] of [["(", ")"], ["[", "]"], ["{", "}"]]) {
+      const inputs = nativeBoundaryInputs();
+      inputs.get("rust-runtime").set("src/lib.rs", safetyFile(`${macro}!${opening}"ordinary.rs",${closing};`));
+      assert.equal(boundarySafety(inputs).findings.length, 0, `literal ${macro} ${opening}`);
+    }
+  }
+});
+
+test("C114-F4: package imports and hash specifiers are actual entries, unknown hashes refuse", () => {
+  for (const imports of [
+    { "#alloc": "./test/helpers/native-ownership-cost.mjs" },
+    { "#alloc": { node: "./test/helpers/native-ownership-cost.mjs", default: "./src/ordinary.mjs" } },
+    { "#helpers/*": "./test/helpers/*.mjs" },
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "control", imports })));
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#alloc";'));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, JSON.stringify(imports));
+  }
+  for (const source of ['import "#unresolved";', 'export { value } from "#unresolved";', 'await import("#unresolved");', 'require("#unresolved");']) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, source);
+  }
+  for (const [imports, specifier] of [[{ "#safe": "./src/ordinary.mjs" }, "#safe"],
+    [{ "#safe/*": "./src/*.mjs" }, "#safe/ordinary"]]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("package.json", safetyFile(JSON.stringify({ name: "control", imports })));
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(`import "${specifier}";`));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, specifier);
+  }
+  const external = nativeBoundaryInputs();
+  external.get("tsonic-rust").set("package.json", safetyFile('{"imports":{"#external":"node:fs"}}'));
+  external.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import "#external";'));
+  const result = boundarySafety(external);
+  assert.equal(result.findings.length, 0, "declared external package import remains outside the tracked-source proof");
+  assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.length, 1);
+});
+
+test("unresolved first-party source entries refuse without guessing from a filename suffix", () => {
+  for (const source of ['import("./" + key + "/ordinary.mjs");', 'import(`./${key}/ordinary.mjs`);']) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/entry.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, source);
+    inputs.get("tsonic-rust").delete("src/entry.mjs");
+    inputs.get("tsonic-rust").set("test/entry.test.mjs", safetyFile(`import test from "node:test"; ${source}`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, `actual Node test: ${source}`);
+  }
+});
+
+test("C114-F5: createRequire module loads retain their actual origin and cannot escape", () => {
+  for (const [prefix, call] of [
+    ['import { createRequire } from "node:module"; const require = createRequire(import.meta.url);', 'require("../test/helpers/native-ownership-cost.mjs")'],
+    ['import { createRequire as factory } from "node:module"; const load = factory(import.meta.url);', 'load("../test/helpers/native-ownership-cost.mjs")'],
+    ['import * as module from "node:module"; const load = module.createRequire(import.meta.url);', 'load("../test/helpers/native-ownership-cost.mjs")'],
+    ['import { createRequire } from "node:module"; const load = createRequire(new URL("../test/entry.mjs", import.meta.url));', 'load("./helpers/native-ownership-cost.mjs")'],
+    ['import { createRequire } from "node:module"; const load = createRequire(process.env.ROOT);', 'load("../test/helpers/native-ownership-cost.mjs")'],
+    ['import { createRequire } from "node:module"; const load = createRequire(import.meta.url); const alias = load;', 'alias("../test/helpers/native-ownership-cost.mjs")'],
+    ['import { createRequire } from "node:module"; const factory = createRequire; const load = factory(import.meta.url);', 'load("../test/helpers/native-ownership-cost.mjs")'],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(`${prefix} ${call};`));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, call);
+  }
+  for (const source of [
+    'import { createRequire } from "node:module"; const require = createRequire(import.meta.url); require.resolve("../test/helpers/native-ownership-cost.mjs");',
+    'import { createRequire } from "node:module"; const load = createRequire(import.meta.url); load("./ordinary.mjs");',
+    'import { createRequire } from "node:module"; const load = createRequire(new URL("../test/entry.mjs", import.meta.url)); load("../src/ordinary.mjs");',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, source);
+  }
+});
+
+test("C119-G2: only the detached native resolver crosses storage and call boundaries", () => {
+  for (const body of [
+    'const resolve = createRequire(import.meta.url).resolve; consume(resolve);',
+    'const resolve = createRequire(import.meta.url).resolve; const alias = resolve; alias("package");',
+    'const values = [createRequire(import.meta.url).resolve]; for (const resolve of values) resolve("package");',
+    'function factory() { return createRequire(import.meta.url).resolve; }',
+    'const state = { resolve: createRequire(import.meta.url).resolve };',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/resolve.mjs", safetyFile(`import { createRequire } from "node:module"; ${body}`));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+});
+
+test("C119-R1-R4: loader values never cross parameters, loops or unproven member uses", () => {
+  const prefix = 'import { createRequire } from "node:module"; ';
+  const denied = [
+    'const require = createRequire(import.meta.url); function load(require) { require.resolve("package"); } load(require);',
+    'const first = createRequire(import.meta.url); const second = createRequire(import.meta.url); for (const resolver of [first, second]) resolver.resolve("package");',
+    'createRequire(import.meta.url).cache;', 'createRequire(import.meta.url).main;',
+    'createRequire(import.meta.url)["resolve"];', 'createRequire(import.meta.url)?.resolve;',
+    'createRequire(import.meta.url);', 'const unused = createRequire(import.meta.url);',
+    'consume(createRequire(import.meta.url));', 'function load() { return createRequire(import.meta.url); }',
+    'const { resolve } = createRequire(import.meta.url);',
+    'let bound = createRequire(import.meta.url); bound.resolve("package");',
+    'const bound = createRequire(import.meta.url); function child() { const bound = createRequire(import.meta.url); bound.resolve("package"); } bound.resolve("package");',
+    ...['bound = replacement;', 'bound.resolve;', 'bound.resolve.call(null, "package");',
+      'bound.resolve.apply(null, ["package"]);', 'bound.resolve.bind(null);', 'bound?.resolve("package");',
+      'bound.resolve?.("package");', 'bound["resolve"]("package");', 'bound.resolve.paths("package");',
+      'const alias = bound;', 'consume(bound);', 'export { bound };']
+      .map(body => `const bound = createRequire(import.meta.url); ${body}`),
+  ];
+  for (const body of denied) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/resolve.mjs", safetyFile(`${prefix}${body}`));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, body);
+    assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, body);
+  }
+});
+
+test("C119-R6: dynamic builtin-module routes are refused in products and explicit computed test entries", () => {
+  for (const body of [
+    'const { createRequire } = await import("node:module"); const load = createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
+    'const load = (await import("node:module")).createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
+    'const load = process.getBuiltinModule("node:module").createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
+    'process.getBuiltinModule("node:module")._load("/workspace/tsonic-rust/test/helpers/native-ownership-cost.mjs");',
+    'import { getBuiltinModule as get } from "node:process"; const load = get("node:module").createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
+    'const load = (await import("module")).createRequire(import.meta.url); load("../test/helpers/native-ownership-cost.mjs");',
+  ]) {
+    const product = nativeBoundaryInputs();
+    product.get("tsonic-rust").set("src/resolve.mjs", safetyFile(body));
+    assert.equal(boundarySafety(product).nativeAllocationBoundary === undefined, true, body);
+    const testInputs = nativeBoundaryInputs();
+    const path = "test/computed-loader.test.mjs";
+    testInputs.get("tsonic-rust").set(path, safetyFile(`import test from "node:test"; ${body}`));
+    const accepted = boundarySafety(testInputs);
+    assert.equal(accepted.findings.length, 0, body);
+    assert.equal(accepted.nativeAllocationBoundary.consumers.some(consumer => consumer.path === `tsonic-rust/${path}` && consumer.kind === "Node test computed source entry"), true, body);
+  }
+});
+
+test("C119-R7: Module loading is refused, registration is cut, hooks remain an explicit environment assumption", () => {
+  for (const body of [
+    'import Module from "node:module"; Module._load("../test/helpers/native-ownership-cost.mjs");',
+    'import Module from "node:module"; new Module().require("../test/helpers/native-ownership-cost.mjs");',
+    'import Module from "module"; Module.runMain();',
+    'import Module from "node:module"; consume(Module.prototype);',
+    'import { _load } from "node:module"; _load("../test/helpers/native-ownership-cost.mjs");',
+    'import { register } from "node:module"; register("../test/helpers/native-ownership-cost.mjs", import.meta.url);',
+    'import * as module from "node:module"; module.register(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import { register } from "node:module"; const start = register; start("../test/helpers/native-ownership-cost.mjs", import.meta.url);',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/resolve.mjs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, body);
+  }
+  for (const body of [
+    'import { builtinModules, isBuiltin, stripTypeScriptTypes } from "node:module"; consume(builtinModules); isBuiltin("node:fs"); stripTypeScriptTypes("const x = 1;");',
+    'import Module from "node:module"; consume(Module.builtinModules); Module.isBuiltin("node:fs");',
+    'import { register } from "node:module"; register("./ordinary.mjs", import.meta.url);',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/resolve.mjs", safetyFile(body));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+  const hooks = nativeBoundaryInputs();
+  hooks.get("tsonic-rust").set("scripts/preload.mjs", safetyFile('import { registerHooks } from "node:module"; registerHooks({ resolve() {} });'));
+  const result = boundarySafety(hooks);
+  assert.equal(result.findings.length, 0);
+  assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.path === "tsonic-rust/scripts/preload.mjs" && entry.environment === "loader-hook"), true);
+  assert.match(result.nativeAllocationBoundary.staticEntryCut, /Installed package contents/u);
+});
+
+test("C116-F5: one finite literal input owns the actual registry targets and their imported bytes", () => {
+  const path = "test/architecture/tooling/keel-node-registry.mjs";
+  const source = readFileSync(new URL("./tooling/keel-node-registry.mjs", import.meta.url), "utf8");
+  const targets = ["csharp-nodejs/dist/provider/assembly/modules.js", "rust-nodejs/dist/provider/assembly/modules.js"];
+  function registryInputs(changed = source) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic").set(path, safetyFile(changed));
+    for (const target of targets) {
+      const separator = target.indexOf("/");
+      inputs.get(target.slice(0, separator)).set(target.slice(separator + 1), safetyFile("export const nodejsProviderModules = [];", false));
+    }
+    return inputs;
+  }
+  const current = registryInputs();
+  const positive = boundarySafety(current);
+  assert.equal(positive.findings.length, 0, "the unchanged registry is a finite input, not an external IO waiver");
+  assert.deepEqual(keelSafetyBuiltModuleEntries(current), targets);
+  assert.deepEqual(positive.nativeAllocationBoundary.builtModuleInputs.map(input => input.path), targets);
+  assert.equal(positive.nativeAllocationBoundary.builtModuleInputs.every(input => {
+    const separator = input.path.indexOf("/");
+    return input.sha256 === current.get(input.path.slice(0, separator)).get(input.path.slice(separator + 1)).sha256;
+  }), true, "the actual cut and recorded artifact hashes cover identical bytes");
+  const namespaceRoot = source.replace('import { resolve } from "node:path";', 'import * as paths from "node:path";').replaceAll('resolve(', 'paths.resolve(');
+  assert.equal(boundarySafety(registryInputs(namespaceRoot)).findings.length, 0, "a proven native namespace uses the same finite root contract");
+  for (const [label, changed] of [
+    ["observer row", source.replace('  "csharp-nodejs":', '  "rust-runtime": { file: "tests/helpers/allocation_counts.rs", export: "observer", form: "value" },\n  "csharp-nodejs":')],
+    ["writer row", source.replace('  "csharp-nodejs":', '  "tsonic-rust": { file: "test/helpers/native-ownership-cost.mjs", export: "nativeAllocationSupport", form: "function" },\n  "csharp-nodejs":')],
+    ["computed key", source.replace('"csharp-nodejs":', '[computed]:')],
+    ["computed file", source.replace('file: "dist/provider/assembly/modules.js"', 'file: process.env.MODULE')],
+    ["spread table", source.replace('const owners = Object.freeze({', 'const owners = Object.freeze({ ...extra,')],
+    ["spread row", source.replace('"csharp-nodejs": {', '"csharp-nodejs": { ...extra,')],
+    ["table mutation", source.replace('  const owner = owners[repo];', '  owners[repo] = replacement; const owner = owners[repo];')],
+    ["row mutation", source.replace('  const root = resolve(workspace, repo);', '  owner.file = process.env.MODULE; const root = resolve(workspace, repo);')],
+    ["row escape", source.replace('  const root = resolve(workspace, repo);', '  consume(owner); const root = resolve(workspace, repo);')],
+    ["out of table key", source.replace('resolve(workspace, repo)', 'resolve(workspace, other)')],
+    ["out of table target", source.replace('require(file)[owner.export]', 'require(other)[owner.export]')],
+    ["second load", source.replace('  const selected = require(file)[owner.export];', '  require(file); const selected = require(file)[owner.export];')],
+    ["binding escape", source.replace('  const selected = require(file)[owner.export];', '  consume(require); const selected = require(file)[owner.export];')],
+    ["binding alias", source.replace('  const selected = require(file)[owner.export];', '  const alias = require; const selected = alias(file)[owner.export];')],
+    ["missing guard", source.replace('  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");', '')],
+    ["non-own guard", source.replace('!Object.hasOwn(owners, repo)', 'owners[repo] === undefined')],
+    ["guard after lookup", source.replace('  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");\n  const owner = owners[repo];', '  const owner = owners[repo];\n  if (!Object.hasOwn(owners, repo)) throw new Error("Unknown Node registry owner.");')],
+    ["prototype write", source.replace('const owners = Object.freeze({', 'Object.prototype.file = "../tsonic-rust/test/helpers/native-ownership-cost.mjs";\nObject.prototype.export = "nativeAllocationSupport";\nObject.prototype.form = "function";\nconst owners = Object.freeze({')],
+    ["no immediate export", source.replace('require(file)[owner.export]', 'require(file)')],
+    ["root function escape", source.replace('  const root = resolve(workspace, repo);', '  consume(resolve); const root = resolve(workspace, repo);')],
+    ["root namespace mutation", source.replace('import { resolve } from "node:path";', 'import * as paths from "node:path";').replaceAll('resolve(', 'paths.resolve(')
+      .replace('  const root = paths.resolve(workspace, repo);', '  paths.resolve = replacement; const root = paths.resolve(workspace, repo);')],
+  ]) {
+    assert.notEqual(changed, source, label);
+    const rejected = boundarySafety(registryInputs(changed));
+    assert.equal(rejected.nativeAllocationBoundary === undefined, true, label);
+    assert.equal(rejected.findings.filter(finding => finding.subject === "native safety").length, 8, label);
+  }
+  const bridge = registryInputs();
+  bridge.get("csharp-nodejs").set("dist/provider/assembly/modules.js", Object.freeze({ ...safetyFile('import "../bridge.js";', false), builtModule: true }));
+  bridge.get("csharp-nodejs").set("dist/provider/bridge.js", Object.freeze({ ...safetyFile('import "../../../tsonic-rust/test/helpers/native-ownership-cost.mjs";', false), builtModule: true }));
+  assert.equal(keelSafetyBuiltModuleEntries(bridge).includes("csharp-nodejs/dist/provider/bridge.js"), true, "ordinary static imports are capture inputs");
+  assert.equal(boundarySafety(bridge).nativeAllocationBoundary === undefined, true, "a registry target's import cannot reach the writer");
+  const missing = registryInputs();
+  missing.get("rust-nodejs").delete("dist/provider/assembly/modules.js");
+  assert.equal(boundarySafety(missing).nativeAllocationBoundary === undefined, true, "a finite artifact is never opaque or missing");
+  for (const key of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+    assert.throws(() => readKeelNodeModuleRegistry("/workspace", key), { message: "Unknown Node registry owner." }, key);
+  }
+});
+
+test("C114-F6: native Worker and fork inputs are module entries, never guessed from cwd", () => {
+  for (const source of [
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import { Worker as Thread } from "node:worker_threads"; new Thread(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import * as workers from "node:worker_threads"; new workers.Worker(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import { fork } from "node:child_process"; fork(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import * as process from "node:child_process"; process.fork(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import { Worker } from "node:worker_threads"; new Worker("../test/helpers/native-ownership-cost.mjs");',
+    'import { fork } from "node:child_process"; fork("./ordinary.mjs");',
+    'import { Worker } from "node:worker_threads"; const Thread = Worker; new Thread(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import { fork } from "node:child_process"; const start = fork; start(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+    'import * as workers from "node:worker_threads"; const Thread = workers["Worker"]; new Thread(new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url));',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, source);
+  }
+  for (const source of [
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("./ordinary.mjs", import.meta.url));',
+    'import { fork } from "node:child_process"; fork(new URL("./ordinary.mjs", import.meta.url));',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, source);
+  }
+  const external = nativeBoundaryInputs();
+  external.get("tsonic-rust").set("src/emitter.mjs", safetyFile('import { Worker } from "node:worker_threads"; new Worker(process.env.EXTERNAL_ENTRY);'));
+  assert.equal(boundarySafety(external).nativeAllocationBoundary.externalDynamicEntries.length, 1, "unknown external runtime entry is disclosed, not proven harmless");
+});
+
+test("C114-F7: every constructor write, mutation and escape fails the one positive-use proof", () => {
+  const source = 'const root = new URL("../test/helpers/", import.meta.url); const load = (entry) => import(new URL(entry, root).href); load("ordinary.mjs");';
+  const assignments = ["=", "+=", "-=", "*=", "**=", "/=", "%=", "<<=", ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??="];
+  const writes = [...assignments.map(operator => `URL ${operator} replacement;`), "++URL;", "URL++;", "--URL;", "URL--;",
+    "[URL] = values;", "[...URL] = values;", "({ a: URL } = value);", "({ a: URL = fallback } = value);", "({ URL } = value);",
+    "for (URL of values) {}", "for (URL in value) {}", "const alias = URL;", "sink(URL);", "const values = [URL];",
+    "const value = { constructor: URL };", "function escape() { return URL; }", "export { URL };", "URL.prototype.href = replacement;",
+    'Object.defineProperty(URL.prototype, "href", replacement);', "globalThis.URL = replacement;", 'globalThis["URL"] = replacement;',
+    'global["URL"] ||= replacement;', 'self["URL"] ??= replacement;', 'window["URL"] += replacement;',
+    'delete globalThis["URL"];', 'globalThis["U" + "RL"] = replacement;', 'Object.defineProperty(globalThis, "URL", replacement);',
+    'Object.defineProperties(globalThis, replacement);', 'Object.assign(globalThis, replacement);', 'Reflect.set(globalThis, "URL", replacement);',
+    'Reflect.deleteProperty(globalThis, "URL");', "const nativeRoot = globalThis;", "sink(globalThis);", "const nativeRoot = globalThis.global;",
+  ];
+  for (const write of writes) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(`${source} ${write}`));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, write);
+    assert.equal(result.findings.filter(finding => finding.subject === "native safety").length, 8, write);
+    assert.equal(keelFixtureHas(result.findings, "AC12", "literal URL loader"), true, write);
+  }
+  for (const clean of [source, `${source} const unrelated = { URL: 1 }; console.log(unrelated.URL);`,
+    `${source} globalThis.Math.max(1, 2); globalThis.Number.parseInt("1"); new globalThis.Error("ordinary");`,
+    `import { URL as NativeURL } from "node:url"; ${source.replaceAll("new URL(", "new NativeURL(")}`]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/loader.mjs", safetyFile(clean));
+    assert.equal(boundarySafety(inputs).findings.length, 0, clean);
+  }
+});
+
+test("C114-F7: direct URL addresses share constructor identity and refuse mutable object roots", () => {
+  for (const source of [
+    'URL = replacement; await import(new URL("./ordinary.mjs", import.meta.url));',
+    'const address = new URL("./ordinary.mjs", import.meta.url); address.pathname = replacement; await import(address.href);',
+    'const address = new URL("./ordinary.mjs", import.meta.url); ({ value: address.href } = replacement); await import(address.href);',
+    'const address = new URL("./ordinary.mjs", import.meta.url); delete address.href; await import(address.href);',
+    'const address = new URL("./ordinary.mjs", import.meta.url); sink(address); await import(address.href);',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, source);
+  }
+  for (const source of [
+    'const address = new URL("./ordinary.mjs", import.meta.url); await import(address.href);',
+    'import { fileURLToPath } from "node:url"; const address = fileURLToPath(new URL("./ordinary.mjs", import.meta.url)); const alias = address; await import(alias);',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    assert.equal(boundarySafety(inputs).findings.length, 0, source);
+  }
+  const boundary = boundarySafety().nativeAllocationBoundary;
+  assert.match(boundary.staticEntryCut, /foreign-module, preload or loader-hook intrinsic mutation/u);
+  assert.match(boundary.staticEntryCut, /computed-value prototype mutation are excluded, not proven harmless/u);
 });
 
 test("the actual transcript manifest declares data, not an executable-suffix waiver", () => {
