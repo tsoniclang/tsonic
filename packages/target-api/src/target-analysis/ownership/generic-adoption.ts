@@ -7,6 +7,8 @@ import { sourceCallableDefinitionIsDiscarded, sourceEnclosingCallable, sourceLex
 import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceDiagnosticSpanReader } from "../../source-semantics/diagnostic-spans.js";
 import { createTargetGraphComponentQuery } from "../graph-component-query.js";
+import type { SourceStorageQueries } from "../source-storage/model/types.js";
+import type { SourceStorageSubject } from "../source-storage/model/subjects.js";
 import type { SourceOwnershipBudget, SourceOwnershipUnresolved } from "./model.js";
 
 export const sourceGenericAdoptionDiagnosticCode = "TSONIC_GENERIC_ASYNC_ADOPTION_UNSUPPORTED";
@@ -39,10 +41,12 @@ export function analyzeSourceGenericAdoption(input: {
   readonly source: TargetSourceProgram;
   readonly projectRoot: string;
   readonly nodes: readonly Node[];
+  readonly storage: SourceStorageQueries;
   readonly budget: SourceOwnershipBudget;
   readonly exemptTypeParameter?: (parameter: Node) => boolean;
 }): { readonly kind: "resolved"; readonly issues: readonly SourceGenericAdoptionIssue[] } | SourceOwnershipUnresolved {
   const { source, budget } = input;
+  if (input.storage.source !== source) throw new Error("Generic adoption requires the identical checked source storage.");
   const { ast } = source;
   const domain = sourceNodesOutsideErasedSubtrees(ast, input.nodes, node =>
     ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node)
@@ -55,7 +59,7 @@ export function analyzeSourceGenericAdoption(input: {
   const nodes = domain.nodes;
   const parameters = new Map<Node, Parameter>();
   const instances: Instantiation[] = [];
-  const sites = new Map<Node, Set<Node>>();
+  const sites = new Map<Node, Map<Node, Set<Type>>>();
   const rows = budget.createRows();
   let failure: SourceOwnershipUnresolved | undefined;
   const refuse = (at: Node, reason: string): undefined => {
@@ -144,10 +148,12 @@ export function analyzeSourceGenericAdoption(input: {
     return symbol === undefined ? undefined : semantics.declarations.symbolDeclarations(symbol).find(node => parameters.has(node));
   };
   const addInstance = (site: Node, parameter: Node, actual: Type): void => {
-    if (!parameters.has(parameter) || sites.get(site)?.has(parameter)) return;
+    if (!parameters.has(parameter) || sites.get(site)?.get(parameter)?.has(actual)) return;
     if (!rows.add(1)) { refuse(site, budget.failure()!); return; }
-    const selected = sites.get(site) ?? new Set<Node>();
-    selected.add(parameter);
+    const selected = sites.get(site) ?? new Map<Node, Set<Type>>();
+    const actuals = selected.get(parameter) ?? new Set<Type>();
+    actuals.add(actual);
+    selected.set(parameter, actuals);
     sites.set(site, selected);
     instances.push(Object.freeze({ site, parameter, actual }));
     const semantics = source.semantics.forNode(site);
@@ -155,6 +161,28 @@ export function analyzeSourceGenericAdoption(input: {
       const origin = parameters.get(forwarded)!;
       if (!origin.neighbours.has(parameter) && !rows.add(1)) { refuse(site, budget.failure()!); return; }
       origin.neighbours.add(parameter);
+    }
+  };
+  const receiverInstances = (site: Node, type: Type, active = new Set<Type>()): void => {
+    if (!step(site) || active.has(type)) return;
+    active.add(type);
+    const semantics = source.semantics.forNode(site);
+    if (semantics.types.isUnion(type) || semantics.types.isIntersection(type)) {
+      for (const part of semantics.types.unionOrIntersectionTypes(type)) receiverInstances(site, part, active);
+      return;
+    }
+    for (const binding of semantics.types.typeArgumentBindings(type) ?? [])
+      addInstance(site, binding.declaration, binding.argumentType);
+    const symbol = semantics.declarations.typeSymbol(type);
+    for (const declaration of symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol)) {
+      if (!source.navigation.isProjectDeclaration(declaration) ||
+        !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) &&
+        !ast.is.IsInterfaceDeclaration(declaration)) continue;
+      for (const heritage of ast.extendsHeritageElements(declaration)) {
+        const inherited = source.semantics.forNode(heritage).types.authoredType(heritage);
+        if (inherited === undefined) { refuse(heritage, "Generic receiver adoption requires its exact checked heritage type."); return; }
+        receiverInstances(site, inherited, active);
+      }
     }
   };
   const canonicalPromiseMember = (declaration: Node): string | undefined => {
@@ -173,7 +201,7 @@ export function analyzeSourceGenericAdoption(input: {
     return ast.is.IsConstructSignatureDeclaration(declaration) ? "construct" : ast.text(ast.name(declaration));
   };
   const reactionBodies = new Set<Node>();
-  const resolvers = new Set<Node>();
+  const resolvers = new Set<SourceStorageSubject>();
   const calls: { readonly node: Node; readonly selected: ResolvedSourceCallInfo; readonly declaration: Node }[] = [];
   for (const node of nodes) {
     if (!step(node)) break;
@@ -199,7 +227,11 @@ export function analyzeSourceGenericAdoption(input: {
           const implementation = source.navigation.callableImplementation(declaration);
           const owner = implementation.kind === "resolved" ? implementation.implementation.declaration : declaration;
           const resolve = ast.parameters(owner)[0];
-          if (resolve !== undefined) resolvers.add(resolve);
+          if (resolve !== undefined) {
+            const selected = input.storage.subject(resolve, "input");
+            if (selected.kind === "unresolved") refuse(resolve, selected.reason);
+            else resolvers.add(selected.subject);
+          }
         }
       }
     } else if (member === "then" || member === "catch" || member === "finally") {
@@ -214,6 +246,28 @@ export function analyzeSourceGenericAdoption(input: {
   }
   for (const node of nodes) {
     if (!step(node)) break;
+    if ((ast.is.IsMethodDeclaration(node) || ast.is.IsMethodSignatureDeclaration(node) ||
+      ast.is.IsGetAccessorDeclaration(node) || ast.is.IsPropertySignatureDeclaration(node)) &&
+      source.navigation.isProjectDeclaration(node) &&
+      (ast.is.IsPropertySignatureDeclaration(node) || ast.body(node) === undefined)) {
+      const semantics = source.semantics.forNode(node);
+      const callable = semantics.types.declarationSignatureInfo(node);
+      if (callable?.returnType !== undefined) markType(node, callable.returnType, semantics);
+      else if (ast.is.IsPropertySignatureDeclaration(node)) {
+        const value = semantics.declarations.declaredValueType(node);
+        if (value !== undefined) for (const signature of semantics.types.signatureInfos(value, "call"))
+          if (signature.returnType !== undefined) markType(node, signature.returnType, semantics);
+      }
+    }
+    if (ast.is.IsPropertyAccessExpression(node) || ast.is.IsElementAccessExpression(node)) {
+      const parent = ast.parent(node);
+      if (parent !== undefined && ast.is.IsCallExpression(parent) &&
+        ast.as.AsCallExpression(parent)?.Expression === node) continue;
+      const semantics = source.semantics.forNode(node);
+      const access = ast.is.IsPropertyAccessExpression(node) ? semantics.operations.propertyAccess(node)
+        : semantics.operations.elementAccess(node);
+      if (access !== undefined) receiverInstances(node, access.receiver.type);
+    }
     if (ast.is.IsAwaitExpression(node)) {
       const value = ast.as.AsAwaitExpression(node)?.Expression;
       if (value !== undefined) mark(node, value);
@@ -232,24 +286,16 @@ export function analyzeSourceGenericAdoption(input: {
     if (!step(node)) break;
     const semantics = source.semantics.forNode(node);
     const callee = selected.sourceCallee.expression;
-    let reference = callee;
-    const aliases = new Set<Node>();
     let resolver = false;
-    while (!aliases.has(reference) && step(reference)) {
-      aliases.add(reference);
-      if (ast.is.IsParenthesizedExpression(reference)) {
-        const expression = ast.as.AsParenthesizedExpression(reference)?.Expression;
-        if (expression === undefined) break;
-        reference = expression;
-        continue;
-      }
-      const referenced = source.navigation.sourceReferenceFor(reference)?.declaration;
-      if (referenced === undefined) break;
-      if (resolvers.has(referenced)) { resolver = true; break; }
-      const initializer = ast.is.IsVariableDeclaration(referenced)
-        ? ast.as.AsVariableDeclaration(referenced)?.Initializer : undefined;
-      if (initializer === undefined || source.navigation.declarationUseSummary(referenced).bindingWritten) break;
-      reference = initializer;
+    if (resolvers.size !== 0 && canonicalPromiseMember(declaration) === undefined) {
+      const subject = input.storage.subjectFor(callee);
+      const origins = subject.kind === "unresolved" ? subject : input.storage.closedOriginsFor(subject.subject);
+      if (origins.kind === "unresolved") {
+        const argument = ast.arguments(node)[0];
+        const type = argument === undefined ? undefined : semantics.types.expressionType(argument);
+        if (source.navigation.isProjectDeclaration(declaration) && type !== undefined &&
+          (topLevelParameters(type, semantics)?.size ?? 0) !== 0) refuse(node, origins.reason);
+      } else resolver = origins.origins.some(origin => resolvers.has(origin.subject));
     }
     if (resolver) {
       const argument = ast.arguments(node)[0];
@@ -261,6 +307,7 @@ export function analyzeSourceGenericAdoption(input: {
     }
     if (ast.is.IsNewExpression(node)) for (const binding of semantics.types.typeArgumentBindings(selected.sourceResultType) ?? [])
       addInstance(node, binding.declaration, binding.argumentType);
+    if (selected.sourceReceiver !== undefined) receiverInstances(node, selected.sourceReceiver.type);
     if (!source.navigation.isProjectDeclaration(declaration)) continue;
     const implementation = source.navigation.callableImplementation(declaration);
     if (implementation.kind !== "resolved") continue;
@@ -310,8 +357,11 @@ export function analyzeSourceGenericAdoption(input: {
     if (!step(instance.site)) break;
     const semantics = source.semantics.forNode(instance.site);
     if (semantics.types.isAny(instance.actual) || semantics.types.isUnknown(instance.actual)) continue;
-    const open = topLevelParameters(instance.actual, semantics);
-    if (open === undefined || open.size !== 0) continue;
+    if (semantics.types.isUnion(instance.actual) || semantics.types.isIntersection(instance.actual)) {
+      for (const part of semantics.types.unionOrIntersectionTypes(instance.actual)) addInstance(instance.site, instance.parameter, part);
+      continue;
+    }
+    if (sourceParameter(instance.actual, semantics) !== undefined) continue;
     const awaited = semantics.types.awaitedType(instance.actual);
     if (awaited === undefined) { refuse(instance.site, "Generic instantiation requires its completed native Awaited selection."); break; }
     if (semantics.types.isIdentical(awaited, instance.actual)) continue;

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { dirname } from "node:path";
 import { createCompilerSessionFromFiles } from "@tsonic/tsts";
 import { createSourceDiagnosticSpanReader } from "./diagnostic-spans.js";
 
 function fixture(text: string, fileName = "/project/source.ts") {
-  const source = createCompilerSessionFromFiles({ currentDirectory: "/project", files: { [fileName]: text },
+  const source = createCompilerSessionFromFiles({ currentDirectory: dirname(fileName), files: { [fileName]: text },
     compilerOptions: { noLib: true, target: "es2022", module: "esnext" } }).checkSource();
   const file = source.sourceFiles.find(candidate => candidate !== undefined && source.ast.getFileName(candidate) === fileName);
   assert.equal(file !== undefined, true, "the actual checked source file exists");

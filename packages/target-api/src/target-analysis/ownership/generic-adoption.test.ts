@@ -5,6 +5,7 @@ import { createTargetSourceProgram } from "../../source-semantics/target-source-
 import type { TargetSourceProgram } from "../../source-semantics/types.js";
 import { createSourceStorageBudget, defaultSourceStorageLimits } from "../source-storage/model/resource-budget.js";
 import { analyzeSourceGenericAdoption } from "./generic-adoption.js";
+import { createSourceStorageQuery } from "../source-storage/queries.js";
 
 function fixture(text: string, projectRoot = "/src") {
   const checked = createCompilerSessionFromFiles({ currentDirectory: projectRoot, files: { [`${projectRoot}/index.ts`]: text },
@@ -18,11 +19,12 @@ function fixture(text: string, projectRoot = "/src") {
     source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   for (const file of source.sourceFiles) if (!source.ast.isDeclarationFile(file)) visit(file);
+  const storage = createSourceStorageQuery(source, source.sourceFiles);
   const query = (maximumSteps = defaultSourceStorageLimits.maximumSteps, exemptTypeParameter?: (node: Node) => boolean) =>
-    analyzeSourceGenericAdoption({ source, projectRoot, nodes, budget: createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps }),
+    analyzeSourceGenericAdoption({ source, projectRoot, nodes, storage, budget: createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps }),
       ...(exemptTypeParameter === undefined ? {} : { exemptTypeParameter }) });
-  const textFor = (node: Node): string => source.ast.getSourceText(source.ast.getSourceFile(node)!)
-    .slice(source.ast.pos(node), source.ast.end(node)).trim();
+  const textFor = (node: Node): string => Buffer.from(source.ast.getSourceText(source.ast.getSourceFile(node)!))
+    .subarray(source.ast.pos(node), source.ast.end(node)).toString("utf8").trim();
   return { source, nodes, query, textFor };
 }
 
@@ -63,6 +65,14 @@ const declarations = [
     function execute(resolve: (value: T | PromiseLike<T>) => void): void { resolve(value); }
     return new Promise<T>(execute);
   }`, "namedExecutor"],
+  ["resolver helper", `function helper<T>(value: T) { return new Promise<T>(resolve => {
+    function deliver(callback: (value: T) => void): void { callback(value); } deliver(resolve);
+  }); }`, "helper"],
+  ["generic resolver helper", `function deliver<V>(callback: (value: V) => void, value: V): void { callback(value); }
+    function helper<T>(value: T) { return new Promise<T>(resolve => deliver(resolve, value)); }`, "helper"],
+  ["member resolver", `function helper<T>(value: T) { return new Promise<T>(resolve => {
+    const cell = { done: resolve }; const alias = cell.done; alias(value);
+  }); }`, "helper"],
   ["generic callable body unknown", `function unknown<Value>(callback: <T>(value: T) => Promise<T>, value: Value): void {
     void callback(value);
   }\nfunction unknownRoot<Value>(value: Value): void { unknown(identity, value); }\n${identity}`, "unknownRoot"],
@@ -100,6 +110,68 @@ test("a class parameter and captured structural method are summarized at their a
   assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "complete class summary");
   if (selected.kind !== "resolved") return;
   assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)).sort(), ["make(promised)", "new Holder(promised)"]);
+});
+
+for (const [name, extra, receiver, expression] of [
+  ["incoming", "", "Holder<Promise<number>>", "holder.get()"],
+  ["aliased", "type Alias<V> = Holder<V>;", "Alias<Promise<number>>", "holder.get()"],
+  ["finite-union", "", "Holder<number> | Holder<Promise<number>>", "holder.get()"],
+  ["inherited", "class Derived<U> extends Holder<U> {}", "Derived<Promise<number>>", "holder.get()"],
+  ["fixed-inherited", "class Derived extends Holder<Promise<number>> {}", "Derived", "holder.get()"],
+  ["getter", "", "Holder<Promise<number>>", "holder.task"],
+  ["method-value", "", "Holder<Promise<number>>", "holder.get"],
+] as const) {
+  test(`generic adoption retains the actual ${name} receiver binding`, () => {
+    const current = fixture(`class Holder<T> { constructor(readonly value: T) {}
+      async get(): Promise<T> { return this.value; }
+      get task(): Promise<T> { return this.get(); }
+    } ${extra}
+    export function use(holder: ${receiver}) { return ${expression}; }`);
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
+    if (selected.kind !== "resolved") return;
+    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), [expression],
+      "every actual receiver alternative is checked, without a callee-property duplicate");
+  });
+}
+
+test("a receiver forwards sensitivity through the exact outer function binder", () => {
+  const current = fixture(`class Holder<T> { constructor(readonly value: T) {}
+    async get(): Promise<T> { return this.value; } }
+    function forward<V>(holder: Holder<V>) { return holder.get(); }
+    export function use(holder: Holder<Promise<number>>) { return forward(holder); }`);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "receiver forwarding");
+  if (selected.kind !== "resolved") return;
+  assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["forward(holder)"],
+    "the owning checked call supplies the actual binding, not a guessed member spelling");
+});
+
+for (const [name, declaration] of [
+  ["interface", "interface Contract<Value> { read(): Promise<Value>; }"],
+  ["abstract", "abstract class Contract<Value> { abstract read(): Promise<Value>; }"],
+  ["callable-property", "interface Contract<Value> { read: () => Promise<Value>; }"],
+] as const) {
+  test(`unknown ${name} receiver completion keeps its exact class binding fail-closed`, () => {
+    const current = fixture(`${declaration}
+      export function use(value: Contract<Promise<number>>) { return value.read(); }`);
+    const selected = current.query();
+    assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : name);
+    if (selected.kind !== "resolved") return;
+    assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["value.read()"],
+      "a bodyless native contract cannot erase the actual generic receiver instantiation");
+  });
+}
+
+test("an ordinary helper does not become a resolver merely because its callback has the same signature", () => {
+  const current = fixture(`function use<T>(value: T): Promise<number> { return new Promise<number>(resolve => {
+    function observe(callback: (value: T) => void): void { callback(value); }
+    observe(item => { void item; }); resolve(7);
+  }); }
+  export function run(value: Promise<number>) { return use(value); }`);
+  const selected = current.query();
+  assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+    selected.kind === "unresolved" ? selected.reason : "resolver provenance is actual storage identity, not callback type");
 });
 
 test("generic adoption provenance has one canonical Unicode/CRLF span and project-relative format", () => {
