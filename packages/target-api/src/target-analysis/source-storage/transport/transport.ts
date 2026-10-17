@@ -304,7 +304,8 @@ export function createSourceStorageTransport(
     if (ast.is.IsCallExpression(node) || ast.is.IsNewExpression(node)) {
       invocations.add(node);
       regions.recordInvocation(node);
-      const selected = semantics.forNode(node).operations.call(node);
+      const consumer = semantics.forNode(node);
+      const selected = consumer.operations.call(node);
       const contributed = selected === undefined ? undefined : effects.call?.(node, selected);
       if (contributed !== undefined && selected !== undefined) {
         const effect = snapshotSourceStorageCallEffect(contributed, selected, budget);
@@ -318,7 +319,7 @@ export function createSourceStorageTransport(
         }
       }
       const signature = selected === undefined ? undefined
-        : semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+        : consumer.declarations.signatureDeclaration(selected.selectedSignature);
       if (selected !== undefined && (signature !== undefined || ast.is.IsNewExpression(node))) {
         if (signature !== undefined) invocationDeclarations.set(node, signature);
         const target = subjectFor(Node_Expression(ast, node));
@@ -336,7 +337,7 @@ export function createSourceStorageTransport(
             parameter.parameterIndex === binding.sourceParameterIndex)?.parameterDeclaration;
           const actual = subjectFor(selected.sourceArguments[binding.sourceArgumentIndex]?.expression);
           const rest = binding.sourceParameterForm !== "rest-element" || signature === undefined ? undefined
-            : sourceStorageCallableInputSlots(source, signature, step)?.filter(slot =>
+            : sourceStorageCallableInputSlots(source, signature, consumer, selected.selectedSignature, step)?.filter(slot =>
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
           const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
@@ -647,7 +648,9 @@ export function createSourceStorageTransport(
         if (!step()) return;
         for (const candidate of callbackImplementationsFor(callback)) {
           if (!step()) return;
-          const slots = sourceStorageCallableInputSlots(source, candidate, step);
+          const consumer = semantics.forNode(invocation);
+          const slots = sourceStorageCallableInputSlots(source, candidate, consumer,
+            consumer.types.declarationSignatureInfo(candidate)?.signature, step);
           for (const slot of slots ?? []) {
             if (!step()) return;
             if (slot.projection === undefined) continue;
@@ -663,9 +666,10 @@ export function createSourceStorageTransport(
     for (const invocation of invocationTargets.keys()) yield once => {
       for (const candidate of invocationImplementations(invocation)) {
         if (!once(candidate)) continue;
-        const slots = sourceStorageCallableInputSlots(source, candidate, step);
-        const selected = semantics.forNode(invocation).operations.call(invocation);
-        const result = selected === undefined ? undefined : semantics.forNode(invocation).operations.callResult(selected);
+        const consumer = semantics.forNode(invocation);
+        const selected = consumer.operations.call(invocation);
+        const slots = sourceStorageCallableInputSlots(source, candidate, consumer, selected?.selectedSignature, step);
+        const result = selected === undefined ? undefined : consumer.operations.callResult(selected);
         if (ast.is.IsCallExpression(invocation) && !ast.hasModifierKind(candidate, "async")) connect(subject(candidate, "return"), subject(invocation),
           result === undefined ? undefined : { from: result.selectedReturnType, to: result.resultType });
         const receiver = subject(candidate, "receiver");
@@ -805,7 +809,8 @@ export function createSourceStorageTransport(
         for (const entry of entries) {
           if (!step()) return undefined;
           if (entry.candidate !== owner) continue;
-          const bounds = sourceStorageNativeInputSlots(source, owner, origin, entry.callback.argument.binding.selectedParameterType, step);
+          const bounds = sourceStorageNativeInputSlots(source, owner, origin, entry.callback.argument.binding.selectedParameterType,
+            semantics.forNode(entry.invocation), step);
           if (bounds !== undefined && bounds.every(bound => bound.absent)) continue;
           const inputs = invocationInputs(origin, owner, entry.invocation, entry.callback);
           if (!inputs.calleeSubjects?.includes(origin)) continue;

@@ -209,7 +209,7 @@ export function analyzeSourceGenericAdoption(input: {
     if (bases === undefined) { refuse(site, "Generic receiver adoption requires its exact checked instantiated base types."); return; }
     for (const inherited of bases) receiverInstances(site, inherited, active);
   };
-  const canonicalPromiseMember = (declaration: Node): string | undefined => {
+  const canonicalPromiseMember = (declaration: Node, semantics: SourceFileSemantics): string | undefined => {
     const fact = source.sourceFacts.getFact(declaration, providerVirtualDeclarationFactKey);
     if (fact?.providerId === "tsonic.js.source-virtual-modules" &&
       (fact.exportName === "Promise" || fact.exportName === "PromiseLike" || fact.exportName === "PromiseConstructor")) {
@@ -218,7 +218,7 @@ export function analyzeSourceGenericAdoption(input: {
     const file = ast.getSourceFile(declaration);
     if (file === undefined || !ast.isDeclarationFile(file) || source.navigation.isProjectDeclaration(declaration) ||
       !(isTsonicSourceProfileDeclarationPath(ast.getFileName(file)) ||
-        source.semantics.forNode(declaration).declarations.isDefaultLibraryDeclaration(declaration))) return undefined;
+        semantics.declarations.isDefaultLibraryDeclaration(declaration))) return undefined;
     const owner = ast.parent(declaration);
     const ownerName = ast.text(ast.name(owner));
     if (ownerName !== "Promise" && ownerName !== "PromiseLike" && ownerName !== "PromiseConstructor") return undefined;
@@ -237,7 +237,7 @@ export function analyzeSourceGenericAdoption(input: {
       ? semantics.declarations.signatureDeclaration(selected.selectedSignature) : undefined;
     if (selected === undefined || declaration === undefined) continue;
     calls.push({ node, selected, declaration });
-    const member = canonicalPromiseMember(declaration);
+    const member = canonicalPromiseMember(declaration, semantics);
     if (member === "resolve") {
       const value = ast.arguments(node)[0];
       if (value !== undefined) mark(node, value);
@@ -268,7 +268,8 @@ export function analyzeSourceGenericAdoption(input: {
             continue;
           }
           const owner = implementation.implementation.declaration;
-          const slots = sourceStorageCallableInputSlots(source, owner, () => step(executor));
+          const slots = sourceStorageCallableInputSlots(source, owner, semantics,
+            semantics.types.declarationSignatureInfo(owner)?.signature, () => step(executor));
           const resolve = slots?.find(slot => slot.effectiveIndex === 0);
           if (slots === undefined || resolve !== undefined && (resolve.repeated || resolve.projection === undefined)) {
             if (generic) markType(executor, selected.sourceResultType, semantics, Object.freeze({ kind: "unresolved", at: executor,
@@ -386,7 +387,7 @@ export function analyzeSourceGenericAdoption(input: {
         if (entry !== undefined) {
           selectedSemantics = source.semantics.forNode(entry.invocation);
           const nativeInputs = sourceStorageNativeInputSlots(source, owner!, origin,
-            entry.argument.binding.selectedParameterType, () => step(operation));
+            entry.argument.binding.selectedParameterType, selectedSemantics, () => step(operation));
           if (nativeInputs === undefined || nativeInputs.some(input => !input.absent && input.type === undefined)) {
             markType(operation, knownResolverResult ?? producer.type, source.semantics.forFile(producer.sourceFile), Object.freeze({ kind: "unresolved", at: operation,
               reason: "A native resolver callback requires its exact checked input component type bound." }));
@@ -504,7 +505,7 @@ export function analyzeSourceGenericAdoption(input: {
     const callee = selected.sourceCallee.expression;
     const argument = ast.arguments(node)[0];
     const owner = sourceEnclosingCallable(node, ast);
-    if (entries.length !== 0 && argument !== undefined && owner !== undefined && canonicalPromiseMember(declaration) === undefined) {
+    if (entries.length !== 0 && argument !== undefined && owner !== undefined && canonicalPromiseMember(declaration, semantics) === undefined) {
       const subject = input.storage.subjectFor(callee);
       if (subject.kind === "unresolved") { refuse(node, subject.reason); break; }
       for (const entry of entries) {
