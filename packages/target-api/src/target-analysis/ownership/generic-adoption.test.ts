@@ -677,7 +677,7 @@ test("an opaque resolver result is unresolved, never an empty safe source summar
   const selected = current.query();
   assert.equal(selected.kind, "unresolved", "an open opaque result is not a closed nonresolver");
   if (selected.kind !== "unresolved") return;
-  assert.equal(current.textFor(selected.at), "done(value)", "the exact unresolved operation is preserved");
+  assert.equal(current.textFor(selected.at), "opaque(resolve)", "the exact unresolved operation is preserved");
 });
 
 test("an opaque resolver relation does not refuse a proven ordinary actual", () => {
