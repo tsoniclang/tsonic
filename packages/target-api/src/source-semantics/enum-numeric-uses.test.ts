@@ -109,12 +109,183 @@ export function overwritten(value: Value): number { let result = ~value; result 
     "no spelling, arbitrary write, or ordinary numeric initializer becomes enum provenance");
 });
 
-test("explicit numeric source assertions retain their existing conversion boundary", () => {
+test("explicit numeric source assertions are refused at the shared projection boundary", () => {
   const source = checked(`export enum Value { First = 1 }
 export function convert(value: Value): number { const result = value as number; return result; }
 `);
-  assert.equal(source.semantics.enumConstants.issues.length, 0, "this classifier does not implement or redefine explicit native conversions");
+  assert.equal(source.semantics.enumConstants.issues.length, 1, "C-0124 refuses explicit numeric projection before either target implements M5");
+  assert.equal(source.semantics.enumConstants.issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED", "the conversion has the same precise shared refusal");
 });
+
+const compositionRefusals = [
+  ["conditional complement", "export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? ~left : ~right; return result; }"],
+  ["conditional bitwise", "export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? left | right : left & right; return result; }"],
+  ["different-enum conditional", "enum Other { Third = 4 } export function use(left: Value, right: Other, flag: boolean): number { const result = flag ? ~left : ~right; return result; }"],
+  ["mixed ordinary conditional", "export function use(left: Value, flag: boolean): number { const result = flag ? ~left : 42; return result; }"],
+  ["checked enum and number choice", "export function use(left: Value, flag: boolean): number { const result = flag ? left : 42; return result; }"],
+  ["comma complement", "function touch(): void {} export function use(value: Value): number { const result = (touch(), ~value); return result; }"],
+  ["nested comma copy", "function touch(): void {} export function use(value: Value): number { const result = (touch(), (touch(), ~value)); const copy = result; return copy; }"],
+  ["logical-and result", "export function use(left: Value, right: Value): number { const result = (~left) && (~right); return result; }"],
+  ["logical-or result", "export function use(left: Value, right: Value): number { const result = (~left) || (~right); return result; }"],
+  ["nullish result", "export function use(right: Value, absent: undefined): number { const result = absent ?? ~right; return result; }"],
+  ["mixed choice equality", "export function use(left: Value, flag: boolean): boolean { const result = flag ? ~left : 42; return result === left; }"],
+  ["mixed logical equality", "export function use(left: Value): boolean { const result = (~left) || 42; return result === left; }"],
+  ["choice numeric argument", "function consume(value: number): number { return value; } export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? ~left : ~right; return consume(result); }"],
+  ["choice numeric local", "export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? ~left : ~right; const copy: number = result; return copy; }"],
+  ["choice arithmetic", "export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? ~left : ~right; return result + 1; }"],
+  ["composed non-null alias", "function touch(): void {} export function use(left: Value, right: Value, flag: boolean): number { const result = (flag ? (touch(), ~left) : ~right)!; const copy = result; return copy; }"],
+] as const;
+
+for (const [label, body] of compositionRefusals) {
+  test(`enum composition refuses ${label} without losing a possible native enum`, () => {
+    const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
+    const issues = source.semantics.enumConstants.issues;
+    assert.equal(issues.length, 1, `${label}: one actual use, not a diagnostic per operand`);
+    assert.equal(issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED", `${label}: shared pre-seal code`);
+    assert.equal(issues[0]?.message, "Enum value 'Value' is used as a number; enum-numeric operations are not supported yet. Use equality or bitwise operations within the same enum instead.", `${label}: no guessed enum identity`);
+    assert.equal(Object.isFrozen(issues) && Object.isFrozen(issues[0]), true, `${label}: immutable issue`);
+  });
+}
+
+const compositionPreservations = [
+  ["same-enum conditional", "export function use(left: Value, right: Value, flag: boolean): Value { const result = flag ? ~left : ~right; return result; }"],
+  ["same-enum conditional bitwise", "export function use(left: Value, right: Value, flag: boolean): Value { const result = flag ? left | right : left & right; return result; }"],
+  ["comma enum result", "function touch(): void {} export function use(value: Value): Value { const result = (touch(), ~value); return result; }"],
+  ["same-enum logical-and", "export function use(left: Value, right: Value): Value { const result = (~left) && (~right); return result; }"],
+  ["same-enum logical-or", "export function use(left: Value, right: Value): Value { const result = (~left) || (~right); return result; }"],
+  ["nullable enum nullish choice", "export function use(left: Value | undefined, right: Value): Value { const result = left ?? right; return result; }"],
+  ["conditional same-enum equality", "export function use(left: Value, right: Value, flag: boolean): boolean { const result = flag ? ~left : ~right; return result === left; }"],
+  ["conditional same-enum bitwise", "export function use(left: Value, right: Value, flag: boolean): Value { const result = flag ? ~left : ~right; return result & left; }"],
+  ["ordinary numeric compositions", "export function use(left: number, right: number, flag: boolean): number { const result = flag ? ~left : ~right; return (result || 42) + 1; }"],
+  ["same-enum authored assertion", "export function use(value: Value): Value { const result = value as Value; return result; }"],
+  ["effectful comma with numeric result", "function touch(value: Value): void {} export function use(value: Value): number { const result = (touch(value), 42); return result; }"],
+  ["lexical shadow", "export function use(value: Value, flag: boolean): number { const result = flag ? ~value : ~value; { const result = 42; return result; } }"],
+  ["branded enum intersection", "type Branded = Value & { readonly tag: unique symbol }; export function use(value: Branded): boolean { return value === value; }"],
+  ["nullable enum identity", "export function use(left: Value | undefined, right: Value | undefined): boolean { return left === right; }"],
+  ["checked-false logical value", "export function use(value: Value): boolean { const result = false && ~value; return result; }"],
+  ["nested effectful same-enum result", "function choose(flag: boolean): boolean { return flag; } function touch(): void {} export function use(left: Value, right: Value, flag: boolean): Value { const result = choose(flag) ? (touch(), ~left) : (touch(), ~right); const copy = result; return copy; }"],
+] as const;
+
+for (const [label, body] of compositionPreservations) {
+  test(`enum composition preserves ${label} without manufacturing a numeric use`, () => {
+    const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
+    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: actual result identity and source effects remain unchanged`);
+  });
+}
+
+const extraNumericRefusals = [
+  ["numeric switch discriminant", "export function use(value: number): number { switch (value) { case Value.First: return 1; default: return 0; } }", 1],
+  ["numeric switch case", "export function use(value: Value): number { switch (value) { case 1: return 1; default: return 0; } }", 1],
+  ["inferred complement switch discriminant", "export function use(value: Value): number { const result = ~value; switch (result) { case 1: return 1; default: return 0; } }", 1],
+  ["array numeric index", "export function use(values: number[], key: Value): number { return values[key]; }", 1],
+  ["readonly array numeric index", "export function use(values: readonly number[], key: Value): number { return values[key]; }", 1],
+  ["tuple numeric index", "export function use(values: [number, number]): number { return values[Value.First]; }", 1],
+  ["number index signature", "export function use(values: { [index: number]: number }, key: Value): number { return values[key]; }", 1],
+  ["angle numeric assertion", "export function use(value: Value): number { return <number>value; }", 1],
+  ["numeric branch assertions", "export function use(left: Value, right: Value, flag: boolean): number { const result = flag ? left as number : right as number; return result; }", 2],
+  ["inferred object field escape", "export function use(): number { const object = { value: ~Value.First }; return object.value + 1; }", 1],
+  ["inferred collection escape", "export function use(): number { const values = [~Value.First]; return values[0] + 1; }", 1],
+  ["generic call numeric escape", "function identity<T>(value: T): T { return value; } export function use(value: Value): number { const result = identity(~value); return result; }", 1],
+  ["inferred callable return escape", "function produce(value: Value) { return ~value; } export function use(value: Value): number { return produce(value); }", 1],
+] as const;
+
+for (const [label, body, expected] of extraNumericRefusals) {
+  test(`enum boundary refuses ${label} before a target can lose the domain`, () => {
+    const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
+    const issues = source.semantics.enumConstants.issues;
+    assert.equal(issues.length, expected, `${label}: exactly one precise issue per actual source use`);
+    assert.equal(issues.every(issue => issue.code === "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED" && issue.message.includes("used as a number")), true,
+      `${label}: no native fallback, missing-fact invariant or string conversion`);
+  });
+}
+
+test("enum composition preserves every actual condition, call and operand identity", () => {
+  const original = createCompilerSessionFromFiles({ currentDirectory: "/src", files: { "/src/index.ts": `
+export enum Value { First = 1, Second = 2 }
+function condition(flag: boolean): boolean { return flag; }
+function touch(): void {}
+export function use(left: Value, right: Value, flag: boolean): Value {
+  const result = condition(flag) ? (touch(), ~left) : (touch(), ~right);
+  return result;
+}
+` }, compilerOptions: { strict: true, target: "es2022", module: "esnext", moduleResolution: "bundler" } }).checkSource();
+  assert.equal(original.diagnostics.length, 0, "the identity control is actual checked source");
+  const nodes: import("@tsonic/tsts").Node[] = [];
+  const remaining: (import("@tsonic/tsts").Node | undefined)[] = [...original.sourceFiles];
+  while (remaining.length !== 0) {
+    const node = remaining.pop();
+    if (node === undefined) continue;
+    nodes.push(node);
+    original.ast.forEachChild(node, child => { if (child !== undefined) remaining.push(child); });
+  }
+  const calls = nodes.filter(node => original.ast.is.IsCallExpression(node));
+  const conditional = nodes.find(node => original.ast.is.IsConditionalExpression(node));
+  assert.equal(calls.length, 3, "one condition call and exactly one original call per branch");
+  assert.equal(conditional !== undefined, true, "the actual conditional expression exists");
+  const source = createTargetSourceProgram(original);
+  assert.equal(source.semantics.enumConstants.issues.length, 0, "the same-enum effectful result stays admitted");
+  assert.equal(source.sourceFiles.every((file, index) => file === original.sourceFiles[index]), true, "source file identities are unchanged");
+  assert.equal(calls.every(call => nodes.includes(call) && source.ast.parent(call) === original.ast.parent(call)), true,
+    "source analysis does not replace, copy or reorder a call node");
+  assert.equal(source.ast.as.AsConditionalExpression(conditional)?.WhenTrue === original.ast.as.AsConditionalExpression(conditional)?.WhenTrue &&
+    source.ast.as.AsConditionalExpression(conditional)?.WhenFalse === original.ast.as.AsConditionalExpression(conditional)?.WhenFalse, true,
+    "both exact actual branch expressions survive the shared query unchanged");
+});
+
+const extraPreservations = [
+  ["same-enum switch", "export function use(value: Value): number { switch (value) { case Value.First: return 1; default: return 0; } }"],
+  ["ordinary numeric switch", "export function use(value: number): number { switch (value) { case 1: return 1; default: return 0; } }"],
+  ["nullable same-enum switch", "export function use(value: Value | undefined): number { switch (value) { case Value.First: return 1; default: return 0; } }"],
+  ["ordinary numeric index", "export function use(values: number[], key: number): number { return values[key]; }"],
+  ["exact named enum field", "export function use(): number { const object = { [Value.First]: 7 }; return object[Value.First]; }"],
+  ["genuine string index", "export function use(values: { [key: string]: number }, key: Value): number { return values[key]; }"],
+  ["unannotated object default", "export function use(): Value { const { value = 1 } = { value: Value.First }; return value; }"],
+  ["unannotated array default", "export function use(): Value { const [value = 1] = [Value.First]; return value; }"],
+  ["genuine enum destination", "export function use(value: Value): Value { const result: Value = ~value; return result; }"],
+  ["ordinary numeric assertion", "export function use(value: number): number { return value as number; }"],
+  ["explicit enum field", "export function use(value: Value): Value { const object: { value: Value } = { value: ~value }; return object.value; }"],
+  ["explicit enum collection", "export function use(value: Value): Value { const values: Value[] = [~value]; return values[0]; }"],
+  ["enum parameter destination", "function identity(value: Value): Value { return value; } export function use(value: Value): Value { return identity(~value); }"],
+] as const;
+
+for (const [label, body] of extraPreservations) {
+  test(`enum boundary preserves ${label}`, () => {
+    const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
+    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: no implicit numeric projection is invented`);
+  });
+}
+
+const stringRefusals = [
+  ["template", "export function use(value: Value): string { return `enum:${value}`; }"],
+  ["global String", "export function use(value: Value): string { return String(value); }"],
+  ["global String alias", "export function use(value: Value): string { const convert = String; return convert(value); }"],
+  ["enum toString", "export function use(value: Value): string { return value.toString(); }"],
+  ["left concatenation", "export function use(value: Value): string { return '' + value; }"],
+  ["right concatenation", "export function use(value: Value): string { return value + ''; }"],
+  ["compound concatenation", "export function use(value: Value): string { let result = ''; result += value; return result; }"],
+] as const;
+
+for (const [label, body] of stringRefusals) {
+  test(`enum string boundary refuses ${label} with string-specific wording`, () => {
+    const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
+    assert.equal(source.semantics.enumConstants.issues.length, 1, `${label}: one owning string projection`);
+    assert.equal(source.semantics.enumConstants.issues[0]?.code, "TSONIC_ENUM_NUMERIC_USE_NOT_SUPPORTED", `${label}: shared projection code`);
+    assert.equal(source.semantics.enumConstants.issues[0]?.message,
+      "Enum value 'Value' is converted to a string; enum-to-string conversion is not supported yet.", `${label}: no numeric wording or native Enum.ToString substitution`);
+  });
+}
+
+for (const [label, body] of [
+  ["shadowed String", "export function use(value: Value): string { function String(input: Value): string { return 'named'; } return String(value); }"],
+  ["ordinary numeric String", "export function use(value: number): string { return String(value); }"],
+  ["user enum formatting function", "function format(value: Value): string { return 'named'; } export function use(value: Value): string { return format(value); }"],
+  ["checked object logical result", "export function use(value: Value, object: object): string { const result = object || ~value; return String(result); }"],
+] as const) {
+  test(`enum string boundary preserves ${label} by actual checked call identity`, () => {
+    const source = checked(`export enum Value { First = 1, Second = 2 } ${body}`);
+    assert.equal(source.semantics.enumConstants.issues.length, 0, `${label}: a name or string return type is not proof of conversion`);
+  });
+}
 
 test("erroneous immutable origin cycles terminate without manufacturing a native enum domain", () => {
   const source = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
