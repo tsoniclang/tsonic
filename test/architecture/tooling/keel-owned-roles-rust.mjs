@@ -1,5 +1,9 @@
 export const keelOwnedRustResponsibilities = Object.freeze({
   functions: [
+    { file: "src/analysis/module-initialization/binding-patterns.ts", symbol: "selectRustModuleBindingPattern",
+      bodySha256: "5276fd68d17f5b1c29a66ae6e553d1568aaa8d5a5fa220263ea4e3cead694fb9", role: "analysis",
+      evidence: [{ kind: "parameter", name: "declaration" }],
+      reason: "Assemble this exact module declaration's ordered binding steps from its already-admitted projection records, preserving source/default identities and refusing missing correspondence before publication; no native-form policy is selected." },
     { file: "src/analysis/project-types/catalog/source-errors.ts", symbol: "selectRustProjectSourceErrors",
       bodySha256: "8702ebcdb7194b7fbf22f445a7ff5e286b5c936fcbf39586a842c508024a8fef", role: "analysis",
       evidence: [{ kind: "parameter", name: "definitions" }],
@@ -115,7 +119,7 @@ export const keelOwnedRustResponsibilities = Object.freeze({
       bodySha256: "3b28208af03a6b11b581c991cacd31f32c6fac28df872088e5048e37c10c5d3d", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/objects/copied-methods.ts", symbol: "selectRustCopiedMethods",
-      bodySha256: "c96b985e402ed1e9e7e323b98e956b553b200e004f7874d9f0b498d0bceebc86", role: "analysis",
+      bodySha256: "8ef406281a6b5c35369333710ad29b628bd2f655f4b0bd11dff05a4e2bb741ac", role: "analysis",
       evidence: [{ kind: "parameter", name: "walk" }] },
     { file: "src/analysis/objects/method-adapters.ts", symbol: "selectRustObjectLiteralMethodAdapter",
       bodySha256: "2f0a1a81d861806de24685e5348862fcf1ecd9044fb81976c9969ddd7030587f", role: "analysis",
