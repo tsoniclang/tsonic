@@ -48,6 +48,11 @@ const nodeOptionAliases = new Map([["-C", "--conditions"], ["-r", "--require"], 
   ["--debug-port", "--inspect-port"], ["--report-directory", "--report-dir"],
   ["--security-reverts", "--security-revert"], ["--experimental-test-isolation", "--test-isolation"]]);
 const nodeBuiltinReporters = new Set(["dot", "junit", "lcov", "spec", "tap"]);
+const nativeOptionFields = {
+  worker: new Set(["execArgv", "eval", "env"]),
+  fork: new Set(["execArgv", "env"]),
+  process: new Set(["shell", "env"]),
+};
 
 export function createKeelNodeExecutions({ ast, importedApi, memberAccess, literal, transparent, sourceAddress,
   fragmentAddress, literalAddress, firstPartyFragment, referencesCanonicalSource, computedModuleEntry, references }) {
@@ -55,8 +60,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
 
   function nodeModuleExecution(node, worker) {
     const arguments_ = ast.arguments(node);
-    const options = worker ? arguments_[1] : ast.kindName(transparent(arguments_[1])) === "KindArrayLiteralExpression" ? arguments_[2] : arguments_[1];
-    const controls = executionOptions(options, node, worker);
+    const controls = invocationControls(arguments_, node, worker ? "worker" : "fork");
     if (controls.eval) codeEntry(arguments_[0], node);
     else executionAddress(sourceAddress(arguments_[0]), node);
   }
@@ -70,8 +74,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
   function nodeExecution(node, member) {
     if (["exec", "execSync"].includes(member)) { computedModuleEntry(node); return; }
     const arguments_ = ast.arguments(node);
-    const hasArguments = ast.kindName(transparent(arguments_[1])) === "KindArrayLiteralExpression";
-    const controls = executionOptions(hasArguments ? arguments_[2] : arguments_[1], node, false);
+    const controls = invocationControls(arguments_, node, "process");
     if (controls.shell) return;
     const executable = transparent(arguments_[0]);
     const executableApi = importedApi(executable);
@@ -83,7 +86,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     if (!nativeNode) {
       references.push({ external: true, environment: "external-process", offset: ast.pos(node) }); return;
     }
-    nodeArguments(arguments_[1], node);
+    nodeArguments(controls.argumentList, node);
   }
 
   function nodeArguments(argumentList, node, optionsOnly = false) {
@@ -135,12 +138,23 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
         } else if (option === "--experimental-default-config-file") computedModuleEntry(node);
         continue;
       }
+      if (optionsOnly) {
+        if (elements.slice(index).some(argument => {
+          const address = sourceAddress(argument);
+          return address.firstParty || address.observerEvidence;
+        })) computedModuleEntry(node);
+        references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
+        break;
+      }
       if (!script && !code) {
         const address = sourceAddress(argument);
         executionAddress(address, node);
         if (address.path === undefined && address.specifier === undefined && !address.firstParty && address.suffix === undefined) {
           unresolvedScript = true;
-          if (ast.kindName(argument) === "KindSpreadElement") continue;
+          if (elements.slice(index + 1).some(argument => {
+            const address = sourceAddress(argument);
+            return address.firstParty || address.observerEvidence;
+          })) computedModuleEntry(node);
           break;
         }
         script = true;
@@ -152,7 +166,24 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     }
   }
 
-  function executionOptions(value, node, worker) {
+  function invocationControls(arguments_, node, kind) {
+    const second = transparent(arguments_[1]);
+    const shape = ast.kindName(second);
+    const callable = ["KindArrowFunction", "KindFunctionExpression", "KindClassExpression"].includes(shape);
+    const optionsObject = shape === "KindObjectLiteralExpression";
+    const noArguments = optionsObject || callable || shape === "KindNullKeyword" || second === undefined;
+    const candidates = kind === "worker" || optionsObject ? [arguments_[1]] : callable ? []
+      : shape === "KindArrayLiteralExpression" || noArguments ? [arguments_[2]] : [arguments_[1], arguments_[2]];
+    const controls = { eval: false, shell: false, argumentList: kind === "worker" || noArguments ? undefined : arguments_[1] };
+    for (const candidate of candidates) {
+      const current = executionOptions(candidate, node, kind);
+      controls.eval ||= current.eval;
+      controls.shell ||= current.shell;
+    }
+    return controls;
+  }
+
+  function executionOptions(value, node, kind) {
     const options = transparent(value);
     const controls = { eval: false, shell: false };
     if (options === undefined) return controls;
@@ -167,14 +198,14 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       const name = ast.name(property);
       const key = ast.kindName(name) === "KindIdentifier" || literal(name) ? ast.text(name) : undefined;
       if (key === undefined) { computedModuleEntry(node); continue; }
-      if (!["execArgv", "eval", "shell", "env"].includes(key)) continue;
+      if (!nativeOptionFields[kind].has(key)) continue;
       if (seen.has(key)) computedModuleEntry(node);
       seen.add(key);
       if (ast.kindName(property) !== "KindPropertyAssignment") { computedModuleEntry(node); continue; }
       const argument = transparent(ast.children(property).at(-1));
       if (key === "execArgv") nodeArguments(argument, node, true);
       else if (key === "env") executionEnvironment(argument, node);
-      else if (key === "eval" && worker) {
+      else if (key === "eval") {
         if (ast.kindName(argument) === "KindTrueKeyword") controls.eval = true;
         else if (ast.kindName(argument) !== "KindFalseKeyword") computedModuleEntry(node);
       } else if (key === "shell" && ast.kindName(argument) !== "KindFalseKeyword") {
@@ -193,7 +224,18 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       return;
     }
     for (const property of ast.properties(environment)) {
-      if (ast.kindName(property) === "KindSpreadAssignment") continue;
+      if (ast.kindName(property) === "KindSpreadAssignment") {
+        const spread = transparent(ast.children(property)[0]);
+        if (ast.kindName(spread) === "KindObjectLiteralExpression") executionEnvironment(spread, node);
+        else if (importedApi(spread) === "node:process#env") {
+          references.push({ external: true, environment: "node-environment", offset: ast.pos(node) });
+        } else {
+          const address = fragmentAddress(spread);
+          if (address.firstParty || address.observerEvidence) computedModuleEntry(node);
+          else references.push({ external: true, environment: "node-environment", offset: ast.pos(node) });
+        }
+        continue;
+      }
       const name = ast.name(property);
       const key = ast.kindName(name) === "KindIdentifier" || literal(name) ? ast.text(name) : undefined;
       if (key === undefined) computedModuleEntry(node);

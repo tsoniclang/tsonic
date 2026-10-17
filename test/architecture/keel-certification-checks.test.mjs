@@ -1190,6 +1190,48 @@ test("QRC-02: explicit execution options, Node environment and shell code share 
   }
 });
 
+test("QRC-02: complete overload, unknown-prefix and explicit environment-spread evidence is never discarded", () => {
+  const writer = 'new URL("../test/helpers/native-ownership-cost.mjs", import.meta.url).href';
+  const cases = [
+    `import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [], { env: { ...{ NODE_OPTIONS: "--import " + ${writer} } } });`,
+    `import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [], { env: { ...{ ...{ NODE_OPTIONS: "--import " + ${writer} } } } });`,
+    'import { spawnSync } from "node:child_process"; function launch(flag) { return spawnSync(process.execPath, [flag, "../test/helpers/native-ownership-cost.mjs"]); } launch("--enable-source-maps");',
+    'import { spawnSync } from "node:child_process"; function launch(prefix) { return spawnSync(process.execPath, [...prefix, "../test/helpers/native-ownership-cost.mjs"]); } launch([]);',
+    `import { Worker } from "node:worker_threads"; function launch(prefix) { return new Worker(new URL("./ordinary.mjs", import.meta.url), { execArgv: [...prefix, "--import", ${writer}] }); } launch([]);`,
+    `import { fork } from "node:child_process"; function launch(prefix) { return fork(new URL("./ordinary.mjs", import.meta.url), [], { execArgv: [prefix, "--import", ${writer}] }); } launch("--enable-source-maps");`,
+    `import { spawnSync } from "node:child_process"; function launch(args) { return spawnSync(process.execPath, args, { env: { NODE_OPTIONS: "--import " + ${writer} } }); } launch([]);`,
+    `import { execFile } from "node:child_process"; function launch(args) { return execFile(process.execPath, args, { env: { NODE_OPTIONS: "--import " + ${writer} } }); } launch([]);`,
+    `import { fork } from "node:child_process"; function launch(args) { return fork(new URL("./ordinary.mjs", import.meta.url), args, { execArgv: ["--import", ${writer}] }); } launch([]);`,
+    `import { fork } from "node:child_process"; fork(new URL("./ordinary.mjs", import.meta.url), null, { execArgv: ["--import", ${writer}] });`,
+  ];
+  for (const body of cases) {
+    const product = nativeBoundaryInputs();
+    product.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    product.get("tsonic-rust").set("src/launch.mjs", safetyFile(body));
+    assert.equal(boundarySafety(product).nativeAllocationBoundary === undefined, true, body);
+    const contained = nativeBoundaryInputs();
+    contained.get("tsonic-rust").set("test/ordinary.mjs", safetyFile("export const value = 1;"));
+    contained.get("tsonic-rust").set("test/launch.test.mjs", safetyFile(`import test from "node:test"; ${body}`));
+    const result = boundarySafety(contained);
+    assert.equal(result.findings.length, 0, `${body}: genuine test containment`);
+    assert.equal(result.nativeAllocationBoundary.consumers.some(consumer => consumer.path === "tsonic-rust/test/launch.test.mjs" &&
+      consumer.kind === "Node test computed source entry"), true, `${body}: computed evidence is recorded, not waived`);
+  }
+  for (const body of [
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("./ordinary.mjs", import.meta.url), { shell: true, execArgv: [] });',
+    'import { fork } from "node:child_process"; fork(new URL("./ordinary.mjs", import.meta.url), ["--import", "../test/helpers/native-ownership-cost.mjs"], { shell: true, eval: true, execArgv: [] });',
+    'import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [new URL("./ordinary.mjs", import.meta.url).href, "--future-unknown", "../test/helpers/native-ownership-cost.mjs"], { execArgv: ["--import", "../test/helpers/native-ownership-cost.mjs"], eval: true, shell: false });',
+    'import { spawnSync } from "node:child_process"; function launch(args) { return spawnSync(process.execPath, args, { env: { ...process.env, ORDINARY: "../test/helpers/native-ownership-cost.mjs" } }); }',
+    'import { Worker } from "node:worker_threads"; new Worker(new URL("./ordinary.mjs", import.meta.url), { env: { ...{ ORDINARY: "../test/helpers/native-ownership-cost.mjs" }, ...process.env }, execArgv: [] });',
+    'import { execFile } from "node:child_process"; execFile(process.execPath, () => "../test/helpers/native-ownership-cost.mjs");',
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    inputs.get("tsonic-rust").set("src/launch.mjs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+});
+
 test("QRC-03/04: type erasure and raw import-equals filenames preserve native require identity", () => {
   for (const source of [
     'import type { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs"; export type Support = typeof nativeAllocationSupport;',
