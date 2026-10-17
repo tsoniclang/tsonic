@@ -203,12 +203,27 @@ test("NS-T04: second tracked implementations and symlink aliases never acquire c
     assert.equal(result.nativeAllocationBoundary === undefined, true, `${repo}/${path}`);
     assert.equal(keelFixtureHas(result.findings, "AC12", symlink ? "symlink" : "second tracked"), true, `${repo}/${path}`);
   }
+  for (const [label, entries] of [
+    ["two-hop alias", [["src/first.rs", "../tests/second.rs"], ["tests/second.rs", "helpers/allocation_counts.rs"]]],
+    ["directory alias", [["src/alias", "../tests/helpers"]]],
+    ["cycle", [["src/first.rs", "second.rs"], ["src/second.rs", "first.rs"]]],
+    ["growing cycle", [["src/alias", "alias/nested"]]],
+    ["missing target", [["src/first.rs", "missing.rs"]]],
+    ["outside snapshot", [["src/first.rs", "../../../outside.rs"]]],
+    ["absolute target", [["src/first.rs", "/outside.rs"]]],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    for (const [path, target] of entries) inputs.get("rust-runtime").set(path,
+      Object.freeze({ kind: "symlink", mode: "120000", tracked: true, target }));
+    const result = boundarySafety(inputs);
+    assert.equal(result.nativeAllocationBoundary === undefined, true, label);
+    assert.equal(keelFixtureHas(result.findings, "AC12", "symlink"), true, label);
+  }
 });
 
 test("NS-T05: unchanged direct, cross-repo, package and computed first-party test entries fail closed", () => {
   const cases = [
     [["rust-runtime", "src/lib.rs", '#[path = "../tests/helpers/allocation_counts.rs"] mod allocator;']],
-    [["csharp-runtime", "src/Emitter.cs", 'class Emitter { string Source() { return System.IO.File.ReadAllText("../../rust-runtime/tests/helpers/allocation_counts.rs"); } }']],
     [["rust-js", "src/lib.rs", 'include!("../../rust-runtime/tests/helpers/allocation_counts.rs");']],
     [["rust-runtime", "lib.rs", 'mod tests;'], ["rust-runtime", "tests/mod.rs", '#[path = "helpers/allocation_counts.rs"] mod observed;']],
     [["rust-runtime", "src/lib.rs", 'include!("/native-workspace/rust-runtime/tests/helpers/allocation_counts.rs");']],
@@ -217,11 +232,12 @@ test("NS-T05: unchanged direct, cross-repo, package and computed first-party tes
     [["tsonic-rust", "src/emitter.mjs", 'import { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs";']],
     [["rust-js", "src/bridge.mjs", 'export { nativeAllocationSupport } from "../../tsonic-rust/test/helpers/native-ownership-cost.mjs";'],
       ["tsonic-rust", "src/emitter.mjs", 'import { nativeAllocationSupport } from "../../rust-js/src/bridge.mjs";']],
-    [["rust-js", "package.json", '{"name":"@control/bridge","exports":{".":"./test/bridge.mjs"}}']],
-    [["rust-js", "package.json", '{"name":"@control/bridge","exports":{"./*":"./*"}}'],
-      ["rust-js", "test/bridge.mjs", 'export const bridge = 1;']],
-    [["tsonic-rust", "src/emitter.mjs", 'const suffix = process.env.SUFFIX; const path = new URL("../test/" + suffix, import.meta.url);']],
-    [["tsonic-rust", "src/emitter.mjs", 'const encoded = process.env.ENTRY; const path = new URL(encoded, import.meta.url);']],
+    [["tsonic-rust", "package.json", '{"name":"@control/bridge","exports":{".":"./test/bridge.test.mjs"}}'],
+      ["tsonic-rust", "test/bridge.test.mjs", 'import test from "node:test"; import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs"; test("cost", () => nativeAllocationSupport("private"));']],
+    [["tsonic-rust", "package.json", '{"name":"@control/bridge","exports":{"./*":"./*"}}'],
+      ["tsonic-rust", "test/bridge.test.mjs", 'import test from "node:test"; import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs"; test("cost", () => nativeAllocationSupport("private"));']],
+    [["tsonic-rust", "src/emitter.mjs", 'const suffix = process.env.SUFFIX; await import(new URL("../test/" + suffix, import.meta.url).href);']],
+    [["tsonic-rust", "src/emitter.mjs", 'const encoded = process.env.ENTRY; await import(new URL(encoded, import.meta.url).href);']],
     [["tsonic-rust", "src/emitter.mjs", 'export const incomplete = ;']],
     [["rust-runtime", "src/lib.rs", 'include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/control.rs"));']],
     [["rust-runtime", "src/lib.rs", '#[cfg(test)] #[path = "../tests/helpers/allocation_counts.rs"] mod observed;\n#[path = "../tests/helpers/allocation_counts.rs"] mod product;']],
@@ -254,6 +270,83 @@ test("NS-T05: unchanged direct, cross-repo, package and computed first-party tes
   declaration.get("tsts-legacy").set("packages/tsts/tools/accepted.d.ts", safetyFile(
     'Generated declaration baseline\nexport declare const value: number;\nfile.ts(1,1): error TS0000: expected diagnostic transcript.'));
   assert.equal(boundarySafety(declaration).findings.length, 0, "formal declaration inputs do not execute source includes or IO");
+});
+
+test("canonical consumers require actual test entries and forbid incoming product promotions", () => {
+  const entry = 'import test from "node:test"; import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs"; test("cost", () => nativeAllocationSupport("private"));';
+  const inputs = nativeBoundaryInputs();
+  inputs.get("tsonic-rust").set("test/cost.test.mjs", safetyFile(entry));
+  const accepted = boundarySafety(inputs);
+  assert.equal(accepted.findings.length, 0, "a direct discovered Node test uses the fixed writer");
+  assert.equal(accepted.nativeAllocationBoundary.consumers.filter(consumer => consumer.kind === "Node test writer consumer").length, 1);
+  for (const [path, source] of [
+    ["src/promote.mjs", 'import "../test/cost.test.mjs";'],
+    ["test/helper.mjs", 'export { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs";'],
+    ["src/not-an-entry.test.mjs", entry.replace('./helpers/', '../test/helpers/')],
+    ["test/not-a-node-entry.test.mjs", 'import { nativeAllocationSupport } from "./helpers/native-ownership-cost.mjs";'],
+  ]) {
+    const changed = new Map([...inputs].map(([repo, files]) => [repo, new Map(files)]));
+    changed.get("tsonic-rust").set(path, safetyFile(source));
+    assert.equal(boundarySafety(changed).nativeAllocationBoundary === undefined, true, path);
+  }
+  const nested = nativeBoundaryInputs();
+  nested.get("rust-runtime").set("tests/control.rs", safetyFile('#[path = "nested.rs"] mod nested;'));
+  nested.get("rust-runtime").set("tests/nested.rs", safetyFile('#[path = "helpers/allocation_counts.rs"] mod counts;'));
+  const child = boundarySafety(nested);
+  assert.equal(child.findings.length, 0, "one actual Cargo test-module parent is sufficient");
+  assert.equal(child.nativeAllocationBoundary.consumers[0].parent, "rust-runtime/tests/control.rs");
+  nested.get("rust-runtime").set("src/lib.rs", safetyFile('#[path = "../tests/control.rs"] mod promoted;'));
+  assert.equal(boundarySafety(nested).nativeAllocationBoundary === undefined, true, "Cargo test parent cannot become a product module");
+  const guarded = nativeBoundaryInputs();
+  guarded.get("rust-runtime").set("tests/control.rs", safetyFile("fn main() {}"));
+  guarded.get("rust-runtime").set("src/lib.rs", safetyFile('#[cfg(test)] #[path = "nested.rs"] mod nested;'));
+  guarded.get("rust-runtime").set("src/nested.rs", safetyFile('#[path = "../tests/helpers/allocation_counts.rs"] mod counts;'));
+  assert.equal(boundarySafety(guarded).findings.length, 0, "a directly attached cfg(test) parent proves its child");
+  guarded.get("rust-runtime").set("src/lib.rs", safetyFile('#[cfg(test)] #[path = "nested.rs"] mod nested; include!("nested.rs");'));
+  assert.equal(boundarySafety(guarded).nativeAllocationBoundary === undefined, true, "the cfg(test) parent does not cover its product sibling");
+});
+
+test("only actual source and observer-read effects cross the cut, with known API roots or explicit refusal", () => {
+  for (const [label, source] of [
+    ["known URL root", 'import { readFileSync } from "node:fs"; readFileSync(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url));'],
+    ["unknown cwd", 'import { readFileSync } from "node:fs"; readFileSync("rust-runtime/tests/helpers/allocation_counts.rs");'],
+    ["relative cwd is not the module", 'import { readFileSync } from "node:fs"; readFileSync("../../rust-runtime/tests/helpers/allocation_counts.rs");'],
+    ["aliased root", 'import { readFileSync as read } from "node:fs"; import { fileURLToPath } from "node:url"; const target = fileURLToPath(new URL("../../rust-runtime/tests/helpers/allocation_counts.rs", import.meta.url)); const alias = target; read(alias);'],
+    ["obfuscated first-party import", 'const encoded = process.env.ENTRY; const target = new URL(encoded, import.meta.url); const alias = target; await import(alias.href);'],
+    ["obfuscated first-party reader", 'import { readFileSync } from "node:fs"; const encoded = process.env.ENTRY; readFileSync(new URL(encoded, import.meta.url));'],
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/emitter.mjs", safetyFile(source));
+    assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, label);
+  }
+  const data = nativeBoundaryInputs();
+  data.get("tsonic-rust").set("src/data.mjs", safetyFile('import { readFileSync } from "node:fs"; const name = process.env.PACKAGE; const address = new URL(`../packages/${name}/tsonic.json`, import.meta.url); export const config = JSON.parse(readFileSync(address, "utf8")); const unused = new URL(process.env.UNUSED, import.meta.url);'));
+  data.get("tsonic-rust").set("scripts/tooling.mjs", safetyFile('import { pathToFileURL } from "node:url"; import { resolve } from "node:path"; await import(pathToFileURL(resolve(process.env.HOST, "test/scripts/proof-scenarios.mjs")).href);'));
+  data.get("tsonic-rust").set("test/scripts/proof-scenarios.mjs", safetyFile("export const unrelated = true;"));
+  data.get("tsonic-rust").set("package.json", safetyFile('{"exports":{".":"./test/scripts/proof-scenarios.mjs"}}'));
+  assert.equal(boundarySafety(data).findings.length, 0, "unrelated data and tool modules are not canonical-source promotions");
+});
+
+test("the actual transcript manifest declares data, not an executable-suffix waiver", () => {
+  const inputs = nativeBoundaryInputs();
+  const root = "packages/tsts/tools/tsgo-suite";
+  const path = `${root}/tsgo-accepted/typescript/transpile/transcript.js`;
+  const transcript = "Generated by tools/tsgo-suite/capture-tsgo-accepted.mjs from pinned TS-Go abc.\n//// [code.js] ////\nexport const value = ;\nDiagnostics reported";
+  inputs.get("tsts-legacy").set(path, safetyFile(transcript));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "undeclared executable syntax remains refused");
+  inputs.get("tsts-legacy").set(`${root}/tsgo-accepted/manifest.json`, safetyFile(JSON.stringify([
+    { corpus: "typescript", suite: "transpile", artifact: "transcript.js", sections: ["code.js"] },
+  ])));
+  inputs.get("tsts-legacy").set(`${root}/run.mjs`, safetyFile('import { readFileSync } from "node:fs"; export function readOverlay(overlayPath) { return parseBaselineSections(readFileSync(overlayPath, "utf8")); }'));
+  inputs.get("tsts-legacy").set(`${root}/capture-tsgo-accepted.mjs`, safetyFile('const file = join(overlayRoot, "manifest.json");'));
+  const accepted = boundarySafety(inputs);
+  assert.equal(accepted.findings.length, 0, "the existing reader and manifest give the captured bytes their data role");
+  assert.deepEqual(accepted.nativeAllocationBoundary.transcriptData, [`tsts-legacy/${path}`]);
+  inputs.get("tsts-legacy").set("src/promote.mjs", safetyFile(`import "../${path}";`));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "declared data cannot be imported as executable source");
+  inputs.get("tsts-legacy").delete("src/promote.mjs");
+  inputs.get("tsts-legacy").set("package.json", safetyFile(JSON.stringify({ main: `./${path}` })));
+  assert.equal(boundarySafety(inputs).nativeAllocationBoundary === undefined, true, "declared data cannot be a package executable entry");
 });
 
 test("NS-T06: complete inputs and the fixed source, owner and copy-writer identities are mandatory", () => {
