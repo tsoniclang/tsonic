@@ -1,5 +1,5 @@
 import type { Node, SourceFile } from "@tsonic/tsts";
-import { sourceStorageHasOriginalCallableValue, sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
+import { sourceStorageHasOriginalValue, sourceStorageIsDataMember, sourceStorageIsMethodMember,
   sourceStorageFormalOwner, sourceStorageMemberSubject } from "../model/subjects.js";
 import { Node_Expression, Node_Initializer, ObjectLiteralProperty_Value,
   sourceReceiverOwner } from "../../../source-navigation/index.js";
@@ -765,6 +765,12 @@ export function createSourceStorageTransport(
             if (!step()) return undefined;
             for (const parameter of ast.parameters(candidate)) {
               if (!step()) return undefined;
+              const file = parameter === undefined ? undefined : ast.getSourceFile(parameter);
+              if (parameter === undefined || file === undefined || !semantics.includes(file) ||
+                !ast.is.IsParameterDeclaration(parameter) || ast.parent(parameter) !== candidate) {
+                budget.reject("Source storage native callback inputs require exact checked parameter declaration ownership.");
+                return undefined;
+              }
               const retained = selected.get(parameter);
               if (retained?.some(entry => entry.invocation === invocation && entry.callback === callback && entry.candidate === candidate)) continue;
               if (!rows.add(retained === undefined ? 2 : 1)) return undefined;

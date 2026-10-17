@@ -272,6 +272,29 @@ test("explicit callback entry preserves an annotated returned executor's real cr
   assert.equal(new Set(selectedBindings).size, 2, "the two executor creations are never merged by their arrow AST");
 });
 
+test("callable parameter transport rejects missing, foreign and unrelated checked nodes", async () => {
+  const text = `
+    export function read(value: number = 1): number { return value; }
+    function other(value: number = 2): number { return value; }
+    export const result = read();
+  `;
+  const current = await fixture("source-parameter-owned", text);
+  const foreign = await fixture("source-parameter-foreign", text);
+  const read = current.declaration("read");
+  for (const [label, parameter] of [
+    ["missing", undefined],
+    ["foreign", foreign.ast.parameters(foreign.declaration("read"))[0]],
+    ["unrelated checked owner", current.ast.parameters(current.declaration("other"))[0]],
+  ]) {
+    const source = { ...current.source, ast: { ...current.ast,
+      parameters: declaration => declaration === read ? [parameter] : current.ast.parameters(declaration),
+    } };
+    const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+    assert.equal(storage.failureReason(), "Source storage callable inputs require exact checked parameter declaration ownership.", label);
+    assert.equal(storage.subject(read).kind, "unresolved", `${label}: invalid input evidence is never complete-empty`);
+  }
+});
+
 test("explicit callback entry rejects foreign or fabricated evidence and does not invent unreachable bodies", async () => {
   const text = "function other(callback: () => void): void { callback(); } export function create() { return () => {}; }";
   const current = await fixture("source-entry-owned", text);
