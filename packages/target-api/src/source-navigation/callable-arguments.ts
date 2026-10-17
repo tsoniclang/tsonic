@@ -26,9 +26,11 @@ export function sourceExpressionCallArgument(
     argument = parent;
     parent = ast.parent(argument);
   }
-  if (parent === undefined || !ast.is.IsCallExpression(parent)) return undefined;
-  const call = ast.as.AsCallExpression(parent);
-  if (call === undefined || call.QuestionDotToken !== undefined) return undefined;
+  if (parent === undefined || !ast.is.IsCallExpression(parent) && !ast.is.IsNewExpression(parent)) return undefined;
+  if (ast.is.IsCallExpression(parent)) {
+    const call = ast.as.AsCallExpression(parent);
+    if (call === undefined || call.QuestionDotToken !== undefined) return undefined;
+  }
   const arguments_ = ast.arguments(parent);
   const argumentIndex = arguments_.indexOf(argument);
   if (argumentIndex < 0 || arguments_.filter(node => node === argument).length !== 1 ||
