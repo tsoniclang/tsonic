@@ -150,8 +150,13 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       nativeReferences.set(path, nativeSourceReferences(input.text, path).map(reference => ({ ...reference,
         destination: reference.unresolved ? undefined : resolveAlias(`${posix.dirname(path)}/${reference.specifier}`, path),
       })).filter(reference => !reference.implicit || files.has(reference.destination)));
-    } else if (/\.[cm]?[jt]sx?$/u.test(path) && !transcriptData.has(path)) {
-      scripts.set(path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary, input.builtModule ? "native-entry" : "authored"));
+    }
+  }
+  const moduleSpecifierTargets = (origin, specifier) => packageImportTargets(packages, origin, specifier);
+  for (const [path, input] of files) {
+    if (input.kind === "file" && /\.[cm]?[jt]sx?$/u.test(path) && !transcriptData.has(path)) {
+      scripts.set(path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary,
+        input.builtModule ? "native-entry" : "authored", moduleSpecifierTargets));
     }
   }
   let packageEntries = [];
@@ -181,7 +186,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
       const input = files.get(target);
       if (input?.kind !== "file" || typeof input.text !== "string") { reject(entry.source, "uncaptured first-party native package module bytes"); continue; }
       if (!scripts.has(target)) {
-        scripts.set(target, scriptSourceReferences(target, input.text, boundary, "native-entry"));
+        scripts.set(target, scriptSourceReferences(target, input.text, boundary, "native-entry", moduleSpecifierTargets));
         pendingScripts.push(target);
       } else if (!nativeScripts.has(target) && processedScripts.get(target) === false) pendingScripts.push(target);
       nativeScripts.add(target);
@@ -199,12 +204,12 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     processedScripts.set(path, nativeScript);
     let script = scripts.get(path);
     if (nativeScript && script.declarationFile && !script.nativeEntry) {
-      script = scriptSourceReferences(path, files.get(path).text, boundary, "native-entry");
+      script = scriptSourceReferences(path, files.get(path).text, boundary, "native-entry", moduleSpecifierTargets);
       scripts.set(path, script);
     }
     for (const reference of script.references) {
       if (!reference.module || reference.external || reference.unresolved) continue;
-      const nativeEntry = reference.nativeRequire || reference.executionEntry || nativeScript;
+      const nativeEntry = nativeScript;
       for (const target of destinations(path, reference)) {
         recordIncoming(path, target);
         if (transcriptData.has(target)) continue;
@@ -219,7 +224,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
         if (typeof input.text !== "string") { reject(path, "uncaptured first-party executable module bytes"); continue; }
         if (nativeEntry) nativeScripts.add(target);
         if (!scripts.has(target)) {
-          scripts.set(target, scriptSourceReferences(target, input.text, boundary, nativeEntry ? "native-entry" : "authored"));
+          scripts.set(target, scriptSourceReferences(target, input.text, boundary, nativeEntry ? "native-entry" : "authored", moduleSpecifierTargets));
           pendingScripts.push(target);
         } else if (nativeScripts.has(target) && processedScripts.get(target) === false) pendingScripts.push(target);
       }
@@ -312,7 +317,7 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
     }
   }
   const builtModuleInputs = new Map();
-  const pendingModules = [...scripts.values()].flatMap(script => script.finiteModuleTargets);
+  const pendingModules = [...scripts].filter(([path]) => nativeScripts.has(path)).flatMap(([_path, script]) => script.finiteModuleTargets);
   pendingModules.push(...packageEntries.filter(entry => !entry.external && entry.unresolvedReason === undefined &&
     nativeNodeModuleFormat(entry.path) === "script").map(entry => entry.path));
   while (pendingModules.length > 0) {
@@ -405,26 +410,28 @@ export function validateCanonicalNativeAllocationBoundary(workspaceInputs) {
   }
 
   function destinations(sourcePath, reference) {
-    if (reference.path !== undefined) {
-      const path = reference.module && !reference.nativeRequire && !reference.urlAddress
-        ? staticFileAddress("", `./${reference.path}`).path : reference.path;
-      return path === undefined ? [] : [resolveAlias(path)].filter(value => value !== undefined);
-    }
-    let specifier = reference.specifier;
-    if (specifier === undefined) return [];
-    if (reference.module && !reference.nativeRequire && (specifier.startsWith("file:") || isAbsolute(specifier))) {
-      const address = staticFileAddress(sourcePath, specifier);
-      if (address.path !== undefined) return [resolveAlias(address.path)].filter(value => value !== undefined);
-      specifier = address.specifier;
-      if (specifier === undefined) return [];
-    }
-    if (isAbsolute(specifier)) return [...files.keys()].filter(path => specifier.endsWith(`/${path}`))
-      .map(path => resolveAlias(path, sourcePath)).filter(value => value !== undefined);
-    if (reference.fileRead) return [];
-    if (reference.executionEntry) return [];
-    return moduleEntryTargets(packages, reference.moduleOrigin ?? sourcePath, specifier, reference.nativeRequire)
+    return moduleReferencePaths(packages, files, sourcePath, reference)
       .map(path => resolveAlias(path, sourcePath)).filter(value => value !== undefined);
   }
+}
+
+function moduleReferencePaths(packages, files, sourcePath, reference) {
+  if (reference.path !== undefined) {
+    const path = reference.module && !reference.nativeRequire && !reference.urlAddress
+      ? staticFileAddress("", `./${reference.path}`).path : reference.path;
+    return path === undefined ? [] : [path];
+  }
+  let specifier = reference.specifier;
+  if (specifier === undefined) return [];
+  if (reference.module && !reference.nativeRequire && (specifier.startsWith("file:") || isAbsolute(specifier))) {
+    const address = staticFileAddress(sourcePath, specifier);
+    if (address.path !== undefined) return [address.path];
+    specifier = address.specifier;
+    if (specifier === undefined) return [];
+  }
+  if (isAbsolute(specifier)) return [...files.keys()].filter(path => specifier.endsWith(`/${path}`));
+  if (reference.fileRead || reference.executionEntry) return [];
+  return moduleEntryTargets(packages, reference.moduleOrigin ?? sourcePath, specifier, reference.nativeRequire);
 }
 
 function packageOwner(packages, sourcePath) {
@@ -492,22 +499,25 @@ export function keelSafetyBuiltModuleEntries(workspaceInputs) {
     ({ root: posix.dirname(`${repo}/${file}`), metadata: JSON.parse(input.text) })));
   const files = new Map([...workspaceInputs].flatMap(([repo, entries]) => [...entries].map(([file, input]) => [`${repo}/${file}`, input])));
   const transcriptData = declaredTranscriptData(files);
+  const moduleSpecifierTargets = (origin, specifier) => packageImportTargets(packages, origin, specifier);
   const scripts = new Map([...files].filter(([path, input]) => input.kind === "file" &&
     (/\.[cm]?[jt]sx?$/u.test(path) || input.builtModule) && !transcriptData.has(path)).map(([path, input]) =>
-    [path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary, input.builtModule ? "native-entry" : "authored")]));
+    [path, scriptSourceReferences(path, input.text, canonicalNativeAllocationBoundary,
+      input.builtModule ? "native-entry" : "authored", moduleSpecifierTargets)]));
   const targets = new Set();
+  const nativeSources = new Set([...scripts].filter(([_path, script]) => script.nativeJavaScript || script.nativeEntry).map(([path]) => path));
   for (const entry of packageModuleEntries(packages, scripts, files)) {
-    if (!entry.external && entry.unresolvedReason === undefined && nativeNodeModuleFormat(entry.path) === "script") targets.add(entry.path);
+    if (!entry.external && entry.unresolvedReason === undefined && nativeNodeModuleFormat(entry.path) === "script") {
+      targets.add(entry.path);
+      nativeSources.add(entry.path);
+    }
   }
   for (const [path, script] of scripts) {
+    if (!nativeSources.has(path)) continue;
     for (const target of script.finiteModuleTargets) targets.add(target);
     for (const reference of script.references.filter(reference => reference.module && !reference.external && !reference.unresolved)) {
-      const address = reference.path !== undefined && !reference.nativeRequire && !reference.urlAddress
-        ? staticFileAddress("", `./${reference.path}`) : reference;
-      for (const target of address.path !== undefined ? [address.path]
-        : reference.specifier !== undefined ? moduleEntryTargets(packages, reference.moduleOrigin ?? path, reference.specifier, reference.nativeRequire) : []) {
-        if (nativeNodeModuleFormat(target) !== "script") continue;
-        if (script.nativeEntry || script.nativeJavaScript || reference.nativeRequire || reference.executionEntry) targets.add(target);
+      for (const target of moduleReferencePaths(packages, files, path, reference)) {
+        if (nativeNodeModuleFormat(target) === "script") targets.add(target);
       }
     }
   }

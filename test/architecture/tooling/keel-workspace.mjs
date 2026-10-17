@@ -251,19 +251,22 @@ function readKeelSafetyWorkspaceInputs(workspace) {
       } else throw new Error(`Unsupported AC12 tracked file mode: ${repo}/${file}.`);
     }
   }
+  const requestedModules = new Set();
   for (;;) {
     const pending = keelSafetyBuiltModuleEntries(inputs).filter(path => {
       const separator = path.indexOf("/");
-      return !inputs.get(path.slice(0, separator))?.get(path.slice(separator + 1))?.builtModule;
+      return !requestedModules.has(path) && !inputs.get(path.slice(0, separator))?.get(path.slice(separator + 1))?.builtModule;
     });
     if (pending.length === 0) break;
     for (const path of pending) {
+      requestedModules.add(path);
       if (!validLiteralFilePath(path)) throw new Error(`Unrooted AC12 built module input: ${path}.`);
       const separator = path.indexOf("/");
       const repo = path.slice(0, separator);
       const file = path.slice(separator + 1);
       if (!inputs.has(repo)) throw new Error(`Unknown AC12 built module repository: ${path}.`);
       const absolute = resolve(workspace, path);
+      if (!existsSync(absolute)) continue;
       const root = realpathSync(resolve(workspace, repo));
       const actual = realpathSync(absolute);
       if (actual !== absolute || relative(root, actual).startsWith("..") || !lstatSync(absolute).isFile()) {

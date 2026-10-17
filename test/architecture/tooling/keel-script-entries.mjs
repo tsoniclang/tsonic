@@ -1,6 +1,6 @@
 import { isAbsolute, posix } from "node:path";
 import { keelWorkspaceRepositories, validLiteralFilePath } from "./keel-contract.mjs";
-import { guardedBuiltins, nodeProcessMembers, createKeelScriptBindings } from "./keel-script-bindings.mjs";
+import { guardedBuiltins, nativeBuiltinSpecifiers, nodeProcessMembers, createKeelScriptBindings } from "./keel-script-bindings.mjs";
 import { createKeelNodeExecutions } from "./keel-node-executions.mjs";
 import { ParseSourceFile } from "../../../packages/tsts/dist/src/internal/parser/parser/statements-declarations.js";
 import { createAstReader } from "../../../packages/tsts/dist/src/services/ast-reader.js";
@@ -24,8 +24,9 @@ export function staticFileAddress(sourcePath, specifier) {
   } catch { return { unresolved: true, firstParty: true }; }
 }
 
-export function scriptSourceReferences(path, text, boundary, entryRole) {
+export function scriptSourceReferences(path, text, boundary, entryRole, moduleSpecifierTargets) {
   if (!["authored", "native-entry"].includes(entryRole)) throw new Error("Invalid AC12 executable source role.");
+  if (typeof moduleSpecifierTargets !== "function") throw new Error("Missing AC12 canonical package-import resolution.");
   const ast = createAstReader();
   const kind = path.endsWith(".tsx") ? ScriptKindTSX : path.endsWith(".jsx") ? ScriptKindJSX
     : /\.[cm]?ts$/u.test(path) ? ScriptKindTS : ScriptKindJS;
@@ -49,8 +50,11 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
   const patternIdentities = new Map();
   const patternNames = new Set();
   const moduleBindings = new Map();
-  const { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject, nonLoadingUse, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, mutated } =
-    createKeelScriptBindings({ ast, imports, valueDeclarations, moduleBindings, patternIdentities, patternNames, initializer });
+  const { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject,
+    nonLoadingUse, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, moduleMemberUse, mutated } =
+    createKeelScriptBindings({ ast, imports, valueDeclarations, moduleBindings, patternIdentities, patternNames, initializer,
+      sourcePath: path, moduleSpecifierTargets,
+      rejectModuleIdentity: specifier => references.push({ unresolved: true, unresolvedReason: `unproved native builtin identity for package import '${specifier}'` }) });
   const { codeEntry, nodeExecution, nodeModuleExecution, executionEnvironment } = createKeelNodeExecutions({ ast, importedApi, memberAccess,
     literal, transparent, sourceAddress, fragmentAddress, literalAddress, firstPartyFragment, referencesCanonicalSource, computedModuleEntry, references });
   const visit = node => {
@@ -107,43 +111,64 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
   }
   const testEntry = ["tsonic/test/", "tsonic-csharp/test/", "tsonic-rust/test/", "csharp-nodejs/nodejs/test/", "rust-nodejs/nodejs/test/"].some(root => path.startsWith(root)) &&
     path.endsWith(".test.mjs") && references.some(reference => reference.specifier === "node:test");
-  for (const declaration of nodes.filter(node => ast.kindName(node) === "KindVariableDeclaration" && ast.kindName(ast.name(node)) === "KindObjectBindingPattern")) {
-    const root = transparent(initializer(declaration));
-    let selected = importedApi(root);
-    if (ast.kindName(root) === "KindCallExpression") {
-      const callee = ast.children(root)[0];
-      const argument = ast.arguments(root)[0];
-      if ((ast.kindName(callee) === "KindImportKeyword" || api(callee) === "require") && ast.arguments(root).length === 1 && literal(argument)) {
-        const specifier = builtinSpecifier(ast.text(argument));
-        if (guardedBuiltins.has(specifier)) selected = `${specifier}#*`;
-      }
-    }
-    if (!guardedBuiltins.has(selected.slice(0, -2)) || !literalPattern(declaration)) continue;
-    for (const element of ast.elements(ast.name(declaration))) {
-      const key = AsBindingElement(element).PropertyName ?? ast.name(element);
-      patternIdentities.set(element, `${selected.slice(0, -1)}${ast.text(key)}`);
-      patternNames.add(ast.text(ast.name(element)));
+  for (;;) {
+    const previous = moduleBindings.size + patternIdentities.size;
+    collectFactoryBindings(false);
+    collectPatternBindings();
+    if (moduleBindings.size + patternIdentities.size === previous) break;
+  }
+  collectFactoryBindings(true);
+
+  function collectFactoryBindings(final) {
+    for (const [name, declarations] of variables) {
+      if (moduleBindings.has(name)) continue;
+      const declaration = declarations.find(candidate => {
+        const value = initializer(candidate);
+        return ast.kindName(value) === "KindCallExpression" && importedApi(ast.children(value)[0]) === "node:module#createRequire";
+      });
+      if (declaration === undefined) continue;
+      const construction = initializer(declaration);
+      const uses = identifiers.get(name) ?? [];
+      const valid = declarations.length === 1 && ast.variableDeclarationKind(declaration) === "const" &&
+        ast.arguments(construction).length === 1 && Node_QuestionDotToken(construction) === undefined &&
+        uses.some(use => use !== ast.name(declaration) && !nonValueName(use)) && uses.every(use => {
+          if (use === ast.name(declaration) || nonValueName(use) || nonLoadingUse(use)) return true;
+          const parent = ast.parent(use);
+          return ast.kindName(parent) === "KindCallExpression" && ast.children(parent)[0] === use && Node_QuestionDotToken(parent) === undefined || resolutionOnlyUse(use);
+        });
+      const root = ast.arguments(construction)[0];
+      const address = importMetaUrl(root) ? { path } : sourceAddress(root);
+      const finiteTargets = valid ? finiteRequireTargets(declaration) : undefined;
+      if (!final && valid && address.path === undefined && finiteTargets === undefined) continue;
+      moduleBindings.set(name, { valid, root: address.path,
+        directory: address.directory ?? address.path?.endsWith("/"), finiteTargets });
+      if (!valid) references.push({ unresolved: true, unresolvedReason: "unresolved first-party createRequire binding, write or escape" });
     }
   }
-  for (const [name, declarations] of variables) {
-    const declaration = declarations.find(candidate => {
-      const value = initializer(candidate);
-      return ast.kindName(value) === "KindCallExpression" && importedApi(ast.children(value)[0]) === "node:module#createRequire";
-    });
-    if (declaration === undefined) continue;
-    const construction = initializer(declaration);
-    const uses = identifiers.get(name) ?? [];
-    const valid = declarations.length === 1 && ast.variableDeclarationKind(declaration) === "const" &&
-      ast.arguments(construction).length === 1 && Node_QuestionDotToken(construction) === undefined &&
-      uses.some(use => use !== ast.name(declaration) && !nonValueName(use)) && uses.every(use => {
-        if (use === ast.name(declaration) || nonValueName(use) || nonLoadingUse(use)) return true;
-        const parent = ast.parent(use);
-        return ast.kindName(parent) === "KindCallExpression" && ast.children(parent)[0] === use && Node_QuestionDotToken(parent) === undefined || resolutionOnlyUse(use);
-      });
-    const root = ast.arguments(construction)[0];
-    const address = importMetaUrl(root) ? { path } : sourceAddress(root);
-    moduleBindings.set(name, { valid, root: address.path, directory: address.directory ?? address.path?.endsWith("/"), finiteTargets: valid ? finiteRequireTargets(declaration) : undefined });
-    if (!valid) references.push({ unresolved: true, unresolvedReason: "unresolved first-party createRequire binding, write or escape" });
+
+  function collectPatternBindings() {
+    for (const declaration of nodes.filter(node => ast.kindName(node) === "KindVariableDeclaration" && ast.kindName(ast.name(node)) === "KindObjectBindingPattern")) {
+      if (ast.elements(ast.name(declaration)).every(element => patternIdentities.has(element))) continue;
+      const root = transparent(initializer(declaration));
+      let selected = importedApi(root);
+      if (ast.kindName(root) === "KindCallExpression") {
+        const callee = ast.children(root)[0];
+        const argument = ast.arguments(root)[0];
+        if ((ast.kindName(callee) === "KindImportKeyword" || api(callee) === "require") && ast.arguments(root).length === 1 && literal(argument)) {
+          const binding = ast.kindName(callee) === "KindIdentifier" ? moduleBindings.get(ast.text(callee)) : undefined;
+          const origin = binding === undefined ? path : binding.valid && binding.root !== undefined
+            ? binding.directory ? `${binding.root}/package.json` : binding.root : undefined;
+          const specifier = origin === undefined ? "" : builtinSpecifier(ast.text(argument), origin);
+          if (nativeBuiltinSpecifiers.has(specifier)) selected = `${specifier}#*`;
+        }
+      }
+      if (!nativeBuiltinSpecifiers.has(selected.slice(0, -2)) || !literalPattern(declaration)) continue;
+      for (const element of ast.elements(ast.name(declaration))) {
+        const key = AsBindingElement(element).PropertyName ?? ast.name(element);
+        patternIdentities.set(element, `${selected.slice(0, -1)}${ast.text(key)}`);
+        patternNames.add(ast.text(ast.name(element)));
+      }
+    }
   }
   for (const node of nodes) {
     const selected = api(node);
@@ -169,12 +194,11 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
       if (globalRequire && !nonLoading && !directCall && !resolutionOnlyUse(node)) computedModuleEntry(node);
     }
     if (selected.startsWith("node:module#") && !nonValueName(node) && !importedName) {
-      const member = selected.slice("node:module#".length);
-      if (member === "*") continue;
-      if (member === "registerHooks" && directCall) {
+      const use = moduleMemberUse(node, directCall);
+      if (use === "namespace") continue;
+      if (use === "hook") {
         references.push({ external: true, environment: "loader-hook", offset: ast.pos(parent) });
-      } else if (!(["builtinModules", "isBuiltin", "stripTypeScriptTypes"].includes(member) && !mutated(node)) &&
-        !(["createRequire", "register", "require"].includes(member) && directCall)) computedModuleEntry(node);
+      } else if (use === "unproved") computedModuleEntry(node);
     }
     if (["node:process#getBuiltinModule", "node:process#mainModule", "node:process#binding", "node:process#dlopen"].includes(selected) && !nonLoading && !nonValueName(node) && !importedName) computedModuleEntry(node);
     if (selected === "node:process#env" && !nonValueName(node)) {
@@ -287,12 +311,6 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
       if (!module && !fileRead) continue;
       if (loaderImports.has(node)) { references.push(...loaderImports.get(node)); continue; }
       const address = sourceAddress(ast.arguments(node)[0]);
-      if ((require || ast.kindName(callee) === "KindImportKeyword") && ["node:module", "module"].includes(address.specifier)) {
-        computedModuleEntry(node); continue;
-      }
-      const nativeModule = builtinSpecifier(address.specifier);
-      if ((require || ast.kindName(callee) === "KindImportKeyword") && guardedBuiltins.has(nativeModule) &&
-        !namespaceUse(node, `${nativeModule}#*`, false)) computedModuleEntry(node);
       const binding = require && ast.kindName(callee) === "KindIdentifier" ? moduleBindings.get(ast.text(callee)) : undefined;
       if (binding !== undefined) {
         if (binding.finiteTargets !== undefined) {
@@ -306,6 +324,12 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
           address.path = posix.normalize(posix.join(binding.directory ? binding.root : posix.dirname(binding.root), address.specifier));
         }
       }
+      const nativeModule = builtinSpecifier(address.specifier, address.moduleOrigin ?? path);
+      if ((require || ast.kindName(callee) === "KindImportKeyword") && nativeModule === "node:module") {
+        computedModuleEntry(node); continue;
+      }
+      if ((require || ast.kindName(callee) === "KindImportKeyword") && guardedBuiltins.has(nativeModule) &&
+        !namespaceUse(node, `${nativeModule}#*`, false)) computedModuleEntry(node);
       if (executionEntry) {
         if (registration && address.specifier?.startsWith(".")) {
           const parentAddress = sourceAddress(ast.arguments(node)[1]);
@@ -357,7 +381,8 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
   function nativeUrlConstructor(node) {
     if (ast.kindName(node) !== "KindIdentifier") return false;
     if (!["URL", "node:url#URL"].includes(api(node))) return false;
-    const names = new Set([ast.text(node), ...[...imports].filter(([_name, identity]) => identity === "node:url#URL").map(([name]) => name)]);
+    const names = new Set([ast.text(node), ...[...imports].filter(([_name, identity]) => identity === "node:url#URL").map(([name]) => name),
+      ...[...patternIdentities].filter(([_element, identity]) => identity === "node:url#URL").map(([element]) => ast.text(ast.name(element)))]);
     if (!variables.has("URL") && !imports.has("URL")) names.add("URL");
     for (const name of names) {
       if (!(identifiers.get(name) ?? []).every(use => {
@@ -365,7 +390,8 @@ export function scriptSourceReferences(path, text, boundary, entryRole) {
         if (!["URL", "node:url#URL"].includes(api(use))) return true;
         const parent = ast.parent(use);
         return ast.kindName(parent) === "KindNewExpression" && ast.children(parent)[0] === use ||
-          ast.kindName(parent) === "KindImportSpecifier" && ast.name(parent) === use && imports.get(name) === "node:url#URL";
+          ast.kindName(parent) === "KindImportSpecifier" && ast.name(parent) === use && imports.get(name) === "node:url#URL" ||
+          ast.kindName(parent) === "KindBindingElement" && ast.name(parent) === use && patternIdentities.get(parent) === "node:url#URL";
       })) return false;
     }
     return stableNativeRoot("URL", [...imports].filter(([_name, identity]) => identity === "node:url#*").map(([name]) => name));

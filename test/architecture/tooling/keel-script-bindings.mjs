@@ -3,13 +3,21 @@ import { AsBindingElement } from "../../../packages/tsts/dist/src/internal/ast/g
 import { HasTypeArguments } from "../../../packages/tsts/dist/src/internal/ast/utilities.js";
 
 export const guardedBuiltins = new Set(["node:fs", "node:fs/promises", "node:module", "node:process", "node:worker_threads", "node:child_process", "node:vm"]);
+export const nativeBuiltinSpecifiers = new Set([...guardedBuiltins, "node:url", "node:path"]);
 const byteEntryMembers = new Set(["readFile", "copyFile", "cp", "createReadStream", "open", "openAsBlob", "link", "symlink", "rename"]
   .flatMap(name => [name, `${name}Sync`]));
 export const nodeProcessMembers = new Set(["spawn", "spawnSync", "execFile", "execFileSync", "exec", "execSync"]);
+const nodeModuleMembers = Object.freeze({
+  exports: "data", builtinModules: "readonly", isBuiltin: "readonly", stripTypeScriptTypes: "readonly",
+  createRequire: "entry", register: "entry", require: "entry", registerHooks: "hook",
+});
 
-export function createKeelScriptBindings({ ast, imports, valueDeclarations, moduleBindings, patternIdentities, patternNames, initializer }) {
+export function createKeelScriptBindings({ ast, imports, valueDeclarations, moduleBindings, patternIdentities, patternNames,
+  initializer, sourcePath, moduleSpecifierTargets, rejectModuleIdentity }) {
   const declarationScopes = new Map();
-  return { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject, nonLoadingUse, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, mutated };
+  const builtinIdentities = new Map();
+  return { literal, transparent, byteReader, typeOnlyModuleDeclaration, nonValueName, builtinSpecifier, typeOnlyUse, memberAccess, globalObject,
+    nonLoadingUse, namespaceUse, literalPattern, importedApi, api, resolutionOnlyUse, moduleMemberUse, mutated };
 
   function literal(node) {
     return ["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(ast.kindName(node));
@@ -45,8 +53,17 @@ export function createKeelScriptBindings({ ast, imports, valueDeclarations, modu
       ast.kindName(parent) === "KindBindingElement" && AsBindingElement(parent).PropertyName === node || typeOnlyUse(node);
   }
 
-  function builtinSpecifier(specifier) {
-    return ["module", "process", "fs", "fs/promises", "path", "url", "worker_threads", "child_process", "vm"].includes(specifier) ? `node:${specifier}` : specifier;
+  function builtinSpecifier(specifier, origin = sourcePath) {
+    const key = JSON.stringify([origin, specifier]);
+    if (builtinIdentities.has(key)) return builtinIdentities.get(key);
+    const targets = typeof specifier === "string" && specifier.startsWith("#") ? moduleSpecifierTargets(origin, specifier) : [specifier];
+    const identities = new Set(targets.map(target =>
+      ["module", "process", "fs", "fs/promises", "path", "url", "worker_threads", "child_process", "vm"].includes(target) ? `node:${target}` : target));
+    const native = [...identities].some(identity => nativeBuiltinSpecifiers.has(identity));
+    const identity = native && identities.size !== 1 ? "" : identities.size === 1 ? [...identities][0] : specifier;
+    if (native && identities.size !== 1) rejectModuleIdentity(specifier);
+    builtinIdentities.set(key, identity);
+    return identity;
   }
 
   function typeOnlyUse(node) {
@@ -135,15 +152,27 @@ export function createKeelScriptBindings({ ast, imports, valueDeclarations, modu
 
   function nonReaderMember(namespace, name) {
     if (["*", "default", "valueOf", "constructor", "__proto__", "prototype"].includes(name)) return false;
+    if (namespace === "node:module#*") return Object.hasOwn(nodeModuleMembers, name) && ["data", "readonly"].includes(nodeModuleMembers[name]);
     const acquiring = {
       "node:fs#*": ["promises", ...byteEntryMembers],
       "node:fs/promises#*": [...byteEntryMembers],
-      "node:module#*": ["createRequire", "register", "registerHooks", "require", "_load", "_preloadModules", "runMain", "Module"],
       "node:process#*": ["getBuiltinModule", "mainModule", "binding", "dlopen"],
       "node:worker_threads#*": ["Worker"],
       "node:child_process#*": ["fork", ...nodeProcessMembers],
     }[namespace] ?? [];
     return namespace !== "node:vm#*" && !acquiring.includes(name);
+  }
+
+  function moduleMemberUse(node, directCall) {
+    const selected = importedApi(node);
+    if (!selected.startsWith("node:module#")) return undefined;
+    const member = selected.slice("node:module#".length);
+    if (member === "*") return "namespace";
+    if (nonLoadingUse(node)) return "inert";
+    const role = Object.hasOwn(nodeModuleMembers, member) ? nodeModuleMembers[member] : undefined;
+    if (role === "data" || role === "readonly" && !mutated(node)) return "inert";
+    if (["entry", "hook"].includes(role) && directCall && !mutated(node)) return role;
+    return "unproved";
   }
 
   function importedApi(node) {
