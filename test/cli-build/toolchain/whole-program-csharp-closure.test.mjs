@@ -246,7 +246,7 @@ test("CLI rejects unsupported whole-program declaration shapes before C# artifac
         "}",
         "",
       ].join("\n"),
-      diagnostic: /C# enum member initializers must be integer constants evaluated by TSTS/,
+      diagnostic: /A source-authored native enum requires exact integer constants; regular string enums have no admitted native runtime representation\./u,
     },
   ];
 
@@ -264,7 +264,7 @@ test("CLI rejects unsupported whole-program declaration shapes before C# artifac
 
     const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
     assert.equal(build.status, 1, scenario.name);
-    assert.match(build.stderr, /CSHARP_UNSUPPORTED_AST/u, scenario.name);
+    assert.match(build.stderr, /CSHARP_ENUM_CONSTANT_NOT_SUPPORTED/u, scenario.name);
     assert.match(build.stderr, scenario.diagnostic, scenario.name);
     assert.equal(existsSync(resolve(projectDirectory, "out/csharp/TsonicGenerated.csproj")), false, scenario.name);
   }
