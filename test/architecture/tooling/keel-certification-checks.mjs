@@ -403,7 +403,7 @@ function scriptSourceReferences(path, text, packages) {
   const source = ParseSourceFile({ FileName: sourcePath, Path: sourcePath }, text, kind);
   if (source === undefined) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
   if (source.IsDeclarationFile) return [];
-  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) throw new Error(`Unresolved AC12 source syntax: ${path}.`);
+  if ((SourceFile_Diagnostics(source)?.length ?? 0) > 0) return [{ specifier: "unresolved executable source syntax", module: false, unresolved: true }];
   const references = [];
   const visit = node => {
     const kindName = ast.kindName(node);
