@@ -17,8 +17,8 @@ import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 import { sourceMemberOwner } from "../../../source-navigation/class-members.js";
 import { sourceStorageComponentType, sourceStorageSubjectType } from "../model/components.js";
 import { sourceStorageProjectComponents } from "../graph/component-projections.js";
-import { sourceStorageClassLineages, sourceStorageInstanceCaptures } from "../transport/invocation-results.js";
-import { sourceStorageAllocations, sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
+import { sourceStorageClassLineages, sourceStorageInstanceCaptures, sourceStorageAllocations,
+  sourceStorageInstanceInitializers, sourceStorageSuperConstructor } from "../model/construction.js";
 import type { SourceStorageBoundSubject } from "./substitutions.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
 import { sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
@@ -227,6 +227,7 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const leaf = (subject: SourceStorageSubject, scope: SourceStorageScope): SourceStorageReference => Object.freeze({ kind: "leaf", subject, scope });
   const classQueries = {
     subjectFor: transport.subjectFor,
+    nativeConstructorsFor: transport.nativeConstructorsFor,
     valuesFor(subject: SourceStorageSubject, bindings: SourceStorageScope): ReadonlySet<SourceStorageBoundSubject> | undefined {
       const terms = readRelation(sourceStorageReference(subject, bindings));
       if (terms === undefined) return undefined;

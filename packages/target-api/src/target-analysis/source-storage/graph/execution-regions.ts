@@ -57,7 +57,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
         if (binding.sourceForm === "spread-sequence") return true;
         const expression = selection?.sourceArguments[binding.sourceArgumentIndex]?.expression;
-        const types = argumentTypes === undefined ? [binding.selectedArgumentType]
+        const types = argumentTypes === undefined || binding.sourceForm === "spread-element" ? [binding.selectedArgumentType]
           : expression === undefined ? undefined : argumentTypes(expression);
         return types === undefined || types.length === 0 || types.some(type => typeMayBeAbsent(type, invocation!));
       })) {

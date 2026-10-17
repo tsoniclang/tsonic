@@ -212,7 +212,10 @@ function sourceDeclarationUseRole(
 function belongsToTypeSyntax(ast: AstReader, reference: Node): boolean {
   let current: Node | undefined = reference;
   while (current !== undefined) {
+    const expression = ast.is.IsExpressionWithTypeArguments(current)
+      ? ast.as.AsExpressionWithTypeArguments(current)?.Expression : undefined;
     if (sourceReferenceMeaning(ast, current) === "type" ||
+      expression !== undefined && sourceReferenceMeaning(ast, expression) === "type" ||
       ast.is.IsInterfaceDeclaration(current) || ast.is.IsTypeLiteralNode(current) ||
       sourceClassFieldIsTypeOnly(ast, current) || isTypeSyntaxNode(ast, current)) {
       return true;

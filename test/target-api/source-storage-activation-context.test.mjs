@@ -393,6 +393,49 @@ test("an actual checked overload signature maps only to its canonical source imp
     "the actual storage producer selection refuses an unrelated source implementation");
 });
 
+for (const rest of [false, true]) for (const selectedIndex of [0, 1]) for (const reversed of [false, true]) {
+  test(`finite tuple-spread actuals preserve checked input slots/${rest}/${selectedIndex}/${reversed}`, async () => {
+    const parameters = rest ? "...values: [first: Value, second: Value]" : "first: Value, second: Value";
+    const returned = rest ? `values[${selectedIndex}]` : selectedIndex === 0 ? "first" : "second";
+    const current = await fixture(`tuple-spread-inputs-${rest}-${selectedIndex}-${reversed}`, `
+      interface Value { readonly token: {}; }
+      const first: Value = { token: {} };
+      const second: Value = { token: {} };
+      function deliver(this: void, ${parameters}): Value { return ${returned}; }
+      function unrelated(value: Value): Value { return value; }
+      const actuals: [Value, Value] = [first, second];
+      const result = deliver(...actuals);
+      export {};
+    `);
+    const { ast, nodes, source, storage } = current;
+    const invocation = nodes.find(node => ast.is.IsCallExpression(node) &&
+      ast.arguments(node).some(argument => ast.is.IsSpreadElement(argument)));
+    const owner = current.declaration("deliver");
+    if (reversed) assert.equal(storage.bindingsForInvocation(current.declaration("unrelated"), invocation).kind, "unresolved",
+      "a foreign implementation cannot acquire the selected tuple actuals");
+    const bindings = resolved(storage.bindingsForInvocation(owner, invocation)).bindings;
+    const slots = sourceStorageCallableInputSlots(source, owner, source.semantics.forNode(invocation),
+      { kind: "source-implementation", signature: source.semantics.forNode(invocation).operations.call(invocation).selectedSignature }, () => true);
+    assert.equal(slots?.length, 2, "the checked this parameter is excluded and finite rest expands to two inputs");
+    const parametersByIndex = reversed ? [1, 0] : [0, 1];
+    for (const index of parametersByIndex) {
+      const slot = slots[index];
+      const formal = resolved(storage.subject(slot.parameter, "input", slot.projection)).subject;
+      const origins = resolved(storage.boundOriginsFor(formal, bindings));
+      const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === (index === 0 ? "first" : "second"));
+      const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
+      assert.equal(origins.subjects.length === 1 && origins.subjects[0] === expected, true,
+        `effective input ${index} preserves its exact source tuple element and allocation`);
+    }
+    const result = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === "result");
+    const selected = storage.closedOriginsFor(resolved(storage.subjectFor(result)).subject);
+    const variable = nodes.find(node => ast.is.IsVariableDeclaration(node) && ast.text(ast.name(node)) === (selectedIndex === 0 ? "first" : "second"));
+    const expected = resolved(storage.subjectFor(ast.as.AsVariableDeclaration(variable).Initializer)).subject;
+    assert.equal(selected.kind === "complete" && selected.origins.length === 1 && selected.origins[0].subject === expected, true,
+      "the selected body result retains exactly its original checked actual");
+  });
+}
+
 for (const [name, text, owners] of [
   ["function-type-alias", `function deliver(actual: number): number { return actual; }
     const alias: (renamed: number) => number = deliver; export const result = alias(7);`, ["deliver"]],

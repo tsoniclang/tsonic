@@ -14,13 +14,13 @@ import { createSourceStorageEdges } from "../graph/edges.js";
 import type { SourceStorageEdgeTypes } from "../graph/edges.js";
 import { createSourceStorageExecutionRegions } from "../graph/execution-regions.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
-import { sourceStorageConstructionExpression, sourceStorageSuperConstructor } from "../model/construction.js";
+import { sourceStorageClassLineages, sourceStorageConstructionExpression, sourceStorageSuperConstructor } from "../model/construction.js";
 import { createSourceStorageUnresolvedQueries } from "../graph/unresolved.js";
 import { createSourceStorageSubstitutions } from "../scoped/substitutions.js";
 import { createSourceStorageBindingInputs } from "../scoped/scoped-transport.js";
-import { createSourceStorageInvocationResults, sourceStorageClassLineages } from "./invocation-results.js";
+import { createSourceStorageInvocationResults } from "./invocation-results.js";
 import { createSourceStorageInvocationInputs, sourceStorageCallableInputSlots, sourceStorageNativeInputSlots,
-  sourceStorageNativeCallablePayloads } from "../graph/invocation-inputs.js";
+  sourceStorageNativeCallablePayloads, sourceStorageInvocationActual } from "../graph/invocation-inputs.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageArgumentTransport, SourceStorageBoundary, SourceStorageCallEffect, SourceStorageEffects,
   SourceStorageCallbackEntry, SourceStorageDomainBoundary } from "../model/types.js";
@@ -55,6 +55,8 @@ export function createSourceStorageTransport(
   const argumentTransports = new Map<Node, readonly SourceStorageArgumentTransport[]>();
   const callbackEntries = new Map<Node, readonly SourceStorageCallbackEntry[]>();
   const checkedSourceFiles = new Map<Node, SourceFile>();
+  const nativeConstructors = new Map<Node, readonly Node[] | null>();
+  const nativeConstructorRows = budget.createRows();
   const unresolvedInvocations = new Map<Node, string>();
   const memberImplementations = new Map<Node, Set<Node>>();
   const thrownOrigins = new Map<Node, Set<SourceStorageSubject>>();
@@ -80,6 +82,8 @@ export function createSourceStorageTransport(
   };
   const sourceFileFor = (subject: SourceStorageSubject): SourceFile | undefined =>
     checkedSourceFiles.get(subject.node) ?? ast.getSourceFile(subject.node);
+  const nativeConstructorsFor = (subject: SourceStorageSubject): readonly Node[] | undefined =>
+    subject.kind === "value" && subject.projection.length === 0 ? nativeConstructors.get(subject.node) ?? undefined : undefined;
   const graphQueries = createSourceStorageGraphQueries(budget);
   const edges = createSourceStorageEdges(source, budget, subject, sourceFileFor);
   const incomingFor: typeof edges.incomingFor = selected => {
@@ -134,6 +138,12 @@ export function createSourceStorageTransport(
       : selected !== undefined && !ast.is.IsGetAccessorDeclaration(selected) ? selected : node;
     const file = ast.getSourceFile(node);
     if (selected !== undefined && file !== undefined && semantics.includes(file) && !retainCheckedContext(selected, file)) return undefined;
+    if (!sealed && selected !== undefined && file !== undefined && semantics.includes(file) &&
+      ast.is.IsVariableDeclaration(selected) && Node_Initializer(ast, selected) === undefined && !nativeConstructors.has(selected)) {
+      const constructors = effects.nativeConstructorsFor?.(selected, semantics.forFile(file));
+      if (!nativeConstructorRows.add(1 + (constructors?.length ?? 0))) return undefined;
+      nativeConstructors.set(selected, constructors === undefined ? null : Object.freeze([...constructors]));
+    }
     const pattern = selected !== undefined && ast.is.IsBindingElement(selected) ? ast.parent(selected) : undefined;
     const projected = pattern !== undefined && ast.is.IsArrayBindingPattern(pattern);
     const binding = selected === undefined || !projected ? undefined : projections.binding(selected);
@@ -335,14 +345,14 @@ export function createSourceStorageTransport(
           if (!step()) break;
           const formal = selected.sourceSelectedSignatureParameters.find(parameter =>
             parameter.parameterIndex === binding.sourceParameterIndex)?.parameterDeclaration;
-          const actual = subjectFor(selected.sourceArguments[binding.sourceArgumentIndex]?.expression);
+          const actual = sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
           const rest = binding.sourceParameterForm !== "rest-element" || signature === undefined ? undefined
             : sourceStorageCallableInputSlots(source, signature, consumer,
               { kind: "selected-signature", signature: selected.selectedSignature }, step)?.filter(slot =>
               slot.parameter === formal && slot.sourceParameterIndex === binding.sourceParameterIndex &&
               (slot.effectiveIndex === binding.effectiveArgumentIndex || slot.repeated && binding.effectiveArgumentIndex >= slot.effectiveIndex));
           const projection = binding.sourceParameterForm === "parameter" ? [] : rest?.length === 1 ? rest[0]!.projection : undefined;
-          if (formal === undefined || actual === undefined || binding.sourceForm !== "value" || projection === undefined) {
+          if (formal === undefined || actual === undefined || projection === undefined) {
             unresolvedInvocations.set(node, "Source storage argument transport requires exact selected scalar formal and actual subjects.");
             continue;
           }
@@ -418,7 +428,7 @@ export function createSourceStorageTransport(
       return origins === undefined ? undefined : new Set([...origins].map(origin => ({ subject: origin, bindings: undefined })));
     };
     const target = subjectFor(expression);
-    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor }, mode);
+    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor, nativeConstructorsFor }, mode);
   };
   const constructionLineagesFor = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
@@ -829,7 +839,7 @@ export function createSourceStorageTransport(
     return selected;
   });
   const invocationResults = createSourceStorageInvocationResults(source, budget, {
-    subject, subjectFor,
+    subject, subjectFor, nativeConstructorsFor,
     targetFor: invocation => invocationTargets.get(invocation),
     valuesFor: (origin, bindings) => substitutions.values(origin, bindings),
     bindingsFor: (candidate, invocation, bindings, captured, callee) => substitutions.forInvocation(candidate, invocation, bindings, captured, callee),
@@ -838,7 +848,7 @@ export function createSourceStorageTransport(
   const storedProjections = createSourceStorageStoreProjections(budget, subject, storedValues.storesFor, edges.projectOrigin);
   const bindingInputFor = createSourceStorageBindingInputs(ast, { incomingFor, guardedValues }, budget);
   const substitutions = createSourceStorageSubstitutions(source, budget, {
-    subject, subjectFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
+    subject, subjectFor, nativeConstructorsFor, bindingInputFor, incomingFor, contextualInputs, contextLocation, memberFlow, regions, invocationTargets,
     invocationDeclarations, invocationEffects, invocations, accessorTargets, sourceFiles, callbackEntriesFor, callbackImplementationsFor, callbackInputFrontiersFor,
     storedValuesFor: storedProjections, storesIn: storedValues.storesIn, invocationImplementations,
     isOpaque: invocation => opaqueInvocations.has(invocation), guardedValues, memberAccessorsFor: memberAccessors.declarationsFor,
@@ -878,7 +888,7 @@ export function createSourceStorageTransport(
   regions.seal();
   graphQueries.seal();
   sealed = true;
-  return { subject, subjectFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
+  return { subject, subjectFor, nativeConstructorsFor, locationFor, storageSubject: projections.ownerFor, incomingFor, identities, mutationOwners,
     storedInputsFor: storedValues.inputsFor,
     storesFor: storedValues.storesFor,
     storesIn: storedValues.storesIn,

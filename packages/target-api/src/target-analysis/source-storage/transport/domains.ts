@@ -1,6 +1,6 @@
 import type { Node, SourceFile, Type } from "@tsonic/tsts";
 import { argumentPassingFactKey, flowStateFactKey, pointerOperationFactKey } from "@tsonic/tsts";
-import { Node_Initializer } from "../../../source-navigation/index.js";
+import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
 import type { TargetSourceProgram } from "../../../source-semantics/index.js";
 import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubjectType, sourceStorageComponentType,
   sourceStorageIsScalarType } from "../model/components.js";
@@ -13,7 +13,7 @@ import type { SourceStorageDomainBoundary } from "../model/types.js";
 import { createSourceStorageDomainWitnesses } from "../graph/domain-witnesses.js";
 import { createSourceStorageDomainPublications, type SourceStoragePublication } from "../graph/domain-publications.js";
 import { createSourceStorageDomainInputs } from "./domain-inputs.js";
-import { sourceStorageClassLineages } from "./invocation-results.js";
+import { sourceStorageClassLineages } from "../model/construction.js";
 import { sourceStorageConstructionExpression } from "../model/construction.js";
 import { sourceStorageRegionOwner } from "../graph/lexical-regions.js";
 
@@ -24,18 +24,26 @@ export function createSourceStorageDomains(
 ) {
   const { ast, navigation, semantics } = source;
   const witnesses = createSourceStorageDomainWitnesses(budget);
-  const publications = createSourceStorageDomainPublications(budget);
+  const publications = createSourceStorageDomainPublications(budget, (ancestor, current) => {
+    if (ancestor.subject.node !== current.subject.node || ancestor.subject.kind !== current.subject.kind ||
+      ancestor.subject.projection.length >= current.subject.projection.length ||
+      transport.subject(current.subject.node, current.subject.kind,
+        current.subject.projection.slice(0, ancestor.subject.projection.length)) !== ancestor.subject) return false;
+    return witnesses.forSubject(ancestor.subject).some(boundary => boundary.exposure === current.exposure &&
+      (boundary.kind === "external-input" && boundary.owner === current.inputOwner ||
+        boundary.kind === "external-write" || boundary.kind === "opaque-write"));
+  });
   const domainInputs = createSourceStorageDomainInputs(transport, witnesses, budget);
   let initialized = false;
   const add = domainInputs.add;
   const publish = (subject: SourceStorageSubject | undefined, exposure: Node, writes = true,
     kind: SourceStoragePublication["kind"] = "external-write", type?: Type, sourceFile?: SourceFile, externalEntry = false,
-    inputOwner?: SourceStorageSubject): void => {
+    inputOwner?: SourceStorageSubject, parent?: SourceStoragePublication): void => {
     if (subject === undefined) return;
     const file = sourceFile ?? transport.sourceFileFor(subject);
     const selected = type ?? sourceStorageSubjectType(source, subject, file);
     if (selected !== undefined && file !== undefined)
-      publications.add(subject, selected, file, exposure, writes, kind, externalEntry, inputOwner);
+      publications.add(subject, selected, file, exposure, writes, kind, externalEntry, inputOwner, parent);
   };
   const callable = (declaration: Node, exposure: Node): void => {
     const selected = navigation.callableImplementation(declaration);
@@ -128,7 +136,7 @@ export function createSourceStorageDomains(
         if (context.types.isUnion(publication.type)) for (const type of context.types.unionOrIntersectionTypes(publication.type)) {
           if (!budget.step()) return;
           if (!context.types.isNullish(type)) publish(publication.subject, publication.exposure, publication.writes,
-            publication.kind, type, publication.sourceFile, publication.externalEntry, publication.inputOwner);
+            publication.kind, type, publication.sourceFile, publication.externalEntry, publication.inputOwner, publication);
         }
         continue;
       }
@@ -176,7 +184,7 @@ export function createSourceStorageDomains(
             }
             if (member.destination.read === "method" && !sourceStorageIsDataMember(declaration, ast)) callable(declaration, publication.exposure);
             else publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
-              publication.externalEntry, publication.inputOwner);
+              publication.externalEntry, publication.inputOwner, publication);
           }
         }
         const indexes = context.types.indexInfos(present);
@@ -191,7 +199,7 @@ export function createSourceStorageDomains(
             const child = transport.subject(owner.node, owner.kind, [...owner.projection, original]);
             if (publication.inputOwner !== undefined) add(child, "external-input", publication.exposure, publication.inputOwner);
             if (publication.writes && indexes.some(value => !value.readonly)) add(child, publication.kind, publication.exposure, owner);
-            publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry, publication.inputOwner);
+            publish(child, publication.exposure, publication.writes, publication.kind, element, file, publication.externalEntry, publication.inputOwner, publication);
           }
         }
       }
@@ -218,9 +226,15 @@ export function createSourceStorageDomains(
     }
     return selected;
   };
-  const closedSourceConstruction = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
-    if (transport.unresolvedInvocations.has(invocation) ||
-      sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
+  const closedSourceInvocation = (invocation: Node, bindings: SourceStorageSubstitutions): boolean => {
+    if (transport.unresolvedInvocations.has(invocation)) return false;
+    if (ast.is.IsCallExpression(invocation) && ast.kindName(Node_Expression(ast, invocation)) !== "KindSuperKeyword") {
+      const selected = transport.invocationImplementationSelection(invocation,
+        origin => transport.substitutions.origins(origin, bindings));
+      return selected?.exact === true && selected.nodes.size !== 0 &&
+        [...selected.nodes].every(declaration => ast.body(declaration) !== undefined);
+    }
+    if (sourceStorageConstructionExpression(invocation, source, budget.step) === undefined) return false;
     const target = transport.invocationTargets.get(invocation);
     const region = transport.regions.enclosing(invocation);
     const owner = region === undefined ? undefined : sourceStorageRegionOwner(ast, region);
@@ -230,6 +244,7 @@ export function createSourceStorageDomains(
     const lineages = sourceStorageClassLineages(source, budget, transport.substitutions.values(target, activation), {
       subjectFor: transport.subjectFor,
       valuesFor: transport.substitutions.values,
+      nativeConstructorsFor: transport.nativeConstructorsFor,
     });
     return lineages !== undefined && lineages.length !== 0 && lineages.every(lineage => lineage.complete);
   };
@@ -327,7 +342,7 @@ export function createSourceStorageDomains(
       for (const boundary of boundariesFor(current.subject)) {
         if (!budget.step()) break;
         if ((boundary.kind === "opaque-result" || boundary.kind === "opaque-write") &&
-          closedSourceConstruction(boundary.exposure, current.bindings)) continue;
+          closedSourceInvocation(boundary.exposure, current.bindings)) continue;
         if (boundary.kind === "external-input") {
           if (purpose === "storage-producers" && !current.contributes) continue;
           if (bound || stores !== undefined && boundary.owner !== undefined || receiverBinding(current.subject, current.bindings)) continue;
@@ -340,7 +355,7 @@ export function createSourceStorageDomains(
       }
       const origin = current.subject;
       if (selected.origins.has(origin) && ast.is.IsVariableDeclaration(origin.node) && Node_Initializer(ast, origin.node) === undefined &&
-        !navigation.isProjectDeclaration(origin.node))
+        !navigation.isProjectDeclaration(origin.node) && (transport.nativeConstructorsFor(origin)?.length ?? 0) === 0)
         retainBoundary({ kind: "external-input", subject: origin, exposure: origin.node }, current.bindings);
     }
     const boundSubjects: import("../scoped/substitutions.js").SourceStorageBoundSubject[] = [];

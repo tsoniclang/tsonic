@@ -233,7 +233,7 @@ export function createSourceStorageQuery(
       }
     }
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
-    if (subjects.size === 0) return unresolved("A source storage cycle has no proven original owner.");
+    if (subjects.size === 0 && boundaries.length === 0) return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects]);
     if (origins.kind === "unresolved") return origins;
     return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
@@ -646,6 +646,6 @@ export function createSourceStorageQuery(
     },
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
   } satisfies SourceStorageQueries);
-  const construction = createSourceStorageConstructionQuery(source, budget, query);
+  const construction = createSourceStorageConstructionQuery(source, budget, query, transport.nativeConstructorsFor);
   return query;
 }

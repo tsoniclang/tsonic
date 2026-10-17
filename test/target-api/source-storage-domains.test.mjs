@@ -3,7 +3,7 @@ import test from "node:test";
 import { argumentPassingFactKey, createCompilerSessionFromFiles, flowStateFactKey, formatDiagnostics, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
 import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
 import { createSourceGlobalCallStorageEffects, createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
-import { selectJsSourceCallStorageEffect, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
+import { selectJsSourceCallStorageEffect, jsSourceNativeConstructorStorage, sourceErrorDeclarations } from "../../packages/js-source-profile/dist/index.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 const globals = `
@@ -47,6 +47,19 @@ function open(selected, kind, label) {
   assert.equal(selected.kind === "open", true, `${label}: ${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""}`);
   assert.equal(selected.boundaries.some(boundary => boundary.kind === kind), true, label);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.boundaries) && selected.boundaries.every(Object.isFrozen), true);
+}
+
+function nativeErrorEffects(source) {
+  const profile = projectSourceFile(source, "globals.d.ts");
+  const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
+  const signatures = new Set(source.ast.members(owner));
+  return createSourceGlobalCallStorageEffects(source, (node, selected) => {
+    const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+    if (!signatures.has(declaration)) return undefined;
+    return selectJsSourceCallStorageEffect({ ownerName: "ErrorConstructor",
+      memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration }, selected);
+  }, declaration => signatures.has(declaration) && source.ast.is.IsConstructSignatureDeclaration(declaration)
+    ? jsSourceNativeConstructorStorage({ ownerName: "ErrorConstructor", memberName: "constructor", declaration }) : undefined);
 }
 
 test("complete domains preserve private arrows, immutable aliases and known private callback transport", async () => {
@@ -163,6 +176,18 @@ test("public identity returns do not expose private observed arguments or callba
   complete(current.storage.closedOriginsFor(current.subject(current.source.ast.parameters(callback)[0])), "private callback is not returned to other callers");
   complete(current.selection("callbackResult"), "closed exact selected callback invocation");
   complete(current.selection("selected"), "private actual record is not exposed by public identity return");
+});
+
+test("an observed source callback does not close an externally writable invocation target", async () => {
+  const current = await fixture("storage-domain-public-callback-write", `
+    export let callback = (value: {}): {} => value;
+    export function run(): {} { return callback({}); }
+  `);
+  const owner = namedDeclaration(current.source.ast, current.file, "run");
+  const returned = current.storage.subject(owner, "return");
+  assert.equal(returned.kind, "resolved", "the actual source return subject remains canonical");
+  open(current.storage.closedOriginsFor(returned.subject), "external-write",
+    "a known implementation cannot erase an independent external write to its callable storage");
 });
 
 test("an actual stored into exported storage is exposed even when transferred through a public formal", async () => {
@@ -380,16 +405,7 @@ test("owned native Error call and constructor allocations do not certify externa
     const unknown = new external("unknown");
     export function fromType(factory: typeof Error): Error { return new factory("external"); }
     export function fromInterface(factory: ErrorConstructor): Error { return factory("external-call"); }
-  `, { profile: sourceErrorDeclarations, effectsFactory(source) {
-    const profile = projectSourceFile(source, "globals.d.ts");
-    const owner = namedDeclaration(source.ast, profile, "ErrorConstructor");
-    const signatures = new Set(source.ast.members(owner));
-    return createSourceGlobalCallStorageEffects(source, (node, selected) => {
-      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
-      if (!signatures.has(declaration)) return undefined;
-      return selectJsSourceCallStorageEffect({ ownerName: "ErrorConstructor", memberName: source.ast.is.IsNewExpression(node) ? "constructor" : "call", declaration }, selected);
-    });
-  } });
+  `, { profile: sourceErrorDeclarations, effectsFactory: nativeErrorEffects });
   for (const name of ["direct", "call", "aliased", "aliasedCall"]) complete(current.selection(name), `owned global native allocation: ${name}`);
   open(current.selection("unknown"), "external-input", "an ambient external value is not the owned native constructor");
   for (const name of ["fromType", "fromInterface"]) {
@@ -398,6 +414,48 @@ test("owned native Error call and constructor allocations do not certify externa
     assert.equal(returned.kind === "resolved", true);
     open(current.storage.closedOriginsFor(returned.subject), "external-input", `unknown caller constructor value: ${name}`);
   }
+});
+
+for (const reverse of [false, true]) test(`native terminal lineage preserves each source initializer and its mutation, reverse=${reverse}`, async () => {
+  let graphComplete = false;
+  const current = await fixture(`storage-domain-native-terminal-${reverse}`, `
+    const owner = { token: {} };
+    const replacement = {};
+    class Base extends Error { first = (owner.token = replacement); }
+    class Derived extends Base { second = {}; }
+    const Alias = Derived;
+    const created = new Alias("actual");
+    const selected = owner.token;
+    declare const external: typeof Error;
+    class Foreign extends external { first = {}; }
+    const unknown = new Foreign("external");
+  `, { profile: sourceErrorDeclarations, effectsFactory(source) {
+    const effects = nativeErrorEffects(source);
+    return { ...effects, nativeConstructorsFor(...arguments_) {
+      assert.equal(graphComplete, false, "native constructor evidence is completed before graph sealing");
+      return effects.nativeConstructorsFor(...arguments_);
+    } };
+  } });
+  graphComplete = true;
+  for (const name of reverse ? ["unknown", "selected", "created"] : ["created", "selected", "unknown"]) {
+    const selected = current.selection(name);
+    if (name === "unknown") {
+      assert.equal(selected.kind === "complete", false, "an external constructor with the same signature has no native terminal authority");
+      continue;
+    }
+    const origins = complete(selected, name);
+    if (name === "selected") assert.equal(origins.some(origin => origin.subject.node === current.initializer("replacement")), true,
+      "a fresh native terminal cannot erase source initializer writes");
+  }
+  const construction = current.storage.constructionFor(current.initializer("created"));
+  assert.equal(construction.kind, "resolved", "the source allocation has a complete selected native terminal");
+  assert.equal(construction.alternatives.length, 1, "one actual class lineage remains selected");
+  const selected = construction.alternatives[0];
+  assert.equal(selected.classes.length === 2 && selected.classes.every(entry => entry.regions.length === 1), true,
+    "both original source initializer owners remain present");
+  assert.equal(selected.classes.every(entry => entry.regions.every(region => region.selection.kind === "resolved")), true,
+    "every original initializer keeps its checked creation bindings");
+  assert.equal(current.storage.failureReason() === undefined, true, "no hidden graph exhaustion certifies the terminal");
 });
 
 test("call result aliases and input preservation remain independent semantic proofs", async () => {
@@ -430,7 +488,7 @@ test("owned native global members require their actual immutable receiver and se
       const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
       return !members.has(declaration) ? undefined : selectJsSourceCallStorageEffect({ ownerName: "ObjectConstructor",
         memberName: source.ast.text(source.ast.name(declaration)), declaration }, selected);
-    });
+    }, () => undefined);
   };
   const current = await fixture("storage-domain-global-members", `
     declare const external: ObjectConstructor;
@@ -474,14 +532,25 @@ test("native global effects reject foreign provider artifacts and operation decl
       return subject === declaration ? operation : subject === binding ? globalFact : undefined;
     } },
   }, () => ({ declaration: operationDeclaration, binding: { name: "Error", providerId: artifact.providerId },
-    form: "value", effect: { resultAllocation: node } }));
+    form: "value", effect: { resultAllocation: node } }), () => ({ declaration: operationDeclaration,
+      binding: { name: "Error", providerId: artifact.providerId } }));
   assert.equal(effects(global).call(node, call).resultAllocation === node, true);
+  const context = source.semantics.forNode(node);
+  assert.equal(effects(global).nativeConstructorsFor(binding, context)?.includes(declaration), true,
+    "the same exact selected native constructor row and global artifact publish terminal authority");
   assert.equal(effects(global, binding).call(node, call) === undefined, true, "the selected operation declaration is authoritative");
-  for (const field of ["providerId", "providerVersion", "providerModuleId", "moduleSpecifier", "artifactFileName", "exportName"])
+  assert.equal(effects(global, binding).nativeConstructorsFor(binding, context) === undefined, true,
+    "a global variable cannot stand in for the selected native constructor declaration");
+  for (const field of ["providerId", "providerVersion", "providerModuleId", "moduleSpecifier", "artifactFileName", "exportName"]) {
     assert.equal(effects({ ...global, [field]: "different" }).call(node, call) === undefined, true, field);
-  for (const field of ["memberName", "memberKey", "memberId", "signatureId"])
+    assert.equal(effects({ ...global, [field]: "different" }).nativeConstructorsFor(binding, context) === undefined, true, field);
+  }
+  for (const field of ["memberName", "memberKey", "memberId", "signatureId"]) {
     assert.equal(effects({ ...global, [field]: "member" }).call(node, call) === undefined, true, field);
+    assert.equal(effects({ ...global, [field]: "member" }).nativeConstructorsFor(binding, context) === undefined, true, field);
+  }
   assert.equal(effects(undefined).call(node, call) === undefined, true, "missing owned global fact");
+  assert.equal(effects(undefined).nativeConstructorsFor(binding, context) === undefined, true, "missing owned native constructor fact");
 });
 
 test("one preserved input does not suppress a second unpreserved alias", async () => {
@@ -611,6 +680,26 @@ test("default-library recursive callback publication stays finite without poison
   assert.equal(storage.originsFor(selection.subject).kind === "resolved" && storage.failureReason() === undefined, true,
     "complete query leaves observed origins and default finite accounting valid");
 });
+
+for (const readonly of [false, true]) {
+  test(`recursive array publication keeps actual external prefixes without unrolling values/${readonly}`, async () => {
+    const current = await fixture(`storage-domain-recursive-array-publication-${readonly}`, `
+      type Tree = number | ${readonly ? "readonly " : ""}Tree[];
+      export function read(value: Tree): Tree { return value; }
+      const original: Tree = [2, [3, 4]];
+      const selected = read(original);
+    `);
+    complete(current.selection("original"), "an external formal does not publish a private caller's original allocation");
+    complete(current.selection("selected"), "the actual private invocation retains its original recursive value");
+    const owner = namedDeclaration(current.source.ast, current.file, "read");
+    const parameter = current.source.ast.parameters(owner)[0];
+    const nested = current.storage.subject(parameter, "input", Array.from({ length: 5 }, () => ({ kind: "array-element" })));
+    assert.equal(nested.kind, "resolved", "the real finite projection remains under the unchanged limit");
+    open(current.storage.closedOriginsFor(nested.subject), "external-input",
+      "the original admitted external prefix still covers every actual recursive descendant");
+    assert.equal(current.storage.failureReason(), undefined, "recursive publication needs no projection or graph budget increase");
+  });
+}
 
 test("recursive contextual transport converges without inventing an original root or exhausting the graph", async () => {
   const current = await fixture("storage-domain-context-cycle", `
@@ -829,7 +918,11 @@ test("abstract external receivers remain open while selected concrete overrides 
     assert.equal(selected.kind === "resolved" && selected.nodes.length === 1 && selected.nodes[0] === methods[index], true,
       "the checked concrete invocation selects only its exact override");
   }
+  const originals = current.storage.originSubjectsFor(current.subject(current.variable("alias")));
+  assert.equal(originals.kind === "resolved" && originals.subjects.length === 2 && methods.every(method =>
+    originals.subjects.some(subject => subject.kind === "value" && subject.node === method)), true,
+    "the unbound source graph retains both original observed native contracts, never just the last structural source");
   const alias = current.storage.invocationImplementationsFor(current.initializer("aliased"), current.storage.emptyBindings);
-  assert.equal(alias.kind === "resolved" && alias.nodes.length === 2 && methods.every(method => alias.nodes.includes(method)), true,
-    "a receiver-unbound alias conservatively retains both observed native contracts, never just the last structural source");
+  assert.equal(alias.kind === "resolved" && alias.exact === true && alias.nodes.length === 1 && alias.nodes[0] === methods[0], true,
+    "the scoped invocation retains only its actual First receiver implementation");
 });

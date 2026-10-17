@@ -1,13 +1,13 @@
 import type { Node, Signature, Type } from "@tsonic/tsts";
-import { Node_Initializer } from "../../../source-navigation/index.js";
-import type { SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
+import { Node_Expression, Node_Initializer } from "../../../source-navigation/index.js";
+import type { ResolvedSourceCallInfo, SourceFileSemantics, TargetSourceProgram } from "../../../source-semantics/index.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageProjection, SourceStorageSubject, SourceStorageSubjectQuery } from "../model/subjects.js";
 import { sourceStorageHasOriginalCallableValue, sourceStorageIsDataMember } from "../model/subjects.js";
 import { sourceStorageSuperConstructor } from "../model/construction.js";
 import { sourceStorageComponentType, sourceStorageComponents, sourceStorageSubjectType } from "../model/components.js";
 import type { SourceStorageCallbackEntry } from "../model/types.js";
-import type { SourceStorageClassValue } from "../transport/invocation-results.js";
+import type { SourceStorageClassValue } from "../model/construction.js";
 
 export interface SourceStorageCallableInputSlot {
   readonly parameter: Node;
@@ -15,6 +15,31 @@ export interface SourceStorageCallableInputSlot {
   readonly effectiveIndex: number;
   readonly repeated: boolean;
   readonly projection: readonly SourceStorageProjection[] | undefined;
+}
+
+export function sourceStorageInvocationActual(
+  source: TargetSourceProgram,
+  selected: ResolvedSourceCallInfo,
+  binding: ResolvedSourceCallInfo["sourceArgumentBindings"][number],
+  subject: SourceStorageSubjectQuery,
+  subjectFor: (node: Node | undefined) => SourceStorageSubject | undefined,
+): SourceStorageSubject | undefined {
+  const argument = selected.sourceArguments[binding.sourceArgumentIndex];
+  if (argument === undefined) return undefined;
+  const { ast, semantics } = source;
+  if (binding.sourceForm === "value") return ast.is.IsSpreadElement(argument.expression)
+    ? undefined : subjectFor(argument.expression);
+  const index = binding.spreadElementIndex;
+  const file = ast.getSourceFile(argument.expression);
+  if (binding.sourceForm !== "spread-element" || index === undefined || !Number.isSafeInteger(index) || index < 0 ||
+    !ast.is.IsSpreadElement(argument.expression) || file === undefined || !semantics.includes(file)) return undefined;
+  const types = semantics.forFile(file).types;
+  if (!types.isTuple(argument.type)) return undefined;
+  const element = types.tupleElementInfos(argument.type)[index];
+  if (element?.elementKind !== "required" && element?.elementKind !== "optional") return undefined;
+  const actual = subjectFor(Node_Expression(ast, argument.expression));
+  return actual === undefined ? undefined : subject(actual.node, actual.kind,
+    [...actual.projection, { kind: "tuple-element", index }]);
 }
 
 type SourceStorageCallableInputEvidence = {
@@ -326,7 +351,7 @@ export function createSourceStorageInvocationInputs(
             const wanted = formal.projection[0];
             if (component !== undefined && (wanted === undefined || wanted.kind !== "array-element" &&
               (wanted.kind !== "tuple-element" || component.kind !== "tuple-element" || wanted.index !== component.index))) continue;
-            const actual = subjectFor(selected?.sourceArguments[binding.sourceArgumentIndex]?.expression);
+            const actual = selected === undefined ? undefined : sourceStorageInvocationActual(source, selected, binding, subject, subjectFor);
             const origin = actual === undefined ? undefined : subject(actual.node, actual.kind,
               [...actual.projection, ...(component === undefined ? formal.projection : formal.projection.slice(1))]);
             if (origin !== undefined) { bound = true; subjects.add(origin); }
