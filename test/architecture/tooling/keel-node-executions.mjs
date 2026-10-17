@@ -52,6 +52,7 @@ const nativeOptionFields = {
   worker: new Set(["execArgv", "eval", "env"]),
   fork: new Set(["execArgv", "env"]),
   process: new Set(["shell", "env"]),
+  processSync: new Set(["shell", "env", "input"]),
 };
 
 export function createKeelNodeExecutions({ ast, importedApi, memberAccess, literal, transparent, sourceAddress,
@@ -74,7 +75,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
   function nodeExecution(node, member) {
     if (["exec", "execSync"].includes(member)) { computedModuleEntry(node); return; }
     const arguments_ = ast.arguments(node);
-    const controls = invocationControls(arguments_, node, "process");
+    const controls = invocationControls(arguments_, node, ["spawnSync", "execFileSync"].includes(member) ? "processSync" : "process");
     if (controls.shell) return;
     const executable = transparent(arguments_[0]);
     const executableApi = importedApi(executable);
@@ -86,7 +87,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     if (!nativeNode) {
       references.push({ external: true, environment: "external-process", offset: ast.pos(node) }); return;
     }
-    nodeArguments(controls.argumentList, node);
+    if (nodeArguments(controls.argumentList, node)) for (const input of controls.inputs) codeEntry(input, node);
   }
 
   function nodeArguments(argumentList, node, optionsOnly = false) {
@@ -95,7 +96,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       const address = fragmentAddress(values);
       if (address.firstParty || address.observerEvidence) computedModuleEntry(node);
       else references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
-      return;
+      return true;
     }
     const elements = ast.elements(values);
     let script = optionsOnly;
@@ -121,7 +122,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
           }
           const value = joined === undefined ? elements[++index] : undefined;
           if (joined === undefined && (value === undefined || ast.kindName(value) === "KindSpreadElement")) {
-            computedModuleEntry(node); return;
+            computedModuleEntry(node); return true;
           }
           if (inlineCode) {
             code = true;
@@ -134,7 +135,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
           }
         } else if (!nodeBooleanOptions.has(option) && !(option.startsWith("--no-") && nodeBooleanOptions.has(`--${option.slice(5)}`)) &&
           option !== "--experimental-default-config-file" && option !== "--trace-events-enabled") {
-          computedModuleEntry(node); return;
+          computedModuleEntry(node); return true;
         } else if (option === "--experimental-default-config-file") computedModuleEntry(node);
         continue;
       }
@@ -147,6 +148,10 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
         break;
       }
       if (!script && !code) {
+        if (flag === "-") {
+          references.push({ external: true, environment: "node-stdin", offset: ast.pos(node) });
+          unresolvedScript = true; break;
+        }
         const address = sourceAddress(argument);
         executionAddress(address, node);
         if (address.path === undefined && address.specifier === undefined && !address.firstParty && address.suffix === undefined) {
@@ -164,6 +169,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     if (!script && !code && !unresolvedScript && !elements.some(element => literal(element) && /^(?:--import|--require|-r|--loader|--experimental-loader)(?:=|$)/u.test(ast.text(element)))) {
       references.push({ external: true, environment: "node-arguments", offset: ast.pos(node) });
     }
+    return !script && !code;
   }
 
   function invocationControls(arguments_, node, kind) {
@@ -174,18 +180,19 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
     const noArguments = optionsObject || callable || shape === "KindNullKeyword" || second === undefined;
     const candidates = kind === "worker" || optionsObject ? [arguments_[1]] : callable ? []
       : shape === "KindArrayLiteralExpression" || noArguments ? [arguments_[2]] : [arguments_[1], arguments_[2]];
-    const controls = { eval: false, shell: false, argumentList: kind === "worker" || noArguments ? undefined : arguments_[1] };
+    const controls = { eval: false, shell: false, argumentList: kind === "worker" || noArguments ? undefined : arguments_[1], inputs: [] };
     for (const candidate of candidates) {
       const current = executionOptions(candidate, node, kind);
       controls.eval ||= current.eval;
       controls.shell ||= current.shell;
+      controls.inputs.push(...current.inputs);
     }
     return controls;
   }
 
   function executionOptions(value, node, kind) {
     const options = transparent(value);
-    const controls = { eval: false, shell: false };
+    const controls = { eval: false, shell: false, inputs: [] };
     if (options === undefined) return controls;
     if (ast.kindName(options) !== "KindObjectLiteralExpression") {
       const address = fragmentAddress(options);
@@ -205,6 +212,7 @@ export function createKeelNodeExecutions({ ast, importedApi, memberAccess, liter
       const argument = transparent(ast.children(property).at(-1));
       if (key === "execArgv") nodeArguments(argument, node, true);
       else if (key === "env") executionEnvironment(argument, node);
+      else if (key === "input") controls.inputs.push(argument);
       else if (key === "eval") {
         if (ast.kindName(argument) === "KindTrueKeyword") controls.eval = true;
         else if (ast.kindName(argument) !== "KindFalseKeyword") computedModuleEntry(node);

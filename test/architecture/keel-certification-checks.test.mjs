@@ -1232,6 +1232,41 @@ test("QRC-02: complete overload, unknown-prefix and explicit environment-spread 
   }
 });
 
+test("QRC-02: native synchronous Node stdin uses nonliteral code evidence before entry or eval selection", () => {
+  const code = 'import("../test/helpers/native-ownership-cost.mjs")';
+  for (const method of ["spawnSync", "execFileSync"]) {
+    for (const args of [[], ["--input-type=module"], ["-"], ["--", "-"]]) {
+      const body = `import { ${method} } from "node:child_process"; ${method}(process.execPath, ${JSON.stringify(args)}, { input: ${JSON.stringify(code)} });`;
+      const product = nativeBoundaryInputs();
+      product.get("tsonic-rust").set("src/stdin.mjs", safetyFile(body));
+      assert.equal(boundarySafety(product).nativeAllocationBoundary === undefined, true, body);
+      const contained = nativeBoundaryInputs();
+      contained.get("tsonic-rust").set("test/stdin.test.mjs", safetyFile(`import test from "node:test"; ${body}`));
+      const result = boundarySafety(contained);
+      assert.equal(result.findings.length, 0, `${body}: genuine test containment`);
+      assert.equal(result.nativeAllocationBoundary.consumers.some(consumer => consumer.path === "tsonic-rust/test/stdin.test.mjs" &&
+        consumer.kind === "Node test computed source entry"), true, `${body}: explicit input is recorded as source, not external filename data`);
+    }
+  }
+  for (const body of [
+    `import { spawnSync } from "node:child_process"; spawnSync(process.execPath, [new URL("./ordinary.mjs", import.meta.url).href], { input: ${JSON.stringify(code)} });`,
+    `import { execFileSync } from "node:child_process"; execFileSync(process.execPath, ["--eval", "0"], { input: ${JSON.stringify(code)} });`,
+    `import { spawn } from "node:child_process"; spawn(process.execPath, [], { input: ${JSON.stringify(code)} });`,
+    `import { spawnSync } from "node:child_process"; spawnSync("ordinary-program", [], { input: ${JSON.stringify(code)} });`,
+  ]) {
+    const inputs = nativeBoundaryInputs();
+    inputs.get("tsonic-rust").set("src/ordinary.mjs", safetyFile("export const value = 1;"));
+    inputs.get("tsonic-rust").set("src/stdin.mjs", safetyFile(body));
+    assert.equal(boundarySafety(inputs).findings.length, 0, body);
+  }
+  const unknown = nativeBoundaryInputs();
+  unknown.get("tsonic-rust").set("src/unknown.mjs", safetyFile('import { spawnSync } from "node:child_process"; const run = program => spawnSync(process.execPath, ["--input-type=module"], { input: program.source });'));
+  const result = boundarySafety(unknown);
+  assert.equal(result.findings.length, 0, "the existing oracle shape remains supported");
+  assert.equal(result.nativeAllocationBoundary.externalDynamicEntries.some(entry => entry.environment === "code-string"), true,
+    "unknown stdin code remains explicitly unproved");
+});
+
 test("QRC-03/04: type erasure and raw import-equals filenames preserve native require identity", () => {
   for (const source of [
     'import type { nativeAllocationSupport } from "../test/helpers/native-ownership-cost.mjs"; export type Support = typeof nativeAllocationSupport;',
