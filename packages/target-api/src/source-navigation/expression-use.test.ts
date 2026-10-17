@@ -116,7 +116,6 @@ test("callable binding demand follows exact local aliases and retains every real
   assert.equal(results.get("shadowed")?.[0], true, "the outer binding has only its own discarded read");
   assert.equal(results.get("shadowed")?.[1], false, "the inner binding has its own actual invocation");
 });
-
 function callableDemandFixture(sourceText: string) {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": sourceText,
@@ -226,12 +225,25 @@ test("discarded callable creation rejects foreign, incomplete and unresolved che
   const summary = source.navigation.declarationUseSummary(selected.declaration);
   assert.equal(sourceCallableDefinitionIsDiscarded(selected.expression, source.ast, source.navigation), true,
     "the unchanged exact checked owner proves the positive before inverse checks");
+  let symbolContexts = 0;
+  assert.equal(sourceCallableDefinitionIsDiscarded(selected.expression, source.ast, {
+    ...source.navigation,
+    declarationSymbol: (declaration, sourceFile) => {
+      assert.equal(sourceFile === source.ast.getSourceFile(selected.expression), true,
+        "each symbol lookup uses the actual checked creation context");
+      symbolContexts += 1;
+      return source.navigation.declarationSymbol(declaration, sourceFile);
+    },
+  }), true, "the required checked symbol context preserves the original erasure proof");
+  assert.equal(symbolContexts, flow.aliasDeclarations.length, "every immutable alias uses that actual checked context");
   assert.equal(sourceCallableDefinitionIsDiscarded(foreign.definition("selected").expression,
     foreign.source.ast, source.navigation), false, "a same-file-name foreign source is not this checked owner");
   for (const [label, navigation] of [
     ["missing source root", { ...source.navigation, sourceFiles: [] }],
     ["foreign flow expression", { ...source.navigation, expressionValueFlow: () => ({ ...flow, expression: other.expression }) }],
     ["foreign alias root", { ...source.navigation, expressionValueFlow: () => ({ ...flow, aliasDeclarations: [other.declaration] }) }],
+    ["foreign alias source", { ...source.navigation, expressionValueFlow: () => ({ ...flow,
+      aliasDeclarations: [foreign.definition("selected").declaration] }) }],
     ["duplicate alias", { ...source.navigation, expressionValueFlow: () => ({ ...flow,
       aliasDeclarations: [selected.declaration, selected.declaration] }) }],
     ["missing source use", { ...source.navigation, expressionValueFlow: () => ({ ...flow, uses: [] }) }],

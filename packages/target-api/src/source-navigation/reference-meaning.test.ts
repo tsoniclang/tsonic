@@ -208,7 +208,6 @@ export const value = forwarded(1) + Library.read(2);
   assert.equal(source.navigation.referencesWithin(symbol, library).includes(source.ast.name(declaration)!), false,
     "the actual remote function definition remains indexed only as a definition");
 });
-
 for (const valueFirst of [false, true]) {
   test(`qualified heritage preserves namespace, type and native value facets with value-first=${valueFirst}`, () => {
     const runtime = "export const runtime = Library.Token; export const constructor = Library.Native;";
