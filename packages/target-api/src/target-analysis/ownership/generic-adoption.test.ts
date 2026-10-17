@@ -407,7 +407,9 @@ for (const form of nativePayloadContinuationCases) for (const adopting of [false
       });
       const selected = current.query();
       assert.equal(selected.kind, adopting && !ordinary ? "unresolved" : "resolved",
-        "possible helper invocations retain their demanded owner, not a source-global argument union");
+        selected.kind === "unresolved"
+          ? `possible helper invocations retain their demanded owner, not a source-global argument union: ${selected.reason}`
+          : "possible helper invocations retain their demanded owner, not a source-global argument union");
       if (selected.kind === "resolved") assert.equal(selected.issues.length, 0,
         "ordinary identity or the actual observer/number inverse stays admitted");
       else assert.equal(current.textFor(selected.at), form.expression, "the relevant resolving helper demand owns uncertainty");
@@ -540,6 +542,27 @@ for (const [name, declaration, invoked] of declarations) {
   });
 }
 
+test("a generic class static owner stays distinct from its method's actual adoption bindings", () => {
+  const current = fixture(`
+    class Box<Stored> {
+      static count = 0;
+      static async wrap<Value>(value: Value): Promise<Value> { return value; }
+      constructor(readonly value: Stored) { Box.count += 1; }
+    }
+    const pending = Promise.resolve(7);
+    const ordinary = new Box(7);
+    const promised = new Box(pending);
+    void Box.count; void ordinary.value; void promised.value;
+    void Box.wrap(7); void Box.wrap(pending);
+  `);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "complete static and instance contracts");
+  if (selected.kind !== "resolved") return;
+  assert.equal(selected.issues.length, 1, "static source ownership does not erase the generic method's adopting actual");
+  assert.equal(current.textFor(selected.issues[0]!.site), "Box.wrap(pending)", "the real adopting method call remains the only rejection");
+  assert.equal(current.textFor(selected.issues[0]!.operation), "return value;", "the method's exact generic return owns adoption");
+});
+
 test("a class parameter and captured structural method are summarized at their actual constructors", () => {
   const current = fixture(`
     class Holder<T> { constructor(readonly value: T) {} async get(): Promise<T> { return this.value; } }
@@ -591,6 +614,28 @@ test("a receiver forwards sensitivity through the exact outer function binder", 
   assert.deepEqual(selected.issues.map(issue => current.textFor(issue.site)), ["forward(holder)"],
     "the owning checked call supplies the actual binding, not a guessed member spelling");
 });
+
+for (const inherited of [false, true]) {
+  test("native class this and static receivers retain exact apparent bindings: " + inherited, () => {
+    const current = fixture(`
+      class Box<Value> {
+        static count = 0;
+        constructor(readonly value: Value) { Box.count += 1; }
+        read(): Value { return this.value; }
+        static from<Part>(value: Part): Box<Part> { return new Box(value); }
+      }
+      ${inherited ? "class Derived<Value> extends Box<Value> { readAgain(): Value { return this.read(); } }" : ""}
+      export function use(): number {
+        const first = ${inherited ? "new Derived(7)" : "Box.from(7)"};
+        const second = Box.from(5);
+        return first.${inherited ? "readAgain" : "read"}() + second.read() + Box.count;
+      }
+    `);
+    const selected = current.query();
+    assert.equal(selected.kind === "resolved" && selected.issues.length === 0, true,
+      selected.kind === "unresolved" ? selected.reason : "this is the checked class constraint; static owners do not require instance bindings");
+  });
+}
 
 test("a synchronous class-binder result is native pass-through, not an invented async completion", () => {
   const current = fixture(`interface Method<Value> { read(): Value; }
@@ -677,7 +722,7 @@ test("an opaque resolver result is unresolved, never an empty safe source summar
   const selected = current.query();
   assert.equal(selected.kind, "unresolved", "an open opaque result is not a closed nonresolver");
   if (selected.kind !== "unresolved") return;
-  assert.equal(current.textFor(selected.at), "done(value)", "the exact unresolved operation is preserved");
+  assert.equal(current.textFor(selected.at), "opaque(resolve)", "the exact unresolved operation is preserved");
 });
 
 test("an opaque resolver relation does not refuse a proven ordinary actual", () => {

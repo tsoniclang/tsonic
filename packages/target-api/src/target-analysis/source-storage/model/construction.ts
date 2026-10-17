@@ -5,6 +5,118 @@ import type { SourceStorageBudget } from "./resource-budget.js";
 import type { SourceStorageUnresolved } from "./types.js";
 import type { SourceStorageSubject } from "./subjects.js";
 
+export interface SourceStorageClassValue<Bindings> {
+  readonly subject: SourceStorageSubject;
+  readonly bindings: Bindings;
+}
+
+export function sourceStorageClassLineages<Bindings>(
+  source: TargetSourceProgram,
+  budget: SourceStorageBudget,
+  values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
+  queries: {
+    subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+    nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
+    valuesFor(subject: SourceStorageSubject, bindings: Bindings): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined;
+  },
+  mode?: "heritage",
+): readonly { readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
+  readonly implementation: Node | undefined }[] | undefined {
+  if (values === undefined) return undefined;
+  return budget.withRows(rows => {
+    const lineages: { readonly classes: readonly SourceStorageClassValue<Bindings>[]; readonly complete: boolean;
+      readonly implementation: Node | undefined }[] = [];
+    const pending: { readonly value: SourceStorageClassValue<Bindings>;
+      readonly classes: readonly SourceStorageClassValue<Bindings>[] }[] = [];
+    const schedule = (value: SourceStorageClassValue<Bindings>,
+      classes: readonly SourceStorageClassValue<Bindings>[]): boolean => {
+      if (!rows.add(2 + classes.length)) return false;
+      pending.push({ value, classes });
+      return true;
+    };
+    const finish = (classes: readonly SourceStorageClassValue<Bindings>[], complete: boolean, implementation?: Node): boolean => {
+      if (!rows.add(2 + classes.length)) return false;
+      lineages.push(Object.freeze({ classes: Object.freeze([...classes]), complete, implementation }));
+      return true;
+    };
+    for (const value of values) if (!budget.step() || !schedule(value, [])) return undefined;
+    while (pending.length !== 0) {
+      if (!budget.step()) return undefined;
+      const { value, classes } = pending.pop()!;
+      const node = value.subject.node;
+      if (value.subject.kind !== "value" || value.subject.projection.length !== 0 ||
+        classes.some(previous => previous.subject === value.subject && previous.bindings === value.bindings)) {
+        if (!finish(classes, false)) return undefined;
+        continue;
+      }
+      if (!source.ast.is.IsClassDeclaration(node) && !source.ast.is.IsClassExpression(node) ||
+        !source.navigation.isProjectDeclaration(node)) {
+        const constructors = queries.nativeConstructorsFor(value.subject);
+        if (!finish(classes, constructors !== undefined && constructors.length !== 0)) return undefined;
+        continue;
+      }
+      const lineage = [...classes, value];
+      if (mode === undefined) {
+        const constructors = source.navigation.classConstructors(node);
+        if (constructors.kind !== "resolved") {
+          if (!finish(lineage, false)) return undefined;
+          continue;
+        }
+        if (!constructors.implicit) {
+          const implemented = source.ast.members(node).filter(member => member !== undefined &&
+            source.ast.is.IsConstructorDeclaration(member) && source.ast.body(member) !== undefined);
+          if (!finish(lineage, implemented.length === 1, implemented.length === 1 ? implemented[0] : undefined)) return undefined;
+          continue;
+        }
+      }
+      const heritage = source.navigation.declaredHeritage(node);
+      if (heritage.kind !== "resolved") {
+        if (!finish(lineage, false)) return undefined;
+        continue;
+      }
+      const bases = heritage.edges.filter(edge => edge.kind === "extends");
+      if (bases.length === 0) {
+        if (!finish(lineage, true)) return undefined;
+        continue;
+      }
+      if (bases.length !== 1) {
+        if (!finish(lineage, false)) return undefined;
+        continue;
+      }
+      const subject = queries.subjectFor(AsExpressionWithTypeArguments(source.ast, bases[0]!.heritage)?.Expression);
+      const inherited = subject === undefined ? undefined : queries.valuesFor(subject, value.bindings);
+      if (inherited === undefined) return undefined;
+      for (const selected of inherited) if (!budget.step() || !schedule(selected, lineage)) return undefined;
+    }
+    return Object.freeze(lineages);
+  });
+}
+
+export function sourceStorageInstanceCaptures<Bindings>(
+  source: TargetSourceProgram,
+  budget: SourceStorageBudget,
+  candidate: Node,
+  values: ReadonlySet<SourceStorageClassValue<Bindings>> | undefined,
+  queries: {
+    subjectFor(node: Node | undefined): SourceStorageSubject | undefined;
+    nativeConstructorsFor(subject: SourceStorageSubject): readonly Node[] | undefined;
+    valuesFor(subject: SourceStorageSubject, bindings: Bindings): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined;
+  },
+): ReadonlySet<SourceStorageClassValue<Bindings>> | undefined {
+  const constructor = source.ast.is.IsConstructorDeclaration(candidate);
+  const owner = constructor ? source.ast.parent(candidate) : candidate;
+  if (owner === undefined) return undefined;
+  const lineages = sourceStorageClassLineages(source, budget, values, queries, constructor ? undefined : "heritage");
+  if (lineages === undefined || lineages.some(lineage => !lineage.complete)) return undefined;
+  const captures = new Set<SourceStorageClassValue<Bindings>>();
+  for (const lineage of lineages) for (const selected of lineage.classes) {
+    if (!budget.step()) return undefined;
+    if (constructor && lineage.implementation !== candidate) continue;
+    if (selected.subject.node === owner) captures.add(selected);
+  }
+  return captures;
+}
+
 export function sourceStorageConstructionExpression(invocation: Node, source: TargetSourceProgram,
   step: () => boolean): Node | undefined {
   return source.ast.is.IsNewExpression(invocation) ? Node_Expression(source.ast, invocation)

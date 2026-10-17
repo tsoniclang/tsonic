@@ -1,4 +1,4 @@
-import type { Type } from "@tsonic/tsts";
+import type { AstReader, Type } from "@tsonic/tsts";
 import type { SourceFileSemantics } from "../../../source-semantics/index.js";
 import { sourceStorageComponentType, sourceStorageOriginalComponents } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
@@ -10,6 +10,7 @@ export function sourceStorageProjectComponents(
   to: Type,
   remaining: readonly SourceStorageProjection[],
   semantics: SourceFileSemantics,
+  ast: AstReader,
   budget: SourceStorageBudget,
   collect: (projection: readonly SourceStorageProjection[]) => void,
 ): void {
@@ -28,11 +29,11 @@ export function sourceStorageProjectComponents(
       nextRows = budget.createRows();
       for (const candidate of candidates) {
         if (!budget.step()) return;
-        const target = sourceStorageComponentType(candidate.to, component, semantics);
+        const target = sourceStorageComponentType(candidate.to, component, semantics, ast);
         if (target === undefined) continue;
         for (const original of sourceStorageOriginalComponents(candidate.from, candidate.to, component, semantics)) {
           if (!budget.step()) return;
-          const sourceType = sourceStorageComponentType(candidate.from, original, semantics);
+          const sourceType = sourceStorageComponentType(candidate.from, original, semantics, ast);
           if (sourceType === undefined) continue;
           if (!nextRows.add(1)) return;
           next.push({ projection: [...candidate.projection, original], from: sourceType, to: target });

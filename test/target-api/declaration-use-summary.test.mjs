@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram, sourceDeclarationHasOnlyTypeUses, sourceDeclarationIsModuleScoped } from "../../packages/target-api/dist/public/source.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { minimalSourceGlobals } from "../fixtures/minimal-source-globals.mjs";
 
 test("declaration use classification owns erased contracts without inventing initializer purity", async () => {
   const checked = await checkedSource("metadata-only-use-kinds", { "src/index.ts": `
@@ -93,4 +94,138 @@ test("import/export linkage preserves the actual originating declaration identit
   const summary = source.navigation.declarationUseSummary(declaration);
   assert.equal(summary.exported, true, "the real exported declaration remains an ABI/runtime obligation");
   assert.equal(sourceDeclarationHasOnlyTypeUses(summary), false, "an imported erased reference cannot erase the exported value");
+});
+
+test("runtime heritage retains only its actual base result as source storage", async () => {
+  const checked = await checkedSource("runtime-heritage-storage", {
+    "globals.d.ts": minimalSourceGlobals,
+    "src/base.ts": "export class ImportedBase {}",
+    "src/index.ts": `
+import { ImportedBase } from "./base.js";
+class Base {}
+class Other {}
+declare const flag: boolean;
+class Direct extends Base {}
+class Parenthesized extends (Base) {}
+class Conditional extends (flag ? Base : Other) {}
+const Expression = class extends Base {};
+namespace Library { export class Member {} }
+class Qualified extends Library.Member {}
+class Imported extends ImportedBase {}
+function choose(value: typeof Base): typeof Base { return value; }
+declare function opaque(value: typeof Base): typeof Base;
+class FromFactory extends choose(Base) {}
+class FromOpaque extends opaque(Base) {}
+export {};
+`,
+  });
+  assert.equal(checked.diagnostics.length, 0, "Every actual constructor, alias and opaque argument is checked source.");
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const base = namedDeclaration(source.ast, file, "Base");
+  const baseSummary = source.navigation.declarationUseSummary(base);
+  const usesWithin = (summary, owner) => summary.uses.filter(use => {
+    let current = use.reference;
+    while (current !== undefined && current !== owner) current = source.ast.parent(current);
+    return current === owner;
+  });
+  for (const name of ["Direct", "Parenthesized", "Conditional", "Expression"]) {
+    const owner = name === "Expression"
+      ? source.ast.as.AsVariableDeclaration(namedVariable(source.ast, file, name)).Initializer
+      : namedDeclaration(source.ast, file, name);
+    const uses = usesWithin(baseSummary, owner);
+    assert.equal(uses.length === 1 && uses[0].kind === "first-class" && uses[0].role === "storage", true,
+      `${name}: only the actual retained constructor value is stored.`);
+  }
+  for (const name of ["FromFactory", "FromOpaque"]) {
+    const owner = namedDeclaration(source.ast, file, name);
+    const uses = usesWithin(baseSummary, owner);
+    assert.equal(uses.length === 1 && uses[0].role === "argument", true,
+      `${name}: an actual input to a factory has no invented identity or no-invocation guarantee.`);
+    const heritage = source.ast.extendsHeritageElements(owner)[0];
+    const expression = source.ast.as.AsExpressionWithTypeArguments(heritage).Expression;
+    const flow = source.navigation.expressionValueFlow(expression);
+    assert.equal(flow.storedOutsideBinding && flow.escapes && !flow.hasUnclassifiedUse, true,
+      `${name}: the actual returned base is retained, independently of its argument provenance.`);
+  }
+  for (const [name, declaration] of [
+    ["Qualified", namedDeclaration(source.ast, file, "Member")],
+    ["Imported", namedDeclaration(source.ast, projectSourceFile(source, "src/base.ts"), "ImportedBase")],
+  ]) {
+    const uses = usesWithin(source.navigation.declarationUseSummary(declaration), namedDeclaration(source.ast, file, name));
+    assert.equal(uses.length === 1 && uses[0].role === "storage", true,
+      `${name}: checked member/import identity reaches the actual retained base.`);
+  }
+  const other = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "Other"));
+  assert.equal(other.uses.length === 1 && other.uses[0].role === "storage", true,
+    "Both conditional result alternatives retain their own constructor identities.");
+  assert.equal(baseSummary.hasUnclassifiedValueUse, false, "A local runtime extends result is not an unknown external publication.");
+  assert.equal(baseSummary.aliasedOrStored && baseSummary.escapeKinds.includes("storage"), true,
+    "Class heritage still retains source storage and cannot erase constructor captures.");
+  assert.equal(sourceDeclarationHasOnlyTypeUses(baseSummary), false, "Runtime class bases remain real runtime declarations.");
+});
+
+test("heritage type meaning reuses the canonical qualified declaration selection", async () => {
+  const checked = await checkedSource("heritage-canonical-type-meaning", { "globals.d.ts": minimalSourceGlobals, "src/index.ts": `
+interface Contract { value: number; }
+interface Extended extends Contract {}
+class Direct implements Contract { value = 1; }
+namespace Library { export interface Shape { value: number; } }
+class Qualified implements Library.Shape { value = 2; }
+interface Argument { readonly value: number; }
+class GenericBase<Value> { value!: Value; }
+class GenericDerived extends GenericBase<Argument> {}
+export {};
+` });
+  assert.equal(checked.diagnostics.length, 0, "The namespace-qualified and ordinary erased heritage forms are checked.");
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  const library = requiredNode(source.ast, file, node => source.ast.is.IsModuleDeclaration(node) &&
+    source.ast.text(source.ast.name(node)) === "Library");
+  for (const [name, declaration] of [
+    ["Contract", namedDeclaration(source.ast, file, "Contract")],
+    ["Library", library],
+    ["Shape", namedDeclaration(source.ast, file, "Shape")],
+    ["Argument", namedDeclaration(source.ast, file, "Argument")],
+  ]) {
+    const summary = source.navigation.declarationUseSummary(declaration);
+    assert.equal(summary.uses.length > 0 && summary.uses.every(use => use.kind === "type-only" && use.role === "type-only"), true,
+      `${name}: both namespace and selected declaration keep canonical type meaning.`);
+    assert.equal(summary.hasUnclassifiedValueUse || summary.escapeKinds.includes("storage"), false,
+      `${name}: erased heritage never publishes a runtime constructor.`);
+  }
+  const generic = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "GenericBase"));
+  assert.equal(generic.uses.length === 1 && generic.uses[0].role === "storage", true,
+    "The generic constructor is retained while its actual type argument stays erased.");
+});
+
+test("real export, return and opaque class arguments retain their independent escape obligations", async () => {
+  const checked = await checkedSource("heritage-real-exposure", { "globals.d.ts": minimalSourceGlobals, "src/index.ts": `
+export class PublishedBase { readonly value = 1; }
+export class PublishedDerived extends PublishedBase {}
+declare function opaque(value: typeof PublishedBase): void;
+opaque(PublishedBase); opaque(PublishedDerived);
+function create() {
+  class CapturedBase { readonly value = 2; }
+  class ReturnedDerived extends CapturedBase {}
+  return ReturnedDerived;
+}
+export {};
+` });
+  assert.equal(checked.diagnostics.length, 0, "The actual external class values and inherited result are retained source.");
+  const source = createTargetSourceProgram(checked);
+  const file = projectSourceFile(source, "src/index.ts");
+  for (const name of ["PublishedBase", "PublishedDerived"]) {
+    const summary = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, name));
+    assert.equal(summary.exported && summary.escapeKinds.includes("export") && summary.escapeKinds.includes("argument"), true,
+      `${name}: export and opaque argument publication do not depend on unclassified heritage.`);
+    assert.equal(sourceDeclarationHasOnlyTypeUses(summary), false, `${name}: external constructor values cannot be metadata-only.`);
+  }
+  const captured = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "CapturedBase"));
+  assert.equal(captured.aliasedOrStored && captured.escapeKinds.includes("storage"), true,
+    "The returned Derived still retains its own actual base constructor.");
+  const returned = source.navigation.declarationUseSummary(namedDeclaration(source.ast, file, "ReturnedDerived"));
+  assert.equal(returned.escapeKinds.includes("return"), true, "Returning Derived remains a genuine value escape.");
+  assert.equal(sourceDeclarationHasOnlyTypeUses(captured) || sourceDeclarationHasOnlyTypeUses(returned), false,
+    "Neither retained constructor can be reclassified as erased metadata.");
 });

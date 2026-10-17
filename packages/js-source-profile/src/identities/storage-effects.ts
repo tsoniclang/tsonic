@@ -25,17 +25,28 @@ const nativeOperationBindings = new Map([
   ["URIErrorConstructor", "URIError"],
 ]);
 
+function operationBinding(identity: JsSourceStorageOperationIdentity) {
+  const name = nativeOperationBindings.get(identity.ownerName);
+  return name === undefined ? undefined : Object.freeze({ name, providerId: jsSourceSemanticsIdentity.providerId });
+}
+
+export function jsSourceNativeConstructorStorage(identity: JsSourceStorageOperationIdentity | undefined) {
+  if (identity === undefined || identity.memberName !== "constructor" || !nativeErrorConstructorOwners.has(identity.ownerName))
+    return undefined;
+  const binding = operationBinding(identity);
+  return binding === undefined ? undefined : Object.freeze({ declaration: identity.declaration, binding });
+}
+
 export function selectJsSourceCallStorageEffect(
   identity: JsSourceStorageOperationIdentity | undefined,
   call: ResolvedSourceCallInfo,
 ) {
   const effect = jsSourceCallStorageEffect(identity, call);
-  const name = identity === undefined ? undefined : nativeOperationBindings.get(identity.ownerName);
-  if (identity === undefined || name === undefined || effect === undefined) return undefined;
+  const binding = identity === undefined ? undefined : operationBinding(identity);
+  if (identity === undefined || binding === undefined || effect === undefined) return undefined;
   const form: "member" | "value" = identity.memberName === "constructor" || identity.memberName === "call"
     ? "value" : "member";
-  return Object.freeze({ declaration: identity.declaration, form, effect,
-    binding: Object.freeze({ name, providerId: jsSourceSemanticsIdentity.providerId }) });
+  return Object.freeze({ declaration: identity.declaration, form, effect, binding });
 }
 
 export function jsSourceCallStorageEffect(identity: {

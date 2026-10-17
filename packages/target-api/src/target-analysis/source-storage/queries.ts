@@ -77,27 +77,14 @@ export function createSourceStorageQuery(
     const key = selected.map(value => value.identity).join(",");
     const existing = bindingViews.get(key);
     if (existing !== undefined) return existing;
-    const subjects = new Map<SourceStorageSubject, Set<SourceStorageSubject>>();
-    for (const { state } of selected) for (const formal of transport.substitutions.formals(state) ?? []) {
-      if (!budget.step()) return undefined;
-      const actuals = subjects.get(formal) ?? new Set<SourceStorageSubject>();
-      const originals = transport.substitutions.origins(formal, state);
-      if (originals === undefined) return undefined;
-      for (const actual of originals) {
-        if (!budget.step()) return undefined;
-        actuals.add(actual);
-      }
-      subjects.set(formal, actuals);
-    }
-    const cost = 2 + selected.length + subjects.size + [...subjects.values()].reduce((count, actuals) => count + actuals.size, 0);
+    const cost = 2 + selected.length;
     if (budget.failure() !== undefined || !bindingRows.add(cost)) return undefined;
-    const substitutions = [...subjects].map(([formal, actuals]) => Object.freeze({ formal, actuals: Object.freeze([...actuals]) }));
-    const view = Object.freeze({ substitutions: Object.freeze(substitutions) });
+    const view = Object.freeze({ kind: "source-storage-bindings" as const });
     bindingStates.set(view, Object.freeze(selected.map(value => value.state)));
     bindingViews.set(key, view);
     return view;
   };
-  const emptyBindings: SourceStorageBindings = Object.freeze({ substitutions: Object.freeze([]) });
+  const emptyBindings: SourceStorageBindings = Object.freeze({ kind: "source-storage-bindings" });
   bindingStates.set(emptyBindings, Object.freeze([transport.substitutions.empty]));
   bindingViews.set("0", emptyBindings);
   const declarationBindings: SourceStorageQueries["bindingsForDeclaration"] = (declaration, parent = emptyBindings) => {
@@ -212,10 +199,12 @@ export function createSourceStorageQuery(
     const subjects = new Set<SourceStorageSubject>();
     const boundaries: SourceStorageDomainBoundary[] = [];
     const producerStates = new Map<SourceStorageSubject, Set<SourceStorageSubstitutions>>();
+    let absence = false;
     for (const state of states) {
       if (!budget.step()) return unresolved(budget.failure()!);
       const selected = domains.select(subject, state, purpose);
       if (selected.reason !== undefined) return unresolved(selected.reason);
+      absence ||= selected.absence;
       for (const origin of selected.subjects) { if (!budget.step()) return unresolved(budget.failure()!); subjects.add(origin); }
       if (purpose === "storage-producers") for (const origin of selected.boundSubjects) {
         if (!budget.step()) return unresolved(budget.failure()!);
@@ -233,7 +222,7 @@ export function createSourceStorageQuery(
       }
     }
     if (budget.failure() !== undefined) return unresolved(budget.failure()!);
-    if (subjects.size === 0) return unresolved("A source storage cycle has no proven original owner.");
+    if (subjects.size === 0 && boundaries.length === 0 && !absence) return unresolved("A source storage cycle has no proven original owner.");
     const origins = typedOrigins([...subjects]);
     if (origins.kind === "unresolved") return origins;
     return boundaries.length === 0 ? Object.freeze({ kind: "complete" as const, origins: origins.origins, producerStates })
@@ -646,6 +635,6 @@ export function createSourceStorageQuery(
     },
     enclosingRegionFor(node) { return checkedNode(node) ? transport.regions.enclosing(node) : undefined; },
   } satisfies SourceStorageQueries);
-  const construction = createSourceStorageConstructionQuery(source, budget, query);
+  const construction = createSourceStorageConstructionQuery(source, budget, query, transport.nativeConstructorsFor);
   return query;
 }

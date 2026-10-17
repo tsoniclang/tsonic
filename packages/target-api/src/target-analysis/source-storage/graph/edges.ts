@@ -60,7 +60,7 @@ export function createSourceStorageEdges(
       const from = types?.from ?? sourceStorageSubjectType(source, origin, fromFile);
       const to = types?.to ?? sourceStorageSubjectType(source, destination, toFile);
       if (from === undefined || to === undefined || fromFile === undefined) continue;
-      sourceStorageProjectComponents(origin.projection, from, to, remaining, source.semantics.forFile(fromFile), budget, projection => {
+      sourceStorageProjectComponents(origin.projection, from, to, remaining, source.semantics.forFile(fromFile), source.ast, budget, projection => {
         const projected = subject(origin.node, origin.kind, projection);
         if (projected !== undefined) collect(projected);
       });
