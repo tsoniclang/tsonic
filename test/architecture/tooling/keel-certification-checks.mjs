@@ -597,8 +597,11 @@ function scriptSourceReferences(path, text) {
       try {
         baseUrl = new URL(ast.text(baseArguments[0]), new URL(path.split("/").map(encodeURIComponent).join("/"), "file:///keel/"));
         targets = calls.map(call => new URL(ast.text(ast.arguments(call)[0]), baseUrl));
-        if ([baseUrl, ...targets].some(url => url.protocol !== "file:" || url.hostname !== "" ||
-          !url.pathname.startsWith("/keel/") || /%2f|%5c/iu.test(url.pathname) || !validPath(decodeURIComponent(url.pathname.slice(6))))) throw new Error("Unrooted URL");
+        if ([baseUrl, ...targets].some((url, index) => {
+          const relative = decodeURIComponent(url.pathname.slice(6));
+          return url.protocol !== "file:" || url.hostname !== "" || !url.pathname.startsWith("/keel/") || /%2f|%5c/iu.test(url.pathname) ||
+            !keelWorkspaceRepositories.includes(relative.split("/")[0]) || !validPath(index === 0 ? relative.replace(/\/$/u, "") : relative);
+        })) throw new Error("Unrooted URL");
       } catch {
         rejectLoader("the actual URL base or a literal target leaves the tracked first-party root"); continue;
       }
