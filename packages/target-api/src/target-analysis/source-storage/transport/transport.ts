@@ -383,18 +383,18 @@ export function createSourceStorageTransport(
   });
   const classLineagesFor = (expression: Node | undefined,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
-    captureOwner?: Node) => {
+    mode?: "heritage") => {
     const valuesFor = (subject: SourceStorageSubject) => {
       const origins = originsFor === originSubjects ? classValueSubjects(subject) : originsFor(subject);
       return origins === undefined ? undefined : new Set([...origins].map(origin => ({ subject: origin, bindings: undefined })));
     };
     const target = subjectFor(expression);
-    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor }, captureOwner);
+    return target === undefined ? undefined : sourceStorageClassLineages(source, budget, valuesFor(target), { subjectFor, valuesFor }, mode);
   };
   const constructionLineagesFor = (invocation: Node,
     originsFor: (subject: SourceStorageSubject) => Iterable<SourceStorageSubject> | undefined = originSubjects,
-    captureOwner?: Node) =>
-    classLineagesFor(sourceStorageConstructionExpression(invocation, source, step), originsFor, captureOwner);
+    mode?: "heritage") =>
+    classLineagesFor(sourceStorageConstructionExpression(invocation, source, step), originsFor, mode);
   const ancestorSubjects = graphQueries.query((selected: SourceStorageSubject): ReadonlySet<SourceStorageSubject> | undefined => {
     const subjects = new Set(walkAncestors(selected));
     return budget.failure() === undefined ? subjects : undefined;

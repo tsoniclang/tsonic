@@ -155,8 +155,8 @@ export function createSourceStorageQuery(
       (source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate)) &&
       [...transport.invocationImplementations(invocation)].some(implementation =>
         source.ast.is.IsConstructorDeclaration(implementation) && source.ast.parent(implementation) === candidate)) return true;
-    const captureOwner = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? candidate : undefined;
-    return transport.constructionLineagesFor(invocation, undefined, captureOwner)?.some(lineage =>
+    const mode = source.ast.is.IsClassDeclaration(candidate) || source.ast.is.IsClassExpression(candidate) ? "heritage" : undefined;
+    return transport.constructionLineagesFor(invocation, undefined, mode)?.some(lineage =>
       lineage.classes.some(value => value.subject.node === candidate)) === true;
   };
   const boundOrigins = (subject: SourceStorageSubject, bindings: SourceStorageBindings): SourceStorageSubjectsSelection => {
@@ -400,6 +400,8 @@ export function createSourceStorageQuery(
         if (!budget.step()) return unresolved(budget.failure()!);
         selected.add(binding);
       }
+      if (selected.size === 0 && budget.failure() === undefined)
+        return unresolved("Invocation substitution has no exact completed implementation and capture activation.");
       const view = budget.failure() === undefined ? bindingView(selected) : undefined;
       return view === undefined || budget.failure() !== undefined
         ? unresolved(budget.failure() ?? "Invocation substitution exceeds its finite context budget.")

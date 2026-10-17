@@ -31,7 +31,7 @@ export type SourceContinuationClosureSelection = SourceOwnershipUnresolved | {
 
 export interface SourceContinuationExecution {
   readonly graph: SourceControlFlowGraph;
-  readonly contexts: ReadonlyMap<Node, { readonly owner: Node; readonly bindings: SourceStorageBindings }>;
+  readonly contexts: ReadonlyMap<number, { readonly owner: Node; readonly bindings: SourceStorageBindings }>;
   readonly invocations: readonly { readonly call: Node; readonly bindings: SourceStorageBindings }[];
   readonly completionInvocations: readonly { readonly call: Node; readonly bindings: SourceStorageBindings }[];
 }
@@ -64,7 +64,7 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
     const { reachable } = sourceFlowOrder(selected.graph, "forward", () => {
       if (!budget.step()) throw new SourceFlowFailure(budget.failure()!, candidate);
     });
-    const contexts = new Map<Node, { readonly owner: Node; readonly bindings: SourceStorageBindings }>();
+    const contexts = new Map<number, { readonly owner: Node; readonly bindings: SourceStorageBindings }>();
     const invocations: { readonly call: Node; readonly bindings: SourceStorageBindings }[] = [];
     const completionInvocations: { readonly call: Node; readonly bindings: SourceStorageBindings }[] = [];
     const invokedContexts = new Map<Node, Set<SourceStorageBindings>>();
@@ -86,14 +86,13 @@ export function prepareSourceContinuationExecution(input: Pick<SourceContinuatio
       const returned = point.operation.kind === "return" && (source.ast.is.IsReturnStatement(point.source)
         ? source.ast.as.AsReturnStatement(point.source)?.Expression !== undefined : point.source === source.ast.body(candidate));
       if (!invoked && !returned && point.operation.kind !== "await" && sourceContinuationRead(source, point) === undefined) continue;
-      const region = storage.enclosingRegionFor(point.source);
-      const context = region === undefined ? undefined : selected.graph.executionRegions.get(region);
+      const context = selected.graph.executionRegions.get(point.id);
       if (context === undefined) return sourceOwnershipUnresolved(point.source,
         "Continuation flow requires the exact checked execution-region bindings.");
       if (context.selection.kind === "unresolved") return sourceOwnershipUnresolved(point.source, context.selection.reason);
-      if (!contexts.has(point.source)) {
+      if (!contexts.has(point.id)) {
         if (!rows.add(2)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
-        contexts.set(point.source, Object.freeze({ owner: context.owner, bindings: context.selection.bindings }));
+        contexts.set(point.id, Object.freeze({ owner: context.owner, bindings: context.selection.bindings }));
       }
       if (invoked) {
         if (!appendInvocation(point.source, context.selection.bindings)) return sourceOwnershipUnresolved(point.source, budget.failure()!);
@@ -141,9 +140,9 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
     : { kind: "resolved" as const, execution: input.execution };
   if (selected.kind === "unresolved") return selected;
   const { graph, contexts } = selected.execution;
-  const contextFor = (node: Node) => {
-    const context = contexts.get(node);
-    return context === undefined ? sourceOwnershipUnresolved(node, "Continuation flow requires the exact checked execution-region bindings.")
+  const contextFor = (point: SourceFlowPoint) => {
+    const context = contexts.get(point.id);
+    return context === undefined ? sourceOwnershipUnresolved(point.source ?? candidate, "Continuation flow requires the exact checked execution-region bindings.")
       : { kind: "resolved" as const, owner: context.owner, bindings: context.bindings };
   };
   let failure: SourceOwnershipUnresolved | undefined;
@@ -152,7 +151,7 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
     transfer(point, state) {
       if (!budget.step()) { failure = sourceOwnershipUnresolved(point.source ?? candidate, budget.failure()!); return undefined; }
       if (point.operation.kind !== "await" || point.source === undefined) return state;
-      const context = contextFor(point.source);
+      const context = contextFor(point);
       if (context.kind === "unresolved") { failure = context; return undefined; }
       const suspension = suspensions.forAwait(point.source, context.bindings);
       if (suspension.kind === "unresolved") { failure = suspension; return undefined; }
@@ -200,7 +199,7 @@ function resolve(input: SourceContinuationFlowInput, transfer: SourceContinuatio
       if (!budget.step()) return sourceOwnershipUnresolved(point.source ?? candidate, budget.failure()!);
       if (!solution.reachable.has(point.id) || point.source === undefined) continue;
       const state = solution.before.get(point.id)!;
-      const context = contextFor(point.source);
+      const context = contextFor(point);
       const reference = sourceContinuationRead(source, point);
       if (reference !== undefined) {
         if (context.kind === "unresolved") return context;

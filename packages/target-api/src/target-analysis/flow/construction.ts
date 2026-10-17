@@ -23,7 +23,7 @@ interface OpenPoint {
 export interface SourceFlowConstruction {
   readonly source: TargetSourceProgram;
   readonly parameterInitializers: ReadonlySet<Node> | undefined;
-  readonly superInitializers: readonly Node[];
+  readonly initializeSuper: (next: number, context: SourceFlowContext) => number;
   readonly captures: (source: Node) => readonly SourceLexicalCapture[];
   readonly point: (source: Node | undefined, operation: SourceFlowOperation) => number;
   readonly edge: (from: number, to: number, kind?: SourceFlowEdgeKind) => void;
@@ -39,6 +39,8 @@ export function createSourceFlowConstruction(declaration: Node,
   limits: SourceFlowLimits) {
   const points: OpenPoint[] = [];
   const sourcePoints = new Map<Node, number[]>();
+  const executionRegions = new Map<number, SourceFlowExecutionRegion>();
+  let execution: SourceFlowExecutionRegion | undefined;
   const bindings = new Set<Node>();
   const budget = createSourceFlowBudget(limits);
   let edges = 0;
@@ -48,6 +50,7 @@ export function createSourceFlowConstruction(declaration: Node,
     if (points.length >= limits.maximumPoints) throw new SourceFlowFailure("Source flow exceeds its finite point budget.", origin);
     const id = points.length;
     points.push({ id, source: origin, operation: Object.freeze(operation), successors: [], predecessors: [] });
+    if (execution !== undefined) executionRegions.set(id, execution);
     if (origin !== undefined) {
       const existing = sourcePoints.get(origin);
       if (existing === undefined) sourcePoints.set(origin, [id]);
@@ -82,8 +85,12 @@ export function createSourceFlowConstruction(declaration: Node,
   return {
     point, edge, emit, step: budget.step,
     nested,
-    finish(entry: number, exit: number, exceptionExit: number,
-      executionRegions: ReadonlyMap<Node, SourceFlowExecutionRegion>): SourceControlFlowGraph {
+    withExecution<Result>(selected: SourceFlowExecutionRegion | undefined, visit: () => Result): Result {
+      const previous = execution;
+      execution = selected;
+      try { return visit(); } finally { execution = previous; }
+    },
+    finish(entry: number, exit: number, exceptionExit: number): SourceControlFlowGraph {
       const sealed: SourceFlowPoint[] = points.map(selected => Object.freeze({ ...selected,
         successors: Object.freeze(selected.successors), predecessors: Object.freeze(selected.predecessors) }));
       return Object.freeze({ declaration, entry, exit, exceptionExit, points: Object.freeze(sealed),

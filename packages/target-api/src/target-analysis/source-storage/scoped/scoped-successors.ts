@@ -91,8 +91,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
       return values;
     },
   };
-  const classLineages = (value: SourceStorageReference, captureOwner?: Node | "heritage") =>
-    sourceStorageClassLineages(source, budget, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries, captureOwner);
+  const classLineages = (value: SourceStorageReference, mode?: "heritage") =>
+    sourceStorageClassLineages(source, budget, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries, mode);
   const instanceCaptures = (candidate: Node, value: SourceStorageReference) => sourceStorageInstanceCaptures(
     source, budget, candidate, new Set([{ subject: value.subject, bindings: value.scope }]), classQueries);
   const application = (invocation: Node, target: SourceStorageSubject, scope: SourceStorageScope,

@@ -36,7 +36,7 @@ export interface SourceControlFlowGraph {
   readonly points: readonly SourceFlowPoint[];
   readonly sourcePoints: ReadonlyMap<Node, readonly number[]>;
   readonly bindings: ReadonlySet<Node>;
-  readonly executionRegions: ReadonlyMap<Node, SourceFlowExecutionRegion>;
+  readonly executionRegions: ReadonlyMap<number, SourceFlowExecutionRegion>;
 }
 
 export interface SourceFlowExecutionRegion {

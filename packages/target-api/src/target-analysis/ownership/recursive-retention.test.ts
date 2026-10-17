@@ -925,3 +925,64 @@ test("canonical contexts keep actual closure captures and generic input substitu
   assert.equal(keys[0] !== undefined && keys[1] !== undefined && keys[0] !== keys[1], true,
     "same source closure does not merge distinct actual captured generic values");
 });
+
+for (const depth of [2, 3]) for (const reverse of [false, true]) {
+  test(`repeated class initializer reads retain their distinct actual capture contexts: depth=${depth}, reverse=${reverse}`, () => {
+    const layers = Array.from({ length: depth }, (_, index) =>
+      `const Layer${index} = repeatedLayer(${index === 0 ? "RepeatedRoot" : `Layer${index - 1}`},
+        ${(index % 2 === 0) !== reverse ? "borrowed" : "owned"});`).join("\n");
+    const current = fixture(reverse, "self", `
+      type RepeatedFactory = new () => { root: number };
+      class RepeatedRoot { root = 0; }
+      function repeatedLayer(Parent: RepeatedFactory, lease: Lease) {
+        return class RepeatedLayer extends Parent { field = read(lease); };
+      }
+      async function repeatedClassRoot(): Promise<number> {
+        const owner = { value: 3 }; const borrowed = borrow(owner); const owned: Lease = { value: 4 };
+        ${layers}
+        const instance = new Layer${depth - 1}();
+        return instance.root;
+      }
+    `);
+    const { source, storage } = current;
+    const root = current.declaration("repeatedClassRoot");
+    const call = storage.invocations.find(node => source.ast.is.IsNewExpression(node) &&
+      storage.enclosingRegionFor(node) === source.ast.body(root));
+    assert.equal(call !== undefined, true, "One actual repeated-factory allocation is checked.");
+    const bindings = storage.bindingsForLexicalOwner(call!);
+    assert.equal(bindings.kind, "resolved", "The actual allocation caller is retained.");
+    if (bindings.kind === "unresolved") return;
+    const closure = createSourceContinuationClosureQuery({ source, storage, premises: current.premises, budget: current.budget });
+    const selected = closure.forInvocation(call!, bindings.bindings);
+    assert.equal(selected.kind === "resolved", true,
+      selected.kind === "unresolved" ? selected.reason : "Every actual initializer activation participates in the same complete closure.");
+    if (selected.kind === "unresolved") return;
+    const reads = selected.reads.filter(read => source.ast.is.IsIdentifier(read.reference) && source.ast.text(read.reference) === "lease");
+    assert.equal(reads.length, depth, "Each original initializer read occurs once per actual factory capture.");
+    assert.equal(reads.every(read => read.reference === reads[0]!.reference && read.candidate === reads[0]!.candidate), true,
+      "The same source read and class AST have distinct execution bindings, not fabricated syntax.");
+    assert.equal(new Set(reads.map(read => read.bindings)).size, depth, "The ownership consumer preserves each real point's activation.");
+    let borrowed = 0;
+    let owned = 0;
+    for (const read of reads) {
+      const subject = storage.subjectFor(read.reference);
+      assert.equal(subject.kind, "resolved", "The exact original capture subject is checked.");
+      if (subject.kind === "unresolved") return;
+      const producers = storage.storageProducersFor(subject.subject, read.bindings);
+      assert.equal(producers.kind === "complete" && producers.producers.length === 1, true,
+        "Each point reads its own actual factory argument without a merged capture environment.");
+      if (producers.kind !== "complete") return;
+      const value = producers.producers[0]!.subject.node;
+      if (source.ast.is.IsCallExpression(value) && current.selectedDeclaration(value) === current.declaration("borrow")) borrowed += 1;
+      else {
+        assert.equal(source.ast.is.IsObjectLiteralExpression(value), true, "The other actual factory input is the checked owned value.");
+        owned += 1;
+      }
+    }
+    assert.equal(borrowed, Array.from({ length: depth }, (_, index) => (index % 2 === 0) !== reverse).filter(Boolean).length,
+      "Every actual borrowed factory capture remains represented.");
+    assert.equal(owned, depth - borrowed, "Every actual owned factory capture remains separate.");
+    assert.equal(storage.failureReason() === undefined && current.budget.failure() === undefined, true,
+      "The repeated finite source lineage closes within the unchanged budgets.");
+  });
+}
