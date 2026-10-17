@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCompilerSessionFromFiles, formatDiagnostics, type AstReader, type Node } from "@tsonic/tsts";
-import { Node_Expression, Node_Initializer } from "../source-navigation/ast.js";
-import { selectSourceContextualValueType } from "./contextual-type-selection.js";
+import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@tsonic/tsts";
+import { Node_Initializer } from "../source-navigation/ast.js";
 import { createTargetSourceProgram } from "./target-source-program.js";
 
 function fixture(sourceText: string) {
@@ -125,34 +124,107 @@ consume({ key: "value" });
   assert.equal(selected.kind === "ambiguous" && Object.isFrozen(selected.types), true, "the ambiguous candidate list remains immutable");
 });
 
-for (const wrapper of ["parentheses", "const assertion", "initializer"] as const) {
-  test(`a foreign ${wrapper} cannot make an annotated operand look like another pattern initializer`, () => {
-    const { source, queries, literals, declarations } = fixture(`
-const { key } = ((({ key: "value" }) as const));
-const actual: { key: string } = { key: "other" };
-`);
-    const first = literals[0];
-    const actual = literals[1];
-    if (first === undefined || actual === undefined) throw new Error("Both actual checked operands are required.");
-    let foreign = wrapper === "initializer" ? declarations[0] : source.ast.parent(first);
-    if (wrapper !== "initializer") {
-      while (foreign !== undefined && !(wrapper === "parentheses"
-        ? source.ast.is.IsParenthesizedExpression(foreign) : source.ast.isConstAssertion(foreign))) {
-        foreign = source.ast.parent(foreign);
-      }
-    }
-    if (foreign === undefined) throw new Error("The actual foreign wrapper or binding owner is required.");
-    assert.equal((wrapper === "initializer" ? Node_Initializer(source.ast, foreign) : Node_Expression(source.ast, foreign)) !== actual, true,
-      `${wrapper}: the candidate owner belongs to a different checked operand`);
-    const contextual = queries.checker.getContextualType(actual);
-    assert.equal(contextual !== undefined, true, `${wrapper}: the real operand has a genuine contextual destination`);
-    const foreignOwner = foreign;
-    const ast: AstReader = { ...source.ast, parent: node => node === actual ? foreignOwner : source.ast.parent(node) };
-    const selected = selectSourceContextualValueType(ast, queries.typeShape, queries.checker, actual);
-    assert.equal(selected.kind === "selected" && selected.type === contextual, true,
-      `${wrapper}: exact operand correspondence prevents crossing another initializer's parent chain`);
+const propagatedPatterns = [
+  ["object conditional true branch", 'declare const flag: boolean; const { key } = flag ? { key: "a" } : { key: "b" };', 0],
+  ["object conditional false branch", 'declare const flag: boolean; const { key } = flag ? { key: "a" } : { key: "b" };', 1],
+  ["array conditional true branch", 'declare const flag: boolean; const [key] = flag ? ["a"] : ["b"];', 0],
+  ["array conditional false branch", 'declare const flag: boolean; const [key] = flag ? ["a"] : ["b"];', 1],
+  ["object logical-and right operand", 'declare const flag: true; const { key } = flag && { key: "a" };', 0],
+  ["array logical-and right operand", 'declare const flag: true; const [key] = flag && ["a"];', 0],
+  ["object comma right operand", 'declare function tick(): void; const { key } = (tick(), { key: "a" });', 0],
+  ["array comma right operand", 'declare function tick(): void; const [key] = (tick(), ["a"]);', 0],
+  ["object logical-or left operand", 'declare const flag: boolean; const { key } = (flag ? { key: "a" } : undefined) || { key: "b" };', 0],
+  ["array logical-or left operand", 'declare const flag: boolean; const [key] = (flag ? ["a"] : undefined) || ["b"];', 0],
+  ["object nullish left operand", 'declare const flag: boolean; const { key } = (flag ? { key: "a" } : undefined) ?? { key: "b" };', 0],
+  ["array nullish left operand", 'declare const flag: boolean; const [key] = (flag ? ["a"] : undefined) ?? ["b"];', 0],
+  ["object non-null operand", 'const { key } = { key: "a" }!;', 0],
+  ["array non-null operand", 'const [key] = ["a"]!;', 0],
+  ["nested object binding default", 'const { inner: { key } = { key: "a" } } = {};', 0],
+  ["nested array binding default", 'const [[key] = ["a"]] = [];', 0],
+  ["nested object property", 'const { inner: { key } } = { inner: { key: "a" } };', 1],
+  ["nested array element", 'const [[key]] = [["a"]];', 1],
+  ["object spread operand", 'const { key } = { ...{ key: "a" } };', 1],
+  ["composed object contexts", 'declare const flag: boolean; declare function tick(): void; const { key } = (tick(), (flag ? ({ key: "a" } as const) : ({ key: "b" } as const)))!;', 0],
+  ["composed array contexts", 'declare const flag: boolean; declare function tick(): void; const [key] = (tick(), (flag ? (["a"] as const) : (["b"] as const)))!;', 1],
+] as const;
+
+for (const [name, sourceText, literalIndex] of propagatedPatterns) {
+  test(`${name} does not select a synthetic pattern destination`, () => {
+    const { source, literals } = fixture(sourceText);
+    const literal = literals[literalIndex];
+    if (literal === undefined) throw new Error("The actual contextual operand is required.");
+    const parent = source.ast.parent(literal);
+    assert.equal(source.semantics.forNode(literal).types.contextualValueSelection(literal).kind, "unavailable",
+      `${name}: only the checker owns propagation and suppression of synthetic binding-pattern context`);
+    assert.equal(source.ast.parent(literal) === parent && parent !== undefined, true,
+      `${name}: classification does not rewrite the actual checked source operand or its initializer`);
   });
 }
+
+const propagatedDestinations = [
+  ["annotated object conditional true branch", 'declare const flag: boolean; const { key }: { key: string } = flag ? { key: "a" } : { key: "b" };', 0],
+  ["annotated object conditional false branch", 'declare const flag: boolean; const { key }: { key: string } = flag ? { key: "a" } : { key: "b" };', 1],
+  ["annotated array conditional true branch", 'declare const flag: boolean; const [key]: readonly [string] = flag ? ["a"] : ["b"];', 0],
+  ["annotated array conditional false branch", 'declare const flag: boolean; const [key]: readonly [string] = flag ? ["a"] : ["b"];', 1],
+  ["annotated object logical-and right operand", 'declare const flag: true; const { key }: { key: string } = flag && { key: "a" };', 0],
+  ["annotated array logical-and right operand", 'declare const flag: true; const [key]: readonly [string] = flag && ["a"];', 0],
+  ["annotated object comma right operand", 'declare function tick(): void; const { key }: { key: string } = (tick(), { key: "a" });', 0],
+  ["annotated array comma right operand", 'declare function tick(): void; const [key]: readonly [string] = (tick(), ["a"]);', 0],
+  ["annotated object logical-or left operand", 'declare const flag: boolean; const { key }: { key: string } = (flag ? { key: "a" } : undefined) || { key: "b" };', 0],
+  ["annotated array logical-or left operand", 'declare const flag: boolean; const [key]: readonly [string] = (flag ? ["a"] : undefined) || ["b"];', 0],
+  ["annotated object nullish left operand", 'declare const flag: boolean; const { key }: { key: string } = (flag ? { key: "a" } : undefined) ?? { key: "b" };', 0],
+  ["annotated array nullish left operand", 'declare const flag: boolean; const [key]: readonly [string] = (flag ? ["a"] : undefined) ?? ["b"];', 0],
+  ["annotated object non-null operand", 'const { key }: { key: string } = { key: "a" }!;', 0],
+  ["annotated array non-null operand", 'const [key]: readonly [string] = ["a"]!;', 0],
+  ["typed nested object default", 'const { inner: { key } = { key: "a" } }: { inner?: { key: string } } = {};', 0],
+  ["typed nested array default", 'const { inner: [key] = ["a"] }: { inner?: readonly [string] } = {};', 0],
+  ["checked object binding default", 'const { inner: { key } = { key: "a" } } = {} as { inner?: { key: string } };', 0],
+  ["checked array binding default", 'const { inner: [key] = ["a"] } = {} as { inner?: readonly [string] };', 0],
+  ["logical-or right operand", 'declare const prior: { key: string } | undefined; const { key } = prior || { key: "a" };', 0],
+  ["nullish right operand", 'declare const prior: readonly [string] | undefined; const [key] = prior ?? ["a"];', 0],
+  ["contextual arrow object parameter default", 'declare function apply(callback: (value?: { key: string }) => void): void; apply(({ key } = { key: "a" }) => { void key; });', 0],
+  ["contextual arrow array parameter default", 'declare function apply(callback: (value?: readonly [string]) => void): void; apply(([key] = ["a"]) => { void key; });', 0],
+  ["contextual function object parameter default", 'declare function apply(callback: (value?: { key: string }) => void): void; apply(function ({ key } = { key: "a" }) { void key; });', 0],
+  ["contextual function array parameter default", 'declare function apply(callback: (value?: readonly [string]) => void): void; apply(function ([key] = ["a"]) { void key; });', 0],
+  ["contextual array callback parameter default", 'declare const values: readonly { key: string }[]; values.forEach(({ key } = { key: "a" }) => { void key; });', 0],
+  ["authored callback return object", 'const build: () => { key: string } = () => ({ key: "a" });', 0],
+  ["authored callback return array", 'const build: () => readonly [string] = () => ["a"];', 0],
+] as const;
+
+for (const [name, sourceText, literalIndex] of propagatedDestinations) {
+  test(`${name} retains its genuine checked destination`, () => {
+    const { source, queries, literals } = fixture(sourceText);
+    const literal = literals[literalIndex];
+    if (literal === undefined) throw new Error("The actual authored contextual operand is required.");
+    const contextual = queries.checker.getContextualType(literal);
+    if (contextual === undefined) throw new Error(`${name}: the actual checker must supply a contextual destination.`);
+    const candidates = queries.typeShape.isUnion(contextual)
+      ? queries.typeShape.getUnionOrIntersectionTypes(contextual) : [contextual];
+    const retained = candidates.filter(candidate => candidate !== undefined && !queries.typeShape.isNullish(candidate));
+    const selection = source.semantics.forNode(literal).types.contextualValueSelection(literal);
+    assert.equal(retained.length, 1, `${name}: one genuine non-nullish contextual destination is checked`);
+    assert.equal(selection.kind === "selected" && selection.type === retained[0], true,
+      `${name}: skipping synthetic binding patterns preserves the actual destination identity`);
+  });
+}
+
+test("a genuine ambiguous contextual callback default retains every checked destination", () => {
+  const { source, queries, literal } = fixture(`
+declare function apply(callback: (value?: { key: string } | { key: number }) => void): void;
+apply(({ key } = { key: "a" }) => { void key; });
+`);
+  const contextual = queries.checker.getContextualType(literal);
+  if (contextual === undefined) throw new Error("The actual callback parameter context is required.");
+  const candidates = queries.typeShape.getUnionOrIntersectionTypes(contextual)
+    .filter(candidate => candidate !== undefined && !queries.typeShape.isNullish(candidate));
+  const selection = source.semantics.forNode(literal).types.contextualValueSelection(literal);
+  assert.equal(candidates.length, 2, "the callback's actual optional parameter has two genuine value destinations");
+  assert.equal(selection.kind === "ambiguous" && selection.types.length === candidates.length &&
+    selection.types.every((candidate, index) => candidate === candidates[index]), true,
+  "the checker flag does not discard contextual callback typing, reorder destinations or choose an arbitrary arm");
+  assert.equal(selection.kind === "ambiguous" && Object.isFrozen(selection.types), true,
+    "the actual ambiguous callback destination inventory is immutable");
+});
 
 test("const-asserted initializer fields keep their actual checked source declaration identity", () => {
   const { source, queries, literal } = fixture('const { key } = { key: "value" } as const;');
