@@ -93,7 +93,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           closed = false;
           const variable = bound.variable;
           entry = ["variable", variable.equation.identity, scopes.identity(variable.owner),
-            variable.capture === undefined ? null : scopes.identity(variable.capture)];
+            variable.capture === undefined ? null : scopes.identity(variable.capture), scopes.callbackKey(variable.callback)];
         } else if (bound?.kind === "replace") {
           const values: Encoded[] = [];
           for (const value of bound.terms) {
@@ -124,7 +124,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
         return value === undefined ? undefined : ["qualified", selected.guards.key, value];
       }
       if (selected.kind === "empty") return [selected.kind];
-      if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand)];
+      if (selected.kind === "execution-root") return [selected.kind, scopes.identity(selected.demand), selected.deferred === true];
       if (selected.kind === "guarded") {
         return budget.withRows(rows => {
           const references = new Set<number>();
@@ -184,7 +184,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           if (value === undefined) return undefined;
           inputs.push(value);
         }
-        return activation === undefined ? undefined : [selected.kind, scopes.identity(selected.region), scopes.identity(selected.demand), activation, inputs];
+        return activation === undefined ? undefined : [selected.kind, scopes.identity(selected.region), scopes.identity(selected.demand), selected.deferred === true, activation, inputs];
       }
       if (selected.kind === "member") {
         const receiver = encodeBinding(selected.receiver);
@@ -195,7 +195,7 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           : footprint === undefined ? undefined : footprint.locations.has(subject!) ? activationKey(selected.scope) : null;
         const execution = selected.mode === "execution" ? activationKey(selected.scope) : null;
         return receiver === undefined || context === undefined || execution === undefined ? undefined : [selected.kind, selected.mode,
-          selected.mode === "execution" ? scopes.identity(selected.demand) : null,
+          selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true] : null,
           selected.selection.kind === "access" ? ["access", scopes.identity(selected.selection.node)]
             : ["projection", scopes.identity(selected.selection.subject), scopes.identity(selected.selection.declaration)], receiver,
           selected.mode === "execution" ? [execution, context] : context, encodeProjection(selected.projection)];
@@ -225,9 +225,10 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
           if (encoded === undefined) return undefined;
           arguments_.push(encoded);
         }
-        if (physicalInvocation) return ["invocation", scopes.identity(selected.invocation), activation, callee, receiver, arguments_];
-        return [selected.kind, selected.mode, selected.mode === "execution" ? scopes.identity(selected.demand) : null,
-          scopes.identity(selected.invocation), activation, callee, receiver,
+        const callback = selected.callback === undefined ? null : scopes.callbackKey(selected.callback);
+        if (physicalInvocation) return ["invocation", scopes.identity(selected.invocation), callback, activation, callee, receiver, arguments_];
+        return [selected.kind, selected.mode, selected.mode === "execution" ? [scopes.identity(selected.demand), selected.deferred === true] : null,
+          scopes.identity(selected.invocation), callback, activation, callee, receiver,
           arguments_, encodeProjection(selected.projection)];
       }
       if (selected.kind === "reference" && (selected.subject.kind === "input" || selected.subject.kind === "receiver")) {
@@ -249,7 +250,8 @@ export function createSourceStorageScopedKeys(source: TargetSourceProgram, budge
       const context = terminalInput ? null : encodeScope(selected.subject, selected.scope);
       const birth = selected.kind === "leaf" ? birthKey(selected.subject, selected.scope) : null;
       if (context === undefined || birth === undefined) return undefined;
-      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason]
+      return selected.kind === "unresolved" ? [selected.kind, scopes.identity(selected.subject), context, selected.reason,
+        ...(selected.exposure === undefined ? [] : [scopes.identity(selected.exposure)])]
         : [selected.kind, scopes.identity(selected.subject), birth, context];
     };
     const encodeBinding = (selected: SourceStorageTerm): Encoded | undefined => {

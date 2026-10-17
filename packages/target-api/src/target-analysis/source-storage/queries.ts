@@ -449,7 +449,16 @@ export function createSourceStorageQuery(
           seen.add(selected.scope);
           const owned = bindingView([selected.scope]);
           if (owned === undefined) return unresolved(budget.failure() ?? "An activation requires its retained declaration bindings.");
-          if (selected.invocation === undefined) activations.push(Object.freeze({ kind: "declaration", declaration, bindings: owned }));
+          if (selected.invocation === undefined) {
+            if (selected.nativeEntry === undefined) activations.push(Object.freeze({ kind: "declaration", declaration, bindings: owned }));
+            else {
+              const caller = bindingView([selected.nativeEntry.caller]);
+              if (caller === undefined) return unresolved(budget.failure() ?? "A native callback activation requires exact caller bindings.");
+              activations.push(Object.freeze({ kind: "declaration", declaration, bindings: owned, nativeEntry: Object.freeze({
+                invocation: selected.nativeEntry.invocation, argument: selected.nativeEntry.callback.argument, callerBindings: caller,
+              }) }));
+            }
+          }
           else {
             const caller = selected.caller === undefined ? undefined : bindingView([selected.caller]);
             if (caller === undefined) return unresolved(budget.failure() ?? "An invocation activation requires exact caller bindings.");
@@ -461,7 +470,7 @@ export function createSourceStorageQuery(
           : Object.freeze({ kind: "resolved", activations: Object.freeze(activations) });
       });
     },
-    contributingActivationsFor(subject, declaration, entry) {
+    contributingExecutionsFor(subject, declaration, entry) {
       return budget.withRows(rows => {
         if (entry === null || typeof entry !== "object") return unresolved("A source callback entry requires owned data-only producer evidence.");
         const subjectDescriptor = Object.getOwnPropertyDescriptor(entry, "subject");
@@ -487,7 +496,10 @@ export function createSourceStorageQuery(
         if (selected === undefined || selected.reason !== undefined)
           return unresolved(selected?.reason ?? budget.failure() ?? "Source callback execution has no completed correlated activation selection.");
         const seen = new Set<SourceStorageSubstitutions>();
-        const activations: SourceStorageBoundActivation[] = [];
+        const producers: SourceStorageProducer[] = [];
+        const type = sourceStorageSubjectType(source, subject, transport.sourceFileFor(subject));
+        const sourceFile = transport.sourceFileFor(subject);
+        if (type === undefined || sourceFile === undefined) return unresolved("A contributing execution requires its checked demanded subject type.");
         for (const current of selected.subjects) {
           if (!budget.step()) return unresolved(budget.failure()!);
           const activation = transport.substitutions.boundActivation(current.bindings, declaration);
@@ -497,18 +509,31 @@ export function createSourceStorageQuery(
           seen.add(activation.scope);
           const bindings = bindingView([activation.scope]);
           if (bindings === undefined) return unresolved(budget.failure() ?? "A contributing execution lost its same-frame bindings.");
-          if (activation.invocation === undefined) activations.push(Object.freeze({ kind: "declaration", declaration, bindings }));
-          else {
-            const callerBindings = activation.caller === undefined ? undefined : bindingView([activation.caller]);
-            if (callerBindings === undefined)
-              return unresolved(budget.failure() ?? "A contributing execution lost its actual caller bindings.");
-            activations.push(Object.freeze({ kind: "invocation", declaration, invocation: activation.invocation,
-              bindings, callerBindings }));
-          }
+          producers.push(Object.freeze({ subject, type, sourceFile, bindings }));
         }
-        return budget.failure() !== undefined ? unresolved(budget.failure()!)
-          : Object.freeze({ kind: "resolved", activations: Object.freeze(activations) });
+        if (budget.failure() !== undefined) return unresolved(budget.failure()!);
+        const boundaries = [];
+        for (const boundary of selected.boundaries) {
+          if (!budget.step() || !rows.add(1)) return unresolved(budget.failure()!);
+          if (boundary.exposure === undefined) return unresolved("A native execution boundary requires its actual exposure.");
+          boundaries.push(Object.freeze({ kind: "unclassified-exposure" as const,
+            subject: boundary.subject, exposure: boundary.exposure }));
+        }
+        return boundaries.length === 0 ? Object.freeze({ kind: "complete", producers: Object.freeze(producers) })
+          : Object.freeze({ kind: "open", producers: Object.freeze(producers), boundaries: Object.freeze(boundaries) });
       });
+    },
+    nativeCallbackArgumentsFor(invocation) {
+      if (!checkedNode(invocation) || !transport.invocations.has(invocation)) return unresolved("A native callback requires its checked invocation owner.");
+      if (budget.failure() !== undefined) return unresolved(budget.failure()!);
+      const reason = transport.unresolvedInvocations.get(invocation);
+      if (reason !== undefined) return unresolved(reason);
+      const entries = transport.callbackEntriesFor(invocation);
+      const arguments_ = Object.freeze(entries.map(entry => entry.argument));
+      const unknown = entries.filter(entry => entry.timing === "unknown");
+      return unknown.length === 0 ? Object.freeze({ kind: "resolved", arguments: arguments_ })
+        : Object.freeze({ kind: "open", arguments: arguments_, boundaries: Object.freeze(unknown.map(entry =>
+          Object.freeze({ kind: "unclassified-exposure" as const, subject: entry.argument.actual, exposure: invocation }))) });
     },
     boundValueFrontierFor(subject, bindings, boundaries, position = "value") {
       return budget.withRows(rows => {

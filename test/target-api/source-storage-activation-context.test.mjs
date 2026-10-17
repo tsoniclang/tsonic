@@ -4,7 +4,7 @@ import { createTargetSourceProgram } from "../../packages/target-api/dist/public
 import { createSourceStorageQuery, defaultSourceStorageLimits } from "../../packages/target-api/dist/public/analysis.js";
 import { checkedSource, projectSourceFile } from "../fixtures/source-navigation.mjs";
 
-async function fixture(name, text) {
+async function fixture(name, text, effectsFor) {
   const checked = await checkedSource(name, {
     "globals.d.ts": `
       interface Object {} interface Function {} interface CallableFunction extends Function {}
@@ -26,7 +26,7 @@ async function fixture(name, text) {
     ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
   };
   visit(file);
-  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles);
+  const storage = createSourceStorageQuery(source, source.navigation.sourceFiles, undefined, effectsFor?.(source, nodes));
   const declaration = name => nodes.find(node => ast.is.IsFunctionDeclaration(node) && ast.text(ast.name(node)) === name);
   const subject = (node, kind) => {
     const selected = storage.subject(node, kind);
@@ -206,10 +206,12 @@ for (const recursive of [false, true]) {
       const value = resolved(storage.subjectFor(ast.arguments(callee)[0])).subject;
       const expected = new Set(["number", "generic"]);
       for (let pass = 0; pass < 2; pass += 1) {
-        const selected = resolved(storage.contributingActivationsFor(operand, owner, producer));
-        assert.equal(selected.activations.length > 0, true, "the explicitly entered callback reaches the real helper execution");
+        const selected = storage.contributingExecutionsFor(operand, owner, producer);
+        assert.equal(selected.kind, "complete", "the actual source-only entry has complete execution evidence");
+        const activations = selected.producers.flatMap(current => resolved(storage.boundActivationsFor(owner, current.bindings)).activations);
+        assert.equal(activations.length > 0, true, "the explicitly entered callback reaches the real helper execution");
         const observed = new Set();
-        for (const activation of pass === 0 ? selected.activations : selected.activations.slice().reverse()) {
+        for (const activation of pass === 0 ? activations : activations.slice().reverse()) {
           assert.equal(activation.kind, "invocation", "the helper is invoked, never an invented declaration boundary");
           const callbacks = storage.storageProducersFor(operand, activation.bindings);
           assert.notEqual(callbacks.kind, "unresolved", callbacks.kind === "unresolved" ? callbacks.reason : "bound callback");
@@ -254,13 +256,15 @@ test("explicit callback entry preserves an annotated returned executor's real cr
     assert.equal(producers.producers.length, 1, "one actual retained executor implementation");
     const producer = producers.producers[0];
     assert.equal(producer.subject.node === arrow, true, "the implementation is the checked returned arrow");
-    const active = resolved(storage.contributingActivationsFor(callee, arrow, producer));
-    assert.equal(active.activations.length, 1, "one explicit entry into this actual executor creation");
-    assert.equal(active.activations[0].kind, "declaration", "a native callback entry is not a fabricated source invocation");
-    const actual = resolved(storage.boundOriginsFor(argument, active.activations[0].bindings));
+    const selected = storage.contributingExecutionsFor(callee, arrow, producer);
+    assert.equal(selected.kind, "complete", "the actual source executor has complete execution evidence");
+    const activations = selected.producers.flatMap(current => resolved(storage.boundActivationsFor(arrow, current.bindings)).activations);
+    assert.equal(activations.length, 1, "one explicit entry into this actual executor creation");
+    assert.equal(activations[0].kind, "declaration", "a native callback entry is not a fabricated source invocation");
+    const actual = resolved(storage.boundOriginsFor(argument, activations[0].bindings));
     assert.equal(actual.subjects.length === 1 && actual.subjects[0].node === ast.arguments(creation)[0], true,
       "the executor retains its own factory call's actual argument");
-    selectedBindings.push(active.activations[0].bindings);
+    selectedBindings.push(activations[0].bindings);
     const factory = resolved(storage.boundActivationsFor(declaration("make"), producer.bindings));
     assert.equal(factory.activations.length === 1 && factory.activations[0].kind === "invocation" &&
       factory.activations[0].invocation === creation, true, "the real factory activation is preserved");
@@ -278,15 +282,283 @@ test("explicit callback entry rejects foreign or fabricated evidence and does no
     bindings: resolved(storage.bindingsForDeclaration(declaration("create"))).bindings };
   const use = nodes.find(node => ast.is.IsCallExpression(node));
   const callee = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
-  const selected = resolved(storage.contributingActivationsFor(callee, declaration("other"), entry));
-  assert.equal(selected.activations.length, 0, "an explicit empty callback cannot fabricate an unrelated helper invocation");
+  const selected = storage.contributingExecutionsFor(callee, declaration("other"), entry);
+  assert.equal(selected.kind, "complete", "the unused body's absence has complete source evidence");
+  assert.equal(selected.producers.length, 0, "an explicit empty callback cannot fabricate an unrelated helper invocation");
   const forged = Object.defineProperty({}, "subject", { get: () => assert.fail("forged entry getter executed") });
   for (const invalid of [undefined, null, {}, forged, { ...entry, bindings: foreign.storage.emptyBindings },
     { ...entry, subject: foreign.subject(foreign.declaration("create")) }]) {
-    assert.equal(storage.contributingActivationsFor(callee, declaration("other"), invalid).kind, "unresolved",
+    assert.equal(storage.contributingExecutionsFor(callee, declaration("other"), invalid).kind, "unresolved",
       "every execution entry needs the identical source graph and retained binding identity");
   }
-  assert.equal(storage.contributingActivationsFor(callee, foreign.declaration("other"), entry).kind, "unresolved",
+  assert.equal(storage.contributingExecutionsFor(callee, foreign.declaration("other"), entry).kind, "unresolved",
     "a demanded owner from another source is not accepted");
   assert.equal(storage.failureReason(), undefined, "rejected forged evidence does not poison valid owned selection");
 });
+
+function nativeContract(timing, positions = [0]) {
+  return (source, nodes) => {
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    assert.equal(native !== undefined && source.ast.body(native) === undefined, true,
+      "the fixture fact belongs to one actual checked native signature, not a name-only call matcher");
+    return Object.freeze({ callbackEntries(node, selected) {
+      const declaration = source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature);
+      return declaration === native ? positions.map(parameterIndex => Object.freeze({ parameterIndex, timing })) : undefined;
+    } });
+  };
+}
+
+for (const reversed of [false, true]) for (const timing of ["synchronous", "deferred", undefined]) {
+  test("native entry ports preserve actual producer creation and input correlation: " + timing + "/" + reversed, async () => {
+    const current = await fixture("native-entry-ports-" + timing, `
+      declare function observe<Value>(value: Value): void;
+      declare function nativeInvoke(fulfilled: () => void, rejected: () => void): void;
+      export function create<Value>(first: Value, second: Value) {
+        function make(value: Value): () => void { return () => { observe(value); }; }
+        return () => { nativeInvoke(make(first), make(second)); };
+      }
+    `, timing === undefined ? undefined : nativeContract(timing, [0, 1]));
+    const { source, ast, nodes, storage, declaration } = current;
+    const native = nodes.find(node => ast.is.IsCallExpression(node) &&
+      ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+    const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(native));
+    const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
+    assert.equal(domain.kind, "complete", "the actual executor creation is closed");
+    assert.equal(domain.producers.length, 1, "one original executor, not two invented source calls");
+    const demanded = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
+    const value = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
+    const callbackArguments = storage.nativeCallbackArgumentsFor(native);
+    assert.equal(callbackArguments.kind, timing === undefined ? "open" : "resolved", "native lifecycle uncertainty remains explicit");
+    assert.equal(callbackArguments.arguments.length, 2, "both actual native callback ports are retained");
+    assert.equal(callbackArguments.arguments[0].binding.sourceArgumentIndex, 0);
+    assert.equal(callbackArguments.arguments[1].binding.sourceArgumentIndex, 1);
+    const entry = domain.producers[0];
+    const expected = new Set(ast.parameters(declaration("create")));
+    const views = [];
+    for (let pass = 0; pass < 2; pass += 1) {
+      const selected = storage.contributingExecutionsFor(demanded, callback, entry);
+      assert.equal(selected.kind, timing === undefined ? "open" : "complete", "demand-local native execution status");
+      assert.equal(selected.producers.length, 2, "one correlated execution for each selected native callback port");
+      const observed = new Set();
+      const bindings = new Set();
+      for (const producer of (pass === 0) !== reversed ? selected.producers : selected.producers.slice().reverse()) {
+        assert.equal(producer.subject === demanded, true, "the original actual demanded value is retained");
+        const activation = resolved(storage.boundActivationsFor(callback, producer.bindings));
+        assert.equal(activation.activations.length, 1, "one actual native entry frame");
+        assert.equal(activation.activations[0].kind, "declaration", "not a fabricated ordinary project call");
+        const origins = resolved(storage.boundOriginsFor(value, producer.bindings));
+        assert.equal(origins.subjects.length, 1, "same-frame value, never a callback/value cross product");
+        const nativeEntry = activation.activations[0].nativeEntry;
+        assert.equal(nativeEntry !== undefined && nativeEntry.invocation === native, true,
+          "a native entry retains its actual native invocation, not a fabricated project invocation");
+        const position = nativeEntry.argument.binding.sourceArgumentIndex;
+        assert.equal(position === 0 || position === 1, true, "one exact checked native callback port");
+        assert.equal(nativeEntry.argument === callbackArguments.arguments[position], true,
+          "the native entry transports the identical completed argument evidence");
+        assert.equal(origins.subjects[0].node === ast.parameters(declaration("create"))[position], true,
+          "each selected native port retains its own actual callback creation binding");
+        observed.add(origins.subjects[0].node);
+        bindings.add(producer.bindings);
+      }
+      assert.equal(bindings.size, 2, "native formal/actual port and real creation context survive every key");
+      assert.equal([...expected].every(node => observed.has(node)) && observed.size === expected.size, true,
+        "first and second actual capture values survive either query order");
+      if (selected.kind === "open") assert.equal(selected.boundaries.every(boundary => boundary.exposure === native), true,
+        "unknown execution is located at the actual native exposure");
+      views.push(selected.producers.map(producer => producer.bindings));
+    }
+    assert.equal(views[0].every(binding => views[1].includes(binding)), true, "fresh and reverse reads preserve canonical frame identity");
+    assert.equal(storage.failureReason() === undefined, true, "opaque execution is not a global budget failure");
+    assert.equal(source.ast.body(callback) !== undefined, true, "the producer is the real checked source body");
+  });
+}
+
+test("source/native recursion closes in the existing finite callback equations", async () => {
+  const current = await fixture("native-entry-recursive-equation", `
+    declare function nativeInvoke(callback: () => void): void;
+    function deliver<Value>(callback: (value: Value) => void, value: Value, depth: number): void {
+      if (depth === 0) { callback(value); return; }
+      nativeInvoke(() => { deliver(callback, value, depth - 1); });
+    }
+    export function create<Value>(value: Value) {
+      return (done: (value: Value) => void) => { deliver(done, value, 3); };
+    }
+  `, nativeContract("synchronous"));
+  const { ast, nodes, storage, declaration } = current;
+  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+  const entryNode = nodes.find(node => ast.is.IsArrowFunction(node) && ast.parameters(node).length === 1);
+  const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+  const domain = storage.storageProducersFor(resolved(storage.subjectFor(entryNode)).subject, outer);
+  assert.equal(domain.kind, "complete", "actual recursive executor creation");
+  const callee = resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject;
+  const argument = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const selected = storage.contributingExecutionsFor(callee, declaration("deliver"), domain.producers[0]);
+    assert.equal(selected.kind, "complete", "source/native cycle has one completed finite relation");
+    assert.equal(selected.producers.length > 0, true, "the recursive source use is reached");
+    for (const producer of selected.producers) {
+      const origins = resolved(storage.boundOriginsFor(argument, producer.bindings));
+      assert.equal(origins.subjects.every(subject => subject.node === ast.parameters(declaration("create"))[0]), true,
+        "every recursive row preserves the same actual source value");
+    }
+  }
+  assert.equal(storage.failureReason() === undefined, true, "no new budget or late solver bootstrap");
+});
+
+test("deferred callbacks retain captured locations rather than registration-time value snapshots", async () => {
+  const current = await fixture("native-entry-live-location", `
+    declare function nativeInvoke(callback: () => void): void;
+    declare function observe(value: number): void;
+    export function create(first: number, second: number) {
+      let selected = first;
+      return () => {
+        nativeInvoke(() => { observe(selected); });
+        selected = second;
+      };
+    }
+  `, nativeContract("deferred"));
+  const { ast, nodes, storage, declaration } = current;
+  const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(invocation));
+  const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+  const outer = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+  const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, outer);
+  assert.equal(domain.kind, "complete", "actual executor is retained");
+  const selected = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
+    callback, domain.producers[0]);
+  assert.equal(selected.kind, "complete", "native deferred source entry is known");
+  const input = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
+  const actuals = selected.producers.flatMap(producer => resolved(storage.boundOriginsFor(input, producer.bindings)).subjects);
+  assert.equal(actuals.some(subject => subject.node === ast.parameters(declaration("create"))[1]), true,
+    "the captured location includes the post-registration write; first is not snapshotted as its only value");
+});
+
+test("a deferred store is not applied inline to an immediate native-owner read", async () => {
+  const current = await fixture("native-entry-not-inline", `
+    declare function nativeInvoke(callback: () => void): void;
+    declare function observe(value: number): void;
+    function run(): void {
+      let value = 1;
+      nativeInvoke(() => { value = 2; });
+      observe(value);
+    }
+    run();
+  `, nativeContract("deferred"));
+  const { ast, nodes, storage } = current;
+  const read = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const subject = resolved(storage.subjectFor(ast.arguments(read)[0])).subject;
+  const origins = resolved(storage.originsFor(subject));
+  assert.equal(origins.origins.some(origin => ast.text(origin.subject.node) === "1"), true, "initial value remains");
+  assert.equal(origins.origins.some(origin => ast.text(origin.subject.node) === "2"), false,
+    "deferred mutation cannot become an inline happens-before write");
+});
+
+for (const [name, parameters, used, inputs] of [
+  ["mapper", "actual: Part", "actual", [0]],
+  ["reduce-element", "accumulator: number, actual: Part", "actual", [1]],
+  ["sort-left", "left: Part, right: Part", "left", [0, 1]],
+  ["sort-right", "left: Part, right: Part", "right", [0, 1]],
+]) {
+  test("native input components keep exact actual argument and callback parameter roles: " + name, async () => {
+    const current = await fixture("native-component-" + name, `
+      declare function observe(value: number): void;
+      declare function nativeInvoke<Part>(values: Part[], callback: (${parameters}) => void): void;
+      export function create(value: number) {
+        return () => { nativeInvoke([value], (${parameters.replaceAll("Part", "number")}) => { observe(${used}); }); };
+      }
+    `, (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) &&
+        source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? [{ parameterIndex: 1, timing: "synchronous", inputs: inputs.map(parameterIndex =>
+            ({ parameterIndex, from: "argument-element", sourceParameterIndex: 0 })) }] : undefined;
+      } };
+    });
+    const { ast, nodes, storage, declaration } = current;
+    const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+    const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+    const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) !== ast.body(callback));
+    const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+    const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, bindings);
+    assert.equal(domain.kind, "complete", "one checked creation domain");
+    const selected = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
+      callback, domain.producers[0]);
+    assert.equal(selected.kind, "complete", "the actual native entry is complete");
+    assert.equal(selected.producers.length, 1, "one native invocation with one callback slot");
+    const origin = resolved(storage.boundOriginsFor(resolved(storage.subjectFor(ast.arguments(use)[0])).subject,
+      selected.producers[0].bindings));
+    assert.equal(origin.subjects.length, 1, "one actual element, not the callback function object");
+    assert.equal(origin.subjects[0].node === ast.parameters(declaration("create"))[0], true,
+      "the canonical array-element relation supplies the original actual argument");
+    if (name === "reduce-element") {
+      const accumulator = resolved(storage.subject(ast.parameters(callback)[0], "input")).subject;
+      const origins = resolved(storage.boundOriginsFor(accumulator, selected.producers[0].bindings));
+      assert.equal(origins.subjects.some(subject => subject.node === ast.parameters(callback)[0]), true,
+        "native accumulator has only its own checked input bound");
+      assert.equal(origins.subjects.some(subject => subject.node === ast.parameters(declaration("create"))[0]), false,
+        "element1 cannot be substituted for accumulator0");
+    }
+  });
+}
+
+test("a known empty native execution fact does not become unknown or invoke an unused callback", async () => {
+  const current = await fixture("native-empty-entry", `
+    declare function nativeInvoke(callback: () => void): void;
+    declare function observe(value: number): void;
+    export function create(value: number) { return () => { nativeInvoke(() => { observe(value); }); }; }
+  `, (source, nodes) => {
+    const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+    return { callbackEntries(node, selected) {
+      return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native ? [] : undefined;
+    } };
+  });
+  const { ast, nodes, storage, declaration } = current;
+  const native = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "nativeInvoke");
+  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "observe");
+  const callback = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(use));
+  const executor = nodes.find(node => ast.is.IsArrowFunction(node) && ast.body(node) === storage.enclosingRegionFor(native));
+  const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+  const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, bindings);
+  assert.equal(domain.kind, "complete", "actual source callback creation is closed");
+  const selected = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
+    callback, domain.producers[0]);
+  assert.equal(selected.kind, "complete", "absence has an explicit native fact");
+  assert.equal(selected.producers.length, 0, "the uncalled body is not seeded by lexical nesting");
+  const arguments_ = storage.nativeCallbackArgumentsFor(native);
+  assert.equal(arguments_.kind, "resolved", "known empty differs from unknown lifecycle");
+  assert.equal(arguments_.arguments.length, 0, "no invented callback port");
+  assert.equal(storage.failureReason() === undefined, true, "proven absence consumes no global unresolved state");
+});
+
+for (const form of ["foreign-slot", "duplicate-slot", "accessor", "unknown-timing"]) {
+  test("invalid native callback evidence stays explicitly open without getter execution: " + form, async () => {
+    let getterCalls = 0;
+    const current = await fixture("native-invalid-" + form, `
+      declare function nativeInvoke(callback: () => void): void;
+      export function create(): void { nativeInvoke(() => {}); }
+    `, (source, nodes) => {
+      const native = nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === "nativeInvoke");
+      const row = form === "accessor" ? Object.defineProperty({ timing: "synchronous" }, "parameterIndex", {
+        get() { getterCalls += 1; return 0; }, enumerable: true,
+      }) : { parameterIndex: form === "foreign-slot" ? 99 : 0, timing: form === "unknown-timing" ? "unknown" : "synchronous" };
+      return { callbackEntries(node, selected) {
+        return source.semantics.forNode(node).declarations.signatureDeclaration(selected.selectedSignature) === native
+          ? form === "duplicate-slot" ? [row, row] : [row] : undefined;
+      } };
+    });
+    const native = current.nodes.find(node => current.ast.is.IsCallExpression(node));
+    const selected = current.storage.nativeCallbackArgumentsFor(native);
+    assert.equal(selected.kind, "open", "missing valid native evidence is not safe empty or a global failure");
+    assert.equal(selected.arguments.length, 1, "the actual checked callable remains present");
+    assert.equal(selected.boundaries.length, 1, "one explicit unclassified exposure");
+    assert.equal(selected.boundaries[0].exposure === native, true, "the original checked native invocation owns the boundary");
+    assert.equal(getterCalls, 0, "validation does not execute metadata accessors");
+    assert.equal(current.storage.failureReason() === undefined, true, "a local malformed native fact does not reject the shared budget");
+  });
+}

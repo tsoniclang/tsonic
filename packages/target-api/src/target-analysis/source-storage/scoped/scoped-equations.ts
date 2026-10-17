@@ -19,27 +19,27 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
     if (!budget.step()) return undefined;
     const component = recursion.componentFor(candidate);
     if (budget.failure() !== undefined) return undefined;
-    if (component === undefined) return scopes.frameFor(candidate, invocation, caller, captured);
+    if (component === undefined) return scopes.frameFor(candidate, invocation, caller, captured, undefined, term.callback);
     const previous = scopes.family(caller);
     const owner = recursion.ownerFor(invocation);
     if (previous?.component === component && owner !== undefined && component.has(owner)) {
       const parent = sourceStorageSuperConstructor(invocation, source, budget.step) === undefined
         ? scopes.variable(previous, owner) : caller;
-      return parent === undefined ? undefined : scopes.frameFor(candidate, invocation, parent, captured, previous);
+      return parent === undefined ? undefined : scopes.frameFor(candidate, invocation, parent, captured, previous, term.callback);
     }
     const key = keyFor(term);
     if (key === undefined) return undefined;
     const entries = equations.get(candidate);
     let equation = entries?.get(key);
     if (equation === undefined) {
-      const initial = scopes.frameFor(candidate, invocation, caller, captured);
+      const initial = scopes.frameFor(candidate, invocation, caller, captured, undefined, term.callback);
       if (initial === undefined || !rows.add(entries === undefined ? 2 : 1)) return undefined;
       equation = Object.freeze({ identity: nextIdentity++, component, entry: candidate, initial });
       const selected = entries ?? new Map<string, SourceStorageEquation>();
       selected.set(key, equation);
       equations.set(candidate, selected);
     }
-    return scopes.frameFor(candidate, invocation, caller, captured, equation);
+    return scopes.frameFor(candidate, invocation, caller, captured, equation, term.callback);
   };
   const expand = (variable: SourceStorageVariable, term: SourceStorageTerm): readonly SourceStorageTerm[] | undefined => {
     if (variable.capture !== undefined) {
@@ -54,7 +54,7 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
       if (entry.kind !== "frame" || entry.owner !== owner || entry.invocation === undefined || entry.caller === undefined) {
         budget.reject("Source storage equations require their exact initial invocation frame."); return undefined;
       }
-      const scope = scopes.frameFor(owner, entry.invocation, entry.caller, entry.parents[0] ?? entry.caller, equation);
+      const scope = scopes.frameFor(owner, entry.invocation, entry.caller, entry.parents[0] ?? entry.caller, equation, entry.callback);
       const initial = scope === undefined ? undefined : replace(scope);
       if (initial === undefined) return undefined;
       alternatives.push(initial);
@@ -66,10 +66,10 @@ export function createSourceStorageEquations(source: TargetSourceProgram, budget
       const caller = site.caller;
       if (!equation.component.has(caller)) continue;
       const previous = scopes.variable(equation, caller);
-      const target = transport.invocationTargets.get(site.invocation);
+      const target = site.callback?.argument.actual ?? transport.invocationTargets.get(site.invocation);
       if (previous === undefined || target === undefined) return undefined;
-      const capture = scopes.variable(equation, owner, site.invocation);
-      const frame = capture === undefined ? undefined : scopes.frameFor(owner, site.invocation, previous, capture, equation);
+      const capture = scopes.variable(equation, owner, site.invocation, site.callback);
+      const frame = capture === undefined ? undefined : scopes.frameFor(owner, site.invocation, previous, capture, equation, site.callback);
       const value = frame === undefined ? undefined : replace(frame);
       if (capture === undefined || value === undefined) return undefined;
       alternatives.push(Object.freeze({ kind: "transition", capture,

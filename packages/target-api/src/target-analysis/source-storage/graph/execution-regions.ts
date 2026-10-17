@@ -5,7 +5,7 @@ import { sourceStorageInstanceInitializers } from "../model/construction.js";
 import { createSourceStorageLexicalSelections } from "./lexical-regions.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import type { SourceStorageInstanceRegion } from "../model/types.js";
+import type { SourceStorageInstanceRegion, SourceStorageCallbackEntry } from "../model/types.js";
 
 export function createSourceStorageExecutionRegions(source: TargetSourceProgram, budget: SourceStorageBudget,
   constructionLineages: (invocation: Node) => readonly {
@@ -25,7 +25,7 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
     return present === undefined || !types.isIdentical(type, present);
   };
   const callable = (declaration: Node, invocation: Node | undefined,
-    argumentTypes?: (expression: Node) => readonly Type[] | undefined): readonly Node[] => {
+    argumentTypes?: (expression: Node) => readonly Type[] | undefined, callback?: SourceStorageCallbackEntry): readonly Node[] => {
     const body = ast.body(declaration);
     if (body === undefined) return [];
     const regions = [body];
@@ -34,6 +34,14 @@ export function createSourceStorageExecutionRegions(source: TargetSourceProgram,
       if (!step()) break;
       const initializer = parameter === undefined ? undefined : Node_Initializer(ast, parameter);
       if (initializer === undefined) continue;
+      if (callback !== undefined && invocation !== undefined) {
+        const types = semantics.forNode(invocation).types;
+        const type = types.nonNullableType(callback.argument.binding.selectedParameterType);
+        const signatures = type === undefined ? [] : types.signatureInfos(type, "call");
+        const input = signatures.length === 1 ? signatures[0]!.parameters[index] : undefined;
+        if (input === undefined || input.acceptsOmission || typeMayBeAbsent(input.type, invocation)) regions.push(initializer);
+        continue;
+      }
       const bindings = selection?.sourceArgumentBindings.filter(binding => binding.sourceParameterIndex === index);
       if (bindings === undefined || bindings.length === 0 || bindings.some(binding => {
         if (binding.sourceForm === "spread-sequence") return true;
