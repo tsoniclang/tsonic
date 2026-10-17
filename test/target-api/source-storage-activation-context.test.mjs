@@ -708,20 +708,22 @@ for (const reversed of [false, true]) {
 for (const nativeForward of [false, true]) for (const reversed of [false, true]) {
   test("possible native payload execution publishes demand-owner helper bindings: " + nativeForward + "/" + reversed, async () => {
     const current = await fixture("native-boundary-demand-owner", `
-      declare function observe(value: number): void;
+      declare function observeFirst(value: number): void;
+      declare function observeSecond(value: number): void;
+      declare function observeOutside(value: number): void;
       declare function nativeInvoke<Part>(values: Part[], callback: (actual: Part) => void): void;
       declare function nativeAgain(callback: () => void): void;
       function send(callback: (value: number) => void, value: number): void { callback(value); }
       function make(callback: (value: number) => void, value: number): () => void { return () => { send(callback, value); }; }
       export function create(first: number, second: number) {
-        const firstCallback = make(observe, first);
-        const secondCallback = make(observe, second);
+        const firstCallback = make(observeFirst, first);
+        const secondCallback = make(observeSecond, second);
         return () => {
-          ${reversed ? "send(observe, 99);" : ""}
+          ${reversed ? "send(observeOutside, 99);" : ""}
           nativeInvoke([${reversed ? "secondCallback, firstCallback" : "firstCallback, secondCallback"}], next => {
             ${nativeForward ? "nativeAgain(next);" : "next();"}
           });
-          ${reversed ? "" : "send(observe, 99);"}
+          ${reversed ? "" : "send(observeOutside, 99);"}
         };
       }
     `, (source, nodes) => {
@@ -750,24 +752,63 @@ for (const nativeForward of [false, true]) for (const reversed of [false, true])
     assert.equal(selected.producers.length, 1, "only the separate real source helper call is certified as executed");
     assert.equal(selected.boundaries.length, 2, "each original callback creation owns a distinct possible helper invocation");
     const actuals = new Set();
-    const creations = new Set();
+    const helperBindings = new Set();
     const argument = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
     for (const boundary of reversed ? [...selected.boundaries].reverse() : selected.boundaries) {
       assert.equal(boundary.subject === demand && Object.isFrozen(boundary.bindings), true, "the original demand has owned immutable bindings");
       const contexts = resolved(storage.boundActivationsFor(owner, boundary.bindings));
       assert.equal(contexts.activations.length === 1 && contexts.activations[0].kind === "invocation" &&
         contexts.activations[0].invocation === forwarded, true, "the real forwarding call, not a factory frame, owns the demand");
-      const factory = resolved(storage.boundActivationsFor(declaration("make"), contexts.activations[0].bindings));
-      assert.equal(factory.activations.length, 1, "the helper invocation retains one original factory creation");
-      creations.add(factory.activations[0].bindings);
-      for (const subject of resolved(storage.boundOriginsFor(argument, contexts.activations[0].bindings)).subjects) actuals.add(subject.node);
+      const bindings = contexts.activations[0].bindings;
+      helperBindings.add(bindings);
+      assert.equal(storage.boundActivationsFor(declaration("make"), bindings).kind, "unresolved",
+        "a top-level helper has no invented factory lexical parent");
+      const values = resolved(storage.boundOriginsFor(argument, bindings)).subjects;
+      const callbacks = resolved(storage.boundOriginsFor(demand, bindings)).subjects;
+      assert.equal(values.length === 1 && callbacks.length === 1, true, "one original callback and value in each actual helper row");
+      const parameters = ast.parameters(declaration("create"));
+      assert.equal(values[0].node === parameters[0] && callbacks[0].node === declaration("observeFirst") ||
+        values[0].node === parameters[1] && callbacks[0].node === declaration("observeSecond"), true,
+      "observerFirst/first and observerSecond/second cannot cross or acquire observerOutside/99");
+      actuals.add(values[0].node);
+      const producers = storage.storageProducersFor(argument, bindings);
+      assert.equal(producers.kind !== "unresolved" && producers.producers.length === 1 &&
+        producers.producers[0].subject.node === values[0].node, true, "the actual argument producer agrees with its bound value");
+      const original = resolved(storage.boundActivationsFor(declaration("create"), producers.producers[0].bindings));
+      assert.equal(original.activations.length, 1, "the argument retains its actual original owner rather than a guessed helper parent");
     }
-    assert.equal(creations.size, 2, "the same helper call is instantiated in both distinct factory activations");
+    assert.equal(helperBindings.size, 2, "the same helper call retains two distinct actual argument/creation rows");
     assert.equal(actuals.size === 2 && ast.parameters(declaration("create")).every(parameter => actuals.has(parameter)), true,
       "the separate literal99 call cannot enter the possible observer's argument domain");
     assert.equal(storage.failureReason() === undefined, true, "conditional provenance uses the existing bounded scoped relation");
   });
 }
+
+test("known helper execution follows the same complete scoped successor traversal", async () => {
+  const { ast, nodes, storage, declaration } = await fixture("source-helper-complete-execution", `
+    declare function observe(value: number): void;
+    function send(callback: (value: number) => void, value: number): void { callback(value); }
+    export function create(value: number) { return () => { send(observe, value); }; }
+  `);
+  const owner = declaration("send");
+  const use = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "callback");
+  const invocation = nodes.find(node => ast.is.IsCallExpression(node) && ast.text(ast.as.AsCallExpression(node).Expression) === "send");
+  const executor = nodes.find(node => ast.is.IsArrowFunction(node));
+  const bindings = resolved(storage.bindingsForDeclaration(declaration("create"))).bindings;
+  const domain = storage.storageProducersFor(resolved(storage.subjectFor(executor)).subject, bindings);
+  assert.equal(domain.kind === "complete" && domain.producers.length === 1, true, "one original closed executor");
+  const selected = storage.contributingExecutionsFor(resolved(storage.subjectFor(ast.as.AsCallExpression(use).Expression)).subject,
+    owner, domain.producers[0]);
+  assert.equal(selected.kind, "complete", "known real invocation has no conditional boundary");
+  assert.equal(selected.producers.length, 1, "direct successor regions cannot erase the real helper demand");
+  const contexts = resolved(storage.boundActivationsFor(owner, selected.producers[0].bindings));
+  assert.equal(contexts.activations.length === 1 && contexts.activations[0].kind === "invocation" &&
+    contexts.activations[0].invocation === invocation, true, "the exact source invocation owns the demand");
+  const argument = resolved(storage.subjectFor(ast.arguments(use)[0])).subject;
+  const values = resolved(storage.boundOriginsFor(argument, contexts.activations[0].bindings)).subjects;
+  assert.equal(values.length === 1 && values[0].node === ast.parameters(declaration("create"))[0], true,
+    "the original argument row reaches the helper without global source union");
+});
 
 test("a known empty native execution fact does not become unknown or invoke an unused callback", async () => {
   const current = await fixture("native-empty-entry", `

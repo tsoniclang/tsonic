@@ -28,6 +28,40 @@ interface SourceStorageChildContext {
   readonly correlated?: boolean;
 }
 
+export function* walkSourceStorageExecution(budget: SourceStorageBudget, roots: Iterable<SourceStorageTerm>,
+  read: (term: SourceStorageTerm) => Iterable<SourceStorageTerm> | undefined): Generator<SourceStorageTerm> {
+  const rows = budget.createRows();
+  const frontier = budget.createRows();
+  let maximumFrontier = 0;
+  const pending: SourceStorageTerm[] = [];
+  const visited = new Set<SourceStorageTerm>();
+  const schedule = (term: SourceStorageTerm): boolean => {
+    if (!budget.step()) return false;
+    if (visited.has(term)) return true;
+    if (!rows.add(1)) return false;
+    if (pending.length === maximumFrontier) {
+      if (!frontier.add(1)) return false;
+      maximumFrontier += 1;
+    }
+    visited.add(term); pending.push(term);
+    return true;
+  };
+  try {
+    for (const root of roots) if (!schedule(root)) return;
+    while (pending.length !== 0) {
+      if (!budget.step()) return;
+      const term = pending.pop()!;
+      if (term.kind === "leaf" || term.kind === "effect" || term.kind === "unresolved") { yield term; continue; }
+      if (term.kind === "empty") continue;
+      const successors = read(term);
+      if (successors === undefined) {
+        budget.reject("Source storage execution requires its active scoped relation."); return;
+      }
+      for (const successor of successors) if (!schedule(successor)) return;
+    }
+  } finally { pending.length = 0; visited.clear(); frontier.release(); rows.release(); }
+}
+
 export function createSourceStorageScopedSuccessors(source: TargetSourceProgram, budget: SourceStorageBudget,
   transport: SourceStorageScopedTransport, scopes: SourceStorageScopes,
   equations: ReturnType<typeof createSourceStorageEquations>,
@@ -46,52 +80,35 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
   const readEffects = function* (store: SourceStorageStore, selection:
     | { readonly kind: "general"; readonly execution?: SourceStorageTerm }
     | { readonly kind: "own-construction"; readonly execution: SourceStorageTerm }, deferred = false, context?: SourceStorageScope) {
-    const rows = budget.createRows();
-    const frontier = budget.createRows();
-    let maximumFrontier = 0;
-    const pending: SourceStorageTerm[] = [];
-    const visited = new Set<SourceStorageTerm>();
-    const schedule = (term: SourceStorageTerm): boolean => {
-      if (!budget.step()) return false;
-      if (term.kind === "effect" && term.store !== store) return true;
-      if (visited.has(term)) return true;
-      if (!rows.add(1)) return false;
-      if (pending.length === maximumFrontier) {
-        if (!frontier.add(1)) return false;
-        maximumFrontier += 1;
-      }
-      visited.add(term); pending.push(term);
-      return true;
-    };
-    try {
-      const roots = context === undefined || selection.execution !== undefined ? [] : scopes.nativeExecutionRoots(context);
-      if (roots === undefined) return;
+    const roots = context === undefined || selection.execution !== undefined ? [] : scopes.nativeExecutionRoots(context);
+    if (roots === undefined) return;
+    const starts = function* (): Generator<SourceStorageTerm> {
       if (roots.length === 0) {
-        if (!schedule(selection.execution ?? Object.freeze({ kind: "execution-root", demand: store.region, deferred }))) return;
+        yield selection.execution ?? Object.freeze({ kind: "execution-root", demand: store.region, deferred });
       } else for (const root of roots) {
         for (const region of transport.regions.callable(root.owner, root.invocation, undefined, root.callback)) {
-          if (!schedule(Object.freeze({ kind: "region", region, scope: root.scope, demand: store.region, deferred }))) return;
+          if (!budget.step()) return;
+          yield Object.freeze({ kind: "region", region, scope: root.scope, demand: store.region, deferred });
         }
       }
-      while (pending.length !== 0) {
-        if (!budget.step()) return;
-        const term = pending.pop()!;
-        if (term.kind === "effect" || term.kind === "unresolved") { yield term; continue; }
-        if (selection.kind === "own-construction" && term.kind === "region" && term.region === store.region) {
-          yield Object.freeze({ kind: "effect" as const, store, scope: term.scope });
-          continue;
-        }
-        const successors = readRelation(term);
-        if (successors === undefined) {
-          budget.reject("Source storage execution requires its active scoped relation."); return;
-        }
+    };
+    const read = (term: SourceStorageTerm): Iterable<SourceStorageTerm> | undefined => {
+      if (selection.kind === "own-construction" && term.kind === "region" && term.region === store.region)
+        return [Object.freeze({ kind: "effect", store, scope: term.scope })];
+      const successors = readRelation(term);
+      if (successors === undefined) return undefined;
+      return (function* () {
         for (const successor of successors) {
+          if (!budget.step()) return;
+          if (successor.kind === "effect" && successor.store !== store) continue;
           if (selection.kind === "own-construction" && term.kind === "region" && successor.kind !== "unresolved" &&
             (successor.kind !== "application" || sourceStorageSuperConstructor(successor.invocation, source, budget.step) === undefined)) continue;
-          if (!schedule(successor)) return;
+          yield successor;
         }
-      }
-    } finally { pending.length = 0; visited.clear(); frontier.release(); rows.release(); }
+      })();
+    };
+    for (const result of walkSourceStorageExecution(budget, starts(), read))
+      if (result.kind === "unresolved" || result.kind === "effect" && result.store === store) yield result;
   };
   const creatorScope = (node: Node, scope: SourceStorageScope): SourceStorageScope => {
     if (scope === scopes.empty) return scope;
@@ -544,12 +561,11 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
               if (!budget.step()) return undefined;
               if (value.subject !== frontier.subject) continue;
               if (frontier.callback?.timing === "deferred" && !term.deferred) continue;
-              const possible = readRelation(Object.freeze({ kind: "application", invocation,
+              const possible: SourceStorageTerm = Object.freeze({ kind: "application", invocation,
                 callee: leaf(value.subject, value.bindings), scope: term.scope, projection: [],
                 ...(frontier.callback === undefined ? {} : { callback: frontier.callback }),
-                mode: "execution", demand: term.demand, deferred: term.deferred }));
-              if (possible === undefined) return undefined;
-              for (const result of possible) {
+                mode: "execution", demand: term.demand, deferred: term.deferred });
+              for (const result of walkSourceStorageExecution(budget, [possible], readRelation)) {
                 if (!budget.step()) return undefined;
                 if (result.kind === "leaf" && result.subject === selected || result.kind === "unresolved")
                   terms.push(Object.freeze({ kind: "unresolved", subject: result.subject, scope: result.scope, exposure: frontier.exposure,
