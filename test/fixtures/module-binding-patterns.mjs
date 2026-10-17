@@ -38,3 +38,27 @@ export function run(): boolean {
 if (!run()) throw new Error("module pattern initialization contract");
 `,
 });
+
+export const moduleBindingPublicationPrograms = Object.freeze([
+  Object.freeze({ name: "ordinary sequential defaults", files: Object.freeze({ "index.ts": `
+export const { first, second = first } = { first: 1, second: undefined };
+if (first !== 1 || second !== 1) throw new Error("ordinary module pattern order");
+` }) }),
+  Object.freeze({ name: "demanded same-statement roots", files: Object.freeze({ "index.ts": `
+export function read(): number { return fourth; }
+export const { first, second = first } = { first: 2, second: undefined },
+  { third, fourth = third } = { third: 3, fourth: undefined };
+if (read() !== 3 || first !== 2 || second !== 2 || third !== 3)
+  throw new Error("same-statement module root order");
+` }) }),
+  Object.freeze({ name: "forward initialized callable annotation", files: Object.freeze({
+    "index.ts": `
+import { callback } from "./value.js";
+if (callback(7) !== 7) throw new Error("initialized native module callback");
+`,
+    "value.ts": `
+function identity(value: number): number { return value; }
+export const callback: (value: number) => number = identity;
+`,
+  }) }),
+]);
