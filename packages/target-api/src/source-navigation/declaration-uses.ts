@@ -4,6 +4,7 @@ import { sourceNodesEqual } from "./identity.js";
 import { Node_Expression, sourceTransparentExpressionOperand } from "./ast.js";
 import { isTypeSyntaxNode } from "./syntax.js";
 import { sourceExpressionSelectsOperandValue } from "./expression-use.js";
+import { sourceClassFieldIsTypeOnly } from "./class-members.js";
 
 const sourceLinkageKinds = new Set([
   "KindImportSpecifier",
@@ -211,7 +212,8 @@ function sourceDeclarationUseRole(
 function belongsToTypeSyntax(ast: AstReader, reference: Node): boolean {
   let current: Node | undefined = reference;
   while (current !== undefined) {
-    if (ast.is.IsTypeQueryNode(current) || isTypeSyntaxNode(ast, current)) {
+    if (ast.is.IsInterfaceDeclaration(current) || ast.is.IsTypeLiteralNode(current) ||
+      sourceClassFieldIsTypeOnly(ast, current) || isTypeSyntaxNode(ast, current)) {
       return true;
     }
     if (ast.is.IsSourceFile(current)) {

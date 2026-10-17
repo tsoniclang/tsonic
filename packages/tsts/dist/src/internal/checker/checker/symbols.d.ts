@@ -7060,6 +7060,7 @@ export declare function Checker_resolveClassOrInterfaceMembers(receiver: GoPtr<C
  * }
  */
 export declare function Checker_resolveTypeReferenceMembers(receiver: GoPtr<Checker>, t: GoPtr<Type>): void;
+export declare function Checker_getInstantiatedBaseTypes(receiver: GoPtr<Checker>, type: GoPtr<Type>): GoSlice<GoPtr<Type>> | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveObjectTypeMembers","kind":"method","status":"implemented","sigHash":"e295384186d7b85ac1b326e2459c86f58c814740c1039d61d603883cce5f62aa","bodyHash":"39e69dc06f5f662afc7b58d6bef95adc28144304768dd09944dba3ce3b201cc1"}
  *
