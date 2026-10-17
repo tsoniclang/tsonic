@@ -277,8 +277,18 @@ export function sourceExpressionValueInputs(ast: AstReader, owner: Node): readon
     : ast.is.IsPropertyAssignment(member) ? use(ast.as.AsPropertyAssignment(member)?.Initializer, { kind: "member", index })
     : ast.is.IsShorthandPropertyAssignment(member) ? use(ast.name(member), { kind: "member", index })
     : ast.is.IsSpreadAssignment(member) ? use(ast.as.AsSpreadAssignment(member)?.Expression, { kind: "member", index }) : []);
-  if (ast.is.IsTemplateExpression(owner)) return (ast.as.AsTemplateExpression(owner)?.TemplateSpans?.Nodes ?? []).flatMap((span, index) =>
-    span === undefined ? [] : use(ast.as.AsTemplateSpan(span)?.Expression, { kind: "span", index }));
+  if (ast.is.IsTemplateExpression(owner)) {
+    const spans = ast.as.AsTemplateExpression(owner)?.TemplateSpans?.Nodes;
+    if (spans === undefined || spans.length === 0) return undefined;
+    const inputs: SourceValueInput[] = [];
+    for (const [index, span] of spans.entries()) {
+      if (span === undefined || !ast.is.IsTemplateSpan(span)) return undefined;
+      const expression = ast.as.AsTemplateSpan(span)?.Expression;
+      if (expression === undefined) return undefined;
+      inputs.push(...use(expression, { kind: "span", index }));
+    }
+    return inputs;
+  }
   if (ast.is.IsCallExpression(owner) || ast.is.IsNewExpression(owner)) return [];
   if (ast.is.IsArrowFunction(owner) || ast.is.IsFunctionExpression(owner) || ast.is.IsClassExpression(owner)) return [];
   return sourceValueLeafKinds.has(ast.kindName(owner)) ? [] : undefined;

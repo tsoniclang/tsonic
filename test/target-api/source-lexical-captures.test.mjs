@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSourceProgramNavigation, sourceLexicalCaptures, sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "../../packages/target-api/dist/public/source.js";
+import { createSourceProgramNavigation, sourceLexicalCaptures, sourceLexicalEnvironment, sourceLexicalFunctionValueOrder,
+  sourceDeclarationIsModuleScoped, sourceBindingScope, sourceBindingIterationScope } from "../../packages/target-api/dist/public/source.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
 
 test("lexical captures retain exact bindings, exclude types and modules, and include deferred uses", async () => {
@@ -27,7 +28,7 @@ test("lexical captures retain exact bindings, exclude types and modules, and inc
   const create = namedDeclaration(ast, file, "create");
   const literal = requiredNode(ast, create, node => ast.is.IsObjectLiteralExpression(node) &&
     ast.properties(node).some(property => ast.text(ast.name(property)) === "apply"));
-  const selected = sourceLexicalCaptures(literal, ast.properties(literal), ast, navigation);
+  const selected = sourceLexicalCaptures(literal, ast.properties(literal), ast, navigation, "source");
   const seed = ast.parameters(create)[0];
   const count = requiredNode(ast, create, node => ast.is.IsVariableDeclaration(node) &&
     ast.text(ast.name(node)) === "count" && sourceBindingScope(node, ast) === ast.body(create));
@@ -43,7 +44,29 @@ test("lexical captures retain exact bindings, exclude types and modules, and inc
   assert.ok(Object.isFrozen(selected.captures));
   assert.equal(sourceDeclarationIsModuleScoped(namedVariable(ast, file, "globalValue"), ast), true);
   assert.equal(sourceDeclarationIsModuleScoped(count, ast), false);
-  assert.throws(() => sourceLexicalCaptures(literal, [file], ast, navigation), /exact source scope/);
+  assert.throws(() => sourceLexicalCaptures(literal, [file], ast, navigation, "source"), /exact source scope/);
+});
+
+test("lexical capture, environment and ordering APIs reject missing and superseded domain arguments", async () => {
+  const source = await checkedSource("lexical-explicit-domain", { "src/index.ts": `
+    export function create(seed: number) {
+      function read(): number { return seed; }
+      return read;
+    }
+  ` });
+  const ast = source.ast;
+  const file = projectSourceFile(source, "src/index.ts");
+  const declaration = namedDeclaration(ast, file, "read");
+  const navigation = createSourceProgramNavigation(source);
+  for (const domain of [undefined, null, false, () => {}, {}]) {
+    assert.throws(() => sourceLexicalCaptures(declaration, [declaration], ast, navigation, domain), /explicit source-node domain/u);
+    assert.throws(() => sourceLexicalEnvironment(declaration, [declaration], ast, navigation, domain), /explicit source-node domain/u);
+    assert.throws(() => sourceLexicalFunctionValueOrder([declaration], ast, navigation, domain), /explicit source-node domain/u);
+  }
+  assert.equal(sourceLexicalCaptures(declaration, [declaration], ast, navigation, "source").captures.length, 1,
+    "the explicit current full-source signature preserves the exact capture");
+  assert.equal(sourceLexicalEnvironment(declaration, [declaration], ast, navigation, "source").kind, "resolved");
+  assert.equal(sourceLexicalFunctionValueOrder([declaration], ast, navigation, "source").kind, "resolved");
 });
 
 test("named recursive functions distinguish self references from outer bindings", async () => {
@@ -56,7 +79,7 @@ test("named recursive functions distinguish self references from outer bindings"
   const file = projectSourceFile(source, "src/index.ts");
   const create = namedDeclaration(ast, file, "create");
   const expression = requiredNode(ast, create, node => ast.is.IsFunctionExpression(node));
-  const result = sourceLexicalCaptures(expression, [expression], ast, createSourceProgramNavigation(source));
+  const result = sourceLexicalCaptures(expression, [expression], ast, createSourceProgramNavigation(source), "source");
   assert.equal(result.captures.length, 1);
   assert.ok(result.captures[0].declaration === ast.parameters(create)[0]);
   assert.equal(result.selfReferences.length, 1);
@@ -80,7 +103,7 @@ test("lexical receiver captures retain exact owners across nested arrows and met
   const owner = namedDeclaration(ast, file, "Owner");
   const method = requiredNode(ast, owner, node => ast.is.IsMethodDeclaration(node) && ast.text(ast.name(node)) === "make");
   const closure = requiredNode(ast, method, node => ast.is.IsArrowFunction(node));
-  const result = sourceLexicalCaptures(closure, [closure], ast, createSourceProgramNavigation(source));
+  const result = sourceLexicalCaptures(closure, [closure], ast, createSourceProgramNavigation(source), "source");
   assert.equal(result.receivers.length, 1);
   assert.ok(result.receivers[0].owner === method);
   assert.equal(result.receivers[0].references.length, 2);

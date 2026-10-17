@@ -1,7 +1,7 @@
 import type { AstReader, Node } from "@tsonic/tsts";
 import type { SourceDeclarationUse } from "./types.js";
 import type { SourceProgramNavigation } from "./types.js";
-import { sourceBindingScope, sourceLexicalCaptures } from "./lexical-captures.js";
+import { sourceBindingScope, sourceLexicalCaptures, type SourceNodeDomain } from "./lexical-captures.js";
 
 export type SourceLexicalValueCreation =
   | { readonly kind: "resolved"; readonly statement: Node; readonly inlineReference?: Node }
@@ -89,9 +89,16 @@ function unresolved(reason: string): SourceLexicalValueCreation {
 export function sourceLexicalFunctionValueOrder(
   declarations: readonly Node[], ast: AstReader,
   navigation: Pick<SourceProgramNavigation, "sourceReferenceFor" | "declarationUseSummary">,
+  domain: SourceNodeDomain,
   isRuntimeUse: (use: SourceDeclarationUse, declaration: Node) => boolean = () => true,
 ): { readonly kind: "resolved"; readonly declarations: readonly Node[] } |
   { readonly kind: "unresolved"; readonly reason: string } {
+  if (domain !== "source" && (domain === null || typeof domain !== "object" || typeof domain.has !== "function")) {
+    throw new Error("Lexical value ordering requires an explicit source-node domain.");
+  }
+  if (domain !== "source" && declarations.some(declaration => !domain.has(declaration))) return {
+    kind: "unresolved", reason: "Lexical value ordering requires every declaration in its explicit source-node domain.",
+  };
   const remaining = new Map<Node, Set<Node>>();
   const dependants = new Map<Node, Node[]>();
   const members = new Set(declarations);
@@ -100,7 +107,7 @@ export function sourceLexicalFunctionValueOrder(
   }
   let steps = 0;
   for (const declaration of declarations) {
-    const captures = sourceLexicalCaptures(declaration, [declaration], ast, navigation).captures;
+    const captures = sourceLexicalCaptures(declaration, [declaration], ast, navigation, domain).captures;
     const dependencies = new Set<Node>();
     for (const capture of captures) {
       if (++steps > 262_144) return { kind: "unresolved", reason: "Lexical value ordering exceeded its finite source accounting budget." };

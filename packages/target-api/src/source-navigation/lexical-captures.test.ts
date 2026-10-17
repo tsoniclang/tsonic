@@ -44,7 +44,7 @@ function fixture(extraSource = "") {
   return { source, method, values, select(name: string) {
     const scope = values.get(name);
     assert.equal(scope !== undefined, true, "exact authored callable");
-    return sourceLexicalCaptures(scope!, [scope!], source.ast, source.navigation);
+    return sourceLexicalCaptures(scope!, [scope!], source.ast, source.navigation, "source");
   } };
 }
 
@@ -75,7 +75,7 @@ test("stateless, independent-this and named-self definitions acquire no outer re
 test("lexical capture roots cannot cross their exact authored scope", () => {
   const input = fixture();
   assert.throws(() => sourceLexicalCaptures(input.values.get("staticValue")!, [input.values.get("direct")!],
-    input.source.ast, input.source.navigation), /exact source scope/u);
+    input.source.ast, input.source.navigation, "source"), /exact source scope/u);
 });
 
 test("lexical capture traversal charges capture-free syntax and propagates budget exhaustion unchanged", () => {
@@ -83,7 +83,7 @@ test("lexical capture traversal charges capture-free syntax and propagates budge
   const scope = input.values.get("wide")!;
   const failure = new Error("test work exhausted");
   let steps = 0;
-  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, () => {
+  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, "source", () => {
     steps += 1;
     if (steps > 16) throw failure;
   }), error => error === failure);
@@ -97,7 +97,7 @@ test("lexical capture root containment consumes the caller's work budget", () =>
   const nested = input.source.ast.body(scope)!;
   const failure = new Error("test containment exhausted");
   let steps = 0;
-  assert.throws(() => sourceLexicalCaptures(scope, [nested], input.source.ast, input.source.navigation, () => {
+  assert.throws(() => sourceLexicalCaptures(scope, [nested], input.source.ast, input.source.navigation, "source", () => {
     steps += 1;
     if (steps > 1) throw failure;
   }), error => error === failure);
@@ -109,7 +109,7 @@ test("receiver ancestry charges the shared work owner without losing its exact r
   const scope = input.values.get("receiver")!;
   const failure = new Error("test receiver ancestry exhausted");
   let receiverSteps = 0;
-  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, node => {
+  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, "source", node => {
     if (node !== undefined && input.source.ast.kindName(node) === "KindThisKeyword") {
       receiverSteps += 1;
       if (receiverSteps === 3) throw failure;
@@ -129,4 +129,39 @@ test("module-scope ancestry consumes the caller's work budget and keeps native b
   assert.equal(sourceDeclarationIsModuleScoped(declaration, input.source.ast, () => { steps += 1; }), true);
   assert.equal(steps > 1, true, "the module binding walks more than one charged ancestor");
   assert.equal(sourceDeclarationIsModuleScoped(local, input.source.ast), false);
+});
+
+test("selected lexical captures exclude inherited-erased receivers before charging work", () => {
+  const input = fixture();
+  const scope = input.values.get("deferred")!;
+  const erased = input.source.ast.body(scope)!;
+  const excluded = new Set<Node>();
+  const visit = (node: Node): void => {
+    excluded.add(node);
+    input.source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(erased);
+  const domain = Object.freeze({ has: (node: Node) => !excluded.has(node) });
+  const selected = sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation, domain, node => {
+    assert.equal(node === undefined || !excluded.has(node), true, "no work is charged inside inherited-erased syntax");
+  });
+  assert.equal(selected.captures.length, 0, "no erased lexical binding");
+  assert.equal(selected.receivers.length, 0, "no erased outer receiver");
+  assert.equal(input.select("deferred").receivers[0]?.owner === input.method, true, "full source retains the same receiver");
+  assert.throws(() => sourceLexicalCaptures(scope, [erased], input.source.ast, input.source.navigation, domain), /root.*source-node domain/u);
+  assert.throws(() => sourceLexicalCaptures(scope, [], input.source.ast, input.source.navigation,
+    Object.freeze({ has: () => false })), /scope.*source-node domain/u);
+});
+
+test("selected lexical capture traversal still charges every retained node to the original budget", () => {
+  const input = fixture(`export const wide = () => { ${"0;".repeat(256)} return 0; };`);
+  const scope = input.values.get("wide")!;
+  const failure = new Error("selected work exhausted");
+  let steps = 0;
+  assert.throws(() => sourceLexicalCaptures(scope, [scope], input.source.ast, input.source.navigation,
+    Object.freeze({ has: () => true }), () => {
+      steps += 1;
+      if (steps > 16) throw failure;
+    }), error => error === failure);
+  assert.equal(steps, 17, "selected syntax preserves the same finite work owner");
 });

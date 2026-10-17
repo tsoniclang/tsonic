@@ -4,7 +4,7 @@ import { createCompilerSessionFromFiles, formatDiagnostics, type Node } from "@t
 import { createTargetSourceProgram } from "../source-semantics/target-source-program.js";
 import { sourceCallableDefinitionIsDiscarded, sourceExpressionResultDisposition, sourceExpressionResultUse,
   sourceConstructValueInputs, sourceExpressionValueInputs } from "./expression-use.js";
-import { sourceTransparentExpressionOperand } from "./ast.js";
+import { Node_Initializer, sourceTransparentExpressionOperand } from "./ast.js";
 
 test("discarded callable creation includes nested definitions but not invoked or retained bodies", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
@@ -191,6 +191,76 @@ test("discarded callable creation rejects foreign, incomplete and unresolved che
     /requires its checked source navigation/u, "the replaced two-argument API is rejected, not retained as a fallback");
 });
 
+test("callable binding demand follows exact local aliases and retains every real observation", () => {
+  const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
+    "/src/index.ts": `
+      declare function consume(value: () => number): void;
+      export const exported = () => 1;
+      export function run() {
+        const discarded = () => 2;
+        void discarded;
+        const aliasRoot = () => 3;
+        const alias = aliasRoot;
+        void alias;
+        const typeOnly = () => 4;
+        type Signature = typeof typeOnly;
+        const invoked = () => 5;
+        void invoked();
+        const passed = () => 6;
+        consume(passed);
+        const captured = () => 7;
+        consume(() => { void captured; return 0; });
+        const compared = () => 8;
+        void (compared === compared);
+        const receiver = () => 9;
+        void receiver.name;
+        let rewritten = () => 10;
+        rewritten = () => 11;
+        void rewritten;
+        const returned = () => 12;
+        const stored = () => 13;
+        const object = { stored };
+        void object;
+        const shadowed = () => 14;
+        { const shadowed = () => 15; shadowed(); }
+        void shadowed;
+        const opaque = () => 16;
+        void typeof opaque;
+        return returned;
+      }
+    `,
+  }, compilerOptions: { strict: true, target: "es2022", module: "esnext" } }).checkSource();
+  const diagnostics = checked.diagnostics.filter(diagnostic => diagnostic !== undefined);
+  assert.equal(diagnostics.length, 0, formatDiagnostics(diagnostics).slice(0, 1024));
+  const source = createTargetSourceProgram(checked);
+  const file = checked.getSourceFile("/src/index.ts");
+  assert.equal(file !== undefined, true, "the alias controls use their exact checked source file");
+  const results = new Map<string, boolean[]>();
+  const visit = (node: Node): void => {
+    if (source.ast.is.IsVariableDeclaration(node)) {
+      const name = source.ast.name(node);
+      const initializer = Node_Initializer(source.ast, node);
+      if (name !== undefined && initializer !== undefined && source.ast.is.IsArrowFunction(initializer)) {
+        const label = source.ast.text(name);
+        const values = results.get(label) ?? [];
+        values.push(sourceCallableDefinitionIsDiscarded(initializer, source.ast, source.navigation));
+        results.set(label, values);
+      }
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file!);
+  for (const label of ["discarded", "aliasRoot", "typeOnly"]) {
+    assert.equal(results.get(label)?.length, 1, label + ": the original checked binding is visited once");
+    assert.equal(results.get(label)?.[0], true, label + ": only discarded/type-only reads through local aliases");
+  }
+  for (const label of ["exported", "invoked", "passed", "captured", "compared", "receiver", "rewritten", "returned", "stored", "opaque"])
+    assert.equal(results.get(label)?.[0], false, label + ": an actual observation retains its callable body");
+  assert.equal(results.get("shadowed")?.length, 2, "same-spelling declarations remain separate identities");
+  assert.equal(results.get("shadowed")?.[0], true, "the outer binding has only its own discarded read");
+  assert.equal(results.get("shadowed")?.[1], false, "the inner binding has its own actual invocation");
+});
+
 test("async result dispositions preserve selected values and distinguish storage from scoped observation", () => {
   const checked = createCompilerSessionFromFiles({ currentDirectory: "/src", files: {
     "/src/index.ts": `
@@ -263,6 +333,7 @@ test("async result dispositions preserve selected values and distinguish storage
   findWrapper(file);
   assert.equal(wrappers.length > 0, true, "checked transparent wrapper for the cyclic-boundary proof");
   const wrapper = wrappers[0]!;
+  assert.equal(source.ast.is.IsParenthesizedExpression(wrapper), true, "the cyclic-boundary witness retains its exact checked wrapper kind");
   const wrapperData = source.ast.as.AsParenthesizedExpression(wrapper)!;
   assert.throws(() => sourceExpressionResultDisposition({ ...source.ast, parent: () => wrapper,
     as: { ...source.ast.as, AsParenthesizedExpression: () => ({ ...wrapperData, Expression: wrapper }) } }, wrapper),
@@ -364,6 +435,16 @@ test("shared expression inputs retain holes, spreads, spans and branch roles wit
   assert.equal(elements[1]!.expression === source.ast.as.AsSpreadElement(source.ast.children(array)[2])?.Expression, true,
     "spread uses its original underlying expression");
   assert.deepEqual(sourceExpressionValueInputs(source.ast, initializer("text"))!.map(input => input.slot.kind === "span" ? input.slot.index : -1), [0, 1]);
+  const wrongSpanKind = { ...source.ast, is: { ...source.ast.is, IsTemplateSpan: () => false },
+    as: { ...source.ast.as, AsTemplateSpan: () => { throw new Error("A non-span cannot reach its cast."); } } };
+  assert.equal(sourceExpressionValueInputs(wrongSpanKind, initializer("text")) === undefined, true,
+    "every original template input requires an exact checked span before casting");
+  const missingSpanExpression = { ...source.ast, as: { ...source.ast.as, AsTemplateSpan: () => undefined } };
+  assert.equal(sourceExpressionValueInputs(missingSpanExpression, initializer("text")) === undefined, true,
+    "a required missing span expression is not an empty successful input vector");
+  const missingTemplate = { ...source.ast, as: { ...source.ast.as, AsTemplateExpression: () => undefined } };
+  assert.equal(sourceExpressionValueInputs(missingTemplate, initializer("text")) === undefined, true,
+    "a missing checked template cannot publish an empty successful input vector");
   assert.equal(conditional !== undefined, true, "checked conditional exists");
   assert.deepEqual(sourceExpressionValueInputs(source.ast, conditional!)!.map(input => input.slot.kind === "branch" ? input.slot.branch : input.slot.kind),
     ["condition", "true", "false"]);
