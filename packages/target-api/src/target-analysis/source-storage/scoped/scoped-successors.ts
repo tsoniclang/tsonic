@@ -463,6 +463,14 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
     }
     if (term.kind === "region") {
       const terms: SourceStorageTerm[] = [];
+      const demandRegion = transport.regions.enclosing(term.demand);
+      if (demandRegion === term.region && term.demand !== term.region) {
+        const selected = transport.subjectFor(term.demand);
+        if (selected === undefined) {
+          budget.reject("A source execution demand requires its identical checked value subject."); return undefined;
+        }
+        terms.push(leaf(selected, term.scope));
+      }
       for (const store of transport.storesIn(term.region) ?? []) {
         if (!budget.step()) return undefined;
         if (term.region === term.demand) terms.push(Object.freeze({ kind: "effect", store, scope: term.scope }));

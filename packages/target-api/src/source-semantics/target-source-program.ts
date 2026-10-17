@@ -198,6 +198,7 @@ export function createTargetSourceProgram(
       typeArgumentBindings(type: Type) {
         return getSourceTypeArgumentBindings(source.ast, queries, type);
       },
+      instantiatedBaseTypes: queries.typeShape.getInstantiatedBaseTypes,
       instantiateAlias: queries.typeShape.instantiateTypeAlias,
       aliasApplication: queries.typeShape.getTypeAliasApplication,
       typeArguments(type: Type) {

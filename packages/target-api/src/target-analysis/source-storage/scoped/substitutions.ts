@@ -272,6 +272,25 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     if (selected?.reason !== undefined) { budget.reject(selected.reason); return undefined; }
     return selected?.origins;
   };
+  const contributingExecutions = (origin: SourceStorageSubject, declaration: Node, creation: SourceStorageScope) =>
+    withQuery(() => budget.withRows(temporary => {
+      const body = source.ast.body(declaration);
+      const scope = scopes.declarationFor(declaration, creation);
+      if (body === undefined || scope === undefined) return undefined;
+      const root = intern(Object.freeze({ kind: "region", region: body, scope, demand: origin.node }));
+      const selected = root === undefined ? undefined : results(root);
+      if (selected === undefined) return undefined;
+      const subjects: SourceStorageBoundSubject[] = [];
+      let reason: string | undefined;
+      for (const value of selected) {
+        if (!budget.step()) return undefined;
+        if (value.kind === "unresolved") reason ??= value.reason;
+        if (value.kind !== "leaf" || value.subject !== origin) continue;
+        if (!temporary.add(1)) return undefined;
+        subjects.push(Object.freeze({ subject: value.subject, bindings: value.scope }));
+      }
+      return Object.freeze({ subjects: Object.freeze(subjects), reason });
+    }));
   const walk = (origin: SourceStorageSubject, scope: SourceStorageScope,
     stopAt?: (subject: SourceStorageBoundSubject) => boolean, preserveValuePath = false) => withQuery(() => budget.withRows(temporary => {
     const root = selectRoot(origin, scope);
@@ -412,7 +431,8 @@ export function createSourceStorageSubstitutions(source: TargetSourceProgram, bu
     }
     return Object.freeze(inputs);
   });
-  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, formals: scopes.formals,
+  return Object.freeze({ empty: scopes.empty, values, origins, provenance, trace, walk, frontier, selection, contributingExecutions,
+    formals: scopes.formals,
     invocationContextKeyFor(invocation: Node, bindings: readonly SourceStorageScope[]): string | undefined {
       return withQuery(() => budget.withRows(temporary => {
         const subject = transport.subject(invocation);

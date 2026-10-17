@@ -461,6 +461,55 @@ export function createSourceStorageQuery(
           : Object.freeze({ kind: "resolved", activations: Object.freeze(activations) });
       });
     },
+    contributingActivationsFor(subject, declaration, entry) {
+      return budget.withRows(rows => {
+        if (entry === null || typeof entry !== "object") return unresolved("A source callback entry requires owned data-only producer evidence.");
+        const subjectDescriptor = Object.getOwnPropertyDescriptor(entry, "subject");
+        const bindingsDescriptor = Object.getOwnPropertyDescriptor(entry, "bindings");
+        const callback = subjectDescriptor !== undefined && "value" in subjectDescriptor
+          ? subjectDescriptor.value as SourceStorageSubject | undefined : undefined;
+        const creation = bindingsDescriptor !== undefined && "value" in bindingsDescriptor
+          ? bindingsDescriptor.value as SourceStorageBindings | undefined : undefined;
+        if (callback === undefined || creation === undefined)
+          return unresolved("A source callback entry requires owned data-only producer evidence.");
+        const reason = subjectReason(subject) ?? subjectReason(callback);
+        if (reason !== undefined) return unresolved(reason);
+        const states = bindingStates.get(creation);
+        if (states?.length !== 1) return unresolved("A source callback entry requires one owned creation activation.");
+        if (!checkedDeclaration(declaration) || source.ast.body(declaration) === undefined ||
+          !sourceStorageHasOriginalCallableValue(callback, source.ast))
+          return unresolved(budget.failure() ?? "A source callback entry requires its actual checked implementation and demanded owner.");
+        const region = transport.regions.enclosing(subject.node);
+        if (region === undefined || sourceStorageRegionOwner(source.ast, region) !== declaration ||
+          subject.kind !== "value" || subject.projection.length !== 0 || transport.subjectFor(subject.node) !== subject)
+          return unresolved(budget.failure() ?? "A source execution demand requires an identical unprojected value use in its checked owner.");
+        const selected = transport.substitutions.contributingExecutions(subject, callback.node, states[0]!);
+        if (selected === undefined || selected.reason !== undefined)
+          return unresolved(selected?.reason ?? budget.failure() ?? "Source callback execution has no completed correlated activation selection.");
+        const seen = new Set<SourceStorageSubstitutions>();
+        const activations: SourceStorageBoundActivation[] = [];
+        for (const current of selected.subjects) {
+          if (!budget.step()) return unresolved(budget.failure()!);
+          const activation = transport.substitutions.boundActivation(current.bindings, declaration);
+          if (activation === undefined) return unresolved(budget.failure() ?? "A contributing execution lost its actual owning activation.");
+          if (seen.has(activation.scope)) continue;
+          if (!rows.add(2)) return unresolved(budget.failure()!);
+          seen.add(activation.scope);
+          const bindings = bindingView([activation.scope]);
+          if (bindings === undefined) return unresolved(budget.failure() ?? "A contributing execution lost its same-frame bindings.");
+          if (activation.invocation === undefined) activations.push(Object.freeze({ kind: "declaration", declaration, bindings }));
+          else {
+            const callerBindings = activation.caller === undefined ? undefined : bindingView([activation.caller]);
+            if (callerBindings === undefined)
+              return unresolved(budget.failure() ?? "A contributing execution lost its actual caller bindings.");
+            activations.push(Object.freeze({ kind: "invocation", declaration, invocation: activation.invocation,
+              bindings, callerBindings }));
+          }
+        }
+        return budget.failure() !== undefined ? unresolved(budget.failure()!)
+          : Object.freeze({ kind: "resolved", activations: Object.freeze(activations) });
+      });
+    },
     boundValueFrontierFor(subject, bindings, boundaries, position = "value") {
       return budget.withRows(rows => {
         const reason = subjectReason(subject);
