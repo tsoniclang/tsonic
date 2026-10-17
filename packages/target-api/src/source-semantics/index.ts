@@ -14,7 +14,7 @@ export { analyzeSourceLiteralValues } from "./literal-values.js";
 export type { SourceLiteralForm, SourceLiteralIndex, SourceLiteralValue, SourceTextLiteralValue,
   SourceArrayLiteralValue, SourceScalarLiteralValue, SourceNumericLiteralValue,
   SourceNumericLiteralEvidence, SourceNumericLiteralToken } from "./literal-values-model.js";
-export { compareSourceNumericLiteralMagnitude } from "./literal-token.js";
+export { compareSourceNumericLiteralMagnitude, sourceNumericLiteralIsExactlyRepresentableAsBinaryFloat } from "./literal-token.js";
 export { parseBigIntLiteral, parseFiniteNumberLiteral } from "./literal-text.js";
 export type { SourceProviderSignatureSelection, SourceProviderTypeParameterSelection } from "./provider-signature.js";
 export { sourceBoundTypeRelationship } from "./bound-type-relationship.js";
