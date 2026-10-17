@@ -6,7 +6,7 @@ import { sourcePresentStorageType, sourceStorageComponents, sourceStorageSubject
   sourceStorageIsScalarType } from "../model/components.js";
 import type { SourceStorageBudget } from "../model/resource-budget.js";
 import type { SourceStorageSubject } from "../model/subjects.js";
-import { sourceStorageMemberSubject } from "../model/subjects.js";
+import { sourceStorageIsDataMember, sourceStorageMemberSubject } from "../model/subjects.js";
 import type { SourceStorageSubstitutions } from "../scoped/substitutions.js";
 import type { createSourceStorageTransport } from "./transport.js";
 import type { SourceStorageDomainBoundary } from "../model/types.js";
@@ -174,7 +174,7 @@ export function createSourceStorageDomains(
               if (!budget.step()) return;
               callable(setter, publication.exposure);
             }
-            if (member.destination.read === "method") callable(declaration, publication.exposure);
+            if (member.destination.read === "method" && !sourceStorageIsDataMember(declaration, ast)) callable(declaration, publication.exposure);
             else publish(child, publication.exposure, publication.writes, publication.kind, member.destination.property.type, file,
               publication.externalEntry, publication.inputOwner);
           }

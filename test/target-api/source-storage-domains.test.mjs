@@ -37,14 +37,14 @@ async function fixture(name, body, options = {}) {
 }
 
 function complete(selected, label) {
-  assert.equal(selected.kind === "complete", true, label);
+  assert.equal(selected.kind === "complete", true, `${label}: ${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""}`);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.origins) && selected.origins.every(Object.isFrozen), true);
   assert.equal(selected.origins.length > 0, true, "nonempty exact origin proof");
   return selected.origins;
 }
 
 function open(selected, kind, label) {
-  assert.equal(selected.kind === "open", true, label);
+  assert.equal(selected.kind === "open", true, `${label}: ${selected.kind}${selected.kind === "unresolved" ? `: ${selected.reason}` : ""}`);
   assert.equal(selected.boundaries.some(boundary => boundary.kind === kind), true, label);
   assert.equal(Object.isFrozen(selected) && Object.isFrozen(selected.boundaries) && selected.boundaries.every(Object.isFrozen), true);
 }

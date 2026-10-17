@@ -542,6 +542,27 @@ for (const [name, declaration, invoked] of declarations) {
   });
 }
 
+test("a generic class static owner stays distinct from its method's actual adoption bindings", () => {
+  const current = fixture(`
+    class Box<Stored> {
+      static count = 0;
+      static async wrap<Value>(value: Value): Promise<Value> { return value; }
+      constructor(readonly value: Stored) { Box.count += 1; }
+    }
+    const pending = Promise.resolve(7);
+    const ordinary = new Box(7);
+    const promised = new Box(pending);
+    void Box.count; void ordinary.value; void promised.value;
+    void Box.wrap(7); void Box.wrap(pending);
+  `);
+  const selected = current.query();
+  assert.equal(selected.kind, "resolved", selected.kind === "unresolved" ? selected.reason : "complete static and instance contracts");
+  if (selected.kind !== "resolved") return;
+  assert.equal(selected.issues.length, 1, "static source ownership does not erase the generic method's adopting actual");
+  assert.equal(current.textFor(selected.issues[0]!.site), "Box.wrap(pending)", "the real adopting method call remains the only rejection");
+  assert.equal(current.textFor(selected.issues[0]!.operation), "return value;", "the method's exact generic return owns adoption");
+});
+
 test("a class parameter and captured structural method are summarized at their actual constructors", () => {
   const current = fixture(`
     class Holder<T> { constructor(readonly value: T) {} async get(): Promise<T> { return this.value; } }

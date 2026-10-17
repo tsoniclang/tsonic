@@ -179,6 +179,14 @@ export function sourceStorageNativeCallablePayloads<Bindings>(source: TargetSour
         const node = producer.subject.node;
         const context = semantics.forNode(node);
         const type = sourceStorageSubjectType(source, producer.subject);
+        const alternatives = type === undefined ? [] : context.types.isUnion(type) || context.types.isIntersection(type)
+          ? context.types.unionOrIntersectionTypes(type) : [type];
+        if (type === undefined || alternatives.some(alternative => {
+          const symbol = context.declarations.typeSymbol(alternative);
+          return context.types.isAny(alternative) || context.types.isUnknown(alternative) ||
+            context.types.callSignatures(alternative).length !== 0 || context.types.constructSignatures(alternative).length !== 0 ||
+            symbol !== undefined && context.declarations.symbolDeclarations(symbol).some(declaration => ast.is.IsTypeParameterDeclaration(declaration));
+        })) complete = false;
         if (type !== undefined && producer.subject.kind === "value" && (ast.is.IsArrayLiteralExpression(node) || ast.is.IsNewExpression(node) ||
           ast.is.IsCallExpression(node))) for (const component of sourceStorageComponents(type, context))
           if (!budget.step() || !schedule(queries.componentFor(producer, component), producer.bindings)) return undefined;

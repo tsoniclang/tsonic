@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createTargetSourceProgram, sourceDeclarationHasOnlyTypeUses, sourceDeclarationIsModuleScoped } from "../../packages/target-api/dist/public/source.js";
 import { checkedSource, namedDeclaration, namedVariable, projectSourceFile, requiredNode } from "../fixtures/source-navigation.mjs";
+import { minimalSourceGlobals } from "../fixtures/minimal-source-globals.mjs";
 
 test("declaration use classification owns erased contracts without inventing initializer purity", async () => {
   const checked = await checkedSource("metadata-only-use-kinds", { "src/index.ts": `
@@ -97,6 +98,7 @@ test("import/export linkage preserves the actual originating declaration identit
 
 test("runtime heritage retains only its actual base result as source storage", async () => {
   const checked = await checkedSource("runtime-heritage-storage", {
+    "globals.d.ts": minimalSourceGlobals,
     "src/base.ts": "export class ImportedBase {}",
     "src/index.ts": `
 import { ImportedBase } from "./base.js";
@@ -164,7 +166,7 @@ export {};
 });
 
 test("heritage type meaning reuses the canonical qualified declaration selection", async () => {
-  const checked = await checkedSource("heritage-canonical-type-meaning", { "src/index.ts": `
+  const checked = await checkedSource("heritage-canonical-type-meaning", { "globals.d.ts": minimalSourceGlobals, "src/index.ts": `
 interface Contract { value: number; }
 interface Extended extends Contract {}
 class Direct implements Contract { value = 1; }
@@ -198,7 +200,7 @@ export {};
 });
 
 test("real export, return and opaque class arguments retain their independent escape obligations", async () => {
-  const checked = await checkedSource("heritage-real-exposure", { "src/index.ts": `
+  const checked = await checkedSource("heritage-real-exposure", { "globals.d.ts": minimalSourceGlobals, "src/index.ts": `
 export class PublishedBase { readonly value = 1; }
 export class PublishedDerived extends PublishedBase {}
 declare function opaque(value: typeof PublishedBase): void;

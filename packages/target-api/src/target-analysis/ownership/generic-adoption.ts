@@ -196,6 +196,10 @@ export function analyzeSourceGenericAdoption(input: {
     const bindings = semantics.types.typeArgumentBindings(type);
     const symbol = semantics.declarations.typeSymbol(type);
     const declarations = symbol === undefined ? [] : semantics.declarations.symbolDeclarations(symbol);
+    const constructor = symbol === undefined ? undefined : semantics.types.typeOfSymbol(symbol);
+    if (bindings === undefined && constructor !== undefined && semantics.types.isIdentical(type, constructor) &&
+      declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
+        (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration)))) return;
     if (bindings === undefined && declarations.some(declaration => source.navigation.isProjectDeclaration(declaration) &&
       (ast.is.IsClassDeclaration(declaration) || ast.is.IsClassExpression(declaration) || ast.is.IsInterfaceDeclaration(declaration)))) {
       refuse(site, "Generic receiver adoption requires its complete checked type argument bindings.");

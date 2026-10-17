@@ -138,7 +138,8 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
         }
         if (actual !== undefined && (native.callback !== actual.callback || native.caller !== actual.caller)) continue;
         matched = true;
-        if (native.callback.timing === "deferred" && !deferred) { covered = true; continue; }
+        covered = true;
+        if (native.callback.timing === "deferred" && !deferred) continue;
         const payloads = sourceStorageNativeCallablePayloads(source, budget, frontier.exposure, native.caller, {
           subjectFor: transport.subjectFor, callbackEntriesFor: transport.callbackEntriesFor,
           hasSourceImplementation: invocation => [...transport.invocationImplementations(invocation)].some(candidate => ast.body(candidate) !== undefined),
@@ -157,8 +158,6 @@ export function createSourceStorageScopedSuccessors(source: TargetSourceProgram,
           },
         });
         if (payloads === undefined) return undefined;
-        if (callback !== undefined && payloads.values.length === 0) { incomplete = true; continue; }
-        covered = true;
         if (!payloads.complete && !uncertain(native.caller,
           "A relevant native callback input requires its actual source payload and creation correspondence.", frontier.exposure)) return undefined;
         for (const value of payloads.values) {
